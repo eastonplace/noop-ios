@@ -9,7 +9,7 @@
 
 ## Phase 0 — Safety gate + baseline
 
-- [ ] **T00 — Safety preflight (plan.md §Safety & rollback has full commands)**
+- [x] **T00 — Safety preflight (plan.md §Safety & rollback has full commands)**
   - Read the required skills at `~/.codex/skills/`: `swiftui-expert-skill/SKILL.md`
     + its `references/latest-apis.md`, `swift-concurrency/SKILL.md`,
     `swift-testing-expert/SKILL.md`. (Build-related Xcode skills listed in plan.md are
@@ -24,6 +24,12 @@
     `~/Backups/noop-pre-reskin-<date>.tgz` exists and is >10 MB.
   - Verify: all of the above done; write the tag name, tarball path, and remote
     branch URL as a note under this task before proceeding.
+  - Completed 2026-07-09: tag `pre-paper-reskin`; snapshot
+    `/Users/eastonplace/Backups/noop-pre-reskin-20260709.tgz` (200,532,605 bytes);
+    branch `reskin/paper-ui` pushed only to
+    `https://github.com/eastonplace-ai/noop/tree/reskin/paper-ui`. The private mirror's
+    orphan report commit was joined to local `main` with a non-force merge before
+    pushing; `origin` was not pushed.
 
 - [ ] **T01 — Baseline & sanity**
   - Confirm the five PNGs exist in `references/` (see its README). If missing, STOP and
