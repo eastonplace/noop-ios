@@ -69,7 +69,7 @@
 
 ## Phase 1 — Tokens
 
-- [ ] **T02 — Palette rewrite**
+- [x] **T02 — Palette rewrite**
   - Modify: `Packages/StrandDesign/Sources/StrandDesign/Palette.swift`
   - Triage first: `grep -rn "StrandPalette.accent" Strand StrandiOS Packages | wc -l`
     and skim — if `accent` mixes "brand gold" and "interactive" roles, add `ink` token
@@ -84,6 +84,12 @@
   - Leave `gold*`/`titanium*`/`scenic*`/glow tokens defined; do not restyle them.
   - Verify: package tests pass; app builds; screenshot Today — canvas is off-white,
     no crash. Expect visual chaos (glass bar etc.) — that's Phase 2's job. Commit.
+  - Verified 2026-07-09: the 351-call-site `accent` audit confirmed mixed chrome/data
+    semantics, so `ink` and pillar tokens were added while legacy `accent` remains a
+    link compatibility alias until owning component/screen tasks repoint call sites.
+    `StrandDesign` passed 30 tests; `NOOPiOS` built and ran on the T01 simulator;
+    `qa/T02-today.png` confirms the paper canvas and R3 pillar colors with the expected
+    pre-Phase-2 scenic/glass remnants still visible.
 
 - [ ] **T03 — Typography**
   - Modify: `Packages/StrandDesign/Sources/StrandDesign/Typography.swift`
