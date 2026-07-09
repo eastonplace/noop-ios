@@ -286,6 +286,22 @@ enum DemoScreens {
         case "explore":  return AnyView(MetricExplorerView())
         case "compare":  return AnyView(CompareView())
         case "settings": return AnyView(SettingsView())
+        case "data": return AnyView(DataSourcesView())
+        case "backup": return AnyView(BackupSyncView())
+        case "support": return AnyView(SupportView())
+        case "labbook": return AnyView(LabBookView())
+        case "automations": return AnyView(AutomationsView())
+        case "alarms": return AnyView(SmartAlarmView())
+        case "testcentre": return AnyView(TestCentreView())
+        case "rhythm": return AnyView(RhythmView(night: nil, windows: []))
+        case "liveworkout": return AnyView(LiveWorkoutView(onClose: {}))
+        case "preworkout": return AnyView(StartWorkoutSheet(onStart: { _ in }))
+        case "effortdetail": return AnyView(MetricDetailView(
+            metric: MetricCatalog.all.first { $0.key == "strain" }!
+        ))
+        case "restdetail": return AnyView(MetricDetailView(
+            metric: MetricCatalog.all.first { $0.key == "sleep_performance" }!
+        ))
         case "chargebreakdown": return AnyView(ChargeBreakdownDemoHost())
         case "devices":  return AnyView(DevicesView())
         case "devicescatalog": return AnyView(DeviceCardCatalog())

@@ -17,10 +17,9 @@ Drop the five concept PNGs into this folder with exactly these names:
 | `sheet-4-device-data-settings.png` | 1. Devices · 2. Add Device · 3. Data Sources · 4. Backup & Sync · 5. Settings · 6. Support |
 | `sheet-5-insights-labs.png` | 1. Insights · 2. Lab Book · 3. Rhythm Consent · 4. Rhythm · 5. Automations · 6. Alarms · 7. Test Centre (+ Quick Actions overlay) |
 
-> STATUS: the PNGs are NOT in this folder yet — Easton needs to drag them in from the
-> original chat. Everything visual about them has been transcribed into `../spec.md §6`
-> (screen-by-screen requirements), so implementation can start from the spec alone;
-> use the images for final visual comparison once present.
+> STATUS: all five canonical PNGs are present with the names above. The folder also
+> keeps `sheet-2-run-flow-alt.png`, an earlier near-duplicate run-flow render; use the
+> canonical `sheet-2-run-flow.png` for verification.
 
 ## How to use these images
 

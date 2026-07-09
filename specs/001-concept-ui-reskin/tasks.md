@@ -31,7 +31,7 @@
     orphan report commit was joined to local `main` with a non-force merge before
     pushing; `origin` was not pushed.
 
-- [ ] **T01 — Baseline & sanity**
+- [x] **T01 — Baseline & sanity**
   - Confirm the five PNGs exist in `references/` (see its README). If missing, STOP and
     ask Easton to drop them in; the spec §6 transcriptions allow prep work but not
     final visual sign-off.
@@ -42,6 +42,30 @@
     S20–S23 (pillar details — start at `V5PillarHosts.swift`) and S24–S27 (run flow —
     start at `LiveWorkoutView.swift`, `Strand/Liquid/LiveSessionView.swift`).
   - Verify: 27 before-PNGs exist; S20–S27 file map written down.
+  - Completed 2026-07-09 on simulator `NOOP-Paper-iPhone16Pro`
+    (`4425C98D-9F53-456B-B493-B058D8FA81DA`, iOS 26.5). Demo data was seeded with
+    `--demo-seed`. The cold `NOOPiOS` build succeeded in 204.4s; the post-harness
+    incremental build succeeded in 20.7s. Baseline evidence: 27 `S01`–`S27` PNGs in
+    `qa/before/` and `qa/before-contact-sheet.png`.
+  - Schemes from `xcodebuild -list`: `GRDB-Package`, `MarkdownUI`, `NOOPiOS`,
+    `NOOPiOSWidgets`, `NOOPWatch`, `NOOPWatchComplications`, `oura-decode`,
+    `OuraProtocol`, `Strand`, `StrandAnalytics`, `StrandDesign`, `StrandImport`,
+    `whoop-decode`, `WhoopProtocol`, `WhoopStore`.
+  - Reference gate: the five canonical concept images are now named exactly per
+    `references/README.md`; `sheet-2-run-flow-alt.png` is an older duplicate retained
+    as secondary evidence.
+  - S20–S23 host map: S20 Charge is `TodayView.swift` / `CoupledView.swift` sheet
+    presentation backed by `ChargeBreakdownFormat.swift`; S21 has no dedicated Effort
+    screen and currently resolves to `MetricDetailView` in `MetricExplorerView.swift`
+    with metric key `strain` (with summary surfaces in `WorkoutsView.swift`); S22 has no
+    dedicated Rest host and currently resolves through `SleepView.swift` plus
+    `MetricDetailView` key `sleep_performance`; S23 is `StressView.swift`.
+  - S24–S27 host map: S24's current pre-workout picker is `StartWorkoutSheet` in
+    `ManualWorkoutSheet.swift`; S25 is `LiveWorkoutView.swift`; S26 has no distinct
+    paused state or pause/resume control today, so its baseline intentionally captures
+    the same live-workout host; S27 is `WorkoutDetailView.swift`, opened from
+    `WorkoutsView.swift`. `Strand/Liquid/LiveSessionView.swift` is the separate silent
+    live-coaching session, not the workout-run UI.
 
 ## Phase 1 — Tokens
 
