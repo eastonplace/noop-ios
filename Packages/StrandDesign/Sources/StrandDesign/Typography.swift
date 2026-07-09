@@ -2,10 +2,9 @@ import SwiftUI
 
 // MARK: - Strand Typography (§9.2)
 //
-// Helvetica Neue everywhere (Titanium & Gold): a precise, mechanical grotesque
-// in place of the old rounded face. Tabular/monospaced digits on every numeric
-// role so live values don't reflow. SF Mono stays for raw/log views. Overline =
-// sparing ALL-CAPS w/ wide tracking.
+// SF Pro everywhere (Paper): Apple's native grotesque, with tabular/monospaced
+// digits on every numeric role so live values don't reflow. SF Mono stays for
+// raw/log views. Overlines remain sparing, ALL-CAPS, and widely tracked.
 //
 // All numeric styles use `.monospacedDigit()` so live values don't reflow.
 
@@ -13,23 +12,23 @@ public enum StrandFont {
 
     // MARK: Family
 
-    /// The house family — Helvetica Neue, a built-in system face. Weight is applied
+    /// The house family — system SF Pro. Weight is applied
     /// via `.weight()` since `Font.custom` ignores the design's default weight.
-    private static let family = "Helvetica Neue"
+    private static let family = "SF Pro"
 
-    /// Helvetica Neue at a FIXED size/weight — used by the big gauge/tile numerals (`display`,
+    /// SF Pro at a FIXED size/weight — used by the big gauge/tile numerals (`display`,
     /// `rounded`, `number`) that live in fixed-geometry rings/tiles where unbounded growth would
-    /// overflow. Prose and inline-number roles use `helveticaScaled` instead.
-    private static func helvetica(_ size: CGFloat, weight: Font.Weight) -> Font {
+    /// overflow. Prose and inline-number roles use `sfScaled` instead.
+    private static func sf(_ size: CGFloat, weight: Font.Weight) -> Font {
         .custom(family, size: size).weight(weight)
     }
 
-    /// Like `helvetica`, but the size SCALES with the user's Dynamic Type / Larger Text setting,
+    /// Like `sf`, but the size SCALES with the user's Dynamic Type / Larger Text setting,
     /// anchored to a matching text style. The plain `.custom(_:size:)` overload produces a FROZEN
     /// point size, so every prose/label role used to ignore Dynamic Type entirely — this routes them
     /// through `.custom(_:size:relativeTo:)` so they scale (available on the iOS 16 / macOS 13 floor).
-    private static func helveticaScaled(_ size: CGFloat, weight: Font.Weight,
-                                        relativeTo style: Font.TextStyle) -> Font {
+    private static func sfScaled(_ size: CGFloat, weight: Font.Weight,
+                                 relativeTo style: Font.TextStyle) -> Font {
         .custom(family, size: size, relativeTo: style).weight(weight)
     }
 
@@ -38,7 +37,7 @@ public enum StrandFont {
     /// Display 64–80 / Bold — the gauge score number. Helvetica Neue 700 with tight
     /// tracking (≈ -0.04em), tabular digits so a changing value never reflows.
     public static func display(_ size: CGFloat = 72) -> Font {
-        helvetica(size, weight: .bold).monospacedDigit()
+        sf(size, weight: .bold).monospacedDigit()
     }
 
     /// The tight tracking for big display numbers (≈ -0.04em). Apply alongside
@@ -47,42 +46,42 @@ public enum StrandFont {
         -size * 0.04
     }
 
-    /// A Helvetica-Neue numeric style at an arbitrary size/weight — the house
+    /// An SF Pro numeric style at an arbitrary size/weight — the house
     /// numeral. Tabular so live values align. Use anywhere a score/number is shown.
     public static func rounded(_ size: CGFloat, weight: Font.Weight = .bold) -> Font {
-        helvetica(size, weight: weight).monospacedDigit()
+        sf(size, weight: weight).monospacedDigit()
     }
 
     /// Title1 28 / Bold. Scales with Dynamic Type.
-    public static let title1 = helveticaScaled(28, weight: .bold, relativeTo: .title)
+    public static let title1 = sfScaled(28, weight: .bold, relativeTo: .title)
 
     /// Title2 22 / Semibold. Scales with Dynamic Type.
-    public static let title2 = helveticaScaled(22, weight: .semibold, relativeTo: .title2)
+    public static let title2 = sfScaled(22, weight: .semibold, relativeTo: .title2)
 
     /// Headline 17 / Semibold. Scales with Dynamic Type.
-    public static let headline = helveticaScaled(17, weight: .semibold, relativeTo: .headline)
+    public static let headline = sfScaled(17, weight: .semibold, relativeTo: .headline)
 
     /// Body 15 / Regular. Scales with Dynamic Type.
-    public static let body = helveticaScaled(15, weight: .regular, relativeTo: .body)
+    public static let body = sfScaled(15, weight: .regular, relativeTo: .body)
 
     /// Subhead 13. Scales with Dynamic Type.
-    public static let subhead = helveticaScaled(13, weight: .regular, relativeTo: .subheadline)
+    public static let subhead = sfScaled(13, weight: .regular, relativeTo: .subheadline)
 
-    /// Caption 12. Scales with Dynamic Type.
-    public static let caption = helveticaScaled(12, weight: .regular, relativeTo: .caption)
+    /// Caption 13. Scales with Dynamic Type.
+    public static let caption = sfScaled(13, weight: .regular, relativeTo: .caption)
 
     /// Footnote 11. Scales with Dynamic Type.
-    public static let footnote = helveticaScaled(11, weight: .regular, relativeTo: .footnote)
+    public static let footnote = sfScaled(11, weight: .regular, relativeTo: .footnote)
 
     /// Overline 11 / Bold, +1.4 tracking (apply `.tracking(1.4)` at use site;
     /// `overlineText(_:)` does it for you). Sparing ALL-CAPS labels. Scales with Dynamic Type.
-    public static let overline = helveticaScaled(11, weight: .bold, relativeTo: .caption2)
+    public static let overline = sfScaled(11, weight: .semibold, relativeTo: .caption2)
 
     /// `overline` at a custom point size — same Helvetica face, weight and Dynamic-Type scaling
     /// (relativeTo `.caption2`), just smaller. Passing 11 returns exactly `.overline`. Lets a caller
     /// shrink an ALL-CAPS label to fit a small container without losing accessibility text-scaling.
     public static func overlineScaled(_ size: CGFloat) -> Font {
-        helveticaScaled(size, weight: .bold, relativeTo: .caption2)
+        sfScaled(size, weight: .semibold, relativeTo: .caption2)
     }
 
     /// Mono 13 (SF Mono) — raw / log views. Tabular by nature.
@@ -90,26 +89,44 @@ public enum StrandFont {
 
     // MARK: Numeric variants (tabular digits)
 
-    /// A numeric style at an arbitrary size/weight, for live values — Helvetica
-    /// Neue, tabular digits. This is the tile/value numeral.
+    /// A numeric style at an arbitrary size/weight, for live values — SF Pro,
+    /// tabular digits. This is the tile/value numeral.
     public static func number(_ size: CGFloat, weight: Font.Weight = .semibold) -> Font {
-        helvetica(size, weight: weight).monospacedDigit()
+        sf(size, weight: weight).monospacedDigit()
     }
 
-    /// Helvetica-Neue body number — for inline live values that should align. Scales with Dynamic
+    /// SF Pro body number — for inline live values that should align. Scales with Dynamic
     /// Type alongside its sibling `body`/`caption` labels so a value and its label stay matched.
-    public static let bodyNumber = helveticaScaled(15, weight: .medium, relativeTo: .body).monospacedDigit()
+    public static let bodyNumber = sfScaled(15, weight: .medium, relativeTo: .body).monospacedDigit()
 
-    /// Helvetica-Neue caption number — for small live values (sparklines, chips). Scales with Dynamic Type.
-    public static let captionNumber = helveticaScaled(12, weight: .medium, relativeTo: .caption).monospacedDigit()
+    /// SF Pro caption number — for small live values (sparklines, chips). Scales with Dynamic Type.
+    public static let captionNumber = sfScaled(13, weight: .medium, relativeTo: .caption).monospacedDigit()
 
     /// Mono at an arbitrary size.
     public static func mono(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
         .system(size: size, weight: weight, design: .monospaced)
     }
 
-    /// The recommended tracking for overline text (wide ALL-CAPS labels, ≈ 0.13em).
-    public static let overlineTracking: CGFloat = 1.4
+    // MARK: Paper roles (spec §2.3)
+
+    public static let wordmark = sfScaled(13, weight: .semibold, relativeTo: .caption)
+    public static let screenOverline = sfScaled(12, weight: .semibold, relativeTo: .caption)
+    public static let sectionOverline = sfScaled(11, weight: .semibold, relativeTo: .caption2)
+    public static let ringScoreSmall = sf(30, weight: .bold).monospacedDigit()
+    public static let ringScoreLarge = sf(44, weight: .bold).monospacedDigit()
+    public static let timer = sf(64, weight: .bold).monospacedDigit()
+    public static let metricValue = sf(24, weight: .bold).monospacedDigit()
+    public static let statValue = sf(20, weight: .semibold).monospacedDigit()
+    public static let cardTitle = sfScaled(16, weight: .semibold, relativeTo: .headline)
+    public static let micro = sfScaled(11, weight: .regular, relativeTo: .caption2)
+
+    public static let wordmarkTracking: CGFloat = 4
+    public static let screenOverlineTracking: CGFloat = 1.5
+    public static let sectionOverlineTracking: CGFloat = 1.2
+    public static let timerTracking: CGFloat = -1
+
+    /// Compatibility tracking for existing `.strandOverline()` call sites.
+    public static let overlineTracking = sectionOverlineTracking
 }
 
 // MARK: - Text helpers

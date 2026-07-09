@@ -91,7 +91,7 @@
     `qa/T02-today.png` confirms the paper canvas and R3 pillar colors with the expected
     pre-Phase-2 scenic/glass remnants still visible.
 
-- [ ] **T03 — Typography**
+- [x] **T03 — Typography**
   - Modify: `Packages/StrandDesign/Sources/StrandDesign/Typography.swift`
   - Step 1: add/adjust roles to cover spec §2.3 table (`wordmark`, `screenOverline`,
     `sectionOverline`, `ringScoreSmall/Large`, `timer`, `metricValue`, `statValue`,
@@ -102,6 +102,9 @@
     `relativeTo:` Dynamic Type scaling.
   - Verify: build; screenshot Today + Settings; type renders SF Pro, no layout
     explosions. Commit.
+  - Verified 2026-07-09: `StrandDesign` passed 30 tests and `NOOPiOS` built and ran.
+    `qa/T03-today.png` and `qa/T03-settings.png` render SF Pro without missing glyphs,
+    clipping, or new layout failure; legacy scenic composition remains for later tasks.
 
 ## Phase 2 — Primitives (all in `Packages/StrandDesign/Sources/StrandDesign/`)
 
