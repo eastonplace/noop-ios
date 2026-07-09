@@ -1,0 +1,211 @@
+# Tasks 001 — Concept UI Reskin
+
+> Execute in order on branch `reskin/paper-ui`. Every task ends with the verification
+> workflow from `plan.md §Verification` (build → screenshot → compare → commit). "Spec
+> §" references point into `spec.md`. Do not start a screen task before its phase's
+> primitive tasks are committed. Check boxes as you go.
+>
+> **T00 is a hard gate: do not modify a single file until every T00 box is checked.**
+
+## Phase 0 — Safety gate + baseline
+
+- [ ] **T00 — Safety preflight (plan.md §Safety & rollback has full commands)**
+  - Read the required skills at `~/.codex/skills/`: `swiftui-expert-skill/SKILL.md`
+    + its `references/latest-apis.md`, `swift-concurrency/SKILL.md`,
+    `swift-testing-expert/SKILL.md`. (Build-related Xcode skills listed in plan.md are
+    on-demand, not required reading.)
+  - Clean tree: commit `specs/` + any pre-existing modified files as `wip:` (or
+    stash) → `git status --porcelain` empty.
+  - `git tag pre-paper-reskin`
+  - `git checkout -b reskin/paper-ui`
+  - Push `main` + tag to the `private-noop-report` remote (NEVER `origin`, never
+    force-push). Push `reskin/paper-ui` after every task commit from here on.
+  - Local snapshot outside iCloud (exact `tar` command in plan.md) → verify
+    `~/Backups/noop-pre-reskin-<date>.tgz` exists and is >10 MB.
+  - Verify: all of the above done; write the tag name, tarball path, and remote
+    branch URL as a note under this task before proceeding.
+
+- [ ] **T01 — Baseline & sanity**
+  - Confirm the five PNGs exist in `references/` (see its README). If missing, STOP and
+    ask Easton to drop them in; the spec §6 transcriptions allow prep work but not
+    final visual sign-off.
+  - `xcodebuild -list -project Strand.xcodeproj` → record exact scheme names.
+  - Build + boot simulator (iPhone 16 Pro), seed demo data, capture BEFORE screenshots
+    of all 27 spec-§5 screens into `qa/before/`.
+  - Locate-and-record (append findings to this file under T01): actual host files for
+    S20–S23 (pillar details — start at `V5PillarHosts.swift`) and S24–S27 (run flow —
+    start at `LiveWorkoutView.swift`, `Strand/Liquid/LiveSessionView.swift`).
+  - Verify: 27 before-PNGs exist; S20–S27 file map written down.
+
+## Phase 1 — Tokens
+
+- [ ] **T02 — Palette rewrite**
+  - Modify: `Packages/StrandDesign/Sources/StrandDesign/Palette.swift`
+  - Triage first: `grep -rn "StrandPalette.accent" Strand StrandiOS Packages | wc -l`
+    and skim — if `accent` mixes "brand gold" and "interactive" roles, add `ink` token
+    and repoint action call sites; data call sites get pillar tokens in later tasks.
+  - Rewrite neutral tokens to spec §2.1 light values with §2.2 dark values via the
+    existing `Color(light:dark:)` initializer. Keep token names (`surfaceBase` etc.).
+  - Add new tokens: `chargeAccent/Tint`, `effortAccent/Tint`, `restAccent/Tint`,
+    `stressAccent/Tint`, `liveRed/Tint`, `success`, `warning`, `warningBg`,
+    `destructive`, `link`, `zoneZ5…zoneZ1`, `stageAwake/REM/Light/Deep`, `ink`, `onInk`.
+  - Repoint `recovery0xx` ramp → charge greens, `strain0xx` → effort purples (or alias
+    them to the new tokens if they're pure color ramps).
+  - Leave `gold*`/`titanium*`/`scenic*`/glow tokens defined; do not restyle them.
+  - Verify: package tests pass; app builds; screenshot Today — canvas is off-white,
+    no crash. Expect visual chaos (glass bar etc.) — that's Phase 2's job. Commit.
+
+- [ ] **T03 — Typography**
+  - Modify: `Packages/StrandDesign/Sources/StrandDesign/Typography.swift`
+  - Step 1: add/adjust roles to cover spec §2.3 table (`wordmark`, `screenOverline`,
+    `sectionOverline`, `ringScoreSmall/Large`, `timer`, `metricValue`, `statValue`,
+    `cardTitle`, `body`, `caption`, `micro`) — map onto existing role names where they
+    already exist rather than renaming call sites; add tracking constants.
+  - Step 2 (R9 — skip only if Easton vetoed): switch the `family` path to the system SF
+    Pro face — numeric roles keep `.monospacedDigit()`, prose roles keep
+    `relativeTo:` Dynamic Type scaling.
+  - Verify: build; screenshot Today + Settings; type renders SF Pro, no layout
+    explosions. Commit.
+
+## Phase 2 — Primitives (all in `Packages/StrandDesign/Sources/StrandDesign/`)
+
+- [ ] **T04 — PaperCard + layout constants**
+  - Modify: `StrandCard.swift` (restyle in place — keep the `StrandCard` type name so
+    call sites stand; wherever the spec says "PaperCard" it means this restyled
+    `StrandCard`).
+  - Card per spec §2.4; add shared constants (radius 16, gutter 16, stack 12, section
+    24) in `StrandDesign.swift` if no constants home exists.
+  - Verify: build + screenshot any card-heavy screen; cards are white, bordered,
+    flat. Commit.
+
+- [ ] **T05 — ScoreRing**
+  - Modify: `RecoveryRing.swift`, `GlowRing.swift`, `BevelGauge.swift` call-site
+    audit → implement one flat `ScoreRing` (spec §4) and repoint ring call sites;
+    keep old files compiling if non-iOS targets use them.
+  - Sizes: 64 pt/5 pt trio, 96 pt/7 pt hero; track `inset`; rounded caps; sweep-in
+    animation per spec §2.5; no glow/bevel/gradient.
+  - Verify: build; Today trio + Sleep hero screenshot vs sheet 1-1/1-3. Commit.
+
+- [ ] **T06 — Buttons**
+  - Modify: `NoopButton.swift` → `PrimaryButton` (ink pill 52/14), `DestructiveButton`
+    (outline red), `ChipButton` (32-pt blue outline chip) per spec §2.4.
+  - Verify: build; screenshot Workouts (Start Workout) + Data Sources (Remove/Choose
+    export). Commit.
+
+- [ ] **T07 — Rows, badges, notes, small parts**
+  - Create (or extend existing files if equivalents exist — audit first):
+    `StatusBadge`, `SectionHeader`, `SettingsRow`, `DeviceRow`, `NoteCard`,
+    `InsightCard`, `StatTriplet`, `MetricTile`, `ZoneBars`, `SplitsTable`,
+    `StressTimelineBar` per spec §4 specs. Toggle tint → `success`.
+  - Restyle chart primitives: `Sparkline.swift`, `OverviewHRChart.swift`,
+    `Hypnogram.swift` (§2.1 stage colors), `PipBar.swift`, `ChartHover.swift`,
+    `DayNavBar.swift` to §4 chart style.
+  - Verify: `swift test --package-path Packages/StrandDesign`; build; screenshot
+    Sleep (hypnogram) + Trends (chart). Commit. (Split into multiple commits if the
+    diff gets big — one commit per component group is fine.)
+
+- [ ] **T08 — Header, tab bar, FAB, Quick Actions**
+  - Modify: `StrandiOS/App/RootTabView.swift` (remove glass islands + gold FAB; build
+    `PaperTabBar` per spec §2.6, black FAB bottom-right on Today only, restyle the
+    quick-action sheet to S19), `Strand/Screens/ScreenScaffold.swift` (HeaderBar with
+    centered wordmark per §2.6).
+  - Keep: tab crossfade motion, swipe-between-tabs gesture, NavRouter sheet routing,
+    `UITabBarAppearance` init block updated to `card` background.
+  - Remove: `noop.liquidTodayEnabled` toggle path (R7) — `todayTabRoot` returns
+    `TodayView()` directly; delete the Settings toggle row (find via
+    `grep -rn "liquidTodayEnabled" Strand StrandiOS`).
+  - Verify: build; screenshot all four tab roots — flat white bar, black active icon,
+    FAB on Today only; Quick Actions sheet matches S19. Commit.
+
+## Phase 3 — Core tabs
+
+- [ ] **T09 — Today (S1)** — Modify `Strand/Screens/TodayView.swift`
+  (+ `DashboardCards.swift`, `VitalSignsSummary.swift` as needed). Implement spec §6-S1
+  exactly: trio, glance row, Live HR card, stress card, health-monitor grid. Mechanical
+  subview extraction into sibling files allowed (plan §Risks). Verify vs sheet 1-1 &
+  3-1. Commit.
+- [ ] **T10 — Trends (S2)** — Modify `Strand/Screens/TrendsView.swift`
+  (+ `TrendsReportView.swift` if it hosts week-review copy). Spec §6-S2. Verify vs
+  sheet 1-2. Commit.
+- [ ] **T11 — Sleep (S3)** — Modify `Strand/Screens/SleepView.swift`. Spec §6-S3.
+  Verify vs sheet 1-3. Commit.
+- [ ] **T12 — More tab list** — Modify the More list in
+  `StrandiOS/App/RootTabView.swift` (`moreTab`): restyle groups/rows with
+  `SectionHeader` + `SettingsRow`; keep the persisted expand/collapse behavior
+  (`MoreSectionPrefs`) and every destination. Verify: all destinations reachable.
+  Commit.
+
+## Phase 4 — Pillar details (use T01's file map)
+
+- [ ] **T13 — Charge + Effort details (S20, S21)** — spec §6-S20/S21; shared skeleton
+  (hero ring, StatTriplet, over-time chart, factor/contributor rows, recommendation
+  card). Verify vs sheet 3-2/3-3. Commit.
+- [ ] **T14 — Rest + Stress details (S22, S23)** — spec §6-S22/S23; Stress ring renders
+  0–3 values correctly (R2 — check the ring's range parameter). Verify vs sheet
+  3-4/3-5. Commit.
+
+## Phase 5 — Live + workouts
+
+- [ ] **T15 — Live console (S4)** — Modify `Strand/Screens/LiveView.swift`. Spec §6-S4.
+  Verify vs sheet 1-4. Commit.
+- [ ] **T16 — Workouts (S5)** — Modify `Strand/Screens/WorkoutsView.swift`
+  (+ `WorkoutDetailView.swift` shared parts). Spec §6-S5. Verify vs sheet 1-5. Commit.
+- [ ] **T17 — Run flow pre/live/paused (S24–S26)** — Modify the run UI located in T01.
+  Spec §6-S24/25/26. Tab bar stays per R1. Omit setup rows with no backing setting
+  (S24 note). Verify vs sheet 2-1/2-2/2-3 (live/paused need a simulated workout —
+  Test Centre "Simulate workout" or demo seeder). Commit.
+- [ ] **T18 — Post-run summary (S27)** — spec §6-S27; effort value is the app's real
+  metric (R2). Verify vs sheet 2-4. Commit.
+
+## Phase 6 — Management
+
+- [ ] **T19 — Devices + Add Device (S6, S7)** — Modify
+  `Strand/Screens/DevicesView.swift`, `AddDeviceWizard.swift`. Spec §6-S6/S7. Verify vs
+  sheet 4-1/4-2. Commit.
+- [ ] **T20 — Data Sources (S8)** — Modify `Strand/Screens/DataSourcesView.swift`.
+  Spec §6-S8. Verify vs sheet 4-3. Commit.
+- [ ] **T21 — Backup & Sync (S9)** — Modify `Strand/Screens/BackupSyncView.swift`
+  (+ `StorageView.swift` if it owns backup location UI). Spec §6-S9. Verify vs sheet
+  4-4. Commit.
+- [ ] **T22 — Settings + Support (S10, S11)** — Modify
+  `Strand/Screens/SettingsView.swift`, `SupportView.swift`,
+  `ProfileAvatarView.swift`. Spec §6-S10/S11; every existing row survives (AC);
+  liquid-Today toggle already removed in T08. Verify vs sheet 4-5/4-6. Commit.
+
+## Phase 7 — Labs
+
+- [ ] **T23 — Insights (S12)** — Modify `Strand/Screens/InsightsView.swift` /
+  `InsightsHubView.swift` (T01 decides which hosts "What Moves You"). Spec §6-S12.
+  Verify vs sheet 5-1. Commit.
+- [ ] **T24 — Lab Book (S13)** — Modify `Strand/Screens/LabBookView.swift`,
+  `MarkerEditorView.swift`. Spec §6-S13 including empty states. Verify vs sheet 5-2.
+  Commit.
+- [ ] **T25 — Rhythm + consent (S14, S15)** — Modify
+  `Strand/Screens/RhythmView.swift`. Spec §6-S14/S15; consent button disabled until
+  toggle on. Verify vs sheet 5-3/5-4 (fresh-install state for consent). Commit.
+- [ ] **T26 — Automations, Alarms, Test Centre (S16–S18)** — Modify
+  `Strand/Screens/AutomationsView.swift`, `SmartAlarmView.swift`,
+  `TestCentreView.swift`. Spec §6-S16/17/18; keep every existing toggle/setting bound.
+  Verify vs sheet 5-5/5-6/5-7. Commit.
+
+## Phase 8 — Sweep + QA
+
+- [ ] **T27 — R8 sweep (spec §7)**
+  - `grep -rn "onDark\|gold\|titanium\|glow\|scenic" Strand/Screens Strand/Liquid
+    StrandiOS` → repoint every rendered-on-iOS hit to new tokens.
+  - Walk every §7 screen in the simulator (light + dark); fix hardcoded colors, broken
+    contrast, dark-only imagery. Layout unchanged.
+  - Verify: no rendered gold/glow anywhere (AC-2). Commit per screen-group.
+- [ ] **T28 — Theme + platform matrix**
+  - Dark mode pass over S1–S27 (§2.2 + AC-6); contrast spot-checks (AC-3).
+  - Dynamic Type XL on Today/Sleep/Settings/Live-run (AC-4); iPhone SE + Pro Max
+    (AC-5).
+  - Smoke-build `NOOPiOSWidgets`, `NOOPWatch`, macOS `Strand` schemes — must build;
+    log (don't fix) visual follow-ups. Commit fixes.
+- [ ] **T29 — Evidence + handoff**
+  - AFTER screenshots of all 27 screens into `qa/after/`; build a before/after contact
+    sheet (`Tools/make_contact_sheet.py` exists — use it).
+  - Re-read spec §8 ACs one by one; note pass/fail inline here; fix fails.
+  - Open PR `reskin/paper-ui → main` with the contact sheet, the ruling list (R1–R10),
+    and any logged follow-ups (Liquid deletion, gold-token deletion, widget/watch
+    restyle, macOS polish).
