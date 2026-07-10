@@ -346,7 +346,7 @@ struct TrendsView: View {
                                                            lineCap: .round, lineJoin: .round))
                                     .foregroundStyle(by: .value("Series", "Recovery"))
                                 PointMark(x: .value("Day", date), y: .value("Recovery", value))
-                                    .foregroundStyle(RecoveryBands.color(for: value)).symbolSize(18)
+                                    .foregroundStyle(RecoveryBands.color(for: value)).symbolSize(12)
                             }
                             if let value = sleepPerfByDay[day.day], let date = date(day.day) {
                                 LineMark(x: .value("Day", date), y: .value("Sleep", value))
@@ -354,12 +354,12 @@ struct TrendsView: View {
                                                            lineCap: .round, lineJoin: .round))
                                     .foregroundStyle(by: .value("Series", "Sleep"))
                                 PointMark(x: .value("Day", date), y: .value("Sleep", value))
-                                    .foregroundStyle(StrandPalette.sleepAccent).symbolSize(18)
+                                    .foregroundStyle(StrandPalette.sleepAccent).symbolSize(12)
                             }
                         }
                     }
                     .chartForegroundStyleScale(domain: ["Recovery", "Sleep"],
-                                               range: [StrandPalette.recoveryData,
+                                               range: [StrandPalette.recoveryData.opacity(0.55),
                                                        StrandPalette.sleepAccent])
                     .chartLegend(.hidden)
                     .chartYScale(domain: 0...100)
@@ -382,7 +382,6 @@ struct TrendsView: View {
                             .font(StrandFont.micro).foregroundStyle(Color.clear)
                         }
                     }
-                    .chartPlotStyle { $0.background(StrandPalette.inset.opacity(0.45)) }
 
                     Chart {
                         ForEach(paperWeekDays, id: \.day) { day in
@@ -393,7 +392,7 @@ struct TrendsView: View {
                                                            lineCap: .round, lineJoin: .round))
                                     .foregroundStyle(StrandPalette.strainAccent)
                                 PointMark(x: .value("Day", date), y: .value("Strain", value))
-                                    .foregroundStyle(StrandPalette.strainAccent).symbolSize(18)
+                                    .foregroundStyle(StrandPalette.strainAccent).symbolSize(12)
                             }
                         }
                     }
@@ -425,10 +424,27 @@ struct TrendsView: View {
     }
 
     private var paperReviewLines: [String] {
+        // Craft pass (003): the balance sentence renders in the Insight card, so it must NOT
+        // also appear as a review bullet — same copy twice on one screen reads broken.
         let digest = paperDigest
-        var lines = digest.focalPoints
-        if !lines.contains(digest.balance.sentence) { lines.append(digest.balance.sentence) }
-        return Array(lines.prefix(3))
+        let lines = Array(digest.focalPoints.prefix(3))
+        return lines.isEmpty ? [digest.balance.sentence] : lines
+    }
+
+    /// Insight only renders when it adds something the bullets don't already say.
+    private var paperInsightIsDistinct: Bool {
+        !paperReviewLines.contains(paperDigest.balance.sentence)
+    }
+
+    /// Bullet dot tinted by the pillar the sentence is about (board v2's colored review dots);
+    /// neutral when no pillar is named.
+    private func reviewDotColor(for line: String) -> Color {
+        let l = line.lowercased()
+        if l.contains("recovery") || l.contains("hrv") { return StrandPalette.recoveryData }
+        if l.contains("strain") { return StrandPalette.strainAccent }
+        if l.contains("sleep") { return StrandPalette.sleepAccent }
+        if l.contains("stress") { return StrandPalette.stressAccent }
+        return StrandPalette.textTertiary
     }
 
     private var paperWeekReview: some View {
@@ -437,8 +453,7 @@ struct TrendsView: View {
                 Text("Week in Review").strandOverline()
                 ForEach(Array(paperReviewLines.enumerated()), id: \.offset) { index, line in
                     HStack(alignment: .top, spacing: 9) {
-                        Circle().fill([StrandPalette.recoveryData, StrandPalette.restAccent,
-                                       StrandPalette.stressAccent][index % 3])
+                        Circle().fill(reviewDotColor(for: line))
                             .frame(width: 8, height: 8).padding(.top, 5)
                         Text(line).font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -448,9 +463,11 @@ struct TrendsView: View {
         }
     }
 
-    private var paperInsight: some View {
-        InsightCard(symbol: "sparkles", title: "Insight",
-                    body: LocalizedStringKey(paperDigest.balance.sentence), accent: StrandPalette.effortAccent)
+    @ViewBuilder private var paperInsight: some View {
+        if paperInsightIsDistinct {
+            InsightCard(symbol: "sparkles", title: "Insight",
+                        body: LocalizedStringKey(paperDigest.balance.sentence), accent: StrandPalette.link)
+        }
     }
 
     // MARK: Week-in-review digest with prev/next week browsing (#710)
