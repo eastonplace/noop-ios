@@ -29,10 +29,6 @@ import Foundation
 struct CoupledView: View {
     @EnvironmentObject var repo: Repository
 
-    // Effort is stored 0–100; the coupled read is always the 0–21 Day-Strain axis regardless of the user's
-    // #268 display toggle, so the gauge reads like the classic coupled home. Display-only conversion.
-    private let strainScale: EffortScale = .whoop
-
     /// The Charge breakdown sheet, the hero ring's tap target. Its body builds LAZILY on presentation
     /// (the #819 pattern), reading drivers derived from the same displayed row the ring shows.
     @State private var showChargeBreakdown = false
@@ -68,9 +64,10 @@ struct CoupledView: View {
     /// glance screen, not the primary Today hero). nil when the day has no scored Effort.
     private var strain100: Double? { day?.strain }
 
-    /// Day strain mapped onto the 0–21 coupled axis via the SHIPPED formatter (UnitFormatter.effortValue),
-    /// so the number matches every other Effort read-out's conversion factor exactly.
-    private var dayStrain21: Double? { strain100.map { UnitFormatter.effortValue($0, scale: strainScale) } }
+    /// Day strain mapped onto the 0–21 coupled axis through the single display-boundary converter.
+    private var dayStrain21: Double? {
+        strain100.map { StrainScale.displayValue(fromStored: $0) }
+    }
 
     /// Sleep performance % for the day, the SAME single source of truth the Today Rest score and the Sleep
     /// detail graph read: the imported figure when the export carried one, else the resolved Rest composite.
@@ -311,12 +308,7 @@ struct CoupledView: View {
     /// fraction, kept as the section-header trailing so the coupled read still names the effort band.
     private var strainBandWord: String? {
         guard let s = dayStrain21 else { return nil }
-        switch s {
-        case ..<6:   return String(localized: "Light")
-        case ..<10:  return String(localized: "Moderate")
-        case ..<14:  return String(localized: "Strenuous")
-        default:     return String(localized: "High")
-        }
+        return StrainScale.band(s).title
     }
 
     /// The OPTIMAL strain band stat, with a liquid tube visualising where the suggested band sits on the
@@ -1253,16 +1245,19 @@ struct PaperPillarDetailView: View {
         kind == .stress ? 0...3 : 0...100
     }
 
-    private var heroTitle: LocalizedStringKey {
+    private var heroTitle: String {
         switch kind {
-        case .charge: return "Building Charge"
-        case .effort: return "Moderate Effort"
-        case .rest: return "Good Rest"
+        case .charge: return String(localized: "Building Charge")
+        case .effort:
+            guard let latest else { return String(localized: "Calibrating") }
+            let band = StrainScale.band(StrainScale.displayValue(fromStored: latest)).title
+            return "\(band) \(String(localized: "Effort"))"
+        case .rest: return String(localized: "Good Rest")
         case .stress:
             switch stressModel?.band {
-            case .high: return "High Stress"
-            case .medium: return "Moderate Stress"
-            default: return "Low Stress"
+            case .high: return String(localized: "High Stress")
+            case .medium: return String(localized: "Moderate Stress")
+            default: return String(localized: "Low Stress")
             }
         }
     }

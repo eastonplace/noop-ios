@@ -82,7 +82,7 @@
 
 ## Phase 1 — Metric migration (spec §2.2)
 
-- [ ] **T32 — StrainScale converter + bands + C13 color tokens**
+- [x] **T32 — StrainScale converter + bands + C13 color tokens**
   - Files: `Strand/Data/MetricCatalog.swift` (extend the existing #268 0–100↔0–21
     mapping into the single public `StrainScale` API: `displayValue(fromStored:)`,
     `storedValue(fromDisplay:)`, `formatted(_:)` 1-decimal, `band(_:)` → Light/
@@ -96,6 +96,19 @@
     surface recolors (plan §Risks).
   - Verify: tests green incl. 67→14.1, 100→21.0, 0→0.0 cases + band-boundary color
     cases (33/34/66/67); StrandDesign tests pass. Commit.
+  - **Completed 2026-07-10:** the public `StrainScale` is now the sole 0–100 ↔ 0–21
+    converter used by `UnitFormatter` and `MetricCatalog`; all T31 presentation-band
+    comparisons route through `StrainScale.band`. Exact C13 tokens and
+    `RecoveryBands` landed in `StrandDesign`, with Journal/Experimental affordances
+    first decoupled onto `journalAccent`. `StrandDesign`: 34/34 tests passed, including
+    67→14.1, endpoint/clamping, round-trip, Strain band, and Recovery 33/34/66/67
+    color boundaries. The corresponding `StrandTests` cases compile with the app;
+    execution remains blocked by the pre-existing project setup (`NOOPiOS` has no Test
+    action; the `StrandTests` host is macOS-only while current iOS screens contain
+    unavailable navigation-bar modifiers). Full `NOOPiOS` build + seeded simulator
+    launch passed. `qa/T32-journal-accent.png` was compared with reference sheet 5:
+    Journal remains independently purple as required; the known Insights density gap
+    is unchanged and remains assigned to T50.
 
 - [ ] **T33 — Rename Charge → Recovery** ∥
   - Scope: user-facing strings only (FR-4): Swift literals in `Strand/Screens`,

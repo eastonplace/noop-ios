@@ -1,4 +1,5 @@
 import Foundation
+import StrandDesign
 
 /// One interrogable metric: how to fetch it (key+source), how to label/format it, and whether
 /// higher is better (drives delta tinting). The Metric Explorer + Compare are built from this list.
@@ -42,7 +43,7 @@ struct MetricDescriptor: Identifiable, Hashable {
     /// the unit-less `format` above. Callers that don't carry an effort scale get `.hundred` (no change).
     func format(_ v: Double, effortScale: EffortScale) -> String {
         guard isEffort else { return format(v) }
-        let n = UnitFormatter.effortDisplay(v, scale: effortScale)
+        let n = effortScale == .whoop ? StrainScale.formatted(v) : UnitFormatter.effortDisplay(v, scale: effortScale)
         return "\(n) \(displayUnit(effortScale: effortScale))"
     }
 
@@ -72,7 +73,7 @@ struct MetricDescriptor: Identifiable, Hashable {
         default:
             guard isEffort else { return format(v) }
             // A delta on the 0–100 axis rescales by the same ×21/100 factor (the offset-free `effortValue`).
-            let n = UnitFormatter.effortDisplay(v, scale: effortScale)
+            let n = effortScale == .whoop ? StrainScale.formatted(v) : UnitFormatter.effortDisplay(v, scale: effortScale)
             return "\(n) \(displayUnit(effortScale: effortScale))"
         }
     }

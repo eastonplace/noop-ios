@@ -1164,11 +1164,11 @@ struct TodayView: View {
             VStack(spacing: 14) {
                 HStack(alignment: .top, spacing: 8) {
                     paperPillar("Charge", value: charge, accent: StrandPalette.chargeAccent,
-                                state: paperScoreState(charge)) { paperPillarDetail = .charge }
+                                state: paperScoreState(charge, kind: .charge)) { paperPillarDetail = .charge }
                     paperPillar("Effort", value: effort, accent: StrandPalette.effortAccent,
-                                state: paperScoreState(effort)) { paperPillarDetail = .effort }
+                                state: paperScoreState(effort, kind: .effort)) { paperPillarDetail = .effort }
                     paperPillar("Rest", value: restScore, accent: StrandPalette.restAccent,
-                                state: paperScoreState(restScore)) { paperPillarDetail = .rest }
+                                state: paperScoreState(restScore, kind: .rest)) { paperPillarDetail = .rest }
                 }
                 Divider().overlay(StrandPalette.hairline)
                 NavigationLink { WorkoutsView() } label: {
@@ -1221,8 +1221,11 @@ struct TodayView: View {
         .buttonStyle(.plain)
     }
 
-    private func paperScoreState(_ value: Double?) -> String {
+    private func paperScoreState(_ value: Double?, kind: PaperPillarDetailKind) -> String {
         guard let value else { return String(localized: "Calibrating") }
+        if kind == .effort {
+            return StrainScale.band(StrainScale.displayValue(fromStored: value)).title
+        }
         switch value {
         case ..<35: return String(localized: "Low")
         case ..<70: return String(localized: "Moderate")

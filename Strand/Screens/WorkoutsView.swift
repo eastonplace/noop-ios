@@ -757,13 +757,9 @@ struct WorkoutsView: View {
         .frame(height: 34)
     }
 
-    private func workoutScoreState(_ raw: Double?) -> LocalizedStringKey {
-        guard let raw else { return "No data" }
-        switch raw {
-        case ..<34: return "Light"
-        case ..<67: return "Moderate"
-        default: return "High"
-        }
+    private func workoutScoreState(_ raw: Double?) -> String {
+        guard let raw else { return String(localized: "No data") }
+        return StrainScale.band(StrainScale.displayValue(fromStored: raw)).title
     }
 
     private var workoutScoreDelta: String {

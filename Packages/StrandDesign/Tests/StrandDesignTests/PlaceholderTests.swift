@@ -65,6 +65,54 @@ final class StrandDesignTests: XCTestCase {
         XCTAssertEqual(magenta.b, end.b, accuracy: 0.02)
     }
 
+    func testStrainScaleCanonicalConversionsAndClamping() {
+        XCTAssertEqual(StrainScale.formatted(67), "14.1")
+        XCTAssertEqual(StrainScale.displayValue(fromStored: 100), 21, accuracy: 0.0001)
+        XCTAssertEqual(StrainScale.displayValue(fromStored: 0), 0, accuracy: 0.0001)
+        XCTAssertEqual(StrainScale.displayValue(fromStored: -1), 0, accuracy: 0.0001)
+        XCTAssertEqual(StrainScale.displayValue(fromStored: 101), 21, accuracy: 0.0001)
+    }
+
+    func testStrainScaleRoundTripsWithoutChangingStorage() {
+        for stored in [0.0, 33, 67, 100] {
+            let display = StrainScale.displayValue(fromStored: stored)
+            XCTAssertEqual(StrainScale.storedValue(fromDisplay: display), stored, accuracy: 0.0001)
+        }
+    }
+
+    func testStrainBandBoundariesUseDisplayScale() {
+        XCTAssertEqual(StrainScale.band(0), .light)
+        XCTAssertEqual(StrainScale.band(9.9), .light)
+        XCTAssertEqual(StrainScale.band(10), .moderate)
+        XCTAssertEqual(StrainScale.band(13.9), .moderate)
+        XCTAssertEqual(StrainScale.band(14), .high)
+        XCTAssertEqual(StrainScale.band(17.9), .high)
+        XCTAssertEqual(StrainScale.band(18), .allOut)
+        XCTAssertEqual(StrainScale.band(21), .allOut)
+    }
+
+    func testRecoveryBandBoundariesAndColors() {
+        XCTAssertEqual(RecoveryBands.band(for: 33), .low)
+        XCTAssertEqual(RecoveryBands.band(for: 34), .medium)
+        XCTAssertEqual(RecoveryBands.band(for: 66), .medium)
+        XCTAssertEqual(RecoveryBands.band(for: 67), .high)
+
+        assertColor(RecoveryBands.color(for: 33), equals: StrandPalette.recoveryLow)
+        assertColor(RecoveryBands.color(for: 34), equals: StrandPalette.recoveryMed)
+        assertColor(RecoveryBands.color(for: 66), equals: StrandPalette.recoveryMed)
+        assertColor(RecoveryBands.color(for: 67), equals: StrandPalette.recoveryHigh)
+    }
+
+    private func assertColor(_ actual: Color, equals expected: Color,
+                             file: StaticString = #filePath, line: UInt = #line) {
+        let actualComponents = actual.rgbaComponents
+        let expectedComponents = expected.rgbaComponents
+        XCTAssertEqual(actualComponents.r, expectedComponents.r, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(actualComponents.g, expectedComponents.g, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(actualComponents.b, expectedComponents.b, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(actualComponents.a, expectedComponents.a, accuracy: 0.001, file: file, line: line)
+    }
+
     func testHRZoneColor() {
         XCTAssertEqual(StrandPalette.hrZoneColor(1).rgbaComponents.b,
                        StrandPalette.zone1.rgbaComponents.b, accuracy: 0.001)

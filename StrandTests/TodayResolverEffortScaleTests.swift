@@ -1,4 +1,5 @@
 import XCTest
+import StrandDesign
 import WhoopStore
 @testable import Strand
 
@@ -88,5 +89,27 @@ final class TodayResolverEffortScaleTests: XCTestCase {
         let hundred = UnitFormatter.effortValue(100.0, scale: .hundred) / 100.0
         let whoop = UnitFormatter.effortValue(100.0, scale: .whoop) / 21.0
         XCTAssertEqual(hundred, whoop, accuracy: 1e-9, "the gauge fraction must be scale-independent")
+    }
+
+    /// The app's legacy unit formatter delegates to the one public display-boundary converter.
+    func testWhoopFormatterUsesCanonicalStrainScale() {
+        XCTAssertEqual(StrainScale.formatted(67), "14.1")
+        XCTAssertEqual(UnitFormatter.effortDisplay(67, scale: .whoop), StrainScale.formatted(67))
+        XCTAssertEqual(UnitFormatter.effortValue(100, scale: .whoop),
+                       StrainScale.displayValue(fromStored: 100), accuracy: 1e-9)
+    }
+
+    func testCanonicalStrainAndRecoveryBoundaries() {
+        XCTAssertEqual(StrainScale.band(9.9), .light)
+        XCTAssertEqual(StrainScale.band(10), .moderate)
+        XCTAssertEqual(StrainScale.band(13.9), .moderate)
+        XCTAssertEqual(StrainScale.band(14), .high)
+        XCTAssertEqual(StrainScale.band(17.9), .high)
+        XCTAssertEqual(StrainScale.band(18), .allOut)
+
+        XCTAssertEqual(RecoveryBands.band(for: 33), .low)
+        XCTAssertEqual(RecoveryBands.band(for: 34), .medium)
+        XCTAssertEqual(RecoveryBands.band(for: 66), .medium)
+        XCTAssertEqual(RecoveryBands.band(for: 67), .high)
     }
 }

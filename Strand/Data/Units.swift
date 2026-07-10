@@ -1,4 +1,5 @@
 import Foundation
+import StrandDesign
 
 // MARK: - Unit system preference
 //
@@ -211,18 +212,18 @@ enum UnitFormatter {
     /// the import boundary rescales by 100/21 (WhoopExportImporter.dayStrainToEffortScale), so the exact
     /// inverse for a display-only 0–100 → 0–21 conversion is ×21/100. Kept byte-identical to that factor
     /// and to the Android `UnitFormatter.EFFORT_SCALE_FACTOR`. A wrong factor is pinned by the formatter tests.
-    static let effortScaleFactor = 21.0 / 100.0
+    static let effortScaleFactor = StrainScale.storedToDisplayFactor
 
     /// The stored 0–100 Effort value mapped onto the selected display scale (the raw number, no unit).
     static func effortValue(_ value: Double, scale: EffortScale) -> Double {
-        scale == .whoop ? value * effortScaleFactor : value
+        scale == .whoop ? StrainScale.displayValue(fromStored: value) : value
     }
 
     /// Format a stored 0–100 Effort value for display on the selected scale, to one decimal — the single
     /// helper every Effort read-out (Today tile, Intelligence, Live, Trends, Workouts) routes through so
     /// the toggle reaches all of them at once. The stored value is unchanged; only the display converts.
     static func effortDisplay(_ value: Double, scale: EffortScale) -> String {
-        oneDecimal(effortValue(value, scale: scale))
+        scale == .whoop ? StrainScale.formatted(value) : oneDecimal(value)
     }
 
     /// The "out of" denominator label for the selected Effort scale — "100" or "21". Used by the tile

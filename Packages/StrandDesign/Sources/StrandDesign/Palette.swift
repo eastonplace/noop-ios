@@ -123,6 +123,20 @@ public enum StrandPalette {
     public static let liveRed        = Color(light: "#E5484D", dark: "#F26B6F")
     public static let liveRedTint    = Color(light: "#FDEBEC", dark: "#3A2021")
 
+    // C13 pillar grammar. The WHOOP values are the dark variants; light values are
+    // luminance-adapted for the warm Paper canvas. Recovery is the only banded pillar.
+    public static let recoveryHigh   = Color(light: "#12A833", dark: "#16EC06")
+    public static let recoveryMed    = Color(light: "#C29200", dark: "#FFDE00")
+    public static let recoveryLow    = Color(light: "#E00028", dark: "#FF0026")
+    public static let recoveryData   = Color(light: "#3E87C7", dark: "#67AEE6")
+    public static let strainAccent   = Color(light: "#0084CE", dark: "#0093E7")
+    public static let sleepAccent    = Color(light: "#5E86A3", dark: "#7BA1BB")
+    public static let sleepNeedTeal  = Color(light: "#00A66E", dark: "#00F19F")
+
+    // Journal and Experimental affordances intentionally keep their purple identity
+    // when the old Effort token migrates to constant Strain blue.
+    public static let journalAccent  = Color(light: "#7A5AF8", dark: "#9B82FF")
+
     public static let stressRestful  = chargeAccent
     public static let stressLow      = Color(hex: "#CDE7D6")
     public static let stressMedium   = stressAccent
@@ -253,7 +267,7 @@ public enum StrandPalette {
 
     // MARK: Per-metric accents — HRV / SpO₂ / energy / risk. Classic leans the traditional hues (purple HRV, red risk).
     public static var metricCyan:   Color { link }
-    public static var metricPurple: Color { effortAccent }
+    public static var metricPurple: Color { journalAccent }
     public static var metricAmber:  Color { stressAccent }
     public static var metricRose:   Color { liveRed }
 

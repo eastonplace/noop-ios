@@ -24,7 +24,7 @@ public enum StatusBadgeStyle: Sendable {
         switch self {
         case .connected, .live, .upToDate, .ready: StrandPalette.success
         case .paused: StrandPalette.destructive
-        case .experimental: StrandPalette.effortAccent
+        case .experimental: StrandPalette.journalAccent
         case .imported: StrandPalette.link
         case .beta, .notConnected: StrandPalette.textSecondary
         }
