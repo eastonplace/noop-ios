@@ -204,8 +204,13 @@
     three-line chart, review bullets, and insight. Calendar/share routes are preserved,
     the report sheet remains wired, and the page uses the light Paper canvas.
     `NOOPiOS` built and ran; `qa/T10-trends.png` was visually checked against sheet 1-2.
-- [ ] **T11 — Sleep (S3)** — Modify `Strand/Screens/SleepView.swift`. Spec §6-S3.
+- [x] **T11 — Sleep (S3)** — Modify `Strand/Screens/SleepView.swift`. Spec §6-S3.
   Verify vs sheet 1-3. Commit.
+  - Verified 2026-07-09: `NOOPiOS` built and ran on the canonical simulator with
+    demo data. `qa/T11-sleep.jpg` confirms the 96-pt flat Rest ring, score copy,
+    Duration/Efficiency/Resting HR triplet, preserved logging-only Sleep Marks,
+    exact Paper sleep-stage palette, real hypnogram with clock axis, and the
+    Asleep/Duration/Woke window hierarchy against sheet 1-3.
 - [ ] **T12 — More tab list** — Modify the More list in
   `StrandiOS/App/RootTabView.swift` (`moreTab`): restyle groups/rows with
   `SectionHeader` + `SettingsRow`; keep the persisted expand/collapse behavior

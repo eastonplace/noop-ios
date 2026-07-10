@@ -117,7 +117,8 @@ struct SleepView: View {
         // synchronously, so the very first frame already shows content (no empty-state flash).
         let key = dataKey
         let resolved: SleepModel? = (key == modelKey) ? model : buildModel()
-        ScreenScaffold(title: "Sleep", subtitle: "Last night, read in two seconds.",
+        ScreenScaffold(title: "Sleep",
+                       subtitle: LocalizedStringKey(resolved?.night.spanLabel ?? String(localized: "Last night")),
                        // PERF (scroll): lazy column — byte-identical layout (LazyVStack == eager VStack
                        // alignment/spacing/header), builds trailing trend/ledger cards on demand. Combined
                        // with dropping the top-level LiveState observation (the sleep-mark card + the
@@ -125,19 +126,24 @@ struct SleepView: View {
                        // re-evaluates this heavy body.
                        onRefresh: { await repo.refresh() },
                        lazy: true,
-                       topBackground: liquidScaffoldSky()) {
+                       topBackground: nil,
+                       trailing: {
+                           HStack(spacing: 14) {
+                               Image(systemName: "square.and.arrow.up")
+                               Image(systemName: "ellipsis")
+                           }
+                           .font(.system(size: 15, weight: .medium))
+                           .foregroundStyle(StrandPalette.textPrimary)
+                       }) {
             Group {
                 if let resolved {
                     // Each top-level section fades + rises in sequence on first appear (Reduce-Motion safe).
                     VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
                         if let sleepUndo { sleepUndoBanner(sleepUndo) }
-                        restHero(resolved).staggeredAppear(index: 0)
+                        paperSleepHero(resolved).staggeredAppear(index: 0)
                         SleepMarkCard().staggeredAppear(index: 1)
-                        hero(resolved).staggeredAppear(index: 2)
-                        metricGrid(resolved).staggeredAppear(index: 3)
-                        sleepDebtLedger(resolved).staggeredAppear(index: 4)
-                        stagesVsTypical(resolved).staggeredAppear(index: 5)
-                        durationTrend(resolved).staggeredAppear(index: 6)
+                        paperSleepStages(resolved).staggeredAppear(index: 2)
+                        paperSleepWindow(resolved.night).staggeredAppear(index: 3)
                     }
                 } else {
                     emptyState
@@ -314,6 +320,137 @@ struct SleepView: View {
         .transition(.opacity)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(message)
+    }
+
+    // MARK: - Paper sleep summary (S3)
+
+    /// The S3 opening card. Every value is read from the existing memoized sleep model;
+    /// this is presentation-only and deliberately leaves scoring and stage derivation untouched.
+    private func paperSleepHero(_ model: SleepModel) -> some View {
+        let score = model.performance.latest
+        let wakeDay = Repository.localDayKey(
+            Date(timeIntervalSince1970: TimeInterval(model.night.session.endTs))
+        )
+        let restingHR = repo.days.last(where: { $0.day == wakeDay })?.restingHr
+
+        return PaperCard {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(spacing: 20) {
+                    if let score {
+                        ScoreRing(value: score, range: 0...100, accent: StrandPalette.restAccent,
+                                  size: 96, centerCaption: "of 100")
+                            .accessibilityLabel("Rest score \(Int(score.rounded())) of 100")
+                    } else {
+                        ZStack {
+                            Circle().stroke(StrandPalette.inset, lineWidth: 8)
+                            Text("—").font(StrandFont.metricValue)
+                                .foregroundStyle(StrandPalette.textSecondary)
+                        }
+                        .frame(width: 96, height: 96)
+                        .accessibilityLabel("Rest score unavailable")
+                    }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(score.map { "\(sleepScoreWord($0)) Rest" } ?? String(localized: "Rest"))
+                            .font(StrandFont.cardTitle)
+                            .foregroundStyle(StrandPalette.textPrimary)
+                        Text(score == nil
+                             ? "Rest is still calibrating from your recorded sleep."
+                             : "This was a solid night of recovery.")
+                            .font(StrandFont.body)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        SourceBadge(score != nil ? sleepScoreSource(model) : "On-device",
+                                    tint: StrandPalette.restAccent)
+                    }
+                    Spacer(minLength: 0)
+                }
+
+                Divider().overlay(StrandPalette.hairline)
+
+                StatTriplet([
+                    StatTripletItem("Duration", value: durationText(model.night.stages.asleep)),
+                    StatTripletItem("Efficiency", value: efficiencyText(model.night)),
+                    StatTripletItem("Resting HR", value: restingHR.map { "\($0) bpm" } ?? "—")
+                ])
+            }
+        }
+    }
+
+    /// The existing persisted intervals rendered in the canonical Paper stage palette.
+    /// Hypnogram smoothing remains display-only and does not alter stored stage totals.
+    private func paperSleepStages(_ model: SleepModel) -> some View {
+        let legend: [(String, Color)] = [
+            (String(localized: "Awake"), StrandPalette.sleepAwake),
+            (String(localized: "REM"), StrandPalette.sleepREM),
+            (String(localized: "Light"), StrandPalette.sleepLight),
+            (String(localized: "Deep"), StrandPalette.sleepDeep)
+        ]
+
+        return PaperCard {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("SLEEP STAGES")
+                    .font(StrandFont.sectionOverline)
+                    .tracking(StrandFont.sectionOverlineTracking)
+                    .foregroundStyle(StrandPalette.textSecondary)
+
+                HStack(spacing: 14) {
+                    ForEach(Array(legend.enumerated()), id: \.offset) { _, item in
+                        HStack(spacing: 5) {
+                            Circle().fill(item.1).frame(width: 7, height: 7)
+                            Text(item.0)
+                                .font(StrandFont.micro)
+                                .foregroundStyle(StrandPalette.textSecondary)
+                        }
+                    }
+                }
+
+                if model.intervals.isEmpty {
+                    Text("No stage timeline was recorded for this night.")
+                        .font(StrandFont.caption)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .frame(maxWidth: .infinity, minHeight: 112, alignment: .center)
+                } else {
+                    Hypnogram(intervals: model.intervals,
+                              height: 128,
+                              showsStageAxis: false,
+                              showsHover: true,
+                              nightStart: model.night.onsetDate,
+                              showsTimeAxis: true,
+                              smoothingSeconds: 300)
+                }
+            }
+        }
+    }
+
+    private func paperSleepWindow(_ night: Night) -> some View {
+        PaperCard {
+            HStack(spacing: 0) {
+                paperSleepWindowValue(label: "Asleep", value: night.onsetText, alignment: .leading)
+                Rectangle().fill(StrandPalette.hairline).frame(width: 1, height: 48)
+                VStack(spacing: 3) {
+                    Text(durationText(night.stages.asleep))
+                        .font(StrandFont.statValue)
+                        .foregroundStyle(StrandPalette.textPrimary)
+                    Text("\(durationText(night.timeInBed)) in bed")
+                        .font(StrandFont.micro)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                }
+                .frame(maxWidth: .infinity)
+                Rectangle().fill(StrandPalette.hairline).frame(width: 1, height: 48)
+                paperSleepWindowValue(label: "Woke", value: night.wakeText, alignment: .trailing)
+            }
+        }
+    }
+
+    private func paperSleepWindowValue(label: LocalizedStringKey, value: String,
+                                       alignment: HorizontalAlignment) -> some View {
+        VStack(alignment: alignment, spacing: 4) {
+            Text(label).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+            Text(value).font(StrandFont.statValue).foregroundStyle(StrandPalette.textPrimary)
+                .lineLimit(1).minimumScaleFactor(0.75)
+        }
+        .frame(maxWidth: .infinity, alignment: alignment == .leading ? .leading : .trailing)
     }
 
     /// The Rest world's opening: a scenic indigo backdrop with — when the night carries a 0–100
