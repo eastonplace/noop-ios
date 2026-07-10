@@ -72,7 +72,7 @@ struct CycleAwarenessCard: View {
     /// card's "Turn on" lives in the same Health spot), rather than only from Automations.
     var onTurnOff: (() -> Void)? = nil
 
-    // Cycle awareness reads in the calm, NON-VALENCED Rest indigo world (mirroring Mind): a
+    // Cycle awareness reads in the calm, NON-VALENCED Sleep indigo world (mirroring Mind): a
     // phase is just information, never framed good/bad. No red, ever.
     private var hue: Color { StrandPalette.restColor }
 
@@ -280,7 +280,7 @@ struct BodyClockCard: View {
     /// Opens the body-clock detail / jet-lag planner. nil makes the card non-navigating.
     var onOpenPlanner: (() -> Void)? = nil
 
-    // The body clock reads in the cool Rest world — calm, sleep-adjacent, non-valenced.
+    // The body clock reads in the cool Sleep world — calm, sleep-adjacent, non-valenced.
     private var hue: Color { StrandPalette.restColor }
 
     var body: some View {
@@ -497,7 +497,7 @@ struct HeadsUpCard: View {
     private var title: String {
         switch result.level {
         case .raised:        return String(localized: "Heads-up")
-        case .alreadyUnwell: return String(localized: "Rest up")
+        case .alreadyUnwell: return String(localized: "Sleep up")
         case .suppressed:    return String(localized: "Probably not illness")
         case .mild:          return String(localized: "A few signals are up")
         case .quiet:         return String(localized: "Nothing notable")

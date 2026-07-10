@@ -354,7 +354,7 @@ private struct BreathingContent: View {
 
                 // The pacer is now the canonical liquid vessel: it FILLS on the inhale and drains on the
                 // exhale as `orbProgress` (0 contracted → 1 expanded) drives the level, so the breath is
-                // cued by water rising and falling rather than a swelling disc. Rest-tinted to match the
+                // cued by water rising and falling rather than a swelling disc. Sleep-tinted to match the
                 // world; under Reduce Motion `orbProgress` parks at a steady mid-level (no pulsing), and
                 // the phase word + haptics still carry the pace.
                 LiquidVessel(value: orbProgress, tint: StrandPalette.restColor, animated: running)
@@ -513,7 +513,7 @@ private struct BreathingContent: View {
                 }
 
                 // The coherence estimate as a filling liquid tube (the same horizontal vessel Today's Key
-                // Metrics use), Rest-tinted, filling to the RMSSD-derived fraction — replaces the flat
+                // Metrics use), Sleep-tinted, filling to the RMSSD-derived fraction — replaces the flat
                 // gradient capsule. Live so it sloshes as the reading updates through a session.
                 LiquidTube(frac: coherenceFraction, tint: StrandPalette.restBright, height: 10)
                     .accessibilityLabel("Coherence estimate")
@@ -912,7 +912,7 @@ private struct ResonanceModeView: View {
                 }
 
                 // Sweep progress as a filling liquid tube (the liquid idiom used across the redesign),
-                // Rest-tinted so it reads as one with the breathe world.
+                // Sleep-tinted so it reads as one with the breathe world.
                 LiquidTube(frac: controller.sweepProgress, tint: StrandPalette.restColor, height: 10)
                     .accessibilityLabel("Sweep progress")
                     .accessibilityValue("\(Int(controller.sweepProgress * 100)) percent")
@@ -1002,7 +1002,7 @@ private struct ResonanceModeView: View {
                         .foregroundStyle(StrandPalette.textSecondary)
                         .frame(width: 34, alignment: .leading)
                     // Each pace's RSA amplitude as a static liquid tube — the same horizontal vessel used
-                    // across the redesign. An unscored pace reads muted via a dimmed Rest tint.
+                    // across the redesign. An unscored pace reads muted via a dimmed Sleep tint.
                     LiquidTube(frac: (s.rsaAmplitude ?? 0) / max(maxRsa, 0.0001),
                                tint: StrandPalette.restBright.opacity(s.scored ? 1 : 0.35),
                                height: 8, animated: false)

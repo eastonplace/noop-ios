@@ -5,13 +5,13 @@ import SwiftUI
 
 // MARK: - Strain Gauge (§9.1 strain ramp)
 //
-// Blue Effort gauge for the strain/effort scale (WHOOP: the always-blue effort ramp,
+// Blue Strain gauge for the strain/effort scale (WHOOP: the always-blue effort ramp,
 // no gold). Same open-gauge instrument language as the Recovery Ring, but cardiovascular
 // output instead of the value-based recovery scale. Filled to strain/outOf of a 240° arc,
 // flat and crisp (no bloom) with a clean leading bead at the tip.
 //
 // `outOf` is the maximum of the scale the passed `strain` is ON (default 21 for the
-// WHOOP Day-Strain axis). The Effort hero gauge passes the value already converted to
+// WHOOP Day-Strain axis). The Strain hero gauge passes the value already converted to
 // the user's selected display scale (#268) plus its matching max (100 or 21), so the
 // arc fraction, the centre numeral and the "of N" caption all read on the same scale
 // instead of being hardcoded to 0–21. The gauge stays scale-agnostic — the caller owns

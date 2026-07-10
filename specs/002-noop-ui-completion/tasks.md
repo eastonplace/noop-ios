@@ -8,6 +8,11 @@
 > `fidelity.md`. **T30 is a hard gate — no file modifications until every box is
 > checked.** Tasks marked ∥ may run in parallel within their phase once the phase's
 > first task lands.
+>
+> **Throughput (added after T33 — plan §Throughput addendum):** work from a
+> persistent local clone (`~/Code/noop-completion`), never build from the iCloud
+> path; batch the screenshot sweep per ∥ group (build still green per task);
+> T34+T35 may execute as one combined sweep with DE/IT translation run once.
 
 ## Phase 0 — Gate + evidence
 
@@ -141,7 +146,9 @@
     reference sheet 1 and C13 confirms red/yellow/green bands and the full Recovery
     label; the remaining header/card proportion gaps stay assigned to T38.
 
-- [ ] **T34 — Rename Effort → Strain + apply 0–21** ∥
+- [x] **T34 — Rename Effort → Strain + apply 0–21** ∥
+  - MAY combine with T35 into one sweep (plan §Throughput #3) — same files, one
+    build, one screenshot pass, translation once; keep the two value-trace shots.
   - Same string scope as T33 for "Effort"; ALSO flip every strain display to
     `StrainScale` (FR-5): Today trio ring (range 0…21), Trends tile + chart y-axis
     (0–21, gridlines 7/14/21), Strain detail in `CoupledView.swift` (ring, triplet,
@@ -153,8 +160,20 @@
   - Smoke-build `NOOPiOSWidgets` + `NOOPWatch` (plan §Risks).
   - Verify: seeded day traces one stored value to identical 0–21 display on trio,
     detail, Workouts badge (FR-8/AC-4) — screenshot each. Commit.
+  - **Completed 2026-07-10 (combined T34+T35 sweep):** all rendered Strain labels,
+    settings, explainers, accessibility strings, widgets, Live Activity, watch and
+    complication copy now use the canonical name. Every presentation boundary routes
+    stored 0–100 values through `StrainScale`; rings and detail charts use 0–21 with
+    7/14/21 gridlines, one decimal, and constant `strainAccent`. Simulator fixture
+    stored value 67 rendered as 14.1 in `qa/T34-value-trace-today.png`,
+    `qa/T34-value-trace-detail.png`, and `qa/T34-value-trace-workouts.png`, compared
+    against reference sheets 1 and 3. `NOOPiOS` and `NOOPiOSWidgets` builds passed
+    from `~/Code/noop-completion`. The required Watch build was attempted first via
+    XcodeBuildMCP and then generic `xcodebuild`; both report the same host limitation:
+    watchOS 26.5 is not installed, so no watchOS destination exists. Source/catalog
+    migration is complete; DE/IT runs once after T37 per the throughput addendum.
 
-- [ ] **T35 — Rename Rest → Sleep + C3 representation rules** ∥
+- [x] **T35 — Rename Rest → Sleep + C3 representation rules** ∥
   - String scope as T33 for pillar-"Rest" (audit each hit — "rest" the verb stays).
   - Implement C3 table: trio/Trends = score; Sleep tab hero = score + triplet; need/
     debt only in Sleep detail + SmartAlarm; widgets/notifications score-primary.
@@ -165,6 +184,15 @@
     sleep-need value may use `sleepNeedTeal` in the Sleep detail only.
   - Verify: no user-visible pillar-"Rest"; every Sleep numeral maps to a C3 rule
     (list them in the commit message). Screenshot Sleep + Today. Commit.
+  - **Completed 2026-07-10 (combined T34+T35 sweep):** pillar labels and score copy
+    now say Sleep while ordinary uses such as Resting HR, Restful, interval REST, and
+    “Rest up” remain intact. Today, Trends, widgets, notifications and watch surfaces
+    present the 0–100 Sleep score; the Sleep tab hero presents that same score plus
+    Duration / Efficiency / Resting HR; need and debt remain confined to Sleep detail
+    and Smart Alarm. Tapping the Today Sleep pillar lands on `SleepView`, eliminating
+    the duplicate Rest destination. Sleep-score surfaces use `sleepAccent`, stage
+    colors are unchanged, and sleep-need teal remains detail-only. Evidence:
+    `qa/T35-today.png` and `qa/T35-sleep.png`, compared with reference sheets 1 and 3.
 
 - [ ] **T36 — Recovery/Stress detail validation**
   - Confirm Recovery detail (CoupledView) reads the same repository field legacy

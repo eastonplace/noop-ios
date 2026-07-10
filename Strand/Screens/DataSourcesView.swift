@@ -17,12 +17,12 @@ struct DataSourcesView: View {
     @State private var nutritionSummary: String?
     @State private var nutritionFailed = false
     // Lifting (Hevy / Liftosaur) import state — same lightweight, self-contained pattern: parse the
-    // file, upsert workout rows under the "lifting" source, refresh. No HR Effort is touched.
+    // file, upsert workout rows under the "lifting" source, refresh. No HR Strain is touched.
     @State private var liftingImporting = false
     @State private var liftingSummary: String?
     @State private var liftingFailed = false
     // Activity-file (GPX / TCX / FIT) import state — same lightweight, self-contained pattern: parse the
-    // file, upsert one workout row under the "activity-file" source, refresh. No HR Effort is touched.
+    // file, upsert one workout row under the "activity-file" source, refresh. No HR Strain is touched.
     @State private var activityFileImporting = false
     @State private var activityFileSummary: String?
     @State private var activityFileFailed = false
@@ -232,7 +232,7 @@ struct DataSourcesView: View {
     private var liftingCard: some View {
         card(title: String(localized: "Lifting log (Hevy / Liftosaur)"), icon: "dumbbell.fill",
              tint: DomainTheme.effort.color,
-             subtitle: String(localized: "Import your strength-training history from a Hevy CSV export or a Liftosaur JSON export. Each workout becomes a Strength session with a training-volume estimate (weight × reps). It's a volume figure, not a measured strain. It never changes your Effort.")) {
+             subtitle: String(localized: "Import your strength-training history from a Hevy CSV export or a Liftosaur JSON export. Each workout becomes a Strength session with a training-volume estimate (weight × reps). It's a volume figure, not a measured strain. It never changes your Strain.")) {
             HStack(spacing: NoopMetrics.space3) {
                 Button { presentImporter(.lifting) } label: {
                     Label(liftingImporting ? "Importing…" : "Choose export…", systemImage: "tray.and.arrow.down")
@@ -392,7 +392,7 @@ struct DataSourcesView: View {
 
     /// Parse a Hevy CSV / Liftosaur JSON lifting export and upsert each workout as a Strength session
     /// (source "lifting") with a transparent volume-load note. No `strain` is stored, so these never
-    /// feed the HR-based Effort — lifting volume is reported alongside it, never folded into it.
+    /// feed the HR-based Strain — lifting volume is reported alongside it, never folded into it.
     private func importLifting(url: URL) {
         liftingImporting = true
         liftingSummary = nil
@@ -463,7 +463,7 @@ struct DataSourcesView: View {
     /// Parse a single GPX / TCX / FIT activity file and upsert it as one workout (source
     /// "activity-file"). The route polyline isn't persisted on macOS (the shared WorkoutRow has no route
     /// column), but distance / HR / energy / ascent and an honest "N GPS points · M HR samples" note are.
-    /// No `strain` is stored unless the file carried one — imported files never feed the HR-based Effort.
+    /// No `strain` is stored unless the file carried one — imported files never feed the HR-based Strain.
     private func importActivityFile(url: URL) {
         activityFileImporting = true
         activityFileSummary = nil
@@ -526,7 +526,7 @@ struct DataSourcesView: View {
 
     /// Parse a user's own Oura / Fitbit / Garmin data export and upsert it under the brand's own source
     /// (daily metrics + sleep sessions + reference-only metric series). The brand's own readiness/sleep
-    /// score is NEVER mapped to a NOOP Charge/Effort/Rest — NOOP recomputes its own from the raw inputs.
+    /// score is NEVER mapped to a NOOP Charge/Strain/Sleep — NOOP recomputes its own from the raw inputs.
     private func importWearable(url: URL) {
         wearableImporting = true
         wearableSummary = nil

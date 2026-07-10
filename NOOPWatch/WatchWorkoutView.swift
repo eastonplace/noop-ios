@@ -15,7 +15,7 @@ import HealthKit
 // We deliberately reimplement the phone's LiveWorkoutView rather than link it: that screen reads the strap
 // feed and the shared scorers off AppModel, which don't exist on the watch. The framing is kept though —
 // a generic "functional" workout (functionalStrengthTraining), a big live HR hero in SF-Rounded, elapsed
-// time, and the building Effort idea expressed honestly here as the live calorie burn from the wrist.
+// time, and the building Strain idea expressed honestly here as the live calorie burn from the wrist.
 //
 // Everything is GUARDED. If HealthKit is unavailable or workout authorization is denied, we show a calm
 // "Grant Health access" state instead of a dead Start button. StrandHaptic (real WatchKit path now) marks
@@ -75,7 +75,7 @@ struct WatchWorkoutView: View {
         .padding(.horizontal, 8)
     }
 
-    /// Ready to record. A single big Effort-tinted Start.
+    /// Ready to record. A single big Strain-tinted Start.
     private var idle: some View {
         VStack(spacing: 14) {
             Image(systemName: "figure.strengthtraining.functional")
@@ -161,7 +161,7 @@ struct WatchWorkoutView: View {
         }
     }
 
-    /// The big live wrist heart rate, SF-Rounded, on a near-black Effort-tinted card. A dash until the
+    /// The big live wrist heart rate, SF-Rounded, on a near-black Strain-tinted card. A dash until the
     /// first in-session sample lands.
     private var heroHeartRate: some View {
         VStack(spacing: 1) {
@@ -189,7 +189,7 @@ struct WatchWorkoutView: View {
     }
 
     /// Active energy from the watch's own builder, the watch-native stand-in for the phone's building
-    /// Effort. Whole kcal, SF-Rounded, never a fabricated number (a dash until the builder reports any).
+    /// Strain. Whole kcal, SF-Rounded, never a fabricated number (a dash until the builder reports any).
     private var statsRow: some View {
         HStack(spacing: 6) {
             stat("ENERGY", workout.activeKcal.map { "\($0)" } ?? "–", unit: "kcal",
@@ -220,7 +220,7 @@ struct WatchWorkoutView: View {
     }
 
     /// Pause/Resume and End sit SIDE BY SIDE on one row so both are always on screen without scrolling.
-    /// Icon-only buttons keep them compact on a 41mm; the role/tint still reads at a glance (Effort-tinted
+    /// Icon-only buttons keep them compact on a 41mm; the role/tint still reads at a glance (Strain-tinted
     /// pause/resume, critical-red End).
     private var controls: some View {
         HStack(spacing: 8) {

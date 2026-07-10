@@ -503,7 +503,7 @@ private struct TestModeRow: View {
     }
 }
 
-/// The Sleep & Rest live-readout panel (Group E): HR density, gravity coverage, and the gate that
+/// The Sleep & Sleep live-readout panel (Group E): HR density, gravity coverage, and the gate that
 /// fired tonight, bound from the pure `SleepReadout` source over LiveState's live buffers + tagged log
 /// tail. No hardcoded colours; uses the same tokens as the surrounding Test Centre rows.
 private struct SleepReadoutPanel: View {

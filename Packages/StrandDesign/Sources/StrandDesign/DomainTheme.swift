@@ -2,7 +2,7 @@ import SwiftUI
 
 // MARK: - Domain Theme (NEW — Bevel per-domain colour worlds)
 //
-// Maps a daily-score domain (Charge / Effort / Rest / Stress) to its accent
+// Maps a daily-score domain (Charge / Strain / Sleep / Stress) to its accent
 // "colour world": a primary colour, a deep→bright gradient for gauge strokes and
 // card washes, and a glow colour for blooms / end-cap halos. Every Bevel surface
 // (layered gauge, frosted card tint, scenic hero) reads its colours from here so a
@@ -64,8 +64,8 @@ public enum DomainTheme: String, CaseIterable, Sendable {
         }
     }
 
-    /// The data gradient the world samples values along (Charge/Rest = recovery
-    /// scale, Effort = strain ramp), used by sparklines and value-tinted strokes.
+    /// The data gradient the world samples values along (Charge/Sleep = recovery
+    /// scale, Strain = strain ramp), used by sparklines and value-tinted strokes.
     public var dataGradient: Gradient {
         switch self {
         case .charge: return Gradient(colors: [StrandPalette.recoveryData.opacity(0.55), StrandPalette.recoveryData])

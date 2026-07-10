@@ -88,7 +88,7 @@ struct MindSection: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// One tappable face. Selection reads via a calm Rest STROKE + soft fill —
+    /// One tappable face. Selection reads via a calm Sleep STROKE + soft fill —
     /// deliberately the same neutral, non-valenced treatment for every face (no red
     /// for low mood; the indigo carries no good/bad signal, it just marks the choice).
     private func faceButton(_ value: Int) -> some View {
@@ -153,14 +153,14 @@ struct MindSection: View {
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
             Text("What tracks your mood (\(moodDayCount) check-ins)")
                 .strandOverline()
-            // Each correlation as its own frosted Rest-tinted insight card. The indigo wash is
+            // Each correlation as its own frosted Sleep-tinted insight card. The indigo wash is
             // calm and carries no valence — a link is just a link, never framed as good or bad.
             ForEach(lines) { line in
                 NoopCard(tint: StrandPalette.restColor) {
                     HStack(alignment: .top, spacing: 12) {
                         // A small liquid vessel filled to the link's strength (|r|) marks the row and reads
                         // its magnitude at a glance — the leading-gauge idiom Insights' effect cards use.
-                        // Rest-tinted so it carries no valence (a link is just a link, never good or bad).
+                        // Sleep-tinted so it carries no valence (a link is just a link, never good or bad).
                         LiquidVessel(value: line.strength, tint: StrandPalette.restBright, animated: false)
                             .frame(width: 22, height: 22)
                             .accessibilityHidden(true)

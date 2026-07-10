@@ -587,46 +587,6 @@
         }
       }
     },
-    "%@ Effort": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ Anstrengung"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esfuerzo %@"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sforzo %@"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Esforço %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 消耗"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 消耗"
-          }
-        }
-      }
-    },
     "%@ No clear relationship. They move largely independently.": {
       "localizations": {
         "de": {
@@ -663,6 +623,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ 沒有明顯關聯。兩者大致各自獨立變化。"
+          }
+        }
+      }
+    },
+    "%@ Strain": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ Anstrengung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esfuerzo %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sforzo %@"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esforço %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 消耗"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 消耗"
           }
         }
       }
@@ -18531,7 +18531,7 @@
         }
       }
     },
-    "Apple's own sleep stages drive Rest directly. This is one of the watch's strengths.": {
+    "Apple's own sleep stages drive Sleep directly. This is one of the watch's strengths.": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -18571,7 +18571,7 @@
         }
       }
     },
-    "Apple's sleep stages are strong, and they drive your Rest score directly.": {
+    "Apple's sleep stages are strong, and they drive your Sleep score directly.": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -20345,7 +20345,7 @@
         }
       }
     },
-    "Avg HR is shown as typed. The HR graph, zones and Effort stay from the recorded session.": {
+    "Avg HR is shown as typed. The HR graph, zones and Strain stay from the recorded session.": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -28664,7 +28664,7 @@
         }
       }
     },
-    "Choose how distances, weights, heights, temperatures and Effort are shown. Your data is always stored the same way. This only changes the display.": {
+    "Choose how distances, weights, heights, temperatures and Strain are shown. Your data is always stored the same way. This only changes the display.": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -35510,7 +35510,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Effort du jour"
+            "value": "Strain du jour"
           }
         },
         "it": {
@@ -35609,7 +35609,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Effort du jour"
+            "value": "Strain du jour"
           }
         },
         "it": {
@@ -38810,86 +38810,6 @@
         }
       }
     },
-    "EFFORT": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ANSTRENGUNG"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ESFUERZO"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SFORZO"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ESFORÇO"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "消耗"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "消耗"
-          }
-        }
-      }
-    },
-    "EFFORT BUILDING": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ANSTRENGUNG IM AUFBAU"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ESFUERZO EN AUMENTO"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SFORZO IN CREAZIONE"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ESFORÇO EN AUMENTO"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "消耗构建中"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "消耗建立中"
-          }
-        }
-      }
-    },
     "EST.": {
       "localizations": {
         "de": {
@@ -39946,224 +39866,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "效率"
-          }
-        }
-      }
-    },
-    "Effort": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Anstrengung"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Effort"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esfuerzo"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Effort"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sforzo"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Esforço"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Усилие"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "消耗"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "消耗"
-          }
-        }
-      }
-    },
-    "Effort (0–100)": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Anstrengung (0–100)"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esfuerzo (0–100)"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sforzo (0–100)"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Esforço (0–100)"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "消耗（0–100）"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "消耗（0–100）"
-          }
-        }
-      }
-    },
-    "Effort scale": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Anstrengungsskala"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Escala de esfuerzo"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Scala dello sforzo"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Escala de esforço"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "消耗量表"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "消耗量表"
-          }
-        }
-      }
-    },
-    "Effort this %@": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Anstrengung · %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esfuerzo este %@"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sforzo in questo %@"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Esforço este %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "本 %@ 的消耗"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "本 %@ 的消耗"
-          }
-        }
-      }
-    },
-    "Effort: how hard did your heart work?": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Anstrengung: Wie hart hat dein Herz gearbeitet?"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esfuerzo: ¿cuánto trabajó tu corazón?"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sforzo: quanto ha lavorato il tuo cuore?"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Esforço: cuánto trabajó o teu coração?"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "消耗：你的心脏有多努力？"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "消耗：你的心臟有多努力？"
           }
         }
       }
@@ -42923,7 +42625,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Experimentelle Best-Effort-Unterstützung. Wir testen diese noch, sie verbinden sich also vielleicht nicht auf jedem Gerät. Sie erfinden nie Daten und sagen dir ehrlich, wenn Live nicht möglich ist."
+            "value": "Experimentelle Best-Strain-Unterstützung. Wir testen diese noch, sie verbinden sich also vielleicht nicht auf jedem Gerät. Sie erfinden nie Daten und sagen dir ehrlich, wenn Live nicht möglich ist."
           }
         },
         "es": {
@@ -43054,7 +42756,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Experimentell: Das ist Best-Effort. Wenn Live nicht funktioniert, kannst du aus Zepp exportieren und die Datei importieren."
+            "value": "Experimentell: Das ist Best-Strain. Wenn Live nicht funktioniert, kannst du aus Zepp exportieren und die Datei importieren."
           }
         },
         "es": {
@@ -47176,7 +46878,7 @@
         }
       }
     },
-    "HR %@ · Effort %@": {
+    "HR %@ · Strain %@": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -49018,7 +48720,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Herzfrequenz (live, Best-Effort)"
+            "value": "Herzfrequenz (live, Best-Strain)"
           }
         },
         "es": {
@@ -50665,64 +50367,6 @@
         }
       }
     },
-    "How Effort is calculated": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "So wird Anstrengung berechnet"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "How Effort is calculated"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cómo se calcula Esfuerzo"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Comment l'effort est calculé"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Come viene calcolato lo sforzo"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Como se calcula Esforço"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Как рассчитывается Усилие"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "消耗如何计算"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "消耗如何計算"
-          }
-        }
-      }
-    },
     "How NOOP splits a night into light / deep / REM. This is a separate, opt-in recipe. Your default staging is unchanged unless you turn it on.": {
       "localizations": {
         "de": {
@@ -50901,7 +50545,7 @@
         }
       }
     },
-    "How Recovery, Effort and Rest are calculated, and how they differ from WHOOP.": {
+    "How Recovery, Strain and Sleep are calculated, and how they differ from WHOOP.": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -50941,7 +50585,7 @@
         }
       }
     },
-    "How Rest is calculated": {
+    "How Sleep is calculated": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -50952,7 +50596,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "How Rest is calculated"
+            "value": "How Sleep is calculated"
           }
         },
         "es": {
@@ -50995,6 +50639,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "休息如何計算"
+          }
+        }
+      }
+    },
+    "How Strain is calculated": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "So wird Anstrengung berechnet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How Strain is calculated"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cómo se calcula Esfuerzo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comment l'effort est calculé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Come viene calcolato lo sforzo"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Como se calcula Esforço"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Как рассчитывается Усилие"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消耗如何计算"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消耗如何計算"
           }
         }
       }
@@ -53727,7 +53429,7 @@
         }
       }
     },
-    "Import your strength-training history from a Hevy CSV export or a Liftosaur JSON export. Each workout becomes a Strength session with a training-volume estimate (weight × reps). It's a volume figure, not a measured strain. It never changes your Effort.": {
+    "Import your strength-training history from a Hevy CSV export or a Liftosaur JSON export. Each workout becomes a Strength session with a training-volume estimate (weight × reps). It's a volume figure, not a measured strain. It never changes your Strain.": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -58168,7 +57870,7 @@
         }
       }
     },
-    "Led by your heart-rate variability (HRV) measured against your own personal baseline, plus resting heart rate, last night's Rest, breathing rate, and a skin-temperature signal (an early illness or overreach flag). Higher HRV versus your baseline means higher Recovery. NOOP needs a few nights to learn your baseline first. Until then you'll see “Calibrating”.": {
+    "Led by your heart-rate variability (HRV) measured against your own personal baseline, plus resting heart rate, last night's Sleep, breathing rate, and a skin-temperature signal (an early illness or overreach flag). Higher HRV versus your baseline means higher Recovery. NOOP needs a few nights to learn your baseline first. Until then you'll see “Calibrating”.": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -59441,7 +59143,7 @@
         }
       }
     },
-    "Live machine data over Bluetooth FTMS. No sleep, recovery, skin temp or SpO₂. Effort needs the machine's heart rate; without it the session logs the machine metrics only.": {
+    "Live machine data over Bluetooth FTMS. No sleep, recovery, skin temp or SpO₂. Strain needs the machine's heart rate; without it the session logs the machine metrics only.": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -65534,7 +65236,7 @@
         }
       }
     },
-    "NOOP can run off only an Apple Watch, no chest strap needed. The watch is the sensor; NOOP does the thinking on your phone, computing Recovery, Rest, Effort and your Fitness Age from your Health data, all on-device.": {
+    "NOOP can run off only an Apple Watch, no chest strap needed. The watch is the sensor; NOOP does the thinking on your phone, computing Recovery, Sleep, Strain and your Fitness Age from your Health data, all on-device.": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -65694,7 +65396,7 @@
         }
       }
     },
-    "NOOP gives you three daily scores (Recovery, Effort and Rest), each computed entirely on your device from your strap's raw signals using published sport science. They are not WHOOP's private scores and will not match number-for-number; they answer the same daily questions with transparent local methods.": {
+    "NOOP gives you three daily scores (Recovery, Strain and Sleep), each computed entirely on your device from your strap's raw signals using published sport science. They are not WHOOP's private scores and will not match number-for-number; they answer the same daily questions with transparent local methods.": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -66967,7 +66669,7 @@
         }
       }
     },
-    "NOOP's own Recovery, Effort and Rest, computed on your device from published methods.": {
+    "NOOP's own Recovery, Strain and Sleep, computed on your device from published methods.": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -68877,7 +68579,7 @@
         }
       }
     },
-    "No cardio load yet. Effort builds once your heart rate climbs into your effort zone (around 50% of your heart-rate reserve). A calm day honestly reads near zero.": {
+    "No cardio load yet. Strain builds once your heart rate climbs into your effort zone (around 50% of your heart-rate reserve). A calm day honestly reads near zero.": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -68917,7 +68619,7 @@
         }
       }
     },
-    "No chest strap? No problem. NOOP can run off only your Apple Watch. It reads your watch's data through Apple Health and works out your Recovery, Rest, Effort and Fitness Age right here on your phone. Everything stays on the device.": {
+    "No chest strap? No problem. NOOP can run off only your Apple Watch. It reads your watch's data through Apple Health and works out your Recovery, Sleep, Strain and Fitness Age right here on your phone. Everything stays on the device.": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -74224,7 +73926,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Auf dem iPhone ist das Best-Effort (iOS entscheidet, wann Hintergrundaufgaben laufen). Alles bleibt auf %@."
+            "value": "Auf dem iPhone ist das Best-Strain (iOS entscheidet, wann Hintergrundaufgaben laufen). Alles bleibt auf %@."
           }
         },
         "es": {
@@ -79207,47 +78909,7 @@
         }
       }
     },
-    "Powers Effort now; Recovery and Rest once enough nights and decode are confirmed": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Speist jetzt Anstrengung; Erholung und Ruhe, sobald genug Nächte und die Dekodierung bestätigt sind"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Alimenta Esfuerzo ahora; Recuperación y Descanso cuando se confirmen suficientes noches y la decodificación"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Alimenta subito Sforzo; Recupero e Riposo una volta confermate abbastanza notti e la decodifica"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Alimenta Esforço agora; Recuperação e Descanso quando se confirmen suficientes noites e a decodificación"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "现在驱动消耗；待累积足够的夜晚并确认解码后，将驱动恢复和休息"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "目前為消耗提供資料；累積足夠夜晚並確認解碼後，也會支援恢復和休息"
-          }
-        }
-      }
-    },
-    "Powers Recovery, Effort, Rest and Sleep": {
+    "Powers Recovery, Strain, Sleep and Sleep": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -79287,7 +78949,7 @@
         }
       }
     },
-    "Powers Recovery, Effort, Rest, Sleep + Health Monitor": {
+    "Powers Recovery, Strain, Sleep, Sleep + Health Monitor": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -79327,7 +78989,7 @@
         }
       }
     },
-    "Powers Rest, Effort, Fitness Age and steps, plus Recovery once it calibrates": {
+    "Powers Sleep, Strain, Fitness Age and steps, plus Recovery once it calibrates": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -79367,7 +79029,47 @@
         }
       }
     },
-    "Powers the live console + Effort. No Recovery, Rest or Sleep": {
+    "Powers Strain now; Recovery and Sleep once enough nights and decode are confirmed": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Speist jetzt Anstrengung; Erholung und Ruhe, sobald genug Nächte und die Dekodierung bestätigt sind"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alimenta Esfuerzo ahora; Recuperación y Descanso cuando se confirmen suficientes noches y la decodificación"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alimenta subito Sforzo; Recupero e Riposo una volta confermate abbastanza notti e la decodifica"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alimenta Esforço agora; Recuperação e Descanso quando se confirmen suficientes noites e a decodificación"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "现在驱动消耗；待累积足够的夜晚并确认解码后，将驱动恢复和休息"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "目前為消耗提供資料；累積足夠夜晚並確認解碼後，也會支援恢復和休息"
+          }
+        }
+      }
+    },
+    "Powers the live console + Strain. No Recovery, Sleep or Sleep": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -84288,7 +83990,7 @@
         }
       }
     },
-    "Records a live machine workout, Effort-scored from HR when the machine reports it": {
+    "Records a live machine workout, Strain-scored from HR when the machine reports it": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -85112,7 +84814,7 @@
         }
       }
     },
-    "Recovery weighs your HRV against your personal baseline (~55%%), resting heart rate (~20%%), rest quality (~15%%), respiration (~5%%) and skin-temperature deviation (~5%%). Effort is a 0–%@ cardiovascular load from time in heart-rate zones. Rest is staged from movement and heart rate. Everything is computed here from the strap's raw data. It works for any day NOOP collected raw streams.": {
+    "Recovery weighs your HRV against your personal baseline (~55%%), resting heart rate (~20%%), rest quality (~15%%), respiration (~5%%) and skin-temperature deviation (~5%%). Strain is a 0–%@ cardiovascular load from time in heart-rate zones. Sleep is staged from movement and heart rate. Everything is computed here from the strap's raw data. It works for any day NOOP collected raw streams.": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -85251,7 +84953,7 @@
         }
       }
     },
-    "Recovery · Effort · Rest": {
+    "Recovery · Strain · Sleep": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -85331,7 +85033,7 @@
         }
       }
     },
-    "Recovery, Effort and Rest (and how they differ from WHOOP).": {
+    "Recovery, Strain and Sleep (and how they differ from WHOOP).": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -85371,7 +85073,7 @@
         }
       }
     },
-    "Recovery, Effort and Rest are scored on your own device from your strap data. Recovery needs about four nights of sleep to learn your baseline (that's \"Calibrating\", counted as nights of 4 on the ring), and keeps sharpening over your first couple of weeks. On a WHOOP 5 or MG the strap banks little history, so that count can sit at 0 of 4 until you have worn it across a few nights. That's the strap's sync limit, not a fault. Before there's a number, NOOP shows what it can without faking one.": {
+    "Recovery, Strain and Sleep are scored on your own device from your strap data. Recovery needs about four nights of sleep to learn your baseline (that's \"Calibrating\", counted as nights of 4 on the ring), and keeps sharpening over your first couple of weeks. On a WHOOP 5 or MG the strap banks little history, so that count can sit at 0 of 4 until you have worn it across a few nights. That's the strap's sync limit, not a fault. Before there's a number, NOOP shows what it can without faking one.": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -85411,7 +85113,7 @@
         }
       }
     },
-    "Recovery, Effort and Rest become personal after a few nights of wear.": {
+    "Recovery, Strain and Sleep become personal after a few nights of wear.": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -85451,7 +85153,7 @@
         }
       }
     },
-    "Recovery, Effort and Rest build over your next few nights of wear.": {
+    "Recovery, Strain and Sleep build over your next few nights of wear.": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -85491,7 +85193,7 @@
         }
       }
     },
-    "Recovery, Effort, Rest, HRV, resting and live heart rate, and strap battery at a glance.": {
+    "Recovery, Strain, Sleep, HRV, resting and live heart rate, and strap battery at a glance.": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -87877,144 +87579,6 @@
         }
       }
     },
-    "Rest": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ruhe"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rest"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Descanso"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Repos"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Riposo"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Descanso"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Отдых"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "休息"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "休息"
-          }
-        }
-      }
-    },
-    "Rest baseline": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ruhe-Basislinie"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Línea base de Descanso"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Linea di base del riposo"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "linha de base de Descanso"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "休息基线"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "休息基線"
-          }
-        }
-      }
-    },
-    "Rest quality": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ruhequalität"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Calidad del Descanso"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Qualità del riposo"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Calidad do Descanso"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "休息质量"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "休息品質"
-          }
-        }
-      }
-    },
     "Rest up": {
       "localizations": {
         "de": {
@@ -88051,86 +87615,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "好好休息"
-          }
-        }
-      }
-    },
-    "Rest ↔ Recovery": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ruhe ↔ Erholung"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Descanso ↔ Recuperación"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Riposo ↔ Recupero"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Descanso ↔ Recuperação"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "休息 ↔ 恢复"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "休息 ↔ 恢復"
-          }
-        }
-      }
-    },
-    "Rest: how restorative was your sleep?": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ruhe: Wie erholsam war dein Schlaf?"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Descanso: ¿qué tan reparador fue tu sueño?"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Riposo: quanto è stato rigenerante il tuo sonno?"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Descanso: qué tan reparador fue o teu sono?"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "休息：你的睡眠恢复效果如何？"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "休息：你的睡眠有多具修復性？"
           }
         }
       }
@@ -90817,6 +90301,86 @@
         }
       }
     },
+    "STRAIN": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ANSTRENGUNG"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ESFUERZO"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SFORZO"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ESFORÇO"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消耗"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消耗"
+          }
+        }
+      }
+    },
+    "STRAIN BUILDING": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ANSTRENGUNG IM AUFBAU"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ESFUERZO EN AUMENTO"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SFORZO IN CREAZIONE"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ESFORÇO EN AUMENTO"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消耗构建中"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消耗建立中"
+          }
+        }
+      }
+    },
     "STRAP LOG": {
       "localizations": {
         "de": {
@@ -92787,7 +92351,7 @@
         }
       }
     },
-    "See how Recovery, Effort and Rest are calculated, and how they differ from WHOOP.": {
+    "See how Recovery, Strain and Sleep are calculated, and how they differ from WHOOP.": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -95703,7 +95267,37 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Schlaf"
+            "value": "Ruhe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Descanso"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riposo"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Descanso"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "休息"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "休息"
           }
         },
         "en": {
@@ -95712,126 +95306,16 @@
             "value": "Sleep"
           }
         },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sueño"
-          }
-        },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sommeil"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sonno"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sono"
+            "value": "Repos"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Сон"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "睡眠"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "睡眠"
-          }
-        }
-      }
-    },
-    "Sleep & Rest": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Schlaf & Ruhe"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sueño y descanso"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sonno e Riposo"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sono e descanso"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "睡眠与休息"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "睡眠與休息"
-          }
-        }
-      }
-    },
-    "Sleep / Rest": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Schlaf / Ruhe"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sueño / Descanso"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sonno / Riposo"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sono / Descanso"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "睡眠 / 休息"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "睡眠 / 休息"
+            "value": "Отдых"
           }
         }
       }
@@ -96153,6 +95637,46 @@
         }
       }
     },
+    "Sleep baseline": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ruhe-Basislinie"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Línea base de Descanso"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linea di base del riposo"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "linha de base de Descanso"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "休息基线"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "休息基線"
+          }
+        }
+      }
+    },
     "Sleep marks": {
       "localizations": {
         "de": {
@@ -96278,37 +95802,37 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Schlafqualität"
+            "value": "Ruhequalität"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Calidad del sueño"
+            "value": "Calidad del Descanso"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Qualità del sonno"
+            "value": "Qualità del riposo"
           }
         },
         "pt-PT": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Calidad do sono"
+            "value": "Calidad do Descanso"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "睡眠质量"
+            "value": "休息质量"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "睡眠品質"
+            "value": "休息品質"
           }
         }
       }
@@ -96531,7 +96055,7 @@
         }
       }
     },
-    "Sleep steadiness: Rest varied ±%@ pts night to night.": {
+    "Sleep steadiness: Sleep varied ±%@ pts night to night.": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -96611,6 +96135,46 @@
         }
       }
     },
+    "Sleep ↔ Recovery": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ruhe ↔ Erholung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Descanso ↔ Recuperación"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Riposo ↔ Recupero"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Descanso ↔ Recuperação"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "休息 ↔ 恢复"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "休息 ↔ 恢復"
+          }
+        }
+      }
+    },
     "Sleep-debt ledger": {
       "localizations": {
         "de": {
@@ -96647,6 +96211,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "睡眠負債帳本"
+          }
+        }
+      }
+    },
+    "Sleep: how restorative was your sleep?": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ruhe: Wie erholsam war dein Schlaf?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Descanso: ¿qué tan reparador fue tu sueño?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riposo: quanto è stato rigenerante il tuo sonno?"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Descanso: qué tan reparador fue o teu sono?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "休息：你的睡眠恢复效果如何？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "休息：你的睡眠有多具修復性？"
           }
         }
       }
@@ -99185,7 +98789,7 @@
         }
       }
     },
-    "Steps, active energy and logged workouts feed Effort. Dense and reliable.": {
+    "Steps, active energy and logged workouts feed Strain. Dense and reliable.": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -99225,7 +98829,7 @@
         }
       }
     },
-    "Steps, active energy and logged workouts feed your Effort. Dense and reliable.": {
+    "Steps, active energy and logged workouts feed your Strain. Dense and reliable.": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -99775,6 +99379,104 @@
         }
       }
     },
+    "Strain": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anstrengung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strain"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esfuerzo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strain"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sforzo"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esforço"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Усилие"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消耗"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消耗"
+          }
+        }
+      }
+    },
+    "Strain (0–100)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anstrengung (0–100)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esfuerzo (0–100)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sforzo (0–100)"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esforço (0–100)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消耗（0–100）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消耗（0–100）"
+          }
+        }
+      }
+    },
     "Strain nudges and your smart alarm tap your wrist the moment they fire.": {
       "localizations": {
         "de": {
@@ -99851,6 +99553,126 @@
           "stringUnit": {
             "state": "translated",
             "value": "強度提示和你的智慧鬧鐘以同樣的方式輕拍你的手腕。"
+          }
+        }
+      }
+    },
+    "Strain scale": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anstrengungsskala"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escala de esfuerzo"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scala dello sforzo"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Escala de esforço"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消耗量表"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消耗量表"
+          }
+        }
+      }
+    },
+    "Strain this %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anstrengung · %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esfuerzo este %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sforzo in questo %@"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esforço este %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本 %@ 的消耗"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本 %@ 的消耗"
+          }
+        }
+      }
+    },
+    "Strain: how hard did your heart work?": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anstrengung: Wie hart hat dein Herz gearbeitet?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esfuerzo: ¿cuánto trabajó tu corazón?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sforzo: quanto ha lavorato il tuo cuore?"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esforço: cuánto trabajó o teu coração?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消耗：你的心脏有多努力？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消耗：你的心臟有多努力？"
           }
         }
       }
@@ -102871,7 +102693,7 @@
         }
       }
     },
-    "TYPICAL EFFORT": {
+    "TYPICAL STRAIN": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -104205,7 +104027,7 @@
         }
       }
     },
-    "The average above was edited. The graph, zones and Effort stay from the recorded session.": {
+    "The average above was edited. The graph, zones and Strain stay from the recorded session.": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -105546,7 +105368,7 @@
         }
       }
     },
-    "This builds from the strap as it syncs. Effort and rest appear after you have worn it and slept a night. Recovery needs about four nights of sleep to learn your baseline (you'll see \"Calibrating\" until then), and keeps sharpening over your first couple of weeks. On a WHOOP 5 or MG the strap banks little history, so the night count can climb slowly or sit at 0 of 4 until you have worn it across a few nights. That's its sync limit, not a fault. Import your WHOOP export to skip the wait.": {
+    "This builds from the strap as it syncs. Strain and rest appear after you have worn it and slept a night. Recovery needs about four nights of sleep to learn your baseline (you'll see \"Calibrating\" until then), and keeps sharpening over your first couple of weeks. On a WHOOP 5 or MG the strap banks little history, so the night count can climb slowly or sit at 0 of 4 until you have worn it across a few nights. That's its sync limit, not a fault. Import your WHOOP export to skip the wait.": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -106432,7 +106254,7 @@
         }
       }
     },
-    "This session's contribution to the day's Effort, as captured during the workout.": {
+    "This session's contribution to the day's Strain, as captured during the workout.": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -118389,7 +118211,7 @@
         }
       }
     },
-    "Your Recovery on the watch face, with Effort and Rest in the rectangular card.": {
+    "Your Recovery on the watch face, with Strain and Sleep in the rectangular card.": {
       "localizations": {
         "de": {
           "stringUnit": {

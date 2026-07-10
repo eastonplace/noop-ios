@@ -148,7 +148,7 @@ final class HealthKitBridge: ObservableObject {
     // MARK: - Live delivery (continuous ingestion)
 
     /// The scored read types we want a live observer + hourly background delivery on. This is the
-    /// subset of `quantityReadIds` (plus sleep) that actually feeds Charge/Rest/Effort/Fitness Age, so
+    /// subset of `quantityReadIds` (plus sleep) that actually feeds Charge/Sleep/Strain/Fitness Age, so
     /// a watch-only user's numbers refresh on their own rather than only when the app is foregrounded.
     /// We deliberately do NOT observe the body-composition reads (weight/BMI/etc.) — those don't move a
     /// score and a manual weigh-in shouldn't wake the app every hour.

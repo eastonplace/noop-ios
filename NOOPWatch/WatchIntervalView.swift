@@ -64,7 +64,7 @@ struct WatchIntervalView: View {
         return min(1, max(0, done / Double(phaseDuration)))
     }
 
-    /// The active phase's reset token: WORK uses the Effort blue, REST the Rest blue-grey, DONE the
+    /// The active phase's reset token: WORK uses the Strain blue, REST the Sleep blue-grey, DONE the
     /// positive green. Tints the flat ring arc + the phase chip only (no glow), matching the phone.
     private var phaseColor: Color {
         switch phase {
@@ -268,7 +268,7 @@ struct WatchIntervalView: View {
                 StrandHaptic.light.play()
             }
         case .rest:
-            // Rest done → next round's work — a strong cue so you feel it without looking.
+            // Sleep done → next round's work — a strong cue so you feel it without looking.
             currentRound += 1
             phase = .work
             remaining = max(1, workSeconds)

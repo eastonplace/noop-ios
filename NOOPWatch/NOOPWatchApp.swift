@@ -3,7 +3,7 @@ import StrandDesign
 
 // MARK: - NOOPWatch — the watchOS glance app
 //
-// The iPhone is the brain. M1 already computes Charge / Effort / Rest with confidence and provenance;
+// The iPhone is the brain. M1 already computes Charge / Strain / Sleep with confidence and provenance;
 // this watch app ONLY displays the latest snapshot the phone pushes over WatchConnectivity. It never
 // recomputes a score. The one thing the watch measures locally is its OWN heart rate (HealthKit), shown
 // as a live readout alongside the synced scores.

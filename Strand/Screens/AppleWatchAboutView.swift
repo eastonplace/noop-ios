@@ -5,7 +5,7 @@ import StrandDesign
 //
 // The honest "what your Apple Watch is good at, and where it's lighter" page (M2 of the
 // Watch-as-a-device project). NOOP can run off only an Apple Watch (the phone computes our
-// Charge / Rest / Effort / Fitness Age live from HealthKit) but the watch is not a chest
+// Charge / Sleep / Strain / Fitness Age live from HealthKit) but the watch is not a chest
 // strap, and this page says so plainly. It renders the per-metric capability + confidence
 // table from the design spec, the HRV-sampling explanation (why recovery calibrates over
 // about a week), and the SpO2 caveat (the newest US units dropped the sensor).
@@ -75,16 +75,16 @@ struct AppleWatchAboutView: View {
     // the watch is strongest at down to what it can't honestly do, so the page reads as a fair
     // appraisal rather than a sales pitch.
     private let metrics: [WatchMetric] = [
-        WatchMetric(icon: "bed.double.fill", metric: String(localized: "Sleep / Rest"),
+        WatchMetric(icon: "bed.double.fill", metric: String(localized: "Sleep / Sleep"),
                     confidence: .great,
-                    detail: String(localized: "Apple's own sleep stages drive Rest directly. This is one of the watch's strengths.")),
+                    detail: String(localized: "Apple's own sleep stages drive Sleep directly. This is one of the watch's strengths.")),
         WatchMetric(icon: "figure.walk", metric: String(localized: "Steps & workouts"),
                     confidence: .great,
-                    detail: String(localized: "Steps, active energy and logged workouts feed Effort. Dense and reliable.")),
+                    detail: String(localized: "Steps, active energy and logged workouts feed Strain. Dense and reliable.")),
         WatchMetric(icon: "lungs.fill", metric: String(localized: "Fitness Age"),
                     confidence: .great,
                     detail: String(localized: "Built from Apple's cardio-fitness VO₂ max estimate, the same number the Fitness app shows.")),
-        WatchMetric(icon: "flame.fill", metric: String(localized: "Effort"),
+        WatchMetric(icon: "flame.fill", metric: String(localized: "Strain"),
                     confidence: .good,
                     detail: String(localized: "Heart rate plus active energy give a solid daily cardiovascular load. An on-watch workout sharpens it further.")),
         WatchMetric(icon: "heart.fill", metric: String(localized: "Recovery"),
@@ -133,7 +133,7 @@ struct AppleWatchAboutView: View {
                         .foregroundStyle(StrandPalette.textPrimary)
                     Spacer(minLength: 0)
                 }
-                Text("NOOP can run off only an Apple Watch, no chest strap needed. The watch is the sensor; NOOP does the thinking on your phone, computing Recovery, Rest, Effort and your Fitness Age from your Health data, all on-device.")
+                Text("NOOP can run off only an Apple Watch, no chest strap needed. The watch is the sensor; NOOP does the thinking on your phone, computing Recovery, Sleep, Strain and your Fitness Age from your Health data, all on-device.")
                     .font(StrandFont.subhead)
                     .foregroundStyle(StrandPalette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)

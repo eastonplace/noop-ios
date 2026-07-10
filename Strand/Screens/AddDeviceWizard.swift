@@ -547,7 +547,7 @@ struct AddDeviceWizard: View {
                     ouraBullet(String(localized: "Your ring talks to NOOP only, fully offline, no Oura account."))
                     ouraBullet(String(localized: "Live heart rate, and HRV when the ring can measure it."))
                     ouraBullet(String(localized: "Overnight sleep staging, resting heart rate, skin-temperature trend, motion and battery, read straight off the ring."))
-                    ouraBullet(String(localized: "NOOP's own Recovery, Effort and Rest, computed on your device from published methods."))
+                    ouraBullet(String(localized: "NOOP's own Recovery, Strain and Sleep, computed on your device from published methods."))
                 }
                 Divider().overlay(StrandPalette.hairline)
                 VStack(alignment: .leading, spacing: 6) {
@@ -1298,7 +1298,7 @@ struct AddDeviceWizard: View {
     /// Build the `.oura` `PairedDevice` for the picked ring. sourceKind `.oura` routes the SourceCoordinator
     /// to the OuraLiveSource (its OWN central, never the WHOOP path). The generation rides `model`
     /// (OuraRingGen.from(model:) recovers it), and the capability set is gen-filtered. NOOP computes its own
-    /// Charge/Rest from the ring's raw signals; it never reads Oura's encrypted readiness/sleep scores, and a
+    /// Charge/Sleep from the ring's raw signals; it never reads Oura's encrypted readiness/sleep scores, and a
     /// signal it can't read stays "-" (honest-data invariant). Returns nil when no ring is picked.
     private func buildOuraDevice() -> PairedDevice? {
         guard let pickedOura else { return nil }

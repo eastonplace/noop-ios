@@ -214,22 +214,22 @@ enum UnitFormatter {
     /// and to the Android `UnitFormatter.EFFORT_SCALE_FACTOR`. A wrong factor is pinned by the formatter tests.
     static let effortScaleFactor = StrainScale.storedToDisplayFactor
 
-    /// The stored 0–100 Effort value mapped onto the selected display scale (the raw number, no unit).
+    /// The stored 0–100 value mapped onto the canonical 0–21 Strain display scale.
     static func effortValue(_ value: Double, scale: EffortScale) -> Double {
-        scale == .whoop ? StrainScale.displayValue(fromStored: value) : value
+        StrainScale.displayValue(fromStored: value)
     }
 
     /// Format a stored 0–100 Effort value for display on the selected scale, to one decimal — the single
     /// helper every Effort read-out (Today tile, Intelligence, Live, Trends, Workouts) routes through so
     /// the toggle reaches all of them at once. The stored value is unchanged; only the display converts.
     static func effortDisplay(_ value: Double, scale: EffortScale) -> String {
-        scale == .whoop ? StrainScale.formatted(value) : oneDecimal(value)
+        StrainScale.formatted(value)
     }
 
     /// The "out of" denominator label for the selected Effort scale — "100" or "21". Used by the tile
     /// caption ("of 100"/"of 21"), the chart unit ("/ 100"/"/ 21") and the model-breakdown axis label.
     static func effortScaleMax(_ scale: EffortScale) -> String {
-        scale == .whoop ? "21" : "100"
+        "21"
     }
 
     // MARK: Helpers

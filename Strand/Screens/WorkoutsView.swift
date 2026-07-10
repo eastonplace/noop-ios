@@ -31,7 +31,7 @@ struct WorkoutsView: View {
     @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
     private var unitSystem: UnitSystem { UnitSystem(rawValue: unitSystemRaw) ?? .metric }
 
-    // Effort display scale (#268) — drives the effort hero's read-out. Display-only.
+    // Strain display scale (#268) — drives the effort hero's read-out. Display-only.
     @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.hundred.rawValue
     private var effortScale: EffortScale { UnitPrefs.resolveEffortScale(effortScaleRaw) }
 
@@ -290,7 +290,7 @@ struct WorkoutsView: View {
         }
     }
 
-    /// The transient "personal pattern" caption — an Effort-tinted frosted strip with a chart glyph.
+    /// The transient "personal pattern" caption — an Strain-tinted frosted strip with a chart glyph.
     private func postLogBanner(_ text: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "chart.line.uptrend.xyaxis")
@@ -445,7 +445,7 @@ struct WorkoutsView: View {
         }
     }
 
-    /// A pill-styled filter menu: the current selection as its label, tinted the Effort colour when a
+    /// A pill-styled filter menu: the current selection as its label, tinted the Strain colour when a
     /// filter is active so the user can see at a glance that the list is narrowed.
     private func filterMenu<Content: View>(title: String, active: Bool, a11y: String,
                                            @ViewBuilder content: () -> Content) -> some View {
@@ -579,7 +579,7 @@ struct WorkoutsView: View {
         return .all
     }
 
-    // MARK: - Effort hero (typical effort on a flat Reset card)
+    // MARK: - Strain hero (typical effort on a flat Reset card)
 
     private func paperWorkoutScore(rows: [WorkoutRow]) -> some View {
         let strains = rows.compactMap(\.strain)
@@ -786,10 +786,10 @@ struct WorkoutsView: View {
         return String(format: "%d:%02d", paceSeconds / 60, paceSeconds % 60)
     }
 
-    /// Design Reset hero for the windowed range: the typical session Effort on the clean flat ring
+    /// Design Reset hero for the windowed range: the typical session Strain on the clean flat ring
     /// (GlowRing, bloom OFF), on a flat opaque Reset card — NO scenic backdrop float — with the session
     /// count + total time alongside. The ring reads the AVERAGE per-session strain (the stored 0–100
-    /// Effort axis, mirroring the Today effort ring); the headline number is shown on the user's scale.
+    /// Strain axis, mirroring the Today effort ring); the headline number is shown on the user's scale.
     @ViewBuilder
     private func effortHero(rows: [WorkoutRow], effectiveRange: Range, groups: [SportGroup]) -> some View {
         let strains = rows.compactMap(\.strain)
@@ -815,21 +815,21 @@ struct WorkoutsView: View {
 
     @ViewBuilder
     private func effortHeroGauge(avgStrain: Double, hasData: Bool) -> some View {
-        // The signature liquid gauge: a filling `LiquidVessel` tinted Effort with the typical effort
-        // counting up over it — the SAME hero language Today's score cells, the Sleep Rest hero and the
-        // Trends headline use. The vessel fills to value/max on the user's selected Effort scale; the big
+        // The signature liquid gauge: a filling `LiquidVessel` tinted Strain with the typical effort
+        // counting up over it — the SAME hero language Today's score cells, the Sleep Sleep hero and the
+        // Trends headline use. The vessel fills to value/max on the user's selected Strain scale; the big
         // number is the same `effortDisplay` read-out the old ring showed.
         let diameter: CGFloat = 168
-        let scaleMax: Double = effortScale == .whoop ? 21 : 100
+        let scaleMax: Double = 21
         let displayValue = UnitFormatter.effortValue(avgStrain, scale: effortScale)
         let fraction = max(0, min(1, displayValue / scaleMax))
         VStack(spacing: 18) {
-            Text("TYPICAL EFFORT")
+            Text("TYPICAL STRAIN")
                 .font(StrandFont.overline).tracking(StrandFont.overlineTracking)
                 .foregroundStyle(StrandPalette.effortColor)
             if hasData {
                 ZStack {
-                    // Hero vessel → animated (this is one of the page's live gauges, like the Sleep Rest
+                    // Hero vessel → animated (this is one of the page's live gauges, like the Sleep Sleep
                     // hero and the Today score cells). Reduce-Motion falls back to the static frame inside
                     // LiquidVessel itself.
                     LiquidVessel(value: fraction, tint: StrandPalette.effortColor, animated: true)
@@ -844,15 +844,12 @@ struct WorkoutsView: View {
                             color: StrandPalette.textPrimary
                         )
                         .shadow(color: .black.opacity(0.5), radius: 6, y: 1)
-                        Text(effortScale == .whoop ? "of 21" : "of 100")
-                            .font(StrandFont.caption)
-                            .foregroundStyle(StrandPalette.textSecondary)
                     }
                     .allowsHitTesting(false)   // taps fall through to the vessel → splash
                 }
                 .frame(maxWidth: .infinity)
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(String(localized: "Typical effort \(UnitFormatter.effortDisplay(avgStrain, scale: effortScale))"))
+                .accessibilityLabel(String(localized: "Typical Strain \(UnitFormatter.effortDisplay(avgStrain, scale: effortScale))"))
             } else {
                 // No strain data in the window — an empty vessel (posed, no fill) with a centred "No data",
                 // the honest liquid analogue of the old empty ring.
@@ -867,7 +864,7 @@ struct WorkoutsView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(String(localized: "Typical effort, no data"))
+                .accessibilityLabel(String(localized: "Typical Strain, no data"))
             }
         }
     }
@@ -877,7 +874,7 @@ struct WorkoutsView: View {
                                  groups: [SportGroup], totalTimeH: Double) -> some View {
         let modal = modalSport(from: groups)
         VStack(alignment: .leading, spacing: 12) {
-            Text("Effort this \(effectiveRange.heroWord)")
+            Text("Strain this \(effectiveRange.heroWord)")
                 .font(StrandFont.headline)
                 .foregroundStyle(StrandPalette.textPrimary)
             HStack(spacing: NoopMetrics.gap) {
@@ -975,7 +972,7 @@ struct WorkoutsView: View {
     }
 
     private func sportCard(_ g: SportGroup, zones: WorkoutZones.Summary?) -> some View {
-        // Frosted Effort-tinted card with the sport glyph in the Effort world, an HR-zone mini-bar when
+        // Frosted Strain-tinted card with the sport glyph in the Strain world, an HR-zone mini-bar when
         // the sessions carry imported zones, and the bright "now" end-cap on its busiest zone.
         NoopCard(tint: StrandPalette.effortColor) {
             VStack(alignment: .leading, spacing: 12) {
@@ -1289,10 +1286,10 @@ struct WorkoutsView: View {
             colHeader(String(localized: "AVG HR"), width: ColWidth.hr, align: .trailing)
             colHeader(String(localized: "KCAL"), width: ColWidth.kcal, align: .trailing)
             colHeader(String(localized: "DIST"), width: ColWidth.dist, align: .trailing)
-            // #796 - per-session Effort (the stored 0-100 strain this workout contributed to the day),
-            // shown on the user's selected Effort scale. Same value the Effort ring and the detail's
-            // Effort card read, surfaced per row so each session's effort is visible without opening it.
-            colHeader(String(localized: "EFFORT"), width: ColWidth.effort, align: .trailing)
+            // #796 - per-session Strain (the stored 0-100 strain this workout contributed to the day),
+            // shown on the user's selected Strain scale. Same value the Strain ring and the detail's
+            // Strain card read, surfaced per row so each session's effort is visible without opening it.
+            colHeader(String(localized: "STRAIN"), width: ColWidth.effort, align: .trailing)
             Spacer(minLength: 0)
             colHeader(String(localized: "SOURCE"), width: ColWidth.source, align: .trailing)
             // Empty header over the per-row "•••" actions menu column (keeps SOURCE aligned).
@@ -1358,7 +1355,7 @@ struct WorkoutsView: View {
             cell(row.energyKcal.map { grouped($0) } ?? "–", width: ColWidth.kcal,
                  color: row.energyKcal != nil ? StrandPalette.metricAmber : nil)
             cell(distanceLabel(row.distanceM), width: ColWidth.dist)
-            // #796 - per-session Effort, on the user's scale, tinted the Effort colour when present.
+            // #796 - per-session Strain, on the user's scale, tinted the Strain colour when present.
             cell(Self.effortCellLabel(strain: row.strain, scale: effortScale), width: ColWidth.effort,
                  color: row.strain != nil ? StrandPalette.effortColor : nil)
 
@@ -1397,7 +1394,7 @@ struct WorkoutsView: View {
 
     // MARK: - Compact session row (#64, iPhone .compact)
 
-    /// A full-width native session row for iPhone. Line 1: sport glyph + name + per-session Effort. Line 2:
+    /// A full-width native session row for iPhone. Line 1: sport glyph + name + per-session Strain. Line 2:
     /// a "d MMM · HH:mm–HH:mm · 45m · 388 kcal · 118 bpm" summary, nil fields omitted. Trailing: the source
     /// badge + the existing ••• actions menu. In selection mode a leading checkmark (mergeable rows) or a
     /// lock glyph (imported, read-only) replaces the tap-to-detail gesture.
@@ -1508,8 +1505,8 @@ struct WorkoutsView: View {
     /// A full-sentence a11y label for a compact row.
     private func compactRowAccessibilityLabel(_ row: WorkoutRow, selectable: Bool, isSelected: Bool) -> String {
         let effort = row.strain != nil
-            ? String(localized: "Effort \(Self.effortCellLabel(strain: row.strain, scale: effortScale))")
-            : String(localized: "no Effort recorded")
+            ? String(localized: "Strain \(Self.effortCellLabel(strain: row.strain, scale: effortScale))")
+            : String(localized: "no Strain recorded")
         let base = String(localized: "\(WorkoutSource.displaySport(row.sport)), \(compactRowSubtitle(row)), \(effort)")
         guard selectionMode else { return base }
         if !selectable { return String(localized: "\(base). Imported, can't be merged.") }
@@ -1568,8 +1565,8 @@ struct WorkoutsView: View {
                    zonesJSON: row.zonesJSON, notes: row.notes)
     }
 
-    /// #796 - the per-session Effort cell label: the stored 0-100 strain mapped to the user's Effort scale
-    /// (the SAME `UnitFormatter.effortDisplay` every other Effort read-out routes through, so the toggle and
+    /// #796 - the per-session Strain cell label: the stored 0-100 strain mapped to the user's Strain scale
+    /// (the SAME `UnitFormatter.effortDisplay` every other Strain read-out routes through, so the toggle and
     /// rounding stay consistent), or "–" when the session has no captured strain. Pure + unit-testable.
     static func effortCellLabel(strain: Double?, scale: EffortScale) -> String {
         guard let strain else { return "–" }
@@ -1667,7 +1664,7 @@ struct WorkoutsView: View {
             case .all:     return String(localized: "all time")
             }
         }
-        /// A short noun for the effort hero's "Effort this …" headline.
+        /// A short noun for the effort hero's "Strain this …" headline.
         var heroWord: String {
             switch self {
             case .week:    return String(localized: "week")
@@ -1779,7 +1776,7 @@ struct WorkoutsView: View {
         static let hr: CGFloat = 64
         static let kcal: CGFloat = 70
         static let dist: CGFloat = 72
-        static let effort: CGFloat = 64   // #796 per-session Effort column
+        static let effort: CGFloat = 64   // #796 per-session Strain column
         static let source: CGFloat = 80
         static let action: CGFloat = 36   // trailing "•••" per-row actions menu
     }

@@ -11,8 +11,8 @@ import Foundation
 // Recovery % / Day Strain on 0–21 / Sleep, for users who came across from another band and want the old
 // glance back. NOOP's Today stays the default and is untouched.
 //
-// DISPLAY-ONLY, like the #268 Effort-scale toggle. This screen invents no score and stores nothing: it
-// reads the SAME values Today already computes (recovery / Rest composite / Effort strain / readiness) and
+// DISPLAY-ONLY, like the #268 Strain-scale toggle. This screen invents no score and stores nothing: it
+// reads the SAME values Today already computes (recovery / Sleep composite / Strain strain / readiness) and
 // re-presents them in the coupled layout. The only new mapping is the OPTIMAL strain band, a pure
 // display-only read of today's recovery to a suggested strain range (never fed back into scoring).
 //
@@ -60,8 +60,8 @@ struct CoupledView: View {
     /// dimmed ring + the "Last night · <date>" stamp so an old number is never passed off as new (#543/#779).
     private var isCarryingRecovery: Bool { day?.recovery == nil && carriedRecoveryDay?.recovery != nil }
 
-    /// Effort strain on NOOP's 0–100 axis for the day (stored row; no live recompute here, this is a
-    /// glance screen, not the primary Today hero). nil when the day has no scored Effort.
+    /// Strain strain on NOOP's 0–100 axis for the day (stored row; no live recompute here, this is a
+    /// glance screen, not the primary Today hero). nil when the day has no scored Strain.
     private var strain100: Double? { day?.strain }
 
     /// Day strain mapped onto the 0–21 coupled axis through the single display-boundary converter.
@@ -69,9 +69,9 @@ struct CoupledView: View {
         strain100.map { StrainScale.displayValue(fromStored: $0) }
     }
 
-    /// Sleep performance % for the day, the SAME single source of truth the Today Rest score and the Sleep
-    /// detail graph read: the imported figure when the export carried one, else the resolved Rest composite.
-    /// Never a local hours-vs-need approximation (keeps the coupled read in agreement with Today's Rest).
+    /// Sleep performance % for the day, the SAME single source of truth the Today Sleep score and the Sleep
+    /// detail graph read: the imported figure when the export carried one, else the resolved Sleep composite.
+    /// Never a local hours-vs-need approximation (keeps the coupled read in agreement with Today's Sleep).
     private var sleepPerformance: Double? {
         guard let d = day else { return nil }
         if let p = repo.importedSleep[d.day]?.performancePct { return p }
@@ -179,7 +179,7 @@ struct CoupledView: View {
     }
 
     /// The centre stack over the vessel: the recovery % counting up in white over the fluid, a RECOVERY
-    /// overline in the SAMPLED recovery colour, and the one-word readiness pill (Push / Maintain / Rest,
+    /// overline in the SAMPLED recovery colour, and the one-word readiness pill (Push / Maintain / Sleep,
     /// #205 read).
     @ViewBuilder
     private var heroCentre: some View {
@@ -235,7 +235,7 @@ struct CoupledView: View {
         return String(localized: "Recovery, no data yet")
     }
 
-    /// The one-word readiness pill (Push / Maintain / Rest), tinted by the readiness level, matching the
+    /// The one-word readiness pill (Push / Maintain / Sleep), tinted by the readiness level, matching the
     /// Today hero pill chrome. Reuses TodayView's word + level colour so the read stays consistent.
     private func readinessPill(_ word: String) -> some View {
         let tint = readinessTint(readinessLevel)
@@ -265,9 +265,9 @@ struct CoupledView: View {
     private var strainCard: some View {
         card {
             VStack(alignment: .leading, spacing: 14) {
-                SectionHeader("Day Strain", overline: "Effort", trailing: strainBandWord)
+                SectionHeader("Day Strain", overline: "Strain", trailing: strainBandWord)
                 HStack(alignment: .center, spacing: 16) {
-                    // Left: the liquid vessel filled to the 0–21 Day-Strain fraction (Effort world), with the
+                    // Left: the liquid vessel filled to the 0–21 Day-Strain fraction (Strain world), with the
                     // strain value counting up over the fluid — the coupled read on the classic 0–21 axis.
                     ZStack {
                         LiquidVessel(value: dayStrain21.map { max(0, min(1, $0 / 21)) },
@@ -364,9 +364,9 @@ struct CoupledView: View {
         } label: {
             card {
                 VStack(alignment: .leading, spacing: 14) {
-                    SectionHeader("Sleep performance", overline: "Last night", trailing: String(localized: "Rest"))
+                    SectionHeader("Sleep performance", overline: "Last night", trailing: String(localized: "Sleep"))
                     HStack(alignment: .center, spacing: 16) {
-                        // Left: the SLEEP PERFORMANCE % as the liquid vessel (Rest world), with the score
+                        // Left: the SLEEP PERFORMANCE % as the liquid vessel (Sleep world), with the score
                         // counting up over the fluid. Empty vessel when there's no scored performance.
                         ZStack {
                             LiquidVessel(value: sleepPerformance.map { max(0, min(1, $0 / 100)) },
@@ -491,7 +491,7 @@ struct CoupledView: View {
         let rhrBase = Baselines.foldHistory(repo.days.map { $0.restingHr.map(Double.init) },
                                             cfg: Baselines.restingHRCfg)
         let respBase = Baselines.foldHistory(repo.days.map(\.respRateBpm), cfg: Baselines.respCfg)
-        // Rest-quality term = the same sleep performance the sleep row shows, ÷100 (AnalyticsEngine's form).
+        // Sleep-quality term = the same sleep performance the sleep row shows, ÷100 (AnalyticsEngine's form).
         let sleepPerf = sleepPerformance.map { $0 / 100.0 }
         return RecoveryScorer.chargeDrivers(
             hrv: hrv, rhr: Double(rhr), resp: row.respRateBpm,
@@ -716,7 +716,9 @@ struct PaperPillarDetailView: View {
         case .charge:
             return repo.days.compactMap { day in day.recovery.map { (day.day, $0) } }
         case .effort:
-            return repo.days.compactMap { day in day.strain.map { (day.day, $0) } }
+            return repo.days.compactMap { day in
+                day.strain.map { (day.day, StrainScale.displayValue(fromStored: $0)) }
+            }
         case .rest:
             return repo.days.compactMap { day in
                 let value = repo.importedSleep[day.day]?.performancePct
@@ -795,11 +797,11 @@ struct PaperPillarDetailView: View {
                 HStack(spacing: 20) {
                     if let latest {
                         ScoreRing(value: latest, range: detailRange, accent: accent, size: 96,
-                                  format: { kind == .stress
+                                  format: { kind == .stress || kind == .effort
                                       ? String(format: "%.1f", $0)
                                       : "\(Int($0.rounded()))"
                                   },
-                                  centerCaption: kind == .stress ? "of 3" : "of 100")
+                                  centerCaption: kind == .stress ? "of 3" : nil)
                     } else {
                         ZStack {
                             Circle().stroke(StrandPalette.inset, lineWidth: 7)
@@ -876,8 +878,7 @@ struct PaperPillarDetailView: View {
                     }
                 }
                 .chartYAxis {
-                    AxisMarks(position: .leading,
-                              values: kind == .stress ? [0, 1.5, 3] : [0, 50, 100]) {
+                    AxisMarks(position: .leading, values: detailAxisValues) {
                         AxisGridLine().foregroundStyle(StrandPalette.hairline)
                         AxisValueLabel().font(StrandFont.micro)
                     }
@@ -905,7 +906,7 @@ struct PaperPillarDetailView: View {
                 factorRow(icon: "heart.fill", name: "RHR",
                           value: latestDay?.restingHr.map { "\($0) bpm" } ?? "—",
                           status: "Good", statusColor: StrandPalette.recoveryData)
-                factorRow(icon: "moon.fill", name: "Rest",
+                factorRow(icon: "moon.fill", name: "Sleep",
                           value: latestDay.flatMap { AnalyticsEngine.Rest.composite(daily: $0) }
                             .map { "\(Int($0.rounded()))%" } ?? "—",
                           status: "Good", statusColor: StrandPalette.recoveryData)
@@ -960,7 +961,7 @@ struct PaperPillarDetailView: View {
 
         return PaperCard {
             VStack(alignment: .leading, spacing: 0) {
-                Text("EFFORT CONTRIBUTORS")
+                Text("STRAIN CONTRIBUTORS")
                     .font(StrandFont.sectionOverline)
                     .tracking(StrandFont.sectionOverlineTracking)
                     .foregroundStyle(StrandPalette.textSecondary)
@@ -1244,14 +1245,26 @@ struct PaperPillarDetailView: View {
     private var detailTitle: String {
         switch kind {
         case .charge: return String(localized: "Recovery")
-        case .effort: return String(localized: "Effort")
-        case .rest: return String(localized: "Rest")
+        case .effort: return String(localized: "Strain")
+        case .rest: return String(localized: "Sleep")
         case .stress: return String(localized: "Stress")
         }
     }
 
     private var detailRange: ClosedRange<Double> {
-        kind == .stress ? 0...3 : 0...100
+        switch kind {
+        case .effort: return StrainScale.displayRange
+        case .stress: return 0...3
+        default: return 0...100
+        }
+    }
+
+    private var detailAxisValues: [Double] {
+        switch kind {
+        case .effort: return [0, 7, 14, 21]
+        case .stress: return [0, 1.5, 3]
+        default: return [0, 50, 100]
+        }
     }
 
     private var heroTitle: String {
@@ -1261,9 +1274,9 @@ struct PaperPillarDetailView: View {
             return RecoveryBands.band(for: latest).rawValue.capitalized
         case .effort:
             guard let latest else { return String(localized: "Calibrating") }
-            let band = StrainScale.band(StrainScale.displayValue(fromStored: latest)).title
-            return "\(band) \(String(localized: "Effort"))"
-        case .rest: return String(localized: "Good Rest")
+            let band = StrainScale.band(latest).title
+            return "\(band) \(String(localized: "Strain"))"
+        case .rest: return String(localized: "Good Sleep")
         case .stress:
             switch stressModel?.band {
             case .high: return String(localized: "High Stress")
@@ -1283,7 +1296,7 @@ struct PaperPillarDetailView: View {
     }
 
     private func scoreText(_ value: Double?) -> String {
-        value.map { kind == .stress ? String(format: "%.1f", $0) : "\(Int($0.rounded()))" } ?? "—"
+        value.map { kind == .stress || kind == .effort ? String(format: "%.1f", $0) : "\(Int($0.rounded()))" } ?? "—"
     }
 
     private func mean(_ values: [Double]) -> Double? {

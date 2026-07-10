@@ -42,7 +42,7 @@ struct LiveView: View {
         }
     }
 
-    /// Effort display scale (#268) — routes the live + saved workout Effort read-outs. Display-only.
+    /// Strain display scale (#268) — routes the live + saved workout Strain read-outs. Display-only.
     @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.hundred.rawValue
     private var effortScale: EffortScale { UnitPrefs.resolveEffortScale(effortScaleRaw) }
 
@@ -237,7 +237,7 @@ struct LiveView: View {
     /// The console's centrepiece: a live BPM LiquidVessel beside a live-physiology stack (R-R tube,
     /// rolling RMSSD, last frame/event). Side-by-side on a wide window (Mac), stacked on a narrow one
     /// (iPhone) via ViewThatFits. Both halves are leaf views that own LiveState so the 1 Hz HR / R-R
-    /// notifies re-render only them, not the whole console. The card carries the Effort tint world.
+    /// notifies re-render only them, not the whole console. The card carries the Strain tint world.
     private var bodyConsole: some View {
         card {
             ViewThatFits(in: .horizontal) {
@@ -374,7 +374,7 @@ struct LiveView: View {
     private func workoutSavedRow(_ row: WorkoutRow) -> some View {
         let mins = Int((row.durationS ?? 0) / 60)
         let parts = [String(localized: "\(mins) min"), row.avgHr.map { String(localized: "\($0) avg bpm") },
-                     row.strain.map { String(localized: "effort \(UnitFormatter.effortDisplay($0, scale: effortScale))") }].compactMap { $0 }
+                     row.strain.map { String(localized: "Strain \(UnitFormatter.effortDisplay($0, scale: effortScale))") }].compactMap { $0 }
         return HStack(spacing: 8) {
             Image(systemName: "checkmark.circle.fill").foregroundStyle(StrandPalette.accent)
             Text("Workout saved · \(parts.joined(separator: " · "))")
@@ -882,7 +882,7 @@ private struct LiveHeartReadout: View {
         return HRZones.zones(maxHR: Double(hrMax)).zoneNumber(forBPM: Double(bpm))
     }
 
-    /// The focal vessel / numeral colour: the live HR-zone hue when streaming, the Effort world otherwise.
+    /// The focal vessel / numeral colour: the live HR-zone hue when streaming, the Strain world otherwise.
     private var hrTint: Color {
         guard displayHR != nil else { return StrandPalette.textTertiary }
         return liveZone >= 1 ? StrandPalette.hrZoneColor(liveZone) : StrandPalette.effortColor
@@ -1188,11 +1188,11 @@ private struct ActiveWorkoutLive: View {
                      tint: model.bpm == nil ? StrandPalette.textPrimary : StrandPalette.metricRose)
                 stat(String(localized: "Avg"), workout.avgHr > 0 ? "\(workout.avgHr)" : "—")
                 stat(String(localized: "Peak"), workout.peakHr > 0 ? "\(workout.peakHr)" : "—")
-                stat(String(localized: "Effort"), UnitFormatter.effortDisplay(workout.liveStrain, scale: effortScale),
+                stat(String(localized: "Strain"), UnitFormatter.effortDisplay(workout.liveStrain, scale: effortScale),
                      tint: StrandPalette.strainColor(workout.liveStrain))
             }
             // A liquid effort tube — the live effort as a fraction of the 0–100 strain axis.
-            LiquidTube(frac: max(0, min(1, workout.liveStrain / 100)),
+            LiquidTube(frac: max(0, min(1, StrainScale.displayValue(fromStored: workout.liveStrain) / 21)),
                        tint: StrandPalette.strainColor(workout.liveStrain), height: 10, animated: true)
                 .accessibilityHidden(true)
         }

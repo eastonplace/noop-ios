@@ -12,7 +12,7 @@ import StrandAnalytics
 // `LiquidPressStyle` on the tappable drink rows line the screen up with the liquid Today + batch-1 tabs.
 // BYTE-PARITY twin of the Android `HydrationScreen`: the day total + history come from the local-only
 // `HydrationStore` series (additive day total), and the goal is the pure `HydrationGoal` engine (profile
-// sex + today's Effort bump). Per-tap rows aren't separately persisted on either platform — the day total
+// sex + today's Strain bump). Per-tap rows aren't separately persisted on either platform — the day total
 // is the source of truth, so the screen shows the honest day figure.
 struct HydrationView: View {
     @EnvironmentObject var repo: Repository

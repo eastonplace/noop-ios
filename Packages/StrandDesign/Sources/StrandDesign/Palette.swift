@@ -114,9 +114,9 @@ public enum StrandPalette {
     // MARK: Pillar accents and semantic tints
     public static let chargeAccent   = Color(light: "#2FA45C", dark: "#43C173")
     public static let chargeTint     = Color(light: "#E7F4EC", dark: "#183124")
-    public static let effortAccent   = Color(light: "#7A5AF8", dark: "#9B82FF")
+    public static let effortAccent   = strainAccent
     public static let effortTint     = Color(light: "#F0EBFE", dark: "#2A2440")
-    public static let restAccent     = Color(light: "#5B6CF9", dark: "#7D8BFF")
+    public static let restAccent     = sleepAccent
     public static let restTint       = Color(light: "#EAEDFE", dark: "#232840")
     public static let stressAccent   = Color(light: "#E0A63A", dark: "#EBBE5C")
     public static let stressTint     = Color(light: "#FBF3DF", dark: "#382F1E")
@@ -134,7 +134,7 @@ public enum StrandPalette {
     public static let sleepNeedTeal  = Color(light: "#00A66E", dark: "#00F19F")
 
     // Journal and Experimental affordances intentionally keep their purple identity
-    // when the old Effort token migrates to constant Strain blue.
+    // when the old Strain token migrates to constant Strain blue.
     public static let journalAccent  = Color(light: "#7A5AF8", dark: "#9B82FF")
 
     public static let stressRestful  = chargeAccent
@@ -218,11 +218,11 @@ public enum StrandPalette {
     /// The signature recovery gradient (bronze → champagne, or Classic red→green).
     public static var recoveryGradient: Gradient { Gradient(stops: recoveryStops) }
 
-    // MARK: Strain / Effort ramp — canonical Effort purple family (R3).
-    public static let strain000 = Color(light: "#D8CDFE", dark: "#3C315F")
-    public static let strain033 = Color(light: "#B9A6FD", dark: "#5D4A93")
-    public static let strain066 = Color(light: "#9B82FB", dark: "#7C64C8")
-    public static let strain100 = effortAccent
+    // MARK: Strain — C13 is constant blue at every value; bands change words, never color.
+    public static let strain000 = strainAccent
+    public static let strain033 = strainAccent
+    public static let strain066 = strainAccent
+    public static let strain100 = strainAccent
 
     public static var strainStops: [Gradient.Stop] {
         isClassic ? cStrainStops : [
@@ -275,10 +275,10 @@ public enum StrandPalette {
     //
     // Each daily score owns a two-stop accent gradient (deep → bright) plus a glow.
     // These drive the layered gauges, frosted-card tints and scenic heroes. Charge
-    // owns the brand gold; Effort the amber ramp; Rest the blue scale.
+    // owns the brand gold; Strain the amber ramp; Sleep the blue scale.
 
     // Each domain's accent / glow follows the chart style: Titanium (gold/amber/blue) or Classic
-    // (Charge=green, Effort=blue, Rest=indigo, Stress=amber) so card tints + gauge tips + glows match
+    // (Charge=green, Strain=blue, Sleep=indigo, Stress=amber) so card tints + gauge tips + glows match
     // the data scale. The gauge ARC itself samples the recovery/strain/stress STOPS above, so it goes
     // full red→green / blue / green→red in Classic regardless of these.
 
@@ -290,18 +290,18 @@ public enum StrandPalette {
     /// Diagonal accent pair for the Charge card wash + gauge stroke (deep → bright).
     public static var chargeGradient: Gradient { Gradient(colors: [chargeDeep, chargeBright]) }
 
-    /// Effort (strain) — purple.
-    public static var effortColor: Color  { effortAccent }
-    public static var effortDeep: Color   { Color(light: "#5E43D0", dark: "#7E64DC") }
-    public static var effortBright: Color { Color(light: "#9B82FB", dark: "#B29FFF") }
-    public static var effortGlow: Color   { effortAccent }
+    /// Compatibility aliases for internal `.effort` identifiers; rendered Strain is always C13 blue.
+    public static var effortColor: Color  { strainAccent }
+    public static var effortDeep: Color   { strainAccent }
+    public static var effortBright: Color { strainAccent }
+    public static var effortGlow: Color   { strainAccent }
     public static var effortGradient: Gradient { Gradient(colors: [effortDeep, effortBright]) }
 
-    /// Rest (sleep) — blue.
-    public static var restColor: Color  { restAccent }
-    public static var restDeep: Color   { Color(light: "#4050D5", dark: "#6070E7") }
-    public static var restBright: Color { Color(light: "#7D8BFF", dark: "#9AA5FF") }
-    public static var restGlow: Color   { restAccent }
+    /// Compatibility aliases for internal `.rest` identifiers; rendered Sleep is C13 slate-blue.
+    public static var restColor: Color  { sleepAccent }
+    public static var restDeep: Color   { sleepAccent }
+    public static var restBright: Color { sleepAccent }
+    public static var restGlow: Color   { sleepAccent }
     public static var restGradient: Gradient { Gradient(colors: [restDeep, restBright]) }
 
     /// Stress — amber, with the fixed restful→high ramp used only by stress timelines.
@@ -364,16 +364,16 @@ public enum StrandPalette {
         sample(stops: recoveryStops, at: score / 100.0)
     }
 
-    /// Sample the strain ("Effort") gradient at a value on NOOP's 0...100 Effort scale.
+    /// C13 Strain is constant blue; the stored value never changes its color.
     public static func strainColor(_ strain: Double) -> Color {
-        sample(stops: strainStops, at: strain / 100.0)
+        strainAccent
     }
 
-    /// Effort tint sampled by a 0...1 fraction (e.g. value/scaleMax), spreading the full ember→amber
-    /// ramp. Prefer this for gauge tips / value-tinted accents so a high Effort reads as bright amber
+    /// Strain tint sampled by a 0...1 fraction (e.g. value/scaleMax), spreading the full ember→amber
+    /// ramp. Prefer this for gauge tips / value-tinted accents so a high Strain reads as bright amber
     /// rather than ember. `strainColor(_:)` stays for callers holding a 0...100 value.
     public static func effortTint(fraction: Double) -> Color {
-        sample(stops: strainStops, at: min(max(fraction, 0), 1))
+        strainAccent
     }
 
     /// The state word for a recovery score, per spec §9.3.

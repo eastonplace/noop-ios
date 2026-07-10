@@ -6,7 +6,7 @@ import SwiftUI
 //   • a soft frosted inner disc (subtle radial fill, hairline rim)
 //   • a faint full-span track ring carved from `surfaceInset` (the Titanium "well")
 //   • a gradient-stroked progress arc (AngularGradient over the domain ramp:
-//     Charge=green, Effort=blue, Rest=slate-blue — caller-supplied score tokens; WHOOP, no gold)
+//     Charge=green, Strain=blue, Sleep=slate-blue — caller-supplied score tokens; WHOOP, no gold)
 //   • a clean end-cap dot at the arc tip (small white core, very faint shadow) — NO outer bloom
 //   • a centred SF Pro **Rounded** bold number with an "of N" caption + state word
 //

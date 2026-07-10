@@ -13,7 +13,7 @@ struct MetricDescriptor: Identifiable, Hashable {
     let decimals: Int
     let higherIsBetter: Bool?
     /// A short, plain-English one-liner for the metric (tile subtitle / catalog blurb). Optional —
-    /// only the three headline scores (Charge / Effort / Rest) carry one today; everything else is nil.
+    /// only the three headline scores (Recovery / Strain / Sleep) carry one today; everything else is nil.
     var description: String? = nil
     var id: String { source + ":" + key }
 
@@ -43,7 +43,7 @@ struct MetricDescriptor: Identifiable, Hashable {
     /// the unit-less `format` above. Callers that don't carry an effort scale get `.hundred` (no change).
     func format(_ v: Double, effortScale: EffortScale) -> String {
         guard isEffort else { return format(v) }
-        let n = effortScale == .whoop ? StrainScale.formatted(v) : UnitFormatter.effortDisplay(v, scale: effortScale)
+        let n = StrainScale.formatted(v)
         return "\(n) \(displayUnit(effortScale: effortScale))"
     }
 
@@ -73,7 +73,7 @@ struct MetricDescriptor: Identifiable, Hashable {
         default:
             guard isEffort else { return format(v) }
             // A delta on the 0–100 axis rescales by the same ×21/100 factor (the offset-free `effortValue`).
-            let n = effortScale == .whoop ? StrainScale.formatted(v) : UnitFormatter.effortDisplay(v, scale: effortScale)
+            let n = StrainScale.formattedDelta(v)
             return "\(n) \(displayUnit(effortScale: effortScale))"
         }
     }
@@ -123,7 +123,7 @@ enum MetricCatalog {
         d("skin_temp", String(localized: "Skin Temperature"), "Charge", "°C", "my-whoop", "thermometer", 1, nil),
 
         // ── Rest (was Sleep)
-        d("sleep_performance", String(localized: "Rest"), "Rest", "%", "my-whoop", "moon.stars", 0, true,
+        d("sleep_performance", String(localized: "Sleep"), "Rest", "%", "my-whoop", "moon.stars", 0, true,
           String(localized: "How restorative your sleep was: duration, efficiency, deep+REM, timing.")),
         d("in_bed_min", String(localized: "Time in Bed"), "Rest", "min", "my-whoop", "bed.double", 0, nil),
         d("sleep_total_min", String(localized: "Asleep Time"), "Rest", "min", "my-whoop", "moon.zzz", 0, true),
@@ -139,8 +139,8 @@ enum MetricCatalog {
         d("sleep_debt_min", String(localized: "Sleep Debt"), "Rest", "min", "my-whoop", "exclamationmark.circle", 0, false),
 
         // ── Effort (was Strain)
-        d("strain", String(localized: "Effort"), "Effort", "/100", "my-whoop", "flame", 1, nil,
-          String(localized: "Cardiovascular load for the day, on a 0-100 scale (was 0-21).")),
+        d("strain", String(localized: "Strain"), "Effort", "/21", "my-whoop", "flame", 1, nil,
+          String(localized: "Cardiovascular load for the day, on a 0-21 scale.")),
         d("steps", String(localized: "Steps"), "Effort", "", "apple-health", "figure.walk", 0, true),
         // On-device steps ESTIMATE for a WHOOP 4.0 (no real step count over BLE): the strap's daily
         // motion volume scaled by a personal calibration. Stored under the computed "-noop" source, so
@@ -199,8 +199,8 @@ enum MetricCatalog {
         switch category {
         case "Heart":     return String(localized: "Heart")
         case "Charge":    return String(localized: "Recovery")
-        case "Rest":      return String(localized: "Rest")
-        case "Effort":    return String(localized: "Effort")
+        case "Rest":      return String(localized: "Sleep")
+        case "Effort":    return String(localized: "Strain")
         case "Health":    return String(localized: "Health")
         case "Nutrition": return String(localized: "Nutrition")
         case "Mind":      return String(localized: "Mind")

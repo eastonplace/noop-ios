@@ -180,12 +180,12 @@ struct RhythmConsentGate: View {
 
 /// The signature visualization: a Poincaré scatter of successive (NN[i], NN[i+1]) pairs.
 /// A steady rhythm draws a tight elongated comet along the diagonal; a more variable one
-/// draws a rounder, more diffuse cloud. Purely descriptive — drawn in the calm Rest blue
+/// draws a rounder, more diffuse cloud. Purely descriptive — drawn in the calm Sleep blue
 /// world (never red). The identity diagonal is shown for reference. Decorative for
 /// accessibility (the numbers + label carry the meaning).
 private struct PoincarePlot: View {
     let points: [RhythmScreener.PoincarePoint]
-    /// The world colour the cloud + axes are drawn in (Rest blue — calm, never alarm).
+    /// The world colour the cloud + axes are drawn in (Sleep blue — calm, never alarm).
     var tint: Color = StrandPalette.effortAccent
     var brightTint: Color = StrandPalette.effortAccent
 
@@ -361,7 +361,7 @@ struct RhythmView: View {
 
                 // Two calm liquid readouts of the night's real descriptive fractions (both 0–1, neutral —
                 // never a verdict): the beat-to-beat variation index and the extra/skipped fraction. The
-                // liquid tube idiom, drawn in the same Rest-blue world so it never reads as alarm. The
+                // liquid tube idiom, drawn in the same Sleep-blue world so it never reads as alarm. The
                 // stats grid below still prints every exact number; these are a descriptive picture.
                 if let hw = headlineWindow {
                     VStack(spacing: 8) {

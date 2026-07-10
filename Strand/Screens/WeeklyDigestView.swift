@@ -38,7 +38,7 @@ enum WeeklyDigestSource {
         for d in days {
             if let v = d.recovery { charge[d.day] = v }
             if let v = d.strain   { effort[d.day] = v }
-            // Rest = the sleep-performance composite, recomputed on the persisted day.
+            // Sleep = the sleep-performance composite, recomputed on the persisted day.
             if let r = restScore(for: d) { rest[d.day] = r }
             if let v = d.restingHr { rhr[d.day] = Double(v) }
             if let v = d.avgHrv    { hrv[d.day] = v }
@@ -49,10 +49,10 @@ enum WeeklyDigestSource {
             effortDisplayFactor: effortDisplayFactor)
     }
 
-    /// The 0–100 Rest composite for a persisted day, via AnalyticsEngine's display-path
+    /// The 0–100 Sleep composite for a persisted day, via AnalyticsEngine's display-path
     /// helper (duration-vs-need / efficiency / restorative / consistency). Returns nil
     /// for a day with no in-bed sleep / missing efficiency, so non-sleep days are simply
-    /// absent from the Rest series.
+    /// absent from the Sleep series.
     private static func restScore(for d: DailyMetric) -> Double? {
         AnalyticsEngine.Rest.composite(daily: d)
     }
@@ -121,8 +121,8 @@ struct WeeklyDigestContent: View {
     let digest: WeeklyDigest
     var compact: Bool = false
 
-    /// The Effort display scale (#268), so the Week-in-review Effort gauge matches the Today tile
-    /// and the Trends small-multiple instead of being stuck on "of 100". Charge/Rest stay 0–100.
+    /// The Strain display scale (#268), so the Week-in-review Strain gauge matches the Today tile
+    /// and the Trends small-multiple instead of being stuck on "of 100". Charge/Sleep stay 0–100.
     @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.hundred.rawValue
     private var effortScale: EffortScale { UnitPrefs.resolveEffortScale(effortScaleRaw) }
 
@@ -138,7 +138,7 @@ struct WeeklyDigestContent: View {
         case .charge: return .charge
         case .effort: return .effort
         case .rest:   return .rest
-        case .hrv:    return .rest    // HRV shares the Rest / periwinkle world
+        case .hrv:    return .rest    // HRV shares the Sleep / periwinkle world
         case .rhr:    return .stress
         }
     }
@@ -309,7 +309,7 @@ struct WeeklyDigestContent: View {
         VStack(alignment: .leading, spacing: 6) {
             Divider().overlay(StrandPalette.hairline)
             if let sd = digest.sleepConsistencySD {
-                Text("Sleep steadiness: Rest varied ±\(fmt1(sd)) pts night to night.")
+                Text("Sleep steadiness: Sleep varied ±\(fmt1(sd)) pts night to night.")
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textTertiary)
             }
@@ -342,11 +342,11 @@ struct WeeklyDigestContent: View {
 
     private func meanText(_ s: WeeklyMetricSummary, effortScale: EffortScale) -> String {
         guard s.thisWeek.n > 0 else { return "—" }
-        // #463/#268: Effort is STORED 0-100; render it on the user's chosen display scale WITH the
+        // #463/#268: Strain is STORED 0-100; render it on the user's chosen display scale WITH the
         // denominator ("4.6 / 21", "21.6 / 100") so VoiceOver never speaks a different number than the
         // visible gauge. Mirrors Android meanText(s, effortScale) byte-for-byte.
         if s.metric == .effort {
-            return "\(UnitFormatter.effortDisplay(s.thisWeek.mean, scale: effortScale)) / \(UnitFormatter.effortScaleMax(effortScale))"
+            return UnitFormatter.effortDisplay(s.thisWeek.mean, scale: effortScale)
         }
         let v = Int(s.thisWeek.mean.rounded())
         return s.metric.unit.isEmpty ? "\(v)" : "\(v) \(s.metric.unit)"
@@ -422,8 +422,8 @@ enum WeeklyDigestChipStyle {
 
 // MARK: - Digest score card (one headline domain: gauge + week-over-week chip)
 
-/// A frosted, domain-tinted summary card for one 0–100 weekly score (Charge / Effort /
-/// Rest): a compact layered ring gauge for the week's mean, the domain label, and a
+/// A frosted, domain-tinted summary card for one 0–100 weekly score (Charge / Strain /
+/// Sleep): a compact layered ring gauge for the week's mean, the domain label, and a
 /// TrendChip for the week-over-week move. Owns its own gauge draw-in @State, like Today.
 private struct DigestScoreCard: View {
     let summary: WeeklyMetricSummary
@@ -431,14 +431,14 @@ private struct DigestScoreCard: View {
     let deltaText: String
     let deltaTone: Color
     let accessibility: String
-    /// The Effort display scale (#268). Only consulted for the Effort card; Charge/Rest are genuine
+    /// The Strain display scale (#268). Only consulted for the Strain card; Charge/Sleep are genuine
     /// 0–100 scores and ignore it, keeping their "of 100" caption and integer mean.
     var effortScale: EffortScale = .hundred
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var animatedFraction: Double = 0
 
-    /// The Effort card is the only one that follows the 0–100/0–21 toggle; the rest are fixed 0–100.
+    /// The Strain card is the only one that follows the 0–100/0–21 toggle; the rest are fixed 0–100.
     private var isEffort: Bool { summary.metric == .effort }
 
     private var fraction: Double {
@@ -451,10 +451,8 @@ private struct DigestScoreCard: View {
             ? UnitFormatter.effortDisplay(summary.thisWeek.mean, scale: effortScale)
             : "\(Int(summary.thisWeek.mean.rounded()))"
     }
-    /// "of 100" for the genuine 0–100 scores; the Effort card follows the scale toggle ("of 100"/"of 21").
-    private var captionText: String {
-        isEffort ? String(localized: "of \(UnitFormatter.effortScaleMax(effortScale))") : String(localized: "of 100")
-    }
+    /// "of 100" for the genuine 0–100 scores; the Strain card follows the scale toggle ("of 100"/"of 21").
+    private var captionText: String? { nil }
 
     var body: some View {
         NoopCard(padding: 14, tint: domain.color) {

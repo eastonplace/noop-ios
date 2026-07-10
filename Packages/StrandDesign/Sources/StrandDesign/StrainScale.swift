@@ -35,6 +35,16 @@ public enum StrainScale {
         return display * storedRange.upperBound / displayRange.upperBound
     }
 
+    /// Convert a signed stored-axis difference without clamping away negative movement.
+    public static func displayDelta(fromStored storedDelta: Double) -> Double {
+        guard storedDelta.isFinite else { return 0 }
+        return storedDelta * storedToDisplayFactor
+    }
+
+    public static func formattedDelta(_ storedDelta: Double) -> String {
+        String(format: "%.1f", displayDelta(fromStored: storedDelta))
+    }
+
     /// Format a stored value on the 0...21 display scale with one decimal place.
     public static func formatted(_ storedValue: Double) -> String {
         String(format: "%.1f", displayValue(fromStored: storedValue))

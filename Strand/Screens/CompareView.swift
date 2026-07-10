@@ -118,7 +118,7 @@ private struct CompareSeries: Identifiable {
 struct CompareView: View {
     @EnvironmentObject var repo: Repository
 
-    // Effort display scale (#268) — routes the Effort metric's min/max + hover read-outs onto WHOOP's
+    // Strain display scale (#268) — routes the Strain metric's min/max + hover read-outs onto WHOOP's
     // 0–21 axis; display-only, the normalized overlay shape is untouched. Every other metric is
     // scale-agnostic (see MetricDescriptor.format).
     @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.hundred.rawValue
@@ -406,7 +406,7 @@ struct CompareView: View {
                 // categorical series colour so the lines stay distinguishable against the wash.
                 tint: StrandPalette.accent
             ) {
-                // The overlay is min–max NORMALIZED 0–1, so the Effort scale never touches the line shape;
+                // The overlay is min–max NORMALIZED 0–1, so the Strain scale never touches the line shape;
                 // only the per-series hover read-outs convert (passed through to the tooltip). (#268)
                 OverlayChart(series: nonEmpty, effortScale: effortScale, height: NoopMetrics.chartHeight)
             } footer: {
@@ -434,7 +434,7 @@ struct CompareView: View {
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textPrimary)
                     Spacer()
-                    // Real min/max labels honour the Effort scale (#268); other metrics are unchanged.
+                    // Real min/max labels honour the Strain scale (#268); other metrics are unchanged.
                     Text("\(s.metric.format(s.realMin, effortScale: effortScale))-\(s.metric.format(s.realMax, effortScale: effortScale))")
                         .font(StrandFont.captionNumber)
                         .foregroundStyle(StrandPalette.textSecondary)
@@ -675,7 +675,7 @@ private struct FlowChips: View {
 /// the nearest day.
 private struct OverlayChart: View {
     let series: [CompareSeries]
-    /// Effort display scale (#268) — passed through to the hover tooltip's real-value read-outs. The
+    /// Strain display scale (#268) — passed through to the hover tooltip's real-value read-outs. The
     /// plotted points stay min–max normalized 0–1, so the line shape is unaffected.
     var effortScale: EffortScale = .hundred
     var height: CGFloat = 260
@@ -1026,7 +1026,7 @@ private struct MultiTooltip: View {
     /// Real values on the hovered day keyed by series id, precomputed in the chart's
     /// model. Replaces a per-frame linear `rows` scan per series.
     let values: [String: Double]
-    /// Effort display scale (#268) — the per-series real value converts onto WHOOP's 0–21 axis when set.
+    /// Strain display scale (#268) — the per-series real value converts onto WHOOP's 0–21 axis when set.
     var effortScale: EffortScale = .hundred
     let anchorX: CGFloat
     let container: CGSize

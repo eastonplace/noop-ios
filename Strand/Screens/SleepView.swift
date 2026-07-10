@@ -205,7 +205,7 @@ struct SleepView: View {
                     await repo.editSleepTimes(detectedStartTs: edit.detectedStartTs, oldEndTs: edit.wakeTs,
                                               storedStagesJSON: edit.stagesJSON,
                                               newStartTs: newBedTs, newEndTs: newWakeTs)
-                    // Re-score the day so the dashboard aggregates (Rest / recovery) honor the corrected
+                    // Re-score the day so the dashboard aggregates (Sleep / recovery) honor the corrected
                     // sleep window, not just the Sleep tab's session view; then refresh the read cache.
                     await intelligence.analyzeRecent()
                     await repo.refresh()
@@ -283,7 +283,7 @@ struct SleepView: View {
             .formatted(date: .omitted, time: .shortened)
     }
 
-    /// The transient undo strip: a Rest-tinted frosted banner with the suppressed window and a real Undo
+    /// The transient undo strip: a Sleep-tinted frosted banner with the suppressed window and a real Undo
     /// Button. role-alert-ish for VoiceOver; the Undo button carries its own explicit label.
     @ViewBuilder
     private func sleepUndoBanner(_ banner: SleepUndoBanner) -> some View {
@@ -338,8 +338,8 @@ struct SleepView: View {
                 HStack(spacing: 20) {
                     if let score {
                         ScoreRing(value: score, range: 0...100, accent: StrandPalette.restAccent,
-                                  size: 96, centerCaption: "of 100")
-                            .accessibilityLabel("Rest score \(Int(score.rounded())) of 100")
+                                  size: 96, centerCaption: nil)
+                            .accessibilityLabel("Sleep score \(Int(score.rounded())) of 100")
                     } else {
                         ZStack {
                             Circle().stroke(StrandPalette.inset, lineWidth: 8)
@@ -347,15 +347,15 @@ struct SleepView: View {
                                 .foregroundStyle(StrandPalette.textSecondary)
                         }
                         .frame(width: 96, height: 96)
-                        .accessibilityLabel("Rest score unavailable")
+                        .accessibilityLabel("Sleep score unavailable")
                     }
 
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(score.map { "\(sleepScoreWord($0)) Rest" } ?? String(localized: "Rest"))
+                        Text(score.map { "\(sleepScoreWord($0)) Sleep" } ?? String(localized: "Sleep"))
                             .font(StrandFont.cardTitle)
                             .foregroundStyle(StrandPalette.textPrimary)
                         Text(score == nil
-                             ? "Rest is still calibrating from your recorded sleep."
+                             ? "Sleep is still calibrating from your recorded sleep."
                              : "This was a solid night of recovery.")
                             .font(StrandFont.body)
                             .foregroundStyle(StrandPalette.textSecondary)
@@ -453,8 +453,8 @@ struct SleepView: View {
         .frame(maxWidth: .infinity, alignment: alignment == .leading ? .leading : .trailing)
     }
 
-    /// The Rest world's opening: a scenic indigo backdrop with — when the night carries a 0–100
-    /// sleep-performance score — the canonical liquid `LiquidVessel` in the Rest tint with the score
+    /// The Sleep world's opening: a scenic indigo backdrop with — when the night carries a 0–100
+    /// sleep-performance score — the canonical liquid `LiquidVessel` in the Sleep tint with the score
     /// counting up over it (the SAME hero language Today's score cells and the Trends headline use);
     /// otherwise a big SF-Rounded hours-slept headline over the same backdrop. A `SourceBadge` states
     /// whether the score is WHOOP's own imported figure or NOOP's on-device estimate. Presentation-only
@@ -463,8 +463,8 @@ struct SleepView: View {
     private func restHero(_ model: SleepModel) -> some View {
         let score = model.performance.latest
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            SectionHeader("Sleep performance", overline: "Last night", trailing: String(localized: "Rest"))
-            // A subtle night atmosphere sits behind the sleep hero ONLY (the Rest world's whisper:
+            SectionHeader("Sleep performance", overline: "Last night", trailing: String(localized: "Sleep"))
+            // A subtle night atmosphere sits behind the sleep hero ONLY (the Sleep world's whisper:
             // faint indigo wash + crescent moon over the near-black canvas, no glow), clipped to the
             // card. Replaces the now-flat ScenicHeroBackground here.
             VStack(spacing: NoopMetrics.space4) {
@@ -472,7 +472,7 @@ struct SleepView: View {
                     // R7: the liquid vessel is intentionally replaced by the canonical flat Paper ring.
                     VStack(spacing: NoopMetrics.space3) {
                         ScoreRing(value: score, range: 0...100, accent: StrandPalette.restAccent,
-                                  size: 96, centerCaption: "of 100")
+                                  size: 96, centerCaption: nil)
                         Text(sleepScoreWord(score))
                             .font(StrandFont.subhead.weight(.semibold))
                             .foregroundStyle(StrandPalette.restAccent)
@@ -506,7 +506,7 @@ struct SleepView: View {
         }
     }
 
-    /// A short Rest state word for the hero gauge — same banding the synthesis hero uses.
+    /// A short Sleep state word for the hero gauge — same banding the synthesis hero uses.
     private func sleepScoreWord(_ score: Double) -> String {
         switch score {
         case ..<50:  return String(localized: "Poor")
@@ -622,7 +622,7 @@ struct SleepView: View {
                     .accessibilityLabel("Add a nap")
                 }
                 // Daily split (#518): only meaningful once the day has a nap; a single-night day reads
-                // exactly as before. Total = main + naps, the time that drives the day's Rest.
+                // exactly as before. Total = main + naps, the time that drives the day's Sleep.
                 if !naps.isEmpty {
                     napSummaryRow(mainMin: mainMin, napMin: napMin)
                     Divider().overlay(StrandPalette.hairline)
@@ -643,7 +643,7 @@ struct SleepView: View {
         }
     }
 
-    /// The Main / Naps / Total split for a day that has at least one nap, so what drives the day's Rest
+    /// The Main / Naps / Total split for a day that has at least one nap, so what drives the day's Sleep
     /// total is explainable at a glance. Minutes formatted with the shared `durationText`. (#518)
     @ViewBuilder
     private func napSummaryRow(mainMin: Double, napMin: Double) -> some View {
@@ -771,7 +771,7 @@ struct SleepView: View {
             if intervals.count >= 2 {
                 motionStrip(night)
             }
-            // H9 — when the engine's Rest confidence flags this night's staging as low-confidence (a
+            // H9 — when the engine's Sleep confidence flags this night's staging as low-confidence (a
             // high-efficiency night whose deep+REM share is implausibly low → a likely staging miss, not
             // a real night with no restorative sleep), say so honestly under the breakdown rather than
             // presenting the suspect split as fact. Read straight from `ScoreConfidence.rest(...)` — the
@@ -821,7 +821,7 @@ struct SleepView: View {
     /// sleep) whose restorative (deep+REM) share is implausibly low, which the EEG-free classifier is far
     /// more likely to have mis-staged than a genuine night with no deep or REM. Delegates to the engine's
     /// pure `ScoreConfidence.rest(...)` H9 overload (efficiency in [0,1], seconds for the totals) so the UI
-    /// and the persisted Rest confidence agree by construction. Needs staged sleep + a real efficiency
+    /// and the persisted Sleep confidence agree by construction. Needs staged sleep + a real efficiency
     /// reading; a pooled/no-stage or unknown-efficiency night is never flagged (its base tier already
     /// reads honestly). (#H9)
     private func stageStagingIsLowConfidence(_ night: Night) -> Bool {
@@ -833,14 +833,14 @@ struct SleepView: View {
 
     /// Pure H9 gate (unit-testable without a live view) — true when a night's staging is low-confidence:
     /// a high-efficiency night whose deep+REM share is below the restorative floor. Built on the engine's
-    /// own `ScoreConfidence.rest(...)` so the UI flag and the persisted Rest confidence agree. `asleepMin`,
+    /// own `ScoreConfidence.rest(...)` so the UI flag and the persisted Sleep confidence agree. `asleepMin`,
     /// `deepMin`, `remMin` are minutes; `efficiency` is asleep/in-bed in [0,1]. Returns false for an unstaged
     /// or zero-asleep night (no staging to doubt). Mirror EXACTLY in Kotlin. (#H9)
     static func isStagingLowConfidence(asleepMin: Double, deepMin: Double, remMin: Double,
                                        efficiency: Double) -> Bool {
         guard asleepMin > 0 else { return false }
         let restorativeMin = max(0, deepMin) + max(0, remMin)
-        // An UNSTAGED night (no deep+REM at all) has no staging split to doubt — its base Rest
+        // An UNSTAGED night (no deep+REM at all) has no staging split to doubt — its base Sleep
         // confidence already reads honestly as `.building` (NOT a downgrade), so it must never be
         // flagged. Only a night that DID stage some sleep can be a suspicious "high efficiency yet
         // implausibly little restorative" staging miss.
@@ -880,7 +880,7 @@ struct SleepView: View {
     /// first were effectively hidden. The header now carries just the date span.
     @ViewBuilder
     private func sleepWindowRow(_ night: Night) -> some View {
-        // A frosted Rest-tinted card (was a flat surfaceRaised block) so the window row sits in the
+        // A frosted Sleep-tinted card (was a flat surfaceRaised block) so the window row sits in the
         // same colour world as the rest of the screen. Bevel treatment — content unchanged.
         NoopCard(padding: NoopMetrics.cardInnerPadding, tint: StrandPalette.restColor) {
             VStack(alignment: .leading, spacing: NoopMetrics.rowSpacing) {
@@ -1513,7 +1513,7 @@ struct SleepView: View {
             LazyVGrid(columns: tileColumns, alignment: .leading, spacing: NoopMetrics.gap) {
 
                 StatTile(
-                    label: "Rest",
+                    label: "Sleep",
                     value: pctValue(perf.latest),
                     caption: vsTypical(perf.latest, perf.typical, suffix: "%"),
                     accent: perf.latest.map { StrandPalette.recoveryColor($0) } ?? StrandPalette.textPrimary,
@@ -2190,16 +2190,16 @@ struct SleepView: View {
     }
 
     /// Sleep performance %: the imported WHOOP figure (sleep_performance, 0–100) when the
-    /// export carried one for that day; else the REAL resolved Rest composite for that day —
-    /// the same single source of truth the Today Rest score reads (AnalyticsEngine.Rest.composite,
+    /// export carried one for that day; else the REAL resolved Sleep composite for that day —
+    /// the same single source of truth the Today Sleep score reads (AnalyticsEngine.Rest.composite,
     /// what Repository.dailyColumn resolves "sleep_performance" to), NOT a local hours-vs-need
-    /// approximation. Keeps the Rest detail graph in agreement with the Today Rest score. (#614
+    /// approximation. Keeps the Sleep detail graph in agreement with the Today Sleep score. (#614
     /// follow-up) Values land 0–100 via the composite; the metric() finite filter drops the rest.
     private var performanceSeries: Metric {
         let imported = repo.importedSleep
         return metric { d in
             if let p = imported[d.day]?.performancePct { return p }   // export-verbatim
-            return AnalyticsEngine.Rest.composite(daily: d)            // real resolved Rest composite
+            return AnalyticsEngine.Rest.composite(daily: d)            // real resolved Sleep composite
         }
     }
 

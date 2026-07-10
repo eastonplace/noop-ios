@@ -5,7 +5,7 @@ import StrandAnalytics
 /// Intelligence — NOOP's own recovery/strain/sleep scores, computed on-device from raw strap data
 /// using the WHOOP model shape. Makes the app independent of WHOOP's cloud for live-collected days.
 ///
-/// i18n: the By-Day core labels (Effort/Charge/Rest/HRV/RHR) and the Charge-model "Effort" heading are
+/// i18n: the By-Day core labels (Strain/Charge/Sleep/HRV/RHR) and the Charge-model "Strain" heading are
 /// looked up via `String(localized:)` so non-English locales (e.g. German, issue #1020) actually
 /// translate them instead of rendering the English literal. pt-PT catalog strings adopted from
 /// tigercraft4's PR #1018 (marked needs_review — machine ES→PT conversion pending native review).
@@ -19,7 +19,7 @@ struct IntelligenceView: View {
 
     @State private var range: IntelRange = .month
 
-    // Effort display scale (#268) — routes every Effort value/label on this screen. Display-only.
+    // Strain display scale (#268) — routes every Strain value/label on this screen. Display-only.
     @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.hundred.rawValue
     private var effortScale: EffortScale { UnitPrefs.resolveEffortScale(effortScaleRaw) }
 
@@ -60,7 +60,7 @@ struct IntelligenceView: View {
                 IntelSyncingNote()
                 DataPendingNote(
                     title: "Building from your strap",
-                    message: "This builds from the strap as it syncs. Effort and rest appear after you have worn it and slept a night. Recovery needs about four nights of sleep to learn your baseline (you'll see \"Calibrating\" until then), and keeps sharpening over your first couple of weeks. On a WHOOP 5 or MG the strap banks little history, so the night count can climb slowly or sit at 0 of 4 until you have worn it across a few nights. That's its sync limit, not a fault. Import your WHOOP export to skip the wait.",
+                    message: "This builds from the strap as it syncs. Strain and rest appear after you have worn it and slept a night. Recovery needs about four nights of sleep to learn your baseline (you'll see \"Calibrating\" until then), and keeps sharpening over your first couple of weeks. On a WHOOP 5 or MG the strap banks little history, so the night count can climb slowly or sit at 0 of 4 until you have worn it across a few nights. That's its sync limit, not a fault. Import your WHOOP export to skip the wait.",
                     symbol: "brain.head.profile"
                 )
             } else {
@@ -120,7 +120,7 @@ struct IntelligenceView: View {
     }()
 
     /// Evening forecast of tomorrow-morning Charge from tonight's known levers. Anchored to
-    /// the recent Charge baseline, nudged by today's Effort vs your norm and how much sleep
+    /// the recent Charge baseline, nudged by today's Strain vs your norm and how much sleep
     /// you typically bank, then mean-reverted. `results` is newest-first; the forecaster wants
     /// oldest→newest, so each series is reversed. `nil` (and the card hidden) until there are
     /// enough scored nights to anchor honestly — never a fabricated number.
@@ -202,7 +202,7 @@ struct IntelligenceView: View {
                         .accessibilityHidden(true)
                     Text("How this works").font(StrandFont.headline).foregroundStyle(StrandPalette.textPrimary)
                 }
-                Text("Recovery weighs your HRV against your personal baseline (~55%), resting heart rate (~20%), rest quality (~15%), respiration (~5%) and skin-temperature deviation (~5%). Effort is a 0-\(UnitFormatter.effortScaleMax(effortScale)) cardiovascular load from time in heart-rate zones. Rest is staged from movement and heart rate. Everything is computed here from the strap's raw data. It works for any day NOOP collected raw streams.")
+                Text("Recovery weighs your HRV against your personal baseline (~55%), resting heart rate (~20%), rest quality (~15%), respiration (~5%) and skin-temperature deviation (~5%). Strain is a 0-\(UnitFormatter.effortScaleMax(effortScale)) cardiovascular load from time in heart-rate zones. Sleep is staged from movement and heart rate. Everything is computed here from the strap's raw data. It works for any day NOOP collected raw streams.")
                     .font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                 // The Charge model made concrete — the five weighted inputs, each its own metric accent.
@@ -210,11 +210,11 @@ struct IntelligenceView: View {
                     Text("Recovery model").strandOverline()
                     weightRow(String(localized: "Heart-rate variability"), "~55%", fraction: 0.55, color: StrandPalette.metricPurple)
                     weightRow(String(localized: "Resting heart rate"), "~20%", fraction: 0.20, color: StrandPalette.metricRose)
-                    weightRow(String(localized: "Rest quality"), "~15%", fraction: 0.15, color: StrandPalette.metricCyan)
+                    weightRow(String(localized: "Sleep quality"), "~15%", fraction: 0.15, color: StrandPalette.metricCyan)
                     weightRow(String(localized: "Respiration"), "~5%", fraction: 0.05, color: StrandPalette.accent)
                     weightRow(String(localized: "Skin-temperature deviation"), "~5%", fraction: 0.05, color: StrandPalette.metricAmber)
                     HStack {
-                        Text(String(localized: "Effort")).font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
+                        Text(String(localized: "Strain")).font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
                         Spacer()
                         Text("0-\(UnitFormatter.effortScaleMax(effortScale)) scale")
                             .font(StrandFont.captionNumber).foregroundStyle(StrandPalette.effortColor)
@@ -277,13 +277,13 @@ struct IntelligenceView: View {
                 HStack(spacing: 0) {
                     stat(String(localized: "Recovery"), d.recovery.map { "\(Int($0.rounded()))%" } ?? "—",
                          d.recovery.map { RecoveryBands.color(for: $0) } ?? StrandPalette.textSecondary)
-                    stat(String(localized: "Effort"), d.strain.map { UnitFormatter.effortDisplay($0, scale: effortScale) } ?? "—",
+                    stat(String(localized: "Strain"), d.strain.map { UnitFormatter.effortDisplay($0, scale: effortScale) } ?? "—",
                          d.strain.map { StrandPalette.strainColor($0) } ?? StrandPalette.textSecondary)
-                    stat(String(localized: "Rest"), d.sleepMin.map { "\(Int($0 / 60))h \(Int($0.truncatingRemainder(dividingBy: 60)))m" } ?? "—", StrandPalette.restColor)
+                    stat(String(localized: "Sleep duration"), d.sleepMin.map { "\(Int($0 / 60))h \(Int($0.truncatingRemainder(dividingBy: 60)))m" } ?? "—", StrandPalette.restColor)
                     stat(String(localized: "HRV"), d.hrv.map { "\(Int($0.rounded()))" } ?? "—", StrandPalette.metricPurple)
                     stat(String(localized: "RHR"), d.rhr.map { "\($0)" } ?? "—", StrandPalette.metricRose)
                 }
-                // Effort load meter (0–100) as a filling LiquidTube — the horizontal liquid vessel Today's
+                // Strain load meter (0–100) as a filling LiquidTube — the horizontal liquid vessel Today's
                 // Key Metrics + Sleep's stage bars use — tinted along the strain ramp so it reads as
                 // at-a-glance cardio load. Static (posed) so each day row costs a cached frame, not a live
                 // canvas; a real metric, so it earns a liquid accent.

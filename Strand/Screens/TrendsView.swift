@@ -50,10 +50,10 @@ struct TrendsView: View {
     // own range picker; this just presents it with the loaded history.
     @State private var showingReport = false
 
-    /// Rest's per-day series, keyed by "yyyy-MM-dd". Rest is the sleep_performance COMPOSITE (the same
-    /// number the Today Rest score + the Sleep Rest-detail plot, #614 follow-up) — NOT raw efficiency,
-    /// which read differently under the same "Rest" label and made the Trends Rest graph disagree with
-    /// the Today Rest score (#732). sleep_performance is a metricSeries, not a DailyMetric field, so load
+    /// Sleep's per-day series, keyed by "yyyy-MM-dd". Sleep is the sleep_performance COMPOSITE (the same
+    /// number the Today Sleep score + the Sleep Sleep-detail plot, #614 follow-up) — NOT raw efficiency,
+    /// which read differently under the same "Sleep" label and made the Trends Sleep graph disagree with
+    /// the Today Sleep score (#732). sleep_performance is a metricSeries, not a DailyMetric field, so load
     /// it once (mirroring TodayView's restScore source) and key by day for `resolve` below.
     @State private var sleepPerfByDay: [String: Double] = [:]
 
@@ -63,7 +63,7 @@ struct TrendsView: View {
     // long-form charts; this only moves the weekly digest at the top.
     @State private var weekOffset = 0
 
-    // Effort display scale (#268) — routes the Effort small-multiple's numbers + unit. Display-only.
+    // Strain display scale (#268) — routes the Strain small-multiple's numbers + unit. Display-only.
     @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.hundred.rawValue
     private var effortScale: EffortScale { UnitPrefs.resolveEffortScale(effortScaleRaw) }
 
@@ -170,7 +170,7 @@ struct TrendsView: View {
 
     /// The window's trend as a signed mean-of-recent-half minus mean-of-earlier-half. Drives a
     /// TrendChip so the card reads its direction at a glance, like Today's deltas. nil for a window
-    /// too short to split. `higherIsBetter == nil` (e.g. Effort) keeps the chip neutral.
+    /// too short to split. `higherIsBetter == nil` (e.g. Strain) keeps the chip neutral.
     private func periodChange(_ pts: [TrendPoint]) -> Double? {
         guard pts.count >= 4 else { return nil }
         let mid = pts.count / 2
@@ -260,9 +260,9 @@ struct TrendsView: View {
         .sheet(isPresented: $showingReport) {
             TrendsReportSheet(days: repo.days)
         }
-        // #732 — load the resolved sleep_performance series so Rest plots the SAME composite the Today
-        // Rest score uses (not raw efficiency). Mirrors TodayView's restScore read. Keyed on the day
-        // count so a newly-banked/-scored night refreshes Rest reactively, like the other metrics that
+        // #732 — load the resolved sleep_performance series so Sleep plots the SAME composite the Today
+        // Sleep score uses (not raw efficiency). Mirrors TodayView's restScore read. Keyed on the day
+        // count so a newly-banked/-scored night refreshes Sleep reactively, like the other metrics that
         // read `repo.days` directly (and like the Android LaunchedEffect(days) twin).
         .task(id: repo.days.count) {
             let s = await repo.exploreSeries(key: "sleep_performance", source: "my-whoop")
@@ -296,15 +296,18 @@ struct TrendsView: View {
                     summary.thisWeek.n > 0 ? RecoveryBands.color(for: summary.thisWeek.mean) : nil
                 } ?? StrandPalette.recoveryData
             )
-            paperScoreTile(.effort, accent: StrandPalette.effortAccent)
-            paperScoreTile(.rest, accent: StrandPalette.restAccent)
+            paperScoreTile(.effort, accent: StrandPalette.strainAccent)
+            paperScoreTile(.rest, accent: StrandPalette.sleepAccent)
         }
     }
 
     private func paperScoreTile(_ metric: WeeklyMetric, accent: Color) -> some View {
         let summary = paperDigest.summary(metric)
         let hasValue = (summary?.thisWeek.n ?? 0) > 0
-        let value = hasValue ? "\(Int((summary?.thisWeek.mean ?? 0).rounded()))" : "—"
+        let mean = summary?.thisWeek.mean ?? 0
+        let value: String = hasValue
+            ? (metric == .effort ? StrainScale.formatted(mean) : "\(Int(mean.rounded()))")
+            : "—"
         let delta = summary?.wowDelta ?? 0
         let sign = delta >= 0 ? "+" : "−"
         return PaperCard(padding: 12) {
@@ -312,7 +315,9 @@ struct TrendsView: View {
                 Text(LocalizedStringKey(metric.label))
                     .font(StrandFont.caption).foregroundStyle(accent)
                 Text(value).font(StrandFont.statValue).foregroundStyle(StrandPalette.textPrimary)
-                Text(hasValue ? "\(sign)\(Int(abs(delta).rounded())) vs last week" : "No data this week")
+                Text(hasValue
+                     ? "\(sign)\(metric == .effort ? StrainScale.formattedDelta(abs(delta)) : "\(Int(abs(delta).rounded()))") vs last week"
+                     : "No data this week")
                     .font(StrandFont.micro)
                     .foregroundStyle(summary?.wowGoodness == -1 ? StrandPalette.destructive : StrandPalette.success)
                     .lineLimit(2)
@@ -327,8 +332,8 @@ struct TrendsView: View {
                 Text("Scores Over Time").strandOverline()
                 HStack(spacing: 12) {
                     paperLegend("Recovery", color: StrandPalette.recoveryData)
-                    paperLegend("Effort", color: StrandPalette.effortAccent)
-                    paperLegend("Rest", color: StrandPalette.restAccent)
+                    paperLegend("Strain", color: StrandPalette.strainAccent)
+                    paperLegend("Sleep", color: StrandPalette.sleepAccent)
                 }
                 Chart {
                     ForEach(paperWeekDays, id: \.day) { day in
@@ -339,26 +344,28 @@ struct TrendsView: View {
                             PointMark(x: .value("Day", date), y: .value("Recovery", value))
                                 .foregroundStyle(RecoveryBands.color(for: value)).symbolSize(18)
                         }
-                        if let value = day.strain, let date = date(day.day) {
-                            LineMark(x: .value("Day", date), y: .value("Effort", value))
+                        if let stored = day.strain, let date = date(day.day) {
+                            let value = StrainScale.displayValue(fromStored: stored)
+                            let normalized = value / StrainScale.displayRange.upperBound * 100
+                            LineMark(x: .value("Day", date), y: .value("Strain", normalized))
                                 .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-                                .foregroundStyle(by: .value("Series", "Effort"))
-                            PointMark(x: .value("Day", date), y: .value("Effort", value))
-                                .foregroundStyle(by: .value("Series", "Effort")).symbolSize(18)
+                                .foregroundStyle(by: .value("Series", "Strain"))
+                            PointMark(x: .value("Day", date), y: .value("Strain", normalized))
+                                .foregroundStyle(by: .value("Series", "Strain")).symbolSize(18)
                         }
                         if let value = sleepPerfByDay[day.day], let date = date(day.day) {
-                            LineMark(x: .value("Day", date), y: .value("Rest", value))
+                            LineMark(x: .value("Day", date), y: .value("Sleep", value))
                                 .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-                                .foregroundStyle(by: .value("Series", "Rest"))
-                            PointMark(x: .value("Day", date), y: .value("Rest", value))
-                                .foregroundStyle(by: .value("Series", "Rest")).symbolSize(18)
+                                .foregroundStyle(by: .value("Series", "Sleep"))
+                            PointMark(x: .value("Day", date), y: .value("Sleep", value))
+                                .foregroundStyle(by: .value("Series", "Sleep")).symbolSize(18)
                         }
                     }
                 }
-                .chartForegroundStyleScale(domain: ["Recovery", "Effort", "Rest"],
+                .chartForegroundStyleScale(domain: ["Recovery", "Strain", "Sleep"],
                                            range: [StrandPalette.recoveryData,
-                                                   StrandPalette.effortAccent,
-                                                   StrandPalette.restAccent])
+                                                   StrandPalette.strainAccent,
+                                                   StrandPalette.sleepAccent])
                 .chartLegend(.hidden)
                 .chartYScale(domain: 0...100)
                 .chartXAxis {
@@ -368,9 +375,18 @@ struct TrendsView: View {
                     }
                 }
                 .chartYAxis {
-                    AxisMarks(position: .trailing, values: [0, 50, 100]) { _ in
+                    AxisMarks(position: .leading, values: [0, 50, 100]) { _ in
                         AxisGridLine().foregroundStyle(StrandPalette.hairline)
                         AxisValueLabel().font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                    }
+                    AxisMarks(position: .trailing, values: [0, 100.0 / 3.0, 200.0 / 3.0, 100]) { value in
+                        AxisValueLabel {
+                            if let normalized = value.as(Double.self) {
+                                Text("\(Int((normalized * 21 / 100).rounded()))")
+                            }
+                        }
+                        .font(StrandFont.micro)
+                        .foregroundStyle(StrandPalette.strainAccent)
                     }
                 }
                 .chartPlotStyle { $0.background(StrandPalette.inset.opacity(0.45)) }
@@ -522,45 +538,44 @@ struct TrendsView: View {
         return String(localized: "\(n) weeks ago")
     }
 
-    // MARK: Week in Review — the Charge / Effort / Rest trio in pip language
+    // MARK: Week in Review — the Charge / Strain / Sleep trio in pip language
 
     /// The three daily scores as NOOP pip rows over the resolved window: Charge (recovery, 0–100),
-    /// Effort (strain, shown on the WHOOP 0–21 scale per the unit toggle) and Rest (sleep_performance
-    /// composite, 0–100 — the same metric the Today Rest score shows, #732). Each value ticks up via
+    /// Strain (strain, shown on the WHOOP 0–21 scale per the unit toggle) and Sleep (sleep_performance
+    /// composite, 0–100 — the same metric the Today Sleep score shows, #732). Each value ticks up via
     /// `CountUpText`; the segmented `PipBar` cascades on appear. Self-
     /// hides when none of the three carry a window mean, so an empty history shows nothing here.
     @ViewBuilder
     private func weekInReview(charge: ResolvedMetric, effort: ResolvedMetric, rest: ResolvedMetric) -> some View {
         let chargeAvg = mean(charge.points)
-        let effortAvg = mean(effort.points)   // stored 0–100 internal Effort scale
+        let effortAvg = mean(effort.points)   // stored 0–100 internal Strain scale
         let restAvg = mean(rest.points)
         if chargeAvg != nil || effortAvg != nil || restAvg != nil {
             NoopCard(tint: StrandPalette.recoveryData) {
                 VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
-                    SectionHeader("Week in review", overline: "Recovery · Effort · Rest")
+                    SectionHeader("Week in review", overline: "Recovery · Strain · Sleep")
                     if let v = chargeAvg {
                         pipScoreRow(label: "Recovery", value: v, range: 0...100,
                                     tint: RecoveryBands.color(for: v), frac: v / 100,
                                     format: { "\(Int($0.rounded()))" })
                     }
                     if let v = effortAvg {
-                        // Effort is stored 0–100 but reads on the WHOOP 0–21 scale per the unit toggle:
-                        // convert the displayed number + bar position to the user's chosen Effort scale so
+                        // Strain is stored 0–100 but reads on the WHOOP 0–21 scale per the unit toggle:
+                        // convert the displayed number + bar position to the user's chosen Strain scale so
                         // the pip fill and the count-up value agree (both on the same scale).
                         let display = UnitFormatter.effortValue(v, scale: effortScale)
                         let maxV = UnitFormatter.effortValue(100, scale: effortScale)
-                        // On the 0–21 WHOOP scale Effort reads to one decimal (e.g. "9.0"); on the 0–100
+                        // On the 0–21 WHOOP scale Strain reads to one decimal (e.g. "9.0"); on the 0–100
                         // scale it's a whole number — match `effortScaleMax` so the count-up format agrees.
-                        let oneDecimal = effortScale == .whoop
                         // The vessel fills off the stored 0–100 internal scale (v), so it agrees with the
-                        // Charge/Rest vessels regardless of the displayed Effort unit.
-                        pipScoreRow(label: "Effort", value: display, range: 0...maxV,
-                                    tint: StrandPalette.effortColor, frac: v / 100,
-                                    format: { oneDecimal ? String(format: "%.1f", $0) : "\(Int($0.rounded()))" })
+                        // Charge/Sleep vessels regardless of the displayed Strain unit.
+                        pipScoreRow(label: "Strain", value: display, range: 0...maxV,
+                                    tint: StrandPalette.strainAccent, frac: display / 21,
+                                    format: { _ in StrainScale.formatted(v) })
                     }
                     if let v = restAvg {
-                        pipScoreRow(label: "Rest", value: v, range: 0...100,
-                                    tint: StrandPalette.restColor, frac: v / 100,
+                        pipScoreRow(label: "Sleep", value: v, range: 0...100,
+                                    tint: StrandPalette.sleepAccent, frac: v / 100,
                                     format: { "\(Int($0.rounded()))" })
                     }
                 }
@@ -719,14 +734,16 @@ struct TrendsView: View {
         let cols = [GridItem(.adaptive(minimum: 320), spacing: NoopMetrics.gap)]
         let hrvPts = hrv.points
         let rhrPts = rhr.points
-        let strainPts = strain.points
+        let strainPts = strain.points.map {
+            TrendPoint(date: $0.date, value: StrainScale.displayValue(fromStored: $0.value))
+        }
 
         return VStack(alignment: .leading, spacing: NoopMetrics.gap) {
             // No trailing window label — the range bar's overline already states it.
             SectionHeader("Daily signals", overline: "Trends")
             LazyVGrid(columns: cols, alignment: .leading, spacing: NoopMetrics.gap) {
                 // HRV / Resting HR are Charge sub-signals → the Charge (green) card world, each line
-                // keeping its established metric hue for legibility. Effort is the WHOOP blue strain world.
+                // keeping its established metric hue for legibility. Strain is the WHOOP blue strain world.
                 metricChart(
                     title: "Heart rate variability", unit: "ms",
                     accessibilityTitle: String(localized: "Heart rate variability"),
@@ -753,18 +770,18 @@ struct TrendsView: View {
                 )
                 metricChart(
                     // Plotted points + range stay on the stored 0–100 scale (line shape unchanged); only the
-                    // displayed numbers + unit follow the Effort-scale toggle, converted inside `fmt`. (#268)
-                    title: "Effort", unit: "/ \(UnitFormatter.effortScaleMax(effortScale))",
-                    accessibilityTitle: String(localized: "Effort"),
+                    // displayed numbers + unit follow the Strain-scale toggle, converted inside `fmt`. (#268)
+                    title: "Strain", unit: "/ 21",
+                    accessibilityTitle: String(localized: "Strain"),
                     metricKey: "strain",
                     points: strainPts,
-                    // WHOOP: Effort/Strain is always BLUE — a deep→bright blue line, not the amber ramp.
-                    gradient: gradient(StrandPalette.effortColor),
-                    tip: StrandPalette.effortColor,
-                    tint: StrandPalette.effortColor,
+                    // WHOOP: Strain/Strain is always BLUE — a deep→bright blue line, not the amber ramp.
+                    gradient: gradient(StrandPalette.strainAccent),
+                    tip: StrandPalette.strainAccent,
+                    tint: StrandPalette.strainAccent,
                     higherIsBetter: nil,
-                    range: valueRange(strainPts, fallback: 0...100),
-                    fmt: { UnitFormatter.effortDisplay($0, scale: effortScale) }
+                    range: 0...21,
+                    fmt: { String(format: "%.1f", $0) }
                 )
             }
         }

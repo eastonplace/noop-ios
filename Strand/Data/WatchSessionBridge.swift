@@ -162,7 +162,7 @@ final class WatchSessionBridge: NSObject, ObservableObject {
         // "open NOOP on your iPhone" empty state instead of implying calibration is underway.
         let hasAnyDay = day != nil
         let charge = day?.recovery
-        let effort = day?.strain
+        let effort = day?.strain.map { StrainScale.displayValue(fromStored: $0) }
         let rest = restScore
 
         let snap = WatchScoreSnapshot(

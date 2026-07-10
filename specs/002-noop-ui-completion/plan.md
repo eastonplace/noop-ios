@@ -204,3 +204,35 @@ navigation.
 | D11 | fidelity.md is a living doc — re-scored in T55 | Keeps acceptance measurable instead of vibes |
 | D12 | Adopt WHOOP color logic (C13) with WHOOP hexes as dark values + adapted light values | Easton asked for WHOOP parity "everywhere"; official brand PDF gives exact values; verbatim neon fails on paper canvas, so hue-preserving light variants keep the logic identical while passing AC-3 |
 | D13 | Teal CTAs rejected; teal only for sleep-need value | Paper design language (ink CTAs) is the approved look; wholesale teal would fork the reference aesthetic |
+
+## Throughput addendum (2026-07-10, added after T33)
+
+Pace through T33 plus Codex's own T31/T32 notes identify the time sinks. These
+adjustments are authorized and supersede the per-task loop where stated:
+
+1. **Work from a persistent local clone — never build from the iCloud path.**
+   Xcode's file coordinator blocked the iCloud project path (T31 note) and every
+   build has been paying a full /tmp mirror. Instead: `git clone` once to
+   `~/Code/noop-completion`, check out `reskin/paper-ui`, and run ALL subsequent
+   edits/builds/simulators/screenshots there, pushing each commit to
+   `private-noop-report` exactly as before. The iCloud working copy is left
+   untouched during execution; after T55 sync it with
+   `git fetch private-noop-report && git merge --ff-only private-noop-report/reskin/paper-ui`.
+   Incremental builds in the persistent clone replace the full mirror+rebuild.
+2. **Batch verification for ∥ tasks.** Build must stay green per task, but the
+   seeded-simulator screenshot sweep may be batched per ∥ group (one sim boot, one
+   navigation pass shooting every screen in the batch), commits still one per task.
+   Exception: value-correctness traces (T34 strain 0–21, T36 recovery equality) keep
+   their own shots — they are evidence, not style checks.
+3. **Combine same-file passes.** T34+T35 hit the same xcstrings catalogs and many of
+   the same screens: execute as ONE sweep (two commits or one `reskin(T34+T35)`),
+   and run DE/IT machine translation ONCE at the end of Phase 1, not per task.
+4. **Subagents: mostly no.** Parallel agents on one Xcode project collide on
+   xcstrings/project.yml/DerivedData/simulator and pay merge tax with no build-time
+   win on one machine. Sanctioned exception: Phase 3's disjoint-file tasks
+   (T41 `TrendsView` / T42 `SleepView`+`Hypnogram` / T43 `WorkoutsView`+post-run /
+   T45 `LiveView`+`DevicesView`) may run as parallel worktrees IF the harness
+   supports it — with the rule that NO StrandDesign package file may be edited
+   inside the parallel batch (shared-primitive changes land in T38–T40 first,
+   sequentially), and one merged verification sweep runs before T46. When in doubt,
+   stay sequential — correctness over throughput.

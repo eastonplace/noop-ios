@@ -1,6 +1,6 @@
 import Foundation
 
-/// The phone to watch payload. The iPhone is the brain (M1 computes Charge / Effort / Rest with
+/// The phone to watch payload. The iPhone is the brain (M1 computes Charge / Strain / Sleep with
 /// confidence + provenance); this is the small, honest snapshot it pushes over WatchConnectivity for
 /// the watch app + its complication to DISPLAY. The watch never recomputes a score, it only renders
 /// what arrived here.
@@ -21,14 +21,14 @@ public struct WatchScoreSnapshot: Codable, Equatable, Sendable {
     /// `nil` and the watch shows a cal marker rather than a number.
     public var chargeCalibrating: Bool
 
-    /// Effort (strain) on NOOP's 0 to 100 axis. `nil` when there is no usable HR window for the day.
+    /// Strain on the canonical 0 to 21 display axis. `nil` when there is no usable HR window for the day.
     public var effort: Double?
-    /// True when Effort is still calibrating. `effort` is `nil` while this is true.
+    /// True when Strain is still calibrating. `effort` is `nil` while this is true.
     public var effortCalibrating: Bool
 
-    /// Rest (sleep) composite, 0 to 100. `nil` when there is no matched in-bed session for the day.
+    /// Sleep (sleep) composite, 0 to 100. `nil` when there is no matched in-bed session for the day.
     public var rest: Double?
-    /// True when Rest is still calibrating. `rest` is `nil` while this is true.
+    /// True when Sleep is still calibrating. `rest` is `nil` while this is true.
     public var restCalibrating: Bool
 
     /// Most recent heart rate the phone knows about (bpm). The watch shows its OWN live HR off its
@@ -96,7 +96,7 @@ public struct WatchScoreSnapshot: Codable, Equatable, Sendable {
     // that: degrade a too-old snapshot to a dash, and always show a short recency label next to the rings.
 
     /// How old a snapshot may be before the watch should stop presenting it as the current day's scores.
-    /// ~36h, not 24h: scores anchor on a logical day and Rest in particular lands the morning after, so a
+    /// ~36h, not 24h: scores anchor on a logical day and Sleep in particular lands the morning after, so a
     /// little past a full day is normal. Beyond this it's almost certainly a phone the watch lost touch with.
     private static let stalenessThreshold: TimeInterval = 36 * 3600
 

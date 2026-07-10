@@ -79,7 +79,7 @@ private func metricGradient(_ m: MetricDescriptor) -> Gradient {
 }
 
 /// The Bevel colour world a metric's detail hero belongs to — the catalog's category
-/// already names it (Charge / Rest / Effort), and Heart/Health/Nutrition/Mind metrics
+/// already names it (Charge / Sleep / Strain), and Heart/Health/Nutrition/Mind metrics
 /// fall back to the world that best fits their accent. Drives the ScenicHeroBackground
 /// tint + the hero gauge/number glow.
 private func metricDomain(_ m: MetricDescriptor) -> DomainTheme {
@@ -98,7 +98,7 @@ private func metricDomain(_ m: MetricDescriptor) -> DomainTheme {
 }
 
 /// A 0–100 score that reads naturally as a layered ring gauge in the hero (vs a bare
-/// headline number). Recovery / Rest / Blood-oxygen sit on a clean 0–100 axis.
+/// headline number). Recovery / Sleep / Blood-oxygen sit on a clean 0–100 axis.
 private func metricGaugeFraction(_ m: MetricDescriptor, value: Double) -> Double? {
     switch m.key {
     case "recovery", "sleep_performance", "spo2", "hours_vs_needed_pct",
@@ -333,7 +333,7 @@ private struct MetricRow: View {
     let metric: MetricDescriptor
     let isEmpty: Bool
 
-    // Trailing unit chip follows the Imperial/Metric preference (kg→lb, °C→°F) and the Effort scale
+    // Trailing unit chip follows the Imperial/Metric preference (kg→lb, °C→°F) and the Strain scale
     // (/100→/21, #268).
     @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
     @AppStorage(UnitPrefs.temperatureKey) private var temperatureRaw = ""
@@ -408,7 +408,7 @@ struct MetricDetailView: View {
     // here; everything else is unit-agnostic and renders unchanged.
     @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
     @AppStorage(UnitPrefs.temperatureKey) private var temperatureRaw = ""
-    // Effort display scale (#268) — routes the Effort metric's numbers + unit; display-only, the plotted
+    // Strain display scale (#268) — routes the Strain metric's numbers + unit; display-only, the plotted
     // series stays 0–100. Every other metric is scale-agnostic (see MetricDescriptor.format).
     @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.hundred.rawValue
     private var unitSystem: UnitSystem { UnitSystem(rawValue: unitSystemRaw) ?? .metric }

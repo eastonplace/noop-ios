@@ -11,7 +11,7 @@ import MapKit
 //
 // A READ-ONLY drill-down for one tapped session, built ONLY from the locked Noop component system
 // (NoopCard / ChartCard / SectionHeader / StatTile / SegmentBar idiom) so it sits in the same
-// instrument-grade, Effort-amber colour world as the Workouts list it opens from.
+// instrument-grade, Strain-amber colour world as the Workouts list it opens from.
 //
 //   • a header (sport displayName · date · duration) with the source badge,
 //   • a 3-up StatTile strip (avg HR · max HR · calories / distance),
@@ -20,7 +20,7 @@ import MapKit
 //   • an HR-curve ChartCard fed the workout's 5-min-ish HR buckets over [startTs, endTs],
 //   • an HR-zones bar — imported per-workout zones when the row carries them, else the window's raw
 //     HR samples binned into age-derived %HRmax zone-minutes (honestly labelled as approximate),
-//   • the session's Effort/strain contribution when one was captured.
+//   • the session's Strain/strain contribution when one was captured.
 //
 // Presented as a `.sheet` wrapped in a NavigationStack by WorkoutsView — these screens aren't hosted in
 // a per-screen NavigationStack, so a sheet is the in-app drill-down idiom (mirrors HealthView opening
@@ -141,10 +141,10 @@ struct WorkoutDetailView: View {
 
     private var paperEffortHero: some View {
         let display = row.strain.map { UnitFormatter.effortValue($0, scale: effortScale) }
-        let maximum: Double = effortScale == .whoop ? 21 : 100
+        let maximum: Double = 21
         return PaperCard {
             VStack(alignment: .leading, spacing: 14) {
-                Text("RUN EFFORT")
+                Text("RUN STRAIN")
                     .font(StrandFont.sectionOverline)
                     .tracking(StrandFont.sectionOverlineTracking)
                     .foregroundStyle(StrandPalette.textSecondary)
@@ -153,7 +153,7 @@ struct WorkoutDetailView: View {
                         ScoreRing(value: display, range: 0...maximum,
                                   accent: StrandPalette.effortAccent, size: 96,
                                   format: { String(format: "%.1f", $0) },
-                                  centerCaption: effortScale == .whoop ? "of 21" : "of 100")
+                                  centerCaption: nil)
                     } else {
                         ZStack {
                             Circle().stroke(StrandPalette.inset, lineWidth: 7)
@@ -437,12 +437,12 @@ struct WorkoutDetailView: View {
                         ("Low", String(localized: "\(Int((values.min() ?? 0).rounded())) bpm")),
                     ])
                 }
-                // #18: the row's Avg HR can be EDITED on the manual sheet while the graph, zones and Effort
+                // #18: the row's Avg HR can be EDITED on the manual sheet while the graph, zones and Strain
                 // stay from the recorded session (preservingCaptured keeps the captured strain/zones). When
                 // the typed average disagrees materially with this trace's own mean AND the row carries that
                 // captured strain/zones, say so plainly. We do NOT re-score from the typed number.
                 if avgHrEditedDisclosure(traceMean: values.reduce(0, +) / Double(values.count)) {
-                    Text("The average above was edited. The graph, zones and Effort stay from the recorded session.")
+                    Text("The average above was edited. The graph, zones and Strain stay from the recorded session.")
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -456,7 +456,7 @@ struct WorkoutDetailView: View {
     }
 
     /// #18: whether the displayed Avg HR was edited away from what this HR trace implies. True only when the
-    /// row carries CAPTURED strain or zones (so the graph/zones/Effort are from a real recording, not the
+    /// row carries CAPTURED strain or zones (so the graph/zones/Strain are from a real recording, not the
     /// typed value) AND the row's avgHr differs from the trace mean by more than a small tolerance. The
     /// tolerance absorbs ordinary rounding/bucketing drift so an unedited session never trips the note.
     private func avgHrEditedDisclosure(traceMean: Double) -> Bool {
@@ -530,18 +530,18 @@ struct WorkoutDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // MARK: - Effort contribution
+    // MARK: - Strain contribution
 
     private func effortCard(strain: Double) -> some View {
-        // The session's Effort as the signature liquid gauge: a `LiquidVessel` tinted Effort, filled to the
+        // The session's Strain as the signature liquid gauge: a `LiquidVessel` tinted Strain, filled to the
         // session's contribution on the user's selected scale, with the value counting up over it — the
-        // same hero language as the Workouts list's Typical Effort gauge and the Sleep Rest hero. The
+        // same hero language as the Workouts list's Typical Strain gauge and the Sleep Sleep hero. The
         // explanatory sentence keeps its place beside the gauge.
         let displayValue = UnitFormatter.effortValue(strain, scale: effortScale)
-        let scaleMax: Double = effortScale == .whoop ? 21 : 100
+        let scaleMax: Double = 21
         let fraction = max(0, min(1, displayValue / scaleMax))
         return VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            SectionHeader("Effort", overline: "This session")
+            SectionHeader("Strain", overline: "This session")
             NoopCard(tint: StrandPalette.effortColor) {
                 HStack(alignment: .center, spacing: 18) {
                     ZStack {
@@ -550,22 +550,19 @@ struct WorkoutDetailView: View {
                         LiquidVessel(value: fraction, tint: StrandPalette.effortColor, animated: false)
                             .frame(width: 88, height: 88)
                         VStack(spacing: 0) {
-                            // The session's Effort contribution ticks up to its value — the NOOP signature.
+                            // The session's Strain contribution ticks up to its value — the NOOP signature.
                             CountUpText(value: displayValue,
                                         format: { String(format: "%.1f", $0) },
                                         font: StrandFont.rounded(28),
                                         color: StrandPalette.textPrimary)
                                 .shadow(color: .black.opacity(0.5), radius: 5, y: 1)
-                            Text(effortScale == .whoop ? "of 21" : "of 100")
-                                .font(StrandFont.caption)
-                                .foregroundStyle(StrandPalette.textSecondary)
                         }
                         .allowsHitTesting(false)
                     }
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(String(localized: "Effort \(UnitFormatter.effortDisplay(strain, scale: effortScale)) \(effortScale == .whoop ? "of 21" : "of 100")"))
+                    .accessibilityLabel(String(localized: "Strain \(UnitFormatter.effortDisplay(strain, scale: effortScale))"))
                     Spacer(minLength: 0)
-                    Text("This session's contribution to the day's Effort, as captured during the workout.")
+                    Text("This session's contribution to the day's Strain, as captured during the workout.")
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -707,8 +704,8 @@ struct WorkoutRouteMap: RouteMapRepresentable {
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
             guard let line = overlay as? MKPolyline else { return MKOverlayRenderer(overlay: overlay) }
             let r = MKPolylineRenderer(polyline: line)
-            // Effort-amber world, matching the rest of the workout detail. A platform colour (the
-            // renderer needs a UIColor/NSColor, not a SwiftUI Color); kept close to the Effort accent.
+            // Strain-amber world, matching the rest of the workout detail. A platform colour (the
+            // renderer needs a UIColor/NSColor, not a SwiftUI Color); kept close to the Strain accent.
             r.strokeColor = RoutePlatformColor.effort
             r.lineWidth = 4
             r.lineJoin = .round
@@ -729,7 +726,7 @@ struct WorkoutRouteMap: RouteMapRepresentable {
 }
 
 /// The route stroke colour as a platform colour (MapKit's renderer can't take a SwiftUI `Color`). A fixed
-/// Effort-amber so it reads in the same colour world as the rest of the screen on both platforms.
+/// Strain-amber so it reads in the same colour world as the rest of the screen on both platforms.
 private enum RoutePlatformColor {
     #if canImport(UIKit)
     static let effort = UIColor(red: 0.98, green: 0.62, blue: 0.16, alpha: 1.0)

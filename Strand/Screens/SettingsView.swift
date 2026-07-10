@@ -62,7 +62,7 @@ struct SettingsView: View {
     // imperial entry. Temperature has a separate override so °C/°F can be picked independently.
     @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
     @AppStorage(UnitPrefs.temperatureKey) private var temperatureRaw = ""
-    // Effort display scale (#268). Display-only — Effort stays stored 0–100, this only chooses whether
+    // Strain display scale (#268). Display-only — Strain stays stored 0–100, this only chooses whether
     // it's shown on NOOP's 0–100 axis or WHOOP's 0–21 Day Strain axis.
     @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.hundred.rawValue
     // Live-HR Live Activity (Lock Screen + Dynamic Island), iOS only (#336). Default on.
@@ -671,7 +671,7 @@ struct SettingsView: View {
         SettingsSection(
             icon: "ruler",
             title: "Units",
-            blurb: "Choose how distances, weights, heights, temperatures and Effort are shown. Your data is always stored the same way. This only changes the display."
+            blurb: "Choose how distances, weights, heights, temperatures and Strain are shown. Your data is always stored the same way. This only changes the display."
         ) {
             VStack(spacing: 0) {
                 FormRow(label: "Measurement system") {
@@ -699,17 +699,14 @@ struct SettingsView: View {
                     .accessibilityLabel("Temperature unit")
                 }
                 rowDivider
-                // Effort scale (#268) — show NOOP's native 0–100 Effort or WHOOP's 0–21 Day Strain axis.
-                // Display-only; the stored value never changes, so a flip just re-labels every Effort read-out.
-                FormRow(label: "Effort scale") {
-                    Picker("Effort scale", selection: $effortScaleRaw) {
-                        Text("0-100").tag(EffortScale.hundred.rawValue)
-                        Text("0-21").tag(EffortScale.whoop.rawValue)
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
-                    .fixedSize()
-                    .accessibilityLabel("Effort scale")
+                // The Paper UI has one canonical Strain presentation. Keep the existing preference key
+                // untouched for storage compatibility, but do not offer a presentation that conflicts
+                // with the app-wide 0–21 contract.
+                FormRow(label: "Strain scale") {
+                    Text("0–21")
+                        .font(StrandFont.body)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                    .accessibilityLabel("Strain scale")
                 }
             }
         }
@@ -1801,7 +1798,7 @@ struct SettingsView: View {
                 .buttonStyle(LiquidPressStyle())
                 .accessibilityLabel("How NOOP works")
 
-                // How your scores work — the honest explainer for Charge / Effort / Rest and the
+                // How your scores work — the honest explainer for Charge / Strain / Sleep and the
                 // confidence labels. Always reachable here, mirroring the "What's new" affordance.
                 Button {
                     showScoringGuide = true
@@ -1814,7 +1811,7 @@ struct SettingsView: View {
                             Text("How your scores work")
                                 .font(StrandFont.body)
                                 .foregroundStyle(StrandPalette.textPrimary)
-                            Text("Recovery, Effort and Rest (and how they differ from WHOOP).")
+                            Text("Recovery, Strain and Sleep (and how they differ from WHOOP).")
                                 .font(StrandFont.footnote)
                                 .foregroundStyle(StrandPalette.textTertiary)
                                 .fixedSize(horizontal: false, vertical: true)

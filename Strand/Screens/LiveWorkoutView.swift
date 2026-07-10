@@ -24,7 +24,7 @@ struct LiveWorkoutView: View {
     // @Published changes — exactly as the parent's direct observation did before.)
     let onClose: () -> Void
 
-    /// Effort display scale (#268) — routes the live Effort read-out through the shared helper so it
+    /// Strain display scale (#268) — routes the live Strain read-out through the shared helper so it
     /// matches every other surface. Display-only; the captured value stays stored 0–100.
     @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.hundred.rawValue
     private var effortScale: EffortScale { UnitPrefs.resolveEffortScale(effortScaleRaw) }
@@ -48,7 +48,7 @@ struct LiveWorkoutView: View {
                     .staggeredAppear(index: 3)
                 paperHeartRateCard.staggeredAppear(index: 4)
                 controlRow
-                // Existing Effort and zone reads remain available below the S25 composition.
+                // Existing Strain and zone reads remain available below the S25 composition.
                 effortGauge
                 zoneRail
             }
@@ -185,20 +185,20 @@ struct LiveWorkoutView: View {
         }
     }
 
-    /// The accumulating Effort, on the same layered StrainGauge the rest of the app uses — the live
-    /// `liveStrain` is on NOOP's 0–100 Effort axis. The gauge renders on the user's selected Effort
+    /// The accumulating Strain, on the same layered StrainGauge the rest of the app uses — the live
+    /// `liveStrain` is on NOOP's 0–100 Strain axis. The gauge renders on the user's selected Strain
     /// scale (#313): 0–100 native, or rescaled to WHOOP's 0–21, matching the rest of the app's
     /// read-outs (mirrors TodayView's effort hero). Display-only — the captured value stays 0–100.
     private var effortGauge: some View {
         let strain = model.activeWorkout?.liveStrain ?? 0
         return NoopCard(padding: NoopMetrics.cardInnerPadding, tint: StrandPalette.effortColor) {
             VStack(spacing: NoopMetrics.rowSpacing) {
-                Text("EFFORT BUILDING")
+                Text("STRAIN BUILDING")
                     .font(StrandFont.overline).tracking(StrandFont.overlineTracking)
                     .foregroundStyle(StrandPalette.effortColor)
                 StrainGauge(
                     strain: UnitFormatter.effortValue(strain, scale: effortScale),
-                    outOf: effortScale == .whoop ? 21 : 100,
+                    outOf: 21,
                     diameter: 150, lineWidth: 14, showsHover: false,
                     valueFormat: { _ in UnitFormatter.effortDisplay(strain, scale: effortScale) }
                 )
@@ -248,7 +248,7 @@ struct LiveWorkoutView: View {
                  tint: (w?.avgHr ?? 0) > 0 ? StrandPalette.metricRose : StrandPalette.textPrimary)
             stat(String(localized: "PEAK"), (w?.peakHr ?? 0) > 0 ? "\(w!.peakHr)" : "—",
                  tint: (w?.peakHr ?? 0) > 0 ? StrandPalette.metricRose : StrandPalette.textPrimary)
-            stat(String(localized: "EFFORT"), UnitFormatter.effortDisplay(w?.liveStrain ?? 0, scale: effortScale),
+            stat(String(localized: "STRAIN"), UnitFormatter.effortDisplay(w?.liveStrain ?? 0, scale: effortScale),
                  tint: StrandPalette.strainColor(w?.liveStrain ?? 0))
         }
     }
@@ -406,7 +406,7 @@ private struct PaperWorkoutMapCard: View {
 /// render — each tile is dropped when its value is absent, and the WHOLE block (row + entrance stagger)
 /// is hidden when nothing is present (`live.hasSensorMetrics`), so a plain HR-only workout looks exactly
 /// as before. Honest units: speed km/h, cadence per-minute (steps for running / rpm for cycling), power
-/// watts. Tinted with the Effort world so it reads as part of the hero, not a competing accent. Nothing
+/// watts. Tinted with the Strain world so it reads as part of the hero, not a competing accent. Nothing
 /// here touches HR / zone / effort.
 ///
 /// This is a standalone leaf that owns its OWN `@EnvironmentObject live` (the parent `LiveWorkoutView`

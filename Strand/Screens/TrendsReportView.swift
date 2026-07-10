@@ -154,13 +154,13 @@ enum TrendsReportData {
 // MARK: - Metric → colour world
 
 /// The line/accent hue for each report metric — drives the card tint + sparkline gradient
-/// so each metric reads in its established colour world (Charge green, Effort blue, Rest/HRV
+/// so each metric reads in its established colour world (Charge green, Strain blue, Sleep/HRV
 /// blue, Resting-HR burnt-orange) — WHOOP score tokens, no gold.
 private extension ReportMetric {
     /// The line/accent colour for the metric, keeping each its long-standing hue.
     var accent: Color {
         switch self {
-        case .workouts:    return StrandPalette.effortColor  // activity → the Effort world
+        case .workouts:    return StrandPalette.effortColor  // activity → the Strain world
         case .stress:      return StrandPalette.stressColor  // the Stress world hue
         case .recovery:    return StrandPalette.recoveryData
         case .strain:      return StrandPalette.effortColor

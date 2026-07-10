@@ -20,13 +20,13 @@ struct NOOPLiveActivity: Widget {
                         .foregroundStyle(StrandPalette.textPrimary)
                 }
                 Spacer()
-                // Charge + Effort (#446) on the banner, mirroring the Dynamic Island expanded stats.
+                // Charge + Strain (#446) on the banner, mirroring the Dynamic Island expanded stats.
                 HStack(spacing: 12) {
                     if let r = context.state.recovery {
                         bannerStat(label: "Recovery", value: "\(r)%")
                     }
                     if let e = context.state.effort {
-                        bannerStat(label: "Effort", value: "\(e)")
+                        bannerStat(label: "Strain", value: String(format: "%.1f", e))
                     }
                 }
             }
@@ -40,13 +40,13 @@ struct NOOPLiveActivity: Widget {
                         .foregroundStyle(StrandPalette.statusCritical)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    // Charge + Effort (#446) — one more stat alongside the leading live HR.
+                    // Charge + Strain (#446) — one more stat alongside the leading live HR.
                     HStack(spacing: 10) {
                         if let r = context.state.recovery {
                             statColumn(label: "Recovery", value: "\(r)%")
                         }
                         if let e = context.state.effort {
-                            statColumn(label: "Effort", value: "\(e)")
+                            statColumn(label: "Strain", value: String(format: "%.1f", e))
                         }
                     }
                 }
@@ -69,7 +69,7 @@ struct NOOPLiveActivity: Widget {
 ///
 /// #759 - the label and value are CENTRE-aligned so each value sits directly under its own label. The
 /// old `.trailing` alignment right-pinned both to the column's edge: when the value was narrower than
-/// the label (e.g. "12" under "Effort") it drifted to the label's right edge instead of under it, which
+/// the label (e.g. "12" under "Strain") it drifted to the label's right edge instead of under it, which
 /// read as "the number doesn't line up with its label". `fixedSize` stops either line truncating so the
 /// pairing is never clipped at narrow widths.
 @ViewBuilder

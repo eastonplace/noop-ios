@@ -34,7 +34,7 @@ struct InsightsHubView: View {
     @EnvironmentObject private var repo: Repository
     @StateObject private var model = InsightsHubViewModel()
 
-    /// The currently-selected outcome for the ranked feed (Charge / HRV / Rest / RHR).
+    /// The currently-selected outcome for the ranked feed (Charge / HRV / Sleep / RHR).
     @State private var outcome: InsightsHubViewModel.Outcome = .recovery
     @State private var filter: AssociationFilter = .all
     @State private var showAllAssociations = false
@@ -338,7 +338,7 @@ struct InsightsHubView: View {
 
     private var emptyAssociationMessage: LocalizedStringKey {
         if filter == .strain {
-            return "Effort associations are not available from the current association engine yet. No values are being inferred."
+            return "Strain associations are not available from the current association engine yet. No values are being inferred."
         }
         return "Not enough overlap yet. Keep logging days both with and without a behaviour so NOOP can read its effect."
     }
@@ -696,7 +696,7 @@ final class InsightsHubViewModel: ObservableObject {
             switch self {
             case .recovery: return String(localized: "Recovery")
             case .hrv:      return "HRV"
-            case .sleep:    return String(localized: "Rest")
+            case .sleep:    return String(localized: "Sleep")
             case .rhr:      return "RHR"
             }
         }
@@ -714,7 +714,7 @@ final class InsightsHubViewModel: ObservableObject {
             switch self {
             case .recovery: return String(localized: "Recovery")
             case .hrv:      return "HRV"
-            case .sleep:    return String(localized: "Rest")
+            case .sleep:    return String(localized: "Sleep")
             case .rhr:      return String(localized: "Resting HR")
             }
         }
@@ -862,7 +862,7 @@ final class InsightsHubViewModel: ObservableObject {
         switch name {
         case "Charge": return "recovery"
         case "HRV":    return "hrv"
-        case "Rest":   return "sleep_performance"
+        case "Rest", "Sleep": return "sleep_performance"
         case "Resting HR": return "rhr"
         default:       return "recovery"
         }
@@ -921,7 +921,7 @@ final class InsightsHubViewModel: ObservableObject {
 
         /// Outcome units suffix for the forecast tiles.
         var outcomeSuffix: String { outcomeName == "HRV" ? " ms" : "%" }
-        /// Clamp ceiling for the projected outcome (Charge/Rest are 0–100; HRV uncapped-ish).
+        /// Clamp ceiling for the projected outcome (Charge/Sleep are 0–100; HRV uncapped-ish).
         var outcomeCeiling: Double { outcomeName == "HRV" ? 400 : 100 }
 
         var forecastOverline: String {

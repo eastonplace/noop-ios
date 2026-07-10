@@ -5,7 +5,7 @@ import StrandDesign
 // MARK: - NOOP watch-face complication
 //
 // The headline feature of M3: Charge (recovery) on the wrist. The iPhone is the brain
-// (M1 computes Charge / Effort / Rest with confidence + provenance); this complication ONLY
+// (M1 computes Charge / Strain / Sleep with confidence + provenance); this complication ONLY
 // displays the latest `WatchScoreSnapshot` the phone pushed into the shared app group. It never
 // recomputes a score.
 //
@@ -82,8 +82,8 @@ struct ChargeProvider: TimelineProvider {
 // MARK: - Preview snapshot
 
 private extension WatchScoreSnapshot {
-    /// A representative snapshot for the widget gallery: a primed Charge, a mid Effort, a calibrating
-    /// Rest (so the gallery also shows the cal marker), a live HR and a short sleep line.
+    /// A representative snapshot for the widget gallery: a primed Charge, a mid Strain, a calibrating
+    /// Sleep (so the gallery also shows the cal marker), a live HR and a short sleep line.
     static var preview: WatchScoreSnapshot {
         WatchScoreSnapshot(
             charge: 74, chargeCalibrating: false,
@@ -103,7 +103,7 @@ private extension WatchScoreSnapshot {
 
 /// How a single score should be drawn: a real number, a calibrating dash, or simply absent.
 private enum ScoreReadout {
-    case value(Int)
+    case value(Double)
     case calibrating
     case missing
 
@@ -112,7 +112,7 @@ private enum ScoreReadout {
     /// `.missing`. We never invent a number for a calibrating score.
     init(value: Double?, calibrating: Bool) {
         if let v = value {
-            self = .value(Int(v.rounded()))
+            self = .value(v)
         } else if calibrating {
             self = .calibrating
         } else {
@@ -122,13 +122,15 @@ private enum ScoreReadout {
 
     /// The fraction (0...1) to fill a ring/gauge with. Calibrating + missing read as an empty track.
     var fraction: Double {
-        if case let .value(v) = self { return min(max(Double(v) / 100.0, 0), 1) }
+        if case let .value(v) = self { return min(max(v / 100.0, 0), 1) }
         return 0
     }
 
     /// The big number, or a dash for calibrating / missing.
     var numberText: String {
-        if case let .value(v) = self { return "\(v)" }
+        if case let .value(v) = self {
+            return v.rounded() == v ? "\(Int(v))" : String(format: "%.1f", v)
+        }
         return "–"
     }
 }
@@ -314,7 +316,7 @@ struct NOOPChargeView: View {
 
     // MARK: accessoryRectangular — a compact card showing all three scores
     //
-    // The richest family: a small NOOP header line plus the Charge / Effort / Rest triplet, each a
+    // The richest family: a small NOOP header line plus the Charge / Strain / Sleep triplet, each a
     // number (or a dash + cal marker) over its label. This is the only place all three scores live, so
     // it doubles as the "everything at a glance" face.
 
@@ -334,8 +336,8 @@ struct NOOPChargeView: View {
             // The three scores, equal-width.
             HStack(alignment: .top, spacing: 0) {
                 scoreCell(String(localized: "Recovery"), readout: charge, tint: chargeTint)
-                scoreCell(String(localized: "Effort"), readout: effort, tint: effortTint)
-                scoreCell(String(localized: "Rest"), readout: rest, tint: restTint)
+                scoreCell(String(localized: "Strain"), readout: effort, tint: effortTint)
+                scoreCell(String(localized: "Sleep"), readout: rest, tint: restTint)
             }
         }
         .widgetAccentable()
@@ -382,10 +384,10 @@ struct NOOPChargeView: View {
         return false
     }
 
-    // MARK: Effort / Rest tints (rectangular only)
+    // MARK: Strain / Sleep tints (rectangular only)
 
     private var effortTint: Color {
-        if case let .value(v) = effort { return StrandPalette.effortTint(fraction: Double(v) / 100) }
+        if case .value = effort { return StrandPalette.strainAccent }
         return StrandPalette.textTertiary
     }
     private var restTint: Color {
@@ -429,14 +431,14 @@ struct NOOPChargeView: View {
         }
         func phrase(_ label: String, _ r: ScoreReadout) -> String {
             switch r {
-            case .value(let v):  return String(localized: "\(label) \(v)")
+            case .value:         return String(localized: "\(label) \(r.numberText)")
             case .calibrating:   return String(localized: "\(label) calibrating")
             case .missing:       return String(localized: "\(label) unavailable")
             }
         }
         let chargePhrase = phrase(String(localized: "Recovery"), charge)
-        let effortPhrase = phrase(String(localized: "Effort"), effort)
-        let restPhrase = phrase(String(localized: "Rest"), rest)
+        let effortPhrase = phrase(String(localized: "Strain"), effort)
+        let restPhrase = phrase(String(localized: "Sleep"), rest)
         return String(localized: "NOOP. \(chargePhrase), \(effortPhrase), \(restPhrase).")
     }
 
@@ -456,7 +458,7 @@ struct NOOPChargeComplication: Widget {
                 .containerBackground(StrandPalette.surfaceBase, for: .widget)
         }
         .configurationDisplayName("NOOP Recovery")
-        .description("Your Recovery on the watch face, with Effort and Rest in the rectangular card.")
+        .description("Your Recovery on the watch face, with Strain and Sleep in the rectangular card.")
         .supportedFamilies([
             .accessoryCircular,
             .accessoryCorner,

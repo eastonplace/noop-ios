@@ -3,7 +3,7 @@ import StrandDesign
 
 // MARK: - WatchGlanceView — the watch app's single primary screen
 //
-// The Apple-Fitness-x-WHOOP look scaled to the wrist: the three NOOP rings (Charge / Effort / Rest) with
+// The Apple-Fitness-x-WHOOP look scaled to the wrist: the three NOOP rings (Charge / Strain / Sleep) with
 // their numbers in SF-Rounded, each honouring confidence (a calibrating score shows a dash plus a small
 // "cal" marker, NEVER a fabricated number), a live heart-rate readout from the watch's own sensor, and a
 // one-line sleep summary. When nothing has synced yet we show a friendly "open NOOP on your iPhone" state,
@@ -49,10 +49,11 @@ struct WatchGlanceView: View {
                           calibrating: snap.chargeCalibrating || stale,
                           color: snap.charge.map { RecoveryBands.color(for: Double($0)) }
                               ?? StrandPalette.recoveryData)
-                ScoreRing(label: String(localized: "Effort"), value: snap.effort,
+                ScoreRing(label: String(localized: "Strain"), value: snap.effort,
                           calibrating: snap.effortCalibrating || stale,
-                          color: StrandPalette.effortColor)
-                ScoreRing(label: String(localized: "Rest"), value: snap.rest,
+                          color: StrandPalette.strainAccent,
+                          range: 0...21, format: { String(format: "%.1f", $0) })
+                ScoreRing(label: String(localized: "Sleep"), value: snap.rest,
                           calibrating: snap.restCalibrating || stale,
                           color: StrandPalette.restColor)
             }
@@ -93,7 +94,7 @@ struct WatchGlanceView: View {
         .background(StrandPalette.surfaceRaised, in: RoundedRectangle(cornerRadius: 12))
     }
 
-    /// One-line sleep summary straight from the phone (e.g. "7h 12m · 81% Rest"). Empty string = skip it.
+    /// One-line sleep summary straight from the phone (e.g. "7h 12m · 81% Sleep"). Empty string = skip it.
     @ViewBuilder
     private func sleepLine(_ summary: String) -> some View {
         if !summary.isEmpty {
@@ -153,6 +154,8 @@ private struct ScoreRing: View {
     let value: Double?
     let calibrating: Bool
     let color: Color
+    var range: ClosedRange<Double> = 0...100
+    var format: (Double) -> String = { "\(Int($0.rounded()))" }
 
     private let diameter: CGFloat = 52
     private let lineWidth: CGFloat = 6
@@ -171,9 +174,9 @@ private struct ScoreRing: View {
     private var ring: some View {
         if let value, !calibrating {
             // A real, earned score: the clean filled arc with its SF-Rounded number in the centre.
-            GlowRing(fraction: value / 100,
+            GlowRing(fraction: value / range.upperBound,
                      value: value,
-                     format: { "\(Int($0.rounded()))" },
+                     format: format,
                      color: color,
                      diameter: diameter,
                      lineWidth: lineWidth)

@@ -76,7 +76,7 @@ struct IntervalTimerView: View {
         return workSeconds * rounds + restSeconds * max(0, rounds - 1)
     }
 
-    /// The active phase's reset token: WORK uses the Effort blue, REST the Rest blue-grey, DONE the
+    /// The active phase's reset token: WORK uses the Strain blue, REST the Sleep blue-grey, DONE the
     /// positive green. Tints the flat ring arc + the phase chip only (no glow).
     private var phaseColor: Color {
         switch phase {
@@ -294,7 +294,7 @@ struct IntervalTimerView: View {
                 }
 
                 // Slim total-session progress as the NOOP signature segmented bar — it cascades up as the
-                // session advances, tinted to the Effort world. Flat, crisp, no glow.
+                // session advances, tinted to the Strain world. Flat, crisp, no glow.
                 PipBar(value: sessionProgress, range: 0...1, segments: 28,
                        tint: StrandPalette.effortColor, height: 10)
                     .accessibilityLabel("Session progress")
@@ -302,7 +302,7 @@ struct IntervalTimerView: View {
 
                 HStack(spacing: 0) {
                     overviewStat(String(localized: "Work"), "\(workSeconds)s", StrandPalette.effortColor)
-                    overviewStat(String(localized: "Rest"), "\(restSeconds)s", StrandPalette.restColor)
+                    overviewStat(String(localized: "Sleep"), "\(restSeconds)s", StrandPalette.restColor)
                     overviewStat(String(localized: "Rounds"), "\(rounds)", StrandPalette.textPrimary)
                     overviewStat(String(localized: "Remaining"), timeString(max(0, totalPlanned - elapsed)), StrandPalette.textSecondary)
                 }
@@ -332,7 +332,7 @@ struct IntervalTimerView: View {
                 configStepper(title: String(localized: "Work"), unit: String(localized: "sec"), value: $workSeconds,
                               range: 5...600, step: 5, tint: StrandPalette.effortColor)
                 Divider().overlay(StrandPalette.hairline)
-                configStepper(title: String(localized: "Rest"), unit: String(localized: "sec"), value: $restSeconds,
+                configStepper(title: String(localized: "Sleep"), unit: String(localized: "sec"), value: $restSeconds,
                               range: 5...600, step: 5, tint: StrandPalette.restColor)
                 Divider().overlay(StrandPalette.hairline)
                 configStepper(title: String(localized: "Rounds"), unit: nil, value: $rounds,
@@ -407,7 +407,7 @@ struct IntervalTimerView: View {
                 #endif
             }
         case .rest:
-            // Rest done → next round's work.
+            // Sleep done → next round's work.
             currentRound += 1
             phase = .work
             remaining = max(1, workSeconds)

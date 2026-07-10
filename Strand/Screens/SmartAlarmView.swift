@@ -95,9 +95,9 @@ struct SmartAlarmView: View {
         }
     }
 
-    // A small Rest-tinted hero — the wind-down readout as a clean time pairing (wind-down → wake)
-    // over a scenic Rest backdrop, so a glance gives the night's shape. It's about winding down to
-    // sleep, so it reads in the Rest world (indigo) rather than the brand-green chrome below.
+    // A small Sleep-tinted hero — the wind-down readout as a clean time pairing (wind-down → wake)
+    // over a scenic Sleep backdrop, so a glance gives the night's shape. It's about winding down to
+    // sleep, so it reads in the Sleep world (indigo) rather than the brand-green chrome below.
     private var windowHero: some View {
         ZStack {
             RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous)
@@ -249,7 +249,7 @@ struct SmartAlarmView: View {
     }
 
     private var windDownCard: some View {
-        // Rest-tinted when armed so the active state reads in the sleep world; neutral when off.
+        // Sleep-tinted when armed so the active state reads in the sleep world; neutral when off.
         StrandCard(padding: 20, tint: windDownOn ? StrandPalette.restColor : nil) {
             VStack(alignment: .leading, spacing: 16) {
                 VStack(alignment: .leading, spacing: 2) {

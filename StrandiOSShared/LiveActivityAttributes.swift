@@ -10,11 +10,11 @@ public struct NOOPActivityAttributes: ActivityAttributes {
         public var bpm: Int?
         public var recovery: Int?
         public var bonded: Bool
-        // Effort / strain on NOOP's 0–100 axis (#446) — one more stat in the Dynamic Island expanded
+        // Canonical 0–21 Strain display value (#446) — one more stat in the Dynamic Island expanded
         // region. OPTIONAL with a nil default so an activity started by an older build still decodes.
-        public var effort: Int?
+        public var effort: Double?
 
-        public init(bpm: Int?, recovery: Int?, bonded: Bool, effort: Int? = nil) {
+        public init(bpm: Int?, recovery: Int?, bonded: Bool, effort: Double? = nil) {
             self.bpm = bpm
             self.recovery = recovery
             self.bonded = bonded

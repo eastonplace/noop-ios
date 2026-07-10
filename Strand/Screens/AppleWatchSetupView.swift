@@ -154,7 +154,7 @@ struct AppleWatchSetupView: View {
                             .foregroundStyle(StrandPalette.textPrimary)
                         Spacer(minLength: 0)
                     }
-                    Text("No chest strap? No problem. NOOP can run off only your Apple Watch. It reads your watch's data through Apple Health and works out your Recovery, Rest, Effort and Fitness Age right here on your phone. Everything stays on the device.")
+                    Text("No chest strap? No problem. NOOP can run off only your Apple Watch. It reads your watch's data through Apple Health and works out your Recovery, Sleep, Strain and Fitness Age right here on your phone. Everything stays on the device.")
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -179,10 +179,10 @@ struct AppleWatchSetupView: View {
                 Text("WHAT IT'S GREAT AT").font(StrandFont.overline)
                     .tracking(StrandFont.overlineTracking)
                     .foregroundStyle(StrandPalette.statusPositive)
-                bullet("bed.double.fill", String(localized: "Sleep & Rest"),
-                       String(localized: "Apple's sleep stages are strong, and they drive your Rest score directly."))
+                bullet("bed.double.fill", String(localized: "Sleep & Sleep"),
+                       String(localized: "Apple's sleep stages are strong, and they drive your Sleep score directly."))
                 bullet("figure.walk", String(localized: "Steps & workouts"),
-                       String(localized: "Steps, active energy and logged workouts feed your Effort. Dense and reliable."))
+                       String(localized: "Steps, active energy and logged workouts feed your Strain. Dense and reliable."))
                 bullet("bolt.heart.fill", String(localized: "Fitness Age"),
                        String(localized: "Built from the watch's cardio-fitness VO₂ max, the same number the Fitness app shows."))
             }

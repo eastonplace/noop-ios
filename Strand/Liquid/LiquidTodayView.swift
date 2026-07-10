@@ -422,9 +422,9 @@ struct LiquidTodayView: View {
                           tint: displayDay?.recovery.map { RecoveryBands.color(for: $0) }
                               ?? StrandPalette.recoveryData,
                           pill: "WHOOP", animated: dataLoaded, onGuide: { guideSection = .charge })
-            HeroScoreCell(label: "Effort", score: displayDay?.strain, tint: StrandPalette.effortColor,
+            HeroScoreCell(label: "Strain", score: displayDay?.strain, tint: StrandPalette.effortColor,
                           pill: nil, animated: dataLoaded, onGuide: { guideSection = .effort })
-            HeroScoreCell(label: "Rest", score: restScore, tint: StrandPalette.restColor,
+            HeroScoreCell(label: "Sleep", score: restScore, tint: StrandPalette.restColor,
                           pill: "WHOOP", animated: dataLoaded, onGuide: { guideSection = .rest })
         }
         .padding(.vertical, 16)
@@ -683,7 +683,7 @@ struct LiquidTodayView: View {
     // MARK: - Key metrics grid
 
     private var keyMetricsSection: some View {
-        // HRV / Rest HR tiles share the recovery vitals' per-field today-first carry so they don't blank at
+        // HRV / Sleep HR tiles share the recovery vitals' per-field today-first carry so they don't blank at
         // the rollover while Recovery/Strain/Sleep stay strictly today's own (they are scored surfaces).
         let hrv = displayDay?.avgHrv ?? vitalsDay?.avgHrv
         let rhr = (displayDay?.restingHr ?? vitalsDay?.restingHr).map(Double.init)
@@ -697,7 +697,7 @@ struct LiquidTodayView: View {
                 ktile("Strain", intText(displayDay?.strain), "%", StrandPalette.effortColor, frac(displayDay?.strain))
                 ktile("Sleep", sleepText, "", StrandPalette.restColor, fracOver(displayDay?.totalSleepMin, 480))
                 ktile("HRV", intText(hrv), "ms", StrandPalette.metricCyan, fracOver(hrv, 120))
-                ktile("Rest HR", intText(rhr), "bpm", StrandPalette.metricRose, fracOver(rhr, 100))
+                ktile("Sleep HR", intText(rhr), "bpm", StrandPalette.metricRose, fracOver(rhr, 100))
                 ktile("Steps", stepsText, "", StrandPalette.chargeColor, fracOver(stepCount, 10000))
             }
             NavigationLink { MetricExplorerView() } label: {
@@ -760,7 +760,7 @@ struct LiquidTodayView: View {
                     }
                     Spacer()
                     (Text(effortText(w.strain)).font(StrandFont.number(15))
-                        + Text(" EFFORT").font(StrandFont.overlineScaled(9)))
+                        + Text(" STRAIN").font(StrandFont.overlineScaled(9)))
                         .foregroundStyle(StrandPalette.textPrimary)
                 }
                 LiquidTube(frac: (w.strain ?? 0) / 100, tint: StrandPalette.effortColor, height: 12, animated: false)
@@ -848,11 +848,11 @@ struct LiquidTodayView: View {
 
         let restSeries = await restA
         let restByDay = Dictionary(restSeries.map { ($0.day, $0.value) }, uniquingKeysWith: { _, last in last })
-        // Selected day's Rest; tail fallback only at offset 0 (a past day with no row shows nothing) AND
+        // Selected day's Sleep; tail fallback only at offset 0 (a past day with no row shows nothing) AND
         // only when the tail night is still fresh. #977: a live 5.0 whose sleep never scores (no overnight
-        // gravity ⇒ no sleep_performance point ever written) used to pin Rest to the weeks-old series tail
+        // gravity ⇒ no sleep_performance point ever written) used to pin Sleep to the weeks-old series tail
         // forever while Charge advanced; freshness-gate the tail-fallback so a stale tail falls through to
-        // the Rest hero's No-Data/calibrating state (same empty treatment Effort uses) instead of freezing.
+        // the Sleep hero's No-Data/calibrating state (same empty treatment Strain uses) instead of freezing.
         restScore = TodayView.freshRestScore(
             todayValue: restByDay[selectedDayKey], lastDay: restSeries.last?.day,
             lastValue: restSeries.last?.value, isTodaySelected: selectedDayOffset == 0,
@@ -892,7 +892,7 @@ struct LiquidTodayView: View {
         switch readiness.level {
         case .primed: return "Push"
         case .balanced: return "Maintain"
-        case .strained, .rundown: return "Rest"
+        case .strained, .rundown: return "Sleep"
         case .insufficient: return nil
         }
     }
@@ -945,8 +945,8 @@ struct LiquidTodayView: View {
         return f.string(from: NSNumber(value: Int(s))) ?? "\(Int(s))"
     }
 
-    // The user's Effort display scale (#268), 0–100 by default or the WHOOP 0–21 axis if chosen — the SAME
-    // preference the Workouts screen + Trends read, so a workout's Effort number is identical everywhere.
+    // The user's Strain display scale (#268), 0–100 by default or the WHOOP 0–21 axis if chosen — the SAME
+    // preference the Workouts screen + Trends read, so a workout's Strain number is identical everywhere.
     @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.hundred.rawValue
     private var effortScale: EffortScale { UnitPrefs.resolveEffortScale(effortScaleRaw) }
 
@@ -1059,7 +1059,7 @@ private struct LiquidWordmark: View {
 
 // MARK: - Hero score cell (count-up number over a filling vessel, tap-to-splash)
 
-/// One of the three hero scores (Charge / Effort / Rest). The vessel fills from empty and the number
+/// One of the three hero scores (Charge / Strain / Sleep). The vessel fills from empty and the number
 /// COUNTS UP to the value when data lands; tapping the gauge itself splashes (the number is
 /// hit-transparent so the tap reaches the vessel). The label row taps through to the scoring guide.
 private struct HeroScoreCell: View {

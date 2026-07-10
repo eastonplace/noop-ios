@@ -88,7 +88,7 @@ struct ManualWorkoutSheet: View {
                 }
             }
             if let validationNote { noteRow(validationNote) }
-            if avgHrEditedNote { noteRow(String(localized: "Avg HR is shown as typed. The HR graph, zones and Effort stay from the recorded session.")) }
+            if avgHrEditedNote { noteRow(String(localized: "Avg HR is shown as typed. The HR graph, zones and Strain stay from the recorded session.")) }
             footer
         }
         .padding(NoopMetrics.space6)
@@ -176,7 +176,7 @@ struct ManualWorkoutSheet: View {
 
     private var header: some View {
         HStack(alignment: .top, spacing: 12) {
-            // A small Effort-world glyph so the sheet reads as part of the workouts (amber) world.
+            // A small Strain-world glyph so the sheet reads as part of the workouts (amber) world.
             Image(systemName: "figure.run")
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(StrandPalette.effortColor)
@@ -275,7 +275,7 @@ struct ManualWorkoutSheet: View {
 
     /// #18: true when this edit changes the Avg HR on a row that carries CAPTURED strain/zones from a
     /// recorded session. preservingCaptured keeps the old strain/zonesJSON verbatim, so a typed Avg HR is
-    /// saved while the HR graph, zones and Effort stay from the recording. That mismatch is silent, so we
+    /// saved while the HR graph, zones and Strain stay from the recording. That mismatch is silent, so we
     /// surface a one-line note. We do NOT re-score from a single number (that would fabricate a strain),
     /// this is purely an honest disclosure. nil for a fresh add, or when nothing captured would go stale.
     private var avgHrEditedNote: Bool {
@@ -458,9 +458,10 @@ struct StartWorkoutSheet: View {
                         PaperCard {
                             HStack(spacing: 12) {
                                 if let effort = last.strain {
-                                    ScoreRing(value: effort, range: 0...100,
+                                    ScoreRing(value: StrainScale.displayValue(fromStored: effort), range: 0...21,
                                               accent: StrandPalette.effortAccent,
-                                              size: 56, lineWidth: 4)
+                                              size: 56, lineWidth: 4,
+                                              format: { String(format: "%.1f", $0) })
                                 }
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(WorkoutSource.displaySport(last.sport))

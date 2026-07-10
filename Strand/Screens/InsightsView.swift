@@ -74,7 +74,7 @@ struct InsightsView: View {
             switch self {
             case .recovery: return String(localized: "Recovery")
             case .hrv:      return "HRV"
-            case .sleep:    return String(localized: "Rest")
+            case .sleep:    return String(localized: "Sleep")
             case .rhr:      return "RHR"
             }
         }
@@ -92,7 +92,7 @@ struct InsightsView: View {
             switch self {
             case .recovery: return String(localized: "Recovery")
             case .hrv:      return "HRV"
-            case .sleep:    return String(localized: "Rest")
+            case .sleep:    return String(localized: "Sleep")
             case .rhr:      return String(localized: "Resting HR")
             }
         }
@@ -103,8 +103,8 @@ struct InsightsView: View {
             case .rhr:                    return false
             }
         }
-        /// The Bevel colour world each outcome belongs to, Charge→green, HRV→Rest
-        /// (periwinkle, the HRV world), Rest→indigo, RHR→Stress (teal). Drives the
+        /// The Bevel colour world each outcome belongs to, Charge→green, HRV→Sleep
+        /// (periwinkle, the HRV world), Sleep→indigo, RHR→Stress (teal). Drives the
         /// section's domain accent + the segmented selection's wash.
         var domain: DomainTheme {
             switch self {
@@ -1166,7 +1166,7 @@ struct InsightsView: View {
                              value: "\(Int(cost.meanNextMorning.rounded()))",
                              caption: String(localized: "Recovery · \(pointsLabel) pts"),
                              accent: RecoveryBands.color(for: cost.meanNextMorning))
-                    StatTile(label: "Rest baseline",
+                    StatTile(label: "Sleep baseline",
                              value: "\(Int(cost.baselineMean.rounded()))",
                              caption: String(localized: "untouched days"),
                              accent: StrandPalette.textPrimary)
@@ -1230,7 +1230,7 @@ struct InsightsView: View {
         if let c = CorrelationEngine.pearson(
             CorrelationEngine.alignByDay(series("sleep_performance"), series("recovery"))) {
             out.append(.init(id: "sleep-rec",
-                             title: String(localized: "Rest ↔ Recovery"),
+                             title: String(localized: "Sleep ↔ Recovery"),
                              blurb: String(localized: "How closely a good night tracks next-morning recovery."),
                              corr: c))
         }
