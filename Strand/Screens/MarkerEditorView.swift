@@ -79,7 +79,7 @@ struct MarkerEditorView: View {
     private var markerSection: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
             SectionHeader("Marker", overline: "what are you logging?")
-            NoopCard {
+            PaperCard {
                 VStack(alignment: .leading, spacing: 12) {
                     if addingCustom {
                         customMarkerFields
@@ -221,7 +221,7 @@ struct MarkerEditorView: View {
     private var readingSection: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
             SectionHeader("Reading", overline: "your number, date and any note")
-            NoopCard {
+            PaperCard {
                 VStack(alignment: .leading, spacing: 14) {
                     if isBloodPressure {
                         bloodPressureFields

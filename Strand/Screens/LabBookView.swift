@@ -52,29 +52,30 @@ struct LabBookView: View {
     var body: some View {
         ScreenScaffold(
             title: "Lab Book",
-            subtitle: "Your bloods, BP and body numbers. Kept private, on \(Platform.deviceNounPhrase).",
+            subtitle: "Private health notebook",
             onRefresh: { await load() },
             // PERF: the column ends in one `categorySection` per marker category (bloods / BP / body / …),
             // each carrying its own sparkline-bearing cards. The LazyVStack path builds the off-screen
             // categories on demand — byte-identical layout — so a logbook with many categories doesn't
             // render every section + sparkline up-front.
-            lazy: true,
-            // Liquid finish: the day-of-sky backdrop, so Lab Book sits in the same liquid atmosphere as
-            // Today and the other analysis screens.
-            topBackground: liquidScaffoldSky()
+            lazy: true
         ) {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
-                headerCard
-                importCard
+                HStack {
+                    Spacer()
+                    ChipButton("Add reading", systemImage: "plus") { showingEditor = true }
+                }
+                SectionHeader("Markers")
                 if !loaded {
                     ComingSoon(what: "Reading your logbook…", symbol: "books.vertical")
                 } else if markers.isEmpty {
                     emptyState
                 } else {
-                    ForEach(orderedCategories, id: \.self) { category in
-                        categorySection(category)
-                    }
+                    markerList
                 }
+                importRow
+                SectionHeader("Recent Readings")
+                recentReadings
                 disclaimerNote
             }
         }
@@ -303,19 +304,93 @@ struct LabBookView: View {
     // MARK: - Empty state (honest)
 
     private var emptyState: some View {
-        NoopCard {
-            VStack(alignment: .leading, spacing: 10) {
-                Image(systemName: "square.and.pencil")
-                    .font(StrandFont.headline)
-                    .foregroundStyle(StrandPalette.metricCyan)
+        VStack(spacing: 12) {
+                Image(systemName: "flask")
+                    .font(.system(size: 28, weight: .medium))
+                    .foregroundStyle(StrandPalette.link)
                     .accessibilityHidden(true)
-                Text("Keep your own numbers here")
-                    .font(StrandFont.headline)
+                Text("No markers yet")
+                    .font(StrandFont.cardTitle)
                     .foregroundStyle(StrandPalette.textPrimary)
-                Text("Type in a blood-pressure reading or a cholesterol value from your last appointment. It stays on \(Platform.deviceNounPhrase), and over time you'll see how it lines up with your sleep, heart rate and recovery.")
-                    .font(StrandFont.subhead)
+                Text("Track what matters to you. Add a marker to get started.")
+                    .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.center)
+                ChipButton("Add marker") { showingEditor = true }
+        }
+        .frame(maxWidth: .infinity, minHeight: 220)
+        .padding(20)
+        .background(StrandPalette.card, in: RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous)
+                .stroke(StrandPalette.cardBorder, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+        )
+    }
+
+    private var markerList: some View {
+        PaperCard(padding: 14) {
+            VStack(spacing: 0) {
+                ForEach(Array(allMarkerKeys.enumerated()), id: \.element) { index, key in
+                    if index > 0 { Divider().overlay(StrandPalette.hairline) }
+                    Button { detailKey = key } label: {
+                        SettingsRow(icon: "flask", title: LocalizedStringKey(displayName(for: key)),
+                                    subtitle: LocalizedStringKey(lastTakenCaption(readings(for: key).last)),
+                                    showsChevron: true) {
+                            Text(latestLabel(readings(for: key).last, key: key))
+                                .font(StrandFont.captionNumber)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private var allMarkerKeys: [String] {
+        Set(markers.map(\.markerKey)).sorted { displayName(for: $0) < displayName(for: $1) }
+    }
+
+    private var importRow: some View {
+        Button { presentCsvImporter() } label: {
+            PaperCard(padding: 14) {
+                SettingsRow(icon: "square.and.arrow.up", title: "Import readings",
+                            subtitle: "Bring in readings from a markers CSV")
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(csvImporting)
+    }
+
+    @ViewBuilder
+    private var recentReadings: some View {
+        if markers.isEmpty {
+            PaperCard {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("None yet")
+                        .font(StrandFont.body.weight(.semibold))
+                        .foregroundStyle(StrandPalette.textPrimary)
+                    Text("Your logged readings will appear here.")
+                        .font(StrandFont.caption)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        } else {
+            PaperCard(padding: 14) {
+                VStack(spacing: 0) {
+                    ForEach(Array(markers.sorted { $0.takenAt > $1.takenAt }.prefix(3).enumerated()), id: \.element.id) { index, row in
+                        if index > 0 { Divider().overlay(StrandPalette.hairline) }
+                        Button { detailKey = row.markerKey } label: {
+                            SettingsRow(icon: "clock", title: LocalizedStringKey(displayName(for: row.markerKey)),
+                                        subtitle: LocalizedStringKey(LabBookFormat.day(row.takenAt)),
+                                        showsChevron: true) {
+                                Text(latestLabel(row, key: row.markerKey))
+                                    .font(StrandFont.captionNumber)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
             }
         }
     }
@@ -397,17 +472,12 @@ struct LabBookView: View {
     // MARK: - Disclaimer (always visible footnote + link)
 
     private var disclaimerNote: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Lab Book is a private notebook, not a medical service. NOOP stores and lines up the numbers you enter. It doesn't test, read, diagnose, or advise. Your records never leave \(Platform.deviceNounPhrase); there's no account or cloud, so it isn't \"HIPAA-covered.\" Always rely on your doctor or pharmacist to interpret results.")
-                .font(StrandFont.footnote)
-                .foregroundStyle(StrandPalette.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-            Button("Read the full note") { showingDisclaimer = true }
-                .buttonStyle(.plain)
-                .font(StrandFont.footnote)
-                .foregroundStyle(StrandPalette.accent)
-                .accessibilityLabel("Read the full Lab Book note")
+        Button { showingDisclaimer = true } label: {
+            NoteCard("NOOP is for personal tracking and insights only. It is not medical advice or a diagnostic tool.",
+                     title: "Important", style: .info)
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Important. NOOP is for personal tracking and insights only. Read the full note.")
     }
 
     // MARK: - Data helpers

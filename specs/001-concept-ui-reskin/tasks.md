@@ -331,9 +331,16 @@
     confirmed Recovery re-ranks the visible feed through the existing EffectRanker.
     All combines the four backed outcomes; Strain deliberately renders an honest
     unavailable state because the current association engine has no Effort series.
-- [ ] **T24 — Lab Book (S13)** — Modify `Strand/Screens/LabBookView.swift`,
+- [x] **T24 — Lab Book (S13)** — Modify `Strand/Screens/LabBookView.swift`,
   `MarkerEditorView.swift`. Spec §6-S13 including empty states. Verify vs sheet 5-2.
   Commit.
+  - Verified 2026-07-09: `NOOPiOS` built and ran. `qa/T24-lab-book.jpg`
+    confirms the private-notebook header, blue add action, dashed flask empty state,
+    compact real CSV import row, recent-readings empty state, and info-toned medical
+    disclaimer against sheet 5-2. Simulator UI automation opened Add marker and
+    confirmed the complete existing catalog/editor remains reachable in Paper cards.
+    The import subtitle names only the actually supported markers CSV path rather than
+    implying unsupported WHOOP/Apple Health marker import.
 - [ ] **T25 — Rhythm + consent (S14, S15)** — Modify
   `Strand/Screens/RhythmView.swift`. Spec §6-S14/S15; consent button disabled until
   toggle on. Verify vs sheet 5-3/5-4 (fresh-install state for consent). Commit.
