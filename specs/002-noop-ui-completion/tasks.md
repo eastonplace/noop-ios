@@ -257,12 +257,20 @@
     safe-area boundary and no island overlap. The complete reference-screen sweep
     is `T38-{today-notch,trends-notch,sleep,live,workouts,more,devices,insights,data-sources,automations,settings}.png`.
 
-- [ ] **T39 — Density constants (C5)**
+- [x] **T39 — Density constants (C5)**
   - Files: `PaperComponents.swift`/`StrandDesign.swift` — enforce spec C5 dimensions
     in the shared primitives themselves (ScoreRing sizes, MetricTile compact grid
     variant, stress strip height 8 pt, chart line 2 pt default, StatTriplet).
   - Verify: StrandDesign tests; build; Today/Sleep screenshots show new proportions
     (full screen fidelity lands in Phase 3). Commit.
+  - Evidence: `NoopMetrics` now owns the C5 ring, timer, health-tile, stress-strip,
+    chart-line, and icon-circle dimensions; `ScoreRing`, `MetricTile`,
+    `StressTimelineBar`, `TrendChart`, and `StatTriplet` consume the contract.
+    `StrandDesign`: 36/36 tests including an explicit proportion-contract test;
+    full `NOOPiOS` simulator build passed. `T39-today.png` and `T39-sleep.png`
+    were compared with sheet 1: trio 64/5/30, hero 96/7/44, dense borderless
+    health tiles, 8 pt stress strip, and 2 pt chart defaults are in place; the
+    remaining screen-composition differences stay assigned to Phase 3.
 
 ## Phase 3 — Composition fidelity (fidelity.md rows below Close + nits)
 

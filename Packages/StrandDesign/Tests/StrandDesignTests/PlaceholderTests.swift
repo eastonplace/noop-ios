@@ -8,6 +8,23 @@ final class StrandDesignTests: XCTestCase {
         XCTAssertEqual(StrandDesign.version, "0.1.0")
     }
 
+    func testPaperProportionContract() {
+        XCTAssertEqual(NoopMetrics.trioRingDiameter, 64)
+        XCTAssertEqual(NoopMetrics.trioRingLineWidth, 5)
+        XCTAssertEqual(NoopMetrics.trioRingNumeralSize, 30)
+        XCTAssertEqual(NoopMetrics.heroRingDiameter, 96)
+        XCTAssertEqual(NoopMetrics.heroRingLineWidth, 7)
+        XCTAssertEqual(NoopMetrics.heroRingNumeralSize, 44)
+        XCTAssertEqual(NoopMetrics.liveRunTimerSize, 64)
+        XCTAssertEqual(NoopMetrics.healthTileIconSize, 16)
+        XCTAssertEqual(NoopMetrics.healthTileLabelSize, 13)
+        XCTAssertEqual(NoopMetrics.healthTileValueSize, 20)
+        XCTAssertEqual(NoopMetrics.stressTimelineHeight, 8)
+        XCTAssertEqual(NoopMetrics.chartLineWidth, 2)
+        XCTAssertGreaterThanOrEqual(NoopMetrics.iconCircleDiameter, 32)
+        XCTAssertLessThanOrEqual(NoopMetrics.iconCircleDiameter, 36)
+    }
+
     func testHexParsing() {
         let c = Color(hex: "#0B0D12").rgbaComponents
         XCTAssertEqual(c.r, 0x0B / 255.0, accuracy: 0.01)

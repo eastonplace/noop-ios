@@ -188,7 +188,8 @@ public struct TrendChart: View {
                     y: .value("Value", p.value)
                 )
                 .interpolationMethod(.catmullRom)
-                .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+                .lineStyle(StrokeStyle(lineWidth: NoopMetrics.chartLineWidth,
+                                       lineCap: .round, lineJoin: .round))
                 .foregroundStyle(valueGradient)
             }
             // 18pt dots are invisible on dense series (e.g. a 365-day year) but still cost the

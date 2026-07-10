@@ -21,6 +21,25 @@ public enum NoopMetrics {
     public static let hypnogramBandMinThickness: CGFloat = 14  // floor so short stages read as bars, not ticks
     public static let tabBarClearance: CGFloat = 76  // iOS: extra bottom scroll room so the last card clears the floating tab bar
 
+    // MARK: Paper proportion contract (spec 002 C5)
+    // Keep the acceptance dimensions here so score, chart, and dashboard primitives
+    // cannot quietly drift apart again.
+    public static let trioRingDiameter: CGFloat = 64
+    public static let trioRingLineWidth: CGFloat = 5
+    public static let trioRingNumeralSize: CGFloat = 30
+    public static let heroRingDiameter: CGFloat = 96
+    public static let heroRingLineWidth: CGFloat = 7
+    public static let heroRingNumeralSize: CGFloat = 44
+    public static let liveRunTimerSize: CGFloat = 64
+    public static let healthTileIconSize: CGFloat = 16
+    public static let healthTileLabelSize: CGFloat = 13
+    public static let healthTileValueSize: CGFloat = 20
+    public static let healthTileSparklineHeight: CGFloat = 16
+    public static let healthTileMinHeight: CGFloat = 68
+    public static let stressTimelineHeight: CGFloat = 8
+    public static let chartLineWidth: CGFloat = 2
+    public static let iconCircleDiameter: CGFloat = 34
+
     // MARK: Standardised spacing scale (the ONE source of truth for margins)
     //
     // A 4pt-based ramp. Reach for these instead of literal numbers so every gap,

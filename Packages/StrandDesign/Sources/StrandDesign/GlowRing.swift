@@ -29,7 +29,8 @@ public struct ScoreRing: View {
         self.range = range
         self.accent = accent
         self.size = size
-        self.lineWidth = lineWidth ?? (size <= 72 ? 5 : 7)
+        self.lineWidth = lineWidth ?? (size <= NoopMetrics.trioRingDiameter
+            ? NoopMetrics.trioRingLineWidth : NoopMetrics.heroRingLineWidth)
         self.format = format
         self.centerCaption = centerCaption
         self.showsValue = showsValue

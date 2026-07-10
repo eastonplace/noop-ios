@@ -350,7 +350,7 @@ public struct StatTriplet: View {
         HStack(spacing: 0) {
             ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                 if index > 0 {
-                    Rectangle().fill(StrandPalette.hairline).frame(width: 1, height: 36)
+                    Rectangle().fill(StrandPalette.hairline).frame(width: 1, height: 32)
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     Text(item.label).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
@@ -358,9 +358,10 @@ public struct StatTriplet: View {
                         .lineLimit(1).minimumScaleFactor(0.7)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, index == 0 ? 0 : 12)
+                .padding(.horizontal, index == 0 ? 0 : 8)
             }
         }
+        .frame(minHeight: 36)
     }
 }
 
@@ -379,25 +380,35 @@ public struct MetricTile: View {
     }
 
     public var body: some View {
-        PaperCard {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 7) {
-                    Image(systemName: icon).font(.system(size: 14, weight: .semibold)).foregroundStyle(accent)
-                    Text(label).font(StrandFont.micro).foregroundStyle(StrandPalette.textSecondary).lineLimit(1)
-                }
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text(value).font(StrandFont.metricValue).foregroundStyle(StrandPalette.textPrimary)
-                    if let unit { Text(unit).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary) }
-                }
-                #if !os(watchOS)
-                if let spark, spark.count > 1 {
-                    Sparkline(values: spark, gradient: Gradient(colors: [accent, accent]),
-                              showsArea: false, showsHead: false, showsHover: false)
-                        .frame(height: 24)
-                }
-                #endif
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: NoopMetrics.healthTileIconSize, weight: .semibold))
+                    .foregroundStyle(accent)
+                Text(label)
+                    .font(.system(size: NoopMetrics.healthTileLabelSize))
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .lineLimit(1)
             }
+            HStack(alignment: .firstTextBaseline, spacing: 3) {
+                Text(value)
+                    .font(StrandFont.number(NoopMetrics.healthTileValueSize, weight: .bold))
+                    .foregroundStyle(StrandPalette.textPrimary)
+                if let unit {
+                    Text(unit).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                }
+            }
+            #if !os(watchOS)
+            if let spark, spark.count > 1 {
+                Sparkline(values: spark, gradient: Gradient(colors: [accent, accent]),
+                          lineWidth: NoopMetrics.chartLineWidth,
+                          showsArea: false, showsHead: false, showsHover: false)
+                    .frame(height: NoopMetrics.healthTileSparklineHeight)
+            }
+            #endif
         }
+        .frame(maxWidth: .infinity, minHeight: NoopMetrics.healthTileMinHeight,
+               alignment: .topLeading)
     }
 }
 
@@ -503,7 +514,7 @@ public struct StressTimelineBar: View {
                 .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
                 .background(StrandPalette.inset, in: RoundedRectangle(cornerRadius: 4, style: .continuous))
             }
-            .frame(height: 18)
+            .frame(height: NoopMetrics.stressTimelineHeight)
             HStack(spacing: 0) {
                 ForEach(Array(["12AM", "6AM", "12PM", "6PM", "12AM"].enumerated()), id: \.offset) { index, label in
                     Text(label).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
