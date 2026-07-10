@@ -281,6 +281,8 @@ struct TrendsView: View {
         return repo.days.filter { $0.day >= digest.weekStart && $0.day <= digest.weekEnd }
     }
 
+    private var paperWeekDates: [Date] { paperWeekDays.compactMap { date($0.day) } }
+
     private var paperWeekRangeLabel: String {
         let digest = WeeklyDigestSource.digest(from: repo.days, anchorDay: weekAnchorDay)
         guard let start = date(digest.weekStart), let end = date(digest.weekEnd) else { return "" }
@@ -313,8 +315,8 @@ struct TrendsView: View {
         return PaperCard(padding: 12) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(LocalizedStringKey(metric.label))
-                    .font(StrandFont.caption).foregroundStyle(accent)
-                Text(value).font(StrandFont.statValue).foregroundStyle(StrandPalette.textPrimary)
+                    .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                Text(value).font(StrandFont.statValue).foregroundStyle(accent)
                 Text(hasValue
                      ? "\(sign)\(metric == .effort ? StrainScale.formattedDelta(abs(delta)) : "\(Int(abs(delta).rounded()))") vs last week"
                      : "No data this week")
@@ -335,61 +337,81 @@ struct TrendsView: View {
                     paperLegend("Strain", color: StrandPalette.strainAccent)
                     paperLegend("Sleep", color: StrandPalette.sleepAccent)
                 }
-                Chart {
-                    ForEach(paperWeekDays, id: \.day) { day in
-                        if let value = day.recovery, let date = date(day.day) {
-                            LineMark(x: .value("Day", date), y: .value("Recovery", value))
-                                .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-                                .foregroundStyle(by: .value("Series", "Recovery"))
-                            PointMark(x: .value("Day", date), y: .value("Recovery", value))
-                                .foregroundStyle(RecoveryBands.color(for: value)).symbolSize(18)
-                        }
-                        if let stored = day.strain, let date = date(day.day) {
-                            let value = StrainScale.displayValue(fromStored: stored)
-                            let normalized = value / StrainScale.displayRange.upperBound * 100
-                            LineMark(x: .value("Day", date), y: .value("Strain", normalized))
-                                .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-                                .foregroundStyle(by: .value("Series", "Strain"))
-                            PointMark(x: .value("Day", date), y: .value("Strain", normalized))
-                                .foregroundStyle(by: .value("Series", "Strain")).symbolSize(18)
-                        }
-                        if let value = sleepPerfByDay[day.day], let date = date(day.day) {
-                            LineMark(x: .value("Day", date), y: .value("Sleep", value))
-                                .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-                                .foregroundStyle(by: .value("Series", "Sleep"))
-                            PointMark(x: .value("Day", date), y: .value("Sleep", value))
-                                .foregroundStyle(by: .value("Series", "Sleep")).symbolSize(18)
-                        }
-                    }
-                }
-                .chartForegroundStyleScale(domain: ["Recovery", "Strain", "Sleep"],
-                                           range: [StrandPalette.recoveryData,
-                                                   StrandPalette.strainAccent,
-                                                   StrandPalette.sleepAccent])
-                .chartLegend(.hidden)
-                .chartYScale(domain: 0...100)
-                .chartXAxis {
-                    AxisMarks(values: .automatic(desiredCount: 7)) { _ in
-                        AxisValueLabel(format: .dateTime.weekday(.narrow))
-                            .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
-                    }
-                }
-                .chartYAxis {
-                    AxisMarks(position: .leading, values: [0, 50, 100]) { _ in
-                        AxisGridLine().foregroundStyle(StrandPalette.hairline)
-                        AxisValueLabel().font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
-                    }
-                    AxisMarks(position: .trailing, values: [0, 100.0 / 3.0, 200.0 / 3.0, 100]) { value in
-                        AxisValueLabel {
-                            if let normalized = value.as(Double.self) {
-                                Text("\(Int((normalized * 21 / 100).rounded()))")
+                ZStack {
+                    Chart {
+                        ForEach(paperWeekDays, id: \.day) { day in
+                            if let value = day.recovery, let date = date(day.day) {
+                                LineMark(x: .value("Day", date), y: .value("Recovery", value))
+                                    .lineStyle(StrokeStyle(lineWidth: NoopMetrics.chartLineWidth,
+                                                           lineCap: .round, lineJoin: .round))
+                                    .foregroundStyle(by: .value("Series", "Recovery"))
+                                PointMark(x: .value("Day", date), y: .value("Recovery", value))
+                                    .foregroundStyle(RecoveryBands.color(for: value)).symbolSize(18)
+                            }
+                            if let value = sleepPerfByDay[day.day], let date = date(day.day) {
+                                LineMark(x: .value("Day", date), y: .value("Sleep", value))
+                                    .lineStyle(StrokeStyle(lineWidth: NoopMetrics.chartLineWidth,
+                                                           lineCap: .round, lineJoin: .round))
+                                    .foregroundStyle(by: .value("Series", "Sleep"))
+                                PointMark(x: .value("Day", date), y: .value("Sleep", value))
+                                    .foregroundStyle(StrandPalette.sleepAccent).symbolSize(18)
                             }
                         }
-                        .font(StrandFont.micro)
-                        .foregroundStyle(StrandPalette.strainAccent)
+                    }
+                    .chartForegroundStyleScale(domain: ["Recovery", "Sleep"],
+                                               range: [StrandPalette.recoveryData,
+                                                       StrandPalette.sleepAccent])
+                    .chartLegend(.hidden)
+                    .chartYScale(domain: 0...100)
+                    .chartXAxis {
+                        AxisMarks(values: paperWeekDates) { _ in
+                            AxisValueLabel(format: .dateTime.weekday(.narrow).day())
+                                .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                        }
+                    }
+                    .chartYAxis {
+                        AxisMarks(position: .leading, values: [0, 50, 100]) { _ in
+                            AxisGridLine().foregroundStyle(StrandPalette.hairline)
+                            AxisValueLabel().font(StrandFont.micro)
+                                .foregroundStyle(StrandPalette.textTertiary)
+                        }
+                        AxisMarks(position: .trailing, values: [0, 7, 14, 21]) { value in
+                            AxisValueLabel {
+                                Text(value.as(Int.self).map(String.init) ?? "")
+                            }
+                            .font(StrandFont.micro).foregroundStyle(Color.clear)
+                        }
+                    }
+                    .chartPlotStyle { $0.background(StrandPalette.inset.opacity(0.45)) }
+
+                    Chart {
+                        ForEach(paperWeekDays, id: \.day) { day in
+                            if let stored = day.strain, let date = date(day.day) {
+                                let value = StrainScale.displayValue(fromStored: stored)
+                                LineMark(x: .value("Day", date), y: .value("Strain", value))
+                                    .lineStyle(StrokeStyle(lineWidth: NoopMetrics.chartLineWidth,
+                                                           lineCap: .round, lineJoin: .round))
+                                    .foregroundStyle(StrandPalette.strainAccent)
+                                PointMark(x: .value("Day", date), y: .value("Strain", value))
+                                    .foregroundStyle(StrandPalette.strainAccent).symbolSize(18)
+                            }
+                        }
+                    }
+                    .chartYScale(domain: StrainScale.displayRange)
+                    .chartXAxis(.hidden)
+                    .chartYAxis {
+                        AxisMarks(position: .leading, values: [0, 50, 100]) { value in
+                            AxisValueLabel {
+                                Text(value.as(Int.self).map(String.init) ?? "")
+                            }
+                            .font(StrandFont.micro).foregroundStyle(Color.clear)
+                        }
+                        AxisMarks(position: .trailing, values: [0, 7, 14, 21]) { _ in
+                            AxisValueLabel().font(StrandFont.micro)
+                                .foregroundStyle(StrandPalette.strainAccent)
+                        }
                     }
                 }
-                .chartPlotStyle { $0.background(StrandPalette.inset.opacity(0.45)) }
                 .frame(height: 180)
             }
         }

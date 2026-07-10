@@ -291,7 +291,7 @@
     overlap. HR population was a simulator-only `hrSample` fixture (no app storage,
     scoring, or view math changed). Full `NOOPiOS` builds passed on both simulators;
     `StrandDesign`: 36/36 tests.
-- [ ] **T41 — Trends corrections (S2)** ∥ — tile color roles (numbers colored per
+- [x] **T41 — Trends corrections (S2)** ∥ — tile color roles (numbers colored per
   C13: Recovery number banded, Strain blue, Sleep slate; labels neutral), chart lines
   per C13 (recovery line `recoveryData` + band-colored points, strain `strainAccent`,
   sleep `sleepAccent`), 2 pt lines, day+date x-axis labels, 0–21 strain series axis
@@ -299,6 +299,12 @@
   (dual-axis? No — separate normalized presentation is forbidden; plot strain on its
   own 0–21 right axis only if the reference's single 0–100 axis can't host it —
   decide, note here, keep visual match). Verify vs 1-2. Commit.
+  - Evidence: `T41-trends.png` was compared with sheet 1-2. Tile labels are neutral
+    while Recovery/Strain/Sleep numerals carry C13 color; all lines are 2 pt,
+    Recovery points remain band-colored, and x-axis labels show weekday + date.
+    Decision: the shared 0–100 left axis cannot honestly host raw 0–21 Strain, so
+    the chart overlays a true 0–21 Strain plot with its own right axis—no normalized
+    view value or storage conversion. Full `NOOPiOS` build passed.
 - [ ] **T42 — Sleep corrections (S3)** ∥ — sleep-marks section into a PaperCard
   (reference pattern; keep tap-to-log feature per C8, restyled + untruncated button
   labels), rebuild `Hypnogram` rendering (floating stage bars, 001 §2.1 colors, no
