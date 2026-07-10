@@ -20,6 +20,9 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
     /// Optional full-bleed view drawn behind the scroll content at the TOP of the screen (e.g. Today's
     /// day-cycle scene). Defaults to nil so other screens stay on the flat canvas; nil renders nothing.
     var topBackground: AnyView? = nil
+    /// Optional inline back action for pushed/sheet screens. When present, the shared Paper header
+    /// owns the chevron so navigation never consumes a separate row above the wordmark.
+    var backAction: (() -> Void)? = nil
     /// Optional element pinned to the header's trailing edge (e.g. the strap-battery badge on Today).
     /// Defaults to `EmptyView` via the convenience init below, so other screens are unaffected.
     @ViewBuilder var trailing: () -> Trailing
@@ -40,7 +43,7 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
             // Unified side margins matching the liquid home (16pt) so every page's cards + header line up
             // to the same edges (2026-07-02); macOS keeps the classic 28 in the #else branch.
             .padding(.horizontal, 16)
-            .padding(.top, 24)
+            .padding(.top, 8)
             // The tab bar floats over the scroll content, so the last card sat hidden behind it.
             // Reserve extra bottom scroll room so every screen's final card clears the floating bar.
             .padding(.bottom, NoopMetrics.tabBarClearance)
@@ -55,6 +58,12 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
             #endif
         }
         #if os(iOS)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            header
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+                .background(StrandPalette.surfaceBase)
+        }
         // #697: stop a vertical scroll from drifting/bouncing the screen left-right. `.basedOnSize` only
         // permits horizontal bounce when content genuinely overflows the width (it does not here, the column
         // is width-capped), so the spurious horizontal rubber-band that caused the sideways drift is gone.
@@ -86,12 +95,16 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
     @ViewBuilder private var column: some View {
         if lazy {
             LazyVStack(alignment: .leading, spacing: 20) {
-                if title != nil || subtitle != nil { header }
+                #if os(macOS)
+                header
+                #endif
                 content()
             }
         } else {
             VStack(alignment: .leading, spacing: 20) {
-                if title != nil || subtitle != nil { header }
+                #if os(macOS)
+                header
+                #endif
                 content()
             }
         }
@@ -104,55 +117,8 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
         // pattern the Liquid Today hero hit (osifaind's Trends-tab sibling report). Flat-canvas screens
         // (no topBackground) keep the theme tokens so the header reads on the light/dark surfaceBase.
         let overSky = topBackground != nil
-        let titleColor = overSky ? StrandPalette.onDarkPrimary : StrandPalette.textPrimary
-        let subtitleColor = overSky ? StrandPalette.onDarkSecondary : StrandPalette.textSecondary
-        return HeaderBar(title: title, subtitle: subtitle, titleColor: titleColor,
-                         subtitleColor: subtitleColor, trailing: trailing)
-    }
-}
-
-/// Paper app header. The wordmark is geometrically centered regardless of the trailing controls;
-/// screen context stays on a separate line so titles never shove the brand off-axis.
-struct HeaderBar<Trailing: View>: View {
-    let title: LocalizedStringKey?
-    let subtitle: LocalizedStringKey?
-    let titleColor: Color
-    let subtitleColor: Color
-    @ViewBuilder let trailing: () -> Trailing
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            ZStack {
-                Text("N O O P")
-                    .font(StrandFont.wordmark)
-                    .tracking(StrandFont.wordmarkTracking)
-                    .foregroundStyle(titleColor)
-                HStack {
-                    Spacer(minLength: 0)
-                    trailing()
-                }
-            }
-            .frame(maxWidth: .infinity, minHeight: 32)
-
-            if title != nil || subtitle != nil {
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    if let title {
-                        Text(title)
-                            .font(StrandFont.screenOverline)
-                            .tracking(StrandFont.screenOverlineTracking)
-                            .textCase(.uppercase)
-                            .foregroundStyle(titleColor)
-                    }
-                    Spacer(minLength: 8)
-                    if let subtitle {
-                        Text(subtitle)
-                            .font(StrandFont.caption)
-                            .foregroundStyle(subtitleColor)
-                            .lineLimit(1)
-                    }
-                }
-            }
-        }
+        return PaperHeaderBar(title: title, subtitle: subtitle, backAction: backAction,
+                              onDark: overSky, trailing: trailing)
     }
 }
 
@@ -161,9 +127,11 @@ extension ScreenScaffold where Trailing == EmptyView {
     /// call site (which never passed `trailing`) source-compatible.
     init(title: LocalizedStringKey?, subtitle: LocalizedStringKey? = nil,
          onRefresh: (() async -> Void)? = nil, lazy: Bool = false, topBackground: AnyView? = nil,
+         backAction: (() -> Void)? = nil,
          @ViewBuilder content: @escaping () -> Content) {
         self.init(title: title, subtitle: subtitle, onRefresh: onRefresh, lazy: lazy,
-                  topBackground: topBackground, trailing: { EmptyView() }, content: content)
+                  topBackground: topBackground, backAction: backAction,
+                  trailing: { EmptyView() }, content: content)
     }
 }
 

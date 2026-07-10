@@ -18,6 +18,7 @@ import Foundation
 // No custom card heights, paddings, colours or surfaces — uniformity is the bar.
 
 struct WorkoutsView: View {
+    @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var repo: Repository
     /// #459: "Start Workout" used to live ONLY on the Live screen, so a user reaching Workouts (via the
     /// Quick-action FAB or the tab) had no way to begin one from the obvious place. Injected here so the
@@ -132,7 +133,8 @@ struct WorkoutsView: View {
                        lazy: true,
                        // The day-of-sky liquid backdrop, matching Today / Health / Sleep / Trends: a fixed,
                        // full-bleed time-of-day sky behind the scroll content (it does not scroll).
-                       topBackground: nil) {
+                       topBackground: nil,
+                       backAction: { dismiss() }) {
             if allRows.isEmpty {
                 VStack(alignment: .leading, spacing: NoopMetrics.space4) {
                     ComingSoon(what: loaded
@@ -163,6 +165,7 @@ struct WorkoutsView: View {
                 sessionsSection(rows: windowRows)
             }
         }
+        .toolbar(.hidden, for: .navigationBar)
         .task(id: repo.refreshSeq) {
             guard !usesPreviewRows else { return }
             // #797: read only the currently-loaded window (bounded on first paint), not the whole history.

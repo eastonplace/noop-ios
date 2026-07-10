@@ -19,6 +19,7 @@ import WhoopStore
 /// never the whole screen. The parent only observes the coarse connection transitions it needs to re-arm
 /// the stream and gate the layout.
 struct LiveView: View {
+    @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var live: LiveState
     @EnvironmentObject private var repo: Repository
@@ -70,7 +71,8 @@ struct LiveView: View {
     var body: some View {
         ScreenScaffold(title: "Live Body Console",
                        subtitle: nil,
-                       topBackground: nil) {
+                       topBackground: nil,
+                       backAction: { dismiss() }) {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
                 PaperLiveDeviceCard(deviceName: activeDeviceName,
                                     activeConnection: activeConnection)
@@ -107,6 +109,7 @@ struct LiveView: View {
                 LiveLogCard()
             }
         }
+        .toolbar(.hidden, for: .navigationBar)
         .onAppear { refreshLiveSession(); consumeActiveWorkoutRequest() }
         .onDisappear { model.stopRealtimeHR() }
         // A fresh bond/connection re-arms the BLE stream (Apple must re-send startRealtime on a new

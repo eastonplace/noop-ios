@@ -1028,59 +1028,48 @@ struct TodayView: View {
 
     /// Paper root header. R7 removes the prototype selector and T08 moves quick actions to the
     /// Today-only FAB, while preserving date navigation, status, updates, and Settings routes.
-    @ViewBuilder private var todayTopBar: some View {
-        VStack(spacing: 10) {
-            ZStack {
-                Text("N O O P")
-                    .font(StrandFont.wordmark)
-                    .tracking(StrandFont.wordmarkTracking)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                HStack(spacing: 8) {
-                    Spacer(minLength: 0)
-                    RecordingStatusLight(selectedDayOffset: selectedDayOffset) {
-                        StrandHaptic.selection.play(); router.openDevices()
-                    }
-                    Button { showUpdatesInbox = true } label: {
-                        Image(systemName: updateStore.unreadCount > 0 ? "bell.badge" : "bell")
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundStyle(StrandPalette.textSecondary)
-                            .frame(width: 32, height: 32)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Updates")
-                    Button { showSettings = true } label: {
-                        ProfileAvatarView(imageData: profile.avatarImageData, size: 32)
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Menu and settings")
-                }
+    private var todayHeaderStatus: some View {
+        HStack(spacing: 8) {
+            Button { showUpdatesInbox = true } label: {
+                Image(systemName: updateStore.unreadCount > 0
+                      ? "arrow.triangle.2.circlepath.circle.fill"
+                      : "arrow.triangle.2.circlepath")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .frame(width: 32, height: 32)
             }
-
-            HStack(alignment: .firstTextBaseline) {
-                Text("TODAY")
-                    .font(StrandFont.screenOverline)
-                    .tracking(StrandFont.screenOverlineTracking)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                Spacer(minLength: 8)
-                Button { showDayPicker = true } label: {
-                    Text(dayNavHint ?? dayNavDateText)
-                        .font(StrandFont.caption)
-                        .foregroundStyle(dayNavHint != nil ? StrandPalette.link : StrandPalette.textSecondary)
-                        .lineLimit(1)
-                        .contentTransition(.opacity)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("\(dayNavLabel). Swipe or tap to change day")
-                .popover(isPresented: $showDayPicker) {
-                    DatePicker("", selection: dayPickerBinding, in: ...Repository.logicalDay(Date()),
-                               displayedComponents: [.date])
-                        .datePickerStyle(.graphical).labelsHidden().padding(12)
-                        .frame(minWidth: 320, minHeight: 360)
-                }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Updates")
+            RecordingStatusLight(selectedDayOffset: selectedDayOffset) {
+                StrandHaptic.selection.play(); router.openDevices()
             }
         }
-        .frame(minHeight: 76)
+    }
+
+    @ViewBuilder private var todayTopBar: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text("TODAY")
+                .font(StrandFont.screenOverline)
+                .tracking(StrandFont.screenOverlineTracking)
+                .foregroundStyle(StrandPalette.textPrimary)
+            Spacer(minLength: 8)
+            Button { showDayPicker = true } label: {
+                Text(dayNavHint ?? dayNavDateText)
+                    .font(StrandFont.caption)
+                    .foregroundStyle(dayNavHint != nil ? StrandPalette.link : StrandPalette.textSecondary)
+                    .lineLimit(1)
+                    .contentTransition(.opacity)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(dayNavLabel). Swipe or tap to change day")
+            .popover(isPresented: $showDayPicker) {
+                DatePicker("", selection: dayPickerBinding, in: ...Repository.logicalDay(Date()),
+                           displayedComponents: [.date])
+                    .datePickerStyle(.graphical).labelsHidden().padding(12)
+                    .frame(minWidth: 320, minHeight: 360)
+            }
+        }
+        .frame(minHeight: 24)
         // Cycle the swipe/tap hint: roughly every 10s flash a one-word hint for ~1.5s, alternating "Swipe" /
         // "Tap", then return to the date. One async loop, auto-cancelled when Today goes away (no leaked timer).
         .task {
@@ -1384,7 +1373,8 @@ struct TodayView: View {
                        lazy: true,
                        // R7: Paper is the one Today surface. The retired day-scene preference remains
                        // stored for compatibility but no longer changes the rendered root.
-                       topBackground: nil) {
+                       topBackground: nil,
+                       trailing: { todayHeaderStatus }) {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
                 #if os(iOS)
                 todayTopBar

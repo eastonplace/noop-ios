@@ -1,5 +1,86 @@
 import SwiftUI
 
+/// Canonical Paper screen chrome: one compact row with an optional inline back affordance,
+/// geometrically centered wordmark, and trailing controls. Screen context sits immediately below.
+public struct PaperHeaderBar<Trailing: View>: View {
+    private let title: LocalizedStringKey?
+    private let subtitle: LocalizedStringKey?
+    private let backAction: (() -> Void)?
+    private let onDark: Bool
+    @ViewBuilder private let trailing: () -> Trailing
+
+    public init(
+        title: LocalizedStringKey? = nil,
+        subtitle: LocalizedStringKey? = nil,
+        backAction: (() -> Void)? = nil,
+        onDark: Bool = false,
+        @ViewBuilder trailing: @escaping () -> Trailing
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.backAction = backAction
+        self.onDark = onDark
+        self.trailing = trailing
+    }
+
+    public var body: some View {
+        let primary = onDark ? StrandPalette.onDarkPrimary : StrandPalette.textPrimary
+        let secondary = onDark ? StrandPalette.onDarkSecondary : StrandPalette.textSecondary
+        VStack(alignment: .leading, spacing: 8) {
+            ZStack {
+                Text("N O O P")
+                    .font(StrandFont.wordmark)
+                    .tracking(StrandFont.wordmarkTracking)
+                    .foregroundStyle(primary)
+                HStack(spacing: 8) {
+                    if let backAction {
+                        Button(action: backAction) {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 14, weight: .semibold))
+                                .frame(width: 32, height: 32)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Back")
+                    }
+                    Spacer(minLength: 0)
+                    trailing()
+                }
+                .foregroundStyle(primary)
+            }
+            .frame(maxWidth: .infinity, minHeight: 32)
+
+            if title != nil || subtitle != nil {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    if let title {
+                        Text(title)
+                            .font(StrandFont.screenOverline)
+                            .tracking(StrandFont.screenOverlineTracking)
+                            .textCase(.uppercase)
+                            .foregroundStyle(primary)
+                    }
+                    Spacer(minLength: 8)
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(StrandFont.caption)
+                            .foregroundStyle(secondary)
+                            .lineLimit(1)
+                    }
+                }
+            }
+        }
+    }
+}
+
+public extension PaperHeaderBar where Trailing == EmptyView {
+    init(title: LocalizedStringKey? = nil, subtitle: LocalizedStringKey? = nil,
+         backAction: (() -> Void)? = nil, onDark: Bool = false) {
+        self.init(title: title, subtitle: subtitle, backAction: backAction, onDark: onDark) {
+            EmptyView()
+        }
+    }
+}
+
 public struct PaperCard<Content: View>: View {
     private let padding: CGFloat
     @ViewBuilder private let content: () -> Content

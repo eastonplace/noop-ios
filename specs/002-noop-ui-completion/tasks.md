@@ -236,7 +236,7 @@
 
 ## Phase 2 — Chrome (C4/C5)
 
-- [ ] **T38 — PaperHeaderBar + gap fix**
+- [x] **T38 — PaperHeaderBar + gap fix**
   - Files: `Packages/StrandDesign/Sources/StrandDesign/PaperComponents.swift` (add
     `PaperHeaderBar`), `Strand/Screens/ScreenScaffold.swift` (render it; top padding
     24→8), `StrandiOS/App/RootTabView.swift`, `Strand/Screens/TodayView.swift` +
@@ -246,6 +246,16 @@
   - Verify: wordmark ≤12 pt below status bar on notch + non-notch sims, at rest and
     scrolled; every reference screen re-shot; compositions still match references
     (don't just slide content up — plan §Header-gap). Commit.
+  - Evidence: added the shared `PaperHeaderBar`, rendered it through a pinned
+    `ScreenScaffold` safe-area header, reduced content top padding 24→8, removed
+    the Today duplicate wordmark/avatar row, and replaced Live/Workouts floating
+    chevrons with the inline header back action. `NOOPiOS` simulator build passed;
+    `StrandDesign` 35/35 tests passed. Header QA covers notch rest/scrolled
+    (`T38-today-notch.png`, `T38-today-scrolled-notch.png`,
+    `T38-trends-notch.png`, `T38-trends-scrolled-notch.png`) and non-notch
+    (`T38-today-nonnotch.png`), with the wordmark inside the first 12 pt below the
+    safe-area boundary and no island overlap. The complete reference-screen sweep
+    is `T38-{today-notch,trends-notch,sleep,live,workouts,more,devices,insights,data-sources,automations,settings}.png`.
 
 - [ ] **T39 — Density constants (C5)**
   - Files: `PaperComponents.swift`/`StrandDesign.swift` — enforce spec C5 dimensions
