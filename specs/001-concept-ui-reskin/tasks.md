@@ -306,10 +306,18 @@
     action, restore card, and privacy note against sheet 4-4. The simulator has no
     selected folder, so backup/restore remain correctly disabled; picker, retention,
     backup, restore, and destructive-confirmation logic is unchanged.
-- [ ] **T22 — Settings + Support (S10, S11)** — Modify
+- [x] **T22 — Settings + Support (S10, S11)** — Modify
   `Strand/Screens/SettingsView.swift`, `SupportView.swift`,
   `ProfileAvatarView.swift`. Spec §6-S10/S11; every existing row survives (AC);
   liquid-Today toggle already removed in T08. Verify vs sheet 4-5/4-6. Commit.
+  - Verified 2026-07-09: `NOOPiOS` built and ran. `qa/T22-settings.jpg`
+    confirms the compact Paper profile, segmented Units/Appearance controls,
+    Preferences, Privacy & Local Data, and Support groups against sheet 4-5.
+    Every pre-reskin settings control remains reachable in Detailed settings; the
+    overview uses only real profile values and existing destinations, so unsupported
+    name/member-since/first-day/global-delete state was not fabricated.
+    `qa/T22-support.jpg` confirms the independent-support card, black action, existing
+    donation QR/address flow, three contact rows, and privacy note against sheet 4-6.
 
 ## Phase 7 — Labs
 

@@ -167,38 +167,34 @@ struct SettingsView: View {
 
     var body: some View {
         ScreenScaffold(title: "Settings",
-                       subtitle: "Your numbers, your strap, and how NOOP works. All on \(Platform.deviceNounPhrase).",
-                       // The day-of-sky liquid backdrop, matching Today / Health / Sleep / Trends / Devices:
-                       // a fixed, full-bleed time-of-day sky behind the scroll content (it does not scroll).
-                       // Settings' own frosted cards sit on the dark canvas below the sky band, unchanged.
-                       topBackground: liquidScaffoldSky()) {
+                       subtitle: "Customize NOOP to your preferences.") {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
-                // Everyday sections stay expanded (S3): the ones a first-run user actually needs.
-                profilePhotoCard.staggeredAppear(index: 0)
-                profileCard.staggeredAppear(index: 1)
-                unitsCard.staggeredAppear(index: 2)
-                appearanceCard.staggeredAppear(index: 3)
-                strapCard.staggeredAppear(index: 4)
-                featuresCard.staggeredAppear(index: 5)
+                paperProfileSummary.staggeredAppear(index: 0)
+                paperPreferencesSummary.staggeredAppear(index: 1)
+                paperPrivacySummary.staggeredAppear(index: 2)
+                paperSupportSummary.staggeredAppear(index: 3)
 
-                // Lower-frequency sections collapse behind a single default-closed disclosure so the
-                // screen opens at ~6 sections instead of 11. Nothing is removed; every section here
-                // (Recovery / advanced scoring, Test Centre, the experimental probes + raw-capture, and
-                // Backup & restore) stays one tap away. Modelled on the Test Centre "Advanced" group.
+                // The Paper overview above is deliberately compact. Every pre-reskin control remains
+                // below, unchanged in behaviour, so this stays a visual reorganisation rather than a
+                // settings migration or a silent feature removal.
                 SettingsDisclosureGroup(
-                    title: "Advanced",
-                    subtitle: "Recovery, Test Centre, experimental probes, and backup. Tucked away to keep the everyday screen tidy.",
+                    title: "Detailed settings",
+                    subtitle: "Profile, device, scoring, experiments, backup, and app information.",
                     isExpanded: $advancedOpen
                 ) {
+                    profilePhotoCard
+                    profileCard
+                    unitsCard
+                    appearanceCard
+                    strapCard
+                    featuresCard
                     recoveryCard
                     testCentreCard
                     experimentalCard
                     backupCard
+                    aboutCard
                 }
-                .staggeredAppear(index: 6)
-
-                // About stays expanded at the foot (version, links and the help sheets people return to).
-                aboutCard.staggeredAppear(index: 7)
+                .staggeredAppear(index: 4)
             }
         }
         .alert(backupAlertTitle, isPresented: $showBackupAlert) {
@@ -234,6 +230,101 @@ struct SettingsView: View {
             DiagnosticsSheet(onClose: { showDiagnostics = false })
         }
         #endif
+    }
+
+    // MARK: - Paper overview
+
+    private var paperProfileSummary: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
+            PaperCard {
+                HStack(spacing: 14) {
+                    ProfileAvatarView(imageData: profile.avatarImageData, size: 54)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Your profile")
+                            .font(StrandFont.body.weight(.semibold))
+                            .foregroundStyle(StrandPalette.textPrimary)
+                        Text("Age \(profile.age) · Stored on this device")
+                            .font(StrandFont.caption)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                    }
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(StrandPalette.textTertiary)
+                }
+            }
+        }
+    }
+
+    private var paperPreferencesSummary: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
+            SectionHeader("Preferences")
+            PaperCard(padding: 14) {
+                VStack(spacing: 0) {
+                    SettingsRow(icon: "ruler", title: "Units", showsChevron: false) {
+                        Picker("Units", selection: $unitSystemRaw) {
+                            Text("US").tag(UnitSystem.imperial.rawValue)
+                            Text("Metric").tag(UnitSystem.metric.rawValue)
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.segmented)
+                        .frame(width: 132)
+                    }
+                    rowDivider
+                    SettingsRow(title: "Appearance", showsChevron: false) {
+                        Picker("Appearance", selection: $appearanceRaw) {
+                            Text("Light").tag(AppearanceMode.light.rawValue)
+                            Text("System").tag(AppearanceMode.system.rawValue)
+                            Text("Dark").tag(AppearanceMode.dark.rawValue)
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.segmented)
+                        .controlSize(.small)
+                        .frame(width: 168)
+                    }
+                    rowDivider
+                    SettingsRow(icon: "bell", title: "Notifications", showsChevron: false) {
+                        Text("System")
+                    }
+                }
+            }
+        }
+    }
+
+    private var paperPrivacySummary: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
+            SectionHeader("Privacy & Local Data")
+            PaperCard(padding: 14) {
+                VStack(spacing: 0) {
+                    SettingsRow(icon: "lock", title: "Local Data", showsChevron: false) {
+                        Text("On")
+                    }
+                    rowDivider
+                    NavigationLink { DataSourcesView() } label: {
+                        SettingsRow(icon: "externaldrive", title: "Data Management")
+                    }
+                    .buttonStyle(.plain)
+                    rowDivider
+                    NavigationLink { BackupSyncView() } label: {
+                        SettingsRow(icon: "square.and.arrow.up", title: "Export Your Data")
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private var paperSupportSummary: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
+            SectionHeader("Support")
+            NavigationLink { SupportView() } label: {
+                PaperCard(padding: 14) {
+                    SettingsRow(icon: "heart", title: "Support & Donation",
+                                subtitle: "Help keep NOOP independent.")
+                }
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     // MARK: - Profile photo (optional, on-device)
@@ -2175,24 +2266,26 @@ private struct SettingsSection<Content: View>: View {
     @ViewBuilder var content: () -> Content
 
     var body: some View {
-        StrandCard(padding: 20, tint: StrandPalette.accent) {
-            VStack(alignment: .leading, spacing: NoopMetrics.space4) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Settings").strandOverline()
+        VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
+            SectionHeader(title)
+            PaperCard {
+                VStack(alignment: .leading, spacing: NoopMetrics.space4) {
                     HStack(spacing: NoopMetrics.space2 + 2) {
                         Image(systemName: icon)
-                            .foregroundStyle(StrandPalette.accent)
+                            .foregroundStyle(StrandPalette.textPrimary)
+                            .frame(width: 32, height: 32)
+                            .background(StrandPalette.inset, in: Circle())
                             .accessibilityHidden(true)
                         Text(title)
-                            .font(StrandFont.title2)
+                            .font(StrandFont.body.weight(.semibold))
                             .foregroundStyle(StrandPalette.textPrimary)
                     }
-                }
                 Text(blurb)
                     .font(StrandFont.subhead)
                     .foregroundStyle(StrandPalette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
-                content()
+                    content()
+                }
             }
         }
     }

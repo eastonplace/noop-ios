@@ -8,17 +8,16 @@ struct SupportView: View {
 
     var body: some View {
         ScreenScaffold(title: "Support",
-                       subtitle: "\(ProjectInfo.appName) is free and always will be. If it's useful to you, you can chip in to help with development and testing costs. Totally optional.") {
+                       subtitle: "We're here to help.") {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
                 VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
-                    SectionHeader("Support the build", overline: "Optional")
+                    SectionHeader("Support the build")
                     donateCard
                 }
                 .staggeredAppear(index: 0)
                 VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
-                    SectionHeader("Help & Contact", overline: "Get in touch")
+                    SectionHeader("Help & Contact")
                     contactCard
-                    builtOnCard
                 }
                 .staggeredAppear(index: 1)
                 disclaimerCard
@@ -55,20 +54,27 @@ struct SupportView: View {
     }
 
     private var contactCard: some View {
-        NoopCard {
-            Button {
-                if let url = URL(string: "mailto:\(ProjectInfo.contactEmail)") { PlatformOpen.url(url) }
-            } label: {
-                groupedRow(icon: "envelope.fill", tint: StrandPalette.accent,
-                           title: "Get in touch",
-                           detail: String(localized: "Questions, feedback, bugs: \(ProjectInfo.contactEmail)"),
-                           showsChevron: true)
-                    .contentShape(Rectangle())
+        PaperCard(padding: 14) {
+            VStack(spacing: 0) {
+                supportMailRow(icon: "questionmark.circle", title: "Help Center", subject: "NOOP help")
+                Divider().overlay(StrandPalette.hairline)
+                supportMailRow(icon: "envelope", title: "Report an Issue", subject: "NOOP issue")
+                Divider().overlay(StrandPalette.hairline)
+                supportMailRow(icon: "lightbulb", title: "Request a Feature", subject: "NOOP feature request")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Email \(ProjectInfo.contactEmail)")
-            .help("Email \(ProjectInfo.contactEmail)")
         }
+    }
+
+    private func supportMailRow(icon: String, title: LocalizedStringKey, subject: String) -> some View {
+        Button {
+            let encoded = subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? subject
+            if let url = URL(string: "mailto:\(ProjectInfo.contactEmail)?subject=\(encoded)") {
+                PlatformOpen.url(url)
+            }
+        } label: {
+            SettingsRow(icon: icon, title: title)
+        }
+        .buttonStyle(.plain)
     }
 
     private var builtOnCard: some View {
@@ -100,33 +106,13 @@ struct SupportView: View {
     }
 
     private var donateCard: some View {
-        NoopCard(tint: StrandPalette.metricRose) {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(spacing: 10) {
-                    Image(systemName: "heart.fill")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(StrandPalette.metricRose)
-                        .frame(width: 28, height: 28)
-                        .background(StrandPalette.metricRose.opacity(0.14), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        .accessibilityHidden(true)
-                    Text("Support the build").font(StrandFont.headline).foregroundStyle(StrandPalette.textPrimary)
-                    Spacer()
-                }
-                Text("NOOP is free and always will be, nothing is locked. It cost real money and a lot of unpaid hours to build, and there's a Windows app, an Android app and an iOS app I want to ship next. If it's useful to you and you want to help with the development and testing costs, even a few quid in crypto genuinely keeps it moving, and honestly it keeps me motivated to keep building.")
-                    .font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: "lock.shield.fill").foregroundStyle(StrandPalette.accent)
-                        .font(.system(size: 13)).accessibilityHidden(true)
-                    Text("I keep this project anonymous, so crypto is the only way to chip in: no Patreon, no PayPal, no name attached. Quick, global, and private for both of us.")
-                        .font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(NoopMetrics.space3).frame(maxWidth: .infinity, alignment: .leading)
-                .background(StrandPalette.surfaceInset, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-
-                // Pick a coin → scan the QR or copy the address.
+        PaperCard {
+            VStack(alignment: .center, spacing: 14) {
+                Text("NOOP is independent.\nYour support keeps it going.")
+                    .font(StrandFont.caption)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
                 HStack(spacing: NoopMetrics.space2) {
                     ForEach(ProjectInfo.donations) { coin in
                         let on = selected == coin.symbol
@@ -144,30 +130,23 @@ struct SupportView: View {
                 }
 
                 if let coin = ProjectInfo.donations.first(where: { $0.symbol == selected }) {
-                    HStack(alignment: .top, spacing: 16) {
-                        qrView(coin.address)
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Scan with any \(coin.name) wallet")
-                                .font(StrandFont.subhead).foregroundStyle(StrandPalette.textPrimary)
-                            Text(coin.address)
-                                .font(StrandFont.mono(11)).foregroundStyle(StrandPalette.textSecondary)
-                                .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-                            Button {
-                                PlatformPasteboard.copy(coin.address)
-                                withAnimation { copied = coin.symbol }
-                            } label: {
-                                Label(copied == coin.symbol ? "Copied!" : "Copy address",
-                                      systemImage: copied == coin.symbol ? "checkmark" : "doc.on.doc")
-                            }
-                            .buttonStyle(NoopButtonStyle(.secondary))
-                            .accessibilityLabel("Copy \(coin.name) address")
-                        }
-                        Spacer(minLength: 0)
+                    PrimaryButton("Support NOOP") {
+                        PlatformPasteboard.copy(coin.address)
+                        withAnimation { copied = coin.symbol }
                     }
-                }
-
-                Text("Any amount helps. Thank you, genuinely.")
-                    .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
+                    .accessibilityHint("Copies the selected donation address")
+                    qrView(coin.address)
+                    Text(copied == coin.symbol ? "Address copied · Thank you! ♥" : "Thank you! ♥")
+                        .font(StrandFont.micro)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .multilineTextAlignment(.center)
+                    Text(coin.address)
+                        .font(StrandFont.mono(10))
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .textSelection(.enabled)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.75)
+                        }
             }
         }
     }
@@ -188,15 +167,8 @@ struct SupportView: View {
     }
 
     private var disclaimerCard: some View {
-        NoopCard(padding: 18) {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: "info.circle.fill").foregroundStyle(StrandPalette.textTertiary)
-                    .font(.system(size: 13)).accessibilityHidden(true)
-                Text("Not affiliated with, endorsed by, or connected to WHOOP. Interoperability software for hardware you own and your own data. Use it only with a device you own, and not in breach of any agreement that applies to you. Not a medical device.")
-                    .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
+        NoteCard("NOOP works offline. Your data stays on your device. We respect your privacy.",
+                 title: "Privacy First", style: .privacy)
     }
 }
 
