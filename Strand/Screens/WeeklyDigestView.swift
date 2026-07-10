@@ -123,7 +123,7 @@ struct WeeklyDigestContent: View {
 
     /// The Strain display scale (#268), so the Week-in-review Strain gauge matches the Today tile
     /// and the Trends small-multiple instead of a fixed 100-point scale. Charge/Sleep stay 0–100.
-    @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.hundred.rawValue
+    @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.whoop.rawValue
     private var effortScale: EffortScale { UnitPrefs.resolveEffortScale(effortScaleRaw) }
 
     /// Display order: the two daily scores first, then the nightly signals.

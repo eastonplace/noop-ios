@@ -202,7 +202,7 @@ struct TodayView: View {
     // cards already sit on an opaque canvas, so readability is unchanged either way.
     @AppStorage(SceneBackgroundPrefs.enabledKey) private var showDayCycleBackground = true
     // Strain display scale (#268), drives the Strain tile's value + caption. Display-only.
-    @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.hundred.rawValue
+    @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.whoop.rawValue
     private var effortScale: EffortScale { UnitPrefs.resolveEffortScale(effortScaleRaw) }
 
     // Editable Key-Metrics layout (#251), an ordered list of the enabled tiles, persisted display-only.

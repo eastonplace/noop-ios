@@ -64,7 +64,7 @@ struct TrendsView: View {
     @State private var weekOffset = 0
 
     // Strain display scale (#268) — routes the Strain small-multiple's numbers + unit. Display-only.
-    @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.hundred.rawValue
+    @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.whoop.rawValue
     private var effortScale: EffortScale { UnitPrefs.resolveEffortScale(effortScaleRaw) }
 
     // yyyy-MM-dd → Date (en_US_POSIX, UTC), per task spec.

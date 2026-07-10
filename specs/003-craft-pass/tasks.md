@@ -101,3 +101,27 @@
   disclosure (`showsDetails=false`). Verification only, no code change.
 - Builds: NOOPiOS BUILD SUCCEEDED ×2 (after T63/T64 batch). Next for Codex: T66
   rebuild, then T68, then T69 sweep (fold in the T64 flags above).
+
+## Shipped by Claude (round 3) — 2026-07-10
+
+- **T66 (partial → mostly done):** `WorkoutDetailView` now has the board's tabbed
+  summary — SegmentedPillControl with Overview (stats + zones) · Heart Rate (HR
+  curve) · Map (route + elevation), Save Workout persistent below. **Splits tab
+  intentionally omitted:** no per-split computation exists anywhere in the repo,
+  and a fake table violates honesty — Codex adds split math (derive from route
+  timestamps / samples) then the fourth tab. Needs interactive gate verification
+  (no demo-screen route reaches the sheet; tap a workout row).
+- **Key-factors honesty fix (T64 flag resolved):** `factorRow` status is now
+  optional and every hardcoded "Good"/"High"/"Moderate" literal is REMOVED — rows
+  show real values only until Codex lands per-metric band logic (restore words +
+  band colors then). Filled icons in factor rows switched to line variants.
+- **C2 default enforced:** the strain-scale preference (`EffortScale`) defaulted
+  to 0–100 in ELEVEN screens + the resolver fallback — all now default to the
+  WHOOP 0–21 scale (0–100 stays as an explicit Settings opt-in). Proof
+  `qa/T65-workouts-v2.png`: score card "8.0 Light" with real band word, blue 0–21
+  badges, ink range chips (shared pill fix), splits card per D11.
+- Proof `qa/T64-recovery-detail-v2.png`: key factors without fake status words.
+- Build: NOOPiOS BUILD SUCCEEDED. Remaining for Codex: T66 splits math + gate,
+  T68 (verify board rows render: Settings strain-scale row, Support crypto chips,
+  Data Sources Nutrition/wearable rows — all exist in code, confirm presentation),
+  T69 global sweeps (icon audit beyond factor rows, XL collisions, evidence set).

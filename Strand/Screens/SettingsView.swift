@@ -64,7 +64,7 @@ struct SettingsView: View {
     @AppStorage(UnitPrefs.temperatureKey) private var temperatureRaw = ""
     // Strain display scale (#268). Display-only — Strain stays stored 0–100, this only chooses whether
     // it's shown on NOOP's 0–100 axis or WHOOP's 0–21 Day Strain axis.
-    @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.hundred.rawValue
+    @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.whoop.rawValue
     // Live-HR Live Activity (Lock Screen + Dynamic Island), iOS only (#336). Default on.
     @AppStorage(UnitPrefs.liveActivityKey) private var liveActivityEnabled = true
     // Alternate app icon (iOS only) — false = Titanium (primary AppIcon), true = Blue Titanium

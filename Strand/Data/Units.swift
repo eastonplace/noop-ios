@@ -77,7 +77,9 @@ enum UnitPrefs {
 
     /// Resolve the stored Effort-scale raw value, defaulting to NOOP's native 0–100 axis.
     static func resolveEffortScale(_ raw: String) -> EffortScale {
-        EffortScale(rawValue: raw) ?? .hundred
+        // Craft pass (003, C2): unset/unknown resolves to the WHOOP 0–21 display scale —
+        // the app's canonical strain presentation. 0–100 remains an explicit opt-in.
+        EffortScale(rawValue: raw) ?? .whoop
     }
 }
 

@@ -44,7 +44,7 @@ struct LiveView: View {
     }
 
     /// Strain display scale (#268) — routes the live + saved workout Strain read-outs. Display-only.
-    @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.hundred.rawValue
+    @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.whoop.rawValue
     private var effortScale: EffortScale { UnitPrefs.resolveEffortScale(effortScaleRaw) }
 
     private var activeConnection: Bool { live.connected && live.bonded }

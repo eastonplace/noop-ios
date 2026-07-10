@@ -121,7 +121,7 @@ struct CompareView: View {
     // Strain display scale (#268) — routes the Strain metric's min/max + hover read-outs onto WHOOP's
     // 0–21 axis; display-only, the normalized overlay shape is untouched. Every other metric is
     // scale-agnostic (see MetricDescriptor.format).
-    @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.hundred.rawValue
+    @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.whoop.rawValue
     private var effortScale: EffortScale { UnitPrefs.resolveEffortScale(effortScaleRaw) }
 
     // Distinct, high-legibility series colors (avoid the recovery/strain ramps so
