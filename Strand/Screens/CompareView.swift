@@ -423,7 +423,7 @@ struct CompareView: View {
                     // window (the same 0–1 position the overlay's "now" end-cap sits at) — the liquid
                     // accent tying the legend to the real series. Static, decorative (the min/max text
                     // + colour swatch carry the meaning for VoiceOver).
-                    LiquidVessel(value: s.rows.last.map { s.normalized($0.value) },
+                    PaperGauge(value: s.rows.last.map { s.normalized($0.value) },
                                  tint: s.color, animated: false)
                         .frame(width: 22, height: 22)
                         .accessibilityHidden(true)
@@ -545,7 +545,7 @@ struct CompareView: View {
                     // magnitude — not a health value), tinted by the relationship's own colour. Static
                     // (posed) so a page of pair cards costs one cached frame each, matching Today's small
                     // vessels. Decorative — the r read-out + sentence carry the meaning for VoiceOver.
-                    LiquidVessel(value: min(abs(p.r), 1), tint: tint, animated: false)
+                    PaperGauge(value: min(abs(p.r), 1), tint: tint, animated: false)
                         .frame(width: 30, height: 30)
                         .accessibilityHidden(true)
                     // Two color swatches for the pair.
@@ -570,7 +570,7 @@ struct CompareView: View {
 
                 // The strength magnitude drawn as a liquid tube — the horizontal progress idiom Today
                 // uses for its key-metric fills, here reading |r| from none (0) to a perfect link (1).
-                LiquidTube(frac: min(abs(p.r), 1), tint: tint, height: 8, animated: false)
+                PaperProgressBar(frac: min(abs(p.r), 1), tint: tint, height: 8, animated: false)
                     .accessibilityHidden(true)
 
                 Text("\(p.n) overlapping days · \(strengthWord(p.r)) \(directionWord(p.r)) correlation")

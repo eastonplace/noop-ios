@@ -44,7 +44,6 @@ public struct OnboardingWizard: View {
     }
 
     @State private var step: Step = .welcome
-    @State private var glow = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     public var body: some View {
@@ -89,8 +88,6 @@ public struct OnboardingWizard: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(StrandPalette.surfaceBase.ignoresSafeArea())
-        // Reduce Motion: leave the ambient bloom at its resting frame (no breathing).
-        .onAppear { if !reduceMotion { glow = true } }
         // Isolated live observation — a hidden watcher slides Scan → celebration on bond
         // without subscribing the whole wizard to per-tick updates.
         .background(BondWatcher(onBonded: handleBond))
@@ -103,29 +100,8 @@ public struct OnboardingWizard: View {
     // MARK: Backgrounds
 
     private var background: some View {
-        ZStack {
-            StrandPalette.surfaceBase
-            // A slow ambient bloom that breathes — the substrate feels alive. Kept subtle
-            // (≈⅓ the old gold opacity) so it's a minimal gold hint, not a wash.
-            RadialGradient(
-                colors: [StrandPalette.glowAmbient.opacity(0.18), .clear],
-                center: .center,
-                startRadius: 40,
-                endRadius: glow ? 620 : 480
-            )
-            .blendMode(.plusLighter)
-            .opacity(glow ? 0.4 : 0.28)
-            .animation(StrandMotion.breathe(reduced: reduceMotion), value: glow)
+        StrandPalette.surfaceBase
             .ignoresSafeArea()
-
-            // A faint indigo wash from the top — instrument-grade depth.
-            LinearGradient(
-                colors: [StrandPalette.accentMuted.opacity(0.20), .clear],
-                startPoint: .top,
-                endPoint: .center
-            )
-            .ignoresSafeArea()
-        }
     }
 
     // MARK: Top bar

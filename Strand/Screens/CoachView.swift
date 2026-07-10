@@ -517,7 +517,7 @@ struct CoachView: View {
                     }
                     // Liquid tap response: the physical settle-inward every tappable liquid
                     // affordance gets, replacing the flat `.plain` press.
-                    .buttonStyle(LiquidPressStyle())
+                    .buttonStyle(PaperPressStyle())
                     .disabled(coach.sending)
                     .accessibilityLabel("Suggested prompt: \(prompt)")
                 }

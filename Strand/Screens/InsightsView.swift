@@ -307,7 +307,7 @@ struct InsightsView: View {
             }
         }
         // Liquid tap response: the same physical settle-inward every tappable liquid card gets.
-        .buttonStyle(LiquidPressStyle())
+        .buttonStyle(PaperPressStyle())
         .accessibilityElement(children: .combine)
         .accessibilityLabel("What moves you. Ranked patterns in your own data, and your dose-response.")
     }
@@ -645,10 +645,10 @@ struct InsightsView: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                // Liquid progress: the experiment window as a filling LiquidTube (the same horizontal
+                // Liquid progress: the experiment window as a filling PaperProgressBar (the same horizontal
                 // vessel Today's Key Metrics + workout bars use) rather than a flat ProgressView. Static
                 // (no live slosh needed for a progress read); carries the same a11y label + value.
-                LiquidTube(frac: snapshot.progress, tint: StrandPalette.accent, height: 8, animated: false)
+                PaperProgressBar(frac: snapshot.progress, tint: StrandPalette.accent, height: 8, animated: false)
                     .accessibilityLabel("Experiment progress")
                     .accessibilityValue("\(snapshot.daysElapsed) of \(snapshot.durationDays) days")
                 HStack {
@@ -1042,7 +1042,7 @@ struct InsightsView: View {
                 // the sign-aware tint, the leading-gauge idiom Today uses, so the strength reads at a glance.
                 HStack(alignment: .center) {
                     HStack(spacing: 10) {
-                        LiquidVessel(value: min(1, abs(e.cohensD) / 0.8), tint: tintColor, animated: false)
+                        PaperGauge(value: min(1, abs(e.cohensD) / 0.8), tint: tintColor, animated: false)
                             .frame(width: 26, height: 26)
                             .accessibilityHidden(true)
                         Text(e.behavior)
@@ -1274,7 +1274,7 @@ struct InsightsView: View {
                 // Liquid magnitude accent: a small filling vessel showing |r| in the correlation's
                 // strength colour, the same leading-gauge idiom Today's card rows + vitals use. Static
                 // (a small gauge doesn't need live slosh); decorative, the exact r + a11y read below.
-                LiquidVessel(value: min(1, abs(r)), tint: strength, animated: false)
+                PaperGauge(value: min(1, abs(r)), tint: strength, animated: false)
                     .frame(width: 28, height: 28)
                     .accessibilityHidden(true)
                 Text(rel.title)

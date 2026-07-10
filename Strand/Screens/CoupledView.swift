@@ -152,7 +152,7 @@ struct CoupledView: View {
                     SectionHeader("Recovery", overline: "Coupled read")
                         .frame(maxWidth: .infinity, alignment: .leading)
                     ZStack {
-                        LiquidVessel(value: recovery.map { max(0, min(1, $0 / 100)) },
+                        PaperGauge(value: recovery.map { max(0, min(1, $0 / 100)) },
                                      tint: recovery.map { RecoveryBands.color(for: $0) }
                                          ?? StrandPalette.recoveryData,
                                      animated: recovery != nil)
@@ -172,7 +172,7 @@ struct CoupledView: View {
                 .contentShape(Rectangle())
             }
         }
-        .buttonStyle(LiquidPressStyle())
+        .buttonStyle(PaperPressStyle())
         .accessibilityElement(children: .combine)
         .accessibilityLabel(heroAccessibilityLabel)
         .accessibilityHint("See what shaped your Recovery")
@@ -270,7 +270,7 @@ struct CoupledView: View {
                     // Left: the liquid vessel filled to the 0–21 Day-Strain fraction (Strain world), with the
                     // strain value counting up over the fluid — the coupled read on the classic 0–21 axis.
                     ZStack {
-                        LiquidVessel(value: dayStrain21.map { max(0, min(1, $0 / 21)) },
+                        PaperGauge(value: dayStrain21.map { max(0, min(1, $0 / 21)) },
                                      tint: StrandPalette.effortColor, animated: dayStrain21 != nil)
                             .frame(width: 148, height: 148)
                         Group {
@@ -324,7 +324,7 @@ struct CoupledView: View {
                 .font(StrandFont.number(20))
                 .foregroundStyle(StrandPalette.recoveryData)
                 .lineLimit(1).minimumScaleFactor(0.6)
-            LiquidTube(frac: optimalUpperFraction, tint: StrandPalette.recoveryData, height: 8, animated: false)
+            PaperProgressBar(frac: optimalUpperFraction, tint: StrandPalette.recoveryData, height: 8, animated: false)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -369,7 +369,7 @@ struct CoupledView: View {
                         // Left: the SLEEP PERFORMANCE % as the liquid vessel (Sleep world), with the score
                         // counting up over the fluid. Empty vessel when there's no scored performance.
                         ZStack {
-                            LiquidVessel(value: sleepPerformance.map { max(0, min(1, $0 / 100)) },
+                            PaperGauge(value: sleepPerformance.map { max(0, min(1, $0 / 100)) },
                                          tint: StrandPalette.restColor, animated: false)
                                 .frame(width: 88, height: 88)
                             if let p = sleepPerformance {
@@ -413,7 +413,7 @@ struct CoupledView: View {
                 .contentShape(Rectangle())
             }
         }
-        .buttonStyle(LiquidPressStyle())
+        .buttonStyle(PaperPressStyle())
         .accessibilityElement(children: .combine)
         .accessibilityLabel(sleepAccessibilityLabel)
         .accessibilityHint("Open Sleep")
@@ -622,7 +622,7 @@ struct CoupledView: View {
 
     // MARK: Shared helpers
 
-    /// The frosted liquid card surface, byte-for-byte the LiquidTodayView.card style (rounded 22 + a
+    /// The frosted liquid card surface, byte-for-byte the Paper Today.card style (rounded 22 + a
     /// resting hairline over surfaceRaised), so the coupled glance cards read identically to Today and the
     /// batch-1 liquid screens.
     private func card<V: View>(@ViewBuilder _ content: () -> V) -> some View {

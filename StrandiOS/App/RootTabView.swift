@@ -29,8 +29,7 @@ struct RootTabView: View {
     @AppStorage(MoreSectionPrefs.storageKey) private var expandedMoreSectionsCSV = MoreSectionPrefs.defaultCSV
     private var expandedMoreSections: Set<String> { MoreSectionPrefs.decode(expandedMoreSectionsCSV) }
 
-    /// R7: Paper replaces both prior Today variants. The liquid prototype remains in the target only
-    /// so unrelated screens compile; it is no longer reachable from app chrome.
+    /// R7: Paper is the sole Today surface.
     private var todayTabRoot: some View { TodayView() }
 
     init() {

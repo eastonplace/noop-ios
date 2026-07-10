@@ -287,7 +287,7 @@ struct StressView: View {
 
     // MARK: 1 · Hero — the liquid stress-level vessel.
     //
-    // The 0–3 stress score reads as the signature liquid gauge: a LiquidVessel that fills to score/3
+    // The 0–3 stress score reads as the signature liquid gauge: a PaperGauge that fills to score/3
     // and is tinted by the live band (calm blue → steady green → tense amber), with the count-up value +
     // "of 3" over it (the Today HeroScoreCell / Live BPM-gauge idiom). The band pill sits top-trailing and
     // one plain-English line explains the number below. Frosted card, liquid finish.
@@ -571,7 +571,7 @@ struct StressView: View {
 
 // MARK: - Stress hero gauge (liquid vessel + count-up score)
 
-/// The stress-level vessel: a LiquidVessel filled to `score`/3 and tinted to the live band, with the
+/// The stress-level vessel: a PaperGauge filled to `score`/3 and tinted to the live band, with the
 /// 0–3 value counting up over it and "of 3" beneath (the Today HeroScoreCell / Live BPM-gauge idiom).
 /// CountUpText self-animates the number roll; the numeral is hit-transparent so a tap reaches the
 /// vessel and splashes it.
@@ -583,7 +583,7 @@ private struct StressHeroGauge: View {
 
     var body: some View {
         ZStack {
-            LiquidVessel(value: frac, tint: tint, animated: true)
+            PaperGauge(value: frac, tint: tint, animated: true)
                 .frame(width: 104, height: 104)
             VStack(spacing: 0) {
                 // CountUpText self-animates (counts up from 0 on appear, re-rolls on value change),
@@ -1026,7 +1026,7 @@ struct StressTotals {
 // MARK: - Stress totals bar (README screen-9, liquid finish)
 //
 // The Calm / Moderate / High split of the scored day, rendered as three labelled liquid tubes (the
-// signature LiquidTube, matching Health's recovery contributors and Today's Key-Metrics tubes). Each
+// signature PaperProgressBar, matching Health's recovery contributors and Today's Key-Metrics tubes). Each
 // tube fills to that band's SHARE of the scored day and is tinted to the band's WHOOP colour (calm blue /
 // steady green / tense amber), with the band name + its duration above it. A day with no scored hours
 // leaves all three tubes empty (no fabricated fill).
@@ -1064,7 +1064,7 @@ struct StressTotalsBar: View {
                     }
                     // The signature liquid tube: fills to the band's share of the scored day, tinted to the
                     // band colour. Static (posed) — a row of small bars shouldn't each run a live Canvas.
-                    LiquidTube(frac: totals.fraction(b.band), tint: b.color, height: 10, animated: false)
+                    PaperProgressBar(frac: totals.fraction(b.band), tint: b.color, height: 10, animated: false)
                 }
             }
         }

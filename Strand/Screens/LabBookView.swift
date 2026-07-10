@@ -462,9 +462,9 @@ struct LabBookView: View {
                 }
             }
         }
-        // Liquid press language: the settle-inward LiquidPressStyle the Today / batch-1 rows use, so
+        // Liquid press language: the settle-inward PaperPressStyle the Today / batch-1 rows use, so
         // opening a marker's detail feels physical (replaces the flat .plain style).
-        .buttonStyle(LiquidPressStyle())
+        .buttonStyle(PaperPressStyle())
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(displayName(for: key)), latest \(latestLabel(latest, key: key)), \(series.count) readings")
     }
@@ -845,7 +845,7 @@ private struct MarkerDetailView: View {
                 // A small liquid vessel posed at the association STRENGTH (|r|, a neutral 0–1 statistical
                 // magnitude — never a clinical value), tinted by the relationship's own colour. Matches
                 // Compare's pair card. Decorative — the r read-out + sentence carry the meaning.
-                LiquidVessel(value: min(abs(c.r), 1), tint: tint, animated: false)
+                PaperGauge(value: min(abs(c.r), 1), tint: tint, animated: false)
                     .frame(width: 30, height: 30)
                     .accessibilityHidden(true)
                 Text("\(displayName) ↔ \(signal?.title ?? "")")
@@ -866,7 +866,7 @@ private struct MarkerDetailView: View {
                 .fixedSize(horizontal: false, vertical: true)
             // The association strength as a liquid tube (the horizontal magnitude idiom), reading |r|
             // from no link (0) to a perfect one (1). Decorative and non-clinical.
-            LiquidTube(frac: min(abs(c.r), 1), tint: tint, height: 8, animated: false)
+            PaperProgressBar(frac: min(abs(c.r), 1), tint: tint, height: 8, animated: false)
                 .accessibilityHidden(true)
             // The mandatory clause for markers (spec §"On-device algorithm").
             Text("\(n) readings used · \(LabBookSignals.strengthWord(c.r)) \(LabBookSignals.directionWord(c.r)) association. This is your own data sitting side by side. It's not a medical finding, and it shows association, not cause.")

@@ -308,7 +308,7 @@ struct SleepView: View {
             } label: {
                 Text("Undo").font(StrandFont.footnote.weight(.semibold))
             }
-            .buttonStyle(LiquidPressStyle())
+            .buttonStyle(PaperPressStyle())
             .foregroundStyle(StrandPalette.restColor)
             .accessibilityLabel("Undo sleep deletion")
         }
@@ -455,7 +455,7 @@ struct SleepView: View {
     }
 
     /// The Sleep world's opening: a scenic indigo backdrop with — when the night carries a 0–100
-    /// sleep-performance score — the canonical liquid `LiquidVessel` in the Sleep tint with the score
+    /// sleep-performance score — the canonical liquid `PaperGauge` in the Sleep tint with the score
     /// counting up over it (the SAME hero language Today's score cells and the Trends headline use);
     /// otherwise a big SF-Rounded hours-slept headline over the same backdrop. Source attribution stays
     /// in the detail footnotes and Data Sources rather than inside this hero (C7). Presentation-only
@@ -618,7 +618,7 @@ struct SleepView: View {
                             .font(StrandFont.subhead)
                             .foregroundStyle(StrandPalette.restColor)
                     }
-                    .buttonStyle(LiquidPressStyle())
+                    .buttonStyle(PaperPressStyle())
                     .accessibilityLabel("Add a nap")
                 }
                 // Daily split (#518): only meaningful once the day has a nap; a single-night day reads
@@ -693,7 +693,7 @@ struct SleepView: View {
                     .frame(minWidth: 44, minHeight: 44)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(LiquidPressStyle())
+            .buttonStyle(PaperPressStyle())
             .help("Why this is logged as a nap")
             .accessibilityLabel("Why this is logged as a nap")
             .popover(isPresented: Binding(
@@ -714,7 +714,7 @@ struct SleepView: View {
                     .frame(minWidth: 44, minHeight: 44)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(LiquidPressStyle())
+            .buttonStyle(PaperPressStyle())
             .help("Edit nap times")
             .accessibilityLabel(isEdited ? "Edit nap times (edited)" : "Edit nap times")
         }
@@ -923,7 +923,7 @@ struct SleepView: View {
                     .frame(minHeight: 44)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(LiquidPressStyle())
+                .buttonStyle(PaperPressStyle())
                 .help("Why this is your main sleep")
                 .accessibilityLabel("Why this is your main sleep")
                 .popover(isPresented: $showMainSleepWhy, arrowEdge: .bottom) {
@@ -1006,7 +1006,7 @@ struct SleepView: View {
                     .font(StrandFont.headline)
                     .foregroundStyle(StrandPalette.restColor)
             }
-            .buttonStyle(LiquidPressStyle())
+            .buttonStyle(PaperPressStyle())
             .help("Edit sleep times")
             .accessibilityLabel(isEdited ? "Edit sleep times (edited)" : "Edit sleep times")
         }
@@ -1731,7 +1731,7 @@ struct SleepView: View {
                     // capsule tinted in the stage colour (static/posed, like Today's grid tubes). It renders
                     // its own dark capsule track, so it replaces the flat solid fill + track. The fraction
                     // is unchanged (last / shared per-row max).
-                    LiquidTube(frac: min(1, last / max), tint: color, height: 12, animated: false)
+                    PaperProgressBar(frac: min(1, last / max), tint: color, height: 12, animated: false)
                     // Typical-range CONTEXT overlaid on top: a diagonal-hatch track spanning the personal
                     // mean for this stage. "Hatch = the context" — the liquid value sits under it.
                     if let typical, typical > 0 {
@@ -2142,7 +2142,7 @@ struct SleepView: View {
                         .font(StrandFont.headline)
                         .foregroundStyle(nightOffset >= lastIndex ? StrandPalette.textTertiary : StrandPalette.accent)
                 }
-                .buttonStyle(LiquidPressStyle())
+                .buttonStyle(PaperPressStyle())
                 .disabled(nightOffset >= lastIndex)
                 .accessibilityLabel("Previous night")
 
@@ -2153,7 +2153,7 @@ struct SleepView: View {
                         .font(StrandFont.headline)
                         .foregroundStyle(nightOffset == 0 ? StrandPalette.textTertiary : StrandPalette.accent)
                 }
-                .buttonStyle(LiquidPressStyle())
+                .buttonStyle(PaperPressStyle())
                 .disabled(nightOffset == 0)
                 .accessibilityLabel("Next night")
             }

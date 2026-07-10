@@ -540,7 +540,7 @@ struct SettingsView: View {
                     }
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(LiquidPressStyle())
+                .buttonStyle(PaperPressStyle())
                 .accessibilityLabel("Steps estimate calibration. \(stepsCalibrationSummary). Opens the calibration screen.")
                 Text("For a WHOOP 4.0, which sends no step count: NOOP estimates steps from motion, calibrated to your phone. Tap to see how close it is and adjust it.")
                     .font(StrandFont.footnote)
@@ -1081,7 +1081,7 @@ struct SettingsView: View {
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(LiquidPressStyle())
+            .buttonStyle(PaperPressStyle())
             .accessibilityLabel("Open Test Centre")
         }
     }
@@ -1697,7 +1697,7 @@ struct SettingsView: View {
                     .font(StrandFont.subhead)
                     .foregroundStyle(StrandPalette.accent)
                 }
-                .buttonStyle(LiquidPressStyle())
+                .buttonStyle(PaperPressStyle())
                 .accessibilityLabel("Open Backup and Sync to a folder")
             }
         }
@@ -1830,7 +1830,7 @@ struct SettingsView: View {
                     }
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(LiquidPressStyle())
+                .buttonStyle(PaperPressStyle())
                 .accessibilityLabel("How NOOP works")
 
                 // How your scores work — the honest explainer for Charge / Strain / Sleep and the
@@ -1859,7 +1859,7 @@ struct SettingsView: View {
                     }
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(LiquidPressStyle())
+                .buttonStyle(PaperPressStyle())
                 .accessibilityLabel("How your scores work")
 
                 // About Apple Watch data: the honest capability/confidence page for running NOOP off
@@ -1891,7 +1891,7 @@ struct SettingsView: View {
                     }
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(LiquidPressStyle())
+                .buttonStyle(PaperPressStyle())
                 .accessibilityLabel("About Apple Watch data")
 
                 // Storage (#590) — on-device space breakdown (database, leftover import Inbox, stranded
@@ -1921,7 +1921,7 @@ struct SettingsView: View {
                     }
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(LiquidPressStyle())
+                .buttonStyle(PaperPressStyle())
                 .accessibilityLabel("Storage")
 
                 #if os(iOS)
@@ -2140,7 +2140,7 @@ struct SettingsView: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(LiquidPressStyle())
+        .buttonStyle(PaperPressStyle())
         .accessibilityLabel("Diagnostics")
     }
 
@@ -2274,7 +2274,7 @@ private struct SettingsDisclosureGroup<Content: View>: View {
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(LiquidPressStyle())
+            .buttonStyle(PaperPressStyle())
             .accessibilityLabel(title)
             .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
             .accessibilityHint("Shows the advanced settings sections")

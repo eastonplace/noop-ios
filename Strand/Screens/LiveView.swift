@@ -9,8 +9,8 @@ import WhoopStore
 
 /// Live — the connected strap in real time, in the liquid finish. Built on the shared design system
 /// (ScreenScaffold chrome + day-of-sky backdrop, StrandPalette, StrandFont) and the liquid vocabulary
-/// (LiquidVessel for the live BPM gauge, LiquidThread for the live HR trace, LiquidTube for the effort
-/// bars, frosted `card {}` surfaces, LiquidPressStyle on tappable rows) so it lines up with the Today
+/// (PaperGauge for the live BPM gauge, PaperSparkline for the live HR trace, PaperProgressBar for the effort
+/// bars, frosted `card {}` surfaces, PaperPressStyle on tappable rows) so it lines up with the Today
 /// screen instead of the old flat-card layout.
 ///
 /// LiveState (which publishes at ~1 Hz while a strap streams) is observed ONLY in leaf views
@@ -133,7 +133,7 @@ struct LiveView: View {
         }
     }
 
-    // MARK: - Frosted card helper (matches LiquidTodayView.card: rounded 22 + resting hairline)
+    // MARK: - Frosted card helper (matches Paper Today.card: rounded 22 + resting hairline)
 
     private func card<V: View>(@ViewBuilder _ content: () -> V) -> some View {
         content()
@@ -228,7 +228,7 @@ struct LiveView: View {
 
     // MARK: - Body console (live BPM vessel + live physiology)
 
-    /// The console's centrepiece: a live BPM LiquidVessel beside a live-physiology stack (R-R tube,
+    /// The console's centrepiece: a live BPM PaperGauge beside a live-physiology stack (R-R tube,
     /// rolling RMSSD, last frame/event). Side-by-side on a wide window (Mac), stacked on a narrow one
     /// (iPhone) via ViewThatFits. Both halves are leaf views that own LiveState so the 1 Hz HR / R-R
     /// notifies re-render only them, not the whole console. The card carries the Strain tint world.
@@ -588,7 +588,7 @@ struct LiveView: View {
                 .strokeBorder(StrandPalette.hairline, lineWidth: 1))
             .contentShape(Rectangle())
         }
-        .buttonStyle(LiquidPressStyle())
+        .buttonStyle(PaperPressStyle())
         .accessibilityLabel("Manage devices")
         .accessibilityHint("Opens the Devices screen, where you pair and switch bands.")
     }
@@ -871,7 +871,7 @@ private struct LiveHeaderStats: View {
     private var lastSyncLabel: String { LiveSyncFormat.lastSyncLabel(live.lastSyncedAt) }
 }
 
-/// The console centrepiece's HR half: a live BPM LiquidVessel (fills to the HR-zone fraction) with the
+/// The console centrepiece's HR half: a live BPM PaperGauge (fills to the HR-zone fraction) with the
 /// count-up numeral over it, the zone label, and the trust caption. Owns LiveState so the ~1 Hz HR notify
 /// re-renders only this leaf. The vessel replaces the old flat pulse-ring, the count-up number replaces
 /// the CountUpText numeral.
@@ -913,7 +913,7 @@ private struct LiveHeartReadout: View {
                 .foregroundStyle(StrandPalette.textSecondary)
             ZStack {
                 // The live BPM gauge: a liquid vessel that fills to the HR-zone fraction and sloshes.
-                LiquidVessel(value: hrFrac, tint: tint, animated: displayHR != nil)
+                PaperGauge(value: hrFrac, tint: tint, animated: displayHR != nil)
                     .frame(width: 210, height: 210)
                 VStack(spacing: 0) {
                     // The big focal HR numeral counts up to the live value (the hero number); a crisp
@@ -978,8 +978,8 @@ private struct LivePhysiology: View {
 
     private var activeConnection: Bool { live.connected && live.bonded }
 
-    /// The liquid heart pink (matches LiquidThread's default + the mockup #ff6b81).
-    private let liquidHeart = Color(.sRGB, red: 1, green: 107 / 255, blue: 129 / 255, opacity: 1)
+    /// The liquid heart pink (matches PaperSparkline's default + the mockup #ff6b81).
+    private let heartTrace = Color(.sRGB, red: 1, green: 107 / 255, blue: 129 / 255, opacity: 1)
 
     var body: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.space4) {
@@ -1029,11 +1029,11 @@ private struct LivePhysiology: View {
         return VStack(alignment: .leading, spacing: 8) {
             if values.count >= 2 {
                 // The liquid HR thread, tinted cyan for R-R — matches the Today live-HR trace.
-                LiquidThread(bpm: values, tint: StrandPalette.metricCyan, height: 44, animated: true)
+                PaperSparkline(bpm: values, tint: StrandPalette.metricCyan, height: 44, animated: true)
                     .accessibilityHidden(true)
             } else {
                 // Empty: a muted static tube so the strip reads as "waiting", not broken.
-                LiquidTube(frac: 0, tint: StrandPalette.metricCyan, height: 12, animated: false)
+                PaperProgressBar(frac: 0, tint: StrandPalette.metricCyan, height: 12, animated: false)
                     .accessibilityHidden(true)
             }
             Text(values.isEmpty
@@ -1200,7 +1200,7 @@ private struct ActiveWorkoutLive: View {
                      tint: StrandPalette.strainColor(workout.liveStrain))
             }
             // A liquid effort tube — the live effort as a fraction of the 0–100 strain axis.
-            LiquidTube(frac: max(0, min(1, StrainScale.displayValue(fromStored: workout.liveStrain) / 21)),
+            PaperProgressBar(frac: max(0, min(1, StrainScale.displayValue(fromStored: workout.liveStrain) / 21)),
                        tint: StrandPalette.strainColor(workout.liveStrain), height: 10, animated: true)
                 .accessibilityHidden(true)
         }
@@ -1329,7 +1329,7 @@ private struct SignalTrustTile: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 // The signal's liquid gauge — a static-posed small vessel (no per-frame cost).
-                LiquidVessel(value: tile.frac, tint: tile.tint, animated: false)
+                PaperGauge(value: tile.frac, tint: tile.tint, animated: false)
                     .frame(width: 22, height: 22)
                     .accessibilityHidden(true)
                 Text(tile.title.uppercased())

@@ -365,9 +365,9 @@ struct RhythmView: View {
                 // stats grid below still prints every exact number; these are a descriptive picture.
                 if let hw = headlineWindow {
                     VStack(spacing: 8) {
-                        liquidStatRow("Beat-to-beat variation", frac: hw.normRmssd,
+                        paperStatRow("Beat-to-beat variation", frac: hw.normRmssd,
                                       tint: StrandPalette.restBright)
-                        liquidStatRow("Extra or skipped beats", frac: hw.ectopicFraction,
+                        paperStatRow("Extra or skipped beats", frac: hw.ectopicFraction,
                                       tint: StrandPalette.restColor)
                     }
                     .padding(.top, 2)
@@ -380,7 +380,7 @@ struct RhythmView: View {
     /// liquid tube filled to that fraction (clamped 0–1). Descriptive only — never a verdict, never red.
     /// Static tube so a page of them costs one cached frame each. Decorative for VoiceOver (the numbers
     /// grid carries the meaning).
-    private func liquidStatRow(_ label: LocalizedStringKey, frac: Double?, tint: Color) -> some View {
+    private func paperStatRow(_ label: LocalizedStringKey, frac: Double?, tint: Color) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack {
                 Text(label)
@@ -393,7 +393,7 @@ struct RhythmView: View {
                     .font(StrandFont.captionNumber)
                     .foregroundStyle(StrandPalette.textSecondary)
             }
-            LiquidTube(frac: max(0, min(1, frac ?? 0)), tint: tint, height: 8, animated: false)
+            PaperProgressBar(frac: max(0, min(1, frac ?? 0)), tint: tint, height: 8, animated: false)
         }
         .accessibilityHidden(true)
     }

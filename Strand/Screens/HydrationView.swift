@@ -4,12 +4,12 @@ import StrandAnalytics
 
 // MARK: - Hydration detail (MVP, opt-in, local-only)
 //
-// Liquid finish: water in a vessel is the literal metaphor, so the hero is the canonical `LiquidVessel`
+// Liquid finish: water in a vessel is the literal metaphor, so the hero is the canonical `PaperGauge`
 // tinted the action blue, filling to today's fraction of goal with the litre figure counting up over it.
-// The day total sits in a filling `LiquidTube` (the same horizontal vessel Today's grid uses), the three
+// The day total sits in a filling `PaperProgressBar` (the same horizontal vessel Today's grid uses), the three
 // quick-log buttons (Sip / Cup / Bottle) stay in the secondary NoopButton style, and the 7-day mini bars
 // remain. Frosted `card {}` surfaces (rounded 22 + resting hairline), the day-of-sky backdrop, and
-// `LiquidPressStyle` on the tappable drink rows line the screen up with the liquid Today + batch-1 tabs.
+// `PaperPressStyle` on the tappable drink rows line the screen up with the liquid Today + batch-1 tabs.
 // BYTE-PARITY twin of the Android `HydrationScreen`: the day total + history come from the local-only
 // `HydrationStore` series (additive day total), and the goal is the pure `HydrationGoal` engine (profile
 // sex + today's Strain bump). Per-tap rows aren't separately persisted on either platform — the day total
@@ -92,7 +92,7 @@ struct HydrationView: View {
                 // litre figure counts up over it; the vessel fills to the SAME animated `heroFraction`
                 // driven on appear / after a log, so the fill and the number roll-up land together.
                 ZStack {
-                    LiquidVessel(value: heroFraction, tint: StrandPalette.accent, animated: true)
+                    PaperGauge(value: heroFraction, tint: StrandPalette.accent, animated: true)
                         .frame(width: 184, height: 184)
                     VStack(spacing: 2) {
                         CountUpText(value: HydrationGoal.litres(fromML: totalML),
@@ -117,7 +117,7 @@ struct HydrationView: View {
         }
     }
 
-    // MARK: - Frosted card helper (matches LiquidTodayView.card: rounded 22 + resting hairline)
+    // MARK: - Frosted card helper (matches Paper Today.card: rounded 22 + resting hairline)
 
     private func card<V: View>(padding: CGFloat = 16, @ViewBuilder _ content: () -> V) -> some View {
         content()
@@ -222,7 +222,7 @@ struct HydrationView: View {
                 .contentShape(Rectangle())
             }
             // Liquid tap response: the same physical settle-inward every tappable liquid row gets.
-            .buttonStyle(LiquidPressStyle())
+            .buttonStyle(PaperPressStyle())
             .accessibilityLabel("Logged \(entry.amountMl) millilitres at \(Self.entryTimeFmt.string(from: entry.loggedAt))")
             .accessibilityHint("Tap to edit the amount")
             Button(role: .destructive) {
@@ -318,7 +318,7 @@ struct HydrationView: View {
                     }
                     // Progress toward goal as the liquid tube (the same horizontal vessel Today's Key
                     // Metrics use), filling to the animated `heroFraction` so it rises with the hero.
-                    LiquidTube(frac: heroFraction, tint: StrandPalette.accent, height: 8, animated: false)
+                    PaperProgressBar(frac: heroFraction, tint: StrandPalette.accent, height: 8, animated: false)
                         .accessibilityLabel("Progress toward today's goal")
                         .accessibilityValue("\(percent) percent")
                 }

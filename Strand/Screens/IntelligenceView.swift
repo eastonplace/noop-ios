@@ -138,7 +138,7 @@ struct IntelligenceView: View {
                                            plannedSleepHours: plannedHours)
     }
 
-    /// The forecast hero — tomorrow-morning Charge as the canonical liquid `LiquidVessel` gauge in the
+    /// The forecast hero — tomorrow-morning Charge as the canonical liquid `PaperGauge` gauge in the
     /// Charge tint, with the estimate counting up over it (the SAME hero language Sleep + Today use), on a
     /// frosted Charge-tinted card, with the plain-English estimate read-out beneath. A real forecast number,
     /// so it earns a liquid gauge. The number, ± band and copy are unchanged.
@@ -152,7 +152,7 @@ struct IntelligenceView: View {
                     // 0–100 estimate counting up over it and the ± band + state word beneath (Sleep's
                     // restHero idiom). Live so the fill actually flows on the hero surface.
                     ZStack {
-                        LiquidVessel(value: frac, tint: RecoveryBands.color(for: f.charge), animated: true)
+                        PaperGauge(value: frac, tint: RecoveryBands.color(for: f.charge), animated: true)
                             .frame(width: 184, height: 184)
                         VStack(spacing: 0) {
                             CountUpText(
@@ -238,7 +238,7 @@ struct IntelligenceView: View {
             // The horizontal liquid tube — the same vessel Today's Key Metrics + Sleep's stage bars use —
             // tinted to the input's accent. The Charge weights span 0…0.55, so the tube reads each input's
             // share of the model. Static (posed): a still fill line, no live canvas per row.
-            LiquidTube(frac: min(1, max(0, fraction / 0.55)), tint: color, height: 8, animated: false)
+            PaperProgressBar(frac: min(1, max(0, fraction / 0.55)), tint: color, height: 8, animated: false)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(label): \(percent) of Recovery")
@@ -253,7 +253,7 @@ struct IntelligenceView: View {
                     // (posed) so each day row costs a single cached frame, not a live canvas. Only shown
                     // once the night has a Charge to fill it; a calibrating night leads with the date alone.
                     if let r = d.recovery {
-                        LiquidVessel(value: min(1, max(0, r / 100)), tint: RecoveryBands.color(for: r), animated: false)
+                        PaperGauge(value: min(1, max(0, r / 100)), tint: RecoveryBands.color(for: r), animated: false)
                             .frame(width: 24, height: 24)
                             .accessibilityHidden(true)
                     }
@@ -283,12 +283,12 @@ struct IntelligenceView: View {
                     stat(String(localized: "HRV"), d.hrv.map { "\(Int($0.rounded()))" } ?? "—", StrandPalette.metricPurple)
                     stat(String(localized: "RHR"), d.rhr.map { "\($0)" } ?? "—", StrandPalette.metricRose)
                 }
-                // Strain load meter (0–100) as a filling LiquidTube — the horizontal liquid vessel Today's
+                // Strain load meter (0–100) as a filling PaperProgressBar — the horizontal liquid vessel Today's
                 // Key Metrics + Sleep's stage bars use — tinted along the strain ramp so it reads as
                 // at-a-glance cardio load. Static (posed) so each day row costs a cached frame, not a live
                 // canvas; a real metric, so it earns a liquid accent.
                 if let s = d.strain {
-                    LiquidTube(frac: min(1, max(0, s / 100)), tint: StrandPalette.strainColor(s),
+                    PaperProgressBar(frac: min(1, max(0, s / 100)), tint: StrandPalette.strainColor(s),
                                height: 8, animated: false)
                         .accessibilityHidden(true)
                 }

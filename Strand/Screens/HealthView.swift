@@ -595,7 +595,7 @@ private struct RecoveryContributorsSection: View {
     }
 }
 
-/// One README "zone / stage bar": a label + qualitative word on top, the signature liquid `LiquidTube`
+/// One README "zone / stage bar": a label + qualitative word on top, the signature liquid `PaperProgressBar`
 /// (a metric-tinted horizontal tube that fills to the 0…100 strength, matching Today's Key-Metrics and
 /// Last-Workouts tubes), and a right-aligned raw reading. Used for the recovery contributors. A nil
 /// strength (calibrating) renders an empty tube — no fabricated fill.
@@ -622,7 +622,7 @@ private struct ContributorBar: View {
             // The signature liquid tube: fills to the 0…1 strength, tinted to the contributor's world.
             // Static (posed) — a row of small bars shouldn't each run a live 30fps Canvas. Calibrating
             // (nil) reads as an empty 0 tube.
-            LiquidTube(frac: (strength ?? 0) / 100, tint: tint, height: 10, animated: false)
+            PaperProgressBar(frac: (strength ?? 0) / 100, tint: tint, height: 10, animated: false)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(detail), \(word)")
@@ -769,7 +769,7 @@ private struct FitnessAgeSection: View {
                     // filled by how young the fitness age reads (younger = fuller), with the age counting
                     // up over it. Same HeroScoreCell idiom as Today; taps fall through to the trend button.
                     ZStack {
-                        LiquidVessel(value: fitnessAgeFraction(age), tint: StrandPalette.chargeColor, animated: true)
+                        PaperGauge(value: fitnessAgeFraction(age), tint: StrandPalette.chargeColor, animated: true)
                             .frame(width: 96, height: 96)
                         CountUpNumber(value: Double(shown), font: StrandFont.rounded(30))
                             .foregroundStyle(StrandPalette.onDarkPrimary)
@@ -800,7 +800,7 @@ private struct FitnessAgeSection: View {
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(LiquidPressStyle())
+            .buttonStyle(PaperPressStyle())
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Fitness Age \(shown), \(ageDeltaLine(years: years, younger: younger)). Tap to see the trend.")
 
@@ -829,7 +829,7 @@ private struct FitnessAgeSection: View {
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(LiquidPressStyle())
+            .buttonStyle(PaperPressStyle())
             // Whole-string key per variant (never a stitched Hide/Show fragment).
             .accessibilityLabel(showReadiness
                 ? "How accurate is this? Hide the data behind your Fitness Age"
@@ -1047,7 +1047,7 @@ private struct VitalitySection: View {
                 VStack(alignment: .leading, spacing: NoopMetrics.space1) {
                     Text("Vitality").strandOverline()
                     ZStack {
-                        LiquidVessel(value: max(0, min(1, v / 100)), tint: StrandPalette.chargeColor, animated: true)
+                        PaperGauge(value: max(0, min(1, v / 100)), tint: StrandPalette.chargeColor, animated: true)
                             .frame(width: 108, height: 108)
                         CountUpNumber(value: v, font: StrandFont.rounded(38))
                             .foregroundStyle(StrandPalette.onDarkPrimary)
@@ -1140,12 +1140,12 @@ private struct VitalsSection: View {
                 spacing: NoopMetrics.gap
             ) {
                 ForEach(Array(readings.enumerated()), id: \.element.id) { idx, v in
-                    // Each headline vital is now a liquid tile: the signature LiquidVessel gauge tinted
+                    // Each headline vital is now a liquid tile: the signature PaperGauge gauge tinted
                     // to the metric's colour world (rose RHR, purple HRV, cyan SpO₂, amber skin temp),
                     // filled to the metric's fraction, with the value counting up beside it and the same
                     // banding caption + sparkline the classic tile carried. Every binding + accessibility
                     // label is preserved — this is the liquid restyle of the flat StatTile.
-                    LiquidVitalTile(reading: v)
+                    PaperVitalTile(reading: v)
                         .staggeredAppear(index: idx)
                 }
             }
@@ -1159,12 +1159,12 @@ private struct VitalsSection: View {
 
 // MARK: - Liquid vital tile (vessel gauge + count-up value + banding caption + spark trail)
 
-/// One headline vital sign rendered in the liquid finish: a metric-tinted `LiquidVessel` gauge (filled
+/// One headline vital sign rendered in the liquid finish: a metric-tinted `PaperGauge` gauge (filled
 /// to the vital's physiological fraction), the value counting up beside it, the banded state caption, and
 /// the same sparkline trail the classic StatTile drew. A frosted `NoopCard` tinted to the metric's accent,
 /// matching Today's Key-Metrics tiles. Presentation-only: value, banding and source are unchanged — this
 /// just gives each vital a real liquid gauge instead of a flat tile.
-private struct LiquidVitalTile: View {
+private struct PaperVitalTile: View {
     let reading: BodyVitalReading
 
     var body: some View {
@@ -1175,7 +1175,7 @@ private struct LiquidVitalTile: View {
                 HStack(alignment: .center, spacing: 10) {
                     // The signature liquid gauge — static (posed) so a grid of them doesn't each run a live
                     // 30fps Canvas. nil fraction (no value) reads as an empty vessel, no fabricated fill.
-                    LiquidVessel(value: vesselFraction, tint: reading.metricColor, animated: false)
+                    PaperGauge(value: vesselFraction, tint: reading.metricColor, animated: false)
                         .frame(width: 34, height: 34)
                     if let value = reading.value {
                         // The value counts up on appear (snaps under Reduce Motion), formatted exactly as
@@ -1343,7 +1343,7 @@ private struct HealthHubLinksSection: View {
             }
         }
         // Liquid press response — every tappable liquid card settles inward on touch (matches Today).
-        .buttonStyle(LiquidPressStyle())
+        .buttonStyle(PaperPressStyle())
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(title). \(subtitle)")
     }

@@ -411,7 +411,7 @@ private struct DeviceCard: View {
     }
 
     /// The whole-card liquid press wrapper: tapping the card performs its PRIMARY action (make active for a
-    /// paired band, re-add for a removed one), with the settle-in `LiquidPressStyle`. The ⋮ menu is layered
+    /// paired band, re-add for a removed one), with the settle-in `PaperPressStyle`. The ⋮ menu is layered
     /// on top as an overlay so it captures its own taps; cards with no primary action (the active one, or a
     /// removed one whose re-add is menu-only) fall back to a plain container so nothing taps by accident.
     var body: some View {

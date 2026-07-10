@@ -622,7 +622,7 @@ struct TrendsView: View {
             HStack(spacing: NoopMetrics.space3) {
                 // Static (posed) vessel — a small liquid gauge, not a live 60fps canvas, so the three
                 // in this card cost a single cached frame each (same call as Today's small vessels).
-                LiquidVessel(value: max(0, min(1, frac)), tint: tint, animated: false)
+                PaperGauge(value: max(0, min(1, frac)), tint: tint, animated: false)
                     .frame(width: 30, height: 30)
                     .accessibilityHidden(true)
                 CountUpText(value: value, format: format,
@@ -703,7 +703,7 @@ struct TrendsView: View {
             tint: avg.map { RecoveryBands.color(for: $0) } ?? StrandPalette.recoveryData,
             chart: {
                 if pts.count >= 2 {
-                    glowChart(points: pts,
+                    paperChart(points: pts,
                               gradient: gradient(StrandPalette.recoveryData),
                               // Lift the ceiling ~6% so a near-100 peak and the now-cap halo
                               // clear the top gridline, matching the padded small multiples.
@@ -731,11 +731,11 @@ struct TrendsView: View {
             }
         )
         // Tap the hero to open the full Charge (recovery) metric detail — matching Today's card taps.
-        // LiquidPressStyle gives the physical settle-inward on press (the liquid tap language). The card's
+        // PaperPressStyle gives the physical settle-inward on press (the liquid tap language). The card's
         // own rich labels (title + chart series + footer stats) are surfaced by the link's button element,
         // with a hint that a tap opens the detail.
         NavigationLink { metricDetail("recovery") } label: { card }
-            .buttonStyle(LiquidPressStyle())
+            .buttonStyle(PaperPressStyle())
             .accessibilityHint(Text(String(localized: "Opens the full Recovery metric.")))
     }
 
@@ -835,7 +835,7 @@ struct TrendsView: View {
             tint: tint,
             chart: {
                 if pts.count >= 2 {
-                    glowChart(points: pts, gradient: gradient, valueRange: range,
+                    paperChart(points: pts, gradient: gradient, valueRange: range,
                               tip: tip, valueFormat: { "\(fmt($0)) \(unit)" },
                               accessibilityLabel: String(localized: "\(accessibilityTitle) trend"))
                 } else {
@@ -858,7 +858,7 @@ struct TrendsView: View {
         // Each small-multiple taps through to its own metric detail (like Today's cards / Explore's rows),
         // with the liquid press settle. The chart itself is left uncluttered — no vessel over it (task).
         NavigationLink { metricDetail(metricKey) } label: { card }
-            .buttonStyle(LiquidPressStyle())
+            .buttonStyle(PaperPressStyle())
             .accessibilityHint(Text(String(localized: "Opens the full \(accessibilityTitle) metric.")))
     }
 
@@ -919,7 +919,7 @@ struct TrendsView: View {
     /// fill contrast does the rest. The "now" end-cap is a small dot pinned to the final sample.
     /// Pure presentation: it forwards every value to the locked `TrendChart` unchanged.
     @ViewBuilder
-    private func glowChart(points pts: [TrendPoint], gradient: Gradient, valueRange: ClosedRange<Double>,
+    private func paperChart(points pts: [TrendPoint], gradient: Gradient, valueRange: ClosedRange<Double>,
                            tip: Color, valueFormat: @escaping (Double) -> String,
                            accessibilityLabel: String) -> some View {
         // One crisp, interactive line + area — flat, no blurred glow copy underneath (WHOOP language).

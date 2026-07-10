@@ -107,7 +107,7 @@ struct MindSection: View {
                     lineWidth: selected ? 1.5 : 1))
         }
         // Liquid tap response: the same physical settle-inward every tappable liquid control gets.
-        .buttonStyle(LiquidPressStyle())
+        .buttonStyle(PaperPressStyle())
         .accessibilityLabel("\(MoodStore.label(for: value)), mood \(value) of 5")
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
@@ -161,7 +161,7 @@ struct MindSection: View {
                         // A small liquid vessel filled to the link's strength (|r|) marks the row and reads
                         // its magnitude at a glance — the leading-gauge idiom Insights' effect cards use.
                         // Sleep-tinted so it carries no valence (a link is just a link, never good or bad).
-                        LiquidVessel(value: line.strength, tint: StrandPalette.restBright, animated: false)
+                        PaperGauge(value: line.strength, tint: StrandPalette.restBright, animated: false)
                             .frame(width: 22, height: 22)
                             .accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: 4) {

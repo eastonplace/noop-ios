@@ -401,12 +401,30 @@
     alert remain honestly state-gated in their restored production hosts. Compared
     against sheets 1, 3, 5 and the brand guide. Final `NOOPiOS` simulator build
     passed; `StrandDesign`: 36/36 tests.
-- [ ] **T48 — Remove Liquid**
+- [x] **T48 — Remove Liquid**
   - Delete `Strand/Liquid/` after repointing survivors: `LiveView`/`HydrationView`/
     `CoupledView` liquid references → Paper equivalents; if `LiveSessionView` still
     hosts run UI, move what's live into the run-flow files first. Remove liquid
     entries from `project.yml`; `xcodegen generate`.
   - Verify: FR-10 grep gate zero; all schemes build. Commit.
+  - **Completed 2026-07-10:** deleted all five files under `Strand/Liquid/`
+    (core physics, primitives, sky, obsolete Today and live-session hosts) and
+    removed the directory. Replaced every remaining rendered vessel/tube/thread/
+    press use with the flat `PaperGauge`, `PaperProgressBar`,
+    `PaperSparkline` and `PaperPressStyle` implementations in
+    `Strand/Screens/PaperDataPrimitives.swift`; the primitives use solid strokes,
+    flat rails and no motion/tilt/glint engine. Onboarding's ambient bloom was also
+    removed. The required identifier gate is zero for `LiquidVessel`,
+    `LiquidTube`, `LiquidThread`, `LiquidPressStyle`, `LiquidTodayView`,
+    `LiveSessionView` and `LiveSessionSummarySheet`; the only remaining
+    liquid/scenic/glow words are comments and historical release-note prose, not
+    rendered styling. Built the official XcodeGen CLI from source in `/tmp` and
+    ran `xcodegen generate`. `NOOPiOS`, `NOOPiOSWidgets` and macOS `Strand`
+    builds passed; `NOOPWatch` was attempted and remains environment-blocked
+    because watchOS 26.5 is not installed (same documented host constraint as
+    T34). `StrandDesign`: 36/36 tests. `qa/T48-live-paper-primitives.png`
+    confirms the live console now renders the flat Paper gauge against the
+    reference treatment.
 - [ ] **T49 — Route dedupe (C10)**
   - Repoint `StrandiOSApp.swift:301/:307` routes + any V5PillarHosts/NavRouter pillar
     destinations at the Paper details; delete `V5PillarHosts.swift` +

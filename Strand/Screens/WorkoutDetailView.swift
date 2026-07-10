@@ -563,7 +563,7 @@ struct WorkoutDetailView: View {
     // MARK: - Strain contribution
 
     private func effortCard(strain: Double) -> some View {
-        // The session's Strain as the signature liquid gauge: a `LiquidVessel` tinted Strain, filled to the
+        // The session's Strain as the signature liquid gauge: a `PaperGauge` tinted Strain, filled to the
         // session's contribution on the user's selected scale, with the value counting up over it — the
         // same hero language as the Workouts list's Typical Strain gauge and the Sleep Sleep hero. The
         // explanatory sentence keeps its place beside the gauge.
@@ -577,7 +577,7 @@ struct WorkoutDetailView: View {
                     ZStack {
                         // Static (posed) vessel — a compact liquid gauge inside a card, so it costs a single
                         // cached frame rather than a live canvas (same call as Trends' pip vessels).
-                        LiquidVessel(value: fraction, tint: StrandPalette.effortColor, animated: false)
+                        PaperGauge(value: fraction, tint: StrandPalette.effortColor, animated: false)
                             .frame(width: 88, height: 88)
                         VStack(spacing: 0) {
                             // The session's Strain contribution ticks up to its value — the NOOP signature.

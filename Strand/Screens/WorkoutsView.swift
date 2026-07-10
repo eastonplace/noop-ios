@@ -820,7 +820,7 @@ struct WorkoutsView: View {
 
     @ViewBuilder
     private func effortHeroGauge(avgStrain: Double, hasData: Bool) -> some View {
-        // The signature liquid gauge: a filling `LiquidVessel` tinted Strain with the typical effort
+        // The signature liquid gauge: a filling `PaperGauge` tinted Strain with the typical effort
         // counting up over it — the SAME hero language Today's score cells, the Sleep Sleep hero and the
         // Trends headline use. The vessel fills to value/max on the user's selected Strain scale; the big
         // number is the same `effortDisplay` read-out the old ring showed.
@@ -836,8 +836,8 @@ struct WorkoutsView: View {
                 ZStack {
                     // Hero vessel → animated (this is one of the page's live gauges, like the Sleep Sleep
                     // hero and the Today score cells). Reduce-Motion falls back to the static frame inside
-                    // LiquidVessel itself.
-                    LiquidVessel(value: fraction, tint: StrandPalette.effortColor, animated: true)
+                    // PaperGauge itself.
+                    PaperGauge(value: fraction, tint: StrandPalette.effortColor, animated: true)
                         .frame(width: diameter, height: diameter)
                     VStack(spacing: 0) {
                         // `displayValue` is already on the selected scale (0–100 or 0–21), so the count-up
@@ -859,7 +859,7 @@ struct WorkoutsView: View {
                 // No strain data in the window — an empty vessel (posed, no fill) with a centred "No data",
                 // the honest liquid analogue of the old empty ring.
                 ZStack {
-                    LiquidVessel(value: 0, tint: StrandPalette.effortColor, animated: false)
+                    PaperGauge(value: 0, tint: StrandPalette.effortColor, animated: false)
                         .frame(width: diameter, height: diameter)
                     Text("No data")
                         .font(StrandFont.headline)
@@ -1381,7 +1381,7 @@ struct WorkoutsView: View {
           .frame(height: RowMetrics.rowHeight)
           .contentShape(Rectangle())
         }
-        .buttonStyle(LiquidPressStyle())
+        .buttonStyle(PaperPressStyle())
         // Visible per-row actions affordance (#1/#318): the ••• menu sits on top of the row at the trailing
         // edge (over its reserved column) so relabel/edit/dismiss stay discoverable and tappable. Hidden in
         // selection mode (the toolbar owns the actions there).
@@ -1407,7 +1407,7 @@ struct WorkoutsView: View {
         let selectable = WorkoutMerge.isMergeable(row)
         let isSelected = selected.contains(selectionKey(row))
         // The row's PRIMARY tap runs through a Button so it earns the liquid settle-inward press
-        // (LiquidPressStyle) like every other tappable liquid surface. The trailing ••• Menu is layered as
+        // (PaperPressStyle) like every other tappable liquid surface. The trailing ••• Menu is layered as
         // a trailing overlay OUTSIDE the button (below) so it captures its own taps rather than being
         // swallowed by the row button (#318). Selection-mode taps toggle instead of opening the detail.
         return Button {
@@ -1455,7 +1455,7 @@ struct WorkoutsView: View {
             .frame(minHeight: 56)
             .contentShape(Rectangle())
         }
-        .buttonStyle(LiquidPressStyle())
+        .buttonStyle(PaperPressStyle())
         // Visible per-row ••• actions (#1/#318), layered at the trailing edge over its reserved column.
         .overlay(alignment: .trailing) {
             if !selectionMode {
