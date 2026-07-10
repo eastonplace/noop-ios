@@ -283,9 +283,14 @@
 
 ## Phase 6 — Management
 
-- [ ] **T19 — Devices + Add Device (S6, S7)** — Modify
+- [x] **T19 — Devices + Add Device (S6, S7)** — Modify
   `Strand/Screens/DevicesView.swift`, `AddDeviceWizard.swift`. Spec §6-S6/S7. Verify vs
   sheet 4-1/4-2. Commit.
+  - Verified 2026-07-09: `NOOPiOS` built and ran. `qa/T19-devices.jpg` confirms
+    real paired-device states, Paper cards, green/gray status pills, black Add a
+    device action, and local-privacy note against sheet 4-1. `qa/T19-add-device.jpg`
+    confirms every existing catalog integration remains present in Paper rows with
+    Beta/Experimental badges and the existing honest tier warning against sheet 4-2.
 - [ ] **T20 — Data Sources (S8)** — Modify `Strand/Screens/DataSourcesView.swift`.
   Spec §6-S8. Verify vs sheet 4-3. Commit.
 - [ ] **T21 — Backup & Sync (S9)** — Modify `Strand/Screens/BackupSyncView.swift`

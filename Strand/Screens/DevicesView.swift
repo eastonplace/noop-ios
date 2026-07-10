@@ -21,10 +21,15 @@ struct DevicesView: View {
 
     var body: some View {
         ScreenScaffold(title: "Devices",
-                       subtitle: "Pair and manage the bands NOOP reads from.",
+                       subtitle: "Manage your straps and devices.",
                        // The day-of-sky liquid backdrop, matching Today / Health / Sleep / Trends: a fixed,
                        // full-bleed time-of-day sky behind the scroll content (it does not scroll).
-                       topBackground: liquidScaffoldSky()) {
+                       topBackground: nil,
+                       trailing: {
+                           Image(systemName: "plus")
+                               .font(.system(size: 16, weight: .semibold))
+                               .foregroundStyle(StrandPalette.textPrimary)
+                       }) {
             if let registry = model.deviceRegistry {
                 DevicesContent(registry: registry)
             } else {
@@ -112,6 +117,8 @@ private struct DevicesContent: View {
             if !removedDevices.isEmpty { removedSection }
 
             whoopFirstFooter
+            NoteCard("All data is stored locally on this device. Private by design. You're in control.",
+                     style: .privacy)
         }
         // Add a device — guided, branching wizard (asks the device TYPE first, then runs the right
         // scan/register path: WHOOP present-scan for WHOOP families, StandardHRSource for HR straps).
@@ -299,7 +306,7 @@ private struct DeviceCard: View {
     /// The card's visible content. The required `body` wraps this in the whole-card liquid press button +
     /// the ⋮ menu overlay.
     private var cardContent: some View {
-        StrandCard(padding: 18, tint: isActive ? StrandPalette.accent : nil) {
+        PaperCard(padding: 18) {
             VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
                 HStack(alignment: .top, spacing: NoopMetrics.space3) {
                     Image(systemName: icon)
@@ -447,7 +454,14 @@ private struct DeviceCard: View {
                 .foregroundStyle(batteryTint(pct))
                 .frame(width: 18)
                 .accessibilityHidden(true)
-            LiquidTube(frac: Double(pct) / 100, tint: batteryTint(pct), height: 8, animated: false)
+            GeometryReader { geo in
+                Capsule().fill(StrandPalette.inset)
+                    .overlay(alignment: .leading) {
+                        Capsule().fill(batteryTint(pct))
+                            .frame(width: geo.size.width * min(max(Double(pct) / 100, 0), 1))
+                    }
+            }
+            .frame(height: 8)
             Text("\(pct)%")
                 .font(StrandFont.captionNumber)
                 .foregroundStyle(StrandPalette.textSecondary)

@@ -297,7 +297,7 @@ struct AddDeviceWizard: View {
             }
         }
         switch step {
-        case .type:    return "What are you adding?"
+        case .type:    return "Connect a device to start collecting data."
         case .prep:    return "Get it ready, then scan."
         case .pick:    return "Tap the one that's yours."
         case .confirm: return nil
@@ -339,6 +339,7 @@ struct AddDeviceWizard: View {
                     subtitle: String(localized: "Uses the watch's Broadcast Heart Rate. We'll show you how."))
 
             whoopFirstNote
+            NoteCard("Some integrations are in beta. Features may change.", style: .info)
         }
     }
 
@@ -360,27 +361,19 @@ struct AddDeviceWizard: View {
                 step = .prep
             }
         } label: {
-            HStack(spacing: 14) {
-                Image(systemName: icon)
-                    .font(StrandFont.title2)
-                    .foregroundStyle(StrandPalette.accent)
-                    .frame(width: 30)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title).font(StrandFont.headline)
-                        .foregroundStyle(StrandPalette.textPrimary)
-                    Text(subtitle).font(StrandFont.caption)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
+            PaperCard(padding: 0) {
+                SettingsRow(icon: icon,
+                            title: LocalizedStringKey(title),
+                            subtitle: LocalizedStringKey(subtitle),
+                            showsChevron: true) {
+                    if t == .gymEquipment || t == .oura {
+                        StatusBadge("Beta", style: .beta)
+                    } else if t == .whoop5mg || t.isExperimental {
+                        StatusBadge("Experimental", style: .experimental)
+                    }
                 }
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(StrandFont.subhead)
-                    .foregroundStyle(StrandPalette.textTertiary)
+                .padding(.horizontal, 14)
             }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frostedCardSurface(cornerRadius: 14)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(title). \(subtitle)")
