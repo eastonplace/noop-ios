@@ -211,11 +211,16 @@
     Duration/Efficiency/Resting HR triplet, preserved logging-only Sleep Marks,
     exact Paper sleep-stage palette, real hypnogram with clock axis, and the
     Asleep/Duration/Woke window hierarchy against sheet 1-3.
-- [ ] **T12 — More tab list** — Modify the More list in
+- [x] **T12 — More tab list** — Modify the More list in
   `StrandiOS/App/RootTabView.swift` (`moreTab`): restyle groups/rows with
   `SectionHeader` + `SettingsRow`; keep the persisted expand/collapse behavior
   (`MoreSectionPrefs`) and every destination. Verify: all destinations reachable.
   Commit.
+  - Verified 2026-07-09: `NOOPiOS` built and ran; `qa/T12-more.jpg` confirms the
+    flat Paper canvas, `SectionHeader` disclosure groups, and `SettingsRow` list
+    treatment. Simulator accessibility snapshots exposed every unchanged destination
+    in Insights, Body, Data, and App after expanding the persisted sections; the
+    `MoreSectionPrefs` storage/encode path remains intact.
 
 ## Phase 4 — Pillar details (use T01's file map)
 

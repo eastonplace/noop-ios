@@ -286,7 +286,7 @@ struct RootTabView: View {
         NavigationStack {
             ScreenScaffold(title: "More", subtitle: "Everything else, one tap away",
                            onRefresh: { await repo.refresh() },
-                           topBackground: liquidScaffoldSky()) {
+                           topBackground: nil) {
                 moreSection("Insights") {
                     MoreRow("What Moves You", "wand.and.sparkles") { InsightsHubView() }
                     MoreRow("Intelligence", "brain.head.profile") { IntelligenceView() }
@@ -366,8 +366,7 @@ struct RootTabView: View {
                 }
             } label: {
                 HStack(spacing: 6) {
-                    Text(title).strandOverline()
-                    Spacer(minLength: 8)
+                    SectionHeader(LocalizedStringKey(title))
                     Image(systemName: "chevron.down")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(StrandPalette.textTertiary)
@@ -385,7 +384,7 @@ struct RootTabView: View {
                 // Zero internal padding so each MoreRow owns its own comfortable insets + height; the rows
                 // supply their own hairline separators (drawn at the bottom of every row but the last via the
                 // divider overlay) so the group reads as one continuous grouped list, matching Settings/Health.
-                NoopCard(padding: 0) {
+                PaperCard(padding: 0) {
                     VStack(spacing: 0) { rows() }
                         // Clip the rows column to the card's rounded shape so the last row's bottom hairline is
                         // trimmed inside the corners (the card draws its surface in the BACKGROUND and doesn't
@@ -423,24 +422,8 @@ private struct MoreRow<Destination: View>: View {
                 // identical at rest — the destination's own surfaceBase background shows through the bar.
                 .toolbarBackground(.hidden, for: .navigationBar)
         } label: {
-            HStack(spacing: 14) {
-                // Pin the icon to the accent explicitly. A plain inherited tint gets re-resolved by iOS to
-                // its default blue a beat after first render — so the icons flashed green→blue (#184). The
-                // explicit foregroundStyle on the image overrides that; the title keeps the primary colour.
-                Image(systemName: icon)
-                    .font(.system(size: 17, weight: .regular))
-                    .foregroundStyle(StrandPalette.accent)
-                    .frame(width: 26, alignment: .center)
-                Text(title)
-                    .font(StrandFont.body)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                Spacer(minLength: 8)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(StrandPalette.textTertiary)
-            }
+            SettingsRow(icon: icon, title: title, showsChevron: true)
             .padding(.horizontal, 16)
-            .frame(minHeight: 44)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
             // Hairline under every row; the grouped container clips the last one's overflow so the bottom
