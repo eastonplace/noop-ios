@@ -70,7 +70,9 @@ private func metricAccent(_ m: MetricDescriptor) -> Color {
 /// The gradient for a metric's trend line — strain/recovery ride their data scales;
 /// everything else uses a flat tint of its category accent.
 private func metricGradient(_ m: MetricDescriptor) -> Gradient {
-    if m.category == "Effort" { return StrandPalette.strainGradient }
+    if m.key == "strain" {
+        return Gradient(colors: [StrandPalette.strainAccent, StrandPalette.strainAccent])
+    }
     if m.key == "recovery" {
         return Gradient(colors: [StrandPalette.recoveryData.opacity(0.55), StrandPalette.recoveryData])
     }
@@ -787,6 +789,9 @@ struct MetricDetailView: View {
     private func heroChart(effectiveRange: ExploreRange,
                            windowed: [(day: String, value: Double)],
                            windowFellBack: Bool) -> some View {
+        let chartRows = metric.key == "strain"
+            ? windowed.map { (day: $0.day, value: StrainScale.displayValue(fromStored: $0.value)) }
+            : windowed
         let asOf: String = {
             guard let day = latest?.day, let d = parseDay(day) else { return "—" }
             return String(localized: "as of \(longDate(d))")
@@ -802,12 +807,15 @@ struct MetricDetailView: View {
             tint: metric.key == "recovery" ? StrandPalette.recoveryData : metricDomain(metric).color
         ) {
             TrendChart(
-                points: trendPoints(windowed),
+                points: trendPoints(chartRows),
                 gradient: metricGradient(metric),
-                valueRange: valueRange(windowed.map(\.value)),
+                valueRange: metric.key == "strain" ? 0...21 : valueRange(chartRows.map(\.value)),
                 showsArea: true,
                 height: NoopMetrics.chartHeight,
-                valueFormat: { fmt($0) }
+                valueFormat: {
+                    metric.key == "strain" ? String(format: "%.1f", $0) : fmt($0)
+                },
+                yAxisValues: metric.key == "strain" ? [0, 7, 14, 21] : nil
             )
         } footer: {
             ChartFooter([

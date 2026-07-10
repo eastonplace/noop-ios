@@ -425,7 +425,7 @@
     T34). `StrandDesign`: 36/36 tests. `qa/T48-live-paper-primitives.png`
     confirms the live console now renders the flat Paper gauge against the
     reference treatment.
-- [ ] **T49 — Route dedupe (C10)**
+- [x] **T49 — Route dedupe (C10)**
   - Repoint `StrandiOSApp.swift:301/:307` routes + any V5PillarHosts/NavRouter pillar
     destinations at the Paper details; delete `V5PillarHosts.swift` +
     `ChargeBreakdownDemoHost` if provably unreferenced after repoint (else leave
@@ -433,6 +433,29 @@
     pillar details into `PillarDetailViews.swift` (mechanical, plan §Risks).
   - Verify: exercise every string route in-sim without crash (FR-11 list them here
     with result). Commit.
+  - **Completed 2026-07-10:** removed the legacy DEBUG routes
+    `effortdetail`, `restdetail` and `chargebreakdown` plus the orphaned
+    `ChargeBreakdownDemoHost`. Their canonical replacements are
+    `recoverydetail → MetricDetailView(recovery)`,
+    `straindetail → MetricDetailView(strain)`, and
+    `sleepdetail → SleepView` (the C3 single Sleep destination). The route sweep
+    also caught a real boundary bug: the Strain detail hero showed 14.1/21 while
+    its graph still plotted stored 0–100 values. It now converts points through
+    the single `StrainScale`, uses constant `strainAccent`, fixes the domain to
+    0–21, and pins ticks at 0/7/14/21. `V5PillarHosts.swift` remains intentionally
+    referenced by both shells: its two structs are repository/data adapters for
+    the Paper `FusedRecordView` and `RhythmView`, not duplicate visual routes.
+    Simulator process-alive smoke passed with zero failures for every current
+    string route: today, trends, sleep, live, stress, workouts, health, insights,
+    insightshub, explore, compare, settings, storage, trendsreport, fused,
+    scoringguide, updates, xiaomi, intervals, watchsetup, watchabout,
+    dashboardeditor, keymetricseditor, data, backup, support, labbook,
+    automations, alarms, testcentre, rhythmconsent, rhythm, liveworkout,
+    preworkout, recoverydetail, straindetail, sleepdetail, devices,
+    devicescatalog, fitnessage, vitality, addwizard, ouraonboarding and ouradevice.
+    Evidence: `qa/T49-{recoverydetail,straindetail,sleepdetail}.png`, compared
+    with reference sheets 1 and 3. Final `NOOPiOS` build passed;
+    `StrandDesign`: 36/36 tests.
 
 ## Phase 5 — Integration (FR-12–14)
 

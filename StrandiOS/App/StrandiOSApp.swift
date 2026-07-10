@@ -311,13 +311,13 @@ enum DemoScreens {
         case "rhythm": return AnyView(RhythmEmptyDemoHost())
         case "liveworkout": return AnyView(LiveWorkoutView(onClose: {}))
         case "preworkout": return AnyView(StartWorkoutSheet(onStart: { _ in }))
-        case "effortdetail": return AnyView(MetricDetailView(
+        case "recoverydetail": return AnyView(MetricDetailView(
+            metric: MetricCatalog.all.first { $0.key == "recovery" }!
+        ))
+        case "straindetail": return AnyView(MetricDetailView(
             metric: MetricCatalog.all.first { $0.key == "strain" }!
         ))
-        case "restdetail": return AnyView(MetricDetailView(
-            metric: MetricCatalog.all.first { $0.key == "sleep_performance" }!
-        ))
-        case "chargebreakdown": return AnyView(ChargeBreakdownDemoHost())
+        case "sleepdetail": return AnyView(SleepView())
         case "devices":  return AnyView(DevicesView())
         case "devicescatalog": return AnyView(DeviceCardCatalog())
         case "fitnessage": return AnyView(FitnessAgeDemoScreen())

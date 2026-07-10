@@ -57,6 +57,8 @@ public struct TrendChart: View {
     /// curve and the top axis label clear of the plot clip (see #974); done purely in data space
     /// so it needs no macOS14/iOS17 plot-dimension padding API — works on our macOS13/iOS16 floor.
     public var yDomain: ClosedRange<Double>?
+    /// Optional canonical tick values for fixed-domain metrics such as Strain (0/7/14/21).
+    public var yAxisValues: [Double]?
 
     /// Mean of all point values, computed once in `init` so the area fill's gradient
     /// stop doesn't run an O(n) reduce for every mark on every render.
@@ -76,7 +78,8 @@ public struct TrendChart: View {
         dateFormat: @escaping (Date) -> String = { TrendChart.defaultDateString($0) },
         accessibilityLabel: String? = nil,
         nowCapColor: Color? = nil,
-        yDomain: ClosedRange<Double>? = nil
+        yDomain: ClosedRange<Double>? = nil,
+        yAxisValues: [Double]? = nil
     ) {
         let sorted = points.sorted { $0.date < $1.date }
         self.points = sorted
@@ -90,6 +93,7 @@ public struct TrendChart: View {
         self.accessibilityLabel = accessibilityLabel
         self.nowCapColor = nowCapColor
         self.yDomain = yDomain
+        self.yAxisValues = yAxisValues
         let avg = sorted.isEmpty
             ? valueRange.lowerBound
             : sorted.map(\.value).reduce(0, +) / Double(sorted.count)
@@ -224,10 +228,18 @@ public struct TrendChart: View {
             }
         }
         .chartYAxis {
-            AxisMarks(position: .leading, values: .automatic(desiredCount: 4)) { _ in
-                AxisGridLine().foregroundStyle(StrandPalette.hairline.opacity(0.4))
-                AxisValueLabel().foregroundStyle(StrandPalette.textTertiary)
-                    .font(StrandFont.footnote)
+            if let yAxisValues {
+                AxisMarks(position: .leading, values: yAxisValues) { _ in
+                    AxisGridLine().foregroundStyle(StrandPalette.hairline.opacity(0.4))
+                    AxisValueLabel().foregroundStyle(StrandPalette.textTertiary)
+                        .font(StrandFont.footnote)
+                }
+            } else {
+                AxisMarks(position: .leading, values: .automatic(desiredCount: 4)) { _ in
+                    AxisGridLine().foregroundStyle(StrandPalette.hairline.opacity(0.4))
+                    AxisValueLabel().foregroundStyle(StrandPalette.textTertiary)
+                        .font(StrandFont.footnote)
+                }
             }
         }
         .chartOverlay { proxy in
