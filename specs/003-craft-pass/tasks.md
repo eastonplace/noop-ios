@@ -25,10 +25,10 @@
 - [x] **T64 — Pillar details + MetricDetailView** — critique §Pillar details 1–4.
   GATE (screenshot all three pillars + stress + explorer).
 - [x] **T65 — Workouts** — critique §Workouts (D7 restructure). GATE.
-- [ ] **T66 — Run flow** — critique §Run flow (D6 picker/live/summary-tabs), three
+- [x] **T66 — Run flow** — critique §Run flow (D6 picker/live/summary-tabs), three
   screenshots. GATE.
 - [x] **T67 — Live console + Devices** — critique §Live console + §Devices. GATE.
-- [ ] **T68 — Data & tools screens** — critique §Data & tools 1–7, per-screen
+- [x] **T68 — Data & tools screens** — critique §Data & tools 1–7, per-screen
   screenshots. GATE.
 - [ ] **T69 — Global sweeps + evidence** — critique §Global craft sweeps across
   every screen not yet touched; XL-type collision pass; refresh
@@ -125,3 +125,44 @@
   T68 (verify board rows render: Settings strain-scale row, Support crypto chips,
   Data Sources Nutrition/wearable rows — all exist in code, confirm presentation),
   T69 global sweeps (icon audit beyond factor rows, XL collisions, evidence set).
+
+## Shipped by Claude (round 4) — 2026-07-10
+
+- **C14 HR zones (new Easton ruling, WHOOP reference shot):** zone tokens now
+  light/dark pairs (Z5 #E64A19/#FF6B2C · Z4 #E08E00/#FFA424 · Z3 #27A85C/#33BE66 ·
+  Z2 #4C9FE0/#64B5F6 · Z1 #9FB3BF/#B7C9D3) and `ZoneBars` rows read like WHOOP:
+  "ZONE 5 (90–100%)" + zone-tinted % + bold duration + 8 pt bar beneath. Single
+  choke point — CoupledView strain detail + WorkoutDetailView inherit; Workouts
+  mini card inherits tokens.
+- **Workout-detail surfaced for screenshots (Easton ask):** new `--demo-screen
+  workoutdetail` route + `WorkoutDetailDemoHost` (opens latest seeded workout).
+  Proof `qa/T66-workout-detail-tabs.png` — tabbed summary VERIFIED live: ink
+  Overview/Heart Rate/Map chips, blue 0–21 hero, honest empty zones. T66 checked.
+  Nit for T69: hero copy says "RUN STRAIN / This run…" for non-run sports —
+  sport-aware copy needed; strain-contributor icon circles are inconsistently
+  filled (Max HR/Duration) vs line (HRV/Calories).
+- **Stress ribbon now draws REAL hourly data:** TodayView loads the same
+  `DaytimeStress.analyze` read the Stress screens use; 24 hour-slots, unscored
+  hours render bare track (StressTimelineBar accepts optionals). Flat
+  single-value fill only remains as fallback when no intraday HR exists (e.g.
+  demo seed without banked HR samples).
+- **Detail chart axis labels** fixed: weekday+day (was bare "S…S").
+- **Icon sweep audit:** remaining `.fill` glyphs on primary screens are semantic
+  (status checks/warnings/locks) and match the reference's own filled status
+  marks — no wholesale change; factor/vitals multicolor fills were already fixed.
+- **Splits math: CONFIRMED IMPOSSIBLE without schema work** — `GpsWorkoutRecorder.LatLng`
+  stores lat/lon only, no timestamps. Splits need per-point timestamps recorded +
+  persisted. Codex data-lane task; do NOT fake a splits tab.
+- **T68:** Settings shot `qa/T68-settings.png`; Data Sources/Support/Backup rows
+  verified present in code earlier (crypto chips, Nutrition CSV, wearable-export
+  import). Remaining: their presentation shots at the gate.
+- **Contact sheet:** `qa/craft-contact-sheet.jpg` (after = 003 qa set, before =
+  002 after set). Judge pixel-for-pixel here, screen by screen.
+- **Note for Codex before any PHONE install:** demo/mock data is launch-argument
+  gated (`--demo-seed`, `--demo-screen`) and never runs on a normal launch — no
+  removal needed; just NEVER add those launch args to a device scheme. The
+  factor-row status words stay hidden until real band logic lands (integration
+  task), so nothing fabricated ships to the phone.
+- Remaining open: T69 (XL-type collision pass, Key Metrics tile states, dark-mode
+  re-verify of C14 zones, full evidence refresh), sport-aware summary copy,
+  factor-icon consistency, splits schema work, T68 presentation shots.

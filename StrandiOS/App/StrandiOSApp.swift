@@ -1,6 +1,7 @@
 #if os(iOS)
 import SwiftUI
 import StrandDesign
+import WhoopStore
 
 /// iOS entry point. Unlike the macOS app (which adds a `MenuBarExtra` scene), iOS uses a single
 /// `WindowGroup`; the glanceable menu-bar role is filled by the Home/Lock-Screen widget instead.
@@ -298,6 +299,7 @@ enum DemoScreens {
         case "live":     return AnyView(LiveView())
         case "stress":   return AnyView(StressView())
         case "workouts": return AnyView(WorkoutsView())
+        case "workoutdetail": return AnyView(WorkoutDetailDemoHost())
         case "health":   return AnyView(HealthView())
         case "insights": return AnyView(InsightsView())
         case "insightshub": return AnyView(InsightsHubView())
@@ -373,3 +375,23 @@ private struct OuraOnboardingDemoHost: View {
     }
 }
 #endif
+
+
+/// Screenshot-harness host for the tabbed workout summary (craft 003): loads the most
+/// recent workout row and presents its detail directly — the sheet is otherwise only
+/// reachable by tapping a Workouts row, which simctl can't script.
+private struct WorkoutDetailDemoHost: View {
+    @EnvironmentObject private var repo: Repository
+    @State private var row: WorkoutRow?
+    var body: some View {
+        Group {
+            if let row {
+                WorkoutDetailView(row: row)
+            } else {
+                ProgressView().task {
+                    row = await repo.workoutRows(days: 4000).first
+                }
+            }
+        }
+    }
+}

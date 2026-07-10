@@ -876,7 +876,7 @@ struct PaperPillarDetailView: View {
                 .chartXAxis {
                     AxisMarks(values: .automatic(desiredCount: 4)) {
                         AxisGridLine().foregroundStyle(StrandPalette.hairline)
-                        AxisValueLabel(format: .dateTime.weekday(.narrow))
+                        AxisValueLabel(format: .dateTime.weekday(.narrow).day())
                     }
                 }
                 .chartYAxis {

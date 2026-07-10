@@ -418,11 +418,28 @@ public struct ZoneBars: View {
     private let items: [ZoneBarItem]
     public init(_ items: [ZoneBarItem]) { self.items = items.sorted { $0.zone > $1.zone } }
 
+    /// WHOOP's fixed %-of-max bands per zone (C14).
+    private static let bandLabel: [Int: String] = [5: "90–100%", 4: "80–90%", 3: "70–80%",
+                                                   2: "60–70%", 1: "50–60%"]
+
     public var body: some View {
-        VStack(spacing: 9) {
+        // C14: each zone reads like WHOOP's row — "ZONE 5 (90–100%)" + zone-tinted share,
+        // bold duration right, the fill bar on its own line beneath.
+        VStack(spacing: 12) {
             ForEach(items, id: \.zone) { item in
-                HStack(spacing: 8) {
-                    Text("Z\(item.zone)").font(StrandFont.micro.weight(.semibold)).frame(width: 20, alignment: .leading)
+                VStack(spacing: 5) {
+                    HStack(spacing: 6) {
+                        Text("ZONE \(item.zone) (\(Self.bandLabel[item.zone] ?? ""))")
+                            .font(StrandFont.micro.weight(.semibold))
+                            .foregroundStyle(StrandPalette.textSecondary)
+                        Text("\(Int((item.fraction * 100).rounded()))%")
+                            .font(StrandFont.micro.weight(.semibold))
+                            .foregroundStyle(StrandPalette.hrZoneColor(item.zone))
+                        Spacer(minLength: 8)
+                        Text(item.duration)
+                            .font(StrandFont.captionNumber.weight(.semibold))
+                            .foregroundStyle(StrandPalette.textPrimary)
+                    }
                     GeometryReader { geo in
                         ZStack(alignment: .leading) {
                             Capsule().fill(StrandPalette.inset)
@@ -431,12 +448,7 @@ public struct ZoneBars: View {
                         }
                     }
                     .frame(height: 8)
-                    Text("\(Int((item.fraction * 100).rounded()))%")
-                        .font(StrandFont.micro).frame(width: 30, alignment: .trailing)
-                    Text(item.duration).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
-                        .frame(width: 42, alignment: .trailing)
                 }
-                .foregroundStyle(StrandPalette.textSecondary)
             }
         }
     }
@@ -493,15 +505,17 @@ public struct SplitsTable: View {
 }
 
 public struct StressTimelineBar: View {
-    private let values: [Double]
-    public init(values: [Double]) { self.values = values }
+    private let values: [Double?]
+    public init(values: [Double?]) { self.values = values }
+    public init(values: [Double]) { self.values = values.map(Optional.some) }
 
     public var body: some View {
         VStack(spacing: 6) {
             GeometryReader { _ in
                 HStack(spacing: 0) {
                     ForEach(Array(values.enumerated()), id: \.offset) { _, value in
-                        Rectangle().fill(color(for: value))
+                        // nil = hour with no scorable signal: the inset track shows through.
+                        Rectangle().fill(value.map(color(for:)) ?? Color.clear)
                     }
                 }
                 .clipShape(Capsule(style: .continuous))

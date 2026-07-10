@@ -250,6 +250,9 @@ struct TodayView: View {
     // Design Reset / #582, the pinned "Your cards" values (Stress / Fitness age / Vitality), surfaced
     // on Today so the buried Explore features sit on the home screen. Loaded in loadAll; nil hides the row.
     @State private var stressToday: Double?
+    /// Today's intraday stress read for the ribbon (same DaytimeStress proxy the Stress
+    /// screens use). nil until loaded; `.empty` when the day has no scorable hours.
+    @State private var daytimeStress: DaytimeStress.Result?
     @State private var fitnessAgeToday: Double?
     @State private var vitalityToday: Double?
     /// Distinct days + sleep sessions imported from a Mi Band (Mi Fitness), for the Data Sources row.
@@ -1310,10 +1313,39 @@ struct TodayView: View {
         }
     }
 
+    private func loadDaytimeStressForRibbon() async {
+        let calendar = Calendar.current
+        let start = Int(calendar.startOfDay(for: Date()).timeIntervalSince1970)
+        let end = Int(Date().timeIntervalSince1970)
+        let hr = await repo.hrSamples(from: start, to: end, limit: 200_000)
+        guard hr.count >= DaytimeStress.minHourHRSamples else {
+            daytimeStress = .empty
+            return
+        }
+        let rr = (try? await repo.storeHandle()?.rrIntervals(
+            deviceId: repo.deviceId, from: start, to: end, limit: 200_000)) ?? []
+        daytimeStress = DaytimeStress.analyze(
+            hr: hr, rr: rr, tzOffsetSeconds: TimeZone.current.secondsFromGMT(for: Date()))
+    }
+
+    /// 24 hour-slots for the ribbon: scored hours carry their 0–3 level, unscored hours
+    /// nil (rendered as bare track). Falls back to a flat today's-score fill only when
+    /// no intraday read exists at all.
+    private var stressRibbonSlots: [Double?] {
+        if let result = daytimeStress, !result.hours.isEmpty {
+            var slots = [Double?](repeating: nil, count: 24)
+            for point in result.hours where point.hour >= 0 && point.hour < 24 {
+                slots[point.hour] = point.level
+            }
+            return slots
+        }
+        return stressToday.map { Array(repeating: Optional($0), count: 24) } ?? []
+    }
+
     private var paperStressCard: some View {
         let value = stressToday
         let display = value.map { String(format: "%.1f", $0) } ?? "—"
-        let timeline = value.map { Array(repeating: $0, count: 24) } ?? []
+        let timeline = stressRibbonSlots
         return Button { paperPillarDetail = .stress } label: {
             PaperCard(padding: 12) {
                 VStack(alignment: .leading, spacing: 6) {
@@ -3830,6 +3862,9 @@ struct TodayView: View {
         // page on a day with no banked stress row. nil (no usable signal) keeps the honest "Calibrating"
         // placeholder, matching StressView's empty state. Fitness age / Vitality keep their merged reads.
         stressToday = StressModel(days: repo.days, stored: await stressStoredA)?.score
+        // Craft pass (003): the Today ribbon draws the REAL hourly curve — the old
+        // repeat-fill painted the whole day one color and lied about when stress ran high.
+        await loadDaytimeStressForRibbon()
         fitnessAgeToday = (await fitnessAgeSeriesA).last?.value
         vitalityToday = (await vitalitySeriesA).last?.value
         // Hydration card (opt-in): today's stored total + the sex/Strain goal. Only loaded when the

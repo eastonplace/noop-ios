@@ -246,11 +246,13 @@ public enum StrandPalette {
     public static var sleepLight: Color { stageLight }
     public static var sleepDeep:  Color { stageDeep }
 
-    public static let zoneZ5 = Color(hex: "#E5484D")
-    public static let zoneZ4 = Color(hex: "#F59E0B")
-    public static let zoneZ3 = Color(hex: "#2FA45C")
-    public static let zoneZ2 = Color(hex: "#5B9BF6")
-    public static let zoneZ1 = Color(hex: "#C7C6C2")
+    // C14 (spec 003): WHOOP's HR-zone grammar — Z5 orange-red, Z4 orange, Z3 green,
+    // Z2 blue, Z1 pale slate. Dark hexes match WHOOP's app; light are paper-adapted.
+    public static let zoneZ5 = Color(light: "#E64A19", dark: "#FF6B2C")
+    public static let zoneZ4 = Color(light: "#E08E00", dark: "#FFA424")
+    public static let zoneZ3 = Color(light: "#27A85C", dark: "#33BE66")
+    public static let zoneZ2 = Color(light: "#4C9FE0", dark: "#64B5F6")
+    public static let zoneZ1 = Color(light: "#9FB3BF", dark: "#B7C9D3")
     public static var zone1: Color { zoneZ1 }
     public static var zone2: Color { zoneZ2 }
     public static var zone3: Color { zoneZ3 }

@@ -73,6 +73,16 @@ natively Recovery/Strain(0–21)/Sleep, so 002's C1/C2/C3 need no reinterpretati
   screen. Feedback gets applied and re-shot before moving on. Self-assessment
   ("looks close to me") does not open the gate.
 
+- **C14 — WHOOP HR-zone grammar (Easton, 2026-07-10, reference: WHOOP zones
+  screenshot in chat).** Everywhere HR zones render (ZoneBars, Workouts mini card,
+  strain detail, workout detail, post-run): Z5 orange-red, Z4 orange, Z3 green,
+  Z2 blue, Z1 pale slate. Tokens (light / dark): zoneZ5 `#E64A19`/`#FF6B2C`,
+  zoneZ4 `#E08E00`/`#FFA424`, zoneZ3 `#27A85C`/`#33BE66`, zoneZ2
+  `#4C9FE0`/`#64B5F6`, zoneZ1 `#9FB3BF`/`#B7C9D3` — dark values match WHOOP's
+  app; light are paper-adapted (dark renders only in dark mode). Row format per
+  the WHOOP shot: "ZONE 5 (90–100%)" label + zone-tinted share %, bold duration
+  right, 8 pt fill bar beneath on the inset track.
+
 ## Craft acceptance (applies to every screen)
 
 1. One icon language: thin ink line-glyphs, uniform optical weight; zero multicolor
