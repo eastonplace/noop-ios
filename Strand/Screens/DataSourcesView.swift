@@ -68,7 +68,7 @@ struct DataSourcesView: View {
 
     var body: some View {
         ScreenScaffold(title: "Data Sources",
-                       subtitle: "Everything stays on \(Platform.deviceNounPhrase). Bring your history in once, then it's yours.",
+                       subtitle: "Import or connect your data.",
                        onRefresh: { await repo.refresh() },
                        // PERF: a nine-card import/source column (WHOOP, Apple Health, Xiaomi, nutrition,
                        // lifting, activity files, wearables, broadcast-out, live strap). The LazyVStack
@@ -79,15 +79,20 @@ struct DataSourcesView: View {
                        // built cards — that observation can't be removed here (see the lane-B2 note).
                        lazy: true) {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+                SectionHeader("Import from file or app")
                 whoopCard.staggeredAppear(index: 0)
                 appleHealthCard.staggeredAppear(index: 1)
                 xiaomiCard.staggeredAppear(index: 2)
+                SectionHeader("More imports")
                 nutritionCard.staggeredAppear(index: 3)
                 liftingCard.staggeredAppear(index: 4)
                 activityFileCard.staggeredAppear(index: 5)
                 wearableCard.staggeredAppear(index: 6)
+                SectionHeader("Manage connections")
                 broadcastHrCard.staggeredAppear(index: 7)
                 liveCard.staggeredAppear(index: 8)
+                NoteCard("All imports stay on this device. Your data is never uploaded. You decide what to import.",
+                         style: .privacy)
             }
         }
         .onAppear {
@@ -826,8 +831,8 @@ struct DataSourcesView: View {
                     Spacer(minLength: 8)
                     status
                 }
-                Text(subtitle).font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                Text(subtitle).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                    .lineLimit(3)
                 content()
             }
         }

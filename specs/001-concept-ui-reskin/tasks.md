@@ -291,8 +291,13 @@
     device action, and local-privacy note against sheet 4-1. `qa/T19-add-device.jpg`
     confirms every existing catalog integration remains present in Paper rows with
     Beta/Experimental badges and the existing honest tier warning against sheet 4-2.
-- [ ] **T20 — Data Sources (S8)** — Modify `Strand/Screens/DataSourcesView.swift`.
+- [x] **T20 — Data Sources (S8)** — Modify `Strand/Screens/DataSourcesView.swift`.
   Spec §6-S8. Verify vs sheet 4-3. Commit.
+  - Verified 2026-07-09: `NOOPiOS` built and ran. `qa/T20-data-sources.jpg`
+    confirms grouped Paper import cards, real WHOOP imported state/counts, compact blue
+    import chips, Apple Health destructive removal, Xiaomi import, and the continued
+    full additional-import/connection catalog against sheet 4-3. All importer and
+    confirmation handlers are unchanged.
 - [ ] **T21 — Backup & Sync (S9)** — Modify `Strand/Screens/BackupSyncView.swift`
   (+ `StorageView.swift` if it owns backup location UI). Spec §6-S9. Verify vs sheet
   4-4. Commit.
