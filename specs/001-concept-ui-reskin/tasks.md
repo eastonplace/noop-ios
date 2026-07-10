@@ -273,8 +273,13 @@
     pause/resume state, and the spec's top-level non-goal forbids adding feature logic;
     a cosmetic Paused state would continue recording and be false. The existing
     uninterrupted recording behavior is preserved exactly.
-- [ ] **T18 — Post-run summary (S27)** — spec §6-S27; effort value is the app's real
+- [x] **T18 — Post-run summary (S27)** — spec §6-S27; effort value is the app's real
   metric (R2). Verify vs sheet 2-4. Commit.
+  - Verified 2026-07-09: `NOOPiOS` built and ran. `qa/T18-post-run.jpg` confirms
+    the real stored `37.3 of 100` effort value (R2), same-sport comparison, six real
+    workout stats, and black Save workout action against sheet 2-4. Route and zone
+    sections remain conditional on actual stored data; the selected demo Walking row
+    has neither, so no illustrative route or zone split was invented.
 
 ## Phase 6 — Management
 

@@ -51,9 +51,10 @@ struct WorkoutDetailView: View {
     /// The GPS route captured for this session on-device (#524), if any. Decoded from `RouteStore` by the
     /// row's natural key. nil = no route was recorded (honest — the map only shows when points exist).
     @State private var route: [RouteMath.LatLng] = []
+    @State private var usualEffort: Double?
 
     var body: some View {
-        ScreenScaffold(title: "\(WorkoutSource.displaySport(row.sport))",
+        ScreenScaffold(title: "\(WorkoutSource.displaySport(row.sport)) Summary",
                        subtitle: "\(dateLabel(row.startTs))",
                        // PERF: chart/map-heavy column (a MapKit route map, the session HR curve, the
                        // zone-split chart and the effort card). The LazyVStack path builds the off-screen
@@ -64,15 +65,19 @@ struct WorkoutDetailView: View {
                        // and every other liquid screen. Fixed and full-bleed; it does not scroll. This
                        // screen is presented in a sheet wrapped in a NavigationStack by WorkoutsView, so it
                        // needs no extra macOS NavigationStack of its own.
-                       topBackground: liquidScaffoldSky()) {
-            headerCard
-            statStrip
-            routeCard
+                       topBackground: nil,
+                       trailing: {
+                           Image(systemName: "square.and.arrow.up")
+                               .font(.system(size: 15, weight: .medium))
+                               .foregroundStyle(StrandPalette.textPrimary)
+                       }) {
+            paperEffortHero
+            paperStatsGrid
+            paperZonesCard
+            paperRouteCard
+            NoopButton("Save workout", systemImage: "checkmark", kind: .primary,
+                       fullWidth: true) { dismiss() }
             hrCurveCard
-            zonesCard
-            if let strain = row.strain {
-                effortCard(strain: strain)
-            }
         }
         .toolbar {
             // A Done affordance for the sheet on both platforms (iOS gets the grabber too).
@@ -99,6 +104,12 @@ struct WorkoutDetailView: View {
         // still reads as a curve, not a handful of points.
         let buckets = await repo.workoutHrBuckets(from: row.startTs, to: row.endTs)
         let points = buckets.map { TrendPoint(date: Date(timeIntervalSince1970: TimeInterval($0.ts)), value: $0.bpm) }
+        let history = await repo.workoutRows(days: 4000)
+        let comparison = history.filter {
+            !($0.startTs == row.startTs && $0.sport == row.sport)
+                && $0.sport.caseInsensitiveCompare(row.sport) == .orderedSame
+        }.compactMap(\.strain)
+        let typical = comparison.isEmpty ? nil : comparison.reduce(0, +) / Double(comparison.count)
 
         // Zones: prefer the imported per-workout percentages (a WHOOP-computed split), and only fall
         // back to deriving zone-minutes from the strap's own raw HR when the row has none — so we
@@ -121,11 +132,160 @@ struct WorkoutDetailView: View {
             self.hrPoints = points
             self.zoneMinutes = minutes
             self.zonesFromImport = fromImport
+            self.usualEffort = typical
             self.loaded = true
         }
     }
 
     // MARK: - Header
+
+    private var paperEffortHero: some View {
+        let display = row.strain.map { UnitFormatter.effortValue($0, scale: effortScale) }
+        let maximum: Double = effortScale == .whoop ? 21 : 100
+        return PaperCard {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("RUN EFFORT")
+                    .font(StrandFont.sectionOverline)
+                    .tracking(StrandFont.sectionOverlineTracking)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                HStack(spacing: 20) {
+                    if let display {
+                        ScoreRing(value: display, range: 0...maximum,
+                                  accent: StrandPalette.effortAccent, size: 96,
+                                  format: { String(format: "%.1f", $0) },
+                                  centerCaption: effortScale == .whoop ? "of 21" : "of 100")
+                    } else {
+                        ZStack {
+                            Circle().stroke(StrandPalette.inset, lineWidth: 7)
+                            Text("—").font(StrandFont.ringScoreLarge)
+                                .foregroundStyle(StrandPalette.textTertiary)
+                        }
+                        .frame(width: 96, height: 96)
+                    }
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Good Work")
+                            .font(StrandFont.cardTitle)
+                            .foregroundStyle(StrandPalette.textPrimary)
+                        Text("This run maintained moderate effort.")
+                            .font(StrandFont.body)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
+                }
+                Divider().overlay(StrandPalette.hairline)
+                HStack {
+                    Text("Compared to your usual")
+                        .font(StrandFont.micro)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                    Spacer()
+                    if let delta = effortDelta {
+                        StatusBadge(LocalizedStringKey(String(format: "%+.1f", delta)),
+                                    style: .upToDate,
+                                    tint: delta >= 0 ? StrandPalette.success : StrandPalette.textSecondary)
+                    } else {
+                        Text("—").font(StrandFont.captionNumber)
+                            .foregroundStyle(StrandPalette.textTertiary)
+                    }
+                }
+            }
+        }
+    }
+
+    private var effortDelta: Double? {
+        guard let strain = row.strain, let usualEffort else { return nil }
+        return UnitFormatter.effortValue(strain, scale: effortScale)
+            - UnitFormatter.effortValue(usualEffort, scale: effortScale)
+    }
+
+    private var paperStatsGrid: some View {
+        PaperCard(padding: 0) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: 3), spacing: 0) {
+                paperStat("DISTANCE", distanceLabel(row.distanceM), nil)
+                paperStat("TIME", durationLabel(row.durationS), nil)
+                paperStat("AVG PACE", paceLabel, nil)
+                paperStat("AVG HR", row.avgHr.map(String.init) ?? "—", "bpm")
+                paperStat("MAX HR", row.maxHr.map(String.init) ?? "—", "bpm")
+                paperStat("CALORIES", row.energyKcal.map { grouped($0) } ?? "—", "kcal")
+            }
+        }
+    }
+
+    private func paperStat(_ label: String, _ value: String, _ unit: String?) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label).font(StrandFont.micro.weight(.semibold))
+                .foregroundStyle(StrandPalette.textTertiary)
+                .lineLimit(1).minimumScaleFactor(0.7)
+            HStack(alignment: .firstTextBaseline, spacing: 3) {
+                Text(value).font(StrandFont.metricValue)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .lineLimit(1).minimumScaleFactor(0.6)
+                if let unit { Text(unit).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary) }
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 76, alignment: .leading)
+        .padding(.horizontal, 11)
+        .overlay(alignment: .trailing) { Rectangle().fill(StrandPalette.hairline).frame(width: 1) }
+        .overlay(alignment: .bottom) { Rectangle().fill(StrandPalette.hairline).frame(height: 1) }
+    }
+
+    @ViewBuilder private var paperZonesCard: some View {
+        if let zones = zoneMinutes, zones.reduce(0, +) > 0 {
+            let total = zones.reduce(0, +)
+            PaperCard {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack {
+                        Text("HEART RATE ZONES")
+                            .font(StrandFont.sectionOverline)
+                            .tracking(StrandFont.sectionOverlineTracking)
+                        Spacer()
+                        Text("View Details")
+                            .font(StrandFont.caption.weight(.semibold))
+                            .foregroundStyle(StrandPalette.link)
+                    }
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    ZoneBars((1...5).map { zone in
+                        let minutes = zones[zone - 1]
+                        return ZoneBarItem(zone: zone,
+                                           fraction: minutes / total,
+                                           duration: shortZoneDuration(minutes))
+                    })
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var paperRouteCard: some View {
+        if route.count >= 2 {
+            PaperCard(padding: 0) {
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "mappin.and.ellipse")
+                            .foregroundStyle(StrandPalette.link)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("ROUTE")
+                                .font(StrandFont.sectionOverline)
+                                .tracking(StrandFont.sectionOverlineTracking)
+                            Text("\(WorkoutSource.displaySport(row.sport)) · \(distanceLabel(row.distanceM))")
+                                .font(StrandFont.caption)
+                                .foregroundStyle(StrandPalette.textSecondary)
+                        }
+                        Spacer()
+                    }
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .padding(16)
+                    WorkoutRouteMap(points: route)
+                        .frame(height: 180)
+                        .accessibilityLabel(routeAccessibilityLabel)
+                }
+            }
+        }
+    }
+
+    private func shortZoneDuration(_ minutes: Double) -> String {
+        let total = max(0, Int(minutes.rounded()))
+        return total >= 60 ? "\(total / 60)h\(total % 60)m" : "\(total)m"
+    }
 
     private var headerCard: some View {
         NoopCard(tint: StrandPalette.effortColor) {
