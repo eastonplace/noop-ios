@@ -25,7 +25,7 @@
 - [x] **T64 — Pillar details + MetricDetailView** — critique §Pillar details 1–4.
   GATE (screenshot all three pillars + stress + explorer).
 - [x] **T65 — Workouts** — critique §Workouts (D7 restructure). GATE.
-- [x] **T66 — Run flow** — critique §Run flow (D6 picker/live/summary-tabs), three
+- [ ] **T66 — Run flow** — critique §Run flow (D6 picker/live/summary-tabs), three
   screenshots. GATE.
 - [x] **T67 — Live console + Devices** — critique §Live console + §Devices. GATE.
 - [ ] **T68 — Data & tools screens** — critique §Data & tools 1–7, per-screen
