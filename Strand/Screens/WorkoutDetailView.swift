@@ -36,7 +36,7 @@ struct WorkoutDetailView: View {
     @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
     private var unitSystem: UnitSystem { UnitSystem(rawValue: unitSystemRaw) ?? .metric }
 
-    @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.hundred.rawValue
+    @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.whoop.rawValue
     private var effortScale: EffortScale { UnitPrefs.resolveEffortScale(effortScaleRaw) }
 
     /// Loaded HR curve over the session window (5-min-ish bucket means). Empty until loaded.
@@ -51,6 +51,19 @@ struct WorkoutDetailView: View {
     /// The GPS route captured for this session on-device (#524), if any. Decoded from `RouteStore` by the
     /// row's natural key. nil = no route was recorded (honest — the map only shows when points exist).
     @State private var route: [RouteMath.LatLng] = []
+    /// Board-v2 tabbed summary (spec 003 D6). Splits tab is pending a real per-split
+    /// computation (none exists in the repo yet) — adding a fake table would violate the
+    /// honesty rule, so the segment ships with three tabs until Codex lands split math.
+    enum DetailTab: CaseIterable { case overview, heartRate, map
+        var label: String {
+            switch self {
+            case .overview: String(localized: "Overview")
+            case .heartRate: String(localized: "Heart Rate")
+            case .map: String(localized: "Map")
+            }
+        }
+    }
+    @State private var detailTab: DetailTab = .overview
     @State private var usualEffort: Double?
 
     var body: some View {
@@ -72,13 +85,19 @@ struct WorkoutDetailView: View {
                                .foregroundStyle(StrandPalette.textPrimary)
                        }) {
             paperEffortHero
-            paperStatsGrid
-            paperZonesCard
-            paperRouteCard
-            paperElevationCard
+            SegmentedPillControl(DetailTab.allCases, selection: $detailTab) { $0.label }
+            switch detailTab {
+            case .overview:
+                paperStatsGrid
+                paperZonesCard
+            case .heartRate:
+                hrCurveCard
+            case .map:
+                paperRouteCard
+                paperElevationCard
+            }
             NoopButton("Save workout", systemImage: "checkmark", kind: .primary,
                        fullWidth: true) { dismiss() }
-            hrCurveCard
         }
         .toolbar {
             // A Done affordance for the sheet on both platforms (iOS gets the grabber too).
