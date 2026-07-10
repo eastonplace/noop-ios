@@ -803,7 +803,7 @@ struct PaperPillarDetailView: View {
                                       ? String(format: "%.1f", $0)
                                       : "\(Int($0.rounded()))"
                                   },
-                                  centerCaption: kind == .stress ? "of 3" : nil)
+                                  centerCaption: nil)
                     } else {
                         ZStack {
                             Circle().stroke(StrandPalette.inset, lineWidth: 7)

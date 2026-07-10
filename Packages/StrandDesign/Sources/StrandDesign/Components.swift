@@ -448,8 +448,9 @@ public struct SegmentedPillControl<T: Hashable>: View {
                             // WHOOP selection chrome: a flat LIGHTER-grey pill on dark (white ink), a flat
                             // blue accent pill on light — no gold, no gradient.
                             Capsule(style: .continuous)
+                                // Craft pass (003): paper selection chrome is INK, not blue.
                                 .fill(sel ? (scheme == .light
-                                             ? AnyShapeStyle(StrandPalette.accent)
+                                             ? AnyShapeStyle(StrandPalette.ink)
                                              : AnyShapeStyle(Color(hex: "#363B41")))
                                           : AnyShapeStyle(Color.clear))
                         )

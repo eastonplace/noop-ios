@@ -636,7 +636,12 @@ struct MetricDetailView: View {
                 // Category + title on their OWN full-width row so a long title ("Heart Rate Variability")
                 // is never crushed into a letter-per-line column by the range pill (2026-07-02).
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(MetricCatalog.categoryDisplayName(metric.category).uppercased()).strandOverline()
+                    // Craft pass (003): skip the overline when it just repeats the title
+                    // ("RECOVERY" over "Recovery" read as a stutter on the pillar screens).
+                    let category = MetricCatalog.categoryDisplayName(metric.category)
+                    if category.caseInsensitiveCompare(metric.title) != .orderedSame {
+                        Text(category.uppercased()).strandOverline()
+                    }
                     Text(metric.title)
                         .font(StrandFont.title2)
                         .foregroundStyle(StrandPalette.textPrimary)
@@ -661,15 +666,17 @@ struct MetricDetailView: View {
                                 // The big hero vessel stays live (animated) — the one sloshing gauge on the
                                 // screen, exactly like the hero gauges on Today.
                                 PaperGauge(value: heroAnimatedFraction, tint: heroAccent, animated: true)
-                                    .frame(width: 188, height: 188)
+                                    .frame(width: 132, height: 132)
                                     .accessibilityHidden(true)
                                 VStack(spacing: 2) {
-                                    CountUpNumber(value: v, font: StrandFont.rounded(48))
-                                        .foregroundStyle(StrandPalette.onDarkPrimary)
+                                    // Craft pass (003): ink on paper — onDark* here rendered a
+                                    // ghost-white numeral on the light canvas.
+                                    CountUpNumber(value: v, font: StrandFont.rounded(36))
+                                        .foregroundStyle(StrandPalette.textPrimary)
                                     if !metric.unit.isEmpty {
                                         Text(metric.unit)
-                                            .font(StrandFont.footnote)
-                                            .foregroundStyle(StrandPalette.onDarkSecondary)
+                                            .font(StrandFont.micro)
+                                            .foregroundStyle(StrandPalette.textSecondary)
                                     }
                                 }
                                 .allowsHitTesting(false)
