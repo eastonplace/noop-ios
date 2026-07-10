@@ -1040,9 +1040,16 @@ struct TodayView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Updates")
-            RecordingStatusLight(selectedDayOffset: selectedDayOffset) {
+            Button {
                 StrandHaptic.selection.play(); router.openDevices()
+            } label: {
+                Circle()
+                    .fill(StrandPalette.statusPositive)
+                    .frame(width: 8, height: 8)
+                    .frame(width: 32, height: 32)
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Devices")
         }
     }
 
@@ -1150,8 +1157,8 @@ struct TodayView: View {
         let charge = day?.recovery ?? lastScoredCharge?.value
         let effort = effortStrain(day)
         let strain = effort.map { StrainScale.displayValue(fromStored: $0) }
-        return PaperCard {
-            VStack(spacing: 14) {
+        return PaperCard(padding: 12) {
+            VStack(spacing: 10) {
                 HStack(alignment: .top, spacing: 8) {
                     paperPillar("Recovery", value: charge,
                                 accent: charge.map { RecoveryBands.color(for: $0) } ?? StrandPalette.recoveryData,
@@ -1197,14 +1204,17 @@ struct TodayView: View {
         Button(action: action) {
             VStack(spacing: 5) {
                 if let value {
-                    ScoreRing(value: value, range: range, accent: accent, size: 64,
-                              lineWidth: 5, format: format)
+                    ScoreRing(value: value, range: range, accent: accent,
+                              size: NoopMetrics.trioRingDiameter,
+                              lineWidth: NoopMetrics.trioRingLineWidth, format: format)
                 } else {
                     ZStack {
-                        Circle().stroke(StrandPalette.inset, lineWidth: 5)
+                        Circle().stroke(StrandPalette.inset,
+                                        lineWidth: NoopMetrics.trioRingLineWidth)
                         Text("—").font(StrandFont.ringScoreSmall).foregroundStyle(StrandPalette.textTertiary)
                     }
-                    .frame(width: 64, height: 64)
+                    .frame(width: NoopMetrics.trioRingDiameter,
+                           height: NoopMetrics.trioRingDiameter)
                 }
                 Text(label)
                     .font(StrandFont.caption.weight(.semibold))
@@ -1251,7 +1261,7 @@ struct TodayView: View {
     private var paperLiveHeartRateCard: some View {
         let latest = hrPoints.last?.value
         let values = Array(hrPoints.suffix(36)).map(\.value)
-        return PaperCard {
+        return PaperCard(padding: 12) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 6) {
                     Image(systemName: "heart.fill").font(.system(size: 11, weight: .semibold))
@@ -1271,8 +1281,9 @@ struct TodayView: View {
                     Spacer(minLength: 8)
                     if values.count > 1 {
                         Sparkline(values: values,
-                                  gradient: Gradient(colors: [StrandPalette.liveRed, StrandPalette.liveRed]),
-                                  range: 40...120, lineWidth: 2, showsArea: false,
+                                  gradient: Gradient(colors: [StrandPalette.statusPositive,
+                                                               StrandPalette.statusPositive]),
+                                  range: 40...120, lineWidth: NoopMetrics.chartLineWidth, showsArea: false,
                                   showsHead: false, showsHover: false)
                             .frame(width: 130, height: 42)
                             .overlay(alignment: .topTrailing) {
@@ -1294,8 +1305,8 @@ struct TodayView: View {
         let display = value.map { String(format: "%.1f", $0) } ?? "—"
         let timeline = value.map { Array(repeating: $0, count: 24) } ?? []
         return Button { paperPillarDetail = .stress } label: {
-            PaperCard {
-                VStack(alignment: .leading, spacing: 10) {
+            PaperCard(padding: 12) {
+                VStack(alignment: .leading, spacing: 6) {
                     HStack(alignment: .firstTextBaseline) {
                         VStack(alignment: .leading, spacing: 3) {
                             Text("Today’s Stress").strandOverline()
@@ -1325,8 +1336,8 @@ struct TodayView: View {
         let day = displayDay
         let respiratory = day?.respRateBpm ?? sparks["resp_rate"]?.last
         return NavigationLink { HealthView() } label: {
-            PaperCard {
-                VStack(alignment: .leading, spacing: 12) {
+            PaperCard(padding: 12) {
+                VStack(alignment: .leading, spacing: 8) {
                     HStack(alignment: .firstTextBaseline) {
                         VStack(alignment: .leading, spacing: 3) {
                             Text("Health Monitor").strandOverline()
@@ -1338,7 +1349,7 @@ struct TodayView: View {
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(StrandPalette.textTertiary)
                     }
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 6) {
                         MetricTile(icon: "waveform.path.ecg", label: "HRV",
                                    value: day?.avgHrv.map { "\(Int($0.rounded()))" } ?? "—", unit: "ms",
                                    spark: sparks["hrv"], accent: StrandPalette.recoveryData)
@@ -1375,7 +1386,7 @@ struct TodayView: View {
                        // stored for compatibility but no longer changes the rendered root.
                        topBackground: nil,
                        trailing: { todayHeaderStatus }) {
-            VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
+            VStack(alignment: .leading, spacing: NoopMetrics.gap) {
                 #if os(iOS)
                 todayTopBar
                 #else

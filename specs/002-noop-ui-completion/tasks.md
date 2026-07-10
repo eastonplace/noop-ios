@@ -274,12 +274,23 @@
 
 ## Phase 3 — Composition fidelity (fidelity.md rows below Close + nits)
 
-- [ ] **T40 — Today rebuild to reference (fidelity S1)**
+- [x] **T40 — Today rebuild to reference (fidelity S1)**
   - Trio 64/5/30 pt; Health Monitor = ONE card w/ dense 3×2 tile grid + sparklines
     (restyle `VitalSignsSummary.swift`/`DashboardCards.swift` tiles it uses); stress
     strip 8 pt; Live-HR card layout per 001 §6-S1 incl. populated state (seed or
     strap-sim for the populated screenshot). FAB must not overlap grid content.
   - Verify vs sheet 1-1/3-1 side-by-side; SE-class device too. Commit.
+  - Evidence: `T40-today-empty.png` and `T40-today-populated.png` were compared
+    side-by-side with sheet 1-1/3-1. Today now uses the 64/5/30 trio, reference
+    12 pt section rhythm, compact cards, green 2 pt populated HR trace with 120/40
+    labels, 8 pt stress strip, and one borderless 3×2 Health Monitor grid. The
+    green header status dot replaces the recording indicator; the 52 pt tile
+    sparklines keep the Today-only FAB clear of grid content. `T40-today-narrow.png`
+    proves the same composition on the narrowest installed supported phone
+    (iPhone 17e, used as the SE-class surrogate) without truncation or content/FAB
+    overlap. HR population was a simulator-only `hrSample` fixture (no app storage,
+    scoring, or view math changed). Full `NOOPiOS` builds passed on both simulators;
+    `StrandDesign`: 36/36 tests.
 - [ ] **T41 — Trends corrections (S2)** ∥ — tile color roles (numbers colored per
   C13: Recovery number banded, Strain blue, Sleep slate; labels neutral), chart lines
   per C13 (recovery line `recoveryData` + band-colored points, strain `strainAccent`,

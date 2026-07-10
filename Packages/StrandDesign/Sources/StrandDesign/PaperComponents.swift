@@ -403,7 +403,8 @@ public struct MetricTile: View {
                 Sparkline(values: spark, gradient: Gradient(colors: [accent, accent]),
                           lineWidth: NoopMetrics.chartLineWidth,
                           showsArea: false, showsHead: false, showsHover: false)
-                    .frame(height: NoopMetrics.healthTileSparklineHeight)
+                    .frame(width: 52, height: NoopMetrics.healthTileSparklineHeight,
+                           alignment: .leading)
             }
             #endif
         }
