@@ -233,9 +233,15 @@
     workout-backed Effort contributors against sheets 3-2/3-3. The lower state in
     `qa/T13-effort-zones.jpg` preserves an honest empty zone card because the demo
     workout has no stored `zonesJSON`; real zone data still renders through `ZoneBars`.
-- [ ] **T14 — Rest + Stress details (S22, S23)** — spec §6-S22/S23; Stress ring renders
+- [x] **T14 — Rest + Stress details (S22, S23)** — spec §6-S22/S23; Stress ring renders
   0–3 values correctly (R2 — check the ring's range parameter). Verify vs sheet
   3-4/3-5. Commit.
+  - Verified 2026-07-09: `NOOPiOS` built and ran. `qa/T14-rest.jpg` confirms the
+    Rest hero/triplet, canonical stage colors, real night clock axis, timing triplet,
+    and insight card against sheet 3-4. `qa/T14-stress.jpg` confirms the 0–3 chart
+    axis and a `0.2 of 3` ring whose sweep is driven by the explicit `0...3` range;
+    the demo has insufficient intraday HR for a breakdown, so the card remains an
+    honest empty state while real hourly data maps to the four Paper bands.
 
 ## Phase 5 — Live + workouts
 

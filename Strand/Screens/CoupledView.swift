@@ -693,7 +693,7 @@ struct CoupledView: View {
 // MARK: - Paper pillar details (S20/S21)
 
 enum PaperPillarDetailKind: String, Identifiable {
-    case charge, effort
+    case charge, effort, rest, stress
     var id: String { rawValue }
 }
 
@@ -704,15 +704,35 @@ struct PaperPillarDetailView: View {
 
     @EnvironmentObject private var repo: Repository
     @State private var workouts: [WorkoutRow] = []
+    @State private var storedStress: [(day: String, value: Double)] = []
+    @State private var daytimeStress: DaytimeStress.Result?
+    @State private var latestSleepStart: Date?
 
     private var accent: Color {
-        kind == .charge ? StrandPalette.chargeAccent : StrandPalette.effortAccent
+        switch kind {
+        case .charge: return StrandPalette.chargeAccent
+        case .effort: return StrandPalette.effortAccent
+        case .rest: return StrandPalette.restAccent
+        case .stress: return StrandPalette.stressAccent
+        }
     }
 
     private var rows: [(day: String, value: Double)] {
-        repo.days.compactMap { day in
-            let value = kind == .charge ? day.recovery : day.strain
-            return value.map { (day.day, $0) }
+        switch kind {
+        case .charge:
+            return repo.days.compactMap { day in day.recovery.map { (day.day, $0) } }
+        case .effort:
+            return repo.days.compactMap { day in day.strain.map { (day.day, $0) } }
+        case .rest:
+            return repo.days.compactMap { day in
+                let value = repo.importedSleep[day.day]?.performancePct
+                    ?? AnalyticsEngine.Rest.composite(daily: day)
+                return value.map { (day.day, $0) }
+            }
+        case .stress:
+            return stressModel?.fullTrend.map {
+                (Self.dayFormatter.string(from: $0.date), $0.value)
+            } ?? []
         }
     }
 
@@ -721,11 +741,12 @@ struct PaperPillarDetailView: View {
     private var baseline: Double? { mean(rows.dropLast().suffix(28).map(\.value)) }
     private var sevenDayAverage: Double? { mean(rows.suffix(7).map(\.value)) }
     private var latestDay: DailyMetric? { repo.days.last }
+    private var stressModel: StressModel? { StressModel(days: repo.days, stored: storedStress) }
 
     var body: some View {
         NavigationStack {
             ScreenScaffold(
-                title: LocalizedStringKey(kind == .charge ? "Charge" : "Effort"),
+                title: LocalizedStringKey(detailTitle),
                 subtitle: LocalizedStringKey(detailDateLabel),
                 topBackground: nil,
                 trailing: {
@@ -739,19 +760,39 @@ struct PaperPillarDetailView: View {
             ) {
                 VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
                     heroCard
-                    overTimeCard
                     if kind == .charge {
+                        overTimeCard
                         chargeFactorsCard
                         recommendationCard
-                    } else {
+                    } else if kind == .effort {
+                        overTimeCard
                         effortContributorsCard
                         heartRateZonesCard
+                    } else if kind == .rest {
+                        restStagesCard
+                        restTimingCard
+                        restInsightCard
+                    } else {
+                        overTimeCard
+                        stressBreakdownCard
+                        stressRecommendationCard
                     }
                 }
             }
             .toolbar(.hidden, for: .navigationBar)
         }
-        .task(id: repo.refreshSeq) { workouts = await repo.workoutRows() }
+        .task(id: repo.refreshSeq) {
+            async let workoutRows = repo.workoutRows()
+            async let stressRows = repo.series(key: "stress", source: "my-whoop")
+            async let sleepRows = repo.allSleepSessions(days: 14)
+            workouts = await workoutRows
+            storedStress = await stressRows
+            let sleeps = await sleepRows
+            latestSleepStart = sleeps.last.map {
+                Date(timeIntervalSince1970: TimeInterval($0.effectiveStartTs))
+            }
+            await loadDaytimeStress()
+        }
     }
 
     private var heroCard: some View {
@@ -759,8 +800,12 @@ struct PaperPillarDetailView: View {
             VStack(alignment: .leading, spacing: 18) {
                 HStack(spacing: 20) {
                     if let latest {
-                        ScoreRing(value: latest, range: 0...100, accent: accent, size: 96,
-                                  centerCaption: "of 100")
+                        ScoreRing(value: latest, range: detailRange, accent: accent, size: 96,
+                                  format: { kind == .stress
+                                      ? String(format: "%.1f", $0)
+                                      : "\(Int($0.rounded()))"
+                                  },
+                                  centerCaption: kind == .stress ? "of 3" : "of 100")
                     } else {
                         ZStack {
                             Circle().stroke(StrandPalette.inset, lineWidth: 7)
@@ -770,12 +815,10 @@ struct PaperPillarDetailView: View {
                         .frame(width: 96, height: 96)
                     }
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(kind == .charge ? "Building Charge" : "Moderate Effort")
+                        Text(heroTitle)
                             .font(StrandFont.cardTitle)
                             .foregroundStyle(StrandPalette.textPrimary)
-                        Text(kind == .charge
-                             ? "Your body is still recovering."
-                             : "You trained hard today. Productive, but don't overdo it.")
+                        Text(heroCaption)
                             .font(StrandFont.body)
                             .foregroundStyle(StrandPalette.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -783,19 +826,32 @@ struct PaperPillarDetailView: View {
                     Spacer(minLength: 0)
                 }
                 Divider().overlay(StrandPalette.hairline)
-                StatTriplet([
-                    StatTripletItem("Baseline", value: scoreText(baseline)),
-                    StatTripletItem("Yesterday", value: scoreText(yesterday)),
-                    StatTripletItem("7D Avg.", value: scoreText(sevenDayAverage))
-                ])
+                heroStats
             }
+        }
+    }
+
+    @ViewBuilder
+    private var heroStats: some View {
+        if kind == .rest {
+            StatTriplet([
+                StatTripletItem("Duration", value: sleepDuration(latestDay?.totalSleepMin)),
+                StatTripletItem("Efficiency", value: latestDay?.efficiency.map(percentText) ?? "—"),
+                StatTripletItem("Resting HR", value: latestDay?.restingHr.map { "\($0) bpm" } ?? "—")
+            ])
+        } else {
+            StatTriplet([
+                StatTripletItem("Baseline", value: scoreText(baseline)),
+                StatTripletItem("Yesterday", value: scoreText(yesterday)),
+                StatTripletItem("7D Avg.", value: scoreText(sevenDayAverage))
+            ])
         }
     }
 
     private var overTimeCard: some View {
         PaperCard {
             VStack(alignment: .leading, spacing: 14) {
-                Text(kind == .charge ? "CHARGE OVER TIME" : "EFFORT OVER TIME")
+                Text("\(detailTitle.uppercased()) OVER TIME")
                     .font(StrandFont.sectionOverline)
                     .tracking(StrandFont.sectionOverlineTracking)
                     .foregroundStyle(StrandPalette.textSecondary)
@@ -813,7 +869,7 @@ struct PaperPillarDetailView: View {
                             .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [3, 4]))
                     }
                 }
-                .chartYScale(domain: 0...100)
+                .chartYScale(domain: detailRange)
                 .chartXAxis {
                     AxisMarks(values: .automatic(desiredCount: 4)) {
                         AxisGridLine().foregroundStyle(StrandPalette.hairline)
@@ -821,14 +877,15 @@ struct PaperPillarDetailView: View {
                     }
                 }
                 .chartYAxis {
-                    AxisMarks(position: .leading, values: [0, 50, 100]) {
+                    AxisMarks(position: .leading,
+                              values: kind == .stress ? [0, 1.5, 3] : [0, 50, 100]) {
                         AxisGridLine().foregroundStyle(StrandPalette.hairline)
                         AxisValueLabel().font(StrandFont.micro)
                     }
                 }
                 .frame(height: 150)
                 HStack(spacing: 16) {
-                    legendLine(dashed: false, label: kind == .charge ? "Charge" : "Effort")
+                    legendLine(dashed: false, label: detailTitle)
                     legendLine(dashed: true, label: "7D Avg.")
                 }
             }
@@ -956,6 +1013,198 @@ struct PaperPillarDetailView: View {
         }
     }
 
+    private var restStagesCard: some View {
+        let legend: [(String, Color)] = [
+            (String(localized: "Awake"), StrandPalette.sleepAwake),
+            (String(localized: "REM"), StrandPalette.sleepREM),
+            (String(localized: "Light"), StrandPalette.sleepLight),
+            (String(localized: "Deep"), StrandPalette.sleepDeep)
+        ]
+        return PaperCard {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("SLEEP STAGES")
+                    .font(StrandFont.sectionOverline)
+                    .tracking(StrandFont.sectionOverlineTracking)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                HStack(spacing: 12) {
+                    ForEach(Array(legend.enumerated()), id: \.offset) { _, item in
+                        HStack(spacing: 5) {
+                            Circle().fill(item.1).frame(width: 7, height: 7)
+                            Text(item.0).font(StrandFont.micro)
+                                .foregroundStyle(StrandPalette.textSecondary)
+                        }
+                    }
+                }
+                if restIntervals.isEmpty {
+                    Text("No sleep-stage timeline was recorded for this night.")
+                        .font(StrandFont.caption)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .frame(maxWidth: .infinity, minHeight: 112, alignment: .center)
+                } else {
+                    Hypnogram(intervals: restIntervals, height: 128,
+                              showsStageAxis: false, showsHover: true,
+                              nightStart: latestSleepStart,
+                              showsTimeAxis: latestSleepStart != nil,
+                              smoothingSeconds: 300)
+                }
+            }
+        }
+    }
+
+    private var restTimingCard: some View {
+        let bed = timeInBedMinutes
+        return PaperCard {
+            StatTriplet([
+                StatTripletItem("Time in bed", value: sleepDuration(bed)),
+                StatTripletItem("Sleep efficiency", value: latestDay?.efficiency.map(percentText) ?? "—"),
+                StatTripletItem("Latency", value: "—")
+            ])
+        }
+    }
+
+    private var restInsightCard: some View {
+        PaperCard {
+            HStack(spacing: 12) {
+                Image(systemName: "moon.fill")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(StrandPalette.restAccent)
+                    .frame(width: 38, height: 38)
+                    .background(StrandPalette.restTint, in: Circle())
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("SLEEP INSIGHT")
+                        .font(StrandFont.sectionOverline)
+                        .tracking(StrandFont.sectionOverlineTracking)
+                    Text("Great sleep quality. Keep up your consistent bedtime routine.")
+                        .font(StrandFont.body)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                }
+                .foregroundStyle(StrandPalette.textPrimary)
+            }
+        }
+    }
+
+    private var stressBreakdownCard: some View {
+        PaperCard {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("STRESS BREAKDOWN")
+                    .font(StrandFont.sectionOverline)
+                    .tracking(StrandFont.sectionOverlineTracking)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .padding(.bottom, 8)
+                if let daytimeStress, !daytimeStress.scored.isEmpty {
+                    ForEach(Array(stressBreakdown.enumerated()), id: \.offset) { index, item in
+                        HStack(spacing: 10) {
+                            Circle().fill(item.color).frame(width: 8, height: 8)
+                            Text(item.label).font(StrandFont.body)
+                                .foregroundStyle(StrandPalette.textPrimary)
+                            Spacer()
+                            Text("\(item.hours)h 00m")
+                                .font(StrandFont.captionNumber)
+                                .foregroundStyle(StrandPalette.textSecondary)
+                            StatusBadge(LocalizedStringKey("\(item.percent)%"),
+                                        style: .upToDate, tint: item.color)
+                        }
+                        .frame(minHeight: 48)
+                        .overlay(alignment: .bottom) {
+                            if index < stressBreakdown.count - 1 {
+                                Rectangle().fill(StrandPalette.hairline).frame(height: 1)
+                            }
+                        }
+                    }
+                } else {
+                    Text("A breakdown appears after enough daytime heart-rate data is recorded.")
+                        .font(StrandFont.caption)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .padding(.vertical, 16)
+                }
+            }
+        }
+    }
+
+    private var stressRecommendationCard: some View {
+        PaperCard {
+            HStack(spacing: 12) {
+                Image(systemName: "leaf.fill")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(StrandPalette.stressAccent)
+                    .frame(width: 38, height: 38)
+                    .background(StrandPalette.stressTint, in: Circle())
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("RESET RECOMMENDATION")
+                        .font(StrandFont.sectionOverline)
+                        .tracking(StrandFont.sectionOverlineTracking)
+                    Text("You're handling stress well. A short walk can help you reset further.")
+                        .font(StrandFont.body)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                }
+                .foregroundStyle(StrandPalette.textPrimary)
+            }
+        }
+    }
+
+    private var restIntervals: [SleepInterval] {
+        guard let day = latestDay else { return [] }
+        let light = day.lightMin ?? 0
+        let deep = day.deepMin ?? 0
+        let rem = day.remMin ?? 0
+        let awake = max(0, (timeInBedMinutes ?? 0) - (day.totalSleepMin ?? light + deep + rem))
+        var cursor: TimeInterval = 0
+        var result: [SleepInterval] = []
+        func append(_ stage: SleepStage, minutes: Double) {
+            guard minutes > 0 else { return }
+            let end = cursor + minutes * 60
+            result.append(SleepInterval(stage: stage, start: cursor, end: end))
+            cursor = end
+        }
+        append(.light, minutes: light * 0.4)
+        append(.deep, minutes: deep)
+        append(.light, minutes: light * 0.3)
+        append(.rem, minutes: rem)
+        append(.light, minutes: light * 0.3)
+        append(.awake, minutes: awake)
+        return result
+    }
+
+    private var timeInBedMinutes: Double? {
+        guard let asleep = latestDay?.totalSleepMin,
+              let rawEfficiency = latestDay?.efficiency else { return latestDay?.totalSleepMin }
+        let efficiency = rawEfficiency <= 1 ? rawEfficiency * 100 : rawEfficiency
+        guard efficiency > 0 else { return asleep }
+        return asleep / (efficiency / 100)
+    }
+
+    private struct StressBreakdownItem {
+        let label: LocalizedStringKey
+        let hours: Int
+        let percent: Int
+        let color: Color
+    }
+
+    private var stressBreakdown: [StressBreakdownItem] {
+        let levels = daytimeStress?.scored.compactMap(\.level) ?? []
+        let counts = [
+            levels.filter { $0 < 0.75 }.count,
+            levels.filter { $0 >= 0.75 && $0 < 1.5 }.count,
+            levels.filter { $0 >= 1.5 && $0 < 2.25 }.count,
+            levels.filter { $0 >= 2.25 }.count
+        ]
+        let total = max(1, counts.reduce(0, +))
+        return [
+            StressBreakdownItem(label: "Restful", hours: counts[0],
+                                percent: Int((Double(counts[0]) / Double(total) * 100).rounded()),
+                                color: StrandPalette.stressRestful),
+            StressBreakdownItem(label: "Low", hours: counts[1],
+                                percent: Int((Double(counts[1]) / Double(total) * 100).rounded()),
+                                color: StrandPalette.stressLow),
+            StressBreakdownItem(label: "Medium", hours: counts[2],
+                                percent: Int((Double(counts[2]) / Double(total) * 100).rounded()),
+                                color: StrandPalette.stressMedium),
+            StressBreakdownItem(label: "High", hours: counts[3],
+                                percent: Int((Double(counts[3]) / Double(total) * 100).rounded()),
+                                color: StrandPalette.stressHigh)
+        ]
+    }
+
     private var detailWorkouts: [WorkoutRow] {
         guard let day = latestDay?.day else { return [] }
         return workouts.filter {
@@ -991,8 +1240,44 @@ struct PaperPillarDetailView: View {
         }
     }
 
+    private var detailTitle: String {
+        switch kind {
+        case .charge: return String(localized: "Charge")
+        case .effort: return String(localized: "Effort")
+        case .rest: return String(localized: "Rest")
+        case .stress: return String(localized: "Stress")
+        }
+    }
+
+    private var detailRange: ClosedRange<Double> {
+        kind == .stress ? 0...3 : 0...100
+    }
+
+    private var heroTitle: LocalizedStringKey {
+        switch kind {
+        case .charge: return "Building Charge"
+        case .effort: return "Moderate Effort"
+        case .rest: return "Good Rest"
+        case .stress:
+            switch stressModel?.band {
+            case .high: return "High Stress"
+            case .medium: return "Moderate Stress"
+            default: return "Low Stress"
+            }
+        }
+    }
+
+    private var heroCaption: LocalizedStringKey {
+        switch kind {
+        case .charge: return "Your body is still recovering."
+        case .effort: return "You trained hard today. Productive, but don't overdo it."
+        case .rest: return "You had a strong recovery."
+        case .stress: return "You've been relaxed most of the day."
+        }
+    }
+
     private func scoreText(_ value: Double?) -> String {
-        value.map { "\(Int($0.rounded()))" } ?? "—"
+        value.map { kind == .stress ? String(format: "%.1f", $0) : "\(Int($0.rounded()))" } ?? "—"
     }
 
     private func mean(_ values: [Double]) -> Double? {
@@ -1007,6 +1292,35 @@ struct PaperPillarDetailView: View {
     private func shortDuration(_ minutes: Double) -> String {
         let total = Int(minutes.rounded())
         return total >= 60 ? "\(total / 60)h\(total % 60)m" : "\(total)m"
+    }
+
+    private func sleepDuration(_ minutes: Double?) -> String {
+        guard let minutes else { return "—" }
+        let total = max(0, Int(minutes.rounded()))
+        return total >= 60 ? "\(total / 60)h \(total % 60)m" : "\(total)m"
+    }
+
+    private func percentText(_ raw: Double) -> String {
+        let percent = raw <= 1 ? raw * 100 : raw
+        return "\(Int(percent.rounded()))%"
+    }
+
+    private func loadDaytimeStress() async {
+        let calendar = Calendar.current
+        let start = Int(calendar.startOfDay(for: Date()).timeIntervalSince1970)
+        let end = Int(Date().timeIntervalSince1970)
+        let hr = await repo.hrSamples(from: start, to: end, limit: 200_000)
+        guard hr.count >= DaytimeStress.minHourHRSamples else {
+            daytimeStress = .empty
+            return
+        }
+        let rr = (try? await repo.storeHandle()?.rrIntervals(
+            deviceId: repo.deviceId, from: start, to: end, limit: 200_000)) ?? []
+        daytimeStress = DaytimeStress.analyze(
+            hr: hr,
+            rr: rr,
+            tzOffsetSeconds: TimeZone.current.secondsFromGMT(for: Date())
+        )
     }
 
     private var detailDateLabel: String {

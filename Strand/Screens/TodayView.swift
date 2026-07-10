@@ -1168,7 +1168,7 @@ struct TodayView: View {
                     paperPillar("Effort", value: effort, accent: StrandPalette.effortAccent,
                                 state: paperScoreState(effort)) { paperPillarDetail = .effort }
                     paperPillar("Rest", value: restScore, accent: StrandPalette.restAccent,
-                                state: paperScoreState(restScore)) { guideSection = .rest }
+                                state: paperScoreState(restScore)) { paperPillarDetail = .rest }
                 }
                 Divider().overlay(StrandPalette.hairline)
                 NavigationLink { WorkoutsView() } label: {
@@ -1292,7 +1292,7 @@ struct TodayView: View {
         let value = stressToday
         let display = value.map { String(format: "%.1f", $0) } ?? "—"
         let timeline = value.map { Array(repeating: $0, count: 24) } ?? []
-        return NavigationLink { StressView() } label: {
+        return Button { paperPillarDetail = .stress } label: {
             PaperCard {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(alignment: .firstTextBaseline) {
