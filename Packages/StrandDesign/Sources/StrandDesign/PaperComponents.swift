@@ -410,8 +410,12 @@ public struct ZoneBarItem {
     public let zone: Int
     public let fraction: Double
     public let duration: String
-    public init(zone: Int, fraction: Double, duration: String) {
+    /// Exact engine-derived bpm range when max HR is known; nil keeps the honest
+    /// fixed %-of-max fallback for callers without a usable profile boundary.
+    public let bpmRange: String?
+    public init(zone: Int, fraction: Double, duration: String, bpmRange: String? = nil) {
         self.zone = zone; self.fraction = fraction; self.duration = duration
+        self.bpmRange = bpmRange
     }
 }
 
@@ -424,14 +428,15 @@ public struct ZoneBars: View {
                                                    2: "60–70%", 1: "50–60%"]
 
     public var body: some View {
-        // C14: each zone reads like WHOOP's row — "ZONE 5 (90–100%)" + zone-tinted share,
-        // bold duration right, the fill bar on its own line beneath.
+        // C14 + D14: each zone reads like WHOOP's row — "Z5 (161+ bpm)" when
+        // the zones engine supplied real boundaries, otherwise "Z5 (90–100%)".
+        // The share remains zone-tinted and the duration stays right-aligned.
         VStack(spacing: 12) {
             ForEach(items, id: \.zone) { item in
                 VStack(spacing: 5) {
                     HStack(spacing: 6) {
-                        Text("ZONE \(item.zone) (\(Self.bandLabel[item.zone] ?? ""))")
-                            .font(StrandFont.micro.weight(.semibold))
+                        Text("Z\(item.zone) (\(item.bpmRange ?? Self.bandLabel[item.zone] ?? ""))")
+                            .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(StrandPalette.textSecondary)
                         Text("\(Int((item.fraction * 100).rounded()))%")
                             .font(StrandFont.micro.weight(.semibold))

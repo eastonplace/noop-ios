@@ -256,6 +256,8 @@ struct WorkoutDetailView: View {
     @ViewBuilder private var paperZonesCard: some View {
         if let zones = zoneMinutes, zones.reduce(0, +) > 0 {
             let total = zones.reduce(0, +)
+            let zoneSet = profile.hrMax > 0
+                ? HRZones.zones(maxHR: Double(profile.hrMax), source: "profile") : nil
             PaperCard {
                 VStack(alignment: .leading, spacing: 14) {
                     HStack {
@@ -272,7 +274,8 @@ struct WorkoutDetailView: View {
                         let minutes = zones[zone - 1]
                         return ZoneBarItem(zone: zone,
                                            fraction: minutes / total,
-                                           duration: shortZoneDuration(minutes))
+                                           duration: shortZoneDuration(minutes),
+                                           bpmRange: zoneSet?.bpmRangeLabel(forZone: zone))
                     })
                 }
             }

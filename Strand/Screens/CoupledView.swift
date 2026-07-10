@@ -697,6 +697,7 @@ struct PaperPillarDetailView: View {
     let kind: PaperPillarDetailKind
 
     @EnvironmentObject private var repo: Repository
+    @StateObject private var profile = ProfileStore()
     @State private var workouts: [WorkoutRow] = []
     @State private var storedStress: [(day: String, value: Double)] = []
     @State private var daytimeStress: DaytimeStress.Result?
@@ -980,7 +981,9 @@ struct PaperPillarDetailView: View {
     }
 
     private var heartRateZonesCard: some View {
-        PaperCard {
+        let zoneSet = profile.hrMax > 0
+            ? HRZones.zones(maxHR: Double(profile.hrMax), source: "profile") : nil
+        return PaperCard {
             VStack(alignment: .leading, spacing: 14) {
                 HStack {
                     Text("HEART RATE ZONES")
@@ -1002,7 +1005,8 @@ struct PaperPillarDetailView: View {
                         let minutes = summary.minutes[zone - 1]
                         return ZoneBarItem(zone: zone,
                                            fraction: minutes / summary.totalMinutes,
-                                           duration: shortDuration(minutes))
+                                           duration: shortDuration(minutes),
+                                           bpmRange: zoneSet?.bpmRangeLabel(forZone: zone))
                     })
                 } else {
                     Text("Heart-rate zone time will appear after a workout records zone data.")

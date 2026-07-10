@@ -47,6 +47,24 @@ final class HRZonesTests: XCTestCase {
         XCTAssertEqual(zs.zoneNumber(forBPM: 250), 5)   // above max still z5
     }
 
+    func testBPMRangeLabelsMatchTheEngineIntegerBoundaries() {
+        let zs = HRZones.zones(maxHR: 187)
+        XCTAssertEqual(zs.bpmRangeLabel(forZone: 1), "94–112 bpm")
+        XCTAssertEqual(zs.bpmRangeLabel(forZone: 2), "113–130 bpm")
+        XCTAssertEqual(zs.bpmRangeLabel(forZone: 3), "131–149 bpm")
+        XCTAssertEqual(zs.bpmRangeLabel(forZone: 4), "150–168 bpm")
+        XCTAssertEqual(zs.bpmRangeLabel(forZone: 5), "169+ bpm")
+        XCTAssertNil(zs.bpmRangeLabel(forZone: 0))
+
+        // Prove the labels agree with the bucket function at every displayed edge.
+        XCTAssertEqual(zs.zoneNumber(forBPM: 93), 0)
+        XCTAssertEqual(zs.zoneNumber(forBPM: 94), 1)
+        XCTAssertEqual(zs.zoneNumber(forBPM: 112), 1)
+        XCTAssertEqual(zs.zoneNumber(forBPM: 113), 2)
+        XCTAssertEqual(zs.zoneNumber(forBPM: 168), 4)
+        XCTAssertEqual(zs.zoneNumber(forBPM: 169), 5)
+    }
+
     func testTimeInZoneAccountsForAllTime() {
         let zs = HRZones.zones(maxHR: 200)  // edges 100/120/140/160/180/200
         // 1 Hz samples: 3 in z1 (110), 2 in z3 (150), 1 below (90).

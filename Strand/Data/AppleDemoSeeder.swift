@@ -174,7 +174,11 @@ enum AppleDemoSeeder {
                 let dayStart = cal.startOfDay(for: date)
                 let start = Int(dayStart.timeIntervalSince1970) + hour * 3600 + rng.nextInt(0, 50) * 60 + k * 3600
                 let avg = Int(gauss(&rng, 138.0, 12.0))
-                let src = rng.nextDouble() < 0.7 ? whoop : apple
+                // T84 screenshot contract: the latest seeded workout must carry the same
+                // imported zone split as a real WHOOP workout so Strain detail and the
+                // post-run summary can prove their engine-derived bpm boundaries. Older
+                // rows keep the deterministic WHOOP/Apple mix.
+                let src = i == DAYS - 1 ? whoop : (rng.nextDouble() < 0.7 ? whoop : apple)
                 let zonesJSON: String? = src == whoop ? {
                     let z = [gauss(&rng, 15.0, 5.0), gauss(&rng, 30.0, 8.0), gauss(&rng, 28.0, 8.0),
                              gauss(&rng, 15.0, 6.0), gauss(&rng, 6.0, 3.0)].map { $0.clamped(0.0, 100.0) }

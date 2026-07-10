@@ -272,7 +272,7 @@ private struct iOSRootView: View {
 /// simulator build can be captured deterministically (verification + marketing). Stripped from Release.
 enum DemoScreens {
     static let routeNames: [String] = [
-        "today", "trends", "sleep", "live", "stress", "workouts", "health",
+        "today", "trends", "sleep", "live", "stress", "workouts", "workoutdetail", "health",
         "insights", "insightshub", "explore", "compare", "settings", "applehealth",
         "storage", "trendsreport", "fused", "scoringguide", "updates", "xiaomi",
         "intervals", "watchsetup", "watchabout", "dashboardeditor",

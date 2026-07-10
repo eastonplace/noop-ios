@@ -68,6 +68,20 @@ public struct HRZoneSet: Equatable, Sendable {
         }
         return 0
     }
+
+    /// Integer bpm label for one of the exact intervals used by `zoneNumber(forBPM:)`.
+    /// The lower edge is inclusive and each non-top upper edge is exclusive, so
+    /// rounding must describe the integer readings that truly enter that bucket:
+    /// `[149.6, 168.3)` becomes `150–168 bpm`, not a separately invented band.
+    public func bpmRangeLabel(forZone number: Int) -> String? {
+        guard let zone = zones.first(where: { $0.number == number }) else { return nil }
+        let firstIncludedBPM = Int(ceil(zone.lower))
+        if number == 5 {
+            return "\(firstIncludedBPM)+ bpm"
+        }
+        let lastIncludedBPM = max(firstIncludedBPM, Int(ceil(zone.upper)) - 1)
+        return "\(firstIncludedBPM)–\(lastIncludedBPM) bpm"
+    }
 }
 
 /// Time spent in each zone (seconds), including below-Zone-1 time as `belowZone1`.

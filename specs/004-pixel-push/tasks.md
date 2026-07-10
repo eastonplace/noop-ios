@@ -21,9 +21,19 @@
 - [x] **T83 — Live-HR module to ref layout**: big numeral left + "x min ago",
   full-width fine trace with right-edge 120/40 axisLabels, gradient underfill
   ≤ 8%; empty state same geometry (003 D5 pattern). Re-shoot Today. GATE.
-- [ ] **T84 — D14 zone bpm-range labels**: surface the zones engine's bpm
+- [x] **T84 — D14 zone bpm-range labels**: surface the zones engine's bpm
   boundaries; ZoneBars label variant "Z5 (161+ bpm)"; verify strain detail +
   workout detail + post-run + Workouts. GATE.
+  - Shipped: `HRZoneSet.bpmRangeLabel` reports the exact inclusive integer bpm
+    readings used by `zoneNumber(forBPM:)`; `ZoneBars` accepts that engine label
+    and preserves the %-of-max fallback when max HR is unavailable. The shared
+    rows now render on Strain detail, the reused workout/post-run summary, and a
+    full-width Workouts zone module. C14 colors and percentage math are unchanged.
+    Proof: `qa/T84-strain-detail.png`, `qa/T84-workout-detail.png`,
+    `qa/T84-post-run.png`, `qa/T84-workouts.png`. `HRZonesTests` 10/10 and
+    `NOOPiOS` build passed. Pre-existing unrelated red tests remain: the renamed
+    WeeklyDigest assertion still expects “Charge”, and the T81 proportion test
+    still expects the pre-D12 stroke/spacing tokens.
 - [ ] **T85 — D16 real status bands**: locate baselines in
   StressModel/AnalyticsEngine; implement band helpers beside StrainScale
   (`FactorBands`); restore status words on Recovery key factors + Strain

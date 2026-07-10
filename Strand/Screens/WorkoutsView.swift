@@ -692,7 +692,9 @@ struct WorkoutsView: View {
     }
 
     private func paperWorkoutBreakdown(rows: [WorkoutRow], zones: WorkoutZones.Summary?) -> some View {
-        HStack(alignment: .top, spacing: 12) {
+        let zoneSet = model.profile.hrMax > 0
+            ? HRZones.zones(maxHR: Double(model.profile.hrMax), source: "profile") : nil
+        return VStack(alignment: .leading, spacing: 12) {
             PaperCard(padding: 12) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("HR ZONES")
@@ -701,22 +703,14 @@ struct WorkoutsView: View {
                     Text("Time in zones").font(StrandFont.micro)
                         .foregroundStyle(StrandPalette.textTertiary)
                     if let zones, zones.totalMinutes > 0 {
-                        ForEach((1...5).reversed(), id: \.self) { zone in
+                        ZoneBars((1...5).map { zone in
+                            let minutes = zones.minutes[zone - 1]
                             let fraction = zones.minutes[zone - 1] / zones.totalMinutes
-                            HStack(spacing: 5) {
-                                Text("Z\(zone)").font(StrandFont.micro).frame(width: 18, alignment: .leading)
-                                GeometryReader { geo in
-                                    Capsule().fill(StrandPalette.inset)
-                                        .overlay(alignment: .leading) {
-                                            Capsule().fill(StrandPalette.hrZoneColor(zone))
-                                                .frame(width: geo.size.width * fraction)
-                                        }
-                                }
-                                .frame(height: 6)
-                                Text("\(Int((fraction * 100).rounded()))%")
-                                    .font(StrandFont.micro).frame(width: 27, alignment: .trailing)
-                            }
-                        }
+                            return ZoneBarItem(zone: zone,
+                                               fraction: fraction,
+                                               duration: durationLabel(minutes * 60),
+                                               bpmRange: zoneSet?.bpmRangeLabel(forZone: zone))
+                        })
                     } else {
                         Text("No zone data")
                             .font(StrandFont.caption)
@@ -725,7 +719,6 @@ struct WorkoutsView: View {
                     }
                 }
             }
-            .frame(maxWidth: .infinity)
 
             PaperCard(padding: 12) {
                 VStack(alignment: .leading, spacing: 10) {
@@ -749,7 +742,6 @@ struct WorkoutsView: View {
                     }
                 }
             }
-            .frame(maxWidth: .infinity)
         }
     }
 
