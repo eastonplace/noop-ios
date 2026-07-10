@@ -38,9 +38,7 @@
 ## Sleep (board #3 · build: S03)
 
 1. Hero ✓ (ring, headline, prose). Keep.
-2. Bottom row: swap Asleep/Woke card for Time in bed · Sleep efficiency · Sleep
-   latency triplet (D8). Asleep/woke times move into the stages card's x-axis ends
-   (board shows 11:15 PM → 7:00 AM there already).
+2. (SUPERSEDED by D11 — Asleep/Woke row stays as built.)
 3. Hypnogram: bars ✓; remove the gray vertical connector lines (board bars float
    free); bar height ~10 pt, stage rows evenly spaced.
 4. Sleep-marks card stays; "Phase 1" link label is developer-speak — retitle to
@@ -64,10 +62,9 @@
 
 ## Workouts (board #5 · build: S05)
 
-1. Restructure per D7: TYPICAL STRAIN (7D) card with value + state + sparkline +
-   "Compared to your usual +x.x"; recent rows with strain badges (blue tint per
-   D1, not purple); HR ZONES (TIME) bars; View all workouts link. Splits module
-   leaves this screen (→ workout detail tabs).
+1. (D11) Keep the original-sheet structure as built: Workout Score card + recent
+   rows + HR ZONES **and SPLITS** half-cards. Fix only: strain badges to blue
+   tint per D1 (currently purple), and craft-acceptance type/spacing.
 2. Remove the stray "↓" glyph next to View all workouts (from 002 list, verify).
 
 ## Run flow (board "RUN FLOW (ALIGNED)" · build: S24–S27)

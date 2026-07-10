@@ -49,12 +49,19 @@ natively Recovery/Strain(0–21)/Sleep, so 002's C1/C2/C3 need no reinterpretati
   2×3 grid (Heart Rate / Zone / Live Strain / Max HR / Avg HR / Calories) + lock +
   red-outline End Workout. Summary = Workout Strain hero + segmented
   Overview · Splits · Heart Rate · Map tabs + metric rows + zone bars + black Done.
-- **D7 — Workouts simplifies** (board): "TYPICAL STRAIN (7D)" card (value + state +
+- **D11 — Hybrid ruling (Easton, 2026-07-10):** where the ORIGINAL 001 sheets and
+  board v2 conflict, the original sheets win — EXCEPT the center-docked FAB (D4)
+  which stays. Concretely: Splits card returns to Workouts (D7 amended), Sleep
+  keeps the Asleep/Woke bottom row (D8 amended), and the original sheets' density
+  and detail are the pixel bar. Names, WHOOP colors, 0–21 Strain, and
+  no-sparklines are unaffected.
+- **D7 — Workouts simplifies** (board, AMENDED by D11 — splits card stays on
+  Workouts): "TYPICAL STRAIN (7D)" card (value + state +
   sparkline + "Compared to your usual +x.x"), recent-workout rows with strain
   badges, HR ZONES (TIME) module. Splits leave the Workouts tab — they live in the
   workout-detail Splits tab (D6).
-- **D8 — Sleep bottom triplet** = Time in bed · Sleep efficiency · Sleep latency
-  (board). Sleep-marks card stays (C8), styled as-is from 002.
+- **D8 — (AMENDED by D11)** Sleep keeps the Asleep/Woke bottom row from the
+  original sheet. Sleep-marks card stays (C8), styled as-is from 002.
 - **D9 — New board content ships only where the feature exists.** Settings gains a
   "Strain Scale — 0.0–21.0" info row (display-only). Data Sources' Garmin/Nutrition
   CSV rows, Support's BTC/ETH/LTC chips: add ONLY if the importer/donation config
