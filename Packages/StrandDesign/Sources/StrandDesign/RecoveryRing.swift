@@ -78,25 +78,16 @@ public struct RecoveryRing: View {
 
     public var body: some View {
         ZStack {
-            BevelGauge(
-                fraction: fraction,
-                stops: StrandPalette.recoveryStops,
-                tipColor: tipColor,
-                numberText: numberString,
-                captionText: showsLabel ? "of 100" : nil,
-                stateText: showsLabel ? stateWord : nil,
-                supporting: supporting,
-                diameter: diameter,
+            ScoreRing(
+                value: score,
+                range: 0...100,
+                accent: StrandPalette.chargeAccent,
+                size: diameter,
                 lineWidth: lineWidth,
-                showsLabel: showsLabel,
-                animatedFraction: animatedFraction,
-                bloomActive: bloomPulse
+                format: { "\(Int($0.rounded()))" },
+                centerCaption: showsLabel ? stateWord : nil,
+                showsValue: showsLabel
             )
-            // Brand layers over the shared gauge: the solid gold CORE DOT (so the
-            // open-ring + core-dot lock-up reads), then the micro "NOOP" wordmark
-            // sitting just ABOVE the centre number.
-            coreDot
-            if showsLabel && showsWordmark { wordmark }
             if showsHover, let pt = hoverPoint {
                 PositionedTooltip(
                     anchor: pt,
@@ -123,14 +114,6 @@ public struct RecoveryRing: View {
             case .active(let location): hoverPoint = location
             case .ended: hoverPoint = nil
             }
-        }
-        .onAppear {
-            withAnimation(StrandMotion.drawIn(reduced: reduceMotion)) { animatedFraction = fraction }
-            // Reduce Motion: leave the bloom at its resting opacity instead of breathing.
-            if !reduceMotion { bloomPulse = true }
-        }
-        .onChangeCompat(of: score) { _ in
-            withAnimation(StrandMotion.drawIn(reduced: reduceMotion)) { animatedFraction = fraction }
         }
     }
 

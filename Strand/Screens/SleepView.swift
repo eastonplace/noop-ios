@@ -75,10 +75,6 @@ struct SleepView: View {
     /// (honest empty state for older rows whose `motionJSON` is NULL). Refreshed with `allSessions`.
     @State private var motionByStart: [Int: [Double]] = [:]
 
-    /// Draw-in fraction for the Rest hero gauge — owned here so the gauge animates the arc on appear /
-    /// when the sleep-performance score changes, exactly as TodayView drives its rings. Presentation-only.
-    @State private var heroFraction: Double = 0
-
     /// Non-nil while the wake-time editor sheet is open. Carries the night's stable key (`startTs`) and
     /// current wake time so the editor seeds its picker; saving routes through `repo.editSleepWakeTime`,
     /// which marks the session `userEdited` so a later strap sync can't revert the correction. (#318)
@@ -146,14 +142,6 @@ struct SleepView: View {
                 } else {
                     emptyState
                 }
-            }
-            // Animate the Rest hero gauge in once content resolves, and re-draw when the
-            // sleep-performance score changes (a sync / re-import). macOS-13-safe single-param onChange.
-            .onChangeCompat(of: heroScoreFraction(resolved)) { newFraction in
-                withAnimation(.easeOut(duration: 0.9)) { heroFraction = newFraction }
-            }
-            .onAppear {
-                withAnimation(.easeOut(duration: 0.9)) { heroFraction = heroScoreFraction(resolved) }
             }
             // Persist the freshly-built model so subsequent renders with the same inputs hit
             // the cache. Writing State during body is not allowed, so commit it after layout;
@@ -328,14 +316,6 @@ struct SleepView: View {
         .accessibilityLabel(message)
     }
 
-    /// The fill fraction (0…1) the Rest hero gauge animates to — the night's sleep-performance
-    /// score over 100. 0 when no score exists (the headline-hours hero shows instead). Cheap, so
-    /// it's read every render to drive the draw-in animation.
-    private func heroScoreFraction(_ model: SleepModel?) -> Double {
-        guard let p = model?.performance.latest else { return 0 }
-        return min(max(p / 100.0, 0), 1)
-    }
-
     /// The Rest world's opening: a scenic indigo backdrop with — when the night carries a 0–100
     /// sleep-performance score — the canonical liquid `LiquidVessel` in the Rest tint with the score
     /// counting up over it (the SAME hero language Today's score cells and the Trends headline use);
@@ -352,31 +332,13 @@ struct SleepView: View {
             // card. Replaces the now-flat ScenicHeroBackground here.
             VStack(spacing: NoopMetrics.space4) {
                 if let score {
-                    // The signature liquid gauge: a filling vessel tinted Rest, with the 0–100 score
-                    // counting up over it and a short state word beneath. The vessel fills to the SAME
-                    // animated `heroFraction` the screen already drives on appear / on score change, so
-                    // the arc draw-in and the number roll-up land together (Today's HeroScoreCell idiom).
+                    // R7: the liquid vessel is intentionally replaced by the canonical flat Paper ring.
                     VStack(spacing: NoopMetrics.space3) {
-                        ZStack {
-                            LiquidVessel(value: heroFraction, tint: StrandPalette.restColor, animated: true)
-                                .frame(width: 184, height: 184)
-                            VStack(spacing: 0) {
-                                CountUpText(
-                                    value: score,
-                                    format: { "\(Int($0.rounded()))" },
-                                    font: StrandFont.rounded(52),
-                                    color: StrandPalette.textPrimary
-                                )
-                                .shadow(color: .black.opacity(0.5), radius: 6, y: 1)
-                                Text("of 100")
-                                    .font(StrandFont.caption)
-                                    .foregroundStyle(StrandPalette.textSecondary)
-                            }
-                            .allowsHitTesting(false)   // taps fall through to the vessel → splash
-                        }
+                        ScoreRing(value: score, range: 0...100, accent: StrandPalette.restAccent,
+                                  size: 96, centerCaption: "of 100")
                         Text(sleepScoreWord(score))
                             .font(StrandFont.subhead.weight(.semibold))
-                            .foregroundStyle(StrandPalette.restColor)
+                            .foregroundStyle(StrandPalette.restAccent)
                     }
                     .padding(.top, NoopMetrics.space1)
                     .accessibilityElement(children: .ignore)

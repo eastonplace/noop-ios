@@ -121,13 +121,19 @@
     shadow, and the 16/12/24 Paper spacing rhythm; legacy tint arguments no longer
     color card chrome.
 
-- [ ] **T05 — ScoreRing**
+- [x] **T05 — ScoreRing**
   - Modify: `RecoveryRing.swift`, `GlowRing.swift`, `BevelGauge.swift` call-site
     audit → implement one flat `ScoreRing` (spec §4) and repoint ring call sites;
     keep old files compiling if non-iOS targets use them.
   - Sizes: 64 pt/5 pt trio, 96 pt/7 pt hero; track `inset`; rounded caps; sweep-in
     animation per spec §2.5; no glow/bevel/gradient.
   - Verify: build; Today trio + Sleep hero screenshot vs sheet 1-1/1-3. Commit.
+  - Verified 2026-07-09: `ScoreRing(value:range:accent:size:)` is the single rendered
+    ring path; legacy `GlowRing`, `RecoveryRing`, `StrainGauge`, and `BevelGauge`
+    preserve their APIs but delegate to the flat primitive. `StrandDesign` passed 30
+    tests and `NOOPiOS` built and ran. `qa/T05-today.png` and `qa/T05-sleep.png`
+    confirm solid rounded arcs on inset tracks with no gradient, bevel, bead, or glow.
+    Today still uses its pre-T09 large-trio layout; T09 owns the canonical 64pt trio.
 
 - [ ] **T06 — Buttons**
   - Modify: `NoopButton.swift` → `PrimaryButton` (ink pill 52/14), `DestructiveButton`

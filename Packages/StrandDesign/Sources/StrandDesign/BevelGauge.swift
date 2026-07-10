@@ -74,21 +74,16 @@ public struct BevelGauge: View {
     private var gradient: Gradient { Gradient(stops: stops) }
 
     public var body: some View {
-        ZStack {
-            // STATIC BACKDROP: the frosted inner disc + the faint full-span track. Neither depends on
-            // `animatedFraction`, so SwiftUI/CoreAnimation already caches it as an unchanged layer and
-            // does NOT re-render it when only the arc animates. No .drawingGroup() — a per-instance
-            // offscreen flatten cost more than it saved (it was part of the v7.0.2 lag regression).
-            staticBackdrop
-                .frame(width: diameter, height: diameter)
-
-            // LIVE LAYER: the gradient progress arc + end-cap, kept OUTSIDE the drawingGroup so the
-            // shape's `animatableData` still animates smoothly (a drawingGroup would freeze it).
-            animatedArc
-
-            if showsLabel { centerLabel }
-        }
-        .frame(width: diameter, height: diameter)
+        ScoreRing(
+            value: fraction,
+            range: 0...1,
+            accent: tipColor,
+            size: diameter,
+            lineWidth: lineWidth,
+            format: { _ in numberText },
+            centerCaption: captionText ?? stateText,
+            showsValue: showsLabel
+        )
     }
 
     /// The non-animating backdrop: frosted disc behind the arc + the faint full-span track "well".

@@ -81,19 +81,15 @@ public struct StrainGauge: View {
 
     public var body: some View {
         ZStack {
-            BevelGauge(
-                fraction: fraction,
-                stops: StrandPalette.strainStops,
-                tipColor: tipColor,
-                numberText: strainString,
-                captionText: showsLabel ? "of \(Int(outOf.rounded()))" : nil,
-                stateText: showsLabel ? strainWord : nil,
-                supporting: supporting,
-                diameter: diameter,
+            ScoreRing(
+                value: strain,
+                range: 0...outOf,
+                accent: StrandPalette.effortAccent,
+                size: diameter,
                 lineWidth: lineWidth,
-                showsLabel: showsLabel,
-                animatedFraction: animatedFraction,
-                bloomActive: bloomPulse
+                format: { _ in strainString },
+                centerCaption: showsLabel ? "of \(Int(outOf.rounded()))" : nil,
+                showsValue: showsLabel
             )
             if showsHover, let pt = hoverPoint {
                 PositionedTooltip(
@@ -120,14 +116,6 @@ public struct StrainGauge: View {
             case .active(let location): hoverPoint = location
             case .ended: hoverPoint = nil
             }
-        }
-        .onAppear {
-            withAnimation(StrandMotion.drawIn(reduced: reduceMotion)) { animatedFraction = fraction }
-            // Reduce Motion: leave the bloom at its resting opacity instead of breathing.
-            if !reduceMotion { bloomPulse = true }
-        }
-        .onChangeCompat(of: strain) { _ in
-            withAnimation(StrandMotion.drawIn(reduced: reduceMotion)) { animatedFraction = fraction }
         }
     }
 

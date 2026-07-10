@@ -2692,15 +2692,15 @@ struct TodayView: View {
     @ViewBuilder
     private func chargeRing(score: Double?, d: DailyMetric?, diameter: CGFloat) -> some View {
         if let s = score {
-            GlowRing(fraction: s / 100, value: s, format: { "\(Int($0.rounded()))" },
-                     color: StrandPalette.chargeColor, diameter: diameter, lineWidth: diameter * 0.10)
+            ScoreRing(value: s, range: 0...100, accent: StrandPalette.chargeAccent,
+                      size: diameter, format: { "\(Int($0.rounded()))" })
         } else if recoveryCalibration == nil, let carried = lastScoredCharge {
             // #802: a CARRIED last-night Charge draws as a real (dimmed) ring, matching the Rest ring, rather
             // than a bare number on a faint track, which read as broken next to Rest's filled ring. Same
             // diameter, so the #762 self-sizing hero row is untouched; the dim + the row-level "Last night"
             // caption already beneath the rings mark it as carried, not today's fresh score.
-            GlowRing(fraction: carried.value / 100, value: carried.value, format: { "\(Int($0.rounded()))" },
-                     color: StrandPalette.chargeColor, diameter: diameter, lineWidth: diameter * 0.10)
+            ScoreRing(value: carried.value, range: 0...100, accent: StrandPalette.chargeAccent,
+                      size: diameter, format: { "\(Int($0.rounded()))" })
                 .opacity(0.8)
         } else {
             emptyHeroRing(diameter: diameter) { ringEmptyOverlay(d: d, diameter: diameter) }
@@ -2712,9 +2712,9 @@ struct TodayView: View {
     @ViewBuilder
     private func effortRing(d: DailyMetric?, diameter: CGFloat) -> some View {
         if effortStrain(d) != nil, let gv = effortGaugeValue(d) {
-            GlowRing(fraction: gv / effortGaugeMax, value: gv,
-                     format: { effortScale == .whoop ? String(format: "%.1f", $0) : "\(Int($0.rounded()))" },
-                     color: StrandPalette.effortColor, diameter: diameter, lineWidth: diameter * 0.10)
+            ScoreRing(value: gv, range: 0...effortGaugeMax, accent: StrandPalette.effortAccent,
+                      size: diameter,
+                      format: { effortScale == .whoop ? String(format: "%.1f", $0) : "\(Int($0.rounded()))" })
         } else {
             emptyHeroRing(diameter: diameter) { ringNoData(diameter: diameter) }
         }
@@ -2724,8 +2724,8 @@ struct TodayView: View {
     @ViewBuilder
     private func restRing(diameter: CGFloat) -> some View {
         if let s = restScore {
-            GlowRing(fraction: s / 100, value: s, format: { "\(Int($0.rounded()))" },
-                     color: StrandPalette.restColor, diameter: diameter, lineWidth: diameter * 0.10)
+            ScoreRing(value: s, range: 0...100, accent: StrandPalette.restAccent,
+                      size: diameter, format: { "\(Int($0.rounded()))" })
         } else if displayDay?.recovery != nil {
             // #898: an aggregate-import user (a daily HRV/RHR import, no in-bed session) gets a Charge from
             // WatchRecovery but NO sleep_performance, so Rest read a bare "No data" next to a lit Charge ,
