@@ -98,68 +98,67 @@ struct RhythmConsentGate: View {
 
     @State private var checked = false
 
+    private let paperPoints: [(String, String, String)] = [
+        ("waveform.path.ecg", "This is experimental", "Rhythm visualizes patterns in your heart rate dynamics. It's an early exploration, not a medical tool."),
+        ("shield", "For wellness awareness only", "Use Rhythm to learn about your patterns over time. Always consult a professional for health concerns."),
+        ("lock.fill", "Local and private", "All processing happens on your device. Your data stays with you."),
+        ("info.circle.fill", "You're in control", "You can turn Rhythm off anytime from settings. Nothing is collected or shared."),
+    ]
+
     var body: some View {
         ZStack {
             StrandPalette.surfaceBase.ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                VStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text("Before you turn on Rhythm")
-                        .font(StrandFont.title1)
+                        .font(StrandFont.cardTitle)
                         .foregroundStyle(StrandPalette.textPrimary)
-                    Text("An experimental picture of your beat-to-beat timing. Please read these first.")
-                        .font(StrandFont.subhead)
+                    Text("Experimental wellness visualization")
+                        .font(StrandFont.caption)
                         .foregroundStyle(StrandPalette.textSecondary)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(.top, 36)
-                .padding(.bottom, 22)
-                .padding(.horizontal, 24)
 
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-                        ForEach(RhythmConsent.points, id: \.0) { point in
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(point.0)
-                                    .font(StrandFont.headline)
-                                    .foregroundStyle(StrandPalette.textPrimary)
-                                Text(point.1)
-                                    .font(StrandFont.footnote)
-                                    .foregroundStyle(StrandPalette.textSecondary)
-                                    .fixedSize(horizontal: false, vertical: true)
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(paperPoints, id: \.0) { point in
+                            PaperCard(padding: 14) {
+                                HStack(alignment: .top, spacing: 12) {
+                                    Image(systemName: point.0)
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundStyle(StrandPalette.link)
+                                        .frame(width: 34, height: 34)
+                                        .background(StrandPalette.accentMuted, in: Circle())
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(point.1)
+                                            .font(StrandFont.body.weight(.semibold))
+                                            .foregroundStyle(StrandPalette.textPrimary)
+                                        Text(point.2)
+                                            .font(StrandFont.caption)
+                                            .foregroundStyle(StrandPalette.textSecondary)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                }
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        Text("This is a wellness visualization, not a screening test. It does not tell you to see a clinician and it names no condition. This is not legal or medical advice.")
-                            .font(StrandFont.footnote)
-                            .foregroundStyle(StrandPalette.textTertiary)
-                            .padding(.top, 2)
-                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    .padding(.horizontal, 30)
-                    .padding(.bottom, 18)
                 }
 
-                Rectangle()
-                    .fill(StrandPalette.hairline)
-                    .frame(height: 1)
-
-                VStack(spacing: 16) {
+                VStack(spacing: 14) {
                     Toggle(isOn: $checked) {
-                        Text("I understand this is an experimental wellness feature, not a medical device or a diagnosis.")
-                            .font(StrandFont.footnote)
+                        Text("I understand Rhythm is experimental and for personal awareness only.")
+                            .font(StrandFont.caption)
                             .foregroundStyle(StrandPalette.textPrimary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                    .tint(StrandPalette.success)
                     #if os(macOS)
                     .toggleStyle(.checkbox)
                     #endif
+                    .padding(14)
+                    .background(StrandPalette.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 
-                    Button(action: onAccept) {
-                        Text("Turn on Rhythm")
-                    }
-                    .buttonStyle(.noopPrimary)
+                    PrimaryButton("Turn on Rhythm", action: onAccept)
                     .disabled(!checked)
                     .keyboardShortcut(.defaultAction)
 
@@ -168,9 +167,11 @@ struct RhythmConsentGate: View {
                             .buttonStyle(.noopGhost)
                     }
                 }
-                .padding(26)
             }
-            .frame(maxWidth: 560, maxHeight: 680)
+            .padding(.horizontal, 16)
+            .padding(.top, 28)
+            .padding(.bottom, 18)
+            .frame(maxWidth: 560, maxHeight: 760)
         }
     }
 }
@@ -185,8 +186,8 @@ struct RhythmConsentGate: View {
 private struct PoincarePlot: View {
     let points: [RhythmScreener.PoincarePoint]
     /// The world colour the cloud + axes are drawn in (Rest blue — calm, never alarm).
-    var tint: Color = StrandPalette.restColor
-    var brightTint: Color = StrandPalette.restBright
+    var tint: Color = StrandPalette.effortAccent
+    var brightTint: Color = StrandPalette.effortAccent
 
     /// Fixed physiological plot bounds (ms) so the same rhythm always reads at the same
     /// scale night-to-night — 300…1500 ms covers ~40…200 bpm, the readable resting band.
@@ -216,7 +217,7 @@ private struct PoincarePlot: View {
 
                 // The point cloud. Dots are small + semi-transparent so density reads as a
                 // cloud; the bright world colour keeps it legible on the deep canvas.
-                let r: CGFloat = 1.6
+                let r: CGFloat = 2
                 for p in points {
                     let x = map(p.x)
                     // Canvas y grows downward; invert so higher NN[i+1] sits higher.
@@ -303,17 +304,14 @@ struct RhythmView: View {
     private var visualization: some View {
         ScreenScaffold(
             title: "Rhythm",
-            subtitle: "An experimental picture of your beat-to-beat timing",
+            subtitle: "Experimental wellness visualization",
             // PERF: chart-heavy column (the Poincaré beat-to-beat scatter, the stats grid and the
             // methodology card). The LazyVStack path builds the off-screen cards — including the scatter
             // plot's point set — on demand; byte-identical layout.
             lazy: true,
-            // Liquid finish: the day-of-sky backdrop, so the visualization sits in the same liquid
-            // atmosphere as Today. The calm Rest-blue world of the cards stays unchanged over it.
-            topBackground: liquidScaffoldSky(),
             trailing: { closeButton }
         ) {
-            SourceBadge("Experimental", tint: StrandPalette.restColor)
+            StatusBadge("Experimental", style: .experimental)
 
             if allPoints.isEmpty {
                 emptyState
@@ -324,6 +322,8 @@ struct RhythmView: View {
             }
 
             methodologyCard
+            NoteCard("All analysis is done on this device. Your data is private and never leaves your device.",
+                     title: "On-device only", style: .privacy)
             RhythmDisclaimerNote()
         }
     }
@@ -401,15 +401,12 @@ struct RhythmView: View {
     // MARK: Plot card — the Poincaré scatter + the "comet vs cloud" reading note
 
     private var plotCard: some View {
-        StrandCard(padding: 18, tint: StrandPalette.restColor) {
+        PaperCard {
             VStack(alignment: .leading, spacing: 12) {
                 Text("BEAT-TO-BEAT SCATTER").strandOverline()
-                ZStack {
-                    ScenicHeroBackground(domain: .rest, starCount: 36)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    PoincarePlot(points: allPoints)
-                        .padding(8)
-                }
+                PoincarePlot(points: allPoints)
+                    .padding(8)
+                    .background(StrandPalette.inset, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .frame(height: NoopMetrics.chartHeight + 24)
 
                 Text("Each dot pairs one heartbeat interval with the next. A tight line along the diagonal means a steady beat; a rounder, more spread-out cloud means the timing varied more.")
@@ -460,24 +457,61 @@ struct RhythmView: View {
 
     // MARK: Empty / thin-night state
 
+    private static let emptyPlotOffsets: [CGSize] = [
+        .init(width: -24, height: -17), .init(width: -16, height: 10),
+        .init(width: -11, height: -5), .init(width: -6, height: 21),
+        .init(width: -3, height: -26), .init(width: 2, height: 2),
+        .init(width: 6, height: 15), .init(width: 9, height: -12),
+        .init(width: 13, height: 27), .init(width: 17, height: 5),
+        .init(width: 21, height: -22), .init(width: 25, height: 17),
+        .init(width: -27, height: 24), .init(width: -20, height: -30),
+        .init(width: -1, height: 31), .init(width: 28, height: -4),
+        .init(width: 13, height: -34), .init(width: -31, height: 1),
+    ]
+
     private var emptyState: some View {
-        DataPendingNote(
-            title: "No clear reading yet",
-            message: "Rhythm only looks during quiet, still, resting windows, so it needs a calm night's worth of steady beats. Once there's a clean window, the scatter and its description show here.",
-            symbol: "waveform.path"
-        )
+        PaperCard {
+            VStack(spacing: 14) {
+                ZStack {
+                    Circle()
+                        .stroke(StrandPalette.cardBorder, style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                        .frame(width: 120, height: 120)
+                    ForEach(Self.emptyPlotOffsets.indices, id: \.self) { index in
+                        Circle()
+                            .fill(StrandPalette.effortAccent)
+                            .frame(width: index.isMultiple(of: 4) ? 5 : 3, height: index.isMultiple(of: 4) ? 5 : 3)
+                            .offset(Self.emptyPlotOffsets[index])
+                    }
+                }
+                Text("No rhythm data yet")
+                    .font(StrandFont.cardTitle)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                Text("Wear your strap and go about your day. We'll start capturing when your heart rate has more variation.")
+                    .font(StrandFont.caption)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity)
+        }
     }
 
     // MARK: Methodology
 
     private var methodologyCard: some View {
-        StrandCard {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("How this is measured").strandOverline()
-                Text("During quiet, still, resting windows, NOOP looks at the timing between your heartbeats (R-R intervals) and draws their Poincaré scatter. From the cloud it computes its short and long axes (SD1, SD2) and a few plain regularity numbers. Movement and noisy windows are skipped, not shown. These are transparent, published descriptive statistics: a picture of your timing, never a clinical measurement.")
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
+            SectionHeader("How Rhythm is measured")
+            PaperCard(padding: 14) {
+                VStack(spacing: 0) {
+                    SettingsRow(icon: "waveform.path", title: "R-R interval variation",
+                                subtitle: "Timing between heartbeats", showsChevron: false)
+                    Divider().overlay(StrandPalette.hairline)
+                    SettingsRow(icon: "point.3.connected.trianglepath.dotted", title: "Poincaré plot",
+                                subtitle: "Visualizes short-term variability", showsChevron: false)
+                    Divider().overlay(StrandPalette.hairline)
+                    SettingsRow(icon: "chart.line.uptrend.xyaxis", title: "Trend over time",
+                                subtitle: "Shows how your rhythm adapts", showsChevron: false)
+                }
             }
         }
     }
@@ -542,6 +576,17 @@ struct RhythmView: View {
 }
 
 #if DEBUG
+/// Deterministic screenshot host for the post-consent empty state. Debug-only and never
+/// used by production navigation.
+struct RhythmEmptyDemoHost: View {
+    init() {
+        UserDefaults.standard.set(RhythmConsent.currentVersion, forKey: RhythmConsent.acceptedVersionKey)
+        UserDefaults.standard.set(true, forKey: RhythmConsent.enabledKey)
+    }
+
+    var body: some View { RhythmView(night: nil, windows: []) }
+}
+
 #Preview("Rhythm — steady") {
     RhythmView(
         night: RhythmScreener.NightRhythmSummary(

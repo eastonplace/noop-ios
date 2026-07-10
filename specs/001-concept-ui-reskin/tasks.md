@@ -341,9 +341,17 @@
     confirmed the complete existing catalog/editor remains reachable in Paper cards.
     The import subtitle names only the actually supported markers CSV path rather than
     implying unsupported WHOOP/Apple Health marker import.
-- [ ] **T25 — Rhythm + consent (S14, S15)** — Modify
+- [x] **T25 — Rhythm + consent (S14, S15)** — Modify
   `Strand/Screens/RhythmView.swift`. Spec §6-S14/S15; consent button disabled until
   toggle on. Verify vs sheet 5-3/5-4 (fresh-install state for consent). Commit.
+  - Verified 2026-07-09: `NOOPiOS` built and ran. `qa/T25-rhythm-consent.jpg`
+    confirms the four Paper consent cards, exact experimental-awareness toggle, and
+    disabled black Turn on Rhythm action against sheet 5-3. UI automation proved the
+    button is absent from enabled targets before acknowledgement and becomes enabled
+    after the switch. `qa/T25-rhythm.jpg` confirms the purple Experimental badge,
+    dotted scatter empty state, three measurement rows, and on-device privacy note
+    against sheet 5-4. Production consent keys/versioning and analysis are unchanged;
+    deterministic consent/content capture routes are DEBUG-only.
 - [ ] **T26 — Automations, Alarms, Test Centre (S16–S18)** — Modify
   `Strand/Screens/AutomationsView.swift`, `SmartAlarmView.swift`,
   `TestCentreView.swift`. Spec §6-S16/17/18; keep every existing toggle/setting bound.

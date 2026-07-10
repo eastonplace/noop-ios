@@ -294,7 +294,8 @@ enum DemoScreens {
         case "automations": return AnyView(AutomationsView())
         case "alarms": return AnyView(SmartAlarmView())
         case "testcentre": return AnyView(TestCentreView())
-        case "rhythm": return AnyView(RhythmView(night: nil, windows: []))
+        case "rhythmconsent": return AnyView(RhythmConsentGate(onAccept: {}))
+        case "rhythm": return AnyView(RhythmEmptyDemoHost())
         case "liveworkout": return AnyView(LiveWorkoutView(onClose: {}))
         case "preworkout": return AnyView(StartWorkoutSheet(onStart: { _ in }))
         case "effortdetail": return AnyView(MetricDetailView(
