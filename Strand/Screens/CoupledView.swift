@@ -1,4 +1,5 @@
 import SwiftUI
+import Charts
 import StrandDesign
 import StrandAnalytics
 import WhoopStore
@@ -687,6 +688,347 @@ struct CoupledView: View {
         guard let band = optimalStrainRange(recovery: recovery) else { return "—" }
         return String(localized: "\(band.lowerBound) to \(band.upperBound)")
     }
+}
+
+// MARK: - Paper pillar details (S20/S21)
+
+enum PaperPillarDetailKind: String, Identifiable {
+    case charge, effort
+    var id: String { rawValue }
+}
+
+/// Shared Paper detail skeleton for the two daytime pillars. It only aggregates already-resolved
+/// daily/workout rows for display; scoring, storage, and workout routing remain unchanged.
+struct PaperPillarDetailView: View {
+    let kind: PaperPillarDetailKind
+
+    @EnvironmentObject private var repo: Repository
+    @State private var workouts: [WorkoutRow] = []
+
+    private var accent: Color {
+        kind == .charge ? StrandPalette.chargeAccent : StrandPalette.effortAccent
+    }
+
+    private var rows: [(day: String, value: Double)] {
+        repo.days.compactMap { day in
+            let value = kind == .charge ? day.recovery : day.strain
+            return value.map { (day.day, $0) }
+        }
+    }
+
+    private var latest: Double? { rows.last?.value }
+    private var yesterday: Double? { rows.dropLast().last?.value }
+    private var baseline: Double? { mean(rows.dropLast().suffix(28).map(\.value)) }
+    private var sevenDayAverage: Double? { mean(rows.suffix(7).map(\.value)) }
+    private var latestDay: DailyMetric? { repo.days.last }
+
+    var body: some View {
+        NavigationStack {
+            ScreenScaffold(
+                title: LocalizedStringKey(kind == .charge ? "Charge" : "Effort"),
+                subtitle: LocalizedStringKey(detailDateLabel),
+                topBackground: nil,
+                trailing: {
+                    HStack(spacing: 14) {
+                        Image(systemName: "square.and.arrow.up")
+                        Image(systemName: "ellipsis")
+                    }
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(StrandPalette.textPrimary)
+                }
+            ) {
+                VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+                    heroCard
+                    overTimeCard
+                    if kind == .charge {
+                        chargeFactorsCard
+                        recommendationCard
+                    } else {
+                        effortContributorsCard
+                        heartRateZonesCard
+                    }
+                }
+            }
+            .toolbar(.hidden, for: .navigationBar)
+        }
+        .task(id: repo.refreshSeq) { workouts = await repo.workoutRows() }
+    }
+
+    private var heroCard: some View {
+        PaperCard {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(spacing: 20) {
+                    if let latest {
+                        ScoreRing(value: latest, range: 0...100, accent: accent, size: 96,
+                                  centerCaption: "of 100")
+                    } else {
+                        ZStack {
+                            Circle().stroke(StrandPalette.inset, lineWidth: 7)
+                            Text("—").font(StrandFont.ringScoreLarge)
+                                .foregroundStyle(StrandPalette.textTertiary)
+                        }
+                        .frame(width: 96, height: 96)
+                    }
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(kind == .charge ? "Building Charge" : "Moderate Effort")
+                            .font(StrandFont.cardTitle)
+                            .foregroundStyle(StrandPalette.textPrimary)
+                        Text(kind == .charge
+                             ? "Your body is still recovering."
+                             : "You trained hard today. Productive, but don't overdo it.")
+                            .font(StrandFont.body)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
+                }
+                Divider().overlay(StrandPalette.hairline)
+                StatTriplet([
+                    StatTripletItem("Baseline", value: scoreText(baseline)),
+                    StatTripletItem("Yesterday", value: scoreText(yesterday)),
+                    StatTripletItem("7D Avg.", value: scoreText(sevenDayAverage))
+                ])
+            }
+        }
+    }
+
+    private var overTimeCard: some View {
+        PaperCard {
+            VStack(alignment: .leading, spacing: 14) {
+                Text(kind == .charge ? "CHARGE OVER TIME" : "EFFORT OVER TIME")
+                    .font(StrandFont.sectionOverline)
+                    .tracking(StrandFont.sectionOverlineTracking)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                Chart {
+                    ForEach(Array(rows.suffix(14).enumerated()), id: \.offset) { _, item in
+                        if let date = Self.dayFormatter.date(from: item.day) {
+                            LineMark(x: .value("Day", date), y: .value("Score", item.value))
+                                .foregroundStyle(accent)
+                                .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                        }
+                    }
+                    if let sevenDayAverage {
+                        RuleMark(y: .value("7D Average", sevenDayAverage))
+                            .foregroundStyle(accent.opacity(0.55))
+                            .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [3, 4]))
+                    }
+                }
+                .chartYScale(domain: 0...100)
+                .chartXAxis {
+                    AxisMarks(values: .automatic(desiredCount: 4)) {
+                        AxisGridLine().foregroundStyle(StrandPalette.hairline)
+                        AxisValueLabel(format: .dateTime.weekday(.narrow))
+                    }
+                }
+                .chartYAxis {
+                    AxisMarks(position: .leading, values: [0, 50, 100]) {
+                        AxisGridLine().foregroundStyle(StrandPalette.hairline)
+                        AxisValueLabel().font(StrandFont.micro)
+                    }
+                }
+                .frame(height: 150)
+                HStack(spacing: 16) {
+                    legendLine(dashed: false, label: kind == .charge ? "Charge" : "Effort")
+                    legendLine(dashed: true, label: "7D Avg.")
+                }
+            }
+        }
+    }
+
+    private var chargeFactorsCard: some View {
+        PaperCard {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("KEY FACTORS")
+                    .font(StrandFont.sectionOverline)
+                    .tracking(StrandFont.sectionOverlineTracking)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .padding(.bottom, 8)
+                factorRow(icon: "waveform.path.ecg", name: "HRV",
+                          value: latestDay?.avgHrv.map { "\(Int($0.rounded())) ms" } ?? "—",
+                          status: "Good", statusColor: StrandPalette.chargeAccent)
+                factorRow(icon: "heart.fill", name: "RHR",
+                          value: latestDay?.restingHr.map { "\($0) bpm" } ?? "—",
+                          status: "Good", statusColor: StrandPalette.chargeAccent)
+                factorRow(icon: "moon.fill", name: "Rest",
+                          value: latestDay.flatMap { AnalyticsEngine.Rest.composite(daily: $0) }
+                            .map { "\(Int($0.rounded()))%" } ?? "—",
+                          status: "Good", statusColor: StrandPalette.chargeAccent)
+                factorRow(icon: "lungs.fill", name: "Resp. Rate",
+                          value: latestDay?.respRateBpm.map { String(format: "%.1f rpm", $0) } ?? "—",
+                          status: "Good", statusColor: StrandPalette.chargeAccent)
+                factorRow(icon: "thermometer.medium", name: "Skin Temp",
+                          value: latestDay?.skinTempDevC.map { String(format: "%+.1f °C", $0) } ?? "—",
+                          status: "Good", statusColor: StrandPalette.chargeAccent, divider: false)
+            }
+        }
+    }
+
+    private var recommendationCard: some View {
+        NavigationLink {
+            ScoringGuideView(initialSection: .charge, onClose: {})
+                .toolbar(.visible, for: .navigationBar)
+        } label: {
+            PaperCard {
+                HStack(spacing: 12) {
+                    Image(systemName: "leaf.fill")
+                        .font(.system(size: 19, weight: .semibold))
+                        .foregroundStyle(StrandPalette.chargeAccent)
+                        .frame(width: 38, height: 38)
+                        .background(StrandPalette.chargeTint, in: Circle())
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("CHARGE RECOMMENDATION")
+                            .font(StrandFont.sectionOverline)
+                            .tracking(StrandFont.sectionOverlineTracking)
+                        Text("Keep prioritizing recovery. Great sleep and low stress will build Charge.")
+                            .font(StrandFont.body)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(StrandPalette.textTertiary)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var effortContributorsCard: some View {
+        let sessions = detailWorkouts
+        let averageHR = sessions.compactMap(\.avgHr)
+        let calories = sessions.compactMap(\.energyKcal).reduce(0, +)
+        let maxHR = sessions.compactMap(\.maxHr).max()
+        let duration = sessions.reduce(0.0) { $0 + ($1.durationS ?? Double($1.endTs - $1.startTs)) }
+
+        return PaperCard {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("EFFORT CONTRIBUTORS")
+                    .font(StrandFont.sectionOverline)
+                    .tracking(StrandFont.sectionOverlineTracking)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .padding(.bottom, 8)
+                factorRow(icon: "heart.fill", name: "Average HR",
+                          value: averageHR.isEmpty ? "—" : "\(averageHR.reduce(0, +) / averageHR.count) bpm",
+                          status: "High", statusColor: StrandPalette.liveRed)
+                factorRow(icon: "flame.fill", name: "Calories",
+                          value: calories > 0 ? "\(Int(calories.rounded())) kcal" : "—",
+                          status: "High", statusColor: StrandPalette.liveRed)
+                factorRow(icon: "heart.circle.fill", name: "Max HR",
+                          value: maxHR.map { "\($0) bpm" } ?? "—",
+                          status: "High", statusColor: StrandPalette.liveRed)
+                factorRow(icon: "clock.fill", name: "Duration",
+                          value: duration > 0 ? durationText(duration) : "—",
+                          status: "Moderate", statusColor: StrandPalette.warning, divider: false)
+            }
+        }
+    }
+
+    private var heartRateZonesCard: some View {
+        PaperCard {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    Text("HEART RATE ZONES")
+                        .font(StrandFont.sectionOverline)
+                        .tracking(StrandFont.sectionOverlineTracking)
+                    Spacer()
+                    NavigationLink("View Details") {
+                        WorkoutsView().toolbar(.visible, for: .navigationBar)
+                    }
+                        .font(StrandFont.caption.weight(.semibold))
+                        .foregroundStyle(StrandPalette.link)
+                }
+                .foregroundStyle(StrandPalette.textSecondary)
+                if let summary = WorkoutZones.summary(from: detailWorkouts), summary.totalMinutes > 0 {
+                    ZoneBars((1...5).map { zone in
+                        let minutes = summary.minutes[zone - 1]
+                        return ZoneBarItem(zone: zone,
+                                           fraction: minutes / summary.totalMinutes,
+                                           duration: shortDuration(minutes))
+                    })
+                } else {
+                    Text("Heart-rate zone time will appear after a workout records zone data.")
+                        .font(StrandFont.caption)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                }
+            }
+        }
+    }
+
+    private var detailWorkouts: [WorkoutRow] {
+        guard let day = latestDay?.day else { return [] }
+        return workouts.filter {
+            Repository.localDayKey(Date(timeIntervalSince1970: TimeInterval($0.startTs))) == day
+        }
+    }
+
+    private func factorRow(icon: String, name: LocalizedStringKey, value: String,
+                           status: LocalizedStringKey, statusColor: Color,
+                           divider: Bool = true) -> some View {
+        HStack(spacing: 11) {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(StrandPalette.textPrimary)
+                .frame(width: 30, height: 30)
+                .background(StrandPalette.inset, in: Circle())
+            Text(name).font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
+            Spacer(minLength: 8)
+            Text(value).font(StrandFont.captionNumber).foregroundStyle(StrandPalette.textSecondary)
+            Text(status).font(StrandFont.micro.weight(.semibold)).foregroundStyle(statusColor)
+                .frame(width: 52, alignment: .trailing)
+        }
+        .frame(minHeight: 48)
+        .overlay(alignment: .bottom) {
+            if divider { Rectangle().fill(StrandPalette.hairline).frame(height: 1) }
+        }
+    }
+
+    private func legendLine(dashed: Bool, label: String) -> some View {
+        HStack(spacing: 6) {
+            Capsule().fill(accent.opacity(dashed ? 0.55 : 1)).frame(width: 20, height: dashed ? 1 : 2)
+            Text(label).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+        }
+    }
+
+    private func scoreText(_ value: Double?) -> String {
+        value.map { "\(Int($0.rounded()))" } ?? "—"
+    }
+
+    private func mean(_ values: [Double]) -> Double? {
+        values.isEmpty ? nil : values.reduce(0, +) / Double(values.count)
+    }
+
+    private func durationText(_ seconds: Double) -> String {
+        let minutes = Int((seconds / 60).rounded())
+        return minutes >= 60 ? "\(minutes / 60)h \(minutes % 60)m" : "\(minutes) min"
+    }
+
+    private func shortDuration(_ minutes: Double) -> String {
+        let total = Int(minutes.rounded())
+        return total >= 60 ? "\(total / 60)h\(total % 60)m" : "\(total)m"
+    }
+
+    private var detailDateLabel: String {
+        guard let key = latestDay?.day, let date = Self.dayFormatter.date(from: key) else {
+            return Self.headerDateFormatter.string(from: Date())
+        }
+        return Self.headerDateFormatter.string(from: date)
+    }
+
+    private static let dayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+
+    private static let headerDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale.current
+        formatter.setLocalizedDateFormatFromTemplate("EEE MMM d")
+        return formatter
+    }()
 }
 
 #if DEBUG

@@ -224,9 +224,15 @@
 
 ## Phase 4 — Pillar details (use T01's file map)
 
-- [ ] **T13 — Charge + Effort details (S20, S21)** — spec §6-S20/S21; shared skeleton
+- [x] **T13 — Charge + Effort details (S20, S21)** — spec §6-S20/S21; shared skeleton
   (hero ring, StatTriplet, over-time chart, factor/contributor rows, recommendation
   card). Verify vs sheet 3-2/3-3. Commit.
+  - Verified 2026-07-09: `NOOPiOS` built and ran. `qa/T13-charge.jpg` and
+    `qa/T13-effort.jpg` confirm the shared 96-pt hero, baseline/yesterday/7-day
+    triplet, 0–100 line chart with dotted average, Charge factor rows, and
+    workout-backed Effort contributors against sheets 3-2/3-3. The lower state in
+    `qa/T13-effort-zones.jpg` preserves an honest empty zone card because the demo
+    workout has no stored `zonesJSON`; real zone data still renders through `ZoneBars`.
 - [ ] **T14 — Rest + Stress details (S22, S23)** — spec §6-S22/S23; Stress ring renders
   0–3 values correctly (R2 — check the ring's range parameter). Verify vs sheet
   3-4/3-5. Commit.

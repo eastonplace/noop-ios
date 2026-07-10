@@ -371,6 +371,7 @@ struct TodayView: View {
     // score (or the first-run card) is tapped. nil = not shown. ScoreSection is Identifiable, so
     // .sheet(item:) drives both presentation and the deep-link target in one binding.
     @State private var guideSection: ScoreSection?
+    @State private var paperPillarDetail: PaperPillarDetailKind?
     /// `nil` means the user tapped the generic first-run card / a non-section entry: open at the top.
     @State private var showGuideTop = false
 
@@ -1163,9 +1164,9 @@ struct TodayView: View {
             VStack(spacing: 14) {
                 HStack(alignment: .top, spacing: 8) {
                     paperPillar("Charge", value: charge, accent: StrandPalette.chargeAccent,
-                                state: paperScoreState(charge)) { showChargeBreakdown = true }
+                                state: paperScoreState(charge)) { paperPillarDetail = .charge }
                     paperPillar("Effort", value: effort, accent: StrandPalette.effortAccent,
-                                state: paperScoreState(effort)) { guideSection = .effort }
+                                state: paperScoreState(effort)) { paperPillarDetail = .effort }
                     paperPillar("Rest", value: restScore, accent: StrandPalette.restAccent,
                                 state: paperScoreState(restScore)) { guideSection = .rest }
                 }
@@ -1475,6 +1476,9 @@ struct TodayView: View {
         // The scoring guide, opened at a specific score from its ⓘ.
         .sheet(item: $guideSection) { section in
             ScoringGuideView(initialSection: section, onClose: { guideSection = nil })
+        }
+        .sheet(item: $paperPillarDetail) { kind in
+            PaperPillarDetailView(kind: kind)
         }
         // The scoring guide opened at the top (the first-run card's primary action).
         .sheet(isPresented: $showGuideTop) {
