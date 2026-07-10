@@ -164,7 +164,7 @@
     `qa/T07-sleep-hypnogram.png` and `qa/T07-trends.png` were visually checked against
     sheets 1-3 and 1-2; `qa/T07-sleep.png` preserves the root-state capture.
 
-- [ ] **T08 — Header, tab bar, FAB, Quick Actions**
+- [x] **T08 — Header, tab bar, FAB, Quick Actions**
   - Modify: `StrandiOS/App/RootTabView.swift` (remove glass islands + gold FAB; build
     `PaperTabBar` per spec §2.6, black FAB bottom-right on Today only, restyle the
     quick-action sheet to S19), `Strand/Screens/ScreenScaffold.swift` (HeaderBar with
@@ -176,6 +176,12 @@
     `grep -rn "liquidTodayEnabled" Strand StrandiOS`).
   - Verify: build; screenshot all four tab roots — flat white bar, black active icon,
     FAB on Today only; Quick Actions sheet matches S19. Commit.
+  - Verified 2026-07-09: `NOOPiOS` built and ran after the app-wide
+    `noop.liquidTodayEnabled` route was removed. `qa/T08-today.png`,
+    `qa/T08-trends.png`, `qa/T08-sleep.png`, and `qa/T08-more.png` confirm the
+    centered wordmark, flat `card` tab bar, black active item, and Today-only black
+    FAB. `qa/T08-quick-actions.png` confirms the four preserved routes, concept copy,
+    colored symbols, and close control.
 
 ## Phase 3 — Core tabs
 

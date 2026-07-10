@@ -106,19 +106,52 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
         let overSky = topBackground != nil
         let titleColor = overSky ? StrandPalette.onDarkPrimary : StrandPalette.textPrimary
         let subtitleColor = overSky ? StrandPalette.onDarkSecondary : StrandPalette.textSecondary
-        return HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                if let title {
-                    // Match the liquid home's title face (SF Rounded 28) so every page's header reads
-                    // identically (2026-07-02 cohesion pass).
-                    Text(title).font(StrandFont.rounded(28)).foregroundStyle(titleColor)
-                }
-                if let subtitle {
-                    Text(subtitle).font(StrandFont.subhead).foregroundStyle(subtitleColor)
+        return HeaderBar(title: title, subtitle: subtitle, titleColor: titleColor,
+                         subtitleColor: subtitleColor, trailing: trailing)
+    }
+}
+
+/// Paper app header. The wordmark is geometrically centered regardless of the trailing controls;
+/// screen context stays on a separate line so titles never shove the brand off-axis.
+struct HeaderBar<Trailing: View>: View {
+    let title: LocalizedStringKey?
+    let subtitle: LocalizedStringKey?
+    let titleColor: Color
+    let subtitleColor: Color
+    @ViewBuilder let trailing: () -> Trailing
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ZStack {
+                Text("N O O P")
+                    .font(StrandFont.wordmark)
+                    .tracking(StrandFont.wordmarkTracking)
+                    .foregroundStyle(titleColor)
+                HStack {
+                    Spacer(minLength: 0)
+                    trailing()
                 }
             }
-            Spacer(minLength: 0)
-            trailing()
+            .frame(maxWidth: .infinity, minHeight: 32)
+
+            if title != nil || subtitle != nil {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    if let title {
+                        Text(title)
+                            .font(StrandFont.screenOverline)
+                            .tracking(StrandFont.screenOverlineTracking)
+                            .textCase(.uppercase)
+                            .foregroundStyle(titleColor)
+                    }
+                    Spacer(minLength: 8)
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(StrandFont.caption)
+                            .foregroundStyle(subtitleColor)
+                            .lineLimit(1)
+                    }
+                }
+            }
         }
     }
 }

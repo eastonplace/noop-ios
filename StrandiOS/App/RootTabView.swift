@@ -29,68 +29,65 @@ struct RootTabView: View {
     @AppStorage(MoreSectionPrefs.storageKey) private var expandedMoreSectionsCSV = MoreSectionPrefs.defaultCSV
     private var expandedMoreSections: Set<String> { MoreSectionPrefs.decode(expandedMoreSectionsCSV) }
 
-    /// V8 liquid redesign is the default Today; the Settings toggle lets a user fall back to the classic
-    /// Today if they prefer it (keyed identically to the SettingsView toggle). Default ON.
-    @AppStorage("noop.liquidTodayEnabled") private var liquidTodayEnabled = true
-
-    /// The Today tab root, honouring the liquid/classic preference.
-    @ViewBuilder private var todayTabRoot: some View {
-        if liquidTodayEnabled { LiquidTodayView() } else { TodayView() }
-    }
+    /// R7: Paper replaces both prior Today variants. The liquid prototype remains in the target only
+    /// so unrelated screens compile; it is no longer reachable from app chrome.
+    private var todayTabRoot: some View { TodayView() }
 
     init() {
-        // Plain Titanium bar: pin the background to `surfaceBase` and clear the system
-        // selection-indicator tint so there is NO gold/accent pill behind the selected
-        // icon — the gold `.tint` below colours only the selected icon + label, nothing
-        // is filled behind it. (UIKit derives a selection-indicator fill from the tint
-        // unless it's explicitly cleared.)
+        // The native bar stays hidden, but keep its appearance correct for transient UIKit hosts.
         let appearance = UITabBarAppearance()
         appearance.configureWithOpaqueBackground()
-        appearance.backgroundColor = UIColor(StrandPalette.surfaceBase)
+        appearance.backgroundColor = UIColor(StrandPalette.card)
+        appearance.shadowColor = UIColor(StrandPalette.hairline)
         appearance.selectionIndicatorTintColor = .clear
         UITabBar.appearance().standardAppearance = appearance
         UITabBar.appearance().scrollEdgeAppearance = appearance
     }
 
     var body: some View {
-        // The native TabView keeps every existing destination + system gesture; the signature
-        // raised gold FAB is overlaid on top, bottom-centre, floating ~20pt above the bar (a
-        // native TabView can't host a centre item that overflows the bar, so we float it).
-        ZStack(alignment: .bottom) {
-            // A custom floating bar — two frosted "glass" islands with the gold action button nested
-            // cleanly in the gap between them — replaces the native tab bar: no overlap, no glow. The
-            // native TabView still drives content + per-tab nav state; only its bar is hidden.
-            TabView(selection: $selectedTab) {
-                tab(todayTabRoot, "Today", "square.grid.2x2").tag(0)
-                tab(TrendsView(), "Trends", "chart.line.uptrend.xyaxis").tag(1)
-                tab(SleepView(), "Sleep", "bed.double").tag(2)
-                moreTab.tag(3)
-            }
-            .tint(StrandPalette.accent)
-            .toolbar(.hidden, for: .tabBar)
-            // Tab crossfade — README §Motion: ~240ms opacity swap between tab roots, global calm
-            // easing cubic-bezier(0.22,1,0.36,1).
-            .animation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24), value: selectedTab)
-            // Swipe left/right anywhere to move between tabs (2026-07-02). Simultaneous so vertical
-            // scrolling still works; only a decisive horizontal flick switches tabs.
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 24)
-                    .onEnded { v in
-                        // Today (tab 0) uses horizontal swipe to change DAYS, so tab-swipe is off there.
-                        guard selectedTab != 0 else { return }
-                        let dx = v.translation.width, dy = v.translation.height
-                        guard abs(dx) > 60, abs(dx) > abs(dy) * 1.6 else { return }
-                        let next = min(3, max(0, selectedTab + (dx < 0 ? 1 : -1)))
-                        if next != selectedTab {
-                            withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) { selectedTab = next }
-                        }
+        TabView(selection: $selectedTab) {
+            tab(todayTabRoot, "Today", "square.grid.2x2").tag(0)
+            tab(TrendsView(), "Trends", "chart.bar").tag(1)
+            tab(SleepView(), "Sleep", "moon").tag(2)
+            moreTab.tag(3)
+        }
+        .toolbar(.hidden, for: .tabBar)
+        .animation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24), value: selectedTab)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 24)
+                .onEnded { v in
+                    guard selectedTab != 0 else { return }
+                    let dx = v.translation.width, dy = v.translation.height
+                    guard abs(dx) > 60, abs(dx) > abs(dy) * 1.6 else { return }
+                    let next = min(3, max(0, selectedTab + (dx < 0 ? 1 : -1)))
+                    if next != selectedTab {
+                        withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) { selectedTab = next }
                     }
-            )
-
-            FloatingTabBar(selection: $selectedTab, onReselect: { _ in
+                }
+        )
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            PaperTabBar(selection: $selectedTab, onReselect: { _ in
                 // Re-tapping the active tab refreshes that page's data (2026-07-02).
                 Task { await repo.refresh() }
             })
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if selectedTab == 0 {
+                Button {
+                    withAnimation(Self.sheetEase) { quickAction = .menu }
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(StrandPalette.onInk)
+                        .frame(width: 56, height: 56)
+                        .background(StrandPalette.ink, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Quick Actions")
+                .padding(.trailing, 16)
+                .padding(.bottom, 70)
+                .transition(.opacity.combined(with: .scale(scale: 0.92)))
+            }
         }
         .task {
             await repo.refresh()
@@ -175,7 +172,7 @@ struct RootTabView: View {
                 case .activeWorkout: LiveView()
                 // .liveSession routes to the Today tab (handled above — its Start entry owns the cover);
                 // this keeps the switch exhaustive and falls back to Today if it ever reaches the host.
-                case .liveSession: LiquidTodayView()
+                case .liveSession: TodayView()
                 }
             }
             .background(StrandPalette.surfaceBase.ignoresSafeArea())
@@ -210,7 +207,7 @@ struct RootTabView: View {
                     withAnimation(Self.sheetEase) { quickAction = picked }
                 }
             }
-            .presentationDetents([.height(344)])
+            .presentationDetents([.height(390)])
             .presentationDragIndicator(.hidden)
         case .live:
             quickScreen(LiveView())
@@ -276,7 +273,7 @@ struct RootTabView: View {
                 .background(StrandPalette.surfaceBase.ignoresSafeArea())
                 .toolbar(.hidden, for: .navigationBar)
         }
-        .toolbar(.hidden, for: .tabBar)   // we draw our own FloatingTabBar
+        .toolbar(.hidden, for: .tabBar)   // we draw our own PaperTabBar
         .tabItem { Label(title, systemImage: icon) }
     }
 
@@ -340,7 +337,7 @@ struct RootTabView: View {
                     MoreRow("Support", "hands.clap.fill") { SupportView() }
                 }
             }
-            .toolbar(.hidden, for: .tabBar)   // we draw our own FloatingTabBar
+            .toolbar(.hidden, for: .tabBar)   // we draw our own PaperTabBar
         }
         .tabItem { Label("More", systemImage: "ellipsis.circle.fill") }
     }
@@ -468,123 +465,99 @@ private enum QuickAction: Int, Identifiable {
     var id: Int { rawValue }
 }
 
-/// The bottom sheet of quick actions presented by the centre FAB. Spec bottom sheet: surfaceOverlay
-/// fill, gold hairline top edge, grab handle, three flat action rows that route to existing screens.
+/// Paper quick actions: the four existing routes, presented as quiet full-width rows.
 private struct QuickActionSheet: View {
     /// Called with the picked destination (the host swaps the menu for that screen).
     let onPick: (QuickAction) -> Void
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         VStack(spacing: 0) {
-            // Grab handle (36×4) in the slate hairline tone.
-            Capsule()
-                .fill(StrandPalette.hairlineStrong)
-                .frame(width: 36, height: 4)
-                .padding(.top, 10)
-                .padding(.bottom, 14)
-
-            Text("QUICK ACTIONS")
-                .font(StrandFont.overline)
-                .tracking(1.6)
-                .foregroundStyle(StrandPalette.textTertiary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 10)
-
-            VStack(spacing: 8) {
-                row("Live HR", icon: "waveform.path.ecg", tint: StrandPalette.metricRose) { onPick(.live) }
-                row("Start workout", icon: "figure.run", tint: StrandPalette.effortColor) { onPick(.workout) }
-                row("Log journal", icon: "square.and.pencil", tint: StrandPalette.accent) { onPick(.journal) }
-                row("Breathe", icon: "wind", tint: StrandPalette.restColor) { onPick(.breathe) }
+            HStack {
+                Text("Quick Actions")
+                    .font(StrandFont.title2)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                Spacer()
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(StrandPalette.textPrimary)
+                        .frame(width: 32, height: 32)
+                        .background(StrandPalette.inset, in: Circle())
+                }
+                .buttonStyle(.plain)
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+
+            Divider().overlay(StrandPalette.hairline)
+
+            row("Live HR", subtitle: "Start live heart rate", icon: "heart.fill",
+                tint: StrandPalette.liveRed) { onPick(.live) }
+            row("Start workout", subtitle: "Track a workout", icon: "figure.run",
+                tint: StrandPalette.effortAccent) { onPick(.workout) }
+            row("Log journal", subtitle: "How are you feeling?", icon: "square.and.pencil",
+                tint: StrandPalette.effortAccent) { onPick(.journal) }
+            row("Breathe", subtitle: "Guided breathing", icon: "wind",
+                tint: StrandPalette.chargeAccent) { onPick(.breathe) }
 
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(
-            StrandPalette.surfaceOverlay
-                .overlay(alignment: .top) {
-                    // Gold hairline top edge per the bottom-sheet spec.
-                    Rectangle()
-                        .fill(StrandPalette.gold.opacity(0.35))
-                        .frame(height: 1)
-                }
-                .ignoresSafeArea()
-        )
+        .background(StrandPalette.card.ignoresSafeArea())
     }
 
-    /// One flat action row: hued line-icon tile + title, inset surface, hairline border.
-    private func row(_ title: LocalizedStringKey, icon: String, tint: Color, action: @escaping () -> Void) -> some View {
+    private func row(_ title: LocalizedStringKey, subtitle: LocalizedStringKey,
+                     icon: String, tint: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 13) {
+            HStack(spacing: 14) {
                 Image(systemName: icon)
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(tint)
                     .frame(width: 38, height: 38)
-                    .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(StrandPalette.surfaceInset))
-                Text(title)
-                    .font(StrandFont.headline)
-                    .foregroundStyle(StrandPalette.textPrimary)
+                    .background(tint.opacity(0.10), in: Circle())
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(StrandFont.body.weight(.semibold)).foregroundStyle(StrandPalette.textPrimary)
+                    Text(subtitle).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                }
                 Spacer()
                 Image(systemName: "chevron.right")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(StrandPalette.textTertiary)
             }
-            .padding(.vertical, 10)
-            .padding(.horizontal, 12)
-            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(StrandPalette.surfaceRaised))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(StrandPalette.hairline, lineWidth: 1))
+            .padding(.horizontal, 20)
+            .frame(minHeight: 68)
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(StrandPalette.hairline).frame(height: 1).padding(.leading, 52)
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
 }
 
-// MARK: - Floating tab bar
+// MARK: - Paper tab bar
 
-/// The signature bottom bar: two frosted "glass" islands (Today·Trends / Sleep·More) with the gold
-/// action button nested cleanly in the gap between them — no overlap, no glow. Real iOS 26 Liquid
-/// Glass where available, a `.ultraThinMaterial` fallback below. Replaces the hidden native tab bar.
-private struct FloatingTabBar: View {
+private struct PaperTabBar: View {
     @Binding var selection: Int
     /// Fires when the user taps the ALREADY-active tab (2026-07-02: re-tap should refresh).
     var onReselect: (Int) -> Void = { _ in }
 
     private struct Item: Identifiable { let title: LocalizedStringKey; let icon: String; let tag: Int; var id: Int { tag } }
     private let nav = [Item(title: "Today", icon: "square.grid.2x2", tag: 0),
-                       Item(title: "Trends", icon: "chart.line.uptrend.xyaxis", tag: 1),
-                       Item(title: "Sleep", icon: "bed.double", tag: 2),
+                       Item(title: "Trends", icon: "chart.bar", tag: 1),
+                       Item(title: "Sleep", icon: "moon", tag: 2),
                        Item(title: "More", icon: "ellipsis", tag: 3)]
 
     var body: some View {
-        // One frosted glass bar, four evenly-spaced tabs. The quick-action "+" now lives in the
-        // top-right of each screen's header (balancing the profile avatar on the left).
-        HStack(spacing: 2) {
-            tabButton(nav[0])
-            tabButton(nav[1])
-            tabButton(nav[2])
-            tabButton(nav[3])
+        VStack(spacing: 0) {
+            Rectangle().fill(StrandPalette.hairline).frame(height: 1)
+            HStack(spacing: 0) {
+                ForEach(nav) { tabButton($0) }
+            }
+            .frame(height: 56)
         }
-        .padding(.vertical, 7)
-        .padding(.horizontal, 8)
-        .liquidGlass(in: Capsule())
-        // Over the liquid Today the sky ends at ~340pt, so the bar floats on flat opaque surfaceBase —
-        // a blur material has nothing to dissolve and hardens into a solid lozenge (2026-07-02:
-        // "clips into a solid shape"). A faint translucent scrim INSIDE the same Capsule keeps the pill
-        // reading as tinted glass, not a slab, even against dead-flat colour.
-        .background(.white.opacity(0.06), in: Capsule())
-        // Soft top-lit rim instead of one hard hairline, so there's no crisp cut-out edge.
-        .overlay(
-            Capsule().strokeBorder(
-                LinearGradient(colors: [.white.opacity(0.22), .white.opacity(0.04)],
-                               startPoint: .top, endPoint: .bottom),
-                lineWidth: 0.75)
-        )
-        // Lighter, wider shadow: real elevation without stamping a dark halo on the flat canvas.
-        .shadow(color: .black.opacity(0.22), radius: 18, x: 0, y: 8)
-        .padding(.horizontal, 22)
-        .padding(.bottom, 4)
+        .background(StrandPalette.card)
     }
 
     private func tabButton(_ item: Item) -> some View {
@@ -600,11 +573,11 @@ private struct FloatingTabBar: View {
                 Image(systemName: item.icon)
                     .font(.system(size: 18, weight: active ? .semibold : .regular))
                 Text(item.title)
-                    .font(.system(size: 10, weight: active ? .semibold : .medium))
+                    .font(StrandFont.micro.weight(active ? .semibold : .regular))
             }
-            .foregroundStyle(active ? StrandPalette.accent : StrandPalette.textSecondary)
+            .foregroundStyle(active ? StrandPalette.ink : StrandPalette.textTertiary)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 3)
+            .frame(maxHeight: .infinity)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -612,19 +585,5 @@ private struct FloatingTabBar: View {
         .accessibilityAddTraits(active ? [.isButton, .isSelected] : .isButton)
     }
 
-}
-
-// MARK: - Liquid Glass (iOS 26) with a Material fallback
-
-private extension View {
-    /// Real iOS 26 Liquid Glass where available; `.ultraThinMaterial` on iOS 17–25 — a clean
-    /// blended degrade so the bar stays modern on new OSes without breaking older ones.
-    @ViewBuilder func liquidGlass(in shape: some Shape) -> some View {
-        if #available(iOS 26.0, *) {
-            self.glassEffect(.regular, in: shape)
-        } else {
-            self.background(.ultraThinMaterial, in: shape)
-        }
-    }
 }
 #endif
