@@ -80,7 +80,9 @@ public enum StrandPalette {
     // MARK: Text — warm ink on paper / warm off-white on near-black
     public static let textPrimary    = Color(light: "#141414", dark: "#F2F1EE")
     public static let textSecondary  = Color(light: "#6F6F6C", dark: "#A5A4A0")
-    public static let textTertiary   = Color(light: "#A3A29E", dark: "#6E6D69")
+    // AC-3: these are the nearest warm grays that keep the tertiary hierarchy while
+    // clearing 4.5:1 on canvas in both schemes (4.57 light, 5.17 dark).
+    public static let textTertiary   = Color(light: "#72706C", dark: "#888782")
 
     // MARK: Text ON a permanently-dark surface (scheme-invariant)
     // Use these — NOT textPrimary/Secondary/Tertiary — for labels/pills drawn over a fill that is pinned
