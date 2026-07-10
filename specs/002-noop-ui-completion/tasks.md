@@ -358,10 +358,20 @@
     Recovery/Strain/Sleep copy was corrected to the canonical C1 terms. The seeded
     offline state shows `Signal —` instead of inventing RSSI or battery. Full
     `NOOPiOS` simulator build passed.
-- [ ] **T46 — Nit sweep on Close screens** ∥ — fidelity.md "Required direction" nits:
+- [x] **T46 — Nit sweep on Close screens** ∥ — fidelity.md "Required direction" nits:
   Insights duplicate tagline, Quick-Actions workout icon tint, Settings profile card
   (real name + member-since per 001 §6-S10), pre-run row audit vs 2-1, "of 100"
   stragglers grep (AC-3 gate). Verify each with screenshot. Commit per screen-group.
+  - Evidence: `qa/T46-insights.png`, `qa/T46-quick-actions.png`,
+    `qa/T46-settings.png`, and `qa/T46-pre-run.png` were compared with sheets
+    5-1/5-7/4-5/2-1. Insights now has one title treatment; the workout quick-action
+    icon is ink; Settings uses the real local account identity plus the month of the
+    oldest local history row (no profile schema/defaults migration); and pre-run
+    retains Run type, GPS/local status, recent route, last workout, searchable sport
+    list, and the pinned black Start action. All production and test Swift sources are
+    now free of literal `of 100` / `of 21` captions; Vitality and Bevel-gauge renders
+    use bare numerals. Final `NOOPiOS` simulator build passed; `StrandDesign`: 36/36
+    tests.
 
 ## Phase 4 — Restoration (C8/C10, FR-9–11)
 

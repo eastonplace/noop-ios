@@ -1049,11 +1049,8 @@ private struct VitalitySection: View {
                     ZStack {
                         LiquidVessel(value: max(0, min(1, v / 100)), tint: StrandPalette.chargeColor, animated: true)
                             .frame(width: 108, height: 108)
-                        VStack(spacing: 0) {
-                            CountUpNumber(value: v, font: StrandFont.rounded(38))
-                                .foregroundStyle(StrandPalette.onDarkPrimary)
-                            Text("of 100").font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
-                        }
+                        CountUpNumber(value: v, font: StrandFont.rounded(38))
+                            .foregroundStyle(StrandPalette.onDarkPrimary)
                         .allowsHitTesting(false)
                     }
                     .accessibilityElement(children: .ignore)

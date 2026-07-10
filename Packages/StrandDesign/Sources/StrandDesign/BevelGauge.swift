@@ -25,7 +25,7 @@ public struct BevelGauge: View {
     public var tipColor: Color
     /// Big centred number, already formatted (e.g. "87" or "12.4").
     public var numberText: String
-    /// Small caption under the number (e.g. "of 100" / "of 21"). nil hides it.
+    /// Optional small caption under the number. nil hides it.
     public var captionText: String?
     /// State word above/below the number (e.g. "PRIMED"). nil hides it.
     public var stateText: String?
@@ -195,13 +195,13 @@ public struct BevelGauge: View {
         BevelGauge(
             fraction: 0.78, stops: StrandPalette.recoveryStops,
             tipColor: StrandPalette.recoveryColor(78), numberText: "78",
-            captionText: "of 100", stateText: "PRIMED",
+            captionText: nil, stateText: "PRIMED",
             diameter: 200, animatedFraction: 0.78
         )
         BevelGauge(
             fraction: 0.55, stops: StrandPalette.strainStops,
             tipColor: StrandPalette.strainColor(55), numberText: "11.6",
-            captionText: "of 21", stateText: "MODERATE",
+            captionText: nil, stateText: "MODERATE",
             diameter: 200, animatedFraction: 0.55
         )
     }

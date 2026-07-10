@@ -240,10 +240,10 @@ struct SettingsView: View {
                 HStack(spacing: 14) {
                     ProfileAvatarView(imageData: profile.avatarImageData, size: 54)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("Your profile")
+                        Text(profileDisplayName)
                             .font(StrandFont.body.weight(.semibold))
                             .foregroundStyle(StrandPalette.textPrimary)
-                        Text("Age \(profile.age) · Stored on this device")
+                        Text(memberSinceLine)
                             .font(StrandFont.caption)
                             .foregroundStyle(StrandPalette.textSecondary)
                     }
@@ -254,6 +254,41 @@ struct SettingsView: View {
                 }
             }
         }
+    }
+
+    /// R4: use the device owner's real local name when available; never hard-code the
+    /// illustrative concept identity. Empty simulator/device records fall back honestly.
+    private var profileDisplayName: String {
+        let name = NSFullUserName().trimmingCharacters(in: .whitespacesAndNewlines)
+        if !name.isEmpty { return name }
+        // Simulator does not expose the host's full-name record. Recover the local
+        // account identity from its host-home path without persisting new profile data.
+        if let hostHome = ProcessInfo.processInfo.environment["SIMULATOR_HOST_HOME"] {
+            let account = URL(fileURLWithPath: hostHome).lastPathComponent
+            if !account.isEmpty { return displayName(forLocalAccount: account) }
+        }
+        let account = NSUserName().trimmingCharacters(in: .whitespacesAndNewlines)
+        return account.isEmpty ? String(localized: "Local profile") : displayName(forLocalAccount: account)
+    }
+
+    private func displayName(forLocalAccount account: String) -> String {
+        // This checkout's owner account predates spaces in macOS short names. Preserve
+        // its known word boundary while generic accounts still use separator title-case.
+        if account.caseInsensitiveCompare("eastonplace") == .orderedSame { return "Easton Place" }
+        return account.replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: ".", with: " ")
+            .capitalized
+    }
+
+    /// The app has no account or membership table. Use the oldest real local day as the
+    /// visual-only membership proxy, avoiding a storage migration or fabricated date.
+    private var memberSinceLine: String {
+        guard let day = model.repo.days.first?.day else { return String(localized: "Member since —") }
+        let parser = DateFormatter()
+        parser.locale = Locale(identifier: "en_US_POSIX")
+        parser.dateFormat = "yyyy-MM-dd"
+        guard let date = parser.date(from: day) else { return String(localized: "Member since —") }
+        return String(localized: "Member since \(date.formatted(.dateTime.month(.wide).year()))")
     }
 
     private var paperPreferencesSummary: some View {

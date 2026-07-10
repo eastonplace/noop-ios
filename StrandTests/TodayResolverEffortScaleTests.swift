@@ -76,7 +76,7 @@ final class TodayResolverEffortScaleTests: XCTestCase {
         XCTAssertEqual(UnitFormatter.effortScaleMax(.hundred), "100")
     }
 
-    /// On the WHOOP 0–21 scale the gauge rescales the SAME stored value down by 21/100 and reads "of 21".
+    /// On the WHOOP 0–21 scale the gauge rescales the SAME stored value down by 21/100.
     func testEffortGaugeValueWhoopScale() {
         XCTAssertEqual(UnitFormatter.effortValue(100.0, scale: .whoop), 21.0, accuracy: 1e-9)
         XCTAssertEqual(UnitFormatter.effortValue(50.0, scale: .whoop), 10.5, accuracy: 1e-9)

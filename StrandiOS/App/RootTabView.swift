@@ -460,7 +460,7 @@ private struct QuickActionSheet: View {
             row("Live HR", subtitle: "Start live heart rate", icon: "heart.fill",
                 tint: StrandPalette.liveRed) { onPick(.live) }
             row("Start workout", subtitle: "Track a workout", icon: "figure.run",
-                tint: StrandPalette.effortAccent) { onPick(.workout) }
+                tint: StrandPalette.ink) { onPick(.workout) }
             row("Log journal", subtitle: "How are you feeling?", icon: "square.and.pencil",
                 tint: StrandPalette.journalAccent) { onPick(.journal) }
             row("Breathe", subtitle: "Guided breathing", icon: "wind",

@@ -122,7 +122,7 @@ struct WeeklyDigestContent: View {
     var compact: Bool = false
 
     /// The Strain display scale (#268), so the Week-in-review Strain gauge matches the Today tile
-    /// and the Trends small-multiple instead of being stuck on "of 100". Charge/Sleep stay 0–100.
+    /// and the Trends small-multiple instead of a fixed 100-point scale. Charge/Sleep stay 0–100.
     @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.hundred.rawValue
     private var effortScale: EffortScale { UnitPrefs.resolveEffortScale(effortScaleRaw) }
 
@@ -432,7 +432,7 @@ private struct DigestScoreCard: View {
     let deltaTone: Color
     let accessibility: String
     /// The Strain display scale (#268). Only consulted for the Strain card; Charge/Sleep are genuine
-    /// 0–100 scores and ignore it, keeping their "of 100" caption and integer mean.
+    /// 0–100 scores and ignore it, keeping their integer mean.
     var effortScale: EffortScale = .hundred
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -451,7 +451,7 @@ private struct DigestScoreCard: View {
             ? UnitFormatter.effortDisplay(summary.thisWeek.mean, scale: effortScale)
             : "\(Int(summary.thisWeek.mean.rounded()))"
     }
-    /// "of 100" for the genuine 0–100 scores; the Strain card follows the scale toggle ("of 100"/"of 21").
+    /// Scale captions are intentionally suppressed; Strain still follows the canonical formatter.
     private var captionText: String? { nil }
 
     var body: some View {
