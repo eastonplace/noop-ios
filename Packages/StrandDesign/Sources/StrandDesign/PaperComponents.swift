@@ -524,7 +524,7 @@ public struct StressTimelineBar: View {
             .frame(height: NoopMetrics.stressTimelineHeight)
             HStack(spacing: 0) {
                 ForEach(Array(["12AM", "6AM", "12PM", "6PM", "12AM"].enumerated()), id: \.offset) { index, label in
-                    Text(label).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                    Text(label).font(.system(size: 9)).foregroundStyle(StrandPalette.textTertiary)
                     if index < 4 { Spacer(minLength: 0) }
                 }
             }

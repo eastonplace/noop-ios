@@ -111,8 +111,8 @@ public enum StrandFont {
 
     public static let wordmark = sfScaled(13, weight: .semibold, relativeTo: .caption)
     public static let screenOverline = sfScaled(12, weight: .semibold, relativeTo: .caption)
-    public static let sectionOverline = sfScaled(11, weight: .semibold, relativeTo: .caption2)
-    public static let ringScoreSmall = sf(30, weight: .bold).monospacedDigit()
+    public static let sectionOverline = sfScaled(9.5, weight: .medium, relativeTo: .caption2)
+    public static let ringScoreSmall = sf(26, weight: .semibold).monospacedDigit()
     public static let ringScoreLarge = sf(44, weight: .bold).monospacedDigit()
     public static let timer = sf(64, weight: .bold).monospacedDigit()
     public static let metricValue = sf(24, weight: .bold).monospacedDigit()
@@ -122,7 +122,7 @@ public enum StrandFont {
 
     public static let wordmarkTracking: CGFloat = 4
     public static let screenOverlineTracking: CGFloat = 1.5
-    public static let sectionOverlineTracking: CGFloat = 1.2
+    public static let sectionOverlineTracking: CGFloat = 1.4
     public static let timerTracking: CGFloat = -1
 
     /// Compatibility tracking for existing `.strandOverline()` call sites.

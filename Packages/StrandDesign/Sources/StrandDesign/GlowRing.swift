@@ -54,7 +54,7 @@ public struct ScoreRing: View {
     public var body: some View {
         ZStack {
             Circle()
-                .stroke(StrandPalette.inset,
+                .stroke(accent.opacity(0.10),
                         style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
             Circle()
                 .trim(from: 0, to: max(0.0001, animatedProgress))

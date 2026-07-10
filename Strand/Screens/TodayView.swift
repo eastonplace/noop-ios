@@ -1348,16 +1348,21 @@ struct TodayView: View {
         let timeline = stressRibbonSlots
         return Button { paperPillarDetail = .stress } label: {
             PaperCard(padding: 12) {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(alignment: .firstTextBaseline) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("Today’s Stress").strandOverline()
-                            Text(paperStressState(value))
-                                .font(StrandFont.cardTitle).foregroundStyle(StrandPalette.textPrimary)
-                        }
+                // D13 (spec 004): dot + overline + value badge on one quiet row, small state
+                // word, thin ribbon — the reference module, not a headline block.
+                VStack(alignment: .leading, spacing: 7) {
+                    HStack(spacing: 6) {
+                        Circle().fill(StrandPalette.stressAccent).frame(width: 8, height: 8)
+                        Text("Today’s Stress").strandOverline()
                         Spacer()
-                        StatusBadge(LocalizedStringKey(display), style: .ready, tint: StrandPalette.stressAccent)
+                        Text(display)
+                            .font(.system(size: 10, weight: .semibold)).monospacedDigit()
+                            .foregroundStyle(StrandPalette.stressAccent)
+                            .padding(.horizontal, 7).frame(height: 18)
+                            .background(StrandPalette.stressTint, in: Capsule())
                     }
+                    Text(paperStressState(value))
+                        .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
                     StressTimelineBar(values: timeline)
                 }
             }

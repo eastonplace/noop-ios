@@ -1,6 +1,7 @@
 #if DEBUG
 import Foundation
 import WhoopStore
+import WhoopProtocol
 
 // MARK: - DEBUG-only demo seed (Apple parity with Android's DemoSeeder)
 // Seeds a comprehensive, self-contained synthetic dataset so a DEBUG build can walk every screen —
@@ -222,6 +223,38 @@ enum AppleDemoSeeder {
             bodyAgeDemo -= 0.6
         }
 
+        // 004 T80: bank TODAY's intraday HR + R-R so the stress ribbon and Live-HR module
+        // render populated states in simulator screenshots. DaytimeStress needs >= 300 HR
+        // samples per hour to score an hour, so we seed one sample every 10 s from 06:00
+        // to "now" with a gentle daily arc + noise, and R-R at ~0.5 Hz tracking the HR.
+        // Sim-only by construction: the seeder itself only runs behind --demo-seed.
+        do {
+            let cal = Calendar.current
+            let dayStart = Int(cal.startOfDay(for: Date()).timeIntervalSince1970)
+            let wake = dayStart + 6 * 3600
+            let now = Int(Date().timeIntervalSince1970)
+            if now > wake {
+                var hrs: [HRSample] = []
+                var rrs: [RRInterval] = []
+                var t = wake
+                while t < now {
+                    let hourOfDay = Double(t - dayStart) / 3600.0
+                    // Resting ~58, morning walk bump ~9-10h, midday ~70, evening spike ~18h.
+                    let arc = 62.0 + 14.0 * sin((hourOfDay - 7.0) / 17.0 * .pi)
+                        + (hourOfDay > 9.0 && hourOfDay < 10.0 ? 26.0 : 0)
+                        + (hourOfDay > 17.5 && hourOfDay < 18.5 ? 38.0 : 0)
+                    let bpm = Int((arc + gauss(&rng, 0, 3.0)).clamped(48, 168).rounded())
+                    hrs.append(HRSample(ts: t, bpm: bpm))
+                    if t % 2 == 0 {
+                        let rrMs = Int((60_000.0 / Double(bpm) + gauss(&rng, 0, 22.0))
+                            .clamped(320, 1300).rounded())
+                        rrs.append(RRInterval(ts: t, rrMs: rrMs))
+                    }
+                    t += 10
+                }
+                _ = try await store.insert(Streams(hr: hrs, rr: rrs), deviceId: whoop)
+            }
+        }
         _ = try await store.upsertDailyMetrics(daily, deviceId: whoop)
         _ = try await store.upsertSleepSessions(sleeps, deviceId: whoop)
         _ = try await store.upsertMetricSeries(series, deviceId: whoop)

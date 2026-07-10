@@ -25,10 +25,10 @@ public enum NoopMetrics {
     // Keep the acceptance dimensions here so score, chart, and dashboard primitives
     // cannot quietly drift apart again.
     public static let trioRingDiameter: CGFloat = 64
-    public static let trioRingLineWidth: CGFloat = 5
+    public static let trioRingLineWidth: CGFloat = 4
     public static let trioRingNumeralSize: CGFloat = 30
     public static let heroRingDiameter: CGFloat = 96
-    public static let heroRingLineWidth: CGFloat = 7
+    public static let heroRingLineWidth: CGFloat = 6
     public static let heroRingNumeralSize: CGFloat = 44
     public static let liveRunTimerSize: CGFloat = 64
     public static let healthTileIconSize: CGFloat = 16
@@ -36,7 +36,7 @@ public enum NoopMetrics {
     public static let healthTileValueSize: CGFloat = 20
     public static let healthTileSparklineHeight: CGFloat = 16
     public static let healthTileMinHeight: CGFloat = 68
-    public static let stressTimelineHeight: CGFloat = 6
+    public static let stressTimelineHeight: CGFloat = 4
     public static let chartLineWidth: CGFloat = 2
     public static let iconCircleDiameter: CGFloat = 34
 
