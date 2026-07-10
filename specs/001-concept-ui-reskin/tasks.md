@@ -196,9 +196,14 @@
     Health Monitor grid; existing detail routes remain attached. `StrandDesign` passed
     30 tests and `NOOPiOS` built and ran. `qa/T09-today.png` was visually checked against
     sheets 1-1 and 3-1.
-- [ ] **T10 — Trends (S2)** — Modify `Strand/Screens/TrendsView.swift`
+- [x] **T10 — Trends (S2)** — Modify `Strand/Screens/TrendsView.swift`
   (+ `TrendsReportView.swift` if it hosts week-review copy). Spec §6-S2. Verify vs
   sheet 1-2. Commit.
+  - Verified 2026-07-09: S2 now uses the existing deterministic weekly digest and
+    daily series for the three score cards, week-over-week deltas, grouped 0–100
+    three-line chart, review bullets, and insight. Calendar/share routes are preserved,
+    the report sheet remains wired, and the page uses the light Paper canvas.
+    `NOOPiOS` built and ran; `qa/T10-trends.png` was visually checked against sheet 1-2.
 - [ ] **T11 — Sleep (S3)** — Modify `Strand/Screens/SleepView.swift`. Spec §6-S3.
   Verify vs sheet 1-3. Commit.
 - [ ] **T12 — More tab list** — Modify the More list in

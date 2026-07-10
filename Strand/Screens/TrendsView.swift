@@ -1,4 +1,5 @@
 import SwiftUI
+import Charts
 import StrandDesign
 import StrandAnalytics
 import WhoopStore
@@ -226,50 +227,32 @@ struct TrendsView: View {
     }
 
     private var scaffold: some View {
-        ScreenScaffold(title: "Trends", subtitle: "The thread of you over time.",
+        ScreenScaffold(title: "This Week", subtitle: LocalizedStringKey(paperWeekRangeLabel),
                        // PERF (scroll): lazy column — byte-identical layout (LazyVStack == eager VStack
                        // alignment/spacing/header). The content is one inner eager VStack, so the staggered
                        // section reveal is unchanged; this only defers building that stack until it scrolls in.
                        onRefresh: { await repo.refresh() },
                        lazy: true,
-                       topBackground: liquidScaffoldSky()) {
+                       topBackground: nil,
+                       trailing: {
+                           HStack(spacing: 12) {
+                               Image(systemName: "calendar")
+                               Button { showingReport = true } label: { Image(systemName: "square.and.arrow.up") }
+                                   .buttonStyle(.plain)
+                           }
+                           .font(.system(size: 15, weight: .medium))
+                           .foregroundStyle(StrandPalette.textPrimary)
+                       }) {
             if repo.days.isEmpty {
                 ComingSoon(what: repo.loaded
                     ? "Trends need history to draw. Import your WHOOP export in Data Sources to see weeks, months and years instantly."
                     : "Loading your history…")
             } else {
-                // Resolve each metric's window ONCE per body and pass the results
-                // down — rangeBar/heroRecovery/smallMultiples all reuse these
-                // instead of re-filtering repo.days through caption/widened/
-                // windowPoints on every render (hover, animation, 1 Hz HR tick).
-                let recovery = resolve { $0.recovery }
-                let hrv = resolve { $0.avgHrv }
-                let rhr = resolve { $0.restingHr.map(Double.init) }
-                let strain = resolve { $0.strain }
-                // Rest = the sleep_performance composite — the same number the Today Rest score shows
-                // (#732); see sleepPerfByDay. resolve() still does the windowing/widening.
-                let rest = resolve { sleepPerfByDay[$0.day] }
                 VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
-                    // The main card list ripples in once on appear (Reduce-Motion safe).
-                    Group {
-                        // Week-in-review digest (#208) with prev/next week browsing (#710) — self-hides
-                        // only when NO week in history has data. Past weeks render in the same format.
-                        weeklyDigestNav
-                            .staggeredAppear(index: 0)
-                        // The Charge / Effort / Rest trio, presented in NOOP's pip language.
-                        weekInReview(charge: recovery, effort: strain, rest: rest)
-                            .staggeredAppear(index: 1)
-                        rangeBar(recovery: recovery)
-                            .staggeredAppear(index: 2)
-                        heroRecovery(recovery: recovery)
-                            .staggeredAppear(index: 3)
-                        smallMultiples(hrv: hrv, rhr: rhr, strain: strain)
-                            .staggeredAppear(index: 4)
-                        yearStrip
-                            .staggeredAppear(index: 5)
-                        exportReportRow
-                            .staggeredAppear(index: 6)
-                    }
+                    paperScoreTiles
+                    paperScoresOverTime
+                    paperWeekReview
+                    paperInsight
                 }
             }
         }
@@ -285,6 +268,146 @@ struct TrendsView: View {
             let s = await repo.exploreSeries(key: "sleep_performance", source: "my-whoop")
             sleepPerfByDay = Dictionary(s.map { ($0.day, $0.value) }, uniquingKeysWith: { _, last in last })
         }
+    }
+
+    // MARK: - Paper Trends (S2)
+
+    private var paperDigest: WeeklyDigest {
+        WeeklyDigestSource.digest(from: repo.days, anchorDay: weekAnchorDay)
+    }
+
+    private var paperWeekDays: [DailyMetric] {
+        let digest = paperDigest
+        return repo.days.filter { $0.day >= digest.weekStart && $0.day <= digest.weekEnd }
+    }
+
+    private var paperWeekRangeLabel: String {
+        let digest = WeeklyDigestSource.digest(from: repo.days, anchorDay: weekAnchorDay)
+        guard let start = date(digest.weekStart), let end = date(digest.weekEnd) else { return "" }
+        let f = DateFormatter(); f.locale = Locale.current; f.setLocalizedDateFormatFromTemplate("MMM d")
+        return "\(f.string(from: start)) — \(f.string(from: end))"
+    }
+
+    private var paperScoreTiles: some View {
+        HStack(alignment: .top, spacing: 8) {
+            paperScoreTile(.charge, accent: StrandPalette.chargeAccent)
+            paperScoreTile(.effort, accent: StrandPalette.effortAccent)
+            paperScoreTile(.rest, accent: StrandPalette.restAccent)
+        }
+    }
+
+    private func paperScoreTile(_ metric: WeeklyMetric, accent: Color) -> some View {
+        let summary = paperDigest.summary(metric)
+        let hasValue = (summary?.thisWeek.n ?? 0) > 0
+        let value = hasValue ? "\(Int((summary?.thisWeek.mean ?? 0).rounded()))" : "—"
+        let delta = summary?.wowDelta ?? 0
+        let sign = delta >= 0 ? "+" : "−"
+        return PaperCard(padding: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(LocalizedStringKey(metric.label))
+                    .font(StrandFont.caption).foregroundStyle(accent)
+                Text(value).font(StrandFont.statValue).foregroundStyle(StrandPalette.textPrimary)
+                Text(hasValue ? "\(sign)\(Int(abs(delta).rounded())) vs last week" : "No data this week")
+                    .font(StrandFont.micro)
+                    .foregroundStyle(summary?.wowGoodness == -1 ? StrandPalette.destructive : StrandPalette.success)
+                    .lineLimit(2)
+            }
+            .frame(maxWidth: .infinity, minHeight: 70, alignment: .leading)
+        }
+    }
+
+    private var paperScoresOverTime: some View {
+        PaperCard {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Scores Over Time").strandOverline()
+                HStack(spacing: 12) {
+                    paperLegend("Charge", color: StrandPalette.chargeAccent)
+                    paperLegend("Effort", color: StrandPalette.effortAccent)
+                    paperLegend("Rest", color: StrandPalette.restAccent)
+                }
+                Chart {
+                    ForEach(paperWeekDays, id: \.day) { day in
+                        if let value = day.recovery, let date = date(day.day) {
+                            LineMark(x: .value("Day", date), y: .value("Charge", value))
+                                .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                                .foregroundStyle(by: .value("Series", "Charge"))
+                            PointMark(x: .value("Day", date), y: .value("Charge", value))
+                                .foregroundStyle(by: .value("Series", "Charge")).symbolSize(18)
+                        }
+                        if let value = day.strain, let date = date(day.day) {
+                            LineMark(x: .value("Day", date), y: .value("Effort", value))
+                                .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                                .foregroundStyle(by: .value("Series", "Effort"))
+                            PointMark(x: .value("Day", date), y: .value("Effort", value))
+                                .foregroundStyle(by: .value("Series", "Effort")).symbolSize(18)
+                        }
+                        if let value = sleepPerfByDay[day.day], let date = date(day.day) {
+                            LineMark(x: .value("Day", date), y: .value("Rest", value))
+                                .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                                .foregroundStyle(by: .value("Series", "Rest"))
+                            PointMark(x: .value("Day", date), y: .value("Rest", value))
+                                .foregroundStyle(by: .value("Series", "Rest")).symbolSize(18)
+                        }
+                    }
+                }
+                .chartForegroundStyleScale(domain: ["Charge", "Effort", "Rest"],
+                                           range: [StrandPalette.chargeAccent,
+                                                   StrandPalette.effortAccent,
+                                                   StrandPalette.restAccent])
+                .chartLegend(.hidden)
+                .chartYScale(domain: 0...100)
+                .chartXAxis {
+                    AxisMarks(values: .automatic(desiredCount: 7)) { _ in
+                        AxisValueLabel(format: .dateTime.weekday(.narrow))
+                            .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                    }
+                }
+                .chartYAxis {
+                    AxisMarks(position: .trailing, values: [0, 50, 100]) { _ in
+                        AxisGridLine().foregroundStyle(StrandPalette.hairline)
+                        AxisValueLabel().font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                    }
+                }
+                .chartPlotStyle { $0.background(StrandPalette.inset.opacity(0.45)) }
+                .frame(height: 180)
+            }
+        }
+    }
+
+    private func paperLegend(_ title: LocalizedStringKey, color: Color) -> some View {
+        HStack(spacing: 5) {
+            Circle().fill(color).frame(width: 7, height: 7)
+            Text(title).font(StrandFont.micro).foregroundStyle(StrandPalette.textSecondary)
+        }
+    }
+
+    private var paperReviewLines: [String] {
+        let digest = paperDigest
+        var lines = digest.focalPoints
+        if !lines.contains(digest.balance.sentence) { lines.append(digest.balance.sentence) }
+        return Array(lines.prefix(3))
+    }
+
+    private var paperWeekReview: some View {
+        PaperCard {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Week in Review").strandOverline()
+                ForEach(Array(paperReviewLines.enumerated()), id: \.offset) { index, line in
+                    HStack(alignment: .top, spacing: 9) {
+                        Circle().fill([StrandPalette.chargeAccent, StrandPalette.restAccent,
+                                       StrandPalette.stressAccent][index % 3])
+                            .frame(width: 8, height: 8).padding(.top, 5)
+                        Text(line).font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+    }
+
+    private var paperInsight: some View {
+        InsightCard(symbol: "sparkles", title: "Insight",
+                    body: LocalizedStringKey(paperDigest.balance.sentence), accent: StrandPalette.effortAccent)
     }
 
     // MARK: Week-in-review digest with prev/next week browsing (#710)
