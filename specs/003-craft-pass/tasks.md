@@ -34,3 +34,35 @@
   every screen not yet touched; XL-type collision pass; refresh
   `qa/after/` full set + contact sheet; update 002 fidelity.md scores with a
   "craft" column; push. Final GATE = full-set review.
+
+---
+
+## Shipped by Claude (T60–T62) — 2026-07-10
+
+- **T60** (`105cb046`): spec committed, `pre-craft-pass` tag. D9 answers: Nutrition
+  CSV importer EXISTS (`StrandImport/NutritionCsvImport.swift`); BTC/ETH addresses
+  EXIST (`docs/DONATIONS.md:86`) → both board rows allowed in T68; Garmin —
+  `WearableExportImporter` covers wearable exports, verify Garmin specifically
+  before adding its row. T56 had NOT been done: deep links still hit
+  `MetricDetailView` — fixed: `StrandiOSApp.swift` routes recoverydetail →
+  `PaperPillarDetailView(kind: .charge)`, straindetail → `(kind: .effort)`.
+  **`references/board-v2.png` is still missing — Easton must drop it in before
+  T63.**
+- **T61** (`528b69c5`, proof `qa/T61-today.png`): center-docked 44 pt ink FAB in
+  `PaperTabBar` (Today·Trends·⊕·Sleep·More), floating FAB removed from TodayView;
+  `MetricTile` icons monochrome ink + line variants (lungs/drop/moon), sparklines
+  removed; `StressTimelineBar` → 6 pt continuous capsule ribbon (spacing 0);
+  Live-HR empty state = dimmed flat trace in the 130×42 chart slot; glance icon
+  ink. Deferred: trio rhythm micro-tuning; Key Metrics empty-card states (T69);
+  stress timeline DATA is a repeat-fill of today's scalar
+  (`TodayView.paperStressCard`) — wire the real day curve in T64.
+- **T62** (`036f2e5f`, proof `qa/T62-trends.png`): plot slab removed; Recovery line
+  55% opacity so band-colored dots carry it (Strain #0093E7 unmistakable); dots
+  symbolSize 12; bullets = focalPoints only, pillar-keyword dot tints; Insight
+  renders only when distinct from bullets (verified — duplicate gone). Deferred:
+  W·M·3M·6M·Y·All range chips are DATA work (Trends is week-stepper based) —
+  Codex wires real range queries or Easton drops the chips; paper chip style, not
+  blue pills.
+- Build: `NOOPiOS` BUILD SUCCEEDED (iPhone 17 Pro Max sim); note `swift test` on
+  StrandDesign reported 0 discovered tests under swift-testing — Codex should run
+  the XCTest path it used for its 34/34 count and confirm.
