@@ -34,11 +34,15 @@
     `NOOPiOS` build passed. Pre-existing unrelated red tests remain: the renamed
     WeeklyDigest assertion still expects “Charge”, and the T81 proportion test
     still expects the pre-D12 stroke/spacing tokens.
-- [ ] **T85 — D16 real status bands**: locate baselines in
+- [x] **T85 — D16 real status bands**: locate baselines in
   StressModel/AnalyticsEngine; implement band helpers beside StrainScale
   (`FactorBands`); restore status words on Recovery key factors + Strain
   contributors with citations; value-only fallback stays. Unit tests for the
   band boundaries. GATE.
+  Proof: `qa/T85-recovery-detail.png`, `qa/T85-strain-detail.png` compared
+  side-by-side with sheet 3. `StrandDesignTests.testFactorBands*` 3/3 and
+  `NOOPiOS` simulator build passed. Calories/Duration remain value-only because
+  the engine exposes no normative baseline for either.
 - [ ] **T86 — D15 pre-run rebuild** per sheet 2-1 (run-type segmented cards,
   last-workout card, run-setup rows, Start button; route card only if route
   data exists). GATE.

@@ -114,6 +114,51 @@ final class StrandDesignTests: XCTestCase {
         XCTAssertEqual(StrainScale.band(21), .allOut)
     }
 
+    func testFactorBandsPersonalVitalBoundaries() {
+        XCTAssertEqual(FactorBands.hrv(deviationRatio: 0.050_001, zScore: 0.5), .good)
+        XCTAssertEqual(FactorBands.hrv(deviationRatio: 0.05, zScore: 0.5), .steady)
+        XCTAssertEqual(FactorBands.hrv(deviationRatio: -0.05, zScore: -0.5), .steady)
+        XCTAssertEqual(FactorBands.hrv(deviationRatio: -0.050_001, zScore: -2), .fair)
+        XCTAssertEqual(FactorBands.hrv(deviationRatio: -0.050_001, zScore: -2.001), .low)
+
+        XCTAssertEqual(FactorBands.restingHR(deviationRatio: -0.050_001, zScore: -0.5), .good)
+        XCTAssertEqual(FactorBands.restingHR(deviationRatio: -0.05, zScore: -0.5), .steady)
+        XCTAssertEqual(FactorBands.restingHR(deviationRatio: 0.05, zScore: 0.5), .steady)
+        XCTAssertEqual(FactorBands.restingHR(deviationRatio: 0.050_001, zScore: 2), .fair)
+        XCTAssertEqual(FactorBands.restingHR(deviationRatio: 0.050_001, zScore: 2.001), .high)
+        XCTAssertNil(FactorBands.hrv(deviationRatio: nil, zScore: nil))
+    }
+
+    func testFactorBandsSleepAndNormalWindowBoundaries() {
+        XCTAssertEqual(FactorBands.sleepPerformance(percent: 85), .good)
+        XCTAssertEqual(FactorBands.sleepPerformance(percent: 84.999), .fair)
+        XCTAssertEqual(FactorBands.sleepPerformance(percent: 70), .fair)
+        XCTAssertEqual(FactorBands.sleepPerformance(percent: 69.999), .low)
+
+        XCTAssertEqual(FactorBands.respiratoryRate(zScore: -1), .good)
+        XCTAssertEqual(FactorBands.respiratoryRate(zScore: 1), .good)
+        XCTAssertEqual(FactorBands.respiratoryRate(zScore: 1.001), .fair)
+        XCTAssertEqual(FactorBands.respiratoryRate(zScore: -1.001), .fair)
+        XCTAssertEqual(FactorBands.respiratoryRate(zScore: 2), .high)
+        XCTAssertEqual(FactorBands.respiratoryRate(zScore: -2), .low)
+
+        XCTAssertEqual(FactorBands.skinTemperature(deviationC: 0.3, typicalBandC: 0.3), .good)
+        XCTAssertEqual(FactorBands.skinTemperature(deviationC: -0.3, typicalBandC: 0.3), .good)
+        XCTAssertEqual(FactorBands.skinTemperature(deviationC: 0.301, typicalBandC: 0.3), .fair)
+        XCTAssertEqual(FactorBands.skinTemperature(deviationC: -0.301, typicalBandC: 0.3), .fair)
+        XCTAssertEqual(FactorBands.skinTemperature(deviationC: 1, typicalBandC: 0.3), .high)
+        XCTAssertEqual(FactorBands.skinTemperature(deviationC: -1, typicalBandC: 0.3), .low)
+    }
+
+    func testFactorBandsHeartRateZoneBoundaries() {
+        XCTAssertEqual(FactorBands.heartRate(bpm: 169.999, maxHR: 200), .moderate)
+        XCTAssertEqual(FactorBands.heartRate(bpm: 170, maxHR: 200), .high)
+        XCTAssertEqual(FactorBands.heartRate(bpm: 140, maxHR: 200), .moderate)
+        XCTAssertEqual(FactorBands.heartRate(bpm: 139.999, maxHR: 200), .light)
+        XCTAssertNil(FactorBands.heartRate(bpm: nil, maxHR: 200))
+        XCTAssertNil(FactorBands.heartRate(bpm: 150, maxHR: nil))
+    }
+
     func testRecoveryBandBoundariesAndColors() {
         XCTAssertEqual(RecoveryBands.band(for: 33), .low)
         XCTAssertEqual(RecoveryBands.band(for: 34), .medium)

@@ -904,16 +904,24 @@ struct PaperPillarDetailView: View {
                     .foregroundStyle(StrandPalette.textSecondary)
                     .padding(.bottom, 8)
                 factorRow(icon: "waveform.path.ecg", name: "HRV",
-                          value: latestDay?.avgHrv.map { "\(Int($0.rounded())) ms" } ?? "—")
+                          value: latestDay?.avgHrv.map { "\(Int($0.rounded())) ms" } ?? "—",
+                          status: hrvFactorBand)
                 factorRow(icon: "heart", name: "RHR",
-                          value: latestDay?.restingHr.map { "\($0) bpm" } ?? "—")
+                          value: latestDay?.restingHr.map { "\($0) bpm" } ?? "—",
+                          status: restingHRFactorBand)
                 factorRow(icon: "moon", name: "Sleep",
                           value: latestDay.flatMap { AnalyticsEngine.Rest.composite(daily: $0) }
-                            .map { "\(Int($0.rounded()))%" } ?? "—")
+                            .map { "\(Int($0.rounded()))%" } ?? "—",
+                          status: FactorBands.sleepPerformance(
+                            percent: latestDay.flatMap { AnalyticsEngine.Rest.composite(daily: $0) }))
                 factorRow(icon: "lungs", name: "Resp. Rate",
-                          value: latestDay?.respRateBpm.map { String(format: "%.1f rpm", $0) } ?? "—")
+                          value: latestDay?.respRateBpm.map { String(format: "%.1f rpm", $0) } ?? "—",
+                          status: respiratoryRateFactorBand)
                 factorRow(icon: "thermometer.medium", name: "Skin Temp",
                           value: latestDay?.skinTempDevC.map { String(format: "%+.1f °C", $0) } ?? "—",
+                          status: FactorBands.skinTemperature(
+                            deviationC: latestDay?.skinTempDevC,
+                            typicalBandC: RecoveryScorer.skinTempTypicalBandC),
                           divider: false)
             }
         }
@@ -968,11 +976,17 @@ struct PaperPillarDetailView: View {
                     .foregroundStyle(StrandPalette.textSecondary)
                     .padding(.bottom, 8)
                 factorRow(icon: "heart", name: "Average HR",
-                          value: averageHR.isEmpty ? "—" : "\(averageHR.reduce(0, +) / averageHR.count) bpm")
+                          value: averageHR.isEmpty ? "—" : "\(averageHR.reduce(0, +) / averageHR.count) bpm",
+                          status: FactorBands.heartRate(
+                            bpm: averageHR.isEmpty ? nil : Double(averageHR.reduce(0, +)) / Double(averageHR.count),
+                            maxHR: profile.hrMax > 0 ? Double(profile.hrMax) : nil))
                 factorRow(icon: "flame", name: "Calories",
                           value: calories > 0 ? "\(Int(calories.rounded())) kcal" : "—")
                 factorRow(icon: "heart.circle.fill", name: "Max HR",
-                          value: maxHR.map { "\($0) bpm" } ?? "—")
+                          value: maxHR.map { "\($0) bpm" } ?? "—",
+                          status: FactorBands.heartRate(
+                            bpm: maxHR.map(Double.init),
+                            maxHR: profile.hrMax > 0 ? Double(profile.hrMax) : nil))
                 factorRow(icon: "clock.fill", name: "Duration",
                           value: duration > 0 ? durationText(duration) : "—",
                           divider: false)
@@ -1216,8 +1230,49 @@ struct PaperPillarDetailView: View {
         }
     }
 
+    /// D16's personal 7-day baseline. The engine helper applies its real metric
+    /// validity bounds and cold-start gate; excluding the displayed night prevents leakage.
+    private func sevenDayDeviation(
+        value: Double?,
+        values: [Double?],
+        cfg: MetricCfg
+    ) -> Deviation? {
+        guard let value else { return nil }
+        let state = Baselines.rollingMeanSD(values, cfg: cfg, window: 7)
+        guard state.usable else { return nil }
+        return Baselines.deviation(value, state: state)
+    }
+
+    private var priorFactorDays: [DailyMetric] {
+        Array(repo.days.dropLast().suffix(7))
+    }
+
+    private var hrvFactorBand: FactorBand? {
+        let deviation = sevenDayDeviation(
+            value: latestDay?.avgHrv,
+            values: priorFactorDays.map(\.avgHrv),
+            cfg: Baselines.hrvCfg)
+        return FactorBands.hrv(deviationRatio: deviation?.ratio, zScore: deviation?.z)
+    }
+
+    private var restingHRFactorBand: FactorBand? {
+        let deviation = sevenDayDeviation(
+            value: latestDay?.restingHr.map(Double.init),
+            values: priorFactorDays.map { $0.restingHr.map(Double.init) },
+            cfg: Baselines.restingHRCfg)
+        return FactorBands.restingHR(deviationRatio: deviation?.ratio, zScore: deviation?.z)
+    }
+
+    private var respiratoryRateFactorBand: FactorBand? {
+        let deviation = sevenDayDeviation(
+            value: latestDay?.respRateBpm,
+            values: priorFactorDays.map(\.respRateBpm),
+            cfg: Baselines.respCfg)
+        return FactorBands.respiratoryRate(zScore: deviation?.z)
+    }
+
     private func factorRow(icon: String, name: LocalizedStringKey, value: String,
-                           status: LocalizedStringKey? = nil, statusColor: Color = .clear,
+                           status: FactorBand? = nil,
                            divider: Bool = true) -> some View {
         HStack(spacing: 11) {
             Image(systemName: icon)
@@ -1228,10 +1283,12 @@ struct PaperPillarDetailView: View {
             Text(name).font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
             Spacer(minLength: 8)
             Text(value).font(StrandFont.captionNumber).foregroundStyle(StrandPalette.textSecondary)
-            // Craft pass (003): status words render ONLY when computed from real band
-            // logic. The previous hardcoded "Good"/"High" literals lied about the data.
+            // D16: every word comes from FactorBands + the cited analytics source;
+            // nil preserves the honest value-only fallback for metrics without a baseline.
             if let status {
-                Text(status).font(StrandFont.micro.weight(.semibold)).foregroundStyle(statusColor)
+                Text(LocalizedStringKey(status.localizationKey))
+                    .font(StrandFont.micro.weight(.semibold))
+                    .foregroundStyle(status.color)
                     .frame(width: 52, alignment: .trailing)
             }
         }
