@@ -569,11 +569,20 @@
 
 ## Phase 6 — QA + handoff
 
-- [ ] **T54 — Matrix QA (001 T28 superseded)**
+- [x] **T54 — Matrix QA (001 T28 superseded)**
   - Light+dark × {16 Pro, SE-class, Pro Max} on all reference screens; Dynamic Type
     XL on the six primary; Reduce Motion spot check; VoiceOver labels on Today/Sleep.
     AC-3 contrast re-check. Smoke-build macOS `Strand`. Fix fails, screenshot proof,
     commit.
+  - Evidence: `qa/T54-matrix/` contains 144 settled seeded screenshots: 24 reference
+    routes × light/dark × iPhone 16 Pro, SE-class, and Pro Max. `qa/T54-accessibility/`
+    contains Dynamic Type XL proof for Today/Trends/Sleep/Live/Workouts/Settings,
+    Increase Contrast and Reduce Motion spots, plus the runtime accessibility-tree
+    label audit for Today and Sleep. Visual inspection caught and rejected an early
+    launch-frame batch before the final 2-second-settled recapture. The matrix also
+    exposed iOS-only navigation-bar modifiers in shared views and a Today trailing
+    header compile issue; all were platform-gated. Final `NOOPiOS` and macOS `Strand`
+    builds passed.
 - [ ] **T55 — Evidence + PR (001 T29 superseded)**
   - Full AFTER set into `qa/after/`; contact sheet via `Tools/make_contact_sheet.py`
     (before = T31 baseline); re-score every fidelity.md row inline (D11); walk spec

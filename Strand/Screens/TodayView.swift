@@ -1108,6 +1108,10 @@ struct TodayView: View {
     }
     #endif
 
+    #if !os(iOS)
+    private var todayHeaderStatus: some View { EmptyView() }
+    #endif
+
     /// The Updates "ringer": a bell button (~30pt) with a small gold unread-count badge. Tapping opens
     /// the Updates inbox sheet. Shared by the iOS top bar and the macOS toolbar.
     private var updateBell: some View {

@@ -775,7 +775,9 @@ struct PaperPillarDetailView: View {
                     }
                 }
             }
+            #if os(iOS)
             .toolbar(.hidden, for: .navigationBar)
+            #endif
         }
         .task(id: repo.refreshSeq) {
             async let workoutRows = repo.workoutRows()
@@ -923,7 +925,9 @@ struct PaperPillarDetailView: View {
     private var recommendationCard: some View {
         NavigationLink {
             ScoringGuideView(initialSection: .charge, onClose: {})
+                #if os(iOS)
                 .toolbar(.visible, for: .navigationBar)
+                #endif
         } label: {
             PaperCard {
                 HStack(spacing: 12) {
@@ -991,7 +995,10 @@ struct PaperPillarDetailView: View {
                         .tracking(StrandFont.sectionOverlineTracking)
                     Spacer()
                     NavigationLink("View Details") {
-                        WorkoutsView().toolbar(.visible, for: .navigationBar)
+                        WorkoutsView()
+                            #if os(iOS)
+                            .toolbar(.visible, for: .navigationBar)
+                            #endif
                     }
                         .font(StrandFont.caption.weight(.semibold))
                         .foregroundStyle(StrandPalette.link)

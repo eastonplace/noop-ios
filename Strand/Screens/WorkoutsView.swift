@@ -165,7 +165,9 @@ struct WorkoutsView: View {
                 sessionsSection(rows: windowRows)
             }
         }
+        #if os(iOS)
         .toolbar(.hidden, for: .navigationBar)
+        #endif
         .task(id: repo.refreshSeq) {
             guard !usesPreviewRows else { return }
             // #797: read only the currently-loaded window (bounded on first paint), not the whole history.
