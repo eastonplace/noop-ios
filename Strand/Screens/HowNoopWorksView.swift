@@ -89,9 +89,7 @@ struct HowNoopWorksView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-                .background {
-                    ScenicHeroBackground(domain: .rest, starCount: 28, fadesToBase: true)
-                }
+                .background(StrandPalette.card)
             Divider().overlay(StrandPalette.hairline)
             ScrollView {
                 VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {

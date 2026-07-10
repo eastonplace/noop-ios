@@ -100,8 +100,12 @@ struct SmartAlarmView: View {
     // sleep, so it reads in the Rest world (indigo) rather than the brand-green chrome below.
     private var windowHero: some View {
         ZStack {
-            ScenicHeroBackground(domain: .rest)
-                .clipShape(RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous))
+            RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous)
+                .fill(StrandPalette.card)
+                .overlay(
+                    RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous)
+                        .strokeBorder(StrandPalette.cardBorder, lineWidth: 1)
+                )
             VStack(alignment: .leading, spacing: 12) {
                 Text("Tonight").strandOverline()
                 HStack(alignment: .firstTextBaseline, spacing: 14) {

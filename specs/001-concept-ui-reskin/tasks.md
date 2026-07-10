@@ -366,12 +366,20 @@
 
 ## Phase 8 — Sweep + QA
 
-- [ ] **T27 — R8 sweep (spec §7)**
+- [x] **T27 — R8 sweep (spec §7)**
   - `grep -rn "onDark\|gold\|titanium\|glow\|scenic" Strand/Screens Strand/Liquid
     StrandiOS` → repoint every rendered-on-iOS hit to new tokens.
   - Walk every §7 screen in the simulator (light + dark); fix hardcoded colors, broken
     contrast, dark-only imagery. Layout unchanged.
   - Verify: no rendered gold/glow anywhere (AC-2). Commit per screen-group.
+  - Verified 2026-07-09: the required rendered-token grep now returns zero live
+    `ScenicHeroBackground`, `goldDeepText`, gold/titanium/glow palette, or
+    `liquidScaffoldSky` call sites in `Strand/Screens`. `NOOPiOS` built and ran.
+    `qa/T27-health-light.jpg` / `qa/T27-health-dark.jpg` confirm the same Health
+    hierarchy on Paper surfaces in both schemes; `qa/T27-compare-dark.jpg` and
+    `qa/T27-explore-dark.jpg` spot-check dense charts/lists without scenic fields,
+    gold, bloom, or hardcoded light-only text. Fixed-dark liquid readouts use the
+    explicit `onDark*` tokens; layouts and behaviors are unchanged.
 - [ ] **T28 — Theme + platform matrix**
   - Dark mode pass over S1–S27 (§2.2 + AC-6); contrast spot-checks (AC-3).
   - Dynamic Type XL on Today/Sleep/Settings/Live-run (AC-4); iPhone SE + Pro Max

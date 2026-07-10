@@ -68,7 +68,7 @@ struct StressView: View {
                        // The day-of-sky liquid backdrop, matching Today / Health / Live / Sleep / Trends: a
                        // fixed, full-bleed time-of-day sky behind the scroll content (does not scroll), so the
                        // Stress screen sits in the same liquid atmosphere as every other tab.
-                       topBackground: liquidScaffoldSky()) {
+                       topBackground: nil) {
             if let model {
                 content(model)
             } else if !loaded {

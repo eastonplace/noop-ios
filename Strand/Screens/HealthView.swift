@@ -33,7 +33,7 @@ struct HealthView: View {
                        lazy: true,
                        // The day-of-sky liquid backdrop, matching Today / Sleep / Trends: a fixed,
                        // full-bleed time-of-day sky behind the scroll content (does not scroll).
-                       topBackground: liquidScaffoldSky()) {
+                       topBackground: nil) {
             if repo.days.isEmpty {
                 // First run / no history: whether to show the empty state or the full live stack depends
                 // on whether a strap is streaming live HR — a `live`-dependent choice. It's isolated to
@@ -772,8 +772,7 @@ private struct FitnessAgeSection: View {
                         LiquidVessel(value: fitnessAgeFraction(age), tint: StrandPalette.chargeColor, animated: true)
                             .frame(width: 96, height: 96)
                         CountUpNumber(value: Double(shown), font: StrandFont.rounded(30))
-                            .foregroundStyle(.white)
-                            .shadow(color: .black.opacity(0.5), radius: 6, y: 1)
+                            .foregroundStyle(StrandPalette.onDarkPrimary)
                             .allowsHitTesting(false)
                     }
                     VStack(alignment: .leading, spacing: NoopMetrics.space1) {
@@ -1052,8 +1051,7 @@ private struct VitalitySection: View {
                             .frame(width: 108, height: 108)
                         VStack(spacing: 0) {
                             CountUpNumber(value: v, font: StrandFont.rounded(38))
-                                .foregroundStyle(.white)
-                                .shadow(color: .black.opacity(0.5), radius: 6, y: 1)
+                                .foregroundStyle(StrandPalette.onDarkPrimary)
                             Text("of 100").font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
                         }
                         .allowsHitTesting(false)

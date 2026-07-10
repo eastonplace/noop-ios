@@ -764,7 +764,7 @@ struct DeviceCardCatalog: View {
     var body: some View {
         ScreenScaffold(title: "Devices",
                        subtitle: "What each band captures (and what NOOP uses it for).",
-                       topBackground: liquidScaffoldSky()) {
+                       topBackground: nil) {
             VStack(spacing: NoopMetrics.gap) {
                 DeviceCard(device: Self.dev("whoop-4d", "WHOOP", "4.0", Self.whoopCaps),
                            isActive: true, isLiveConnected: true,
@@ -798,7 +798,7 @@ struct OuraDeviceDemoScreen: View {
     var body: some View {
         ScreenScaffold(title: "Devices",
                        subtitle: "A locally-adopted Oura ring, in beta.",
-                       topBackground: liquidScaffoldSky()) {
+                       topBackground: nil) {
             VStack(spacing: NoopMetrics.gap) {
                 // Active + connected so the card shows "Active · Live" + a live battery readout.
                 DeviceCard(device: DeviceCardCatalog.oura("Oura Ring 3"),

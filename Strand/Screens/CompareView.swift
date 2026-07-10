@@ -163,7 +163,7 @@ struct CompareView: View {
                        lazy: true,
                        // Liquid finish: the day-of-sky backdrop carries the liquid atmosphere across the
                        // analysis tabs, exactly like Today and the batch-1 screens.
-                       topBackground: liquidScaffoldSky()) {
+                       topBackground: nil) {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
                 metricSection
 
@@ -891,7 +891,7 @@ private struct OverlayChart: View {
                         ZStack {
                             Circle().fill(color.opacity(0.30)).frame(width: 16, height: 16)
                             Circle().fill(color.opacity(0.65)).frame(width: 10, height: 10)
-                            Circle().fill(Color.white).frame(width: 4, height: 4)
+                            Circle().fill(StrandPalette.ink).frame(width: 4, height: 4)
                         }
                         .position(x: px + plot.minX, y: py + plot.minY)
                         .allowsHitTesting(false)
@@ -1068,7 +1068,6 @@ private struct MultiTooltip: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(StrandPalette.hairline, lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.4), radius: 10, y: 6)
         .frame(width: tooltipWidth, alignment: .leading)
         .position(x: clampedX, y: tooltipHeight / 2 + 8)
         .allowsHitTesting(false)

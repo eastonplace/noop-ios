@@ -161,8 +161,12 @@ struct WeeklyDigestContent: View {
 
     private var header: some View {
         ZStack(alignment: .leading) {
-            ScenicHeroBackground(domain: .charge, starCount: 26)
-                .clipShape(RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous))
+            RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous)
+                .fill(StrandPalette.card)
+                .overlay(
+                    RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous)
+                        .strokeBorder(StrandPalette.cardBorder, lineWidth: 1)
+                )
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Week in review").strandOverline()

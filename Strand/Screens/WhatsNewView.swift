@@ -10,11 +10,7 @@ struct WhatsNewView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-                // A scenic Charge-tinted hero behind the title region — the same premium backdrop
-                // the Today rings float over, so the changelog opens on-brand.
-                .background {
-                    ScenicHeroBackground(domain: .charge, starCount: 28, fadesToBase: true)
-                }
+                .background(StrandPalette.card)
             Divider().overlay(StrandPalette.hairline)
             ScrollView {
                 // PERF: the changelog grows with every release, so this is an ever-lengthening column.

@@ -33,7 +33,7 @@ struct IntelligenceView: View {
                        // Liquid finish: the same full-bleed day-of-sky backdrop Today + the other liquid
                        // tabs carry, so Intelligence sits in one atmosphere. Static + non-interactive; the
                        // frosted cards below sit on the opaque canvas and stay legible.
-                       topBackground: liquidScaffoldSky()) {
+                       topBackground: nil) {
             if let f = forecast { forecastCard(f) }
             explainerCard
             if intelligence.computing {
@@ -159,12 +159,11 @@ struct IntelligenceView: View {
                                 value: f.charge,
                                 format: { "\(Int($0.rounded()))" },
                                 font: StrandFont.rounded(52),
-                                color: StrandPalette.textPrimary
+                                color: StrandPalette.onDarkPrimary
                             )
-                            .shadow(color: .black.opacity(0.5), radius: 6, y: 1)
                             Text("± \(Int(f.band.rounded())) · \(StrandPalette.recoveryState(f.charge))")
                                 .font(StrandFont.captionNumber)
-                                .foregroundStyle(StrandPalette.textSecondary)
+                                .foregroundStyle(StrandPalette.onDarkSecondary)
                         }
                         .allowsHitTesting(false)   // taps fall through to the vessel → splash
                     }

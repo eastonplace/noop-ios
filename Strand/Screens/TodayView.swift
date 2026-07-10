@@ -1126,7 +1126,7 @@ struct TodayView: View {
                         Text("\(min(updateStore.unreadCount, 99))")
                             .font(.system(size: 9, weight: .bold, design: .rounded))
                             .monospacedDigit()
-                            .foregroundStyle(StrandPalette.goldDeepText)
+                            .foregroundStyle(StrandPalette.onInk)
                             // Fixed 14pt square + Circle() = a true CIRCLE on both platforms, kept INSIDE
                             // the 34pt bell frame (offset -1,1) so the macOS toolbar (at the window's top
                             // edge) no longer clips the badge's top (2026-06-23).

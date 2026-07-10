@@ -129,8 +129,8 @@ struct HRVSnapshotView: View {
         StrandCard(padding: 24, tint: StrandPalette.restColor) {
             VStack(spacing: 18) {
                 ZStack {
-                    ScenicHeroBackground(domain: .rest, starCount: 48)
-                        .clipShape(RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous))
+                    RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous)
+                        .fill(StrandPalette.inset)
                     captureDial
                         .padding(.vertical, 6)
                 }

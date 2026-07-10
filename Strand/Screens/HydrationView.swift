@@ -44,7 +44,7 @@ struct HydrationView: View {
                        onRefresh: { await reload() },
                        // Liquid finish: the same full-bleed day-of-sky backdrop Today + the other liquid
                        // tabs carry, so Hydration sits in one atmosphere.
-                       topBackground: liquidScaffoldSky()) {
+                       topBackground: nil) {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
                 ringSection
                 logSection
@@ -98,11 +98,10 @@ struct HydrationView: View {
                         CountUpText(value: HydrationGoal.litres(fromML: totalML),
                                     format: { String(format: "%.1f", $0) },
                                     font: StrandFont.rounded(40, weight: .bold),
-                                    color: StrandPalette.textPrimary)
-                            .shadow(color: .black.opacity(0.5), radius: 6, y: 1)
+                                    color: StrandPalette.onDarkPrimary)
                         Text(String(localized: "of \(String(format: "%.1f", HydrationGoal.litres(fromML: Double(goalML)))) L"))
                             .font(StrandFont.subhead)
-                            .foregroundStyle(StrandPalette.textSecondary)
+                            .foregroundStyle(StrandPalette.onDarkSecondary)
                     }
                     .allowsHitTesting(false)   // taps fall through to the vessel → splash
                 }

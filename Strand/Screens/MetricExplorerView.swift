@@ -185,7 +185,7 @@ struct MetricExplorerView: View {
         // so the layout is byte-identical to the eager VStack.
         ScreenScaffold(title: "Explore", subtitle: "Every signal, one tap deep.",
                        onRefresh: { await repo.refresh() }, lazy: true,
-                       topBackground: liquidScaffoldSky()) {
+                       topBackground: nil) {
             // A quiet, non-blocking hint while the empty-dot probe runs its first pass. The rows below
             // render in full immediately regardless — this only reassures during the scan, and never
             // leaves the screen reading as a bare/empty list before the probe lands (#199).
@@ -656,13 +656,11 @@ struct MetricDetailView: View {
                                     .accessibilityHidden(true)
                                 VStack(spacing: 2) {
                                     CountUpNumber(value: v, font: StrandFont.rounded(48))
-                                        .foregroundStyle(.white)
-                                        .shadow(color: .black.opacity(0.5), radius: 6, y: 1)
+                                        .foregroundStyle(StrandPalette.onDarkPrimary)
                                     if !metric.unit.isEmpty {
                                         Text(metric.unit)
                                             .font(StrandFont.footnote)
-                                            .foregroundStyle(.white.opacity(0.85))
-                                            .shadow(color: .black.opacity(0.5), radius: 4, y: 1)
+                                            .foregroundStyle(StrandPalette.onDarkSecondary)
                                     }
                                 }
                                 .allowsHitTesting(false)
@@ -718,7 +716,11 @@ struct MetricDetailView: View {
                 }
             }
         .padding(NoopMetrics.cardPadding)
-        .background(ScenicHeroBackground(domain: domain))
+        .background(StrandPalette.card)
+        .overlay(
+            RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous)
+                .strokeBorder(StrandPalette.cardBorder, lineWidth: 1)
+        )
         .clipShape(RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous))
         // The hero shows the LATEST available point (range-independent), so the vessel fills once on
         // appear (0 → its fraction) and settles — like TodayView's rings.

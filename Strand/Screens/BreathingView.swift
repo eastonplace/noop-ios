@@ -164,7 +164,7 @@ private struct BreathingContent: View {
                        subtitle: "Haptic-paced breathing · find your pace · calm down",
                        // Liquid finish: the same full-bleed day-of-sky backdrop Today + the other liquid
                        // tabs carry, so Breathe sits in one atmosphere.
-                       topBackground: liquidScaffoldSky()) {
+                       topBackground: nil) {
 
             modeSwitch
             StressCheckInCard(center: nudgeCenter) { startOneMinuteCue() }
@@ -277,8 +277,8 @@ private struct BreathingContent: View {
                 }
 
                 ZStack {
-                    ScenicHeroBackground(domain: .rest, starCount: 56)
-                        .clipShape(RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous))
+                    RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous)
+                        .fill(StrandPalette.inset)
                     breathingOrb
                         .padding(.vertical, 6)
                 }
@@ -365,18 +365,17 @@ private struct BreathingContent: View {
                         CountUpText(value: Double(bpm),
                                     format: { "\(Int($0.rounded()))" },
                                     font: StrandFont.number(40),
-                                    color: StrandPalette.textPrimary)
+                                    color: StrandPalette.onDarkPrimary)
                     } else {
                         Text("—")
                             .font(StrandFont.number(40))
-                            .foregroundStyle(StrandPalette.textPrimary)
+                            .foregroundStyle(StrandPalette.onDarkPrimary)
                     }
                     Text(String(localized: "BPM"))
                         .font(StrandFont.footnote)
                         .tracking(0.8)
-                        .foregroundStyle(StrandPalette.textTertiary)
+                        .foregroundStyle(StrandPalette.onDarkTertiary)
                 }
-                .shadow(color: .black.opacity(0.5), radius: 6, y: 1)
                 .allowsHitTesting(false)   // taps fall through to the vessel → splash
             }
             .frame(width: geo.size.width, height: geo.size.height)
