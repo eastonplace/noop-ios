@@ -459,11 +459,60 @@
 
 ## Phase 5 — Integration (FR-12–14)
 
-- [ ] **T50 — Integration map verification**
+- [x] **T50 — Integration map verification**
   - For each plan §Integration-map row: record file:line of every hop (entry → state
     → repo → table → refresh) HERE under this task; fix breaks found (wrong source,
     stale cache, missing environment object). Assert trio == detail == trends for
     Recovery/Strain/Sleep on one seeded day (FR-12).
+  - **Completed 2026-07-10 — six critical traces:**
+    - **Recovery:** Today entry/value is `TodayView.swift:1155–1165` →
+      selected `repo.today/repo.days` row at `TodayView.swift:462–474` →
+      canonical resolver at `Repository.swift:357–373` → merged repository
+      publication at `Repository.swift:667–735` → `dailyMetric.recovery` read at
+      `MetricsCache.swift:365–384` (write contract `:288–321`). Pull-to-refresh
+      enters at `TodayView.swift:1378–1379`; `refreshSeq` reload is
+      `:1429–1431`. Detail uses that same row at `CoupledView.swift:29–57`;
+      Trends reads `day.recovery` at `TrendsView.swift:341–349`.
+    - **Strain:** Today reads stored `day.strain` and applies only
+      `StrainScale` at `TodayView.swift:1155–1168` → same
+      `Repository.days/today` merge/refresh chain above →
+      `dailyMetric.strain` at `MetricsCache.swift:295–321/:369–384`. Detail
+      uses the same field + single converter at `CoupledView.swift:63–69`;
+      Trends does the same at `TrendsView.swift:387–400`. No view-side score math.
+    - **Sleep:** Today uses the selected daily row at
+      `TodayView.swift:462–474/:1169–1170`; repository refresh loads imported
+      `sleep_performance` at `Repository.swift:686–701` and falls back through
+      the canonical daily composite at `:1780–1795`. Imported scalar source is
+      `metricSeries` (`Database.swift:198–215`,
+      `MetricSeriesStore.swift:31–59`); raw session source is `sleepSession`
+      (`MetricsCache.swift:347–360`). Detail shares imported-first/composite
+      fallback at `CoupledView.swift:72–78`; Trends reloads the same resolved key
+      at `TrendsView.swift:263–269`.
+    - **Stress:** `StressView.swift:30–34` owns the view state →
+      refresh-driven load at `:80–89` → `Repository.series("stress")` →
+      `metricSeries` table/read above; no stored point falls back to the model
+      built from `repo.days` at `:125–132`. Intraday uses repository HR and the
+      same store's R-R rows at `:92–122`. Scale remains 0–3.
+    - **Health Monitor:** `HealthView.swift:14–37` enters through `Repository`
+      and refreshes via the scaffold → `VitalsSection` passes
+      `repo.vitalMetricRows` at `:1116–1134` → pure resolver/source precedence
+      at `VitalSignsSummary.swift:96–145/:321–331` → repository source rows
+      published at `Repository.swift:171–177/:707–735` → dailyMetric columns in
+      `MetricsCache.swift:365–384`.
+    - **Live HR:** `LiveView.swift:878–916` reads smoothed `AppModel.bpm` plus
+      `LiveState` connection state → `AppModel.swift:490–520` consumes
+      `LiveState.heartRate/rr` → `LiveState.swift:34–48/:430–442` →
+      CoreBluetooth 2A37 notification dispatch at
+      `BLEManager.swift:3331–3351`. This is intentionally stream-backed, not a
+      database/cache path; disconnect clears the live buffers and the view returns
+      to Waiting rather than showing stale data.
+    Seeded-day equality remains exact: Recovery 50 on trio/detail/Trends
+    (`qa/T36-recovery-{trio,detail,trends}.png`); stored Strain 67 → 14.1 on
+    trio/detail/Workouts and the corrected detail route
+    (`qa/T34-value-trace-{today,detail,workouts}.png`,
+    `qa/T49-straindetail.png`); Sleep 86 on Today/Sleep and the canonical Sleep
+    route (`qa/T35-{today,sleep}.png`, `qa/T49-sleepdetail.png`). No broken
+    source, stale-cache trigger, or missing environment object was found.
 - [ ] **T51 — State coverage (FR-13)** ∥
   - Sweep reference screens for loading/empty/error/permission states; extend the
     existing honest-empty-state pattern where absent (import failure banner, HealthKit
