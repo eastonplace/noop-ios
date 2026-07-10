@@ -80,17 +80,21 @@ struct LiveWorkoutView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .center, spacing: 10) {
+        ZStack {
             Text("N O O P")
                 .font(StrandFont.wordmark)
                 .tracking(StrandFont.wordmarkTracking)
                 .foregroundStyle(StrandPalette.textPrimary)
-            Spacer()
-            Text(model.activeWorkout?.sport ?? String(localized: "Workout"))
-                .font(StrandFont.caption.weight(.semibold))
-                .foregroundStyle(StrandPalette.textSecondary)
-            StatusBadge("Live", style: .live)
+            HStack {
+                Text(model.activeWorkout?.sport ?? String(localized: "Workout"))
+                    .font(StrandFont.caption.weight(.semibold))
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .lineLimit(1)
+                Spacer()
+                StatusBadge("Live", style: .live)
+            }
         }
+        .frame(minHeight: 32)
     }
 
     @ViewBuilder
@@ -152,8 +156,19 @@ struct LiveWorkoutView: View {
                 .background(StrandPalette.card, in: Circle())
                 .overlay(Circle().strokeBorder(StrandPalette.cardBorder, lineWidth: 1))
                 .accessibilityLabel("Screen controls unlocked")
-            // The existing workout engine has no pause/resume state. Per the visual-only non-goal,
-            // do not add a cosmetic pause button that would keep recording behind a "Paused" label.
+            // C9 limitation branch: preserve the reference's three-part geometry
+            // without inventing a Paused state while samples continue recording.
+            HStack(spacing: 7) {
+                Image(systemName: "record.circle")
+                Text("Recording")
+            }
+            .font(StrandFont.caption.weight(.semibold))
+            .foregroundStyle(StrandPalette.textSecondary)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .background(StrandPalette.card,
+                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(StrandPalette.cardBorder, lineWidth: 1))
             endButton
         }
     }
@@ -269,7 +284,7 @@ struct LiveWorkoutView: View {
     }
 
     private var endButton: some View {
-        NoopButton("End workout", systemImage: "stop.fill", kind: .destructive, fullWidth: true) {
+        NoopButton("Finish", systemImage: "flag.checkered", kind: .destructive) {
             model.endWorkout()
             onClose()
         }

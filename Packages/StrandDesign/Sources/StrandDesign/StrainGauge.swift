@@ -88,7 +88,7 @@ public struct StrainGauge: View {
                 size: diameter,
                 lineWidth: lineWidth,
                 format: { _ in strainString },
-                centerCaption: showsLabel ? "of \(Int(outOf.rounded()))" : nil,
+                centerCaption: nil,
                 showsValue: showsLabel
             )
             if showsHover, let pt = hoverPoint {

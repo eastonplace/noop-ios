@@ -329,11 +329,21 @@
     altitude was fabricated. Moving the FAB into the Today root also removes it from
     pushed Workouts/detail screens while preserving Quick Actions. Full `NOOPiOS`
     build passed; `StrandDesign`: 36/36 tests.
-- [ ] **T44 — Live-run controls + scale (S25/S26)** — implement C9 per T31 answer:
+- [x] **T44 — Live-run controls + scale (S25/S26)** — implement C9 per T31 answer:
   lock + Pause/Resume + Finish row per reference (or documented engine limitation +
   reference geometry); timer to 64 pt; wordmark centered; paused state w/ splits
   table + Resume/Finish per 001 §6-S26. Verify vs 2-2/2-3 (screenshot paused state).
   Commit.
+  - Evidence: `qa/T44-live-run.png` and `qa/T44-controls.png` were compared with
+    sheet 2-2/2-3. The header now keeps the wordmark centered between sport and
+    Live status, the elapsed timer remains the required 64 pt, and the control row
+    matches the lock / center state / Finish geometry. The canonical Strain gauge
+    shows the raw 0–21 value without an `of 21` caption. Per the C9 finding recorded
+    in T31, the engine exposes only start/end and has no paused recorder state, so
+    the center surface truthfully reads `Recording` and the real Finish action is
+    retained; no cosmetic paused/splits state was fabricated. The Today-local FAB
+    was also lifted above the tab bar after T43's scope correction. Full `NOOPiOS`
+    simulator build passed; `StrandDesign`: 36/36 tests.
 - [ ] **T45 — Live console + Devices density (S4/S6)** ∥ — wrap advanced/record
   sections into Paper cards; Devices rows compressed to reference density (name,
   badge, battery, signal; capability prose behind the row's detail/disclosure),

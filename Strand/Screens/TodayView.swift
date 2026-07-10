@@ -1466,7 +1466,8 @@ struct TodayView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Quick Actions")
-            .padding(16)
+            .padding(.trailing, 16)
+            .padding(.bottom, 70)
         }
         #endif
         #if os(macOS)
