@@ -1104,7 +1104,7 @@ struct PaperPillarDetailView: View {
                             StatusBadge(LocalizedStringKey("\(item.percent)%"),
                                         style: .upToDate, tint: item.color)
                         }
-                        .frame(minHeight: 48)
+                        .frame(minHeight: 40)
                         .overlay(alignment: .bottom) {
                             if index < stressBreakdown.count - 1 {
                                 Rectangle().fill(StrandPalette.hairline).frame(height: 1)
@@ -1217,9 +1217,9 @@ struct PaperPillarDetailView: View {
                            divider: Bool = true) -> some View {
         HStack(spacing: 11) {
             Image(systemName: icon)
-                .font(.system(size: 15, weight: .medium))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(StrandPalette.textPrimary)
-                .frame(width: 30, height: 30)
+                .frame(width: 24, height: 24)
                 .background(StrandPalette.inset, in: Circle())
             Text(name).font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
             Spacer(minLength: 8)
@@ -1231,7 +1231,7 @@ struct PaperPillarDetailView: View {
                     .frame(width: 52, alignment: .trailing)
             }
         }
-        .frame(minHeight: 48)
+        .frame(minHeight: 40)
         .overlay(alignment: .bottom) {
             if divider { Rectangle().fill(StrandPalette.hairline).frame(height: 1) }
         }

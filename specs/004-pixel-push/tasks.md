@@ -9,7 +9,7 @@
   demo seeder banks intraday HR samples (`AppleDemoSeeder`) so the stress ribbon
   and Live-HR module render populated states in screenshots — if it doesn't,
   extend the seeder (sim-only path) to write a plausible day of HR/R-R.
-- [ ] **T81 — D12 type/density step-down (tokens + shared components only)**:
+- [x] **T81 — D12 type/density step-down (tokens + shared components only)**:
   Typography.swift (overline roles, add `axisLabel`), NoopMetrics (row heights,
   icon circles, ring stroke, badge height, intra-card spacing), ScoreRing
   (stroke 4, tinted track, 26 pt trio numerals), SectionHeader, factor/list row
@@ -18,7 +18,7 @@
 - [x] **T82 — D13 stress module v2** (TodayView `paperStressCard` +
   StressTimelineBar height 4): exact layout per D13. Re-shoot Today populated
   (needs T80 seeder). GATE — Easton judges this one personally.
-- [ ] **T83 — Live-HR module to ref layout**: big numeral left + "x min ago",
+- [x] **T83 — Live-HR module to ref layout**: big numeral left + "x min ago",
   full-width fine trace with right-edge 120/40 axisLabels, gradient underfill
   ≤ 8%; empty state same geometry (003 D5 pattern). Re-shoot Today. GATE.
 - [ ] **T84 — D14 zone bpm-range labels**: surface the zones engine's bpm
@@ -58,3 +58,18 @@
   proof), 9 pt axis. Third time's the charm — Easton judges.
 - Queued: T83 Live-HR full-width layout, T84 zone bpm labels, T85 real status
   bands, T86/T87 run-flow per D15, T88 evidence + new contact sheet.
+
+## Shipped by Claude — 2026-07-10 (round 6, proof qa/T83-today.png)
+
+- **D17 (new Easton feedback, supersedes D2's full-monochrome rule for VITALS
+  tiles only):** per-metric accent icons return on the Health Monitor grid
+  (still line glyphs, still no sparklines); the Sleep tile shows HOURS SLEPT
+  ("6h 46m", `sleepValue(day)`) because the hero trio already shows the Sleep
+  score; the Key Metrics section is REMOVED from Today as duplicative (render
+  only — `metricsSection`/editor/prefs code intact; "Your Cards" stays).
+- **T81 done:** factor/list rows 48→40 pt, icon circles 30→24 w/ 13 pt glyphs
+  (CoupledView detail family) — on top of round 5's overline/ring/numeral
+  step-down. Note for T88: sweep any remaining 48 pt rows/30 pt circles in
+  Devices/Settings row components if the batch re-shoot shows them heavy.
+- **T83 done:** Live-HR trace spans the card (maxWidth ∞, 42 pt) with soft
+  area underfill + 120/40 right rails; empty state matches geometry.

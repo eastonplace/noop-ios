@@ -384,8 +384,9 @@ public struct MetricTile: View {
             HStack(spacing: 6) {
                 Image(systemName: icon)
                     .font(.system(size: NoopMetrics.healthTileIconSize, weight: .medium))
-                    .symbolRenderingMode(.monochrome)
-                    .foregroundStyle(StrandPalette.textPrimary)
+                    // D17 (Easton): per-metric accent icons like the reference sheet —
+                    // small colored glyphs, still line variants, still no sparklines.
+                    .foregroundStyle(accent)
                 Text(label)
                     .font(.system(size: NoopMetrics.healthTileLabelSize))
                     .foregroundStyle(StrandPalette.textSecondary)

@@ -1288,17 +1288,19 @@ struct TodayView: View {
                     Spacer(minLength: 8)
                     if values.count <= 1 {
                         // D5: empty state keeps the populated composition — a dimmed flat
-                        // trace in the same 130×42 slot instead of a bare gap.
+                        // trace across the same full-width slot instead of a bare gap.
                         Capsule().fill(StrandPalette.hairlineStrong)
-                            .frame(width: 130, height: 2)
+                            .frame(height: 2).frame(maxWidth: .infinity)
                             .frame(height: 42)
                     } else {
+                        // T83 (spec 004): the trace spans the card like the reference, with a
+                        // soft gradient underfill and the 120/40 rails at the right edge.
                         Sparkline(values: values,
                                   gradient: Gradient(colors: [StrandPalette.statusPositive,
                                                                StrandPalette.statusPositive]),
-                                  range: 40...120, lineWidth: NoopMetrics.chartLineWidth, showsArea: false,
+                                  range: 40...120, lineWidth: NoopMetrics.chartLineWidth, showsArea: true,
                                   showsHead: false, showsHover: false)
-                            .frame(width: 130, height: 42)
+                            .frame(maxWidth: .infinity).frame(height: 42)
                             .overlay(alignment: .topTrailing) {
                                 Text("120").font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
                                     .offset(y: -10)
@@ -1412,9 +1414,11 @@ struct TodayView: View {
                         MetricTile(icon: "thermometer.medium", label: "Skin temp",
                                    value: day?.skinTempDevC.map { String(format: "%+.1f", $0) } ?? "—", unit: "°C",
                                    spark: sparks["skin_temp"], accent: StrandPalette.stressAccent)
-                        MetricTile(icon: "moon", label: "Sleep perf.",
-                                   value: restScore.map { "\(Int($0.rounded()))" } ?? "—", unit: "%",
-                                   spark: sparks["sleep_performance"], accent: StrandPalette.restAccent)
+                        // D17 (Easton): the hero trio already shows the Sleep score — this
+                        // tile shows HOURS SLEPT so it adds information instead of repeating it.
+                        MetricTile(icon: "moon", label: "Sleep",
+                                   value: sleepValue(day), unit: nil,
+                                   accent: StrandPalette.sleepAccent)
                     }
                 }
             }
@@ -1448,7 +1452,9 @@ struct TodayView: View {
                 paperLiveHeartRateCard
                 paperStressCard
                 paperHealthMonitorCard
-                metricsSection
+                // D17 (Easton, 2026-07-10): Key Metrics section removed — it duplicated the
+                // pillar trio + Health Monitor. The editor/prefs code stays; only the Today
+                // rendering is gone.
                 yourCardsSection
             }
             #if os(iOS)
