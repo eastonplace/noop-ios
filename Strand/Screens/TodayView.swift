@@ -1452,6 +1452,23 @@ struct TodayView: View {
                 derivedKey = todayInputKey
             }
         }
+        #if os(iOS)
+        // Own the Today-only FAB at the Today root. Keeping it out of RootTabView
+        // prevents the button leaking over pushed Workouts/detail screens while
+        // preserving the same routed Quick Actions sheet.
+        .overlay(alignment: .bottomTrailing) {
+            Button { router.requestQuickActions() } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(StrandPalette.onInk)
+                    .frame(width: 56, height: 56)
+                    .background(StrandPalette.ink, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Quick Actions")
+            .padding(16)
+        }
+        #endif
         #if os(macOS)
         // macOS hosts the Support affordance in the window toolbar (RootView's NavigationSplitView
         // supplies the toolbar) and presents it as the fixed-width SupportModalOverlay panel. On iOS

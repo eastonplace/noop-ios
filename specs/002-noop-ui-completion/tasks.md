@@ -316,10 +316,19 @@
     tracks; the hero is a bare 96/7/44 slate score ring with no source/scale pill;
     and the existing Asleep / duration / Woke card is visible and aligned beneath
     the stage chart. Full `NOOPiOS` build passed; `StrandDesign`: 36/36 tests.
-- [ ] **T43 — Workouts + post-run polish (S5/S27)** ∥ — stray "↓" icon, strain badges
+- [x] **T43 — Workouts + post-run polish (S5/S27)** ∥ — stray "↓" icon, strain badges
   (0–21 from T34) visual per reference, splits/zones cards verified with seeded full
   data, post-run zones + route cards render with data (T31 baseline shot proves),
   elevation row. Verify vs 1-5/2-4. Commit.
+  - Evidence: `T43-workouts.png`, `T43-post-run.png`, and
+    `T43-post-run-route.png` were compared with sheet 1-5/2-4. Recent rows now use
+    compact sport icons + canonical 0–21 blue Strain pills; the stray down arrow is
+    a forward disclosure; zones/splits are populated; the post-run hero, 3×2 stats,
+    zones, and seeded route all render. The elevation row is restored and honestly
+    says `Not recorded` because the current persisted route model is 2D-only—no
+    altitude was fabricated. Moving the FAB into the Today root also removes it from
+    pushed Workouts/detail screens while preserving Quick Actions. Full `NOOPiOS`
+    build passed; `StrandDesign`: 36/36 tests.
 - [ ] **T44 — Live-run controls + scale (S25/S26)** — implement C9 per T31 answer:
   lock + Pause/Resume + Finish row per reference (or documented engine limitation +
   reference geometry); timer to 64 pt; wordmark centered; paused state w/ splits

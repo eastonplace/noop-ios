@@ -75,6 +75,7 @@ struct WorkoutDetailView: View {
             paperStatsGrid
             paperZonesCard
             paperRouteCard
+            paperElevationCard
             NoopButton("Save workout", systemImage: "checkmark", kind: .primary,
                        fullWidth: true) { dismiss() }
             hrCurveCard
@@ -151,16 +152,20 @@ struct WorkoutDetailView: View {
                 HStack(spacing: 20) {
                     if let display {
                         ScoreRing(value: display, range: 0...maximum,
-                                  accent: StrandPalette.effortAccent, size: 96,
+                                  accent: StrandPalette.strainAccent,
+                                  size: NoopMetrics.heroRingDiameter,
+                                  lineWidth: NoopMetrics.heroRingLineWidth,
                                   format: { String(format: "%.1f", $0) },
                                   centerCaption: nil)
                     } else {
                         ZStack {
-                            Circle().stroke(StrandPalette.inset, lineWidth: 7)
+                            Circle().stroke(StrandPalette.inset,
+                                            lineWidth: NoopMetrics.heroRingLineWidth)
                             Text("—").font(StrandFont.ringScoreLarge)
                                 .foregroundStyle(StrandPalette.textTertiary)
                         }
-                        .frame(width: 96, height: 96)
+                        .frame(width: NoopMetrics.heroRingDiameter,
+                               height: NoopMetrics.heroRingDiameter)
                     }
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Good Work")
@@ -278,6 +283,31 @@ struct WorkoutDetailView: View {
                         .frame(height: 180)
                         .accessibilityLabel(routeAccessibilityLabel)
                 }
+            }
+        }
+    }
+
+    /// Elevation is not persisted by the current workout/route model. Keep the
+    /// reference row present and honest instead of fabricating gain from a 2D polyline.
+    private var paperElevationCard: some View {
+        PaperCard(padding: 12) {
+            HStack(spacing: 10) {
+                Image(systemName: "mountain.2.fill")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(StrandPalette.strainAccent)
+                    .frame(width: NoopMetrics.iconCircleDiameter,
+                           height: NoopMetrics.iconCircleDiameter)
+                    .background(StrandPalette.strainAccent.opacity(0.10), in: Circle())
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("ELEVATION").strandOverline()
+                    Text("Not recorded")
+                        .font(StrandFont.caption)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                }
+                Spacer()
+                Text("—")
+                    .font(StrandFont.statValue)
+                    .foregroundStyle(StrandPalette.textSecondary)
             }
         }
     }

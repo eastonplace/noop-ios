@@ -71,24 +71,6 @@ struct RootTabView: View {
                 Task { await repo.refresh() }
             })
         }
-        .overlay(alignment: .bottomTrailing) {
-            if selectedTab == 0 {
-                Button {
-                    withAnimation(Self.sheetEase) { quickAction = .menu }
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(StrandPalette.onInk)
-                        .frame(width: 56, height: 56)
-                        .background(StrandPalette.ink, in: Circle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Quick Actions")
-                .padding(.trailing, 16)
-                .padding(.bottom, 70)
-                .transition(.opacity.combined(with: .scale(scale: 0.92)))
-            }
-        }
         .task {
             await repo.refresh()
             // Backup & Sync: on-launch catch-up (see RootView). Detached + utility priority so a

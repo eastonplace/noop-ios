@@ -633,12 +633,11 @@ struct WorkoutsView: View {
                 ForEach(Array(recent.enumerated()), id: \.offset) { index, row in
                     Button { openDetail(row) } label: {
                         HStack(spacing: 12) {
-                            Text(row.strain.map { UnitFormatter.effortDisplay($0, scale: effortScale) } ?? "—")
-                                .font(StrandFont.captionNumber.weight(.bold))
-                                .foregroundStyle(StrandPalette.effortAccent)
-                                .frame(width: 42, height: 42)
-                                .background(StrandPalette.effortTint,
-                                            in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            Image(systemName: sportSymbol(row.sport))
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(StrandPalette.textSecondary)
+                                .frame(width: 32, height: 32)
+                                .background(StrandPalette.inset, in: Circle())
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(WorkoutSource.displaySport(row.sport))
                                     .font(StrandFont.body)
@@ -657,9 +656,12 @@ struct WorkoutsView: View {
                                     .font(StrandFont.caption)
                                     .foregroundStyle(StrandPalette.textTertiary)
                             }
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(StrandPalette.textTertiary)
+                            Text(StrainScale.badgeText(fromStored: row.strain))
+                                .font(StrandFont.captionNumber.weight(.bold))
+                                .foregroundStyle(StrandPalette.strainAccent)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 5)
+                                .background(StrandPalette.strainAccent.opacity(0.10), in: Capsule())
                         }
                         .padding(.horizontal, 16)
                         .frame(minHeight: 62)
@@ -669,7 +671,7 @@ struct WorkoutsView: View {
                     .overlay(alignment: .bottom) {
                         if index < recent.count - 1 {
                             Rectangle().fill(StrandPalette.hairline).frame(height: 1)
-                                .padding(.leading, 70)
+                                .padding(.leading, 60)
                         }
                     }
                 }
@@ -677,7 +679,7 @@ struct WorkoutsView: View {
                 HStack {
                     Text("View all workouts")
                     Spacer()
-                    Image(systemName: "arrow.down")
+                    Image(systemName: "chevron.right")
                 }
                 .font(StrandFont.caption.weight(.semibold))
                 .foregroundStyle(StrandPalette.link)
