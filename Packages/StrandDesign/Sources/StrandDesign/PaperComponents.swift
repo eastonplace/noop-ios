@@ -41,25 +41,29 @@ public enum StatusBadgeStyle: Sendable {
 public struct StatusBadge: View {
     private let text: LocalizedStringKey
     private let style: StatusBadgeStyle
+    private let customColor: Color?
 
-    public init(_ text: LocalizedStringKey, style: StatusBadgeStyle) {
+    public init(_ text: LocalizedStringKey, style: StatusBadgeStyle, tint: Color? = nil) {
         self.text = text
         self.style = style
+        self.customColor = tint
     }
+
+    private var color: Color { customColor ?? style.color }
 
     public var body: some View {
         HStack(spacing: 5) {
             if style.showsDot {
-                Circle().fill(style.color).frame(width: 6, height: 6)
+                Circle().fill(color).frame(width: 6, height: 6)
             }
             Text(text)
                 .font(StrandFont.micro.weight(.semibold))
                 .lineLimit(1)
         }
-        .foregroundStyle(style.color)
+        .foregroundStyle(color)
         .padding(.horizontal, 9)
         .frame(height: 24)
-        .background(style.color.opacity(0.10), in: Capsule(style: .continuous))
+        .background(color.opacity(0.10), in: Capsule(style: .continuous))
         .accessibilityElement(children: .combine)
     }
 }
@@ -416,6 +420,7 @@ public struct StressTimelineBar: View {
                     }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                .background(StrandPalette.inset, in: RoundedRectangle(cornerRadius: 4, style: .continuous))
             }
             .frame(height: 18)
             HStack(spacing: 0) {

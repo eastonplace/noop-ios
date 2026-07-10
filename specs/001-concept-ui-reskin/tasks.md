@@ -185,11 +185,17 @@
 
 ## Phase 3 — Core tabs
 
-- [ ] **T09 — Today (S1)** — Modify `Strand/Screens/TodayView.swift`
+- [x] **T09 — Today (S1)** — Modify `Strand/Screens/TodayView.swift`
   (+ `DashboardCards.swift`, `VitalSignsSummary.swift` as needed). Implement spec §6-S1
   exactly: trio, glance row, Live HR card, stress card, health-monitor grid. Mechanical
   subview extraction into sibling files allowed (plan §Risks). Verify vs sheet 1-1 &
   3-1. Commit.
+  - Verified 2026-07-09: the Today root now renders only the S1 hierarchy on the light
+    Paper canvas. Existing score, workout, steps, calorie, HR, stress, and vital bindings
+    feed the 64-pt trio, selected-day glance row, Live HR, stress timeline, and 3×2
+    Health Monitor grid; existing detail routes remain attached. `StrandDesign` passed
+    30 tests and `NOOPiOS` built and ran. `qa/T09-today.png` was visually checked against
+    sheets 1-1 and 3-1.
 - [ ] **T10 — Trends (S2)** — Modify `Strand/Screens/TrendsView.swift`
   (+ `TrendsReportView.swift` if it hosts week-review copy). Spec §6-S2. Verify vs
   sheet 1-2. Commit.

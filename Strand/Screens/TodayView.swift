@@ -951,7 +951,7 @@ struct TodayView: View {
     }
 
     private static let navDayFmt: DateFormatter = {
-        let f = DateFormatter(); f.dateFormat = "EEE d MMM"; f.locale = Locale(identifier: "en_US_POSIX"); return f
+        let f = DateFormatter(); f.dateFormat = "EEE, MMM d"; f.locale = Locale(identifier: "en_US_POSIX"); return f
     }()
 
     /// The selected day as a small locale-aware numeric date ("28/06/2026" or "6/28/2026" per region). The
@@ -964,9 +964,9 @@ struct TodayView: View {
         // but raw `selectedLogicalDay` formatting could read a calendar day ahead (#15). Past offsets, and
         // a not-yet-banked today, fall back to the logical day.
         if selectedDayOffset == 0, let day = repo.today?.day, let date = Self.dayParser.date(from: day) {
-            return date.formatted(date: .numeric, time: .omitted)
+            return Self.navDayFmt.string(from: date)
         }
-        return selectedLogicalDay.formatted(date: .numeric, time: .omitted)
+        return Self.navDayFmt.string(from: selectedLogicalDay)
     }
 
     /// Periodic one-word hint shown in place of the date for ~1.5s every ~10s (nil = show the date). With the
@@ -1153,6 +1153,215 @@ struct TodayView: View {
         #endif
     }
 
+    // MARK: - Paper Today (S1)
+
+    private var paperPillarCard: some View {
+        let day = displayDay
+        let charge = day?.recovery ?? lastScoredCharge?.value
+        let effort = effortStrain(day)
+        return PaperCard {
+            VStack(spacing: 14) {
+                HStack(alignment: .top, spacing: 8) {
+                    paperPillar("Charge", value: charge, accent: StrandPalette.chargeAccent,
+                                state: paperScoreState(charge)) { showChargeBreakdown = true }
+                    paperPillar("Effort", value: effort, accent: StrandPalette.effortAccent,
+                                state: paperScoreState(effort)) { guideSection = .effort }
+                    paperPillar("Rest", value: restScore, accent: StrandPalette.restAccent,
+                                state: paperScoreState(restScore)) { guideSection = .rest }
+                }
+                Divider().overlay(StrandPalette.hairline)
+                NavigationLink { WorkoutsView() } label: {
+                    HStack(spacing: 9) {
+                        Image(systemName: "figure.run")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(StrandPalette.effortAccent)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Today at a glance")
+                                .font(StrandFont.micro.weight(.semibold))
+                                .foregroundStyle(StrandPalette.textPrimary)
+                            Text(paperGlanceText)
+                                .font(StrandFont.micro)
+                                .foregroundStyle(StrandPalette.textSecondary)
+                                .lineLimit(1)
+                        }
+                        Spacer(minLength: 4)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(StrandPalette.textTertiary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func paperPillar(_ label: LocalizedStringKey, value: Double?, accent: Color,
+                             state: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 5) {
+                if let value {
+                    ScoreRing(value: value, range: 0...100, accent: accent, size: 64,
+                              lineWidth: 5, format: { "\(Int($0.rounded()))" })
+                } else {
+                    ZStack {
+                        Circle().stroke(StrandPalette.inset, lineWidth: 5)
+                        Text("—").font(StrandFont.ringScoreSmall).foregroundStyle(StrandPalette.textTertiary)
+                    }
+                    .frame(width: 64, height: 64)
+                }
+                Text(label).font(StrandFont.caption.weight(.semibold)).foregroundStyle(StrandPalette.textPrimary)
+                Text(state).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary).lineLimit(1)
+            }
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func paperScoreState(_ value: Double?) -> String {
+        guard let value else { return String(localized: "Calibrating") }
+        switch value {
+        case ..<35: return String(localized: "Low")
+        case ..<70: return String(localized: "Moderate")
+        default: return String(localized: "Good")
+        }
+    }
+
+    private var paperGlanceText: String {
+        let day = displayDay
+        let phoneSteps = appleDays.last(where: { $0.day == selectedDayKey })?.steps
+        let steps = day?.steps.map { intString(Double($0)) }
+            ?? phoneSteps.map { intString(Double($0)) }
+            ?? stepsEstByDay[selectedDayKey].map { intString(Double($0)) } ?? "—"
+        let calories = caloriesValue(appleDays.last(where: { $0.day == selectedDayKey }))
+        let dayStart = Calendar.current.startOfDay(for: selectedLogicalDay)
+        let dayEnd = Calendar.current.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart
+        let workoutCount = workouts.filter {
+            let start = Date(timeIntervalSince1970: TimeInterval($0.startTs))
+            return start >= dayStart && start < dayEnd
+        }.count
+        let workoutWord = workoutCount == 1 ? String(localized: "workout") : String(localized: "workouts")
+        return "\(workoutCount) \(workoutWord) · \(steps) steps · \(calories) cal"
+    }
+
+    private var paperLiveHeartRateCard: some View {
+        let latest = hrPoints.last?.value
+        let values = Array(hrPoints.suffix(36)).map(\.value)
+        return PaperCard {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 6) {
+                    Image(systemName: "heart.fill").font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(StrandPalette.liveRed)
+                    Text("Live Heart Rate").strandOverline()
+                }
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(alignment: .firstTextBaseline, spacing: 4) {
+                            Text(latest.map { "\(Int($0.rounded()))" } ?? "—")
+                                .font(StrandFont.metricValue).foregroundStyle(StrandPalette.textPrimary)
+                            Text("BPM").font(StrandFont.micro).foregroundStyle(StrandPalette.textSecondary)
+                        }
+                        Text(latest == nil ? "Waiting for live signal" : "Latest")
+                            .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                    }
+                    Spacer(minLength: 8)
+                    if values.count > 1 {
+                        Sparkline(values: values,
+                                  gradient: Gradient(colors: [StrandPalette.chargeAccent, StrandPalette.chargeAccent]),
+                                  range: 40...120, lineWidth: 2, showsArea: false,
+                                  showsHead: false, showsHover: false)
+                            .frame(width: 130, height: 42)
+                            .overlay(alignment: .topTrailing) {
+                                Text("120").font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                                    .offset(y: -10)
+                            }
+                            .overlay(alignment: .bottomTrailing) {
+                                Text("40").font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                                    .offset(y: 10)
+                            }
+                    }
+                }
+            }
+        }
+    }
+
+    private var paperStressCard: some View {
+        let value = stressToday
+        let display = value.map { String(format: "%.1f", $0) } ?? "—"
+        let timeline = value.map { Array(repeating: $0, count: 24) } ?? []
+        return NavigationLink { StressView() } label: {
+            PaperCard {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .firstTextBaseline) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Today’s Stress").strandOverline()
+                            Text(paperStressState(value))
+                                .font(StrandFont.cardTitle).foregroundStyle(StrandPalette.textPrimary)
+                        }
+                        Spacer()
+                        StatusBadge(LocalizedStringKey(display), style: .ready, tint: StrandPalette.stressAccent)
+                    }
+                    StressTimelineBar(values: timeline)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func paperStressState(_ value: Double?) -> LocalizedStringKey {
+        guard let value else { return "Calibrating" }
+        switch value {
+        case ..<1: return "Low"
+        case ..<2: return "Moderate"
+        default: return "High"
+        }
+    }
+
+    private var paperHealthMonitorCard: some View {
+        let day = displayDay
+        let respiratory = day?.respRateBpm ?? sparks["resp_rate"]?.last
+        return NavigationLink { HealthView() } label: {
+            PaperCard {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(alignment: .firstTextBaseline) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Health Monitor").strandOverline()
+                            Text("All metrics in range")
+                                .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(StrandPalette.textTertiary)
+                    }
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
+                        MetricTile(icon: "waveform.path.ecg", label: "HRV",
+                                   value: day?.avgHrv.map { "\(Int($0.rounded()))" } ?? "—", unit: "ms",
+                                   spark: sparks["hrv"], accent: StrandPalette.chargeAccent)
+                        MetricTile(icon: "heart", label: "RHR",
+                                   value: day?.restingHr.map(String.init) ?? "—", unit: "bpm",
+                                   spark: sparks["rhr"], accent: StrandPalette.liveRed)
+                        MetricTile(icon: "lungs.fill", label: "Resp. rate",
+                                   value: respiratory.map { String(format: "%.1f", $0) } ?? "—", unit: "rpm",
+                                   spark: sparks["resp_rate"], accent: StrandPalette.chargeAccent)
+                        MetricTile(icon: "drop.fill", label: "SpO₂",
+                                   value: day?.spo2Pct.map { String(format: "%.0f", $0) } ?? "—", unit: "%",
+                                   spark: sparks["spo2"], accent: StrandPalette.link)
+                        MetricTile(icon: "thermometer.medium", label: "Skin temp",
+                                   value: day?.skinTempDevC.map { String(format: "%+.1f", $0) } ?? "—", unit: "°C",
+                                   spark: sparks["skin_temp"], accent: StrandPalette.stressAccent)
+                        MetricTile(icon: "moon.fill", label: "Sleep perf.",
+                                   value: restScore.map { "\(Int($0.rounded()))" } ?? "—", unit: "%",
+                                   spark: sparks["sleep_performance"], accent: StrandPalette.restAccent)
+                    }
+                }
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
     var body: some View {
         ScreenScaffold(title: scaffoldTitle, onRefresh: { await repo.refresh() },
                        // PERF (scroll): lazy column so the scaffold materialises Today's content on demand.
@@ -1160,113 +1369,22 @@ struct TodayView: View {
                        // unchanged, this only defers building the single inner stack until it scrolls in.
                        // Byte-identical layout (LazyVStack == eager VStack alignment/spacing/header).
                        lazy: true,
-                       // PERF (scroll stutter): the day-cycle scene is a static masked Image. CoreAnimation
-                       // already caches it as a stable image layer, so it does NOT re-rasterize on body
-                       // re-evals or scroll. NO .drawingGroup(), wrapping this 600pt masked image in a
-                       // second offscreen pass DOUBLED its cost and re-rasterised it on every TodayView
-                       // body re-eval (the masked image is itself one offscreen pass). That was a v7.0.2
-                       // lag regression; removing the flatten restores native layer caching.
-                       topBackground: showDayCycleBackground
-                           ? AnyView(SceneScreenBackground(hour: demoSceneHour)) : nil) {
+                       // R7: Paper is the one Today surface. The retired day-scene preference remains
+                       // stored for compatibility but no longer changes the rendered root.
+                       topBackground: nil) {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
                 #if os(iOS)
-                // Compact top bar: profile/settings (left) · ‹ Today › day-nav (centre, bold) · strap
-                // battery (right). Replaces the big title + the full-width day-nav pill (WHOOP-style).
                 todayTopBar
-                HealthAlertBanner()
                 #else
-                HealthAlertBanner()
-                // Browse past days: chevrons + a date jump capped at today (no future days). Anchored to
-                // the LOGICAL day (the same anchor `selectedLogicalDay` uses) so the full-date label tracks
-                // the data shown in the 00:00-04:00 window instead of jumping a calendar day ahead (#14).
                 DayNavBar(selectedOffset: selectedDayOffset,
                           today: Repository.logicalDay(Date())) { selectedDayOffset = $0 }
                 #endif
-                // A "workout in progress" indicator whenever a manual workout is active. A tap routes to Live
-                // and opens the in-exercise screen. Its own leaf owns the AppModel observation + per-second
-                // clock, so the live tick never re-renders TodayView.body.
+                HealthAlertBanner()
                 ActiveWorkoutIndicatorSection()
-                // The "still building" and "new here?" prompts are about getting today's scores going,
-                // so they stay anchored to today rather than reappearing on every navigated past day.
-                if selectedDayOffset == 0 && repo.today?.recovery == nil {
-                    // While the strap is mid-offload, say so, empty tiles read as final otherwise (#77).
-                    // Its own subview observes LiveState (backfilling + chunk count tick during an offload)
-                    // so it refreshes without re-rendering the rest of Today (scroll-stutter fix).
-                    SyncingHistoryNoteIfBackfilling()
-                    if !scoresBuildingDismissed {
-                        DataPendingNote(
-                            title: "Live now. Your scores are building.",
-                            message: "Your live heart rate is working from the strap, and charge, effort and rest build from it over your next few nights of wear, sharpening as it learns your baseline. Want your full history instantly? Import your WHOOP export in Data Sources and it backfills in about a minute."
-                        )
-                        // A small × dismisses the card INTO the Updates inbox (restorable from there).
-                        .overlay(alignment: .topTrailing) {
-                            todayCardDismissButton {
-                                dismissTodayCard(
-                                    id: "scoresBuilding",
-                                    title: String(localized: "Live now. Your scores are building."),
-                                    message: String(localized: "Charge, Effort and Rest build over your next few nights of wear.")
-                                )
-                            }
-                        }
-                        .transition(.opacity.combined(with: .scale(scale: 0.97)))
-                    }
-                }
-                // Design Reset: the "New here?" first-run card is off the dashboard for the clean WHOOP
-                // look. The scoring guide stays reachable from the i on each score and in Settings.
-                // The hero rings sit over a WHISPER of time-of-day atmosphere (dawn/day/dusk/night), the
-                // backdrop is confined to the ring region via `.background`, so it lifts the identity rings
-                // without tinting the rest of the dashboard. The day-cycle scene wash caps at ~0.42 opacity
-                // and fades top-down with a bottom dark scrim, no glow, so the white ring numbers + labels
-                // stay crisp and high-contrast.
-                #if os(iOS)
-                // Pull the rings up under the compact top bar, the full section gap left too much air
-                // above them now the big "Today's Synthesis" header is gone. The hero now sits over the
-                // day-cycle SCENE wash (picked by the local hour), which fades top-down behind the rings;
-                // the scene IS the atmosphere here, replacing the procedural time-of-day backdrop. It caps
-                // at ~0.42 opacity with a bottom dark scrim so the white ring numbers + labels stay crisp.
-                heroSection
-                    .padding(.vertical, NoopMetrics.space4)
-                    .frame(maxWidth: .infinity)
-                    // The dark hero CARD floats over the vivid day-scene so the rings + white numbers stay
-                    // crisp, the card does the contrast work, not a muted scene (2026-06-23).
-                    .background(
-                        RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous)
-                            .fill(StrandPalette.surfaceBase.opacity(0.72))
-                    )
-                    .staggeredAppear(index: 0)
-                #else
-                heroSection
-                    .padding(.vertical, NoopMetrics.space4)
-                    .frame(maxWidth: .infinity)
-                    .background(
-                        RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous)
-                            .fill(StrandPalette.surfaceBase.opacity(0.72))
-                    )
-                    .staggeredAppear(index: 0)
-                #endif
-                heartRateTrendSection.staggeredAppear(index: 1)
-                // Design Reset: rings -> Heart rate -> Your cards (the flat mockup order); the greeting +
-                // Synthesis read-out + vitals now sit below the pinned cards instead of crowding the hero.
-                yourCardsSection.staggeredAppear(index: 2)
-                synthesisSection.staggeredAppear(index: 3)
-                // S4: the SEPARATE Readiness block is no longer a home-screen card, it folded into the
-                // Charge-ring tap (chargeBreakdownSheet). A one-word readiness read (Push / Maintain / Rest,
-                // #205) stays on the hero via the Synthesis section's pill row, so the home screen keeps a
-                // glanceable verdict without the full card. Readiness is NOT deleted, only moved behind a tap.
-                metricsSection.staggeredAppear(index: 4)
-                workoutsSection.staggeredAppear(index: 5)
-                // Opt-in "looks like a workout?" suggestion (default OFF). Renders only when the
-                // Settings toggle is on AND the detector finds a recent unsaved, un-dismissed window.
-                AutoWorkoutCard()
-                // Honest, dismissible 12-hourly donation ask, a card in the flow, never a modal.
-                DonationNudgeCard()
-                #if os(iOS)
-                // iOS entry point to Support (donate + contact). macOS opens the same sheet from the
-                // toolbar heart, but a primary tab on iPhone has no nav bar to host a `.toolbar` item,
-                // so the affordance lives in-content here and presents SupportView as an auto-sized sheet.
-                supportRow
-                #endif
-                sourcesSection
+                paperPillarCard
+                paperLiveHeartRateCard
+                paperStressCard
+                paperHealthMonitorCard
             }
             #if os(iOS)
             // #817 - horizontal swipe to change day. A right-swipe (positive X) steps to the NEWER day
