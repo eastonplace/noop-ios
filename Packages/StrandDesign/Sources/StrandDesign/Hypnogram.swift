@@ -211,21 +211,6 @@ public struct Hypnogram: View {
                         // applied below) — so the bands raster cheaply AND the accessibility walk never
                         // copies a per-band subtree (the old O(intervals) layer was a #707 contributor).
                         ZStack {
-                            // Faint per-stage lanes (WHOOP): a subtle full-width band tinted with each
-                            // stage's colour, so the eye maps height → stage even across gaps — the missing
-                            // "context" the flat blob chart never gave. Replaces the old centre hairlines.
-                            ForEach(0..<rowCount, id: \.self) { rank in
-                                let stage = stagesTopToBottom[rank]
-                                let rowStep = geo.size.height / CGFloat(rowCount)
-                                // The highlighted stage's lane brightens (WHOOP's selected-stage wash).
-                                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                    .fill(highlightedStage == stage
-                                          ? StrandPalette.sleepStageColor(stage).opacity(0.12)
-                                          : StrandPalette.inset)
-                                    .frame(width: geo.size.width, height: rowStep * 0.74)
-                                    .position(x: geo.size.width / 2, y: rowY(rank, in: geo.size.height))
-                            }
-
                             // time-axis vertical hairlines: onset · midpoint · wake
                             if showsTimeAxis, nightStart != nil {
                                 ForEach([0.0, 0.5, 1.0], id: \.self) { frac in

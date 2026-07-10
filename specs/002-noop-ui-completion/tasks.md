@@ -305,11 +305,17 @@
     Decision: the shared 0–100 left axis cannot honestly host raw 0–21 Strain, so
     the chart overlays a true 0–21 Strain plot with its own right axis—no normalized
     view value or storage conversion. Full `NOOPiOS` build passed.
-- [ ] **T42 — Sleep corrections (S3)** ∥ — sleep-marks section into a PaperCard
+- [x] **T42 — Sleep corrections (S3)** ∥ — sleep-marks section into a PaperCard
   (reference pattern; keep tap-to-log feature per C8, restyled + untruncated button
   labels), rebuild `Hypnogram` rendering (floating stage bars, 001 §2.1 colors, no
   gray track rows), strip WHOOP pill + "of 100" (C6/C7), add Asleep/Woke card per
   001 §6-S3. Verify vs 1-3. Commit.
+  - Evidence: `T42-sleep.png` and `T42-sleep-window.png` were compared with sheet
+    1-3. Sleep marks are one PaperCard with both full labels and unchanged logging
+    actions; the hypnogram now floats the canonical stage bars without gray lane
+    tracks; the hero is a bare 96/7/44 slate score ring with no source/scale pill;
+    and the existing Asleep / duration / Woke card is visible and aligned beneath
+    the stage chart. Full `NOOPiOS` build passed; `StrandDesign`: 36/36 tests.
 - [ ] **T43 — Workouts + post-run polish (S5/S27)** ∥ — stray "↓" icon, strain badges
   (0–21 from T34) visual per reference, splits/zones cards verified with seeded full
   data, post-run zones + route cards render with data (T31 baseline shot proves),

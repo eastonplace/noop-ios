@@ -338,15 +338,18 @@ struct SleepView: View {
                 HStack(spacing: 20) {
                     if let score {
                         ScoreRing(value: score, range: 0...100, accent: StrandPalette.restAccent,
-                                  size: 96, centerCaption: nil)
-                            .accessibilityLabel("Sleep score \(Int(score.rounded())) of 100")
+                                  size: NoopMetrics.heroRingDiameter,
+                                  lineWidth: NoopMetrics.heroRingLineWidth,
+                                  centerCaption: nil)
+                            .accessibilityLabel("Sleep score \(Int(score.rounded()))")
                     } else {
                         ZStack {
                             Circle().stroke(StrandPalette.inset, lineWidth: 8)
                             Text("—").font(StrandFont.metricValue)
                                 .foregroundStyle(StrandPalette.textSecondary)
                         }
-                        .frame(width: 96, height: 96)
+                        .frame(width: NoopMetrics.heroRingDiameter,
+                               height: NoopMetrics.heroRingDiameter)
                         .accessibilityLabel("Sleep score unavailable")
                     }
 
@@ -2552,38 +2555,52 @@ private struct SleepMarkCard: View {
     @State private var lastMark: SleepMark?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            SectionHeader("Sleep marks", overline: "Tap to log", trailing: String(localized: "Phase 1"))
-            NoopCard(tint: StrandPalette.restColor) {
-                VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
-                    Text("Tap when you're heading to bed or when you wake. Each tap is logged with the time. It doesn't change tonight's detected sleep.")
+        PaperCard {
+            VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Sleep Marks").strandOverline()
+                    Spacer()
+                    Text("Phase 1").font(StrandFont.micro).foregroundStyle(StrandPalette.link)
+                }
+                Text("Tap when you're heading to bed or when you wake. Each tap is logged with the time. It doesn't change tonight's detected sleep.")
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: NoopMetrics.gap) {
+                    sleepMarkButton("Going to sleep", systemImage: "moon.zzz.fill", type: .bedtime)
+                    sleepMarkButton("I'm awake", systemImage: "sun.max.fill", type: .wake)
+                }
+                if let lastMark {
+                    Text(lastMark.confirmation)
                         .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    HStack(spacing: NoopMetrics.gap) {
-                        // Routed through the unified NoopButton system so the two marks sit identically
-                        // (sentence-case label, leading icon at 8pt, controlHeight=48, no glow).
-                        NoopButton("Going to sleep", systemImage: "moon.zzz.fill",
-                                   kind: .secondary, fullWidth: true) { logMark(.bedtime) }
-                            .accessibilityLabel("Log going to sleep")
-
-                        NoopButton("I'm awake", systemImage: "sun.max.fill",
-                                   kind: .secondary, fullWidth: true) { logMark(.wake) }
-                            .accessibilityLabel("Log waking up")
-                    }
-                    if let lastMark {
-                        Text(lastMark.confirmation)
-                            .font(StrandFont.footnote)
-                            .foregroundStyle(StrandPalette.restColor)
-                            .transition(.opacity)
-                            .accessibilityLabel(lastMark.confirmation)
-                    }
+                        .foregroundStyle(StrandPalette.restColor)
+                        .transition(.opacity)
+                        .accessibilityLabel(lastMark.confirmation)
                 }
             }
         }
         // A success haptic lands when a new mark is captured (value-driven, not per-tap), matching the
         // app's sparse tactile vocabulary. No-op on macOS.
         .strandHaptic(.success, trigger: lastMark?.tsMs ?? 0)
+    }
+
+    private func sleepMarkButton(_ title: LocalizedStringKey, systemImage: String,
+                                 type: SleepMarkType) -> some View {
+        Button { logMark(type) } label: {
+            HStack(spacing: 7) {
+                Image(systemName: systemImage).font(.system(size: 15, weight: .semibold))
+                Text(title)
+                    .font(StrandFont.caption.weight(.medium))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+            }
+            .foregroundStyle(StrandPalette.textPrimary)
+            .frame(maxWidth: .infinity, minHeight: NoopMetrics.controlHeight)
+            .background(StrandPalette.inset,
+                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(type == .bedtime ? "Log going to sleep" : "Log waking up")
     }
 
     /// Persist + log a tapped mark. Optimistically shows the confirmation immediately, fires the
