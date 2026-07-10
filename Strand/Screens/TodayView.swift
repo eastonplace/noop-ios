@@ -2756,27 +2756,9 @@ struct TodayView: View {
             .buttonStyle(.plain)
             .accessibilityLabel(onRingTap == nil ? Self.domainGuideAccessibilityLabel(domain)
                                                   : "See what shaped your Recovery")
-            // Component 4, the real per-day source under the ring (only when this score has a value for
-            // the day AND we resolved its winner; a calibrating / empty ring shows no provenance badge).
-            // Apple Watch (M1): a watch-sourced score reads "Apple Watch" with its confidence bound to the
-            // shared ScoreStatePill dot/label, and a calibrating watch score shows "Needs more data" rather
-            // than a bare ring, the honest "the watch can't support this yet" state, never a fake number.
-            if let key = provenanceKey {
-                if ringHasValue(key), isWatchSourced(key) {
-                    VStack(spacing: 4) {
-                        SourceBadge("\(watchProvenanceLabel(key))", tint: StrandPalette.metricCyan)
-                        ScoreStatePill(watchScoreState(key))
-                    }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel("Source: Apple Watch")
-                } else if watchNeedsMoreData(key) {
-                    SourceBadge("Needs more data", tint: StrandPalette.textTertiary)
-                        .accessibilityLabel("Apple Watch. Needs more data to score this yet.")
-                } else if ringHasValue(key), let label = provenanceLabel(key) {
-                    SourceBadge("\(label)", tint: provenanceTint(key))
-                        .accessibilityLabel("Source: \(label)")
-                }
-            }
+            // C7: source attribution does not live inside a score hero. The existing provenance
+            // resolution remains available to detail footnotes and Data Sources; the trio stays a
+            // clean score/status read regardless of which source won.
         }
     }
 

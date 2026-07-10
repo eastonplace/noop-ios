@@ -194,7 +194,7 @@
     colors are unchanged, and sleep-need teal remains detail-only. Evidence:
     `qa/T35-today.png` and `qa/T35-sleep.png`, compared with reference sheets 1 and 3.
 
-- [ ] **T36 — Recovery/Stress detail validation**
+- [x] **T36 — Recovery/Stress detail validation**
   - Confirm Recovery detail (CoupledView) reads the same repository field legacy
     Charge read (FR-6) — record file:line of the read in this file. Stress detail
     unchanged (0–3). Remove "of 100" on recovery hero (C6) + WHOOP hero pills (C7).
@@ -203,6 +203,19 @@
     semantic green/amber.
   - Verify: trio Recovery == detail hero == Trends last point (same seeded day),
     screenshot. Commit.
+  - **Completed 2026-07-10:** `CoupledView.swift:717` reads Recovery directly from
+    `repo.days[].recovery`, the same `DailyMetric.recovery` field used by Today and
+    Trends; Stress remains on its unchanged 0–3 range at `CoupledView.swift:1257`.
+    Hero source pills were removed per C7 while attribution remains in Data Sources
+    and detail footnotes. Recovery hero value/color and over-time styling follow C13:
+    value 50 is yellow, the line is `recoveryData`, day points are band-colored, and
+    key-factor status words retain their semantic colors. The sweep also caught and
+    fixed `WeeklyDigest`'s package-owned legacy display labels/prose so Trends now
+    renders Recovery/Strain/Sleep without changing its metric cases or calculations.
+    Seeded equality proof: 50 in `qa/T36-recovery-trio.png`, 50 in
+    `qa/T36-recovery-detail.png`, and the final Recovery point at 50 in
+    `qa/T36-recovery-trends.png`; `qa/T36-stress.png` proves the preserved 0–3
+    surface. Compared with reference sheets 1 and 3; `NOOPiOS` build passed.
 
 - [ ] **T37 — Metric regression tests**
   - Add/extend tests: StrainScale round-trips; band boundaries; a rendering-level

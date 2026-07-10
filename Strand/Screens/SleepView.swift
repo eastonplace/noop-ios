@@ -360,8 +360,6 @@ struct SleepView: View {
                             .font(StrandFont.body)
                             .foregroundStyle(StrandPalette.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
-                        SourceBadge(score != nil ? sleepScoreSource(model) : "On-device",
-                                    tint: StrandPalette.restAccent)
                     }
                     Spacer(minLength: 0)
                 }
@@ -456,8 +454,8 @@ struct SleepView: View {
     /// The Sleep world's opening: a scenic indigo backdrop with — when the night carries a 0–100
     /// sleep-performance score — the canonical liquid `LiquidVessel` in the Sleep tint with the score
     /// counting up over it (the SAME hero language Today's score cells and the Trends headline use);
-    /// otherwise a big SF-Rounded hours-slept headline over the same backdrop. A `SourceBadge` states
-    /// whether the score is WHOOP's own imported figure or NOOP's on-device estimate. Presentation-only
+    /// otherwise a big SF-Rounded hours-slept headline over the same backdrop. Source attribution stays
+    /// in the detail footnotes and Data Sources rather than inside this hero (C7). Presentation-only
     /// — the number comes straight from the existing `model.performance.latest` / hours computation.
     @ViewBuilder
     private func restHero(_ model: SleepModel) -> some View {
@@ -497,7 +495,6 @@ struct SleepView: View {
                     .padding(.vertical, NoopMetrics.space5)
                     .accessibilityElement(children: .combine)
                 }
-                SourceBadge(score != nil ? sleepScoreSource(model) : "On-device", tint: StrandPalette.restColor)
             }
             .padding(NoopMetrics.cardInnerPadding + NoopMetrics.space1)
             .frame(maxWidth: .infinity)
