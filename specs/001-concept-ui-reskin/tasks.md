@@ -145,7 +145,7 @@
     primary action; `qa/T06-data-sources.png` confirms 32-pt blue outline import
     chips and the red outline destructive action.
 
-- [ ] **T07 — Rows, badges, notes, small parts**
+- [x] **T07 — Rows, badges, notes, small parts**
   - Create (or extend existing files if equivalents exist — audit first):
     `StatusBadge`, `SectionHeader`, `SettingsRow`, `DeviceRow`, `NoteCard`,
     `InsightCard`, `StatTriplet`, `MetricTile`, `ZoneBars`, `SplitsTable`,
@@ -156,6 +156,13 @@
   - Verify: `swift test --package-path Packages/StrandDesign`; build; screenshot
     Sleep (hypnogram) + Trends (chart). Commit. (Split into multiple commits if the
     diff gets big — one commit per component group is fine.)
+  - Verified 2026-07-09: added the reusable Paper card, badge, row, note, triplet,
+    metric, zone, splits, and stress-timeline contracts after auditing existing
+    equivalents; `SectionHeader` and `InsightCard` were extended in place. Chart area
+    fills are capped at 6%, lines are 2 pt, stage tracks use `inset`, and tooltip glow
+    is removed. `StrandDesign` passed 30 tests and `NOOPiOS` built and ran.
+    `qa/T07-sleep-hypnogram.png` and `qa/T07-trends.png` were visually checked against
+    sheets 1-3 and 1-2; `qa/T07-sleep.png` preserves the root-state capture.
 
 - [ ] **T08 — Header, tab bar, FAB, Quick Actions**
   - Modify: `StrandiOS/App/RootTabView.swift` (remove glass islands + gold FAB; build

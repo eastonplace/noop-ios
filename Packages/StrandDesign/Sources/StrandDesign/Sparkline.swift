@@ -68,7 +68,7 @@ public struct Sparkline: View {
     /// The area-wash top colour (gradient sampled at 0.7, dimmed). Computed once per body eval instead of
     /// re-sampling the gradient inside the ZStack on every draw.
     private var areaWashColor: Color {
-        StrandPalette.sample(stops: gradient.stops, at: 0.7).opacity(0.22)
+        StrandPalette.sample(stops: gradient.stops, at: 0.7).opacity(0.06)
     }
     /// The head-dot ring colour (gradient sampled at its bright end). Computed once per body eval.
     private var headColor: Color {
@@ -106,8 +106,6 @@ public struct Sparkline: View {
                         // Design Reset (WHOOP): a crisp solid leading dot, no blurred bloom halo.
                         // The line colour reads as the head ring; a small core sits inside it.
                         Circle().fill(headColor).frame(width: lineWidth * 2.2, height: lineWidth * 2.2)
-                            .position(head)
-                        Circle().fill(StrandPalette.tipCore).frame(width: lineWidth * 1.0, height: lineWidth * 1.0)
                             .position(head)
                     }
                 }

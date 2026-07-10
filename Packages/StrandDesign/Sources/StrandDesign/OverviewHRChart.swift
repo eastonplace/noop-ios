@@ -286,7 +286,7 @@ public struct OverviewHRChart: View {
                 .foregroundStyle(
                     LinearGradient(
                         colors: [
-                            StrandPalette.sample(stops: gradient.toStops(), at: unit(averageValue)).opacity(0.28),
+                            StrandPalette.sample(stops: gradient.toStops(), at: unit(averageValue)).opacity(0.06),
                             Color.clear
                         ],
                         startPoint: .top, endPoint: .bottom
@@ -296,7 +296,7 @@ public struct OverviewHRChart: View {
         ForEach(displayPoints) { p in
             LineMark(x: .value("Time", p.date), y: .value("BPM", p.value))
                 .interpolationMethod(.catmullRom)
-                .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+                .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
                 .foregroundStyle(valueGradient)
         }
 
@@ -423,19 +423,23 @@ public struct OverviewHRChart: View {
         .chartYScale(domain: valueRange)
         // catmullRom overshoots past the data on sharp turns and the area gradient draws
         // unclipped — clip the plot so a spiky HR curve doesn't bleed past the chart (see TrendChart).
-        .chartPlotStyle { plotArea in plotArea.clipped() }
+        .chartPlotStyle { plotArea in
+            plotArea
+                .background(StrandPalette.inset.opacity(0.55))
+                .clipped()
+        }
         .chartXAxis {
             AxisMarks(values: .automatic(desiredCount: 5)) { _ in
                 AxisGridLine().foregroundStyle(StrandPalette.hairline.opacity(0.4))
                 AxisValueLabel().foregroundStyle(StrandPalette.textTertiary)
-                    .font(StrandFont.footnote)
+                    .font(StrandFont.micro)
             }
         }
         .chartYAxis {
             AxisMarks(position: .leading, values: .automatic(desiredCount: 4)) { _ in
                 AxisGridLine().foregroundStyle(StrandPalette.hairline.opacity(0.4))
                 AxisValueLabel().foregroundStyle(StrandPalette.textTertiary)
-                    .font(StrandFont.footnote)
+                    .font(StrandFont.micro)
             }
         }
         .chartOverlay { proxy in

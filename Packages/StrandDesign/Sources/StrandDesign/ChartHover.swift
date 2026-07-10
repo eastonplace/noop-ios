@@ -41,7 +41,6 @@ public struct ChartTooltip: View {
                 Circle()
                     .fill(accent)
                     .frame(width: 7, height: 7)
-                    .shadow(color: accent.opacity(0.8), radius: 3)
             }
             VStack(alignment: .leading, spacing: 1) {
                 Text(value)
@@ -59,14 +58,13 @@ public struct ChartTooltip: View {
         .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(StrandPalette.surfaceOverlay)
+                .fill(StrandPalette.card)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(StrandPalette.hairlineStrong, lineWidth: 1)
         )
-        .shadow(color: scheme == .light ? Color(hex: "#1A2230").opacity(0.18) : Color.black.opacity(0.45),
-                radius: scheme == .light ? 8 : 10, x: 0, y: scheme == .light ? 4 : 6)
+        .shadow(color: Color.black.opacity(0.06), radius: 3, x: 0, y: 1)
         .fixedSize()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(label != nil ? "\(value), \(label!)" : value)

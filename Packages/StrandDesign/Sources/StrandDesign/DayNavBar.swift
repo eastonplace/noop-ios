@@ -50,7 +50,7 @@ public struct DayNavBar: View {
             Button { onSelect(selectedOffset + 1) } label: {
                 Image(systemName: "chevron.left")
                     .font(StrandFont.headline)
-                    .foregroundStyle(StrandPalette.accent)
+                    .foregroundStyle(StrandPalette.link)
                     .frame(width: 44, height: 44)        // ≥44pt hit target (HIG); glyph stays 17pt
                     .contentShape(Rectangle())
             }
@@ -69,7 +69,7 @@ public struct DayNavBar: View {
                     if selectedOffset > 0 {
                         Text(Self.fullDateFmt.string(from: selectedDay))
                             .font(StrandFont.captionNumber)
-                            .foregroundStyle(StrandPalette.accent)
+                            .foregroundStyle(StrandPalette.link)
                             .lineLimit(1)
                     }
                 }
@@ -91,7 +91,7 @@ public struct DayNavBar: View {
             Button { if canGoNewer { onSelect(selectedOffset - 1) } } label: {
                 Image(systemName: "chevron.right")
                     .font(StrandFont.headline)
-                    .foregroundStyle(canGoNewer ? StrandPalette.accent : StrandPalette.textTertiary)
+                    .foregroundStyle(canGoNewer ? StrandPalette.link : StrandPalette.textTertiary)
                     .frame(width: 44, height: 44)        // ≥44pt hit target (HIG); glyph stays 17pt
                     .contentShape(Rectangle())
             }

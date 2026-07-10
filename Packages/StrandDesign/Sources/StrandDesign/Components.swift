@@ -137,11 +137,15 @@ public struct SectionHeader: View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
                 if let overline { Text(overline).strandOverline() }
-                Text(title).font(StrandFont.title2).foregroundStyle(StrandPalette.textPrimary)
+                Text(title)
+                    .font(overline == nil ? StrandFont.sectionOverline : StrandFont.cardTitle)
+                    .tracking(overline == nil ? StrandFont.sectionOverlineTracking : 0)
+                    .textCase(overline == nil ? .uppercase : nil)
+                    .foregroundStyle(StrandPalette.textPrimary)
             }
             Spacer()
             if let trailing {
-                Text(trailing).font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
+                Text(trailing).font(StrandFont.caption).foregroundStyle(StrandPalette.link)
             }
         }
     }
@@ -329,12 +333,19 @@ public struct InsightCard: View {
     let category: LocalizedStringKey, status: LocalizedStringKey, detail: LocalizedStringKey
     var statusColor: Color = StrandPalette.accent
     var tint: Color? = nil
+    var symbol: String? = nil
     /// Extra trailing inset reserved on the overline + status rows so a caller's
     /// `.overlay(alignment: .topTrailing)` (greeting + state pill) doesn't run over the
     /// card's own title text on a narrow screen (#69). Defaults to 0 — no effect unless set.
     var titleTrailingInset: CGFloat = 0
     public init(category: LocalizedStringKey, status: LocalizedStringKey, detail: LocalizedStringKey, statusColor: Color = StrandPalette.accent, tint: Color? = nil, titleTrailingInset: CGFloat = 0) {
         self.category = category; self.status = status; self.detail = detail; self.statusColor = statusColor; self.tint = tint; self.titleTrailingInset = titleTrailingInset
+    }
+    public init(symbol: String = "sparkles", title: LocalizedStringKey, body: LocalizedStringKey,
+                accent: Color = StrandPalette.link) {
+        self.category = ""; self.status = title; self.detail = body
+        self.statusColor = accent; self.tint = nil; self.symbol = symbol
+        self.titleTrailingInset = 0
     }
     public var body: some View {
         // Defaults the card wash to the status colour so the coaching card sits in the
@@ -345,14 +356,29 @@ public struct InsightCard: View {
         // Apple-flat: a plain flat card. Identity comes from the COLOURED status headline alone — no extra
         // hue-gradient wash, no border (so it reads identical to every other card on the page).
         return NoopCard(padding: 18, tint: hue) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(category).strandOverline()
-                    .padding(.trailing, titleTrailingInset)
-                Text(status).font(StrandFont.rounded(28, weight: .bold)).foregroundStyle(statusColor)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.trailing, titleTrailingInset)
-                Text(detail).font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            if let symbol {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: symbol)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(statusColor)
+                        .frame(width: 32, height: 32)
+                        .background(statusColor.opacity(0.10), in: Circle())
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(status).font(StrandFont.cardTitle).foregroundStyle(StrandPalette.textPrimary)
+                        Text(detail).font(StrandFont.body).foregroundStyle(StrandPalette.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(category).strandOverline()
+                        .padding(.trailing, titleTrailingInset)
+                    Text(status).font(StrandFont.cardTitle).foregroundStyle(statusColor)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.trailing, titleTrailingInset)
+                    Text(detail).font(StrandFont.body).foregroundStyle(StrandPalette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
     }
