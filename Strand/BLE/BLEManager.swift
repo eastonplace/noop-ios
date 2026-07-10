@@ -2580,6 +2580,24 @@ public final class BLEManager: NSObject, ObservableObject {
 extension BLEManager: @preconcurrency CBCentralManagerDelegate {
     public func centralManagerDidUpdateState(_ central: CBCentralManager) {
         log("Central state: \(central.state.rawValue) (5 = poweredOn)")
+        #if DEBUG
+        if CommandLine.arguments.contains("--demo-bluetooth-off") {
+            state.bluetoothUnavailableMessage = "Bluetooth is off. Turn it on in Settings to connect a device."
+            return
+        }
+        #endif
+        switch central.state {
+        case .poweredOn:
+            state.bluetoothUnavailableMessage = nil
+        case .poweredOff:
+            state.bluetoothUnavailableMessage = "Bluetooth is off. Turn it on in Settings to connect a device."
+        case .unauthorized:
+            state.bluetoothUnavailableMessage = "Bluetooth access is denied. Allow NOOP in Settings › Privacy & Security › Bluetooth."
+        case .unsupported:
+            state.bluetoothUnavailableMessage = "Bluetooth isn't supported on this device."
+        default:
+            state.bluetoothUnavailableMessage = "Bluetooth is unavailable right now. Try again in a moment."
+        }
         guard central.state == .poweredOn else { return }
         // Bootstrap the async store once on first poweredOn (idempotent if already set).
         Task { @MainActor in await bootstrapStore() }

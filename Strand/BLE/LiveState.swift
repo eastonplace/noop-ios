@@ -32,6 +32,9 @@ public final class LiveState: ObservableObject {
     /// radio-off / connect-fail / disconnect). Twin of the Android LiveState.streamingLiveHR.
     @Published public var streamingLiveHR: Bool = false
     @Published public var heartRate: Int? = nil
+    /// User-facing Bluetooth availability failure supplied by the central manager.
+    /// Nil while the radio is usable; UI-only and never changes scan/connect policy.
+    @Published public var bluetoothUnavailableMessage: String? = nil
     /// Whether the heavy R10/R11 realtime burst is currently armed (the "live feed"). Tracks the
     /// realtime INTENT (startRealtime/stopRealtime), NOT `heartRate` — the lightweight 0x2A37 profile
     /// keeps setting heartRate while bonded, so a heartRate-driven toggle could never read "off". The
@@ -367,7 +370,13 @@ public final class LiveState: ObservableObject {
     /// looped forever. Informational note for the Live screen; cleared on a clean reconnect or Live re-open.
     @Published public var standardHRMode: String? = nil
 
-    public init() {}
+    public init() {
+        #if DEBUG
+        if CommandLine.arguments.contains("--demo-bluetooth-off") {
+            bluetoothUnavailableMessage = "Bluetooth is off. Turn it on in Settings to connect a device."
+        }
+        #endif
+    }
 
     /// Single funnel for battery readings — updates the published value AND notifies the hook,
     /// so both write sites (FrameRouter, BLEManager) drive the alert monitor identically.

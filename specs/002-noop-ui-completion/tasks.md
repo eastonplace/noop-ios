@@ -513,11 +513,26 @@
     `qa/T49-straindetail.png`); Sleep 86 on Today/Sleep and the canonical Sleep
     route (`qa/T35-{today,sleep}.png`, `qa/T49-sleepdetail.png`). No broken
     source, stale-cache trigger, or missing environment object was found.
-- [ ] **T51 — State coverage (FR-13)** ∥
+- [x] **T51 — State coverage (FR-13)** ∥
   - Sweep reference screens for loading/empty/error/permission states; extend the
     existing honest-empty-state pattern where absent (import failure banner, HealthKit
     permission-denied surfaces, BLE-off state on Live/Devices). Screenshot each new
     state. Commit per group.
+  - **Completed 2026-07-10:** the reference-screen sweep confirmed the established
+    loading/empty patterns remain intact (calibrating pillar rings, Waiting Live HR,
+    no-history Trends, pending device registry, source-specific empty states). Filled
+    the three missing error/permission gaps without changing import, HealthKit or BLE
+    behavior: Data Sources now raises a persistent Paper warning when the file picker
+    itself fails instead of logging silently; Apple Health denial now says permission
+    is off and offers the only actionable next step, Open Settings, rather than a
+    request button that cannot prompt twice; and `LiveState` exposes the central
+    manager's radio-unavailable reason so both Live and Devices render an honest
+    Bluetooth-off/denied/unsupported Paper warning. DEBUG-only launch fixtures make
+    the states deterministic and do not ship behavior changes. Evidence:
+    `qa/T51-import-failure.png`, `qa/T51-healthkit-denied.png`,
+    `qa/T51-live-bluetooth-off.png`, and
+    `qa/T51-devices-bluetooth-off.png`, compared with reference sheets 4/6 and
+    the shared Paper warning treatment. Final `NOOPiOS` simulator build passed.
 - [ ] **T52 — Widget/watch/notification alignment (C12, FR-14)** ∥
   - C1/C2/C13 through `StrandiOSWidgets`, `NOOPWatch`, `NOOPWatchComplications`,
     Live Activity (`LiveActivityController`), notification strings; values match

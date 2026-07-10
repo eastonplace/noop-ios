@@ -11,6 +11,7 @@ struct DataSourcesView: View {
     @EnvironmentObject var live: LiveState
     @State private var showingImporter = false
     @State private var importTarget: ImportTarget = .whoop
+    @State private var pickerError: String?
     // Nutrition CSV import state — local to this screen (the import is a quick, self-contained
     // metric-series write; it doesn't need AppModel's heavyweight import pipeline).
     @State private var nutritionImporting = false
@@ -58,6 +59,11 @@ struct DataSourcesView: View {
     init() {
         let sink = LogSink()
         self.broadcastLogSink = sink
+        #if DEBUG
+        if CommandLine.arguments.contains("--demo-import-failure") {
+            _pickerError = State(initialValue: "The selected file couldn't be opened. Choose a local copy and try again.")
+        }
+        #endif
         _hrBroadcaster = StateObject(wrappedValue: HrBroadcaster(log: { [weak sink] line in
             // HrBroadcaster is @MainActor, so it only ever calls this closure from the main actor — assume
             // that isolation to forward straight into LiveState (also @MainActor) without an extra runloop
@@ -79,6 +85,9 @@ struct DataSourcesView: View {
                        // built cards — that observation can't be removed here (see the lane-B2 note).
                        lazy: true) {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+                if let pickerError {
+                    NoteCard(LocalizedStringKey(pickerError), title: "Import failed", style: .warning)
+                }
                 SectionHeader("Import from file or app")
                 whoopCard.staggeredAppear(index: 0)
                 appleHealthCard.staggeredAppear(index: 1)
@@ -310,6 +319,7 @@ struct DataSourcesView: View {
         case .failure(let error):
             // Surface the failure instead of swallowing it (#179) — a silent return read as
             // "import does nothing", with no clue why.
+            pickerError = String(localized: "The selected file couldn't be opened: \(error.localizedDescription)")
             NSLog("Import: file picker failed for \(target) — \(error.localizedDescription)")
         }
     }

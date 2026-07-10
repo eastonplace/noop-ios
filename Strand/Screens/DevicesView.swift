@@ -86,6 +86,9 @@ private struct DevicesContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+            if let message = live.bluetoothUnavailableMessage {
+                NoteCard(LocalizedStringKey(message), title: "Bluetooth unavailable", style: .warning)
+            }
             // UPPERCASE overline section header, matching the liquid Today. Counts the paired bands so the
             // multi-WHOOP reality reads at a glance.
             sectionHead("YOUR BANDS", trailing: activeDevices.count == 1

@@ -2,6 +2,9 @@ import SwiftUI
 import StrandDesign
 import WhoopStore
 import Foundation
+#if os(iOS)
+import UIKit
+#endif
 
 // MARK: - Apple Health (per-source page) — locked component system
 //
@@ -410,7 +413,7 @@ struct AppleHealthView: View {
                         .foregroundStyle(StrandPalette.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
 
-                case .unknown, .denied:
+                case .unknown:
                     Text("Read your heart rate, HRV, blood oxygen, respiratory rate, sleep, steps and energy straight from Apple Health, and write NOOP's strap-derived metrics back. Everything stays on \(Platform.deviceNounPhrase).")
                         .font(StrandFont.caption)
                         .foregroundStyle(StrandPalette.textTertiary)
@@ -426,12 +429,18 @@ struct AppleHealthView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(StrandPalette.metricCyan)
-                    if health.auth == .denied {
-                        Text("If you don't see the prompt, enable NOOP under Settings › Health › Data Access & Devices.")
-                            .font(StrandFont.footnote)
-                            .foregroundStyle(StrandPalette.textTertiary)
-                            .fixedSize(horizontal: false, vertical: true)
+
+                case .denied:
+                    StatePill("Permission needed", tone: .warning)
+                    Text("Apple Health access is off. NOOP won't read or write Health data until you allow it in Settings.")
+                        .font(StrandFont.subhead)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Link(destination: URL(string: UIApplication.openSettingsURLString)!) {
+                        Label("Open Settings", systemImage: "gear")
                     }
+                    .buttonStyle(.borderedProminent)
+                    .tint(StrandPalette.metricCyan)
 
                 case .authorized:
                     if let last = health.lastSync {

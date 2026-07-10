@@ -47,6 +47,12 @@ final class HealthKitBridge: ObservableObject {
         self.repo = repo
         self.appleDeviceId = appleDeviceId
         self.noopDeviceId = noopDeviceId
+        #if DEBUG
+        if CommandLine.arguments.contains("--demo-health-denied") {
+            auth = .denied
+            return
+        }
+        #endif
         // Order matters: a free-signed build with no HealthKit entitlement is dead in the water even
         // where the hardware supports Health, so surface that first. `.unavailable` (no HealthKit at
         // all, e.g. iPad without the framework) still wins where it applies because we only reach the

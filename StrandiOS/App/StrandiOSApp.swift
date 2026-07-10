@@ -287,6 +287,7 @@ enum DemoScreens {
         case "explore":  return AnyView(MetricExplorerView())
         case "compare":  return AnyView(CompareView())
         case "settings": return AnyView(SettingsView())
+        case "applehealth": return AnyView(AppleHealthView())
         case "storage": return AnyView(StorageView())
         case "trendsreport": return AnyView(TrendsReportSheet(days: []))
         case "fused": return AnyView(FusedRecordView(record: FusedRecord(

@@ -74,6 +74,9 @@ struct LiveView: View {
                        topBackground: nil,
                        backAction: { dismiss() }) {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
+                if let message = live.bluetoothUnavailableMessage {
+                    NoteCard(LocalizedStringKey(message), title: "Bluetooth unavailable", style: .warning)
+                }
                 PaperLiveDeviceCard(deviceName: activeDeviceName,
                                     activeConnection: activeConnection)
                 // Can't-connect-at-all guidance: the strap wiped its bond (firmware update / WHOOP app
