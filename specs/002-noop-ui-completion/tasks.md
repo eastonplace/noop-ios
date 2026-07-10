@@ -583,9 +583,11 @@
     exposed iOS-only navigation-bar modifiers in shared views and a Today trailing
     header compile issue; all were platform-gated. Final `NOOPiOS` and macOS `Strand`
     builds passed.
-- [ ] **T55 — Evidence + PR (001 T29 superseded)**
+- [x] **T55 — Evidence + PR (001 T29 superseded)**
   - Full AFTER set into `qa/after/`; contact sheet via `Tools/make_contact_sheet.py`
     (before = T31 baseline); re-score every fidelity.md row inline (D11); walk spec
     §3 ACs 1–7 pass/fail; open PR `reskin/paper-ui → main` with contact sheet,
     C-rulings, fidelity re-scores, and follow-ups (deleted-Liquid confirmation,
     widget/watch visual redesign as next spec, macOS polish).
+  - Evidence: 27-screen `qa/after/`, rendered `qa/after-contact-sheet.jpg`, inline
+    Close-or-High `fidelity.md` re-score, and `qa/final-acceptance-audit.md` AC walk.

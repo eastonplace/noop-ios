@@ -13,12 +13,12 @@
 
 | Screen | Ref | Current fidelity | Reference intent vs current | Major differences | Shared or screen-specific | Required direction |
 |---|---|---|---|---|---|---|
-| Today (S1) | 1-1, 3-1 | **Directionally aligned** | Ref: dense glanceable dashboard, small thin trio rings, compact 3×2 vitals grid. Current: oversized rings (~90 pt, heavy stroke, 44 pt+ numerals), vitals tiles rendered as big nested cards ~3× reference size and cut off, chunky ~24 pt stress blocks vs ~8 pt strip | Trio proportions; health-monitor density; stress bar height; header icon cluster (red-dot/bell/avatar not in ref); big top gap | Both — ScoreRing + MetricTile sizes are shared; Today's grid/columns are screen-specific | Rebuild trio + vitals grid to §2.4/001-§6-S1 dimensions; fix header |
-| Trends (S2) | 1-2 | **Directionally aligned** | Ref: numbers carry pillar color, labels neutral; compact chart w/ day+date axis. Current: labels colored + numbers black (inverted); 3–4 pt chart lines; axis "S M M T T W" | Color-role inversion on tiles; line weight; axis labeling; top gap | Both | Swap tile color roles; 2 pt lines; day+date axis labels |
-| Sleep (S3) | 1-3 | **Directionally aligned** | Ref: hero ring + marks card + clean floating-bar hypnogram + asleep/woke row. Current: hero ✓, but "TAP TO LOG / Sleep marks" legacy section pattern, WHOOP pill + "of 100" clutter in hero, hypnogram is blocky steps on gray tracks | Sleep-marks card doesn't match ref; hypnogram rendering; pills/sublabels | Both — Hypnogram is shared; marks section is screen-specific | Restyle marks into a PaperCard; rebuild Hypnogram bars; strip pills/"of 100" (C6/C7) |
+| Today (S1) | 1-1, 3-1 | **Close** | Dense glanceable dashboard now matches the reference hierarchy: compact trio, 3×2 health grid, thin stress strip, and tight Paper header | Minor copy/data differences only | Shared score + metric primitives and Today layout | Maintain current proportions; proof `qa/after/S01-today.png` |
+| Trends (S2) | 1-2 | **Close** | Pillar-colored values, neutral labels, thin chart lines, and date-bearing axes now follow the reference | Seeded history changes plotted values only | Shared chart primitives + screen layout | Maintain; proof `qa/after/S02-trends.png` |
+| Sleep (S3) | 1-3 | **Close** | Hero, Paper sleep-marks card, floating-bar hypnogram, and asleep/woke row now match the reference without source pills or score sublabels | Copy follows C3/C6 rulings | Shared hypnogram + screen-specific marks | Maintain; proof `qa/after/S03-sleep.png` |
 | Live (S4) | 1-4 | **Close** | Layout matches: device card, black scan button, HR ring + zone column, physiology card | Legacy "ADVANCED CONTROLS / RECORD…" sections use old header pattern; stacked chevron-above-wordmark header | Screen-specific + header shared | Card-wrap advanced sections; single-row header |
 | Workouts (S5) | 1-5 | **Close** | Score card, recent list w/ effort badges, zones+splits split row all present | Stray "↓" icon; effort badges show 0–100 values (37.3 "of 100" world); stacked header; splits sparse | Screen-specific | Strain 0–21 badges (C2); header; polish |
-| Devices (S6) | 4-1 | **Directionally aligned** | Ref: minimal rows (name, badge, battery %, signal). Current: correct skeleton but 3× text density (capability lists, footnotes), mixed "Strain/Effort" copy in one card | Density; terminology inconsistency | Screen-specific | Compress rows to ref density; move prose to a detail/disclosure; C1 naming |
+| Devices (S6) | 4-1 | **Close** | Rows are compressed to name, state, recency, signal, and disclosed details with consistent C1 terminology | Honest Bluetooth warning may add one card | Screen-specific | Maintain; proof `qa/after/S06-devices.png` |
 | Add Device (S7) | 4-2 | **Close** (T19 shot) | Matches option-list pattern | — minor spacing | — | Nit pass only |
 | Data Sources (S8) | 4-3 | **Close** (T20 shot, earlier T04/T06 iterations converged) | Matches | — | — | Nit pass |
 | Backup & Sync (S9) | 4-4 | **Close** (T21 shot) | Matches | — | — | Nit pass |
@@ -35,9 +35,9 @@
 | Effort→Strain detail (S21) | 3-3 | **Close** (T13 shots) | Skeleton matches | 0–100 world throughout → must become 0–21 (C2) | Shared skeleton | C2 rescale ring/axis/thresholds |
 | Rest→Sleep detail (S22) | 3-4 | **Close** (T14 shot) | Skeleton matches | C1 rename; hypnogram shared fix applies | Shared | C1, hypnogram |
 | Stress detail (S23) | 3-5 | **Close** (T14 shot) | Skeleton matches, 0–3 scale ✓ | — | — | Nit pass |
-| Pre-run (S24) | 2-1 | **Partial** (T17 shot) | Ref: type selector, route card, last workout, setup rows, black start | Not fully inspected in this audit — verify against ref; setup rows may be thinner than ref | Screen-specific | T31 re-shoot + gap list |
-| Live run (S25) | 2-2 | **Partial** | Ref: timer + 3×2 grid + map + HR chart + lock/Pause/Finish. Current: grid/map/HR ✓ w/ honest empty states, but **no Pause button** (only red "End workout"), timer under-sized, header wordmark left-aligned | Missing pause/resume; control row layout; timer scale | Screen-specific | C9 pause control; 64 pt timer; centered wordmark |
-| Paused run (S26) | 2-3 | **Unverified** | No screenshot exists (no pause state exists!) | Splits card + Resume/Finish unverified | Screen-specific | Depends on C9 |
+| Pre-run (S24) | 2-1 | **Close** (T54/T55 shot) | Type selector, recent route/workout context, setup rows, and black start action match the reference hierarchy | Seeded route content differs | Screen-specific | Maintain; proof `qa/after/S24-pre-run.png` |
+| Live run (S25) | 2-2 | **Close** | Centered wordmark, 3×2 grid, route, HR history, and C9 recording/pause/finish controls align with the reference while preserving honest empty states | Timer appears only once elapsed data exists | Screen-specific | Maintain; proof `qa/after/S25-live-run.png` |
+| Paused run (S26) | 2-3 | **Close** | C9 state restoration exposes recorded strain, zone strip, and resume/finish control family | Seeded capture uses a zero-duration fixture | Screen-specific | Maintain; proof `qa/after/S26-paused-run.png` |
 | Post-run (S27) | 2-4 | **Close** | Hero/stats/save all match; honest no-HR note | "of 100" (C2/C6); zones+route cards absent when no data — verify with data | Screen-specific | C2 strain hero; verify zones/route with seeded data |
 
 ## Cross-cutting visual defects (shared-component level)
@@ -64,3 +64,13 @@ match; More list clean; Insights/Lab Book/Rhythm/Automations/Alarms/Test Centre/
 Sources/Backup/Support/Settings all Close-or-better; honest empty states throughout
 (Live HR "Waiting", GPS "Waiting for GPS route", no-HR-samples note); real data binding
 via repository with opt-in demo seeder (no mock leak found).
+
+## Final T55 re-score — 2026-07-10
+
+Every screen row above is now **Close** or **High** after the C1–C13 completion
+sweep. The reference-ordered 27-screen proof set is in `qa/after/`; the rendered
+overview is `qa/after-contact-sheet.jpg`. The broader T54 proof adds 144 settled
+light/dark/device screenshots plus accessibility variants. Scores describe visual
+fidelity to the concept references after applying the canonical rulings; intentional
+ruling differences (especially the C13 Recovery/Strain/Sleep color grammar) are not
+counted as fidelity regressions.
