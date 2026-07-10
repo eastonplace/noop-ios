@@ -68,6 +68,8 @@ struct RootTabView: View {
             PaperTabBar(selection: $selectedTab, onReselect: { _ in
                 // Re-tapping the active tab refreshes that page's data (2026-07-02).
                 Task { await repo.refresh() }
+            }, onQuickActions: {
+                withAnimation(Self.sheetEase) { quickAction = .menu }
             })
         }
         .task {
@@ -506,6 +508,8 @@ private struct PaperTabBar: View {
     @Binding var selection: Int
     /// Fires when the user taps the ALREADY-active tab (2026-07-02: re-tap should refresh).
     var onReselect: (Int) -> Void = { _ in }
+    /// Opens the Quick Actions sheet from the centre-docked FAB (board v2, spec 003 D4).
+    var onQuickActions: () -> Void = {}
 
     private struct Item: Identifiable { let title: LocalizedStringKey; let icon: String; let tag: Int; var id: Int { tag } }
     private let nav = [Item(title: "Today", icon: "square.grid.2x2", tag: 0),
@@ -517,11 +521,29 @@ private struct PaperTabBar: View {
         VStack(spacing: 0) {
             Rectangle().fill(StrandPalette.hairline).frame(height: 1)
             HStack(spacing: 0) {
-                ForEach(nav) { tabButton($0) }
+                ForEach(nav.prefix(2)) { tabButton($0) }
+                quickActionsButton
+                ForEach(nav.suffix(2)) { tabButton($0) }
             }
             .frame(height: 56)
         }
         .background(StrandPalette.card)
+    }
+
+    /// Centre-docked ink FAB (board v2): sits inline in the bar, same Quick Actions sheet
+    /// the old floating button opened.
+    private var quickActionsButton: some View {
+        Button(action: onQuickActions) {
+            Image(systemName: "plus")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(StrandPalette.onInk)
+                .frame(width: 44, height: 44)
+                .background(StrandPalette.ink, in: Circle())
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Quick Actions")
     }
 
     private func tabButton(_ item: Item) -> some View {

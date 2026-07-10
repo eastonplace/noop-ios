@@ -36,7 +36,7 @@ public enum NoopMetrics {
     public static let healthTileValueSize: CGFloat = 20
     public static let healthTileSparklineHeight: CGFloat = 16
     public static let healthTileMinHeight: CGFloat = 68
-    public static let stressTimelineHeight: CGFloat = 8
+    public static let stressTimelineHeight: CGFloat = 6
     public static let chartLineWidth: CGFloat = 2
     public static let iconCircleDiameter: CGFloat = 34
 

@@ -383,8 +383,9 @@ public struct MetricTile: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 Image(systemName: icon)
-                    .font(.system(size: NoopMetrics.healthTileIconSize, weight: .semibold))
-                    .foregroundStyle(accent)
+                    .font(.system(size: NoopMetrics.healthTileIconSize, weight: .medium))
+                    .symbolRenderingMode(.monochrome)
+                    .foregroundStyle(StrandPalette.textPrimary)
                 Text(label)
                     .font(.system(size: NoopMetrics.healthTileLabelSize))
                     .foregroundStyle(StrandPalette.textSecondary)
@@ -398,15 +399,6 @@ public struct MetricTile: View {
                     Text(unit).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
                 }
             }
-            #if !os(watchOS)
-            if let spark, spark.count > 1 {
-                Sparkline(values: spark, gradient: Gradient(colors: [accent, accent]),
-                          lineWidth: NoopMetrics.chartLineWidth,
-                          showsArea: false, showsHead: false, showsHover: false)
-                    .frame(width: 52, height: NoopMetrics.healthTileSparklineHeight,
-                           alignment: .leading)
-            }
-            #endif
         }
         .frame(maxWidth: .infinity, minHeight: NoopMetrics.healthTileMinHeight,
                alignment: .topLeading)
@@ -507,13 +499,13 @@ public struct StressTimelineBar: View {
     public var body: some View {
         VStack(spacing: 6) {
             GeometryReader { _ in
-                HStack(spacing: 1) {
+                HStack(spacing: 0) {
                     ForEach(Array(values.enumerated()), id: \.offset) { _, value in
                         Rectangle().fill(color(for: value))
                     }
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-                .background(StrandPalette.inset, in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                .clipShape(Capsule(style: .continuous))
+                .background(StrandPalette.inset, in: Capsule(style: .continuous))
             }
             .frame(height: NoopMetrics.stressTimelineHeight)
             HStack(spacing: 0) {

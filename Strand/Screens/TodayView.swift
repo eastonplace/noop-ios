@@ -1177,8 +1177,8 @@ struct TodayView: View {
                 NavigationLink { WorkoutsView() } label: {
                     HStack(spacing: 9) {
                         Image(systemName: "figure.run")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(StrandPalette.effortAccent)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(StrandPalette.textPrimary)
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Today at a glance")
                                 .font(StrandFont.micro.weight(.semibold))
@@ -1283,7 +1283,13 @@ struct TodayView: View {
                             .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
                     }
                     Spacer(minLength: 8)
-                    if values.count > 1 {
+                    if values.count <= 1 {
+                        // D5: empty state keeps the populated composition — a dimmed flat
+                        // trace in the same 130×42 slot instead of a bare gap.
+                        Capsule().fill(StrandPalette.hairlineStrong)
+                            .frame(width: 130, height: 2)
+                            .frame(height: 42)
+                    } else {
                         Sparkline(values: values,
                                   gradient: Gradient(colors: [StrandPalette.statusPositive,
                                                                StrandPalette.statusPositive]),
@@ -1360,16 +1366,16 @@ struct TodayView: View {
                         MetricTile(icon: "heart", label: "RHR",
                                    value: day?.restingHr.map(String.init) ?? "—", unit: "bpm",
                                    spark: sparks["rhr"], accent: StrandPalette.liveRed)
-                        MetricTile(icon: "lungs.fill", label: "Resp. rate",
+                        MetricTile(icon: "lungs", label: "Resp. rate",
                                    value: respiratory.map { String(format: "%.1f", $0) } ?? "—", unit: "rpm",
                                    spark: sparks["resp_rate"], accent: StrandPalette.recoveryData)
-                        MetricTile(icon: "drop.fill", label: "SpO₂",
+                        MetricTile(icon: "drop", label: "SpO₂",
                                    value: day?.spo2Pct.map { String(format: "%.0f", $0) } ?? "—", unit: "%",
                                    spark: sparks["spo2"], accent: StrandPalette.link)
                         MetricTile(icon: "thermometer.medium", label: "Skin temp",
                                    value: day?.skinTempDevC.map { String(format: "%+.1f", $0) } ?? "—", unit: "°C",
                                    spark: sparks["skin_temp"], accent: StrandPalette.stressAccent)
-                        MetricTile(icon: "moon.fill", label: "Sleep perf.",
+                        MetricTile(icon: "moon", label: "Sleep perf.",
                                    value: restScore.map { "\(Int($0.rounded()))" } ?? "—", unit: "%",
                                    spark: sparks["sleep_performance"], accent: StrandPalette.restAccent)
                     }
@@ -1460,24 +1466,6 @@ struct TodayView: View {
                 derivedKey = todayInputKey
             }
         }
-        #if os(iOS)
-        // Own the Today-only FAB at the Today root. Keeping it out of RootTabView
-        // prevents the button leaking over pushed Workouts/detail screens while
-        // preserving the same routed Quick Actions sheet.
-        .overlay(alignment: .bottomTrailing) {
-            Button { router.requestQuickActions() } label: {
-                Image(systemName: "plus")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(StrandPalette.onInk)
-                    .frame(width: 56, height: 56)
-                    .background(StrandPalette.ink, in: Circle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Quick Actions")
-            .padding(.trailing, 16)
-            .padding(.bottom, 70)
-        }
-        #endif
         #if os(macOS)
         // macOS hosts the Support affordance in the window toolbar (RootView's NavigationSplitView
         // supplies the toolbar) and presents it as the fixed-width SupportModalOverlay panel. On iOS
