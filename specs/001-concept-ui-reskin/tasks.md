@@ -135,11 +135,15 @@
     confirm solid rounded arcs on inset tracks with no gradient, bevel, bead, or glow.
     Today still uses its pre-T09 large-trio layout; T09 owns the canonical 64pt trio.
 
-- [ ] **T06 — Buttons**
+- [x] **T06 — Buttons**
   - Modify: `NoopButton.swift` → `PrimaryButton` (ink pill 52/14), `DestructiveButton`
     (outline red), `ChipButton` (32-pt blue outline chip) per spec §2.4.
   - Verify: build; screenshot Workouts (Start Workout) + Data Sources (Remove/Choose
     export). Commit.
+  - Verified 2026-07-09: `StrandDesign` passed 30 tests and `NOOPiOS` built and ran
+    in the iPhone 16 Pro simulator. `qa/T06-workouts.png` confirms the 52-pt ink
+    primary action; `qa/T06-data-sources.png` confirms 32-pt blue outline import
+    chips and the red outline destructive action.
 
 - [ ] **T07 — Rows, badges, notes, small parts**
   - Create (or extend existing files if equivalents exist — audit first):

@@ -133,7 +133,7 @@ struct DataSourcesView: View {
                     Label(importingWhoop ? "Importing…" : "Choose export…",
                           systemImage: "tray.and.arrow.down")
                 }
-                .buttonStyle(NoopButtonStyle(.primary))
+                .buttonStyle(ChipButtonStyle())
                 .disabled(model.hasActiveImport || nutritionImporting || liftingImporting || activityFileImporting)
                 if importingWhoop { ProgressView().controlSize(.small) }
             }
@@ -155,7 +155,7 @@ struct DataSourcesView: View {
                 Button { presentImporter(.appleHealth) } label: {
                     Label(importingAppleHealth ? "Working…" : "Choose export.zip…", systemImage: "tray.and.arrow.down")
                 }
-                .buttonStyle(NoopButtonStyle(.primary))
+                .buttonStyle(ChipButtonStyle())
                 .disabled(model.hasActiveImport || nutritionImporting || liftingImporting || activityFileImporting || appleHealthDeleting)
                 if importingAppleHealth { ProgressView().controlSize(.small) }
             }
@@ -194,7 +194,7 @@ struct DataSourcesView: View {
                 Button { presentImporter(.xiaomi) } label: {
                     Label(importingXiaomi ? "Importing…" : "Choose Mi Fitness export…", systemImage: "tray.and.arrow.down")
                 }
-                .buttonStyle(NoopButtonStyle(.primary))
+                .buttonStyle(ChipButtonStyle())
                 .disabled(model.hasActiveImport || nutritionImporting || liftingImporting || activityFileImporting)
                 if importingXiaomi { ProgressView().controlSize(.small) }
             }
@@ -213,7 +213,7 @@ struct DataSourcesView: View {
                 Button { presentImporter(.nutrition) } label: {
                     Label(nutritionImporting ? "Importing…" : "Choose .csv…", systemImage: "tray.and.arrow.down")
                 }
-                .buttonStyle(NoopButtonStyle(.primary))
+                .buttonStyle(ChipButtonStyle())
                 .disabled(model.hasActiveImport || nutritionImporting || liftingImporting || activityFileImporting)
                 if nutritionImporting { ProgressView().controlSize(.small) }
             }
@@ -232,7 +232,7 @@ struct DataSourcesView: View {
                 Button { presentImporter(.lifting) } label: {
                     Label(liftingImporting ? "Importing…" : "Choose export…", systemImage: "tray.and.arrow.down")
                 }
-                .buttonStyle(NoopButtonStyle(.primary))
+                .buttonStyle(ChipButtonStyle())
                 .disabled(model.hasActiveImport || nutritionImporting || liftingImporting || activityFileImporting)
                 if liftingImporting { ProgressView().controlSize(.small) }
             }
@@ -251,7 +251,7 @@ struct DataSourcesView: View {
                 Button { presentImporter(.activityFile) } label: {
                     Label(activityFileImporting ? "Importing…" : "Choose .gpx / .tcx / .fit…", systemImage: "tray.and.arrow.down")
                 }
-                .buttonStyle(NoopButtonStyle(.primary))
+                .buttonStyle(ChipButtonStyle())
                 .disabled(model.hasActiveImport || nutritionImporting || liftingImporting || activityFileImporting)
                 if activityFileImporting { ProgressView().controlSize(.small) }
             }
@@ -270,7 +270,7 @@ struct DataSourcesView: View {
                 Button { presentImporter(.wearable) } label: {
                     Label(wearableImporting ? "Importing…" : "Choose export…", systemImage: "tray.and.arrow.down")
                 }
-                .buttonStyle(NoopButtonStyle(.primary))
+                .buttonStyle(ChipButtonStyle())
                 .disabled(model.hasActiveImport || nutritionImporting || liftingImporting || activityFileImporting || wearableImporting)
                 if wearableImporting { ProgressView().controlSize(.small) }
             }

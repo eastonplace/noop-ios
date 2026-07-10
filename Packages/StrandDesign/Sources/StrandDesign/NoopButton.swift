@@ -15,15 +15,15 @@ import SwiftUI
 // optional leading icon as one unit, and degrade gracefully under Reduce Motion (the
 // press scale drops; only the dim remains).
 
-/// The four button roles. Colour + emphasis differ; geometry is identical across all four.
+/// The four button roles. Primary/destructive share the 52pt Paper geometry.
 public enum NoopButtonKind: Sendable {
-    /// Filled accent (blue), white label — the one primary action on a screen.
+    /// Filled ink, on-ink label — the one primary action on a screen.
     case primary
     /// Raised-surface fill, primary-text label, hairline edge — secondary actions.
     case secondary
     /// No fill, accent label — low-emphasis / inline actions.
     case tertiary
-    /// Filled critical (red), white label — destructive / irreversible actions.
+    /// White card, destructive outline + label — destructive / irreversible actions.
     case destructive
 }
 
@@ -32,8 +32,8 @@ public enum NoopButtonKind: Sendable {
 /// Fixed geometry shared by the convenience view and the ButtonStyle so the two paths
 /// are pixel-identical. The single source of truth for button shape.
 public enum NoopButtonMetrics {
-    /// Standard control height (48) — also the source for the min hit target floor.
-    public static let height: CGFloat = NoopMetrics.controlHeight
+    /// Standard Paper primary/destructive control height.
+    public static let height: CGFloat = 52
     /// Corner radius (14) — softer than a card, not a pill.
     public static let cornerRadius: CGFloat = 14
     /// Horizontal label inset.
@@ -62,21 +62,21 @@ struct NoopButtonAppearance {
     init(_ kind: NoopButtonKind) {
         switch kind {
         case .primary:
-            fill = StrandPalette.accent
-            label = StrandPalette.goldDeepText   // designated crisp white for text on accent fills
+            fill = StrandPalette.ink
+            label = StrandPalette.onInk
             border = nil
         case .secondary:
-            fill = StrandPalette.surfaceRaised
+            fill = StrandPalette.card
             label = StrandPalette.textPrimary
-            border = StrandPalette.hairline
+            border = StrandPalette.cardBorder
         case .tertiary:
             fill = nil
-            label = StrandPalette.accent
+            label = StrandPalette.link
             border = nil
         case .destructive:
-            fill = StrandPalette.statusCritical
-            label = StrandPalette.goldDeepText   // crisp white on the critical fill
-            border = nil
+            fill = StrandPalette.card
+            label = StrandPalette.destructive
+            border = StrandPalette.destructive
         }
     }
 }
@@ -190,6 +190,86 @@ public struct NoopButton: View {
             }
         }
         .buttonStyle(NoopButtonStyle(kind, fullWidth: fullWidth))
+    }
+}
+
+// MARK: - Paper convenience roles
+
+public struct PrimaryButton: View {
+    private let title: LocalizedStringKey
+    private let systemImage: String?
+    private let action: () -> Void
+
+    public init(_ title: LocalizedStringKey, systemImage: String? = nil,
+                action: @escaping () -> Void) {
+        self.title = title
+        self.systemImage = systemImage
+        self.action = action
+    }
+
+    public var body: some View {
+        NoopButton(title, systemImage: systemImage, kind: .primary, fullWidth: true, action: action)
+    }
+}
+
+public struct DestructiveButton: View {
+    private let title: LocalizedStringKey
+    private let systemImage: String?
+    private let action: () -> Void
+
+    public init(_ title: LocalizedStringKey, systemImage: String? = nil,
+                action: @escaping () -> Void) {
+        self.title = title
+        self.systemImage = systemImage
+        self.action = action
+    }
+
+    public var body: some View {
+        NoopButton(title, systemImage: systemImage, kind: .destructive, fullWidth: true, action: action)
+    }
+}
+
+public struct ChipButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    public init() {}
+
+    public func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .labelStyle(.titleAndIcon)
+            .font(StrandFont.caption.weight(.medium))
+            .foregroundStyle(StrandPalette.link)
+            .lineLimit(1)
+            .padding(.horizontal, 12)
+            .frame(height: 32)
+            .background(StrandPalette.card, in: Capsule())
+            .overlay(Capsule().strokeBorder(StrandPalette.link, lineWidth: 1))
+            .opacity(isEnabled ? (configuration.isPressed ? 0.72 : 1) : NoopButtonMetrics.disabledOpacity)
+            .animation(StrandMotion.interactive, value: configuration.isPressed)
+    }
+}
+
+public struct ChipButton: View {
+    private let title: LocalizedStringKey
+    private let systemImage: String?
+    private let action: () -> Void
+
+    public init(_ title: LocalizedStringKey, systemImage: String? = nil,
+                action: @escaping () -> Void) {
+        self.title = title
+        self.systemImage = systemImage
+        self.action = action
+    }
+
+    public var body: some View {
+        Button(action: action) {
+            if let systemImage {
+                Label(title, systemImage: systemImage)
+            } else {
+                Text(title)
+            }
+        }
+        .buttonStyle(ChipButtonStyle())
     }
 }
 
