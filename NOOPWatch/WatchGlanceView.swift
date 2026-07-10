@@ -55,7 +55,7 @@ struct WatchGlanceView: View {
                           range: 0...21, format: { String(format: "%.1f", $0) })
                 ScoreRing(label: String(localized: "Sleep"), value: snap.rest,
                           calibrating: snap.restCalibrating || stale,
-                          color: StrandPalette.restColor)
+                          color: StrandPalette.sleepAccent)
             }
             .frame(maxWidth: .infinity)
 
@@ -101,7 +101,7 @@ struct WatchGlanceView: View {
             HStack(spacing: 6) {
                 Image(systemName: "bed.double.fill")
                     .font(.system(size: 11))
-                    .foregroundStyle(StrandPalette.restColor)
+                    .foregroundStyle(StrandPalette.sleepAccent)
                 Text(summary)
                     .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textSecondary)

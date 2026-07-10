@@ -65,7 +65,7 @@ struct NOOPWatchApp: App {
     static func seedDemoSnapshotIfNeeded() {
         guard WatchScoreSnapshot.load() == nil else { return }
         let demo = WatchScoreSnapshot(charge: 72, chargeCalibrating: false,
-                                      effort: 61, effortCalibrating: false,
+                                      effort: 14.1, effortCalibrating: false,
                                       rest: 84, restCalibrating: false,
                                       hr: 58, sleepSummary: "7h 12m",
                                       asOf: Date())

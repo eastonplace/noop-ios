@@ -50,7 +50,7 @@ struct NOOPWidgetView: View {
 
     private var recoveryColor: Color {
         guard let r = snap.recovery else { return StrandPalette.textTertiary }
-        return r >= 67 ? StrandPalette.statusPositive : r >= 34 ? StrandPalette.statusWarning : StrandPalette.statusCritical
+        return RecoveryBands.color(for: Double(r))
     }
 
     private var effortColor: Color {
@@ -62,8 +62,7 @@ struct NOOPWidgetView: View {
     }
 
     private var restColor: Color {
-        guard let r = snap.rest else { return StrandPalette.textTertiary }
-        return RecoveryBands.color(for: Double(r))
+        snap.rest == nil ? StrandPalette.textTertiary : StrandPalette.sleepAccent
     }
 
     private var inlineText: String {

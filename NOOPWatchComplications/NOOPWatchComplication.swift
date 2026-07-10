@@ -87,7 +87,7 @@ private extension WatchScoreSnapshot {
     static var preview: WatchScoreSnapshot {
         WatchScoreSnapshot(
             charge: 74, chargeCalibrating: false,
-            effort: 41, effortCalibrating: false,
+            effort: 14.1, effortCalibrating: false,
             rest: nil, restCalibrating: true,
             hr: 58,
             sleepSummary: "7h 12m",
@@ -391,7 +391,7 @@ struct NOOPChargeView: View {
         return StrandPalette.textTertiary
     }
     private var restTint: Color {
-        if case let .value(v) = rest { return StrandPalette.recoveryColor(Double(v)) }
+        if case .value = rest { return StrandPalette.sleepAccent }
         return StrandPalette.textTertiary
     }
 

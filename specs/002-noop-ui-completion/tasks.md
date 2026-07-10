@@ -533,11 +533,29 @@
     `qa/T51-live-bluetooth-off.png`, and
     `qa/T51-devices-bluetooth-off.png`, compared with reference sheets 4/6 and
     the shared Paper warning treatment. Final `NOOPiOS` simulator build passed.
-- [ ] **T52 — Widget/watch/notification alignment (C12, FR-14)** ∥
+- [x] **T52 — Widget/watch/notification alignment (C12, FR-14)** ∥
   - C1/C2/C13 through `StrandiOSWidgets`, `NOOPWatch`, `NOOPWatchComplications`,
     Live Activity (`LiveActivityController`), notification strings; values match
     phone for the seeded day. Build + run watch sim; screenshot widget gallery +
     watch glance. Commit.
+  - **Completed 2026-07-10:** re-audited the phone publication boundary and every
+    consumer. `WidgetSnapshot.publish` and `WatchSessionBridge` both use
+    `Repository.widgetAnchor`; Recovery stays 0–100, Strain is converted exactly
+    once through `StrainScale` before publication, and Sleep uses the same
+    `sleep_performance` resolver as Today. Corrected the remaining presentation
+    drift: widget Recovery now uses `RecoveryBands` instead of a duplicate
+    threshold expression; widget, watch glance and complication Sleep now use the
+    constant slate `sleepAccent` instead of Recovery bands; and watch/complication
+    preview fixtures now carry canonical 14.1 Strain rather than invalid 41/61
+    values. Live Activity already consumes the published 0–21 value and labels
+    Recovery/Strain correctly. iOS local notifications contain no score numerals;
+    the renamed catalogs lint clean across all four targets, while move/alarm copy
+    remains behaviorally untouched. `NOOPiOS` and `NOOPiOSWidgets` builds passed;
+    `StrandDesign`: 36/36 tests. Actual Simulator widget-gallery proof is
+    `qa/T52-widget-gallery-small.png`. Both `NOOPWatch` and
+    `NOOPWatchComplications` build/run + watch-glance screenshot were attempted
+    and are host-blocked because Xcode has no watchOS 26.5 platform/runtime
+    installed; no simulated watch screenshot was fabricated.
 - [ ] **T53 — Integration/regression tests**
   - Add tests covering: repository→snapshot publication for the three pillars;
     StrainScale usage at the widget-publish boundary; route-resolution smoke (every
