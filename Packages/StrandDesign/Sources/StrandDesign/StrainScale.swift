@@ -50,6 +50,13 @@ public enum StrainScale {
         String(format: "%.1f", displayValue(fromStored: storedValue))
     }
 
+    /// Canonical compact row/badge text for an optional stored strain value.
+    /// Keeping the empty-state glyph here lets workout rows, widgets, and tests share the same
+    /// presentation boundary without importing a view type.
+    public static func badgeText(fromStored storedValue: Double?) -> String {
+        storedValue.map(formatted) ?? "–"
+    }
+
     /// Resolve a status from a value that is already on the 0...21 display scale.
     public static func band(_ displayValue: Double) -> StrainBand {
         switch clamp(displayValue, to: displayRange) {

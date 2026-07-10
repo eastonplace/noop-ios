@@ -74,10 +74,16 @@ final class StrandDesignTests: XCTestCase {
     }
 
     func testStrainScaleRoundTripsWithoutChangingStorage() {
-        for stored in [0.0, 33, 67, 100] {
+        for stored in stride(from: 0.0, through: 100.0, by: 0.5) {
             let display = StrainScale.displayValue(fromStored: stored)
             XCTAssertEqual(StrainScale.storedValue(fromDisplay: display), stored, accuracy: 0.0001)
         }
+    }
+
+    func testWorkoutBadgeFixtureUsesCanonicalStrainFormatter() {
+        XCTAssertEqual(StrainScale.badgeText(fromStored: 67), "14.1")
+        XCTAssertEqual(StrainScale.badgeText(fromStored: 0), "0.0")
+        XCTAssertEqual(StrainScale.badgeText(fromStored: nil), "–")
     }
 
     func testStrainBandBoundariesUseDisplayScale() {

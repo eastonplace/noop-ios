@@ -7,9 +7,8 @@ import XCTest
 /// selected scale to one decimal, and a session with no strain shows the honest "-" rather than a 0.
 final class WorkoutEffortCellTests: XCTestCase {
 
-    func testEffortLabelOnHundredScale() {
-        // Stored 0-100 axis renders unchanged on the default Effort scale.
-        XCTAssertEqual(WorkoutsView.effortCellLabel(strain: 60, scale: .hundred), "60.0")
+    func testStrainLabelIgnoresLegacyHundredPreference() {
+        XCTAssertEqual(WorkoutsView.effortCellLabel(strain: 60, scale: .hundred), "12.6")
     }
 
     func testEffortLabelOnWhoopScale() {

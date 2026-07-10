@@ -1569,8 +1569,7 @@ struct WorkoutsView: View {
     /// (the SAME `UnitFormatter.effortDisplay` every other Strain read-out routes through, so the toggle and
     /// rounding stay consistent), or "–" when the session has no captured strain. Pure + unit-testable.
     static func effortCellLabel(strain: Double?, scale: EffortScale) -> String {
-        guard let strain else { return "–" }
-        return UnitFormatter.effortDisplay(strain, scale: scale)
+        StrainScale.badgeText(fromStored: strain)
     }
 
     private func cell(_ text: String, width: CGFloat, color: Color? = nil) -> some View {

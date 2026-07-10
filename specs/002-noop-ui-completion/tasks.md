@@ -217,11 +217,22 @@
     `qa/T36-recovery-trends.png`; `qa/T36-stress.png` proves the preserved 0–3
     surface. Compared with reference sheets 1 and 3; `NOOPiOS` build passed.
 
-- [ ] **T37 — Metric regression tests**
+- [x] **T37 — Metric regression tests**
   - Add/extend tests: StrainScale round-trips; band boundaries; a rendering-level
     test (view-model/formatter level) asserting Workouts badge string for a stored
     fixture; xcstrings lint that no key still contains user-facing "Charge"/"Effort"
     pillar terms (script or test). Verify: suite green. Commit.
+  - **Completed 2026-07-10:** `StrainScale` round-trips every half point from stored
+    0–100 through display 0–21; existing 9.9/10/13.9/14/17.9/18/21 band boundaries
+    remain pinned. `StrainScale.badgeText(fromStored:)` is the formatter-level row
+    contract used by Workouts and tests: stored 67 → `14.1`, 0 → `0.0`, nil → `–`;
+    the legacy `.hundred` preference can no longer alter the badge. Added
+    `Tools/lint-paper-localizations.sh`; it passes across all four catalogs with no
+    Charge/Effort pillar keys. Per the throughput addendum, `translate-de.py` and
+    `translate-it.py` ran once at Phase 1 end (main catalog coverage after the run:
+    DE 2,997 / IT 2,986 of 2,999; scripts reported their existing uncovered
+    dictionary entries rather than generating copy). `StrandDesign`: 35/35 tests;
+    full `NOOPiOS` simulator build passed.
 
 ## Phase 2 — Chrome (C4/C5)
 
