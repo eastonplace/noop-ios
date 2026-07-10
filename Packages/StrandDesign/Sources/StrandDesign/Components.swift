@@ -6,11 +6,11 @@ import SwiftUI
 // the uniform, instrument-grade look from the reference. Do not invent ad-hoc cards.
 
 public enum NoopMetrics {
-    public static let cardRadius: CGFloat = 22   // Apple x WHOOP rounded cards — matches the liquid home card (LiquidTodayView.card)   // Apple x WHOOP: rounded cards
-    public static let cardPadding: CGFloat = 16  // Apple x WHOOP: roomier card interior
-    public static let gap: CGFloat = 12          // gap between cards
-    public static let sectionGap: CGFloat = 22   // Apple x WHOOP: breathing room (not cramped)
-    public static let screenPadding: CGFloat = 18
+    public static let cardRadius: CGFloat = 16
+    public static let cardPadding: CGFloat = 16
+    public static let gap: CGFloat = 12
+    public static let sectionGap: CGFloat = 24
+    public static let screenPadding: CGFloat = 16
     public static let tileHeight: CGFloat = 96   // Design Reset: tighter metric tile
     // Key Metrics grid: one fixed height every tile snaps to, so a sparkline-and-caption tile and a
     // plain value tile read the same. maxHeight: .infinity can't equalise them inside a LazyVGrid (the
@@ -37,7 +37,7 @@ public enum NoopMetrics {
 
     // MARK: Named layout constants — the canonical margins/heights screens compose with.
     /// Horizontal page margin (the gutter on the left/right edge of a screen). Use via `.screenPadding()`.
-    public static let screenHPadding: CGFloat = 20
+    public static let screenHPadding: CGFloat = 16
     /// Vertical gap between top-level page sections.
     public static let sectionSpacing: CGFloat = 24
     /// Interior padding inside a card's content (matches `cardPadding`).

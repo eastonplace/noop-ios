@@ -108,7 +108,7 @@
 
 ## Phase 2 — Primitives (all in `Packages/StrandDesign/Sources/StrandDesign/`)
 
-- [ ] **T04 — PaperCard + layout constants**
+- [x] **T04 — PaperCard + layout constants**
   - Modify: `StrandCard.swift` (restyle in place — keep the `StrandCard` type name so
     call sites stand; wherever the spec says "PaperCard" it means this restyled
     `StrandCard`).
@@ -116,6 +116,10 @@
     24) in `StrandDesign.swift` if no constants home exists.
   - Verify: build + screenshot any card-heavy screen; cards are white, bordered,
     flat. Commit.
+  - Verified 2026-07-09: `StrandDesign` passed 30 tests and `NOOPiOS` built and ran.
+    `qa/T04-data-sources.png` confirms 16pt white cards, warm 1pt borders, minimal
+    shadow, and the 16/12/24 Paper spacing rhythm; legacy tint arguments no longer
+    color card chrome.
 
 - [ ] **T05 — ScoreRing**
   - Modify: `RecoveryRing.swift`, `GlowRing.swift`, `BevelGauge.swift` call-site

@@ -1,37 +1,32 @@
 import SwiftUI
 
-// MARK: - Frosted card surface (Titanium & Gold) + StrandCard
+// MARK: - Paper card surface + StrandCard
 //
-// The card surface: a flat `surfaceRaised` fill, continuous rounded corners and a
-// single 1px `hairline` border — NO shadow (the Titanium look reads off the hairline
-// + tint, not a drop shadow). The TINTED variant deepens into a navy bevel
-// (150° #15243C → #0B1424) under a faint per-domain hue wash + a hue-biased border.
-// `.frostedCardSurface(tint:…)` is the one place the look lives so StrandCard /
-// NoopCard / ad-hoc surfaces all share it. Pass a domain tint (or nil for the neutral
-// flat raised surface).
+// `frostedCardSurface` keeps its public name so existing call sites compile, but the
+// rendered surface is now the Paper card: white, 16pt corners, a warm 1pt border, and
+// a near-invisible shadow. Legacy tint arguments are deliberately ignored; R3 reserves
+// pillar color for data, never card chrome.
 
 public extension View {
     /// Apply the frosted-card surface as a background. `tint` colours the diagonal
     /// wash + border bias; nil uses the flat raised surface with no wash.
     func frostedCardSurface(
         tint: Color? = nil,
-        cornerRadius: CGFloat = 22,
+        cornerRadius: CGFloat = NoopMetrics.cardRadius,
         washStrength: Double = 1.0
     ) -> some View {
         background(FrostedCardSurface(tint: tint, cornerRadius: cornerRadius, washStrength: washStrength))
     }
 }
 
-/// The frosted-card background fill and border. Standalone so it can be a
+/// The Paper-card background fill and border. Standalone so it can be a
 /// `.background { }` (animation never reaches the card's content subtree — #104).
-/// No drop shadow — the Titanium surface reads off the hairline + tint alone.
 public struct FrostedCardSurface: View {
     public var tint: Color?
     public var cornerRadius: CGFloat
     public var washStrength: Double
-    @Environment(\.colorScheme) private var scheme
 
-    public init(tint: Color? = nil, cornerRadius: CGFloat = 22, washStrength: Double = 1.0) {
+    public init(tint: Color? = nil, cornerRadius: CGFloat = NoopMetrics.cardRadius, washStrength: Double = 1.0) {
         self.tint = tint
         self.cornerRadius = cornerRadius
         self.washStrength = washStrength
@@ -39,44 +34,16 @@ public struct FrostedCardSurface: View {
 
     public var body: some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        // Base fill: tinted cards deepen into the 150° navy bevel (#15243C → #0B1424,
-        // = surfaceOverlay → cardFillBottom); neutral cards sit on the flat raised
-        // surface. The 150° axis ≈ top-trailing → bottom-leading.
-        // Design Reset: a flat raised fill reads cleaner than the navy bevel gradient. Tinted and
-        // neutral cards now share the same flat surface; tint identity is carried by the softened
-        // hue wash + the tinted hairline below, not a gradient, so cards stay familiar but flatten.
-        let baseFill = AnyShapeStyle(StrandPalette.surfaceRaised)
         shape
-            .fill(baseFill)
-            .overlay(
-                // A faint per-domain hue wash — only on tinted cards; neutral stays flat.
-                shape.fill(
-                    LinearGradient(
-                        colors: [
-                            (tint ?? .clear).opacity(0.05 * washStrength),
-                            (tint ?? .clear).opacity(0.015 * washStrength),
-                            .clear
-                        ],
-                        startPoint: .topLeading, endPoint: .bottomTrailing
-                    )
-                )
-            )
-            // Liquid redesign (2026-07-02): a 1px resting hairline in BOTH themes so every card
-            // matches the liquid home card's edge (LiquidTodayView.card), not just fill contrast.
-            .overlay(shape.strokeBorder(StrandPalette.hairline, lineWidth: 1))
-            // LIGHT raises white cards off the warm-paper canvas with a soft resting drop shadow; DARK
-            // stays flat (the hairline + fill carry the edge, matching the home card which has no shadow).
-            .shadow(
-                color: scheme == .light ? Color(hex: "#1A2230").opacity(0.11) : .clear,
-                radius: scheme == .light ? 10 : 0,
-                x: 0, y: scheme == .light ? 3 : 0
-            )
+            .fill(StrandPalette.card)
+            .overlay(shape.strokeBorder(StrandPalette.cardBorder, lineWidth: 1))
+            .shadow(color: Color.black.opacity(0.04), radius: 3, x: 0, y: 1)
     }
 }
 
 // MARK: - StrandCard (§9.4 Cards)
 //
-// The card container — now the Bevel frosted surface, but the PUBLIC API is
+// The card container — now the Paper surface, but the PUBLIC API is
 // unchanged (padding, cornerRadius, content). Adds an optional `tint` (defaulted)
 // so callers can opt into a domain wash without breaking existing call sites.
 // Keeps the mandated hover lift via `.strandCardHover()`.
@@ -90,7 +57,7 @@ public struct StrandCard<Content: View>: View {
 
     public init(
         padding: CGFloat = 16,
-        cornerRadius: CGFloat = 22,
+        cornerRadius: CGFloat = NoopMetrics.cardRadius,
         tint: Color? = nil,
         @ViewBuilder content: @escaping () -> Content
     ) {
@@ -116,9 +83,8 @@ public struct StrandCard<Content: View>: View {
 public struct StrandCardHover: ViewModifier {
     public var cornerRadius: CGFloat
     @State private var hovering = false
-    @Environment(\.colorScheme) private var scheme
 
-    public init(cornerRadius: CGFloat = 22) {
+    public init(cornerRadius: CGFloat = NoopMetrics.cardRadius) {
         self.cornerRadius = cornerRadius
     }
 
@@ -131,14 +97,11 @@ public struct StrandCardHover: ViewModifier {
                     .strokeBorder(StrandPalette.hairlineStrong, lineWidth: 1)
                     .opacity(hovering ? 1 : 0)
             )
-            // Incremental hover lift on top of the surface's resting elevation: a warm soft shadow on
-            // light (the white card lifts off the paper), the signature black on dark.
             .shadow(
-                color: hovering ? (scheme == .light ? Color(hex: "#1A2230").opacity(0.16)
-                                                     : Color.black.opacity(0.45)) : .clear,
-                radius: hovering ? (scheme == .light ? 14 : 16) : 0,
+                color: hovering ? Color.black.opacity(0.08) : .clear,
+                radius: hovering ? 5 : 0,
                 x: 0,
-                y: hovering ? (scheme == .light ? 6 : 10) : 0
+                y: hovering ? 2 : 0
             )
             .offset(y: hovering ? -1 : 0)
             .animation(StrandMotion.interactive, value: hovering)
@@ -151,7 +114,7 @@ public struct StrandCardHover: ViewModifier {
 
 public extension View {
     /// Apply the Strand card hover lift (shadow + -1px translate + border emphasis).
-    func strandCardHover(cornerRadius: CGFloat = 22) -> some View {
+    func strandCardHover(cornerRadius: CGFloat = NoopMetrics.cardRadius) -> some View {
         modifier(StrandCardHover(cornerRadius: cornerRadius))
     }
 }
