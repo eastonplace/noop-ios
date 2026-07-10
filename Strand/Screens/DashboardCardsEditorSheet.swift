@@ -51,7 +51,9 @@ struct DashboardCardsEditorSheet: View {
             List {
                 Section {
                     ForEach($items) { $item in
-                        row($item)
+                        PaperCard(padding: 12) { row($item) }
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
                     }
                     .onMove(perform: move)
                 } header: {
@@ -62,7 +64,7 @@ struct DashboardCardsEditorSheet: View {
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textTertiary)
                 }
-                .listRowBackground(StrandPalette.surfaceRaised)
+                .listRowBackground(Color.clear)
             }
             .scrollContentBackground(.hidden)
             .background(StrandPalette.surfaceBase)

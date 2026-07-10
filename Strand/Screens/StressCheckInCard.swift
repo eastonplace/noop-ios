@@ -48,7 +48,7 @@ struct StressCheckInCard: View {
 
     var body: some View {
         if let nudge = center.pending {
-            StrandCard(tint: StrandPalette.restColor) {
+            PaperCard {
                 VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
                     HStack(spacing: NoopMetrics.space2) {
                         Image(systemName: "wind")

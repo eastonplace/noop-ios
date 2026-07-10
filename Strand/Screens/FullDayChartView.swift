@@ -72,9 +72,13 @@ struct FullDayChartView: View {
 
     var body: some View {
         ScreenScaffold(title: "Deep Timeline", subtitle: "Every second of your day, zoomable.") {
-            metricPills
-            dayNav
-            sourcePill
+            PaperCard(padding: 12) {
+                VStack(spacing: NoopMetrics.cardInnerSpacing) {
+                    metricPills
+                    dayNav
+                    sourcePill
+                }
+            }
             chartCard
             zoomHint
         }

@@ -240,7 +240,7 @@ struct XiaomiBandView: View {
     }
 
     private var loadingState: some View {
-        NoopCard(tint: StrandPalette.metricAmber) {
+        PaperCard {
             HStack(spacing: 10) {
                 ConnectionDot(tone: .accent, pulsing: true)
                 Text("Reading your Mi Band history…")

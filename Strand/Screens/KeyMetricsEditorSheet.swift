@@ -53,14 +53,14 @@ struct KeyMetricsEditorSheet: View {
         }
         .padding(24)
         .frame(width: 420)
-        .background(StrandPalette.surfaceOverlay)
+        .background(StrandPalette.canvas)
     }
 
     // MARK: Rows
 
     private func row(_ item: Item, at index: Int) -> some View {
         let accent = accent(for: item.metric)
-        return NoopCard(padding: 12, tint: item.enabled ? accent : nil) {
+        return PaperCard(padding: 12) {
             HStack(spacing: 12) {
                 // A per-metric accent dot ties the row to its Today tile; dims when the tile is off.
                 Circle()

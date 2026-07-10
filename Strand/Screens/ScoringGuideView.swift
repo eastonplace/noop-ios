@@ -44,9 +44,12 @@ enum ScoreSection: String, CaseIterable, Identifiable {
         }
     }
 
-    /// The number shown inside the sample gauge (the 0–100 score the fraction maps to).
+    /// The number shown inside the sample gauge on that pillar's canonical display scale.
     var sampleNumber: String {
-        "\(Int((sampleFraction * 100).rounded()))"
+        if self == .effort {
+            return String(format: "%.1f", StrainScale.displayValue(fromStored: sampleFraction * 100))
+        }
+        return "\(Int((sampleFraction * 100).rounded()))"
     }
 
     /// The SF Symbol for the section header (heart/spark · flame · moon).
@@ -94,8 +97,8 @@ struct ScoringGuideView: View {
                                   vsWhoop: String(localized: "Same core idea as WHOOP's Recovery % (HRV-led recovery), but our weighting and baseline maths are our own, and openly documented."))
                         scoreCard(.effort,
                                   headline: String(localized: "Strain: how hard did your heart work?"),
-                                  body: String(localized: "Your cardiovascular load. NOOP turns every second of heart rate into a training-impulse using heart-rate-reserve zones (Karvonen), weights time in harder zones more heavily (Edwards / Banister), and places it on a logarithmic 0-100 scale, so easy days sit low and an all-out day approaches 100, which stays genuinely rare. A long walk with little cardio still counts, through a steps / active-energy floor."),
-                                  vsWhoop: String(localized: "Same cardiovascular-load idea as WHOOP's Day Strain (0-21). We rescaled the top of the ladder from 21 to 100 so all three scores share one scale. The rungs didn't move, so a 100 is as rare as a 21.0 was."))
+                                  body: String(localized: "Your cardiovascular load. NOOP turns every second of heart rate into a training impulse using heart-rate-reserve zones (Karvonen), weights time in harder zones more heavily (Edwards / Banister), and displays the result on the canonical 0–21 Strain scale. Easy days sit low and a value near 21 stays genuinely rare. A long walk with little cardio still counts through a steps / active-energy floor."),
+                                  vsWhoop: String(localized: "The display uses WHOOP's familiar 0–21 Day Strain scale. NOOP's underlying training-load recipe remains its own and is documented here."))
                         scoreCard(.rest,
                                   headline: String(localized: "Sleep: how restorative was your sleep?"),
                                   body: String(localized: "A blend of how long you slept versus your personal need (the biggest factor), how efficiently (asleep versus in bed), how much was restorative (deep + REM sleep), and how consistent your sleep and wake timing is."),
@@ -163,7 +166,7 @@ struct ScoringGuideView: View {
     // MARK: - Cards
 
     private var introCard: some View {
-        NoopCard {
+        PaperCard {
             VStack(alignment: .leading, spacing: 14) {
                 Text("THE THREE SCORES").font(StrandFont.overline)
                     .tracking(StrandFont.overlineTracking)
@@ -200,7 +203,7 @@ struct ScoringGuideView: View {
     /// Design Reset: a flat GlowRing (no bloom) replaces the old BevelGauge; the accent is a Reset score
     /// token, never gold / strain / sleep-purple.
     private func scoreCard(_ section: ScoreSection, headline: String, body: String, vsWhoop: String) -> some View {
-        NoopCard(tint: section.accent) {
+        PaperCard {
             VStack(alignment: .leading, spacing: 14) {
                 // Header row — the flat sample ring sits beside the accent icon + headline.
                 HStack(alignment: .center, spacing: 14) {
@@ -262,8 +265,10 @@ struct ScoringGuideView: View {
         VStack(spacing: 5) {
             GlowRing(
                 fraction: section.sampleFraction,
-                value: section.sampleFraction * 100,
-                format: { "\(Int($0.rounded()))" },
+                value: section == .effort
+                    ? StrainScale.displayValue(fromStored: section.sampleFraction * 100)
+                    : section.sampleFraction * 100,
+                format: { _ in section.sampleNumber },
                 color: section.accent,
                 diameter: 76,
                 lineWidth: 8
@@ -277,7 +282,7 @@ struct ScoringGuideView: View {
     }
 
     private var confidenceCard: some View {
-        NoopCard {
+        PaperCard {
             VStack(alignment: .leading, spacing: 12) {
                 Text("How sure is NOOP?  ·  Solid · Building · Calibrating")
                     .font(StrandFont.headline)

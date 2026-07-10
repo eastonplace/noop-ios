@@ -64,7 +64,7 @@ struct MindSection: View {
 
     @ViewBuilder
     private var checkInCard: some View {
-        NoopCard(tint: StrandPalette.restColor) {
+        PaperCard {
             if let mood = todayMood, !editing {
                 answeredRow(mood)
             } else {
@@ -156,7 +156,7 @@ struct MindSection: View {
             // Each correlation as its own frosted Sleep-tinted insight card. The indigo wash is
             // calm and carries no valence — a link is just a link, never framed as good or bad.
             ForEach(lines) { line in
-                NoopCard(tint: StrandPalette.restColor) {
+                PaperCard {
                     HStack(alignment: .top, spacing: 12) {
                         // A small liquid vessel filled to the link's strength (|r|) marks the row and reads
                         // its magnitude at a glance — the leading-gauge idiom Insights' effect cards use.

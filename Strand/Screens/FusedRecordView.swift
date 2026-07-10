@@ -16,7 +16,7 @@ import StrandAnalytics
 // pulls today's per-source metrics and runs `FusionResolver.resolve` lives in Wave 3 — see
 // `wiringNeeded`). It does no I/O and never touches AppModel/Repository directly, so it compiles and
 // previews from a fixture. This file owns only PRESENTATION: a metric label, a value formatter, and
-// the row/sheet chrome — all built from the locked component set (NoopCard / StatePill / SourceBadge /
+// the row/sheet chrome — all built from the locked component set (PaperCard / StatePill / SourceBadge /
 // ScoreStatePill / SectionHeader) and tokens (StrandPalette / StrandFont / NoopMetrics).
 //
 // Wellness framing only: a source is "higher-trust for this metric" with a plain reason; we never say
@@ -93,7 +93,7 @@ struct FusedRecordView: View {
                         symbol: "square.stack.3d.up"
                     )
                 } else {
-                    NoopCard(padding: 0) {
+                    PaperCard(padding: 0) {
                         VStack(spacing: 0) {
                             ForEach(Array(record.rows.enumerated()), id: \.element.id) { index, row in
                                 FusedMetricRowView(
@@ -324,7 +324,7 @@ private struct ConflictCompareSheet: View {
     var body: some View {
         ScreenScaffold(title: LocalizedStringKey(row.label), subtitle: "Your bands report different numbers. Here's every source, and the one NOOP is using.") {
             VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-                NoopCard {
+                PaperCard {
                     VStack(spacing: 0) {
                         ForEach(Array(point.contributors.enumerated()), id: \.offset) { index, contrib in
                             ContributorRow(

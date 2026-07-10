@@ -375,7 +375,7 @@
 
 ## Phase 4 — Restoration (C8/C10, FR-9–11)
 
-- [ ] **T47 — Restyle skipped components/screens (plan §Inventory list)**
+- [x] **T47 — Restyle skipped components/screens (plan §Inventory list)**
   - Paper treatment, layout preserved: DashboardCards editor sheets +
     KeyMetricsEditorSheet, StorageView, TrendsReportView, FusedRecordView,
     ScoringGuideView (+C1/C2 copy rewrite), UpdatesInboxView, XiaomiBandView,
@@ -384,6 +384,23 @@
     HealthAlertBanner/MindSection/FullDayChartView, CoachMarkdownTheme prose colors).
   - Each surface: navigate to it in-sim (prove reachable), screenshot, commit per
     group.
+  - **Completed 2026-07-10:** the skipped visual inventory now uses `PaperCard` and
+    the Paper canvas while preserving each screen's layout and behavior. Restored
+    Today's previously-hidden Key Metrics / Your Cards hosts plus the existing
+    alert, auto-workout and donation cards, so the editor sheets and conditional
+    cards remain reachable rather than silently disappearing. Scoring Guide copy
+    uses Recovery / canonical 0–21 Strain / Sleep; Interval Timer keeps honest
+    WORK/REST terminology. Trends Report now sizes responsively on iPhone instead
+    of cropping its 460-pt macOS sheet, and Apple Watch About no longer duplicates
+    the Sleep label. Added deterministic DEBUG-only `--demo-screen` routes for the
+    restoration inventory; they do not change production navigation. Reachability
+    proof: `qa/T47-{keymetricseditor,dashboardeditor,storage,trendsreport,fused,
+    scoringguide,xiaomi,intervals,watchsetup,watchabout,updates,insights,health}.png`.
+    The Insights and Health captures cover the hosted Journal/Mind/Caffeine and
+    skin-temperature/card families; stress-check, auto-workout, donation and health
+    alert remain honestly state-gated in their restored production hosts. Compared
+    against sheets 1, 3, 5 and the brand guide. Final `NOOPiOS` simulator build
+    passed; `StrandDesign`: 36/36 tests.
 - [ ] **T48 — Remove Liquid**
   - Delete `Strand/Liquid/` after repointing survivors: `LiveView`/`HydrationView`/
     `CoupledView` liquid references → Paper equivalents; if `LiveSessionView` still

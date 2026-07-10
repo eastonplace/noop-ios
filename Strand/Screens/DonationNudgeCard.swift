@@ -53,7 +53,7 @@ struct DonationNudgeCard: View {
         if shouldShow {
             // A frosted, brand-green-tinted card — the Charge world's anchor colour — so the
             // honest donation ask reads as a warm, on-brand moment, never a hard grey box.
-            NoopCard(tint: StrandPalette.accent) {
+            PaperCard {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 8) {
                         Image(systemName: "heart.circle.fill")

@@ -9,7 +9,7 @@ struct HealthAlertBanner: View {
         if let alert = model.healthAlert {
             // A frosted, warning-tinted alert card (not a flat coloured bar) — prominent but on-brand.
             // The amber wash + a glyph in a soft amber chip read as an early-warning without a hard rule.
-            NoopCard(padding: 14, tint: StrandPalette.statusWarning) {
+            PaperCard(padding: 14) {
                 HStack(alignment: .top, spacing: 12) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.system(size: 15, weight: .semibold))

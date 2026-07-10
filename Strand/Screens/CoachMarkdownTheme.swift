@@ -11,9 +11,9 @@ import StrandDesign
 /// not shout inside a 560pt bubble), and tables get hairline borders.
 extension Theme {
     static let strand = Theme()
-        // Base body text — mirrors StrandFont.body (15 / regular).
+        // Paper prose stays one step quieter than headings and numerals.
         .text {
-            ForegroundColor(StrandPalette.textPrimary)
+            ForegroundColor(StrandPalette.textSecondary)
             FontSize(15)
         }
         .strong {

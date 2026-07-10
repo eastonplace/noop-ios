@@ -1394,11 +1394,15 @@ struct TodayView: View {
                           today: Repository.logicalDay(Date())) { selectedDayOffset = $0 }
                 #endif
                 HealthAlertBanner()
+                AutoWorkoutCard()
+                DonationNudgeCard()
                 ActiveWorkoutIndicatorSection()
                 paperPillarCard
                 paperLiveHeartRateCard
                 paperStressCard
                 paperHealthMonitorCard
+                metricsSection
+                yourCardsSection
             }
             #if os(iOS)
             // #817 - horizontal swipe to change day. A right-swipe (positive X) steps to the NEWER day

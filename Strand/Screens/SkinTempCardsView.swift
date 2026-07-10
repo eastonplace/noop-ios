@@ -19,7 +19,7 @@ import StrandAnalytics
 //   • HeadsUpCard          — IllnessSignalEngine.Result. The confounder-suppressed illness
 //                            "heads-up". On-device estimate — not a diagnosis.
 //
-// DESIGN-SYSTEM ONLY: NoopCard + DomainTheme/StrandPalette tokens, StrandFont, NoopMetrics,
+// DESIGN-SYSTEM ONLY: PaperCard + DomainTheme/StrandPalette tokens, StrandFont, NoopMetrics,
 // ScoreStatePill, the house buttons. No raw hex, no ad-hoc cards. Privacy-forward copy: this
 // data is physically incapable of leaving the device, and every sensitive surface says so.
 //
@@ -77,7 +77,7 @@ struct CycleAwarenessCard: View {
     private var hue: Color { StrandPalette.restColor }
 
     var body: some View {
-        NoopCard(tint: hue) {
+        PaperCard {
             VStack(alignment: .leading, spacing: NoopMetrics.gap) {
                 header
 
@@ -242,7 +242,7 @@ struct CycleAwarenessOptInCard: View {
     var onEnable: () -> Void
 
     var body: some View {
-        NoopCard(tint: StrandPalette.restColor) {
+        PaperCard {
             VStack(alignment: .leading, spacing: NoopMetrics.gap) {
                 HStack(spacing: 8) {
                     Image(systemName: "drop.degreesign")
@@ -284,7 +284,7 @@ struct BodyClockCard: View {
     private var hue: Color { StrandPalette.restColor }
 
     var body: some View {
-        NoopCard(tint: hue) {
+        PaperCard {
             VStack(alignment: .leading, spacing: NoopMetrics.gap) {
                 header
 
@@ -419,7 +419,7 @@ struct HeadsUpCard: View {
     var distance: IllnessDistance.Result? = nil
 
     var body: some View {
-        NoopCard(padding: 14, tint: hue) {
+        PaperCard(padding: 14) {
             VStack(alignment: .leading, spacing: NoopMetrics.gap) {
                 HStack(alignment: .top, spacing: 12) {
                     Image(systemName: glyph)

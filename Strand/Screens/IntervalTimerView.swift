@@ -168,7 +168,7 @@ struct IntervalTimerView: View {
     /// surfaceRaised card. Design Reset: no scenic backdrop, no tinted frost, no gauge gradient —
     /// the active phase's reset token tints only the arc + chip, the card stays WHOOP-grey.
     private var stageCard: some View {
-        StrandCard(padding: 24) {
+        PaperCard(padding: 24) {
             VStack(spacing: 18) {
                 // Phase chip + round chip line.
                 HStack {
@@ -283,7 +283,7 @@ struct IntervalTimerView: View {
     // MARK: Overview card — elapsed / planned
 
     private var overviewCard: some View {
-        StrandCard {
+        PaperCard {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .firstTextBaseline) {
                     Text("Session").strandOverline()
@@ -302,7 +302,7 @@ struct IntervalTimerView: View {
 
                 HStack(spacing: 0) {
                     overviewStat(String(localized: "Work"), "\(workSeconds)s", StrandPalette.effortColor)
-                    overviewStat(String(localized: "Sleep"), "\(restSeconds)s", StrandPalette.restColor)
+                    overviewStat(String(localized: "Rest"), "\(restSeconds)s", StrandPalette.restColor)
                     overviewStat(String(localized: "Rounds"), "\(rounds)", StrandPalette.textPrimary)
                     overviewStat(String(localized: "Remaining"), timeString(max(0, totalPlanned - elapsed)), StrandPalette.textSecondary)
                 }
@@ -326,13 +326,13 @@ struct IntervalTimerView: View {
     // MARK: Config card
 
     private var configCard: some View {
-        StrandCard {
+        PaperCard {
             VStack(alignment: .leading, spacing: 14) {
                 Text("Configure").strandOverline()
                 configStepper(title: String(localized: "Work"), unit: String(localized: "sec"), value: $workSeconds,
                               range: 5...600, step: 5, tint: StrandPalette.effortColor)
                 Divider().overlay(StrandPalette.hairline)
-                configStepper(title: String(localized: "Sleep"), unit: String(localized: "sec"), value: $restSeconds,
+                configStepper(title: String(localized: "Rest"), unit: String(localized: "sec"), value: $restSeconds,
                               range: 5...600, step: 5, tint: StrandPalette.restColor)
                 Divider().overlay(StrandPalette.hairline)
                 configStepper(title: String(localized: "Rounds"), unit: nil, value: $rounds,

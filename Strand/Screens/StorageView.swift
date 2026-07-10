@@ -42,7 +42,7 @@ struct StorageView: View {
     // MARK: - Cards
 
     private func breakdownCard(_ r: AppModel.StorageReport) -> some View {
-        StrandCard {
+        PaperCard {
             VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
                 Text("On-device footprint")
                     .font(StrandFont.headline)
@@ -70,7 +70,7 @@ struct StorageView: View {
 
     private func cleanUpCard(_ r: AppModel.StorageReport) -> some View {
         let reclaimable = r.inbox + r.importTemp
-        return StrandCard {
+        return PaperCard {
             VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
                 Text("Clean up")
                     .font(StrandFont.headline)

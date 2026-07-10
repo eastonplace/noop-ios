@@ -188,7 +188,7 @@ private struct UpdateRow: View {
     let onRestore: () -> Void
 
     var body: some View {
-        NoopCard(tint: item.read ? nil : tint) {
+        PaperCard {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .top, spacing: 12) {
                     Image(systemName: symbol)

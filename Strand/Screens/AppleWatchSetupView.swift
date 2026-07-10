@@ -139,7 +139,7 @@ struct AppleWatchSetupView: View {
 
     private var introBody: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
-            NoopCard(tint: StrandPalette.accent) {
+            PaperCard {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(spacing: 10) {
                         Image(systemName: "applewatch")
@@ -174,7 +174,7 @@ struct AppleWatchSetupView: View {
     }
 
     private var goodAtCard: some View {
-        NoopCard(tint: StrandPalette.statusPositive) {
+        PaperCard {
             VStack(alignment: .leading, spacing: 12) {
                 Text("WHAT IT'S GREAT AT").font(StrandFont.overline)
                     .tracking(StrandFont.overlineTracking)
@@ -191,7 +191,7 @@ struct AppleWatchSetupView: View {
     }
 
     private var lighterCard: some View {
-        NoopCard(tint: StrandPalette.statusWarning) {
+        PaperCard {
             VStack(alignment: .leading, spacing: 12) {
                 Text("WHERE IT'S LIGHTER THAN A STRAP").font(StrandFont.overline)
                     .tracking(StrandFont.overlineTracking)
@@ -231,7 +231,7 @@ struct AppleWatchSetupView: View {
 
     @ViewBuilder private var permissionBody: some View {
         #if os(iOS)
-        NoopCard(tint: StrandPalette.metricCyan) {
+        PaperCard {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 10) {
                     Image(systemName: "heart.text.square.fill")
@@ -315,7 +315,7 @@ struct AppleWatchSetupView: View {
         }
         #else
         // macOS has no HealthKit at all. Be honest: the watch path is an iPhone feature.
-        NoopCard(tint: StrandPalette.metricCyan) {
+        PaperCard {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 10) {
                     Image(systemName: "iphone")

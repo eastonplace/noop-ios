@@ -16,7 +16,7 @@ import Foundation
 //   • `TrendsReportData` — pulls the five metric series out of the Repository's
 //     DailyMetric history and calls RangeReportEngine.build for a range.
 //   • `TrendsReportPage` — the laid-out SwiftUI page (the thing rendered to PDF),
-//     built ENTIRELY from the locked StrandDesign component system (NoopCard,
+//     built ENTIRELY from the locked StrandDesign component system (PaperCard,
 //     SectionHeader, Sparkline, the colour worlds) so it matches every other surface.
 //   • `TrendsReportSheet` — the in-app range picker + "Export" CTA presented from Trends.
 //
@@ -248,7 +248,7 @@ struct TrendsReportPage: View {
     // MARK: Headlines
 
     private var headlines: some View {
-        NoopCard(tint: StrandPalette.recoveryData) {
+        PaperCard {
             VStack(alignment: .leading, spacing: NoopMetrics.rowSpacing) {
                 SectionHeader("What changed", overline: "Summary")
                 ForEach(Array(report.headlines.enumerated()), id: \.offset) { _, line in
@@ -280,7 +280,7 @@ struct TrendsReportPage: View {
     private func metricCard(_ stat: MetricRangeStat) -> some View {
         let metric = stat.metric
         let spark = series[metric] ?? []
-        return NoopCard(tint: metric.accent) {
+        return PaperCard {
             VStack(alignment: .leading, spacing: NoopMetrics.rowSpacing) {
                 // Title + mean read-out + trend chip.
                 HStack(alignment: .firstTextBaseline) {
@@ -336,7 +336,7 @@ struct TrendsReportPage: View {
     // MARK: Empty state
 
     private var emptyState: some View {
-        NoopCard {
+        PaperCard {
             HStack(alignment: .top, spacing: NoopMetrics.space3) {
                 Image(systemName: "calendar.badge.exclamationmark")
                     .font(StrandFont.headline)
@@ -507,8 +507,10 @@ struct TrendsReportSheet: View {
             .padding(.vertical, NoopMetrics.space6)
         }
         .background(StrandPalette.surfaceBase)
+        #if os(macOS)
         .frame(width: 460, height: 640)
-        #if os(iOS)
+        #else
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .noopSheetPresentation(largeFirst: true)
         #endif
         // Load the stored daily stress series for the Stress row (#457). The same
