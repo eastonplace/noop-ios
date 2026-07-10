@@ -37,11 +37,12 @@ struct AutomationsView: View {
 
     var body: some View {
         ScreenScaffold(title: "Automations",
-                       subtitle: "Make the strap do things: tap to act, walk away to lock, train by feel.",
+                       subtitle: "On-device actions and reminders.",
                        // PERF: the cards are direct children of the scaffold column, so the LazyVStack
                        // path (byte-identical layout) genuinely builds the off-screen cards on demand
                        // instead of constructing all eight/nine + their toggle subtrees up-front.
                        lazy: true) {
+            paperAutomationSummary
             #if os(iOS)
             wristAlertsCard
             #endif
@@ -55,6 +56,59 @@ struct AutomationsView: View {
             illnessCard
             healthInsightsCard
             batteryCard
+        }
+    }
+
+    private var paperAutomationSummary: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+            AutomationConnectionBanner()
+            VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
+                SectionHeader("Wrist Actions")
+                PaperCard(padding: 14) {
+                    VStack(spacing: 0) {
+                        #if os(iOS)
+                        SettingsRow(icon: "bell", title: "Wrist alerts",
+                                    subtitle: "Get gentle alerts on your wrist", showsChevron: false) {
+                            Toggle("", isOn: $wristAlertsMaster).labelsHidden().tint(StrandPalette.success)
+                        }
+                        Divider().overlay(StrandPalette.hairline)
+                        #endif
+                        SettingsRow(icon: "hand.tap", title: "Double-tap action",
+                                    subtitle: "Choose what a double-tap does", showsChevron: false) {
+                            Picker("", selection: $behavior.doubleTapAction) {
+                                ForEach(doubleTapOptions) { Text($0.label).tag($0) }
+                            }
+                            .labelsHidden()
+                            .frame(maxWidth: 120)
+                        }
+                    }
+                }
+            }
+            VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
+                SectionHeader("How & Presence")
+                PaperCard(padding: 14) {
+                    SettingsRow(icon: "figure.run", title: "HR-zone coaching",
+                                subtitle: "Coach effort with strap buzzes", showsChevron: false) {
+                        Toggle("", isOn: $behavior.zoneCoaching).labelsHidden().tint(StrandPalette.success)
+                    }
+                }
+            }
+            VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
+                SectionHeader("Behavior Reminders")
+                PaperCard(padding: 14) {
+                    VStack(spacing: 0) {
+                        SettingsRow(icon: "timer", title: "Inactivity reminder",
+                                    subtitle: "Move a little if you've been still", showsChevron: false) {
+                            Toggle("", isOn: $inactivity.enabled).labelsHidden().tint(StrandPalette.success)
+                        }
+                        Divider().overlay(StrandPalette.hairline)
+                        SettingsRow(icon: "brain.head.profile", title: "Stress check-in",
+                                    subtitle: "Gentle nudge during high stress", showsChevron: false) {
+                            Toggle("", isOn: $behavior.stressCheckIn).labelsHidden().tint(StrandPalette.success)
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -449,6 +503,26 @@ private struct BondStatePill: View {
     var body: some View {
         StatePill(live.bonded ? "Strap bonded" : "Strap not connected",
                   tone: live.bonded ? .positive : .warning, showsDot: true)
+    }
+}
+
+private struct AutomationConnectionBanner: View {
+    @EnvironmentObject private var live: LiveState
+    var body: some View {
+        PaperCard(padding: 14) {
+            HStack(spacing: 10) {
+                Circle().fill(live.bonded ? StrandPalette.success : StrandPalette.destructive)
+                    .frame(width: 8, height: 8)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(live.bonded ? "Strap connected" : "Strap not connected")
+                        .font(StrandFont.body.weight(.semibold))
+                        .foregroundStyle(StrandPalette.textPrimary)
+                    Text(live.bonded ? "Automations are ready." : "Automations will run when connected.")
+                        .font(StrandFont.caption)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                }
+            }
+        }
     }
 }
 

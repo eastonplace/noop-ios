@@ -56,12 +56,13 @@ struct TestCentreView: View {
 
     var body: some View {
         ScreenScaffold(title: "Test Centre",
-                       subtitle: "Turn on a test for the thing that's wrong, wear the strap, then tap Report. All on \(Platform.deviceNounPhrase).") {
+                       subtitle: "Diagnostics & tools") {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
-                domainModesCard.staggeredAppear(index: 0)
-                diagnosticToolsCard.staggeredAppear(index: 1)
-                exportCard.staggeredAppear(index: 2)
-                advancedCard.staggeredAppear(index: 3)
+                paperTestSummary.staggeredAppear(index: 0)
+                domainModesCard.staggeredAppear(index: 1)
+                diagnosticToolsCard.staggeredAppear(index: 2)
+                exportCard.staggeredAppear(index: 3)
+                advancedCard.staggeredAppear(index: 4)
             }
         }
         .id(refreshToken)
@@ -83,6 +84,52 @@ struct TestCentreView: View {
             Button("OK", role: .cancel) { }
         } message: {
             Text(infoMessage)
+        }
+    }
+
+    private var paperTestSummary: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+            paperTestSection("Diagnostics", rows: [
+                ("link", "Strap connection", "Check link quality", TestDomain.connection),
+                ("heart.text.square", "Sensor check", "HR signal quality", TestDomain.hrv),
+                ("cpu", "Firmware check", "Strap data health", TestDomain.sources),
+                ("battery.75percent", "Battery status", "Power & health", TestDomain.battery),
+            ])
+            paperTestSection("Data Tests", rows: [
+                ("waveform.path.ecg", "R-R capture test", "Capture autonomic detail", TestDomain.hrv),
+                ("wave.3.right", "Vibration test", "Test haptic feedback", TestDomain.notifications),
+                ("lightbulb", "LED test", "Test strap lights", TestDomain.longevity),
+            ])
+            VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
+                SectionHeader("Reports")
+                Button { PlatformPasteboard.copy(live.exportableLogText()) } label: {
+                    PaperCard(padding: 14) {
+                        SettingsRow(icon: "doc.text", title: "Diagnostics report",
+                                    subtitle: "Copy latest redacted results")
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func paperTestSection(_ title: LocalizedStringKey,
+                                  rows: [(String, LocalizedStringKey, LocalizedStringKey, TestDomain)]) -> some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
+            SectionHeader(title)
+            PaperCard(padding: 14) {
+                VStack(spacing: 0) {
+                    ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+                        if index > 0 { Divider().overlay(StrandPalette.hairline) }
+                        SettingsRow(icon: row.0, title: row.1, subtitle: row.2, showsChevron: false) {
+                            ChipButton(TestCentre.active(row.3) ? "On" : "Run") {
+                                TestCentre.activate(row.3)
+                                refreshToken &+= 1
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 

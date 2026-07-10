@@ -33,13 +33,65 @@ struct SmartAlarmView: View {
         // #766: retitled to "Alarms" because it now holds BOTH the strap's silent wake-alarm and the
         // evening wind-down reminder, so naming it "Wind-Down" undersold it. One surface, clearly labelled.
         ScreenScaffold(title: "Alarms",
-                       subtitle: "Your strap wake-alarm and the evening wind-down reminder, in one place.") {
+                       subtitle: "Wake and wind-down controls.") {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
-                windowHero
-                strapAlarmCard
+                paperAlarmSummary
                 honestyCard
+                strapAlarmCard
                 windDownCard
             }
+        }
+    }
+
+    private var paperAlarmSummary: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+            VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
+                SectionHeader("Strap wake alarm")
+                PaperCard(padding: 14) {
+                    VStack(spacing: 0) {
+                        SettingsRow(icon: "bell", title: "Smart Wake",
+                                    subtitle: "Silent strap vibration", showsChevron: false) {
+                            Toggle("", isOn: $behavior.smartAlarmEnabled)
+                                .labelsHidden().tint(StrandPalette.success)
+                        }
+                        Divider().overlay(StrandPalette.hairline)
+                        SettingsRow(title: "Target time", showsChevron: false) {
+                            Text(timeLabel(behavior.smartAlarmMinutes))
+                        }
+                        Divider().overlay(StrandPalette.hairline)
+                        Text("Your strap will vibrate gently to wake you. Keep a reliable backup alarm.")
+                            .font(StrandFont.caption)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 10)
+                    }
+                }
+            }
+            VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
+                SectionHeader("Evening wind-down reminder")
+                PaperCard(padding: 14) {
+                    VStack(spacing: 0) {
+                        SettingsRow(icon: "moon", title: "Wind-down reminder",
+                                    subtitle: "Help build a consistent bedtime", showsChevron: false) {
+                            Toggle("", isOn: $windDownOn)
+                                .labelsHidden().tint(StrandPalette.success)
+                                .onChangeCompat(of: windDownOn) { on in WindDownNudge.setEnabled(on) }
+                        }
+                        Divider().overlay(StrandPalette.hairline)
+                        SettingsRow(title: "Start time", showsChevron: false) {
+                            Text(timeLabel(WindDownNudge.nudgeMinuteOfDay()))
+                        }
+                    }
+                }
+            }
+            PaperCard(padding: 14) {
+                SettingsRow(icon: "iphone", title: "Backup notification",
+                            subtitle: "Phone fallback when the strap alarm is armed", showsChevron: false) {
+                    Text(behavior.smartAlarmEnabled ? "On" : "Off")
+                }
+            }
+            NoteCard("Alarms use your strap's vibration. Keep it charged and within range.", style: .warning)
+            PrimaryButton("Test alarm") { model.buzz(loops: 2) }
         }
     }
 

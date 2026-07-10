@@ -352,10 +352,17 @@
     dotted scatter empty state, three measurement rows, and on-device privacy note
     against sheet 5-4. Production consent keys/versioning and analysis are unchanged;
     deterministic consent/content capture routes are DEBUG-only.
-- [ ] **T26 — Automations, Alarms, Test Centre (S16–S18)** — Modify
+- [x] **T26 — Automations, Alarms, Test Centre (S16–S18)** — Modify
   `Strand/Screens/AutomationsView.swift`, `SmartAlarmView.swift`,
   `TestCentreView.swift`. Spec §6-S16/17/18; keep every existing toggle/setting bound.
   Verify vs sheet 5-5/5-6/5-7. Commit.
+  - Verified 2026-07-09: `NOOPiOS` built and ran. `qa/T26-automations.jpg`
+    confirms the real disconnected banner and bound wrist-action/coaching/reminder
+    rows; `qa/T26-alarms.jpg` confirms bound strap wake/wind-down controls, honest
+    backup status, vibration warning, and test action; `qa/T26-test-centre.jpg`
+    confirms compact Diagnostics/Data Tests/Reports groups backed by the existing
+    TestCentre domains and redacted log. All pre-reskin advanced controls remain below
+    the Paper summaries, preserving every existing binding and action.
 
 ## Phase 8 — Sweep + QA
 
