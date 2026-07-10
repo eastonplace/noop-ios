@@ -344,10 +344,20 @@
     retained; no cosmetic paused/splits state was fabricated. The Today-local FAB
     was also lifted above the tab bar after T43's scope correction. Full `NOOPiOS`
     simulator build passed; `StrandDesign`: 36/36 tests.
-- [ ] **T45 — Live console + Devices density (S4/S6)** ∥ — wrap advanced/record
+- [x] **T45 — Live console + Devices density (S4/S6)** ∥ — wrap advanced/record
   sections into Paper cards; Devices rows compressed to reference density (name,
   badge, battery, signal; capability prose behind the row's detail/disclosure),
   C1-consistent capability copy. Verify vs 1-4/4-1. Commit.
+  - Evidence: `qa/T45-live-console.png`, `qa/T45-live-advanced.png`, and
+    `qa/T45-devices.png` were compared with sheet 1-4/4-1. Live retains the compact
+    device, heart-rate, physiology, and recording composition; Advanced Controls is
+    now one Paper card and the strap log remains a contained Paper surface. Devices
+    rows are compressed to name/model, state badge, honest battery-or-last-seen and
+    signal state, with capability/caveat prose moved behind `Device details`; make
+    active, rename, remove, and add-device controls remain reachable. Duplicate
+    Recovery/Strain/Sleep copy was corrected to the canonical C1 terms. The seeded
+    offline state shows `Signal —` instead of inventing RSSI or battery. Full
+    `NOOPiOS` simulator build passed.
 - [ ] **T46 — Nit sweep on Close screens** ∥ — fidelity.md "Required direction" nits:
   Insights duplicate tagline, Quick-Actions workout icon tint, Settings profile card
   (real name + member-since per 001 §6-S10), pre-run row audit vs 2-1, "of 100"

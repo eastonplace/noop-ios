@@ -302,17 +302,20 @@ private struct DeviceCard: View {
     /// Removed-section affordances (re-add as active / delete its data).
     var onReAdd: (() -> Void)? = nil
     var onDeleteData: (() -> Void)? = nil
+    @State private var showsDetails = false
 
     /// The card's visible content. The required `body` wraps this in the whole-card liquid press button +
     /// the ⋮ menu overlay.
     private var cardContent: some View {
-        PaperCard(padding: 18) {
-            VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
-                HStack(alignment: .top, spacing: NoopMetrics.space3) {
+        PaperCard(padding: 14) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .center, spacing: NoopMetrics.space3) {
                     Image(systemName: icon)
-                        .font(StrandFont.title2)
+                        .font(StrandFont.headline)
                         .foregroundStyle(isActive ? StrandPalette.accent : StrandPalette.textSecondary)
-                        .frame(width: 28)
+                        .frame(width: 42, height: 42)
+                        .background(StrandPalette.inset,
+                                    in: RoundedRectangle(cornerRadius: 11, style: .continuous))
                         .accessibilityHidden(true)
 
                     VStack(alignment: .leading, spacing: 3) {
@@ -324,84 +327,82 @@ private struct DeviceCard: View {
                             .foregroundStyle(StrandPalette.textSecondary)
                     }
                     Spacer()
-                    // Locally-adopted Oura is Beta: a non-dot Beta chip sits beside the usual state pill.
-                    if device.sourceKind == .oura {
-                        StatePill("Beta", tone: .warning, showsDot: false)
-                    }
                     statePill
                 }
 
-                // Honest local-takeover state row for an adopted Oura ring that is paired but not the
-                // active+connected source right now. States the single-owner reality plainly (if the ring
-                // was reset again or re-claimed in the Oura app, NOOP no longer owns it) without faking a
-                // live reading. Suppressed for the active+connected ring and for removed rings.
-                if device.sourceKind == .oura && !isLiveConnected && device.status == .paired {
-                    ouraLocalStateNote
+                HStack(spacing: 14) {
+                    if let pct = liveBatteryPct {
+                        compactStatus(symbol: batterySymbol(pct), text: "Battery \(pct)%",
+                                      tint: batteryTint(pct))
+                    } else {
+                        compactStatus(symbol: "clock", text: lastSeenLine,
+                                      tint: StrandPalette.textTertiary)
+                    }
+                    compactStatus(symbol: "chart.bar.fill",
+                                  text: isLiveConnected ? "Signal live" : "Signal —",
+                                  tint: isLiveConnected ? StrandPalette.statusPositive : StrandPalette.textTertiary)
+                    Spacer(minLength: 24)
                 }
 
-                // What this device CAPTURES — honest, per-model (not the generic stored set, which would
-                // mislabel e.g. a "Blood oxygen" chip when no SpO₂ % ever comes off the strap).
-                capabilityRow(symbol: "waveform.path.ecg", text: profile.captures,
-                              tint: StrandPalette.textSecondary)
-                // What NOOP USES it for — the scores/screens this device drives.
-                capabilityRow(symbol: "bolt.fill", text: profile.powers,
-                              tint: StrandPalette.textSecondary)
-                // Honest footnote: the "*" estimates + the SpO₂/steps caveats.
-                if !profile.footnote.isEmpty {
-                    Text(profile.footnote)
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                // Live battery for the active+connected device, shown as a liquid tube that fills to the
-                // charge — same surface for WHOOP / strap / FTMS. The tube reads the charge band's colour.
-                if let pct = liveBatteryPct {
-                    batteryTube(pct)
-                }
-
-                // #987: strap clock state for the active+connected strap - "clock latched" + frame
-                // freshness, with the plain amber 1970/71 warning when the RTC was never set (the strap
-                // banks no history in that state, which otherwise looks like a NOOP sync bug).
-                if let clockLine = liveClockLine {
-                    Text(clockLine)
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                        .accessibilityLabel(clockLine)
-                }
-                if let warning = liveClockWarning {
-                    Text(warning)
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.statusWarning)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityLabel(warning)
-                }
-
-                HStack(spacing: 6) {
-                    Text(lastSeenLine)
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                    // Firmware version for the active+connected strap, read on connect.
-                    if let fw = liveFirmware {
-                        Text("·").font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
-                        Text("FW \(fw)")
+                Button { withAnimation(.easeInOut(duration: 0.2)) { showsDetails.toggle() } } label: {
+                    HStack(spacing: 6) {
+                        Text("Device details")
                             .font(StrandFont.footnote)
                             .foregroundStyle(StrandPalette.textSecondary)
-                            .accessibilityLabel("Firmware version \(fw)")
+                        if device.sourceKind == .oura {
+                            StatePill("Beta", tone: .warning, showsDot: false)
+                        }
+                        Spacer(minLength: 44)
+                        Image(systemName: "chevron.down")
+                            .font(StrandFont.footnote)
+                            .foregroundStyle(StrandPalette.textTertiary)
+                            .rotationEffect(.degrees(showsDetails ? 180 : 0))
                     }
-                    // The whole-card tap hint sits on the left; the ⋮ menu is a bottom-trailing overlay above
-                    // the press button (so its own taps win). No hint on the active card (no make-active),
-                    // nor on a removed card whose re-add is menu-only.
-                    if let hint = primaryActionHint {
-                        Text("·").font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
-                        Text(hint)
-                            .font(StrandFont.overlineScaled(10)).tracking(1.0)
-                            .foregroundStyle(StrandPalette.accent)
-                        Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(StrandPalette.accent)
-                            .accessibilityHidden(true)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                if showsDetails {
+                    VStack(alignment: .leading, spacing: 7) {
+                        if device.sourceKind == .oura && !isLiveConnected && device.status == .paired {
+                            ouraLocalStateNote
+                        }
+                        capabilityRow(symbol: "waveform.path.ecg", text: profile.captures,
+                                      tint: StrandPalette.textSecondary)
+                        capabilityRow(symbol: "bolt.fill", text: profile.powers,
+                                      tint: StrandPalette.textSecondary)
+                        if !profile.footnote.isEmpty {
+                            Text(profile.footnote)
+                                .font(StrandFont.footnote)
+                                .foregroundStyle(StrandPalette.textTertiary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        if let clockLine = liveClockLine {
+                            Text(clockLine).font(StrandFont.footnote)
+                                .foregroundStyle(StrandPalette.textTertiary)
+                        }
+                        if let warning = liveClockWarning {
+                            Text(warning).font(StrandFont.footnote)
+                                .foregroundStyle(StrandPalette.statusWarning)
+                        }
+                        if let fw = liveFirmware {
+                            Text("Firmware \(fw)").font(StrandFont.footnote)
+                                .foregroundStyle(StrandPalette.textSecondary)
+                        }
                     }
-                    Spacer(minLength: 44)   // leave room for the ⋮ menu overlay at the bottom-trailing
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+
+                if let action = primaryAction {
+                    Button(action: action) {
+                        HStack(spacing: 6) {
+                            Text(primaryActionHint ?? String(localized: "Make active"))
+                            Image(systemName: "chevron.right")
+                        }
+                        .font(StrandFont.footnote.weight(.semibold))
+                        .foregroundStyle(StrandPalette.accent)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }
@@ -414,18 +415,21 @@ private struct DeviceCard: View {
     /// on top as an overlay so it captures its own taps; cards with no primary action (the active one, or a
     /// removed one whose re-add is menu-only) fall back to a plain container so nothing taps by accident.
     var body: some View {
-        Group {
-            if let action = primaryAction {
-                Button(action: action) { cardContent }
-                    .buttonStyle(LiquidPressStyle())
-            } else {
-                cardContent
-            }
-        }
+        cardContent
         .overlay(alignment: .bottomTrailing) {
             actionsMenu
-                .padding(18)
+                .padding(14)
         }
+    }
+
+    private func compactStatus(symbol: String, text: String, tint: Color) -> some View {
+        Label {
+            Text(text).lineLimit(1).minimumScaleFactor(0.75)
+        } icon: {
+            Image(systemName: symbol)
+        }
+        .font(StrandFont.footnote)
+        .foregroundStyle(tint)
     }
 
     /// The card's primary tap action, or nil when there isn't one. A paired-but-not-active band → make it
@@ -619,7 +623,7 @@ struct DeviceCapabilityProfile {
             return DeviceCapabilityProfile(
                 displayModel: String(localized: "\(d.brand) (experimental)"),
                 captures: String(localized: "Heart rate (live, best-effort)"),
-                powers: String(localized: "Powers the live console + Strain. No Recovery, Sleep or Sleep"),
+                powers: String(localized: "Powers the live console + Strain. No Recovery or Sleep"),
                 footnote: String(localized: "Experimental: live heart rate where the band exposes it. Some bands need a pairing we can't do yet. NOOP will say so honestly and never show a made-up number. No sleep, recovery, skin temp, SpO₂ or steps."))
         }
         // EXPERIMENTAL locally-adopted Oura ring (gen 3/4/5). The gen is carried on `model` ("Oura Ring
@@ -668,10 +672,10 @@ struct DeviceCapabilityProfile {
             return DeviceCapabilityProfile(
                 displayModel: String(localized: "Heart-rate strap"),
                 captures: String(localized: "Heart rate · HRV (live)* · Strain"),
-                powers: String(localized: "Powers the live console + Strain. No Recovery, Sleep or Sleep"),
+                powers: String(localized: "Powers the live console + Strain. No Recovery or Sleep"),
                 footnote: String(localized: "Live HR + R-R only · no sleep, recovery, skin temp, SpO₂, steps or battery (those are WHOOP-only)."))
         }
-        let whoopPowers = String(localized: "Powers Recovery, Strain, Sleep, Sleep + Health Monitor")
+        let whoopPowers = String(localized: "Powers Recovery, Strain, Sleep + Health Monitor")
         let model = d.model.lowercased()
         // WHOOP 5.0 / MG — adds a (raw) step count the 4.0 can't read over BLE.
         if model.contains("5") || model.contains("mg") {

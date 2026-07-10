@@ -95,17 +95,8 @@ struct LiveView: View {
                 if Self.shouldShowStandardHRNote(live.standardHRMode) {
                     standardHRNote(live.standardHRMode ?? "")
                 }
-                SectionHeader("Advanced controls")
                 sessionConsole
-                // Show the strap picker whenever we're not actively streaming, so a user with both a
-                // WHOOP 4 and a 5/MG can switch between them. (It used to hide once `bonded`, which is
-                // sticky across disconnects — so after the first pairing the picker vanished for good.)
-                if !activeConnection { modelPicker }
-                HStack(spacing: NoopMetrics.rowSpacing) {
-                    buzzButton
-                    disconnectButton
-                }
-                manageDevicesRow
+                advancedControlsCard
                 LiveLogCard()
             }
         }
@@ -302,11 +293,11 @@ struct LiveView: View {
 
     private var sessionPrompt: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Ready for a marked effort.")
+            Text("Ready to record Strain.")
                 .font(StrandFont.headline)
                 .foregroundStyle(StrandPalette.textPrimary)
             Text(activeConnection
-                 ? "Start a workout when the stream matters. NOOP records the interval, HR, peak, average and effort from the same live feed."
+                 ? "Start a workout when the stream matters. NOOP records the interval, HR, peak, average and Strain from the same live feed."
                  : "Connect the strap first, then mark a workout from the live stream.")
                 .font(StrandFont.subhead)
                 .foregroundStyle(StrandPalette.textSecondary)
@@ -322,7 +313,7 @@ struct LiveView: View {
                 showStartSport = true
             }
             .disabled(!activeConnection)
-            .help("Track a workout manually. Records heart rate and effort until you end it.")
+            .help("Track a workout manually. Records heart rate and Strain until you end it.")
 
             NoopButton("Refresh", systemImage: "arrow.clockwise", kind: .secondary) {
                 model.getBattery()
@@ -339,6 +330,20 @@ struct LiveView: View {
             .help(activeConnection
                   ? "Take a 60-second seated HRV reading from the live R-R stream."
                   : "Connect your strap first. The reading needs the live R-R stream.")
+        }
+    }
+
+    private var advancedControlsCard: some View {
+        PaperCard {
+            VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
+                SectionHeader("Advanced controls")
+                if !activeConnection { modelPicker }
+                HStack(spacing: NoopMetrics.rowSpacing) {
+                    buzzButton
+                    disconnectButton
+                }
+                manageDevicesRow
+            }
         }
     }
 
