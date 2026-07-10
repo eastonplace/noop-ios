@@ -271,7 +271,7 @@ struct WatchWorkoutView: View {
         VStack(spacing: 12) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 34))
-                .foregroundStyle(StrandPalette.chargeColor)
+                .foregroundStyle(StrandPalette.success)
             Text("Workout saved")
                 .font(StrandFont.rounded(20, weight: .semibold))
                 .foregroundStyle(StrandPalette.textPrimary)

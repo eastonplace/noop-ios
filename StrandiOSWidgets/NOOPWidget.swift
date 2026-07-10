@@ -62,12 +62,12 @@ struct NOOPWidgetView: View {
 
     private var restColor: Color {
         guard let r = snap.rest else { return StrandPalette.textTertiary }
-        return StrandPalette.recoveryColor(Double(r))
+        return RecoveryBands.color(for: Double(r))
     }
 
     private var inlineText: String {
         var parts: [String] = []
-        if let r = snap.recovery { parts.append("Charge \(r)%") }
+        if let r = snap.recovery { parts.append("Recovery \(r)%") }
         if let b = snap.bpm { parts.append("\(b) bpm") }
         return parts.isEmpty ? "NOOP" : parts.joined(separator: " · ")
     }
@@ -88,7 +88,7 @@ struct NOOPWidgetView: View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 4) {
                 Image(systemName: "heart.fill").foregroundStyle(recoveryColor)
-                Text("Charge \(snap.recovery.map(String.init) ?? "–")%").font(.headline)
+                Text("Recovery \(snap.recovery.map(String.init) ?? "–")%").font(.headline)
             }
             Text("HR \(snap.bpm.map(String.init) ?? "–") · Effort \(snap.effort.map(String.init) ?? "–")")
                 .font(.caption)
@@ -111,7 +111,7 @@ struct NOOPWidgetView: View {
                     .foregroundStyle(recoveryColor)
                 Text("%").font(.headline).foregroundStyle(StrandPalette.textTertiary)
             }
-            Text("Charge").font(.caption).foregroundStyle(StrandPalette.textTertiary)
+            Text("Recovery").font(.caption).foregroundStyle(StrandPalette.textTertiary)
             Spacer(minLength: 0)
             HStack {
                 Label("\(snap.bpm.map(String.init) ?? "–")", systemImage: "waveform.path.ecg")
@@ -144,7 +144,7 @@ struct NOOPWidgetView: View {
                     .font(.system(size: 48, weight: .bold, design: .rounded))
                     .foregroundStyle(recoveryColor)
                 Text("%").font(.title3).foregroundStyle(StrandPalette.textTertiary)
-                Text("Charge").font(.subheadline).foregroundStyle(StrandPalette.textTertiary)
+                Text("Recovery").font(.subheadline).foregroundStyle(StrandPalette.textTertiary)
                     .padding(.leading, 2)
             }
             Divider()
@@ -197,8 +197,8 @@ struct NOOPWidget: Widget {
                     .background(StrandPalette.surfaceBase)
             }
         }
-        .configurationDisplayName("NOOP Charge")
-        .description("Charge, Effort, Rest, HRV, resting and live heart rate, and strap battery at a glance.")
+        .configurationDisplayName("NOOP Recovery")
+        .description("Recovery, Effort, Rest, HRV, resting and live heart rate, and strap battery at a glance.")
         .supportedFamilies([
             .systemSmall, .systemMedium, .systemLarge,
             .accessoryCircular, .accessoryInline, .accessoryRectangular

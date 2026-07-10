@@ -619,7 +619,7 @@ struct DeviceCapabilityProfile {
             return DeviceCapabilityProfile(
                 displayModel: String(localized: "\(d.brand) (experimental)"),
                 captures: String(localized: "Heart rate (live, best-effort)"),
-                powers: String(localized: "Powers the live console + Effort. No Charge, Rest or Sleep"),
+                powers: String(localized: "Powers the live console + Effort. No Recovery, Rest or Sleep"),
                 footnote: String(localized: "Experimental: live heart rate where the band exposes it. Some bands need a pairing we can't do yet. NOOP will say so honestly and never show a made-up number. No sleep, recovery, skin temp, SpO₂ or steps."))
         }
         // EXPERIMENTAL locally-adopted Oura ring (gen 3/4/5). The gen is carried on `model` ("Oura Ring
@@ -636,8 +636,8 @@ struct DeviceCapabilityProfile {
                 ? String(localized: "Heart rate* · HRV* · Sleep* · Resting HR* · Skin temp* · Battery*")
                 : String(localized: "Heart rate · HRV* · Sleep · Resting HR · Skin temp* · Battery")
             let powers = newer
-                ? String(localized: "Powers Effort now; Charge and Rest once enough nights and decode are confirmed")
-                : String(localized: "Powers Charge, Effort, Rest and Sleep")
+                ? String(localized: "Powers Effort now; Recovery and Rest once enough nights and decode are confirmed")
+                : String(localized: "Powers Recovery, Effort, Rest and Sleep")
             return DeviceCapabilityProfile(
                 displayModel: String(localized: "\(gen.displayName) (Beta)"),
                 captures: captures,
@@ -658,7 +658,7 @@ struct DeviceCapabilityProfile {
             return DeviceCapabilityProfile(
                 displayModel: "Apple Watch",
                 captures: captures.isEmpty ? String(localized: "Calibrating, no data yet") : captures,
-                powers: String(localized: "Powers Rest, Effort, Fitness Age and steps, plus Charge once recovery calibrates"),
+                powers: String(localized: "Powers Rest, Effort, Fitness Age and steps, plus Recovery once it calibrates"),
                 footnote: String(localized: "Computed live from your Apple Watch via Health. Recovery needs about a week of nights to calibrate, and every watch-derived score is labelled with its confidence. Only the metrics your watch actually records are listed above."))
         }
         // Generic heart-rate strap: live HR + R-R only; drives the live console + Effort, nothing nightly.
@@ -668,10 +668,10 @@ struct DeviceCapabilityProfile {
             return DeviceCapabilityProfile(
                 displayModel: String(localized: "Heart-rate strap"),
                 captures: String(localized: "Heart rate · HRV (live)* · Strain"),
-                powers: String(localized: "Powers the live console + Effort. No Charge, Rest or Sleep"),
+                powers: String(localized: "Powers the live console + Effort. No Recovery, Rest or Sleep"),
                 footnote: String(localized: "Live HR + R-R only · no sleep, recovery, skin temp, SpO₂, steps or battery (those are WHOOP-only)."))
         }
-        let whoopPowers = String(localized: "Powers Charge, Effort, Rest, Sleep + Health Monitor")
+        let whoopPowers = String(localized: "Powers Recovery, Effort, Rest, Sleep + Health Monitor")
         let model = d.model.lowercased()
         // WHOOP 5.0 / MG — adds a (raw) step count the 4.0 can't read over BLE.
         if model.contains("5") || model.contains("mg") {

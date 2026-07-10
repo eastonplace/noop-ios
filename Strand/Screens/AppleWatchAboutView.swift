@@ -87,7 +87,7 @@ struct AppleWatchAboutView: View {
         WatchMetric(icon: "flame.fill", metric: String(localized: "Effort"),
                     confidence: .good,
                     detail: String(localized: "Heart rate plus active energy give a solid daily cardiovascular load. An on-watch workout sharpens it further.")),
-        WatchMetric(icon: "heart.fill", metric: String(localized: "Recovery / Charge"),
+        WatchMetric(icon: "heart.fill", metric: String(localized: "Recovery"),
                     confidence: .calibrating,
                     detail: String(localized: "Led by your heart-rate variability versus your own baseline. The watch samples HRV rather than streaming it, so this needs about a week of nights to calibrate. Until then NOOP shows \u{201C}needs more data\u{201D}, never a guessed number.")),
         WatchMetric(icon: "thermometer.medium", metric: String(localized: "Skin temperature"),
@@ -133,7 +133,7 @@ struct AppleWatchAboutView: View {
                         .foregroundStyle(StrandPalette.textPrimary)
                     Spacer(minLength: 0)
                 }
-                Text("NOOP can run off only an Apple Watch, no chest strap needed. The watch is the sensor; NOOP does the thinking on your phone, computing Charge, Rest, Effort and your Fitness Age from your Health data, all on-device.")
+                Text("NOOP can run off only an Apple Watch, no chest strap needed. The watch is the sensor; NOOP does the thinking on your phone, computing Recovery, Rest, Effort and your Fitness Age from your Health data, all on-device.")
                     .font(StrandFont.subhead)
                     .foregroundStyle(StrandPalette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -202,23 +202,23 @@ struct AppleWatchAboutView: View {
     // MARK: - HRV-sampling explanation
 
     private var hrvCard: some View {
-        NoopCard(tint: StrandPalette.chargeColor) {
+        NoopCard(tint: StrandPalette.recoveryData) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 10) {
                     Image(systemName: "waveform.path.ecg")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(StrandPalette.chargeColor)
+                        .foregroundStyle(StrandPalette.recoveryData)
                         .accessibilityHidden(true)
                     Text("Why recovery calibrates over about a week")
                         .font(StrandFont.headline)
                         .foregroundStyle(StrandPalette.textPrimary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                Text("Recovery, NOOP's Charge score, is led by your heart-rate variability measured against your own personal baseline. A chest strap streams beat-to-beat data densely all night, so it can learn that baseline fast. An Apple Watch instead samples HRV, a handful of readings through the day plus overnight, so the signal is real but sparser.")
+                Text("Recovery is led by your heart-rate variability measured against your own personal baseline. A chest strap streams beat-to-beat data densely all night, so it can learn that baseline fast. An Apple Watch instead samples HRV, a handful of readings through the day plus overnight, so the signal is real but sparser.")
                     .font(StrandFont.subhead)
                     .foregroundStyle(StrandPalette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
-                Text("That's why a watch-only Charge starts out \u{201C}Calibrating\u{201D}. NOOP needs about seven nights of your HRV to learn what normal looks like for you. Until it has them it withholds the score rather than guess. Once the baseline is set, your Charge appears with its confidence, on the same 0-100 scale as a strap's.")
+                Text("That's why watch-only Recovery starts out \u{201C}Calibrating\u{201D}. NOOP needs about seven nights of your HRV to learn what normal looks like for you. Until it has them it withholds the score rather than guess. Once the baseline is set, your Recovery appears with its confidence, on the same 0-100 scale as a strap's.")
                     .font(StrandFont.subhead)
                     .foregroundStyle(StrandPalette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)

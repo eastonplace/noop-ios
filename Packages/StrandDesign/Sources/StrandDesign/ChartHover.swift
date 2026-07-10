@@ -229,7 +229,7 @@ struct PositionedTooltip: View {
 #if DEBUG
 #Preview("ChartTooltip") {
     VStack(spacing: 24) {
-        ChartTooltip(value: "Recovery 88", label: "Tue 3 Jun", accent: StrandPalette.recoveryColor(88))
+        ChartTooltip(value: "Recovery 88", label: "Tue 3 Jun", accent: RecoveryBands.color(for: 88))
         ChartTooltip(value: "62 ms", label: "HRV · sample 14")
         ChartTooltip(value: "18.7", label: "STRAIN · all-out", accent: StrandPalette.strainColor(18.7))
     }

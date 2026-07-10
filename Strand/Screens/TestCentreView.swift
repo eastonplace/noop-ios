@@ -73,12 +73,12 @@ struct TestCentreView: View {
         .sheet(item: $report.pending) { _ in
             ReportReviewSheet(report: report)
         }
-        .confirmationDialog("Recalibrate your Charge baseline?",
+        .confirmationDialog("Recalibrate your Recovery baseline?",
                             isPresented: $showRecalibrateConfirm, titleVisibility: .visible) {
             Button("Recalibrate") { recalibrateCharge() }
             Button("Cancel", role: .cancel) { }
         } message: {
-            Text("This restarts the roughly 4-night build-up for Charge and your HRV baseline. Your history stays.")
+            Text("This restarts the roughly 4-night build-up for Recovery and your HRV baseline. Your history stays.")
         }
         .alert(infoTitle, isPresented: $showInfo) {
             Button("OK", role: .cancel) { }
@@ -183,10 +183,10 @@ struct TestCentreView: View {
 
                 // Recalibrate Charge baseline: the same Baselines.recalibrateRecoveryBaselines call the
                 // Settings Recovery card uses.
-                NoopButton("Recalibrate Charge baseline", systemImage: "arrow.triangle.2.circlepath", kind: .secondary) {
+                NoopButton("Recalibrate Recovery baseline", systemImage: "arrow.triangle.2.circlepath", kind: .secondary) {
                     showRecalibrateConfirm = true
                 }
-                Text("Re-anchors every baseline that feeds Charge to your recent nights. No stored day is deleted.")
+                Text("Re-anchors every baseline that feeds Recovery to your recent nights. No stored day is deleted.")
                     .font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -342,7 +342,7 @@ struct TestCentreView: View {
             await model.intelligence.analyzeRecent()
             await model.repo.refresh()
         }
-        infoTitle = String(localized: "Charge baseline recalibrating")
+        infoTitle = String(localized: "Recovery baseline recalibrating")
         infoMessage = String(localized: "NOOP will re-learn your baseline from tonight's data onward. Your history is kept, and it takes a few nights to settle.")
         showInfo = true
     }
@@ -608,7 +608,7 @@ private struct RecoveryReadoutPanel: View {
     var body: some View {
         let last = TestReadout.lastChargeBreakdown(taggedTail: live.taggedTail(domain: .recovery))
         VStack(alignment: .leading, spacing: 4) {
-            ReadoutRow(label: String(localized: "Last Charge breakdown"), value: last ?? String(localized: "no night scored yet"))
+            ReadoutRow(label: String(localized: "Last Recovery breakdown"), value: last ?? String(localized: "no night scored yet"))
         }
         .padding(.top, 2)
     }

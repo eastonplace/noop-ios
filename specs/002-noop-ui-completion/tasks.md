@@ -110,7 +110,7 @@
     Journal remains independently purple as required; the known Insights density gap
     is unchanged and remains assigned to T50.
 
-- [ ] **T33 — Rename Charge → Recovery** ∥
+- [x] **T33 — Rename Charge → Recovery** ∥
   - Scope: user-facing strings only (FR-4): Swift literals in `Strand/Screens`,
     `Strand/Liquid` (until deleted), `StrandiOS`, `Packages/StrandDesign` labels;
     all four `Localizable.xcstrings` (EN edit; DE/IT via `Tools/translate-*.py`,
@@ -123,6 +123,23 @@
   - Verify: `grep -rn '"Charge' …` shows zero user-visible pillar hits; app builds;
     Today shows "Recovery"; seeded 25/50/80 days render red/yellow/green. Screenshot.
     Commit.
+  - **Completed 2026-07-10:** all rendered phone, widget, watch, complication,
+    accessibility, explainer, Coach, and changelog copy now says Recovery; stable
+    `.charge` symbols, the `chargebreakdown` route, the Insights outcome name, and
+    `MetricCatalog` category IDs remain unchanged. The only catalog keys still using
+    lowercase `charge` describe real battery charging. The main, Watch, and
+    Complications catalogs were migrated structurally; StrandDesign had no Charge
+    entries. Carried non-English values are flagged `needs_review`; the required DE/IT
+    scripts refreshed their covered units (2,999 DE / 2,989 IT) and reported their
+    pre-existing incomplete dictionary coverage rather than silently inventing copy.
+    Recovery score graphics now use `RecoveryBands`, non-valuated recovery data uses
+    `recoveryData`, and Trends/Year Heat Strip use band-colored points/cells.
+    `StrandDesign` passed 34/34 tests; `NOOPiOS` and `NOOPiOSWidgets` simulator builds
+    passed. Simulator-only fixtures set the latest seeded row to 25, 50, and 80—no
+    stored schema or source data changed—and produced `qa/T33-recovery-25.png`,
+    `qa/T33-recovery-50.png`, and `qa/T33-recovery-80.png`. Side-by-side against
+    reference sheet 1 and C13 confirms red/yellow/green bands and the full Recovery
+    label; the remaining header/card proportion gaps stay assigned to T38.
 
 - [ ] **T34 — Rename Effort → Strain + apply 0–21** ∥
   - Same string scope as T33 for "Effort"; ALSO flip every strain display to

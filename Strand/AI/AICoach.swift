@@ -656,7 +656,7 @@ final class AICoachEngine: ObservableObject {
         // Last ~14 days, newest first for readability.
         let recent = Array(days.suffix(14)).reversed()
         lines.append("")
-        lines.append("Recent days (newest first) — charge(0-100), effort(0-100), rest/sleep(h), HRV(ms), RHR(bpm):")
+        lines.append("Recent days (newest first) — recovery(0-100), effort(0-100), rest/sleep(h), HRV(ms), RHR(bpm):")
         for d in recent {
             lines.append("  " + dayLine(d))
         }
@@ -665,7 +665,7 @@ final class AICoachEngine: ObservableObject {
         let last30 = Array(days.suffix(30))
         lines.append("")
         lines.append("30-day averages:")
-        lines.append("  charge: \(avgInt(last30.compactMap { $0.recovery }))"
+        lines.append("  recovery: \(avgInt(last30.compactMap { $0.recovery }))"
                      + ", effort: \(avgOne(last30.compactMap { $0.strain }))"
                      + ", sleep: \(avgSleepHours(last30))h"
                      + ", HRV: \(avgInt(last30.compactMap { $0.avgHrv })) ms"
@@ -703,7 +703,7 @@ final class AICoachEngine: ObservableObject {
 
     private func dayLine(_ d: DailyMetric) -> String {
         var parts: [String] = [d.day + ":"]
-        parts.append("charge " + (d.recovery.map { "\(Int($0.rounded()))" } ?? "—"))
+        parts.append("recovery " + (d.recovery.map { "\(Int($0.rounded()))" } ?? "—"))
         parts.append("effort " + (d.strain.map { String(format: "%.1f", $0) } ?? "—"))
         parts.append("rest " + (d.totalSleepMin.map { String(format: "%.1fh", $0 / 60) } ?? "—"))
         parts.append("HRV " + (d.avgHrv.map { "\(Int($0.rounded()))ms" } ?? "—"))

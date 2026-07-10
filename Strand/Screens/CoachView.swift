@@ -35,7 +35,7 @@ struct CoachView: View {
     private let customModelTag = "__custom__"
 
     private let suggestions = [
-        String(localized: "How's my charge trending?"),
+        String(localized: "How's my recovery trending?"),
         String(localized: "What should today's training look like?"),
         String(localized: "Analyse my sleep"),
         String(localized: "Why am I run down?"),
@@ -43,7 +43,7 @@ struct CoachView: View {
 
     var body: some View {
         ScreenScaffold(title: "Coach",
-                       subtitle: "Ask about your charge, effort, rest and workouts, grounded in your own numbers.",
+                       subtitle: "Ask about your recovery, effort, rest and workouts, grounded in your own numbers.",
                        // Liquid finish: the same full-bleed day-of-sky backdrop Today + the other liquid
                        // tabs carry, so Coach sits in one atmosphere. Static + non-interactive; the frosted
                        // message/setup cards below sit on the opaque canvas and stay legible.
@@ -86,7 +86,7 @@ struct CoachView: View {
     /// Explicit, revocable permission for the coach to read & send the user's data. Off by default.
     /// A frosted Charge-tinted card so it reads as part of the green Coach world, not a flat panel.
     private var consentBar: some View {
-        NoopCard(padding: 14, tint: StrandPalette.chargeColor) {
+        NoopCard(padding: 14, tint: StrandPalette.recoveryData) {
             HStack(spacing: 10) {
                 Image(systemName: coach.dataConsent ? "lock.open.fill" : "lock.fill")
                     .foregroundStyle(coach.dataConsent ? StrandPalette.accent : StrandPalette.textTertiary)
@@ -95,7 +95,7 @@ struct CoachView: View {
                     Text("Let the coach use my data")
                         .font(StrandFont.subhead).foregroundStyle(StrandPalette.textPrimary)
                     Text(coach.dataConsent
-                         ? "On: your charge, rest, HRV and workouts are shared with the provider for tailored coaching."
+                         ? "On: your recovery, rest, HRV and workouts are shared with the provider for tailored coaching."
                          : "Off: the coach answers generally and sends none of your metrics.")
                         .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -111,7 +111,7 @@ struct CoachView: View {
     /// The v5 second opt-in: include a SUMMARY of the new on-device signals (strongest n-of-1 patterns +
     /// Lab Book markers). Summary-only, never raw readings, so the no-raw-egress posture holds.
     private var onDeviceSignalsBar: some View {
-        NoopCard(padding: 14, tint: StrandPalette.chargeColor) {
+        NoopCard(padding: 14, tint: StrandPalette.recoveryData) {
             HStack(spacing: 10) {
                 Image(systemName: coach.includeOnDeviceSignals ? "checklist.checked" : "checklist")
                     .foregroundStyle(coach.includeOnDeviceSignals ? StrandPalette.accent : StrandPalette.textTertiary)
@@ -137,7 +137,7 @@ struct CoachView: View {
     /// reveals a TextEditor bound to the engine (edits persist to UserDefaults and take effect on the
     /// next message) plus a Reset-to-default control. Lives inline in the existing settings, NOT a modal.
     private var systemPromptBar: some View {
-        NoopCard(padding: 14, tint: StrandPalette.chargeColor) {
+        NoopCard(padding: 14, tint: StrandPalette.recoveryData) {
             VStack(alignment: .leading, spacing: promptExpanded ? 10 : 0) {
                 Button {
                     withAnimation(StrandMotion.fade) {
@@ -459,7 +459,7 @@ struct CoachView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 11)
-                    .frostedCardSurface(tint: StrandPalette.chargeColor, cornerRadius: 16)
+                    .frostedCardSurface(tint: StrandPalette.recoveryData, cornerRadius: 16)
                     .frame(maxWidth: 560, alignment: .leading)
                 Spacer(minLength: 48)
             }
@@ -478,7 +478,7 @@ struct CoachView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
-        .frostedCardSurface(tint: StrandPalette.chargeColor, cornerRadius: 16)
+        .frostedCardSurface(tint: StrandPalette.recoveryData, cornerRadius: 16)
         .frame(maxWidth: 320, alignment: .leading)
         .accessibilityLabel("Coach is thinking")
     }

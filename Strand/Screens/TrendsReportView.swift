@@ -162,7 +162,7 @@ private extension ReportMetric {
         switch self {
         case .workouts:    return StrandPalette.effortColor  // activity → the Effort world
         case .stress:      return StrandPalette.stressColor  // the Stress world hue
-        case .recovery:    return StrandPalette.chargeColor
+        case .recovery:    return StrandPalette.recoveryData
         case .strain:      return StrandPalette.effortColor
         case .sleepHours:  return StrandPalette.restColor
         case .hrv:         return StrandPalette.metricPurple
@@ -248,7 +248,7 @@ struct TrendsReportPage: View {
     // MARK: Headlines
 
     private var headlines: some View {
-        NoopCard(tint: StrandPalette.chargeColor) {
+        NoopCard(tint: StrandPalette.recoveryData) {
             VStack(alignment: .leading, spacing: NoopMetrics.rowSpacing) {
                 SectionHeader("What changed", overline: "Summary")
                 ForEach(Array(report.headlines.enumerated()), id: \.offset) { _, line in

@@ -413,12 +413,14 @@ struct LiquidTodayView: View {
             )
         }
         .buttonStyle(LiquidPressStyle())
-        .accessibilityLabel("Start a live session. Beta. Silent strap coaching against today's Charge.")
+        .accessibilityLabel("Start a live session. Beta. Silent strap coaching against today's Recovery.")
     }
 
     private var heroCard: some View {
         HStack(alignment: .top, spacing: 4) {
-            HeroScoreCell(label: "Charge", score: displayDay?.recovery, tint: StrandPalette.chargeColor,
+            HeroScoreCell(label: "Recovery", score: displayDay?.recovery,
+                          tint: displayDay?.recovery.map { RecoveryBands.color(for: $0) }
+                              ?? StrandPalette.recoveryData,
                           pill: "WHOOP", animated: dataLoaded, onGuide: { guideSection = .charge })
             HeroScoreCell(label: "Effort", score: displayDay?.strain, tint: StrandPalette.effortColor,
                           pill: nil, animated: dataLoaded, onGuide: { guideSection = .effort })
@@ -688,7 +690,10 @@ struct LiquidTodayView: View {
         return VStack(spacing: 8) {
             sectionHead("KEY METRICS", trailing: "14-day trend")
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
-                ktile("Recovery", intText(displayDay?.recovery), "%", StrandPalette.chargeColor, frac(displayDay?.recovery))
+                ktile("Recovery", intText(displayDay?.recovery), "%",
+                      displayDay?.recovery.map { RecoveryBands.color(for: $0) }
+                          ?? StrandPalette.recoveryData,
+                      frac(displayDay?.recovery))
                 ktile("Strain", intText(displayDay?.strain), "%", StrandPalette.effortColor, frac(displayDay?.strain))
                 ktile("Sleep", sleepText, "", StrandPalette.restColor, fracOver(displayDay?.totalSleepMin, 480))
                 ktile("HRV", intText(hrv), "ms", StrandPalette.metricCyan, fracOver(hrv, 120))
@@ -1270,7 +1275,7 @@ private struct LiquidBatteryButton: View {
         return live.charging == true ? base + ", charging" : base
     }
     private func ringColor(_ p: Double) -> Color {
-        p < 15 ? StrandPalette.statusCritical : p < 35 ? StrandPalette.statusWarning : StrandPalette.chargeColor
+        p < 15 ? StrandPalette.statusCritical : p < 35 ? StrandPalette.statusWarning : StrandPalette.success
     }
 }
 

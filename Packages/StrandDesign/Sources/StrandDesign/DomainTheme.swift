@@ -17,7 +17,7 @@ public enum DomainTheme: String, CaseIterable, Sendable {
     /// The dominant accent colour for the world.
     public var color: Color {
         switch self {
-        case .charge: return StrandPalette.chargeColor
+        case .charge: return StrandPalette.recoveryData
         case .effort: return StrandPalette.effortColor
         case .rest:   return StrandPalette.restColor
         case .stress: return StrandPalette.stressColor
@@ -37,7 +37,7 @@ public enum DomainTheme: String, CaseIterable, Sendable {
     /// The bright (high) end of the world's accent ramp.
     public var bright: Color {
         switch self {
-        case .charge: return StrandPalette.chargeBright
+        case .charge: return StrandPalette.recoveryData
         case .effort: return StrandPalette.effortBright
         case .rest:   return StrandPalette.restBright
         case .stress: return StrandPalette.stressBright
@@ -68,7 +68,8 @@ public enum DomainTheme: String, CaseIterable, Sendable {
     /// scale, Effort = strain ramp), used by sparklines and value-tinted strokes.
     public var dataGradient: Gradient {
         switch self {
-        case .charge, .rest, .stress: return StrandPalette.recoveryGradient
+        case .charge: return Gradient(colors: [StrandPalette.recoveryData.opacity(0.55), StrandPalette.recoveryData])
+        case .rest, .stress: return StrandPalette.recoveryGradient
         case .effort:                 return StrandPalette.strainGradient
         }
     }

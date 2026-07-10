@@ -290,7 +290,12 @@ struct TrendsView: View {
 
     private var paperScoreTiles: some View {
         HStack(alignment: .top, spacing: 8) {
-            paperScoreTile(.charge, accent: StrandPalette.chargeAccent)
+            paperScoreTile(
+                .charge,
+                accent: paperDigest.summary(.charge).flatMap { summary in
+                    summary.thisWeek.n > 0 ? RecoveryBands.color(for: summary.thisWeek.mean) : nil
+                } ?? StrandPalette.recoveryData
+            )
             paperScoreTile(.effort, accent: StrandPalette.effortAccent)
             paperScoreTile(.rest, accent: StrandPalette.restAccent)
         }
@@ -321,18 +326,18 @@ struct TrendsView: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Scores Over Time").strandOverline()
                 HStack(spacing: 12) {
-                    paperLegend("Charge", color: StrandPalette.chargeAccent)
+                    paperLegend("Recovery", color: StrandPalette.recoveryData)
                     paperLegend("Effort", color: StrandPalette.effortAccent)
                     paperLegend("Rest", color: StrandPalette.restAccent)
                 }
                 Chart {
                     ForEach(paperWeekDays, id: \.day) { day in
                         if let value = day.recovery, let date = date(day.day) {
-                            LineMark(x: .value("Day", date), y: .value("Charge", value))
+                            LineMark(x: .value("Day", date), y: .value("Recovery", value))
                                 .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-                                .foregroundStyle(by: .value("Series", "Charge"))
-                            PointMark(x: .value("Day", date), y: .value("Charge", value))
-                                .foregroundStyle(by: .value("Series", "Charge")).symbolSize(18)
+                                .foregroundStyle(by: .value("Series", "Recovery"))
+                            PointMark(x: .value("Day", date), y: .value("Recovery", value))
+                                .foregroundStyle(RecoveryBands.color(for: value)).symbolSize(18)
                         }
                         if let value = day.strain, let date = date(day.day) {
                             LineMark(x: .value("Day", date), y: .value("Effort", value))
@@ -350,8 +355,8 @@ struct TrendsView: View {
                         }
                     }
                 }
-                .chartForegroundStyleScale(domain: ["Charge", "Effort", "Rest"],
-                                           range: [StrandPalette.chargeAccent,
+                .chartForegroundStyleScale(domain: ["Recovery", "Effort", "Rest"],
+                                           range: [StrandPalette.recoveryData,
                                                    StrandPalette.effortAccent,
                                                    StrandPalette.restAccent])
                 .chartLegend(.hidden)
@@ -394,7 +399,7 @@ struct TrendsView: View {
                 Text("Week in Review").strandOverline()
                 ForEach(Array(paperReviewLines.enumerated()), id: \.offset) { index, line in
                     HStack(alignment: .top, spacing: 9) {
-                        Circle().fill([StrandPalette.chargeAccent, StrandPalette.restAccent,
+                        Circle().fill([StrandPalette.recoveryData, StrandPalette.restAccent,
                                        StrandPalette.stressAccent][index % 3])
                             .frame(width: 8, height: 8).padding(.top, 5)
                         Text(line).font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
@@ -530,12 +535,12 @@ struct TrendsView: View {
         let effortAvg = mean(effort.points)   // stored 0–100 internal Effort scale
         let restAvg = mean(rest.points)
         if chargeAvg != nil || effortAvg != nil || restAvg != nil {
-            NoopCard(tint: StrandPalette.chargeColor) {
+            NoopCard(tint: StrandPalette.recoveryData) {
                 VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
-                    SectionHeader("Week in review", overline: "Charge · Effort · Rest")
+                    SectionHeader("Week in review", overline: "Recovery · Effort · Rest")
                     if let v = chargeAvg {
-                        pipScoreRow(label: "Charge", value: v, range: 0...100,
-                                    tint: StrandPalette.chargeColor, frac: v / 100,
+                        pipScoreRow(label: "Recovery", value: v, range: 0...100,
+                                    tint: RecoveryBands.color(for: v), frac: v / 100,
                                     format: { "\(Int($0.rounded()))" })
                     }
                     if let v = effortAvg {
@@ -652,23 +657,24 @@ struct TrendsView: View {
         // Charge world — the WHOOP recovery value scale (red→yellow→green) drawn as a crisp flat line
         // with a bright "now" cap. No glow.
         let card = ChartCard(
-            title: "Charge",
+            title: "Recovery",
             // The range bar above already prints the authoritative reading-count caption;
             // the hero only names its window so the count isn't doubled in one card height.
             subtitle: rangeSubtitle,
             trailing: avg.map { "\(Int($0.rounded()))" },
             height: NoopMetrics.chartHeight,
-            tint: StrandPalette.chargeColor,
+            tint: avg.map { RecoveryBands.color(for: $0) } ?? StrandPalette.recoveryData,
             chart: {
                 if pts.count >= 2 {
                     glowChart(points: pts,
-                              gradient: StrandPalette.recoveryGradient,
+                              gradient: gradient(StrandPalette.recoveryData),
                               // Lift the ceiling ~6% so a near-100 peak and the now-cap halo
                               // clear the top gridline, matching the padded small multiples.
                               valueRange: 0...106,
-                              tip: StrandPalette.chargeBright,
+                              tip: pts.last.map { RecoveryBands.color(for: $0.value) }
+                                  ?? StrandPalette.recoveryData,
                               valueFormat: { "\(Int($0.rounded()))" },
-                              accessibilityLabel: String(localized: "Charge trend"))
+                              accessibilityLabel: String(localized: "Recovery trend"))
                 } else {
                     sparsePlaceholder
                 }
@@ -693,7 +699,7 @@ struct TrendsView: View {
         // with a hint that a tap opens the detail.
         NavigationLink { metricDetail("recovery") } label: { card }
             .buttonStyle(LiquidPressStyle())
-            .accessibilityHint(Text(String(localized: "Opens the full Charge metric.")))
+            .accessibilityHint(Text(String(localized: "Opens the full Recovery metric.")))
     }
 
     /// The per-metric detail page (chart + history) for a catalog key — the same tap-through target Today
@@ -728,7 +734,7 @@ struct TrendsView: View {
                     points: hrvPts,
                     gradient: gradient(StrandPalette.metricPurple),
                     tip: StrandPalette.metricPurple,
-                    tint: StrandPalette.chargeColor,
+                    tint: StrandPalette.recoveryData,
                     higherIsBetter: true,
                     range: valueRange(hrvPts, fallback: 20...120),
                     fmt: { "\(Int($0.rounded()))" }
@@ -740,7 +746,7 @@ struct TrendsView: View {
                     points: rhrPts,
                     gradient: gradient(StrandPalette.metricRose),
                     tip: StrandPalette.metricRose,
-                    tint: StrandPalette.chargeColor,
+                    tint: StrandPalette.recoveryData,
                     higherIsBetter: false,
                     range: valueRange(rhrPts, fallback: 40...80),
                     fmt: { "\(Int($0.rounded()))" }
@@ -827,8 +833,8 @@ struct TrendsView: View {
             guard let dt = date(d.day) else { return nil }
             return RecoveryDay(date: dt, score: d.recovery)
         }
-        let title = (range == .all && repo.days.count > 365) ? String(localized: "Charge (all history)") : String(localized: "Charge (past year)")
-        return NoopCard(tint: StrandPalette.chargeColor) {
+        let title = (range == .all && repo.days.count > 365) ? String(localized: "Recovery (all history)") : String(localized: "Recovery (past year)")
+        return NoopCard(tint: StrandPalette.recoveryData) {
             VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
                 SectionHeader("\(title)", overline: "Calendar", trailing: String(localized: "\(recoveryDays.filter { $0.score != nil }.count) days"))
                 if recoveryDays.isEmpty {
@@ -847,9 +853,13 @@ struct TrendsView: View {
     private var legend: some View {
         HStack(spacing: NoopMetrics.space2) {
             Text("Depleted").font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
-            LinearGradient(gradient: StrandPalette.recoveryGradient, startPoint: .leading, endPoint: .trailing)
-                .frame(width: 120, height: 8)
-                .clipShape(Capsule())
+            HStack(spacing: 2) {
+                Rectangle().fill(StrandPalette.recoveryLow)
+                Rectangle().fill(StrandPalette.recoveryMed)
+                Rectangle().fill(StrandPalette.recoveryHigh)
+            }
+            .frame(width: 120, height: 8)
+            .clipShape(Capsule())
             Text("Peaked").font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
             Spacer()
         }

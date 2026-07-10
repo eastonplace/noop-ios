@@ -49,240 +49,6 @@
         }
       }
     },
-    "Charge": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ladung"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Charge"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Carga"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Charge"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Carica"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Carga"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Заряд"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "能量"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "能量"
-          }
-        }
-      }
-    },
-    "Charge %lld out of 100": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Charge %lld out of 100"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Carga %lld de 100"
-          }
-        }
-      }
-    },
-    "Charge %lld · %lld bpm%@": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Charge %lld · %lld bpm%@"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Carga %lld · %lld bpm%@"
-          }
-        }
-      }
-    },
-    "Charge %lld%@": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Charge %lld%@"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Carga %lld%@"
-          }
-        }
-      }
-    },
-    "Charge calibrating": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Charge calibrating"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Carga a calibrar"
-          }
-        }
-      }
-    },
-    "Charge calibrating, needs more data": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Charge calibrating, needs more data"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Carga a calibrar, precisa de mais dados"
-          }
-        }
-      }
-    },
-    "Charge out of date, last synced %@. Open NOOP on iPhone.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Charge out of date, last synced %@. Open NOOP on iPhone."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Carga desatualizada, última sincronização %@. Abre o NOOP no iPhone."
-          }
-        }
-      }
-    },
-    "Charge stale · %@": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Charge stale · %@"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Carga desatualizada · %@"
-          }
-        }
-      }
-    },
-    "Charge unavailable": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Charge unavailable"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Carga indisponível"
-          }
-        }
-      }
-    },
-    "Charge · %@": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Charge · %@"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Carga · %@"
-          }
-        }
-      }
-    },
-    "Charge · cal": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Charge · cal"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Carga · cal"
-          }
-        }
-      }
-    },
-    "Charge –": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Charge –"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Carga –"
-          }
-        }
-      }
-    },
     "Effort": {
       "localizations": {
         "de": {
@@ -341,42 +107,42 @@
         }
       }
     },
-    "NOOP Charge": {
+    "NOOP Recovery": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "NOOP Charge"
+            "value": "NOOP Recovery"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Carga de NOOP"
+            "state": "needs_review",
+            "value": "Recuperación de NOOP"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Carica NOOP"
+            "state": "needs_review",
+            "value": "Recupero NOOP"
           }
         },
         "pt-PT": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Carga NOOP"
+            "value": "Recuperação NOOP"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "NOOP 能量"
+            "state": "needs_review",
+            "value": "NOOP 恢复"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "NOOP 能量"
+            "state": "needs_review",
+            "value": "NOOP 恢復"
           }
         }
       }
@@ -477,6 +243,240 @@
         }
       }
     },
+    "Recovery": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Erholung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recovery"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Recuperación"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Récupération"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Recupero"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Recuperação"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Восстановление"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "恢复"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "恢復"
+          }
+        }
+      }
+    },
+    "Recovery %lld out of 100": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recovery %lld out of 100"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Recuperação %lld de 100"
+          }
+        }
+      }
+    },
+    "Recovery %lld · %lld bpm%@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recovery %lld · %lld bpm%@"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Recuperação %lld · %lld bpm%@"
+          }
+        }
+      }
+    },
+    "Recovery %lld%@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recovery %lld%@"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Recuperação %lld%@"
+          }
+        }
+      }
+    },
+    "Recovery calibrating": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recovery calibrating"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Recuperação a calibrar"
+          }
+        }
+      }
+    },
+    "Recovery calibrating, needs more data": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recovery calibrating, needs more data"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Recuperação a calibrar, precisa de mais dados"
+          }
+        }
+      }
+    },
+    "Recovery out of date, last synced %@. Open NOOP on iPhone.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recovery out of date, last synced %@. Open NOOP on iPhone."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Recuperação desatualizada, última sincronização %@. Abre o NOOP no iPhone."
+          }
+        }
+      }
+    },
+    "Recovery stale · %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recovery stale · %@"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Recuperação desatualizada · %@"
+          }
+        }
+      }
+    },
+    "Recovery unavailable": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recovery unavailable"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Recuperação indisponível"
+          }
+        }
+      }
+    },
+    "Recovery · %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recovery · %@"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Recuperação · %@"
+          }
+        }
+      }
+    },
+    "Recovery · cal": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recovery · cal"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Recuperação · cal"
+          }
+        }
+      }
+    },
+    "Recovery –": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recovery –"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Recuperação –"
+          }
+        }
+      }
+    },
     "Rest": {
       "localizations": {
         "de": {
@@ -535,42 +535,42 @@
         }
       }
     },
-    "Your Charge (recovery) on the watch face, with Effort and Rest in the rectangular card.": {
+    "Your Recovery on the watch face, with Effort and Rest in the rectangular card.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your Charge (recovery) on the watch face, with Effort and Rest in the rectangular card."
+            "value": "Your Recovery on the watch face, with Effort and Rest in the rectangular card."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Tu Carga (recuperación) en la esfera del reloj, con Esfuerzo y Descanso en la tarjeta rectangular."
+            "state": "needs_review",
+            "value": "Tu Recuperación (recuperación) en la esfera del reloj, con Esfuerzo y Descanso en la tarjeta rectangular."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "La tua Carica (recupero) sul quadrante, con Sforzo e Riposo nella scheda rettangolare."
+            "state": "needs_review",
+            "value": "La tua Recupero (recupero) sul quadrante, con Sforzo e Riposo nella scheda rettangolare."
           }
         },
         "pt-PT": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "A tua Carga (recuperação) no mostrador, com Esforço e Descanso no cartão retangular."
+            "value": "A tua Recuperação (recuperação) no mostrador, com Esforço e Descanso no cartão retangular."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "表盘上显示你的能量（恢复），矩形卡片中显示消耗和休息。"
+            "state": "needs_review",
+            "value": "表盘上显示你的恢复（恢复），矩形卡片中显示消耗和休息。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "錶面上顯示你的能量（恢復），矩形卡片中則是消耗與休息。"
+            "state": "needs_review",
+            "value": "錶面上顯示你的恢復（恢復），矩形卡片中則是消耗與休息。"
           }
         }
       }

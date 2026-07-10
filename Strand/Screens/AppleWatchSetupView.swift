@@ -154,7 +154,7 @@ struct AppleWatchSetupView: View {
                             .foregroundStyle(StrandPalette.textPrimary)
                         Spacer(minLength: 0)
                     }
-                    Text("No chest strap? No problem. NOOP can run off only your Apple Watch. It reads your watch's data through Apple Health and works out your Charge, Rest, Effort and Fitness Age right here on your phone. Everything stays on the device.")
+                    Text("No chest strap? No problem. NOOP can run off only your Apple Watch. It reads your watch's data through Apple Health and works out your Recovery, Rest, Effort and Fitness Age right here on your phone. Everything stays on the device.")
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -197,7 +197,7 @@ struct AppleWatchSetupView: View {
                     .tracking(StrandFont.overlineTracking)
                     .foregroundStyle(StrandPalette.statusWarning)
                 bullet("heart.fill", String(localized: "Recovery takes about a week"),
-                       String(localized: "A watch samples your heart-rate variability rather than streaming it all night, so your Charge score needs roughly seven nights to calibrate. Until then NOOP shows \u{201C}needs more data\u{201D}, never a guessed number."))
+                       String(localized: "A watch samples your heart-rate variability rather than streaming it all night, so your Recovery score needs roughly seven nights to calibrate. Until then NOOP shows \u{201C}needs more data\u{201D}, never a guessed number."))
                 bullet("drop.degreesign", String(localized: "A couple of metrics depend on your model"),
                        String(localized: "Wrist temperature needs Series 8 or later, and the newest US units dropped the blood-oxygen sensor. Where a sensor isn't there, NOOP reads \u{201C}not available\u{201D} instead of zero."))
             }
@@ -294,7 +294,7 @@ struct AppleWatchSetupView: View {
                     }
 
                 case .authorized:
-                    Text("You're connected. NOOP is reading your Apple Watch data now. Your Charge score will spend its first week or so calibrating, then settle in.")
+                    Text("You're connected. NOOP is reading your Apple Watch data now. Your Recovery score will spend its first week or so calibrating, then settle in.")
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)

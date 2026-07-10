@@ -142,7 +142,7 @@ private struct SyncStatusSection: View {
             SectionHeader("Sync", overline: "Strap history",
                           trailing: live.connected ? (live.bonded ? String(localized: "Connected") : String(localized: "Pairing…")) : String(localized: "Offline"))
 
-            NoopCard(tint: StrandPalette.chargeColor) {
+            NoopCard(tint: StrandPalette.success) {
                 VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
                     statusRow
 
@@ -501,7 +501,7 @@ private struct RecoveryContributorsSection: View {
                     ScoreStatePill(.calibrating, text: "Calibrating (\(priorCount) of \(Baselines.minNightsSeed))")
                 }
             }
-            NoopCard(tint: StrandPalette.chargeColor) {
+            NoopCard(tint: StrandPalette.recoveryData) {
                 VStack(alignment: .leading, spacing: NoopMetrics.space4) {
                     ForEach(Array(contributors.enumerated()), id: \.offset) { idx, c in
                         ContributorBar(label: c.label, strength: ready ? c.strength : nil,
@@ -539,7 +539,7 @@ private struct RecoveryContributorsSection: View {
                 strength: lowerIsBetter(latest?.restingHr.map(Double.init), base: rhrBase),
                 word: word(lowerIsBetter(latest?.restingHr.map(Double.init), base: rhrBase)),
                 detail: latest?.restingHr.map { "\($0) bpm" } ?? "—",
-                tint: StrandPalette.chargeColor),       // recovery contributor = WHOOP green
+                tint: StrandPalette.recoveryData),
             Contributor(
                 label: "Sleep",
                 strength: higherIsBetter(latest?.totalSleepMin, base: sleepBase),

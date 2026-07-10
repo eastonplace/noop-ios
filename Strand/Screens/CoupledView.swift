@@ -153,7 +153,9 @@ struct CoupledView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     ZStack {
                         LiquidVessel(value: recovery.map { max(0, min(1, $0 / 100)) },
-                                     tint: StrandPalette.chargeColor, animated: recovery != nil)
+                                     tint: recovery.map { RecoveryBands.color(for: $0) }
+                                         ?? StrandPalette.recoveryData,
+                                     animated: recovery != nil)
                             // A carried (not-yet-rescored) morning reads dimmed, the Today #802 idiom.
                             .opacity(isCarryingRecovery ? 0.85 : 1)
                             .frame(width: 200, height: 200)
@@ -173,7 +175,7 @@ struct CoupledView: View {
         .buttonStyle(LiquidPressStyle())
         .accessibilityElement(children: .combine)
         .accessibilityLabel(heroAccessibilityLabel)
-        .accessibilityHint("See what shaped your Charge")
+        .accessibilityHint("See what shaped your Recovery")
     }
 
     /// The centre stack over the vessel: the recovery % counting up in white over the fluid, a RECOVERY
@@ -181,7 +183,7 @@ struct CoupledView: View {
     /// #205 read).
     @ViewBuilder
     private var heroCentre: some View {
-        let sampled = recovery.map { StrandPalette.recoveryColor($0) } ?? StrandPalette.textTertiary
+        let sampled = recovery.map { RecoveryBands.color(for: $0) } ?? StrandPalette.textTertiary
         VStack(spacing: 4) {
             if let r = recovery {
                 CountUpText(value: r,
@@ -320,9 +322,9 @@ struct CoupledView: View {
                 .foregroundStyle(StrandPalette.textSecondary)
             Text(Self.optimalStrainRangeText(recovery: recovery))
                 .font(StrandFont.number(20))
-                .foregroundStyle(StrandPalette.chargeColor)
+                .foregroundStyle(StrandPalette.recoveryData)
                 .lineLimit(1).minimumScaleFactor(0.6)
-            LiquidTube(frac: optimalUpperFraction, tint: StrandPalette.chargeColor, height: 8, animated: false)
+            LiquidTube(frac: optimalUpperFraction, tint: StrandPalette.recoveryData, height: 8, animated: false)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -469,7 +471,7 @@ struct CoupledView: View {
     //
     // The same "What shaped it" content the Today Charge ring opens: the shared ChargeBreakdownSection over
     // drivers DERIVED from the displayed row (never a second store scan), the honest calibrating countdown
-    // while the baseline seeds, and the "How Charge is calculated" method link. TodayView's own sheet is
+    // while the baseline seeds, and the "How Recovery is calculated" method link. TodayView's own sheet is
     // view-private, so this hosts the SAME shared components with the same derivations, no engine work.
 
     /// The row the breakdown reads, mirroring the hero: today's own when scored, else the carried
@@ -509,9 +511,9 @@ struct CoupledView: View {
                         if let banked = calibrationNights {
                             calibrationCard(banked: banked)
                         } else {
-                            NoopCard(padding: 18, tint: StrandPalette.chargeColor) {
+                            NoopCard(padding: 18, tint: StrandPalette.recoveryData) {
                                 VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-                                    Text("No Charge breakdown yet")
+                                    Text("No Recovery breakdown yet")
                                         .font(StrandFont.headline)
                                         .foregroundStyle(StrandPalette.textPrimary)
                                     Text("Wear the strap overnight to score a night first.")
@@ -523,7 +525,7 @@ struct CoupledView: View {
                         }
                     } else {
                         let hrvBase = Baselines.foldHistory(repo.days.map(\.avgHrv), cfg: Baselines.hrvCfg)
-                        NoopCard(padding: 18, tint: StrandPalette.chargeColor) {
+                        NoopCard(padding: 18, tint: StrandPalette.recoveryData) {
                             ChargeBreakdownSection(
                                 drivers: drivers,
                                 confidence: ScoreConfidence.charge(recovery: breakdownRow?.recovery,
@@ -540,9 +542,9 @@ struct CoupledView: View {
                         HStack(spacing: 10) {
                             Image(systemName: "function")
                                 .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(StrandPalette.chargeColor)
+                                .foregroundStyle(StrandPalette.recoveryData)
                             VStack(alignment: .leading, spacing: 1) {
-                                Text("How Charge is calculated")
+                                Text("How Recovery is calculated")
                                     .font(StrandFont.subhead).foregroundStyle(StrandPalette.textPrimary)
                                 Text("The method behind the score, not today's values.")
                                     .font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
@@ -557,13 +559,13 @@ struct CoupledView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("How Charge is calculated. The method behind the score.")
+                    .accessibilityLabel("How Recovery is calculated. The method behind the score.")
                 }
                 .padding(NoopMetrics.screenPadding)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .background(StrandPalette.surfaceBase.ignoresSafeArea())
-            .navigationTitle("What shaped your Charge")
+            .navigationTitle("What shaped your Recovery")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -588,13 +590,13 @@ struct CoupledView: View {
     private func calibrationCard(banked: Int) -> some View {
         let remaining = max(1, Baselines.minNightsSeed - banked)
         let countdown = ChargeBreakdownFormat.calibrationCountdown(nightsRemaining: remaining)
-        let unlock = ChargeBreakdownFormat.calibrationUnlockCopy(scoreName: String(localized: "Charge"))
+        let unlock = ChargeBreakdownFormat.calibrationUnlockCopy(scoreName: String(localized: "Recovery"))
         let progress = ChargeBreakdownFormat.calibrationProgress(banked: banked, seed: Baselines.minNightsSeed)
-        return NoopCard(padding: 14, tint: StrandPalette.chargeColor) {
+        return NoopCard(padding: 14, tint: StrandPalette.recoveryData) {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: "gauge.with.dots.needle.bottom.50percent")
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(StrandPalette.chargeColor)
+                    .foregroundStyle(StrandPalette.recoveryData)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -615,7 +617,7 @@ struct CoupledView: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Charge baseline calibrating. \(countdown), \(unlock). \(progress).")
+        .accessibilityLabel("Recovery baseline calibrating. \(countdown), \(unlock). \(progress).")
     }
 
     // MARK: Shared helpers
@@ -702,7 +704,7 @@ struct PaperPillarDetailView: View {
 
     private var accent: Color {
         switch kind {
-        case .charge: return StrandPalette.chargeAccent
+        case .charge: return latest.map { RecoveryBands.color(for: $0) } ?? StrandPalette.recoveryData
         case .effort: return StrandPalette.effortAccent
         case .rest: return StrandPalette.restAccent
         case .stress: return StrandPalette.stressAccent
@@ -809,7 +811,7 @@ struct PaperPillarDetailView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(heroTitle)
                             .font(StrandFont.cardTitle)
-                            .foregroundStyle(StrandPalette.textPrimary)
+                            .foregroundStyle(kind == .charge ? accent : StrandPalette.textPrimary)
                         Text(heroCaption)
                             .font(StrandFont.body)
                             .foregroundStyle(StrandPalette.textSecondary)
@@ -851,13 +853,18 @@ struct PaperPillarDetailView: View {
                     ForEach(Array(rows.suffix(14).enumerated()), id: \.offset) { _, item in
                         if let date = Self.dayFormatter.date(from: item.day) {
                             LineMark(x: .value("Day", date), y: .value("Score", item.value))
-                                .foregroundStyle(accent)
+                                .foregroundStyle(kind == .charge ? StrandPalette.recoveryData : accent)
                                 .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                            if kind == .charge {
+                                PointMark(x: .value("Day", date), y: .value("Score", item.value))
+                                    .foregroundStyle(RecoveryBands.color(for: item.value))
+                                    .symbolSize(24)
+                            }
                         }
                     }
                     if let sevenDayAverage {
                         RuleMark(y: .value("7D Average", sevenDayAverage))
-                            .foregroundStyle(accent.opacity(0.55))
+                            .foregroundStyle((kind == .charge ? StrandPalette.recoveryData : accent).opacity(0.55))
                             .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [3, 4]))
                     }
                 }
@@ -894,20 +901,20 @@ struct PaperPillarDetailView: View {
                     .padding(.bottom, 8)
                 factorRow(icon: "waveform.path.ecg", name: "HRV",
                           value: latestDay?.avgHrv.map { "\(Int($0.rounded())) ms" } ?? "—",
-                          status: "Good", statusColor: StrandPalette.chargeAccent)
+                          status: "Good", statusColor: StrandPalette.recoveryData)
                 factorRow(icon: "heart.fill", name: "RHR",
                           value: latestDay?.restingHr.map { "\($0) bpm" } ?? "—",
-                          status: "Good", statusColor: StrandPalette.chargeAccent)
+                          status: "Good", statusColor: StrandPalette.recoveryData)
                 factorRow(icon: "moon.fill", name: "Rest",
                           value: latestDay.flatMap { AnalyticsEngine.Rest.composite(daily: $0) }
                             .map { "\(Int($0.rounded()))%" } ?? "—",
-                          status: "Good", statusColor: StrandPalette.chargeAccent)
+                          status: "Good", statusColor: StrandPalette.recoveryData)
                 factorRow(icon: "lungs.fill", name: "Resp. Rate",
                           value: latestDay?.respRateBpm.map { String(format: "%.1f rpm", $0) } ?? "—",
-                          status: "Good", statusColor: StrandPalette.chargeAccent)
+                          status: "Good", statusColor: StrandPalette.recoveryData)
                 factorRow(icon: "thermometer.medium", name: "Skin Temp",
                           value: latestDay?.skinTempDevC.map { String(format: "%+.1f °C", $0) } ?? "—",
-                          status: "Good", statusColor: StrandPalette.chargeAccent, divider: false)
+                          status: "Good", statusColor: StrandPalette.recoveryData, divider: false)
             }
         }
     }
@@ -921,14 +928,14 @@ struct PaperPillarDetailView: View {
                 HStack(spacing: 12) {
                     Image(systemName: "leaf.fill")
                         .font(.system(size: 19, weight: .semibold))
-                        .foregroundStyle(StrandPalette.chargeAccent)
+                        .foregroundStyle(StrandPalette.recoveryData)
                         .frame(width: 38, height: 38)
-                        .background(StrandPalette.chargeTint, in: Circle())
+                        .background(StrandPalette.recoveryData.opacity(0.12), in: Circle())
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("CHARGE RECOMMENDATION")
+                        Text("RECOVERY RECOMMENDATION")
                             .font(StrandFont.sectionOverline)
                             .tracking(StrandFont.sectionOverlineTracking)
-                        Text("Keep prioritizing recovery. Great sleep and low stress will build Charge.")
+                        Text("Keep prioritizing recovery. Great sleep and low stress will build Recovery.")
                             .font(StrandFont.body)
                             .foregroundStyle(StrandPalette.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -1227,14 +1234,16 @@ struct PaperPillarDetailView: View {
 
     private func legendLine(dashed: Bool, label: String) -> some View {
         HStack(spacing: 6) {
-            Capsule().fill(accent.opacity(dashed ? 0.55 : 1)).frame(width: 20, height: dashed ? 1 : 2)
+            Capsule()
+                .fill((kind == .charge ? StrandPalette.recoveryData : accent).opacity(dashed ? 0.55 : 1))
+                .frame(width: 20, height: dashed ? 1 : 2)
             Text(label).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
         }
     }
 
     private var detailTitle: String {
         switch kind {
-        case .charge: return String(localized: "Charge")
+        case .charge: return String(localized: "Recovery")
         case .effort: return String(localized: "Effort")
         case .rest: return String(localized: "Rest")
         case .stress: return String(localized: "Stress")
@@ -1247,7 +1256,9 @@ struct PaperPillarDetailView: View {
 
     private var heroTitle: String {
         switch kind {
-        case .charge: return String(localized: "Building Charge")
+        case .charge:
+            guard let latest else { return String(localized: "Calibrating") }
+            return RecoveryBands.band(for: latest).rawValue.capitalized
         case .effort:
             guard let latest else { return String(localized: "Calibrating") }
             let band = StrainScale.band(StrainScale.displayValue(fromStored: latest)).title

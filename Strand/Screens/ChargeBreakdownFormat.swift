@@ -116,7 +116,7 @@ enum ChargeBreakdownFormat {
     }
 
     /// The supporting line under the countdown, naming the score whose baseline is unlocking. Pure.
-    /// `scoreName` is the user-facing score word (e.g. "Charge"); kept a parameter so the same copy
+    /// `scoreName` is the user-facing score word (e.g. "Recovery"); kept a parameter so the same copy
     /// serves any baseline-building score honestly without hard-coding one.
     static func calibrationUnlockCopy(scoreName: String) -> String {
         String(localized: "more overnight wear to unlock your \(scoreName) baseline")
@@ -317,7 +317,7 @@ struct SkinTempDeviationRow: View {
 }
 
 #if DEBUG
-#Preview("Charge breakdown") {
+#Preview("Recovery breakdown") {
     ScrollView {
         VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
             HStack(spacing: 10) {
@@ -325,7 +325,7 @@ struct SkinTempDeviationRow: View {
                 ConfidenceTierChip(confidence: .building)
                 ConfidenceTierChip(confidence: .solid)
             }
-            NoopCard(padding: 18, tint: StrandPalette.chargeColor) {
+            NoopCard(padding: 18, tint: StrandPalette.recoveryData) {
                 ChargeBreakdownSection(
                     drivers: [
                         ChargeDriver(label: "Heart rate variability", deltaPoints: 7,
@@ -357,7 +357,7 @@ struct ChargeBreakdownDemoHost: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: NoopMetrics.gap) {
-                    NoopCard(padding: 18, tint: StrandPalette.chargeColor) {
+                    NoopCard(padding: 18, tint: StrandPalette.recoveryData) {
                         ChargeBreakdownSection(
                             drivers: [
                                 ChargeDriver(label: "Heart rate variability", deltaPoints: 9,
@@ -383,7 +383,7 @@ struct ChargeBreakdownDemoHost: View {
                 .padding(NoopMetrics.screenPadding)
             }
             .background(StrandPalette.surfaceBase)
-            .navigationTitle("What shaped your Charge")
+            .navigationTitle("What shaped your Recovery")
         }
         .preferredColorScheme(.dark)
     }

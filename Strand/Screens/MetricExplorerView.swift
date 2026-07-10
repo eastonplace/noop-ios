@@ -42,7 +42,9 @@ private func longDate(_ d: Date) -> String {
 /// The category accent (colour communicates category only — never decoration).
 private func metricAccent(_ m: MetricDescriptor) -> Color {
     switch m.key {
-    case "recovery", "sleep_performance", "hours_vs_needed_pct", "sleep_consistency",
+    case "recovery":
+        return StrandPalette.recoveryData
+    case "sleep_performance", "hours_vs_needed_pct", "sleep_consistency",
          "restorative_pct", "restorative_min", "sleep_efficiency", "sleep_total_min",
          "sleep_deep_min", "sleep_rem_min":
         return StrandPalette.accent
@@ -69,7 +71,9 @@ private func metricAccent(_ m: MetricDescriptor) -> Color {
 /// everything else uses a flat tint of its category accent.
 private func metricGradient(_ m: MetricDescriptor) -> Gradient {
     if m.category == "Effort" { return StrandPalette.strainGradient }
-    if m.key == "recovery" { return StrandPalette.recoveryGradient }
+    if m.key == "recovery" {
+        return Gradient(colors: [StrandPalette.recoveryData.opacity(0.55), StrandPalette.recoveryData])
+    }
     let c = metricAccent(m)
     return Gradient(colors: [c.opacity(0.55), c])
 }
@@ -618,6 +622,9 @@ struct MetricDetailView: View {
             return String(localized: "as of \(longDate(d))")
         }()
         let fraction = value.flatMap { metricGaugeFraction(metric, value: $0) }
+        let heroAccent = metric.key == "recovery"
+            ? value.map { RecoveryBands.color(for: $0) } ?? StrandPalette.recoveryData
+            : domain.bright
 
         // Gap fix (2026-07-02): draw the starfield as the content's BACKGROUND, not as a
         // stretching ZStack sibling — an unconstrained ScenicHeroBackground inside a ScrollView filled
@@ -651,7 +658,7 @@ struct MetricDetailView: View {
                             ZStack {
                                 // The big hero vessel stays live (animated) — the one sloshing gauge on the
                                 // screen, exactly like the hero gauges on Today.
-                                LiquidVessel(value: heroAnimatedFraction, tint: domain.bright, animated: true)
+                                LiquidVessel(value: heroAnimatedFraction, tint: heroAccent, animated: true)
                                     .frame(width: 188, height: 188)
                                     .accessibilityHidden(true)
                                 VStack(spacing: 2) {
@@ -792,7 +799,7 @@ struct MetricDetailView: View {
             title: "\(metric.title)",
             subtitle: subtitle,
             trailing: "\(heroValue) · \(asOf)",
-            tint: metricDomain(metric).color
+            tint: metric.key == "recovery" ? StrandPalette.recoveryData : metricDomain(metric).color
         ) {
             TrendChart(
                 points: trendPoints(windowed),

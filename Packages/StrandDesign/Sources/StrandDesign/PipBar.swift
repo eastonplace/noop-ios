@@ -253,7 +253,7 @@ public struct PipBarRow: View {
             Text("In a card").strandOverline().padding(.top, 8)
             StrandCard(tint: StrandPalette.chargeColor) {
                 VStack(alignment: .leading, spacing: 18) {
-                    PipBarRow(label: "Charge", value: 74, tint: StrandPalette.chargeColor,
+                    PipBarRow(label: "Recovery", value: 74, tint: StrandPalette.chargeColor,
                               valueText: "74", unit: "%")
                     PipBarRow(label: "Effort", value: 9.0, range: 0...21, tint: StrandPalette.effortColor,
                               valueText: "9.0")

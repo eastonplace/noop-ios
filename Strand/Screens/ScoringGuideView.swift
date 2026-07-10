@@ -28,7 +28,7 @@ enum ScoreSection: String, CaseIterable, Identifiable {
     /// Effort = effortColor blue accent, Rest = restColor slate (Design Reset, 2026-06-23).
     var accent: Color {
         switch self {
-        case .charge: return StrandPalette.chargeColor     // Charge hero ring — green
+        case .charge: return StrandPalette.recoveryData
         case .effort: return StrandPalette.effortColor     // Effort hero ring — blue accent
         case .rest:   return StrandPalette.restColor       // Rest hero ring — slate
         }
@@ -61,7 +61,7 @@ enum ScoreSection: String, CaseIterable, Identifiable {
     /// Localized display name for the section (the raw value stays the stable anchor id).
     var displayName: String {
         switch self {
-        case .charge: return String(localized: "Charge")
+        case .charge: return String(localized: "Recovery")
         case .effort: return String(localized: "Effort")
         case .rest:   return String(localized: "Rest")
         }
@@ -89,8 +89,8 @@ struct ScoringGuideView: View {
                     VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
                         introCard
                         scoreCard(.charge,
-                                  headline: String(localized: "Charge: how recovered are you?"),
-                                  body: String(localized: "Led by your heart-rate variability (HRV) measured against your own personal baseline, plus resting heart rate, last night's Rest, breathing rate, and a skin-temperature signal (an early illness or overreach flag). Higher HRV versus your baseline means more Charge. NOOP needs a few nights to learn your baseline first. Until then you'll see “Calibrating”."),
+                                  headline: String(localized: "Recovery: how recovered are you?"),
+                                  body: String(localized: "Led by your heart-rate variability (HRV) measured against your own personal baseline, plus resting heart rate, last night's Rest, breathing rate, and a skin-temperature signal (an early illness or overreach flag). Higher HRV versus your baseline means higher Recovery. NOOP needs a few nights to learn your baseline first. Until then you'll see “Calibrating”."),
                                   vsWhoop: String(localized: "Same core idea as WHOOP's Recovery % (HRV-led recovery), but our weighting and baseline maths are our own, and openly documented."))
                         scoreCard(.effort,
                                   headline: String(localized: "Effort: how hard did your heart work?"),
@@ -132,7 +132,7 @@ struct ScoringGuideView: View {
                     .foregroundStyle(StrandPalette.textTertiary)
                 Text("How your scores work").font(StrandFont.rounded(26, weight: .bold))
                     .foregroundStyle(StrandPalette.textPrimary)
-                Text("Charge · Effort · Rest").font(StrandFont.caption)
+                Text("Recovery · Effort · Rest").font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textSecondary)
             }
             Spacer()
@@ -168,13 +168,13 @@ struct ScoringGuideView: View {
                 Text("THE THREE SCORES").font(StrandFont.overline)
                     .tracking(StrandFont.overlineTracking)
                     .foregroundStyle(StrandPalette.textSecondary)
-                Text("NOOP gives you three daily scores (Charge, Effort and Rest), each on a 0-100 scale. They're built from your strap's raw signals using published, peer-reviewed sport science, and computed entirely on your device. They are NOT WHOOP's scores: we don't have WHOOP's private algorithms and don't pretend to. They aim at the same three questions using open science, so they'll usually track WHOOP's in direction, but won't match number-for-number. And that's the point.")
+                Text("NOOP gives you three daily scores (Recovery, Effort and Rest), each computed entirely on your device from your strap's raw signals using published sport science. They are not WHOOP's private scores and will not match number-for-number; they answer the same daily questions with transparent local methods.")
                     .font(StrandFont.subhead)
                     .foregroundStyle(StrandPalette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                 // The three accents as a quick legend, echoing the section colours below.
                 HStack(spacing: 16) {
-                    legendDot(.charge, String(localized: "Charge"))
+                    legendDot(.charge, String(localized: "Recovery"))
                     legendDot(.effort, String(localized: "Effort"))
                     legendDot(.rest, String(localized: "Rest"))
                 }

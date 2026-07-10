@@ -1163,7 +1163,8 @@ struct TodayView: View {
         return PaperCard {
             VStack(spacing: 14) {
                 HStack(alignment: .top, spacing: 8) {
-                    paperPillar("Charge", value: charge, accent: StrandPalette.chargeAccent,
+                    paperPillar("Recovery", value: charge,
+                                accent: charge.map { RecoveryBands.color(for: $0) } ?? StrandPalette.recoveryData,
                                 state: paperScoreState(charge, kind: .charge)) { paperPillarDetail = .charge }
                     paperPillar("Effort", value: effort, accent: StrandPalette.effortAccent,
                                 state: paperScoreState(effort, kind: .effort)) { paperPillarDetail = .effort }
@@ -1212,7 +1213,11 @@ struct TodayView: View {
                     }
                     .frame(width: 64, height: 64)
                 }
-                Text(label).font(StrandFont.caption.weight(.semibold)).foregroundStyle(StrandPalette.textPrimary)
+                Text(label)
+                    .font(StrandFont.caption.weight(.semibold))
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
                 Text(state).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary).lineLimit(1)
             }
             .frame(maxWidth: .infinity)
@@ -1273,7 +1278,7 @@ struct TodayView: View {
                     Spacer(minLength: 8)
                     if values.count > 1 {
                         Sparkline(values: values,
-                                  gradient: Gradient(colors: [StrandPalette.chargeAccent, StrandPalette.chargeAccent]),
+                                  gradient: Gradient(colors: [StrandPalette.liveRed, StrandPalette.liveRed]),
                                   range: 40...120, lineWidth: 2, showsArea: false,
                                   showsHead: false, showsHover: false)
                             .frame(width: 130, height: 42)
@@ -1343,13 +1348,13 @@ struct TodayView: View {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
                         MetricTile(icon: "waveform.path.ecg", label: "HRV",
                                    value: day?.avgHrv.map { "\(Int($0.rounded()))" } ?? "—", unit: "ms",
-                                   spark: sparks["hrv"], accent: StrandPalette.chargeAccent)
+                                   spark: sparks["hrv"], accent: StrandPalette.recoveryData)
                         MetricTile(icon: "heart", label: "RHR",
                                    value: day?.restingHr.map(String.init) ?? "—", unit: "bpm",
                                    spark: sparks["rhr"], accent: StrandPalette.liveRed)
                         MetricTile(icon: "lungs.fill", label: "Resp. rate",
                                    value: respiratory.map { String(format: "%.1f", $0) } ?? "—", unit: "rpm",
-                                   spark: sparks["resp_rate"], accent: StrandPalette.chargeAccent)
+                                   spark: sparks["resp_rate"], accent: StrandPalette.recoveryData)
                         MetricTile(icon: "drop.fill", label: "SpO₂",
                                    value: day?.spo2Pct.map { String(format: "%.0f", $0) } ?? "—", unit: "%",
                                    spark: sparks["spo2"], accent: StrandPalette.link)
@@ -1568,7 +1573,7 @@ struct TodayView: View {
                     Text("New here?")
                         .font(StrandFont.headline)
                         .foregroundStyle(StrandPalette.textPrimary)
-                    Text("See how Charge, Effort and Rest are calculated, and how they differ from WHOOP.")
+                    Text("See how Recovery, Effort and Rest are calculated, and how they differ from WHOOP.")
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -1590,7 +1595,7 @@ struct TodayView: View {
                         dismissTodayCard(
                             id: "newHere",
                             title: String(localized: "New here?"),
-                            message: String(localized: "How Charge, Effort and Rest are calculated, and how they differ from WHOOP.")
+                            message: String(localized: "How Recovery, Effort and Rest are calculated, and how they differ from WHOOP.")
                         )
                     }
                 } label: {
@@ -1802,7 +1807,7 @@ struct TodayView: View {
             }
 
             // A4 , while the Charge baseline is still building, a clear "N nights to go" countdown +
-            // "more overnight wear to unlock your Charge baseline" sits under the rings, in place of an
+            // "more overnight wear to unlock your Recovery baseline" sits under the rings, in place of an
             // empty/zero Charge. Uses the EXISTING calibrating-nights value (no recompute) and only on
             // TODAY (a past day with no Charge is missing data, not mid-calibration).
             // #827: this repeats nightly through the calibration window, so it's dismissible into the inbox
@@ -1815,7 +1820,7 @@ struct TodayView: View {
                             dismissTodayCard(
                                 id: "calibratingBaseline",
                                 title: String(localized: "Building your baseline"),
-                                message: String(localized: "Charge, Effort and Rest become personal after a few nights of wear.")
+                                message: String(localized: "Recovery, Effort and Rest become personal after a few nights of wear.")
                             )
                         }
                     }
@@ -1832,13 +1837,13 @@ struct TodayView: View {
     private func chargeCalibrationCountdown(banked: Int) -> some View {
         let remaining = max(1, Baselines.minNightsSeed - banked)
         let countdown = ChargeBreakdownFormat.calibrationCountdown(nightsRemaining: remaining)
-        let unlock = ChargeBreakdownFormat.calibrationUnlockCopy(scoreName: String(localized: "Charge"))
+        let unlock = ChargeBreakdownFormat.calibrationUnlockCopy(scoreName: String(localized: "Recovery"))
         let progress = ChargeBreakdownFormat.calibrationProgress(banked: banked, seed: Baselines.minNightsSeed)
-        NoopCard(padding: 14, tint: StrandPalette.chargeColor) {
+        NoopCard(padding: 14, tint: StrandPalette.recoveryData) {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: "gauge.with.dots.needle.bottom.50percent")
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(StrandPalette.chargeColor)
+                    .foregroundStyle(StrandPalette.recoveryData)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -1859,7 +1864,7 @@ struct TodayView: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Charge baseline calibrating. \(countdown), \(unlock). \(progress).")
+        .accessibilityLabel("Recovery baseline calibrating. \(countdown), \(unlock). \(progress).")
     }
 
     // MARK: A1/S4 Charge breakdown sheet (the Charge-ring tap target)
@@ -1884,7 +1889,7 @@ struct TodayView: View {
                             chargeBreakdownEmptyNote
                         }
                     } else {
-                        NoopCard(padding: 18, tint: StrandPalette.chargeColor) {
+                        NoopCard(padding: 18, tint: StrandPalette.recoveryData) {
                             ChargeBreakdownSection(drivers: drivers,
                                                    confidence: chargeBreakdownConfidence,
                                                    skinTempRel: chargeSkinTempRel)
@@ -1903,9 +1908,9 @@ struct TodayView: View {
                         HStack(spacing: 10) {
                             Image(systemName: "function")
                                 .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(StrandPalette.chargeColor)
+                                .foregroundStyle(StrandPalette.recoveryData)
                             VStack(alignment: .leading, spacing: 1) {
-                                Text("How Charge is calculated")
+                                Text("How Recovery is calculated")
                                     .font(StrandFont.subhead).foregroundStyle(StrandPalette.textPrimary)
                                 Text("The method behind the score, not today's values.")
                                     .font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
@@ -1920,13 +1925,13 @@ struct TodayView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("How Charge is calculated. The method behind the score.")
+                    .accessibilityLabel("How Recovery is calculated. The method behind the score.")
                 }
                 .padding(NoopMetrics.screenPadding)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .background(StrandPalette.surfaceBase.ignoresSafeArea())
-            .navigationTitle("What shaped your Charge")
+            .navigationTitle("What shaped your Recovery")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -1949,9 +1954,9 @@ struct TodayView: View {
     /// The honest fallback when the Charge ring is tapped but there is no value AND no running calibration
     /// (a navigated past day with no score, or a fresh strap with nothing banked), never a blank sheet.
     private var chargeBreakdownEmptyNote: some View {
-        NoopCard(padding: 18, tint: StrandPalette.chargeColor) {
+        NoopCard(padding: 18, tint: StrandPalette.recoveryData) {
             VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-                Text("No Charge breakdown yet")
+                Text("No Recovery breakdown yet")
                     .font(StrandFont.headline)
                     .foregroundStyle(StrandPalette.textPrimary)
                 Text(Self.needsStrapCaption)
@@ -2058,7 +2063,7 @@ struct TodayView: View {
                     status: status,
                     detail: detail,
                     statusColor: StrandPalette.textPrimary,
-                    tint: StrandPalette.chargeColor
+                    tint: synthesisCardColor(score: score)
                 )
                 .contentShape(Rectangle())
             }
@@ -2070,7 +2075,7 @@ struct TodayView: View {
             Button {
                 withAnimation(StrandMotion.interactive) { synthesisExpanded = true }
             } label: {
-                NoopCard(tint: StrandPalette.chargeColor) {
+                NoopCard(tint: synthesisCardColor(score: score)) {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Synthesis").strandOverline()
@@ -2202,7 +2207,7 @@ struct TodayView: View {
     private func dashboardTint(_ card: DashboardCard) -> Color {
         switch card {
         case .stress:      return StrandPalette.effortColor
-        case .fitnessAge:  return StrandPalette.chargeColor
+        case .fitnessAge:  return StrandPalette.recoveryData
         case .vitality:    return StrandPalette.restColor
         case .hrv:         return StrandPalette.metricPurple
         case .restingHr:   return StrandPalette.metricRose
@@ -2213,7 +2218,7 @@ struct TodayView: View {
         case .steps:       return StrandPalette.metricCyan
         case .calories:    return StrandPalette.metricAmber
         case .hydration:   return StrandPalette.metricCyan
-        case .coupled:     return StrandPalette.chargeColor
+        case .coupled:     return StrandPalette.recoveryData
         }
     }
 
@@ -2427,7 +2432,7 @@ struct TodayView: View {
         let carriedFromRhr = d?.restingHr == nil && vd?.restingHr != nil
         let carriedFromResp = d?.respRateBpm == nil && vd?.respRateBpm != nil
         let provenance: DailyMetric? = (carriedFromHrv || carriedFromRhr || carriedFromResp) ? vd : nil
-        NoopCard(tint: StrandPalette.chargeColor) {
+        NoopCard(tint: StrandPalette.recoveryData) {
             VStack(spacing: 0) {
                 // DEBUG promo harness: pin HRV / Resting HR to the active frame's values. No-op otherwise.
                 #if DEBUG
@@ -2531,9 +2536,9 @@ struct TodayView: View {
     /// The Synthesis status colour, keyed on the carried prior recovery when carrying, else today's.
     private func synthesisCardColor(score: Double?) -> Color {
         if let rec = lastScoredRecoveryDay?.recovery {
-            return StrandPalette.recoveryColor(rec)
+            return RecoveryBands.color(for: rec)
         }
-        return score.map { StrandPalette.recoveryColor($0) } ?? StrandPalette.textTertiary
+        return score.map { RecoveryBands.color(for: $0) } ?? StrandPalette.textTertiary
     }
 
     /// Screen-4 insight headline, when the HRV baseline is established, the gold "primed" read
@@ -2666,7 +2671,7 @@ struct TodayView: View {
     /// Kotlin (the Android hero already reads its label from a localized resource, not the enum name).
     private static func domainLabel(_ domain: DomainTheme) -> LocalizedStringKey {
         switch domain {
-        case .charge: return "Charge"
+        case .charge: return "Recovery"
         case .effort: return "Effort"
         case .rest:   return "Rest"
         case .stress: return "Stress"
@@ -2677,7 +2682,7 @@ struct TodayView: View {
     /// interpolated from a localized literal (so the spoken sentence is translated, not half-English).
     private static func domainGuideAccessibilityLabel(_ domain: DomainTheme) -> LocalizedStringKey {
         switch domain {
-        case .charge: return "How Charge is calculated"
+        case .charge: return "How Recovery is calculated"
         case .effort: return "How Effort is calculated"
         case .rest:   return "How Rest is calculated"
         case .stress: return "How Stress is calculated"
@@ -2705,7 +2710,7 @@ struct TodayView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(Self.domainLabel(domain))
-                .accessibilityHint("See what shaped your Charge")
+                .accessibilityHint("See what shaped your Recovery")
                 .accessibilityAddTraits(.isButton)
             } else {
                 ring()
@@ -2742,7 +2747,7 @@ struct TodayView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(onRingTap == nil ? Self.domainGuideAccessibilityLabel(domain)
-                                                  : "See what shaped your Charge")
+                                                  : "See what shaped your Recovery")
             // Component 4, the real per-day source under the ring (only when this score has a value for
             // the day AND we resolved its winner; a calibrating / empty ring shows no provenance badge).
             // Apple Watch (M1): a watch-sourced score reads "Apple Watch" with its confidence bound to the
@@ -2782,14 +2787,15 @@ struct TodayView: View {
     @ViewBuilder
     private func chargeRing(score: Double?, d: DailyMetric?, diameter: CGFloat) -> some View {
         if let s = score {
-            ScoreRing(value: s, range: 0...100, accent: StrandPalette.chargeAccent,
+            ScoreRing(value: s, range: 0...100, accent: RecoveryBands.color(for: s),
                       size: diameter, format: { "\(Int($0.rounded()))" })
         } else if recoveryCalibration == nil, let carried = lastScoredCharge {
             // #802: a CARRIED last-night Charge draws as a real (dimmed) ring, matching the Rest ring, rather
             // than a bare number on a faint track, which read as broken next to Rest's filled ring. Same
             // diameter, so the #762 self-sizing hero row is untouched; the dim + the row-level "Last night"
             // caption already beneath the rings mark it as carried, not today's fresh score.
-            ScoreRing(value: carried.value, range: 0...100, accent: StrandPalette.chargeAccent,
+            ScoreRing(value: carried.value, range: 0...100,
+                      accent: RecoveryBands.color(for: carried.value),
                       size: diameter, format: { "\(Int($0.rounded()))" })
                 .opacity(0.8)
         } else {
@@ -3115,15 +3121,15 @@ struct TodayView: View {
         }
     }
 
-    /// "Charge" marker (NOOP's name for recovery) at wake time (sleep end), else at the window start.
+    /// "Recovery" marker at wake time (sleep end), else at the window start.
     /// Hidden while calibrating.
     private var recoveryMarker: OverviewHRChart.EdgeMarker? {
         guard let rec = displayDay?.recovery else { return nil }
         let at = sleepToday.map { Date(timeIntervalSince1970: TimeInterval($0.endTs)) }
             ?? hrPoints.first?.date
         guard let date = at else { return nil }
-        return .init(date: date, label: String(localized: "\(Int(rec.rounded()))% Charge"),
-                     color: StrandPalette.recoveryColor(rec), alignment: .leading)
+        return .init(date: date, label: String(localized: "\(Int(rec.rounded()))% Recovery"),
+                     color: RecoveryBands.color(for: rec), alignment: .leading)
     }
 
     /// "Effort" marker pinned to the right edge (latest HR sample). Routed through the SAME formatter
@@ -3262,7 +3268,7 @@ struct TodayView: View {
             // value labelled as prior, it never fabricates a number for the new day.
             let carried = lastScoredCharge
             StatTile(
-                label: "Charge",
+                label: "Recovery",
                 value: d?.recovery.map { "\(Int($0.rounded()))%" }
                     ?? recoveryCalibration.map { "\($0)/\(Baselines.minNightsSeed)" }
                     ?? carried.map { "\(Int($0.value.rounded()))%" } ?? "—",
@@ -3272,10 +3278,10 @@ struct TodayView: View {
                     ?? recoveryCalibration.map { _ in String(localized: "Calibrating") }
                     ?? carried.map { $0.caption }
                     ?? Self.needsStrapCaption,
-                accent: d?.recovery.map { StrandPalette.recoveryColor($0) }
-                    ?? carried.map { StrandPalette.recoveryColor($0.value) } ?? StrandPalette.textPrimary,
+                accent: d?.recovery.map { RecoveryBands.color(for: $0) }
+                    ?? carried.map { RecoveryBands.color(for: $0.value) } ?? StrandPalette.textPrimary,
                 sparkline: sparks["recovery"],
-                sparkColor: StrandPalette.accent
+                sparkColor: StrandPalette.recoveryData
             )
         case .effort:
             // Unscored TODAY → a short "building" hint instead of the "of N" axis caption, so a
@@ -4237,21 +4243,21 @@ struct TodayView: View {
         switch rec {
         case ..<50:
             switch sleptWell {
-            case true?:  return String(localized: "Charge is low and sleep was consistent.")
-            case false?: return String(localized: "Charge is low but sleep ran short.")
-            case nil:    return String(localized: "Charge is low.")
+            case true?:  return String(localized: "Recovery is low and sleep was consistent.")
+            case false?: return String(localized: "Recovery is low but sleep ran short.")
+            case nil:    return String(localized: "Recovery is low.")
             }
         case ..<70:
             switch sleptWell {
-            case true?:  return String(localized: "Charge is steady and sleep was consistent.")
-            case false?: return String(localized: "Charge is steady but sleep ran short.")
-            case nil:    return String(localized: "Charge is steady.")
+            case true?:  return String(localized: "Recovery is steady and sleep was consistent.")
+            case false?: return String(localized: "Recovery is steady but sleep ran short.")
+            case nil:    return String(localized: "Recovery is steady.")
             }
         default:
             switch sleptWell {
-            case true?:  return String(localized: "Charge is strong and sleep was consistent.")
-            case false?: return String(localized: "Charge is strong but sleep ran short.")
-            case nil:    return String(localized: "Charge is strong.")
+            case true?:  return String(localized: "Recovery is strong and sleep was consistent.")
+            case false?: return String(localized: "Recovery is strong but sleep ran short.")
+            case nil:    return String(localized: "Recovery is strong.")
             }
         }
     }

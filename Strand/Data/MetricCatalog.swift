@@ -114,7 +114,7 @@ enum MetricCatalog {
         d("body_age", String(localized: "Body Age"), "Heart", "yrs", "my-whoop", "figure.stand", 0, false),
 
         // ── Charge (was Recovery)
-        d("recovery", String(localized: "Charge"), "Charge", "%", "my-whoop", "heart.circle", 0, true,
+        d("recovery", String(localized: "Recovery"), "Charge", "%", "my-whoop", "heart.circle", 0, true,
           String(localized: "How recovered you are, led by HRV versus your personal baseline.")),
         d("hrv", String(localized: "Heart Rate Variability"), "Charge", "ms", "my-whoop", "waveform.path.ecg", 0, true),
         d("rhr", String(localized: "Resting Heart Rate"), "Charge", "bpm", "my-whoop", "heart", 0, false),
@@ -198,7 +198,7 @@ enum MetricCatalog {
     static func categoryDisplayName(_ category: String) -> String {
         switch category {
         case "Heart":     return String(localized: "Heart")
-        case "Charge":    return String(localized: "Charge")
+        case "Charge":    return String(localized: "Recovery")
         case "Rest":      return String(localized: "Rest")
         case "Effort":    return String(localized: "Effort")
         case "Health":    return String(localized: "Health")

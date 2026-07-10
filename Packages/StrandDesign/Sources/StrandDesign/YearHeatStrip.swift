@@ -265,7 +265,7 @@ public struct YearHeatStrip: View {
                     tooltip: ChartTooltip(
                         value: valueFormat(score),
                         label: "\(DateFormatterCache.day.string(from: day.date)) · \(StrandPalette.recoveryState(score))",
-                        accent: StrandPalette.recoveryColor(score)
+                        accent: RecoveryBands.color(for: score)
                     )
                 )
             }
@@ -280,7 +280,7 @@ public struct YearHeatStrip: View {
         let shape = RoundedRectangle(cornerRadius: 2.5)
         if let day, let score = day.score {
             shape
-                .fill(StrandPalette.recoveryColor(score))
+                .fill(RecoveryBands.color(for: score))
                 .frame(width: cellSize, height: cellSize)
                 .opacity(isHovered ? 1.0 : (hoverCell == nil ? 1.0 : 0.78))
                 .help("\(DateFormatterCache.day.string(from: day.date)) · recovery \(Int(score.rounded()))")

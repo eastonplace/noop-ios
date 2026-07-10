@@ -73,7 +73,7 @@ public struct RecoveryRing: View {
     @State private var bloomPulse: Bool = false
 
     private var fraction: Double { min(max(score / 100.0, 0), 1) }
-    private var tipColor: Color { StrandPalette.recoveryColor(score) }
+    private var tipColor: Color { RecoveryBands.color(for: score) }
     private var stateWord: String { StrandPalette.recoveryState(score) }
 
     public var body: some View {
@@ -81,7 +81,7 @@ public struct RecoveryRing: View {
             ScoreRing(
                 value: score,
                 range: 0...100,
-                accent: StrandPalette.chargeAccent,
+                accent: RecoveryBands.color(for: score),
                 size: diameter,
                 lineWidth: lineWidth,
                 format: { "\(Int($0.rounded()))" },

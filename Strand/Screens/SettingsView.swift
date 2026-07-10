@@ -126,7 +126,7 @@ struct SettingsView: View {
     @State private var debugExportOn = ScheduledDebugExport.isEnabled
     @State private var debugExportMinutes = ScheduledDebugExport.timeMinutes
 
-    /// Confirm gate for the "Recalibrate Charge baseline" action (it re-learns the HRV anchor from tonight).
+    /// Confirm gate for the "Recalibrate Recovery baseline" action (it re-learns the HRV anchor from tonight).
     @State private var showRecalibrateConfirm = false
 
     /// "What's New" changelog sheet, reachable any time from About.
@@ -202,12 +202,12 @@ struct SettingsView: View {
         } message: {
             Text(backupAlertMessage)
         }
-        .confirmationDialog("Recalibrate your Charge baseline?",
+        .confirmationDialog("Recalibrate your Recovery baseline?",
                             isPresented: $showRecalibrateConfirm, titleVisibility: .visible) {
             Button("Recalibrate") { recalibrateHrvBaseline() }
             Button("Cancel", role: .cancel) { }
         } message: {
-            Text("This restarts the roughly 4-night build-up for Charge and your HRV baseline. Your history stays. Use it if a bad first week, like wearing it while sick, set your baseline off.")
+            Text("This restarts the roughly 4-night build-up for Recovery and your HRV baseline. Your history stays. Use it if a bad first week, like wearing it while sick, set your baseline off.")
         }
         .sheet(isPresented: $showWhatsNew) {
             WhatsNewView(onClose: { showWhatsNew = false })
@@ -994,14 +994,14 @@ struct SettingsView: View {
         SettingsSection(
             icon: "heart.text.square",
             title: "Recovery",
-            blurb: "Your Charge score learns a personal baseline from your heart-rate variability, resting heart rate and more over time. If a bad first week set it off, you can re-learn it from tonight. Your history stays."
+            blurb: "Your Recovery score learns a personal baseline from your heart-rate variability, resting heart rate and more over time. If a bad first week set it off, you can re-learn it from tonight. Your history stays."
         ) {
             VStack(alignment: .leading, spacing: NoopMetrics.rowSpacing) {
-                NoopButton("Recalibrate Charge baseline", systemImage: "arrow.triangle.2.circlepath", kind: .secondary) {
+                NoopButton("Recalibrate Recovery baseline", systemImage: "arrow.triangle.2.circlepath", kind: .secondary) {
                     showRecalibrateConfirm = true
                 }
 
-                Text("Restarts the roughly 4-night build-up for Charge and your HRV baseline from tonight. Use it if a bad first week set your baseline off. Your history stays.")
+                Text("Restarts the roughly 4-night build-up for Recovery and your HRV baseline from tonight. Use it if a bad first week set your baseline off. Your history stays.")
                     .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1021,7 +1021,7 @@ struct SettingsView: View {
             await model.intelligence.analyzeRecent()
             await model.repo.refresh()
         }
-        backupAlertTitle = String(localized: "Charge baseline recalibrating")
+        backupAlertTitle = String(localized: "Recovery baseline recalibrating")
         backupAlertMessage = String(localized: "NOOP will re-learn your baseline from tonight's data onward. Your history is kept, and it takes a few nights to settle.")
         showBackupAlert = true
     }
@@ -1136,7 +1136,7 @@ struct SettingsView: View {
         SettingsSection(
             icon: "shield.lefthalf.filled",
             title: "Experimental · Live Sessions",
-            blurb: "A one-tap guarded workout: the strap watches your heart rate against a band gated on today's Charge, and only ever buzzes to correct course. Silence means you're on track."
+            blurb: "A one-tap guarded workout: the strap watches your heart rate against a band gated on today's Recovery, and only ever buzzes to correct course. Silence means you're on track."
         ) {
             VStack(alignment: .leading, spacing: NoopMetrics.rowSpacing) {
                 Toggle(isOn: $liveSessionsBeta) {
@@ -1814,7 +1814,7 @@ struct SettingsView: View {
                             Text("How your scores work")
                                 .font(StrandFont.body)
                                 .foregroundStyle(StrandPalette.textPrimary)
-                            Text("Charge, Effort and Rest (and how they differ from WHOOP).")
+                            Text("Recovery, Effort and Rest (and how they differ from WHOOP).")
                                 .font(StrandFont.footnote)
                                 .foregroundStyle(StrandPalette.textTertiary)
                                 .fixedSize(horizontal: false, vertical: true)

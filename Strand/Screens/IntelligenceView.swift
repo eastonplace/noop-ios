@@ -28,7 +28,7 @@ struct IntelligenceView: View {
         // imported history, an eager VStack built every card up-front on the main thread and froze
         // the app when ALL was tapped (#345); LazyVStack only materialises what's on screen.
         ScreenScaffold(title: "Intelligence",
-                       subtitle: "NOOP scores your charge, effort and rest itself: on-device, no cloud.",
+                       subtitle: "NOOP scores your recovery, effort and rest itself: on-device, no cloud.",
                        lazy: true,
                        // Liquid finish: the same full-bleed day-of-sky backdrop Today + the other liquid
                        // tabs carry, so Intelligence sits in one atmosphere. Static + non-interactive; the
@@ -37,7 +37,7 @@ struct IntelligenceView: View {
             if let f = forecast { forecastCard(f) }
             explainerCard
             if intelligence.computing {
-                NoopCard(padding: 20, tint: StrandPalette.chargeColor) {
+                NoopCard(padding: 20, tint: StrandPalette.recoveryData) {
                     HStack(spacing: NoopMetrics.rowSpacing) {
                         ProgressView().controlSize(.small)
                         Text("Crunching your raw streams…").font(StrandFont.subhead)
@@ -45,9 +45,9 @@ struct IntelligenceView: View {
                     }
                 }
             } else if let note = intelligence.note {
-                NoopCard(padding: 20, tint: StrandPalette.chargeColor) {
+                NoopCard(padding: 20, tint: StrandPalette.recoveryData) {
                     HStack(alignment: .top, spacing: NoopMetrics.rowSpacing) {
-                        Image(systemName: "moon.zzz.fill").foregroundStyle(StrandPalette.chargeColor)
+                        Image(systemName: "moon.zzz.fill").foregroundStyle(StrandPalette.recoveryData)
                             .accessibilityHidden(true)
                         Text(note).font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -60,7 +60,7 @@ struct IntelligenceView: View {
                 IntelSyncingNote()
                 DataPendingNote(
                     title: "Building from your strap",
-                    message: "This builds from the strap as it syncs. Effort and rest appear after you have worn it and slept a night. Charge needs about four nights of sleep to learn your baseline (you'll see \"Calibrating\" until then), and keeps sharpening over your first couple of weeks. On a WHOOP 5 or MG the strap banks little history, so the night count can climb slowly or sit at 0 of 4 until you have worn it across a few nights. That's its sync limit, not a fault. Import your WHOOP export to skip the wait.",
+                    message: "This builds from the strap as it syncs. Effort and rest appear after you have worn it and slept a night. Recovery needs about four nights of sleep to learn your baseline (you'll see \"Calibrating\" until then), and keeps sharpening over your first couple of weeks. On a WHOOP 5 or MG the strap banks little history, so the night count can climb slowly or sit at 0 of 4 until you have worn it across a few nights. That's its sync limit, not a fault. Import your WHOOP export to skip the wait.",
                     symbol: "brain.head.profile"
                 )
             } else {
@@ -79,7 +79,7 @@ struct IntelligenceView: View {
                     .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if filtered.isEmpty {
-                    NoopCard(padding: 18, tint: StrandPalette.chargeColor) {
+                    NoopCard(padding: 18, tint: StrandPalette.recoveryData) {
                         Text("No scored days in this window. Widen the range or import more history.")
                             .font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -145,14 +145,14 @@ struct IntelligenceView: View {
     private func forecastCard(_ f: RecoveryForecast) -> some View {
         let frac = min(max(f.charge / 100.0, 0), 1)
         return VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            SectionHeader("Tomorrow's Charge", overline: "Evening forecast", trailing: String(localized: "Estimate"))
-            NoopCard(padding: 20, tint: StrandPalette.chargeColor) {
+            SectionHeader("Tomorrow's Recovery", overline: "Evening forecast", trailing: String(localized: "Estimate"))
+            NoopCard(padding: 20, tint: StrandPalette.recoveryData) {
                 VStack(spacing: 14) {
                     // The signature liquid gauge: a filling vessel tinted to the forecast Charge, with the
                     // 0–100 estimate counting up over it and the ± band + state word beneath (Sleep's
                     // restHero idiom). Live so the fill actually flows on the hero surface.
                     ZStack {
-                        LiquidVessel(value: frac, tint: StrandPalette.recoveryColor(f.charge), animated: true)
+                        LiquidVessel(value: frac, tint: RecoveryBands.color(for: f.charge), animated: true)
                             .frame(width: 184, height: 184)
                         VStack(spacing: 0) {
                             CountUpText(
@@ -170,13 +170,13 @@ struct IntelligenceView: View {
                     .padding(.top, 4)
                     .padding(.bottom, 6)
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("Tomorrow's Charge estimate \(Int(f.charge.rounded())) plus or minus \(Int(f.band.rounded()))")
+                    .accessibilityLabel("Tomorrow's Recovery estimate \(Int(f.charge.rounded())) plus or minus \(Int(f.band.rounded()))")
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("You'll likely wake around \(Int(f.charge.rounded())) ± \(Int(f.band.rounded())) Charge if you sleep about \(sleepHoursLabel(f.plannedSleepHours)) tonight.")
+                        Text("You'll likely wake around \(Int(f.charge.rounded())) ± \(Int(f.band.rounded())) Recovery if you sleep about \(sleepHoursLabel(f.plannedSleepHours)) tonight.")
                             .font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                        Text("Estimate from today's effort, your typical sleep and your \(f.nights)-night recovery baseline, not a measurement. Your real Charge is scored from tomorrow's HRV when you wake.")
+                        Text("Estimate from today's effort, your typical sleep and your \(f.nights)-night recovery baseline, not a measurement. Your real Recovery is scored from tomorrow's HRV when you wake.")
                             .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
                             .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -195,19 +195,19 @@ struct IntelligenceView: View {
     }
 
     private var explainerCard: some View {
-        NoopCard(padding: 20, tint: StrandPalette.chargeColor) {
+        NoopCard(padding: 20, tint: StrandPalette.recoveryData) {
             VStack(alignment: .leading, spacing: NoopMetrics.space4) {
                 HStack(spacing: NoopMetrics.rowSpacing) {
-                    Image(systemName: "brain.head.profile").foregroundStyle(StrandPalette.chargeColor)
+                    Image(systemName: "brain.head.profile").foregroundStyle(StrandPalette.recoveryData)
                         .accessibilityHidden(true)
                     Text("How this works").font(StrandFont.headline).foregroundStyle(StrandPalette.textPrimary)
                 }
-                Text("Charge weighs your HRV against your personal baseline (~55%), resting heart rate (~20%), rest quality (~15%), respiration (~5%) and skin-temperature deviation (~5%). Effort is a 0-\(UnitFormatter.effortScaleMax(effortScale)) cardiovascular load from time in heart-rate zones. Rest is staged from movement and heart rate. Everything is computed here from the strap's raw data. It works for any day NOOP collected raw streams.")
+                Text("Recovery weighs your HRV against your personal baseline (~55%), resting heart rate (~20%), rest quality (~15%), respiration (~5%) and skin-temperature deviation (~5%). Effort is a 0-\(UnitFormatter.effortScaleMax(effortScale)) cardiovascular load from time in heart-rate zones. Rest is staged from movement and heart rate. Everything is computed here from the strap's raw data. It works for any day NOOP collected raw streams.")
                     .font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                 // The Charge model made concrete — the five weighted inputs, each its own metric accent.
                 VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
-                    Text("Charge model").strandOverline()
+                    Text("Recovery model").strandOverline()
                     weightRow(String(localized: "Heart-rate variability"), "~55%", fraction: 0.55, color: StrandPalette.metricPurple)
                     weightRow(String(localized: "Resting heart rate"), "~20%", fraction: 0.20, color: StrandPalette.metricRose)
                     weightRow(String(localized: "Rest quality"), "~15%", fraction: 0.15, color: StrandPalette.metricCyan)
@@ -241,11 +241,11 @@ struct IntelligenceView: View {
             LiquidTube(frac: min(1, max(0, fraction / 0.55)), tint: color, height: 8, animated: false)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(label): \(percent) of Charge")
+        .accessibilityLabel("\(label): \(percent) of Recovery")
     }
 
     private func dayCard(_ d: IntelligenceEngine.Computed) -> some View {
-        NoopCard(padding: 18, tint: StrandPalette.chargeColor) {
+        NoopCard(padding: 18, tint: StrandPalette.recoveryData) {
             VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
                 HStack {
                     // A small liquid vessel filled to the day's Charge (a real 0–100 metric, so it earns a
@@ -253,7 +253,7 @@ struct IntelligenceView: View {
                     // (posed) so each day row costs a single cached frame, not a live canvas. Only shown
                     // once the night has a Charge to fill it; a calibrating night leads with the date alone.
                     if let r = d.recovery {
-                        LiquidVessel(value: min(1, max(0, r / 100)), tint: StrandPalette.recoveryColor(r), animated: false)
+                        LiquidVessel(value: min(1, max(0, r / 100)), tint: RecoveryBands.color(for: r), animated: false)
                             .frame(width: 24, height: 24)
                             .accessibilityHidden(true)
                     }
@@ -272,11 +272,11 @@ struct IntelligenceView: View {
                     // verbatim, not looked up as a LocalizedStringKey (the String≠LocalizedStringKey
                     // SwiftUI footgun). Imported rows use the accent tint to stand out from computed ones.
                     SourceBadge("\(d.source.badge)",
-                                tint: d.source == .computed ? StrandPalette.chargeColor : StrandPalette.accent)
+                                tint: d.source == .computed ? StrandPalette.recoveryData : StrandPalette.accent)
                 }
                 HStack(spacing: 0) {
-                    stat(String(localized: "Charge"), d.recovery.map { "\(Int($0.rounded()))%" } ?? "—",
-                         d.recovery.map { StrandPalette.recoveryColor($0) } ?? StrandPalette.textSecondary)
+                    stat(String(localized: "Recovery"), d.recovery.map { "\(Int($0.rounded()))%" } ?? "—",
+                         d.recovery.map { RecoveryBands.color(for: $0) } ?? StrandPalette.textSecondary)
                     stat(String(localized: "Effort"), d.strain.map { UnitFormatter.effortDisplay($0, scale: effortScale) } ?? "—",
                          d.strain.map { StrandPalette.strainColor($0) } ?? StrandPalette.textSecondary)
                     stat(String(localized: "Rest"), d.sleepMin.map { "\(Int($0 / 60))h \(Int($0.truncatingRemainder(dividingBy: 60)))m" } ?? "—", StrandPalette.restColor)
