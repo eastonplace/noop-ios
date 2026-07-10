@@ -2557,11 +2557,7 @@ private struct SleepMarkCard: View {
     var body: some View {
         PaperCard {
             VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("Sleep Marks").strandOverline()
-                    Spacer()
-                    Text("Phase 1").font(StrandFont.micro).foregroundStyle(StrandPalette.link)
-                }
+                Text("Sleep Marks").strandOverline()
                 Text("Tap when you're heading to bed or when you wake. Each tap is logged with the time. It doesn't change tonight's detected sleep.")
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textTertiary)

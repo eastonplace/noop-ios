@@ -379,8 +379,10 @@ public struct Hypnogram: View {
                 p.addLine(to: CGPoint(x: x, y: yb))
             }
         }
-        .stroke(StrandPalette.textTertiary.opacity(highlightedStage == nil ? 0.35 : 0.15),
-                style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+        // Craft pass (003): the reference hypnogram reads as detached floating bars — the
+        // staircase risers recede to a whisper so segments own the chart.
+        .stroke(StrandPalette.textTertiary.opacity(highlightedStage == nil ? 0.12 : 0.06),
+                style: StrokeStyle(lineWidth: 1, lineCap: .round, lineJoin: .round))
     }
 }
 
