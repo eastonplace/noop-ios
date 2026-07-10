@@ -253,8 +253,13 @@
     strap, so status and live values remain honestly empty; all pre-existing session,
     pairing, haptic, disconnect, device-management, and diagnostic controls remain
     reachable below the Paper summary.
-- [ ] **T16 — Workouts (S5)** — Modify `Strand/Screens/WorkoutsView.swift`
+- [x] **T16 — Workouts (S5)** — Modify `Strand/Screens/WorkoutsView.swift`
   (+ `WorkoutDetailView.swift` shared parts). Spec §6-S5. Verify vs sheet 1-5. Commit.
+  - Verified 2026-07-09: `NOOPiOS` built and ran. `qa/T16-workouts.jpg` confirms
+    the full-width black Start workout action, real average workout score and
+    week-over-week delta, three tappable recent-workout rows, and compact HR-zone /
+    average-pace cards against sheet 1-5. Existing add/edit/detail/filter/selection/
+    merge/history behavior remains reachable below the Paper summary.
 - [ ] **T17 — Run flow pre/live/paused (S24–S26)** — Modify the run UI located in T01.
   Spec §6-S24/25/26. Tab bar stays per R1. Omit setup rows with no backing setting
   (S24 note). Verify vs sheet 2-1/2-2/2-3 (live/paused need a simulated workout —

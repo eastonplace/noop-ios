@@ -132,7 +132,7 @@ struct WorkoutsView: View {
                        lazy: true,
                        // The day-of-sky liquid backdrop, matching Today / Health / Sleep / Trends: a fixed,
                        // full-bleed time-of-day sky behind the scroll content (it does not scroll).
-                       topBackground: liquidScaffoldSky()) {
+                       topBackground: nil) {
             if allRows.isEmpty {
                 VStack(alignment: .leading, spacing: NoopMetrics.space4) {
                     ComingSoon(what: loaded
@@ -151,18 +151,15 @@ struct WorkoutsView: View {
                 // several times per render. Same windowing, same results.
                 let resolved = effectiveRange
                 let windowRows = sessions(for: resolved)
-                let groups = sportGroups(from: windowRows)
                 let zonesSummary = WorkoutZones.summary(from: windowRows)
 
-                HStack { startLiveWorkoutButton; Spacer() }
-                rangeBar(rows: windowRows, effectiveRange: resolved)
+                startLiveWorkoutButton
                 if let postLogNote { postLogBanner(postLogNote) }
-                effortHero(rows: windowRows, effectiveRange: resolved, groups: groups)
-                summarySection(rows: windowRows, effectiveRange: resolved, groups: groups)
-                breakdownSection(groups: groups, rows: windowRows)
-                if let z = zonesSummary {
-                    zonesSection(z, totalSessions: windowRows.count)
-                }
+                paperWorkoutScore(rows: windowRows)
+                paperRecentWorkouts(rows: windowRows)
+                paperWorkoutBreakdown(rows: windowRows, zones: zonesSummary)
+                SectionHeader("Workout history")
+                rangeBar(rows: windowRows, effectiveRange: resolved)
                 sessionsSection(rows: windowRows)
             }
         }
@@ -504,7 +501,7 @@ struct WorkoutsView: View {
     private var startLiveWorkoutButton: some View {
         NoopButton(model.activeWorkout == nil ? "Start workout" : "View active workout",
                    systemImage: model.activeWorkout == nil ? "figure.run" : "timer",
-                   kind: .primary) {
+                   kind: .primary, fullWidth: true) {
             // No active session → pick a named sport first (#519), then the sheet's onStart begins it
             // and opens the in-exercise view. Already active → jump straight back into the live view.
             if model.activeWorkout == nil { showStartSport = true }
@@ -583,6 +580,215 @@ struct WorkoutsView: View {
     }
 
     // MARK: - Effort hero (typical effort on a flat Reset card)
+
+    private func paperWorkoutScore(rows: [WorkoutRow]) -> some View {
+        let strains = rows.compactMap(\.strain)
+        let average = strains.isEmpty ? nil : strains.reduce(0, +) / Double(strains.count)
+        let display = average.map { UnitFormatter.effortValue($0, scale: effortScale) }
+        let spark = rows.reversed().compactMap(\.strain)
+        return PaperCard {
+            HStack(spacing: 18) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("WORKOUT SCORE")
+                        .font(StrandFont.sectionOverline)
+                        .tracking(StrandFont.sectionOverlineTracking)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(display.map { String(format: "%.1f", $0) } ?? "—")
+                            .font(StrandFont.metricValue)
+                            .foregroundStyle(StrandPalette.textPrimary)
+                        Text(workoutScoreState(average))
+                            .font(StrandFont.caption.weight(.semibold))
+                            .foregroundStyle(StrandPalette.effortAccent)
+                    }
+                    Text(workoutScoreDelta)
+                        .font(StrandFont.micro)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                }
+                Spacer(minLength: 8)
+                if spark.count > 1 {
+                    Sparkline(values: spark,
+                              gradient: Gradient(colors: [StrandPalette.link, StrandPalette.link]),
+                              lineWidth: 2, showsArea: false, showsHead: false, showsHover: false)
+                        .frame(width: 128, height: 54)
+                }
+            }
+        }
+    }
+
+    private func paperRecentWorkouts(rows: [WorkoutRow]) -> some View {
+        let recent = Array(rows.prefix(3))
+        return PaperCard(padding: 0) {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("RECENT WORKOUTS")
+                    .font(StrandFont.sectionOverline)
+                    .tracking(StrandFont.sectionOverlineTracking)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 16)
+                    .padding(.bottom, 8)
+                ForEach(Array(recent.enumerated()), id: \.offset) { index, row in
+                    Button { openDetail(row) } label: {
+                        HStack(spacing: 12) {
+                            Text(row.strain.map { UnitFormatter.effortDisplay($0, scale: effortScale) } ?? "—")
+                                .font(StrandFont.captionNumber.weight(.bold))
+                                .foregroundStyle(StrandPalette.effortAccent)
+                                .frame(width: 42, height: 42)
+                                .background(StrandPalette.effortTint,
+                                            in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(WorkoutSource.displaySport(row.sport))
+                                    .font(StrandFont.body)
+                                    .foregroundStyle(StrandPalette.textPrimary)
+                                    .lineLimit(1)
+                                Text(dateLabel(row.startTs))
+                                    .font(StrandFont.caption)
+                                    .foregroundStyle(StrandPalette.textTertiary)
+                            }
+                            Spacer(minLength: 8)
+                            VStack(alignment: .trailing, spacing: 3) {
+                                Text(distanceLabel(row.distanceM))
+                                    .font(StrandFont.captionNumber)
+                                    .foregroundStyle(StrandPalette.textPrimary)
+                                Text(durationLabel(row.durationS))
+                                    .font(StrandFont.caption)
+                                    .foregroundStyle(StrandPalette.textTertiary)
+                            }
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(StrandPalette.textTertiary)
+                        }
+                        .padding(.horizontal, 16)
+                        .frame(minHeight: 62)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .overlay(alignment: .bottom) {
+                        if index < recent.count - 1 {
+                            Rectangle().fill(StrandPalette.hairline).frame(height: 1)
+                                .padding(.leading, 70)
+                        }
+                    }
+                }
+                Divider().overlay(StrandPalette.hairline)
+                HStack {
+                    Text("View all workouts")
+                    Spacer()
+                    Image(systemName: "arrow.down")
+                }
+                .font(StrandFont.caption.weight(.semibold))
+                .foregroundStyle(StrandPalette.link)
+                .padding(.horizontal, 16)
+                .frame(height: 44)
+            }
+        }
+    }
+
+    private func paperWorkoutBreakdown(rows: [WorkoutRow], zones: WorkoutZones.Summary?) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            PaperCard(padding: 12) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("HR ZONES")
+                        .font(StrandFont.sectionOverline)
+                        .tracking(StrandFont.sectionOverlineTracking)
+                    Text("Time in zones").font(StrandFont.micro)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                    if let zones, zones.totalMinutes > 0 {
+                        ForEach((1...5).reversed(), id: \.self) { zone in
+                            let fraction = zones.minutes[zone - 1] / zones.totalMinutes
+                            HStack(spacing: 5) {
+                                Text("Z\(zone)").font(StrandFont.micro).frame(width: 18, alignment: .leading)
+                                GeometryReader { geo in
+                                    Capsule().fill(StrandPalette.inset)
+                                        .overlay(alignment: .leading) {
+                                            Capsule().fill(StrandPalette.hrZoneColor(zone))
+                                                .frame(width: geo.size.width * fraction)
+                                        }
+                                }
+                                .frame(height: 6)
+                                Text("\(Int((fraction * 100).rounded()))%")
+                                    .font(StrandFont.micro).frame(width: 27, alignment: .trailing)
+                            }
+                        }
+                    } else {
+                        Text("No zone data")
+                            .font(StrandFont.caption)
+                            .foregroundStyle(StrandPalette.textTertiary)
+                            .frame(maxWidth: .infinity, minHeight: 72, alignment: .center)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity)
+
+            PaperCard(padding: 12) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("SPLITS")
+                        .font(StrandFont.sectionOverline)
+                        .tracking(StrandFont.sectionOverlineTracking)
+                    Text("Pace / \(unitSystem == .imperial ? "mi" : "km")")
+                        .font(StrandFont.micro)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                    if let latest = rows.first, let pace = averagePace(latest) {
+                        VStack(spacing: 0) {
+                            miniSplitRow(label: "AVG", pace: pace, header: false)
+                            Divider().overlay(StrandPalette.hairline)
+                            miniSplitRow(label: "HR", pace: latest.avgHr.map { "\($0)" } ?? "—", header: false)
+                        }
+                    } else {
+                        Text("No split data")
+                            .font(StrandFont.caption)
+                            .foregroundStyle(StrandPalette.textTertiary)
+                            .frame(maxWidth: .infinity, minHeight: 72, alignment: .center)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    private func miniSplitRow(label: String, pace: String, header: Bool) -> some View {
+        HStack {
+            Text(label)
+            Spacer()
+            Text(pace)
+        }
+        .font(header ? StrandFont.micro.weight(.semibold) : StrandFont.captionNumber)
+        .foregroundStyle(header ? StrandPalette.textTertiary : StrandPalette.textPrimary)
+        .frame(height: 34)
+    }
+
+    private func workoutScoreState(_ raw: Double?) -> LocalizedStringKey {
+        guard let raw else { return "No data" }
+        switch raw {
+        case ..<34: return "Light"
+        case ..<67: return "Moderate"
+        default: return "High"
+        }
+    }
+
+    private var workoutScoreDelta: String {
+        guard let anchor = latestTs else { return String(localized: "No weekly comparison") }
+        let day = 86_400
+        let current = allRows.filter { $0.startTs >= anchor - 7 * day }.compactMap(\.strain)
+        let previous = allRows.filter { $0.startTs < anchor - 7 * day && $0.startTs >= anchor - 14 * day }
+            .compactMap(\.strain)
+        guard !current.isEmpty, !previous.isEmpty else { return String(localized: "Building your weekly comparison") }
+        let currentMean = current.reduce(0, +) / Double(current.count)
+        let previousMean = previous.reduce(0, +) / Double(previous.count)
+        let delta = UnitFormatter.effortValue(currentMean, scale: effortScale)
+            - UnitFormatter.effortValue(previousMean, scale: effortScale)
+        return String(format: "%+.1f vs last week", delta)
+    }
+
+    private func averagePace(_ row: WorkoutRow) -> String? {
+        guard let distance = row.distanceM, distance > 0 else { return nil }
+        let seconds = row.durationS ?? Double(row.endTs - row.startTs)
+        guard seconds > 0 else { return nil }
+        let unitMeters = unitSystem == .imperial ? 1609.344 : 1000
+        let paceSeconds = Int((seconds / (distance / unitMeters)).rounded())
+        guard paceSeconds > 0, paceSeconds < 60 * 60 else { return nil }
+        return String(format: "%d:%02d", paceSeconds / 60, paceSeconds % 60)
+    }
 
     /// Design Reset hero for the windowed range: the typical session Effort on the clean flat ring
     /// (GlowRing, bloom OFF), on a flat opaque Reset card — NO scenic backdrop float — with the session
