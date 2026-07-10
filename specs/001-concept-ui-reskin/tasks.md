@@ -321,9 +321,16 @@
 
 ## Phase 7 — Labs
 
-- [ ] **T23 — Insights (S12)** — Modify `Strand/Screens/InsightsView.swift` /
+- [x] **T23 — Insights (S12)** — Modify `Strand/Screens/InsightsView.swift` /
   `InsightsHubView.swift` (T01 decides which hosts "What Moves You"). Spec §6-S12.
   Verify vs sheet 5-1. Commit.
+  - Verified 2026-07-09: `NOOPiOS` built and ran. `qa/T23-insights.jpg`
+    confirms the What Moves You title/badges, five Paper filter chips, four compact
+    real association rows with Cohen's d and with/without values, expandable full
+    feed, personal insight, and method note against sheet 5-1. Simulator UI automation
+    confirmed Recovery re-ranks the visible feed through the existing EffectRanker.
+    All combines the four backed outcomes; Strain deliberately renders an honest
+    unavailable state because the current association engine has no Effort series.
 - [ ] **T24 — Lab Book (S13)** — Modify `Strand/Screens/LabBookView.swift`,
   `MarkerEditorView.swift`. Spec §6-S13 including empty states. Verify vs sheet 5-2.
   Commit.

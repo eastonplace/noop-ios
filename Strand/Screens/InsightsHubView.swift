@@ -36,10 +36,22 @@ struct InsightsHubView: View {
 
     /// The currently-selected outcome for the ranked feed (Charge / HRV / Rest / RHR).
     @State private var outcome: InsightsHubViewModel.Outcome = .recovery
+    @State private var filter: AssociationFilter = .all
+    @State private var showAllAssociations = false
+
+    private enum AssociationFilter: String, CaseIterable, Identifiable {
+        case all = "All"
+        case recovery = "Recovery"
+        case sleep = "Sleep"
+        case stress = "Stress"
+        case strain = "Strain"
+
+        var id: String { rawValue }
+    }
 
     var body: some View {
         ScreenScaffold(title: "Insights",
-                       subtitle: "Patterns in your own data: association, not cause.",
+                       subtitle: "Personal data associations ranked by effect size.",
                        // PERF (scroll): lazy column — byte-identical layout (LazyVStack == eager VStack
                        // alignment/spacing/header). The content is one inner eager VStack, so the staggered
                        // mover reveal is unchanged; this only defers building that stack until it scrolls in.
@@ -48,40 +60,162 @@ struct InsightsHubView: View {
                 ComingSoon(what: "Reading your journal and outcomes…")
             } else {
                 VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+                    paperHeader
                     moversSection
-                    doseSection
+                    insightCard
                     methodNote
+                    doseSection
                 }
             }
         }
-        .task(id: repo.refreshSeq) { await model.load(repo: repo) }
-        .onChangeCompat(of: outcome) { model.rankFor($0) }
+        .task(id: repo.refreshSeq) {
+            await model.load(repo: repo)
+            applyFilter()
+        }
+        .onChangeCompat(of: filter) { _ in applyFilter() }
     }
 
     // MARK: - What moves your Charge (ranked, lag-aware)
 
+    private var paperHeader: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("What Moves You")
+                    .font(StrandFont.cardTitle)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                Text("Personal data associations ranked by effect size")
+                    .font(StrandFont.caption)
+                    .foregroundStyle(StrandPalette.textSecondary)
+            }
+            Spacer(minLength: 8)
+            VStack(alignment: .trailing, spacing: 6) {
+                StatusBadge("Journal", style: .experimental)
+                StatusBadge("Local only", style: .notConnected)
+            }
+        }
+    }
+
     private var moversSection: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            // Header and the 4-segment outcome control each get their own row — one HStack
-            // crushed the pill control on narrow widths and truncated the segment labels.
-            SectionHeader("What moves your \(outcome.outcomeName.lowercased())",
-                          overline: "Ranked · your data")
-            SegmentedPillControl(InsightsHubViewModel.Outcome.allCases, selection: $outcome) { $0.label }
-                .accessibilityLabel("Outcome metric")
-                .frame(maxWidth: .infinity, alignment: .leading)
+            filterChips
+            SectionHeader("Top Associations")
 
             if model.ranked.isEmpty {
-                NoopCard {
-                    Text(String(localized: "Not enough overlap between your journal answers and \(outcome.outcomeName.lowercased()) yet. Keep logging. Each behaviour needs days both with and without it before NOOP can read its effect."))
+                PaperCard {
+                    Text(emptyAssociationMessage)
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             } else {
-                ForEach(model.ranked.indices, id: \.self) { i in
-                    moverCard(model.ranked[i])
-                        .staggeredAppear(index: i)
+                PaperCard(padding: 14) {
+                    VStack(spacing: 0) {
+                        ForEach(Array(visibleAssociations.enumerated()), id: \.offset) { index, row in
+                            if index > 0 { Divider().overlay(StrandPalette.hairline) }
+                            associationRow(row)
+                        }
+                        if model.ranked.count > 4 {
+                            Divider().overlay(StrandPalette.hairline)
+                            Button(showAllAssociations ? "Show top associations" : "View all associations") {
+                                withAnimation(.easeInOut(duration: 0.2)) { showAllAssociations.toggle() }
+                            }
+                            .font(StrandFont.caption.weight(.semibold))
+                            .foregroundStyle(StrandPalette.link)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var filterChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(AssociationFilter.allCases) { item in
+                    let selected = filter == item
+                    Button {
+                        withAnimation(.easeOut(duration: 0.15)) {
+                            filter = item
+                            showAllAssociations = false
+                        }
+                    } label: {
+                        Text(item.rawValue)
+                            .font(StrandFont.micro.weight(.semibold))
+                            .foregroundStyle(selected ? StrandPalette.onInk : StrandPalette.textSecondary)
+                            .padding(.horizontal, 13)
+                            .frame(height: 32)
+                            .background(selected ? StrandPalette.ink : StrandPalette.card, in: Capsule())
+                            .overlay(Capsule().strokeBorder(selected ? Color.clear : StrandPalette.cardBorder))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private var visibleAssociations: ArraySlice<RankedEffect> {
+        model.ranked.prefix(showAllAssociations ? model.ranked.count : 4)
+    }
+
+    private func associationRow(_ row: RankedEffect) -> some View {
+        let tint = effectTint(row)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Image(systemName: associationSymbol(row.behavior))
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(tint)
+                    .frame(width: 34, height: 34)
+                    .background(tint.opacity(0.10), in: Circle())
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(displayBehavior(row.behavior))
+                        .font(StrandFont.body.weight(.semibold))
+                        .foregroundStyle(StrandPalette.textPrimary)
+                        .lineLimit(1)
+                    Text("\(row.outcome) · \(row.leadLagText)")
+                        .font(StrandFont.caption)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                }
+                Spacer(minLength: 8)
+                Text(String(format: "%+.2f", row.effect.cohensD))
+                    .font(StrandFont.statValue)
+                    .foregroundStyle(tint)
+            }
+            HStack(spacing: 8) {
+                Text("With").font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                Text(format(row.effect.meanWith, outcome: row.outcome))
+                    .font(StrandFont.captionNumber.weight(.semibold))
+                    .foregroundStyle(effectMovedGood(row) ? StrandPalette.success : StrandPalette.destructive)
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(StrandPalette.textTertiary)
+                Text("Without").font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                Text(format(row.effect.meanWithout, outcome: row.outcome))
+                    .font(StrandFont.captionNumber.weight(.semibold))
+                    .foregroundStyle(effectMovedGood(row) ? StrandPalette.destructive : StrandPalette.success)
+                Spacer()
+            }
+            .padding(.leading, 44)
+        }
+        .padding(.vertical, 10)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(row.sentence())
+    }
+
+    private var insightCard: some View {
+        PaperCard {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "sparkles")
+                    .foregroundStyle(StrandPalette.effortAccent)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(model.ranked.first?.sentence() ?? "Keep logging to uncover your strongest personal association.")
+                        .font(StrandFont.body)
+                        .foregroundStyle(StrandPalette.textPrimary)
+                    Text("Based on your data · Local only")
+                        .font(StrandFont.micro)
+                        .foregroundStyle(StrandPalette.textSecondary)
                 }
             }
         }
@@ -189,18 +323,82 @@ struct InsightsHubView: View {
     // MARK: - Method / honesty note
 
     private var methodNote: some View {
-        NoopCard {
+        PaperCard {
             VStack(alignment: .leading, spacing: 6) {
-                Text("How to read this").strandOverline()
-                Text(String(localized: "Everything here is a pattern in your own logged days: an association with an effect size and confidence, never a cause or a diagnosis. Population patterns are shown as \u{201C}typical\u{201D} and are always overridden by your own data once you have enough of it. Approximations, not WHOOP\u{2019}s scores; not a medical device."))
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textTertiary)
+                Text("How this works").strandOverline()
+                Text("We analyze your data to find what's associated with better outcomes for you. Results are personal and may change over time.")
+                    .font(StrandFont.caption)
+                    .foregroundStyle(StrandPalette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
 
     // MARK: - Helpers
+
+    private var emptyAssociationMessage: LocalizedStringKey {
+        if filter == .strain {
+            return "Effort associations are not available from the current association engine yet. No values are being inferred."
+        }
+        return "Not enough overlap yet. Keep logging days both with and without a behaviour so NOOP can read its effect."
+    }
+
+    private func applyFilter() {
+        switch filter {
+        case .all:
+            model.rankAll()
+        case .recovery:
+            outcome = .recovery
+            model.rankFor(.recovery)
+        case .sleep:
+            outcome = .sleep
+            model.rankFor(.sleep)
+        case .stress:
+            outcome = .rhr
+            model.rankFor(.rhr)
+        case .strain:
+            model.clearRanking()
+        }
+    }
+
+    private func effectTint(_ row: RankedEffect) -> Color {
+        guard row.effect.delta != 0 else { return StrandPalette.textSecondary }
+        return effectMovedGood(row) ? StrandPalette.success : StrandPalette.destructive
+    }
+
+    private func effectMovedGood(_ row: RankedEffect) -> Bool {
+        let higherIsBetter = row.outcome != "Resting HR"
+        return (row.effect.delta > 0) == higherIsBetter
+    }
+
+    private func format(_ value: Double, outcome: String) -> String {
+        switch outcome {
+        case "HRV": return "\(Int(value.rounded())) ms"
+        case "Resting HR": return "\(Int(value.rounded())) bpm"
+        default: return "\(Int(value.rounded()))%"
+        }
+    }
+
+    private func associationSymbol(_ behavior: String) -> String {
+        let value = behavior.lowercased()
+        if value.contains("sleep") || value.contains("bed") { return "moon.fill" }
+        if value.contains("stress") || value.contains("meditat") { return "brain.head.profile" }
+        if value.contains("walk") || value.contains("step") || value.contains("exercise") { return "figure.walk" }
+        if value.contains("alcohol") { return "wineglass.fill" }
+        if value.contains("caffeine") || value.contains("coffee") { return "cup.and.saucer.fill" }
+        return "sparkles"
+    }
+
+    private func displayBehavior(_ behavior: String) -> String {
+        var text = behavior.trimmingCharacters(in: .whitespacesAndNewlines)
+        for prefix in ["Did you ", "Have you ", "Were you "] where text.hasPrefix(prefix) {
+            text.removeFirst(prefix.count)
+            break
+        }
+        if text.hasSuffix("?") { text.removeLast() }
+        guard let first = text.first else { return behavior }
+        return first.uppercased() + text.dropFirst()
+    }
 
     private func toneColor(_ tone: StrandTone) -> Color {
         switch tone {
@@ -625,6 +823,26 @@ final class InsightsHubViewModel: ObservableObject {
                                    outcomeByDay: outcomeDays,
                                    outcome: outcome.outcomeName)
     }
+
+    /// Presentation-only combined feed using the same EffectRanker and stored series as
+    /// each individual outcome filter; no scores or persisted data are changed.
+    func rankAll() {
+        ranked = Outcome.allCases
+            .flatMap { outcome in
+                EffectRanker.rank(behaviors: behaviours,
+                                  outcomeByDay: outcomeByKey[outcome.key] ?? [:],
+                                  outcome: outcome.outcomeName)
+            }
+            .sorted { lhs, rhs in
+                let left = abs(lhs.effect.cohensD)
+                let right = abs(rhs.effect.cohensD)
+                if left != right { return left > right }
+                if lhs.behavior != rhs.behavior { return lhs.behavior < rhs.behavior }
+                return lhs.outcome < rhs.outcome
+            }
+    }
+
+    func clearRanking() { ranked = [] }
 
     // MARK: Static shaping helpers
 
