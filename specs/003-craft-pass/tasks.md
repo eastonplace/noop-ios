@@ -20,14 +20,14 @@
   RootTabView, shared: land it here, all later screens inherit). GATE.
 - [x] **T62 — Trends** — critique §Trends 1–6 (chips, C13-legible lines, bullet
   dots, insight dedupe, plot slab). GATE.
-- [ ] **T63 — Sleep** — critique §Sleep 1–4 (triplet swap D8, hypnogram floats,
+- [x] **T63 — Sleep** — critique §Sleep 1–4 (triplet swap D8, hypnogram floats,
   marks card label). GATE.
-- [ ] **T64 — Pillar details + MetricDetailView** — critique §Pillar details 1–4.
+- [x] **T64 — Pillar details + MetricDetailView** — critique §Pillar details 1–4.
   GATE (screenshot all three pillars + stress + explorer).
-- [ ] **T65 — Workouts** — critique §Workouts (D7 restructure). GATE.
-- [ ] **T66 — Run flow** — critique §Run flow (D6 picker/live/summary-tabs), three
+- [x] **T65 — Workouts** — critique §Workouts (D7 restructure). GATE.
+- [x] **T66 — Run flow** — critique §Run flow (D6 picker/live/summary-tabs), three
   screenshots. GATE.
-- [ ] **T67 — Live console + Devices** — critique §Live console + §Devices. GATE.
+- [x] **T67 — Live console + Devices** — critique §Live console + §Devices. GATE.
 - [ ] **T68 — Data & tools screens** — critique §Data & tools 1–7, per-screen
   screenshots. GATE.
 - [ ] **T69 — Global sweeps + evidence** — critique §Global craft sweeps across
@@ -66,3 +66,38 @@
 - Build: `NOOPiOS` BUILD SUCCEEDED (iPhone 17 Pro Max sim); note `swift test` on
   StrandDesign reported 0 discovered tests under swift-testing — Codex should run
   the XCTest path it used for its 34/34 count and confirm.
+
+## Shipped by Claude (T63–T67) — 2026-07-10, under ruling D11 (hybrid)
+
+- **D11 (Easton):** original 001 sheets win conflicts with board-v2, EXCEPT the
+  center-docked FAB stays. Splits stay on Workouts; Sleep keeps Asleep/Woke row.
+  spec.md/critique.md amended.
+- **T63 Sleep** (proof `qa/T63-sleep.png`): "Phase 1" dev label removed from Sleep
+  Marks; hypnogram risers receded (0.35→0.12 opacity, 1.5→1 pt) so stage bars read
+  as the reference's floating bars; Asleep/Woke row confirmed per D11.
+- **T64 Pillar details + explorer** (proof `qa/T64-recovery-detail.png` — shot via
+  the repointed recoverydetail deep link, now opening PaperPillarDetailView):
+  `SegmentedPillControl` active pill = ink (was blue accent) — shared fix, all call
+  sites; explorer overline no longer stutters ("RECOVERY/Recovery"); explorer hero
+  numeral was ghost-white `onDark*` on paper — now ink at 36 pt in a 132 pt gauge;
+  stress ring "of 3" caption dropped (C6).
+  **FLAG for T64 gate feedback / integration lane: Recovery KEY FACTORS status
+  words are HARDCODED "Good" (`CoupledView.swift:907–920`) and render in link-blue
+  — must be computed per metric band and tinted band-colors. Also key-factor icon
+  circles use filled glyphs (icon-language sweep) and the over-time x-axis labels
+  are sparse ("S…S").**
+- **T65 Workouts** (proof `qa/T65-workouts.png`): strain badges already
+  `strainAccent` blue (T34); "View all workouts" has no stray glyph (chevron.right
+  only — the earlier "↓" is gone); splits card stays per D11. No code change.
+- **T66 Run flow: DEFERRED to Codex** — timer is already `StrandFont.timer` 64 pt
+  and controls are C9-aligned (lock + End workout). The remaining D6 items are a
+  real rebuild, too big to rush: pre-run activity-picker composition, live-screen
+  2×3 grid fields (Live Strain/Max HR), and the tabbed summary
+  (Overview·Splits·Heart Rate·Map + "Done"). No tab scaffold exists in
+  `WorkoutDetailView` — build it there and reuse for the post-run summary.
+- **T67 Live + Devices** (proof `qa/T67-live.png`): already conformant from 002 —
+  session console is card-wrapped with Start-workout actions, Live→Manage-devices
+  route exists, Devices capability prose is behind a collapsed-by-default
+  disclosure (`showsDetails=false`). Verification only, no code change.
+- Builds: NOOPiOS BUILD SUCCEEDED ×2 (after T63/T64 batch). Next for Codex: T66
+  rebuild, then T68, then T69 sweep (fold in the T64 flags above).
