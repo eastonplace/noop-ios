@@ -46,17 +46,16 @@ extension WidgetSnapshot {
             let anchorIsToday = day.day == Repository.localDayKey(now)
             restScore = restByDay[day.day] ?? (anchorIsToday ? restSeries.last?.value : nil)
         }
-        let snap = WidgetSnapshot(
-            recovery: day?.recovery.map { Int($0.rounded()) },
+        let snap = WidgetSnapshot.publishing(
+            recovery: day?.recovery,
+            storedStrain: day?.strain,
+            sleepScore: restScore,
             bpm: model.bpm ?? model.live.heartRate,
-            batteryPct: model.live.batteryPct.map { Int($0.rounded()) },
+            batteryPct: model.live.batteryPct,
             bonded: model.live.bonded,
-            updated: Date(),
-            // Publish at the display boundary so widget/watch surfaces never invent their own scale math.
-            effort: day?.strain.map { StrainScale.displayValue(fromStored: $0) },
-            rest: restScore.map { Int($0.rounded()) },
-            hrv: day?.avgHrv.map { Int($0.rounded()) },
-            restingHr: day?.restingHr
+            hrv: day?.avgHrv,
+            restingHr: day?.restingHr,
+            updated: Date()
         )
         snap.save()
         WidgetCenter.shared.reloadAllTimelines()

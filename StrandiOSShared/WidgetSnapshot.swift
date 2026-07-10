@@ -1,4 +1,5 @@
 import Foundation
+import StrandDesign
 
 /// Small, Codable glance snapshot shared between the iOS app and its widget/Live-Activity extension
 /// via an App Group. The app writes it; the widget reads it. Keeping it tiny avoids any cross-process
@@ -27,6 +28,32 @@ public struct WidgetSnapshot: Codable, Equatable {
         self.rest = rest
         self.hrv = hrv
         self.restingHr = restingHr
+    }
+
+    /// Canonical phone publication boundary for the three scores. Stored Strain is
+    /// converted exactly once here; every widget consumer receives the 0–21 value.
+    public static func publishing(
+        recovery: Double?,
+        storedStrain: Double?,
+        sleepScore: Double?,
+        bpm: Int?,
+        batteryPct: Double?,
+        bonded: Bool,
+        hrv: Double?,
+        restingHr: Int?,
+        updated: Date = Date()
+    ) -> WidgetSnapshot {
+        WidgetSnapshot(
+            recovery: recovery.map { Int($0.rounded()) },
+            bpm: bpm,
+            batteryPct: batteryPct.map { Int($0.rounded()) },
+            bonded: bonded,
+            updated: updated,
+            effort: storedStrain.map { StrainScale.displayValue(fromStored: $0) },
+            rest: sleepScore.map { Int($0.rounded()) },
+            hrv: hrv.map { Int($0.rounded()) },
+            restingHr: restingHr
+        )
     }
 
     /// App Group suite the app and widget both use. Injected from the `APP_GROUP_ID` build setting

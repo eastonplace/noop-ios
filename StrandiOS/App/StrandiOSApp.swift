@@ -270,11 +270,28 @@ private struct iOSRootView: View {
 /// DEBUG-only screenshot harness. Maps `--demo-screen <name>` to a single screen so a seeded
 /// simulator build can be captured deterministically (verification + marketing). Stripped from Release.
 enum DemoScreens {
+    static let routeNames: [String] = [
+        "today", "trends", "sleep", "live", "stress", "workouts", "health",
+        "insights", "insightshub", "explore", "compare", "settings", "applehealth",
+        "storage", "trendsreport", "fused", "scoringguide", "updates", "xiaomi",
+        "intervals", "watchsetup", "watchabout", "dashboardeditor",
+        "keymetricseditor", "data", "backup", "support", "labbook", "automations",
+        "alarms", "testcentre", "rhythmconsent", "rhythm", "liveworkout",
+        "preworkout", "recoverydetail", "straindetail", "sleepdetail", "devices",
+        "devicescatalog", "fitnessage", "vitality", "addwizard", "ouraonboarding",
+        "ouradevice",
+    ]
+
     /// The screen named by `--demo-screen <name>`, or nil if the arg is absent/unknown.
     static var requested: AnyView? {
         let args = CommandLine.arguments
         guard let i = args.firstIndex(of: "--demo-screen"), i + 1 < args.count else { return nil }
-        switch args[i + 1].lowercased() {
+        return view(named: args[i + 1])
+    }
+
+    /// Pure route resolver used by both the launch harness and the iOS smoke test.
+    static func view(named name: String) -> AnyView? {
+        switch name.lowercased() {
         case "today":    return AnyView(TodayView())
         case "trends":   return AnyView(TrendsView())
         case "sleep":    return AnyView(SleepView())

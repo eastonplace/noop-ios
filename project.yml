@@ -144,6 +144,22 @@ targets:
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/NOOP.app/Contents/MacOS/NOOP"
         BUNDLE_LOADER: "$(TEST_HOST)"
 
+  NOOPiOSTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - StrandiOSTests
+    dependencies:
+      - target: NOOPiOS
+      - package: StrandDesign
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.eastonplace.noop.iostests
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/NOOP.app/NOOP"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+
   # ---------------------------------------------------------------------------
   # iOS app target (community build-from-source; never distributed via the App
   # Store — NOOP stays anonymous). Reuses the five shared packages + most of the
@@ -441,6 +457,10 @@ schemes:
         NOOPiOS: all
     run:
       config: Debug
+    test:
+      config: Debug
+      targets:
+        - NOOPiOSTests
   # `xcodebuild -scheme NOOPWatch …` compile-verifies the watchOS app + its embedded complication
   # extension (M3). Name matches the app-build CI matrix entry the verify script adds.
   NOOPWatch:

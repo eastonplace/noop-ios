@@ -556,11 +556,16 @@
     `NOOPWatchComplications` build/run + watch-glance screenshot were attempted
     and are host-blocked because Xcode has no watchOS 26.5 platform/runtime
     installed; no simulated watch screenshot was fabricated.
-- [ ] **T53 — Integration/regression tests**
+- [x] **T53 — Integration/regression tests**
   - Add tests covering: repository→snapshot publication for the three pillars;
     StrainScale usage at the widget-publish boundary; route-resolution smoke (every
     string route returns a view); xcstrings completeness for renamed keys. Suite
     green. Commit.
+  - Evidence: `NOOPiOSTests/PaperIntegrationContractTests` covers canonical
+    repository-to-widget publication (including the sole stored 0–100 → displayed
+    0–21 StrainScale boundary), all 45 deterministic demo routes, and all four
+    localization catalogs. `NOOPiOS` test action and simulator build passed;
+    `StrandDesign` 36/36 and `Tools/lint-paper-localizations.sh` passed.
 
 ## Phase 6 — QA + handoff
 
