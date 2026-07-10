@@ -245,8 +245,14 @@
 
 ## Phase 5 — Live + workouts
 
-- [ ] **T15 — Live console (S4)** — Modify `Strand/Screens/LiveView.swift`. Spec §6-S4.
+- [x] **T15 — Live console (S4)** — Modify `Strand/Screens/LiveView.swift`. Spec §6-S4.
   Verify vs sheet 1-4. Commit.
+  - Verified 2026-07-09: `NOOPiOS` built and ran. `qa/T15-live.jpg` confirms the
+    Paper device card, black Scan & connect action, 96-pt live-red HR ring, zone/HRV/RHR
+    rows, and physiology-status card against sheet 1-4. The simulator has no bonded
+    strap, so status and live values remain honestly empty; all pre-existing session,
+    pairing, haptic, disconnect, device-management, and diagnostic controls remain
+    reachable below the Paper summary.
 - [ ] **T16 — Workouts (S5)** — Modify `Strand/Screens/WorkoutsView.swift`
   (+ `WorkoutDetailView.swift` shared parts). Spec §6-S5. Verify vs sheet 1-5. Commit.
 - [ ] **T17 — Run flow pre/live/paused (S24–S26)** — Modify the run UI located in T01.

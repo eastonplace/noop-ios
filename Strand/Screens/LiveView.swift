@@ -21,6 +21,7 @@ import WhoopStore
 struct LiveView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var live: LiveState
+    @EnvironmentObject private var repo: Repository
     /// Cross-screen navigation — drives the "Manage devices" affordance to the first-class Devices
     /// manager (where bands are paired / switched). The shell (sidebar on macOS, a sheet on iOS) routes
     /// the request; LiveView never needs to know which.
@@ -68,10 +69,11 @@ struct LiveView: View {
 
     var body: some View {
         ScreenScaffold(title: "Live Body Console",
-                       subtitle: "Current physiology, strap trust, and session controls in one working view.",
-                       topBackground: liquidScaffoldSky()) {
+                       subtitle: nil,
+                       topBackground: nil) {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
-                consoleHeader
+                PaperLiveDeviceCard(deviceName: activeDeviceName,
+                                    activeConnection: activeConnection)
                 // Can't-connect-at-all guidance: the strap wiped its bond (firmware update / WHOOP app
                 // re-bond), so connects loop on "Peer removed pairing information". Show the re-pair steps
                 // right here instead of silently retrying. (5/MG firmware reset, 2026-06)
@@ -80,13 +82,10 @@ struct LiveView: View {
                 // also appears in Settings). A 5/MG strap still bonded to the WHOOP app refuses pairing
                 // with "Encryption is insufficient" — this tells the user to free it and re-pair.
                 if let hint = live.pairingHint { pairingHintBanner(hint) }
-                // Primary Connect affordance, surfaced ABOVE the fold whenever there's no link. The real
-                // Scan & Connect control otherwise lives in `controls` (below the Signal Trust grid), so
-                // an offline user saw only inert copy up top. Gated purely on `!live.connected`, so it
-                // disappears the instant the radio connects. Shared with macOS — it reuses `scanButton`,
-                // which the wide layout already renders in `controls`.
-                if !live.connected { offlineConnectCallout }
-                bodyConsole
+                scanButton
+                PaperLiveHeartCard(hrMax: model.profile.hrMax,
+                                   restingHR: repo.today?.restingHr)
+                PaperLiveStatusCard(activeConnection: activeConnection)
                 // Low-bandwidth fallback note (#80): the radio couldn't sustain the WHOOP 4 R10/R11 raw
                 // realtime burst, so live HR is riding the standard BLE Heart-Rate profile instead. Live HR
                 // still works — this is informational, not an error — so it sits right under the readout in
@@ -94,13 +93,16 @@ struct LiveView: View {
                 if Self.shouldShowStandardHRNote(live.standardHRMode) {
                     standardHRNote(live.standardHRMode ?? "")
                 }
-                signalTrustRail
+                SectionHeader("Advanced controls")
                 sessionConsole
                 // Show the strap picker whenever we're not actively streaming, so a user with both a
                 // WHOOP 4 and a 5/MG can switch between them. (It used to hide once `bonded`, which is
                 // sticky across disconnects — so after the first pairing the picker vanished for good.)
                 if !activeConnection { modelPicker }
-                controls
+                HStack(spacing: NoopMetrics.rowSpacing) {
+                    buzzButton
+                    disconnectButton
+                }
                 manageDevicesRow
                 LiveLogCard()
             }
@@ -675,6 +677,159 @@ struct LiveView: View {
 }
 
 // MARK: - Live leaves (each owns LiveState so a 1 Hz notify re-renders only the leaf — the Today pattern)
+
+private struct PaperLiveDeviceCard: View {
+    @EnvironmentObject private var live: LiveState
+    let deviceName: String
+    let activeConnection: Bool
+
+    var body: some View {
+        PaperCard {
+            HStack(spacing: 14) {
+                Image(systemName: "sensor.tag.radiowaves.forward.fill")
+                    .font(.system(size: 28, weight: .medium))
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .frame(width: 56, height: 56)
+                    .background(StrandPalette.inset,
+                                in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(deviceName == "WHOOP" ? "NOOP Strap" : deviceName)
+                        .font(StrandFont.cardTitle)
+                        .foregroundStyle(StrandPalette.textPrimary)
+                    StatusBadge(activeConnection ? "Connected" : "Not connected",
+                                style: activeConnection ? .connected : .notConnected)
+                    Text(deviceDetail)
+                        .font(StrandFont.micro)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    private var deviceDetail: String {
+        let battery = live.batteryPct.map { "Battery \(Int($0))%" } ?? String(localized: "Battery —")
+        let worn = activeConnection ? (live.worn ? String(localized: "Worn") : String(localized: "Not worn")) : String(localized: "Wear unknown")
+        return "\(battery) · \(worn) · \(LiveSyncFormat.lastSyncLabel(live.lastSyncedAt))"
+    }
+}
+
+private struct PaperLiveHeartCard: View {
+    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var live: LiveState
+    let hrMax: Int
+    let restingHR: Int?
+
+    private var bpm: Int? { model.bpm }
+    private var zoneSet: HRZoneSet { HRZones.zones(maxHR: Double(max(1, hrMax)), source: "profile") }
+    private var zone: Int { bpm.map { zoneSet.zoneNumber(forBPM: Double($0)) } ?? 0 }
+
+    var body: some View {
+        PaperCard {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("HEART RATE")
+                    .font(StrandFont.sectionOverline)
+                    .tracking(StrandFont.sectionOverlineTracking)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                HStack(spacing: 20) {
+                    VStack(spacing: 8) {
+                        if let bpm {
+                            ScoreRing(value: Double(bpm), range: 0...Double(max(1, hrMax)),
+                                      accent: StrandPalette.liveRed, size: 96,
+                                      format: { "\(Int($0.rounded()))" }, centerCaption: "BPM")
+                        } else {
+                            ZStack {
+                                Circle().stroke(StrandPalette.inset, lineWidth: 7)
+                                VStack(spacing: 1) {
+                                    Text("—").font(StrandFont.ringScoreLarge)
+                                    Text("BPM").font(StrandFont.micro)
+                                }
+                                .foregroundStyle(StrandPalette.textTertiary)
+                            }
+                            .frame(width: 96, height: 96)
+                        }
+                        StatusBadge(activeConnection ? "Live" : "Waiting",
+                                    style: activeConnection ? .live : .notConnected,
+                                    tint: activeConnection ? StrandPalette.liveRed : nil)
+                    }
+                    VStack(spacing: 0) {
+                        metricRow(label: zone > 0 ? "ZONE \(zone)" : "ZONE 1",
+                                  value: zoneThreshold)
+                        metricRow(label: "HRV", value: rollingRMSSD.map { "\(Int($0.rounded())) ms" } ?? "—",
+                                  positive: rollingRMSSD != nil)
+                        metricRow(label: "RHR", value: restingHR.map { "\($0) bpm" } ?? "—",
+                                  divider: false)
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+    }
+
+    private var activeConnection: Bool { live.connected && live.bonded }
+
+    private var rollingRMSSD: Double? {
+        let values = Array(live.rrRecent.suffix(12)).map(Double.init)
+        guard values.count >= 3 else { return nil }
+        let differences = zip(values.dropFirst(), values).map { $0 - $1 }
+        return sqrt(differences.map { $0 * $0 }.reduce(0, +) / Double(differences.count))
+    }
+
+    private var zoneThreshold: String {
+        let selected = zoneSet.zones.first(where: { $0.number == max(1, zone) }) ?? zoneSet.zones[0]
+        return "< \(Int(selected.upper.rounded())) bpm"
+    }
+
+    private func metricRow(label: String, value: String, positive: Bool = false,
+                           divider: Bool = true) -> some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(label).font(StrandFont.micro.weight(.semibold))
+                    .foregroundStyle(StrandPalette.textSecondary)
+                Text(value).font(StrandFont.captionNumber)
+                    .foregroundStyle(StrandPalette.textPrimary)
+            }
+            Spacer(minLength: 4)
+            if positive { Circle().fill(StrandPalette.success).frame(width: 7, height: 7) }
+        }
+        .frame(minHeight: 43)
+        .overlay(alignment: .bottom) {
+            if divider { Rectangle().fill(StrandPalette.hairline).frame(height: 1) }
+        }
+    }
+}
+
+private struct PaperLiveStatusCard: View {
+    @EnvironmentObject private var live: LiveState
+    let activeConnection: Bool
+
+    var body: some View {
+        PaperCard {
+            HStack(spacing: 12) {
+                Image(systemName: activeConnection ? "checkmark" : "antenna.radiowaves.left.and.right")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(activeConnection ? StrandPalette.success : StrandPalette.textSecondary)
+                    .frame(width: 38, height: 38)
+                    .background((activeConnection ? StrandPalette.chargeTint : StrandPalette.inset), in: Circle())
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("PHYSIOLOGY STATUS")
+                        .font(StrandFont.sectionOverline)
+                        .tracking(StrandFont.sectionOverlineTracking)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                    Text(activeConnection ? "All systems normal" : "Ready to connect")
+                        .font(StrandFont.body)
+                        .foregroundStyle(StrandPalette.textPrimary)
+                    Text(activeConnection
+                         ? "Last updated \(LiveSyncFormat.lastSyncLabel(live.lastSyncedAt))"
+                         : "Connect a strap to begin live monitoring")
+                        .font(StrandFont.micro)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                }
+            }
+        }
+    }
+}
 
 /// The header stats strip (device / battery / worn / last sync). Owns LiveState so battery + wear + sync
 /// updates re-render only this row, never the whole console header.
