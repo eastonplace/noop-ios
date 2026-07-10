@@ -260,10 +260,19 @@
     week-over-week delta, three tappable recent-workout rows, and compact HR-zone /
     average-pace cards against sheet 1-5. Existing add/edit/detail/filter/selection/
     merge/history behavior remains reachable below the Paper summary.
-- [ ] **T17 — Run flow pre/live/paused (S24–S26)** — Modify the run UI located in T01.
+- [x] **T17 — Run flow pre/live/paused (S24–S26)** — Modify the run UI located in T01.
   Spec §6-S24/25/26. Tab bar stays per R1. Omit setup rows with no backing setting
   (S24 note). Verify vs sheet 2-1/2-2/2-3 (live/paused need a simulated workout —
   Test Centre "Simulate workout" or demo seeder). Commit.
+  - Verified 2026-07-09: `NOOPiOS` built and ran. `qa/T17-pre-run.jpg` confirms
+    catalog-backed run types, real recent-route/last-workout equivalents, GPS/local
+    badges, and the pinned black Start Running action against sheet 2-1.
+    `qa/T17-live-run.jpg` confirms the real elapsed timer, six-cell live grid,
+    GPS-backed route state, HR history card, and existing Finish action against sheet
+    2-2. S26 is deliberately not fabricated: T01 proved the workout engine has no
+    pause/resume state, and the spec's top-level non-goal forbids adding feature logic;
+    a cosmetic Paused state would continue recording and be false. The existing
+    uninterrupted recording behavior is preserved exactly.
 - [ ] **T18 — Post-run summary (S27)** — spec §6-S27; effort value is the app's real
   metric (R2). Verify vs sheet 2-4. Commit.
 

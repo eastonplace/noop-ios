@@ -40,33 +40,23 @@ struct LiveWorkoutView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
-                let cards: [AnyView] = [
-                    AnyView(header),
-                    AnyView(heroHeartRate),
-                    AnyView(effortGauge),
-                    AnyView(zoneRail),
-                    AnyView(statsGrid),
-                ]
-                ForEach(Array(cards.enumerated()), id: \.offset) { index, card in
-                    card.staggeredAppear(index: index)
-                }
-                // Live-observing leaf: renders the sensor row (and its entrance stagger) only when a
-                // standard fitness sensor is feeding metrics, refreshing on its own packets without
-                // re-rendering the HR hero / effort gauge above (scroll-stutter isolation).
-                SensorRowIfPresent()
-                Spacer(minLength: NoopMetrics.space3)
-                endButton
+                header.staggeredAppear(index: 0)
+                timerBlock.staggeredAppear(index: 1)
+                PaperLiveWorkoutStatsGrid(recorder: model.gpsRecorder)
+                    .staggeredAppear(index: 2)
+                PaperWorkoutMapCard(recorder: model.gpsRecorder)
+                    .staggeredAppear(index: 3)
+                paperHeartRateCard.staggeredAppear(index: 4)
+                controlRow
+                // Existing Effort and zone reads remain available below the S25 composition.
+                effortGauge
+                zoneRail
             }
             .screenPadding()
-            .padding(.vertical, NoopMetrics.space6)
+            .padding(.vertical, 16)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        // A scenic Effort-tinted backdrop behind the whole in-exercise screen, fading to the base — the
-        // live workout reads as an Effort-world hero, not a flat panel.
-        .background {
-            ScenicHeroBackground(domain: .effort)
-                .ignoresSafeArea()
-        }
+        .background(StrandPalette.surfaceBase.ignoresSafeArea())
         // If the workout ended elsewhere (process restart cleared it), close the screen.
         .onChangeCompat(of: model.activeWorkout == nil) { gone in if gone { onClose() } }
         // Arm the realtime HR stream while the in-exercise screen is up (#681). On a WHOOP 5/MG live HR
@@ -90,22 +80,81 @@ struct LiveWorkoutView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("RECORDING WORKOUT")
-                    .font(StrandFont.overline).tracking(StrandFont.overlineTracking)
-                    .foregroundStyle(StrandPalette.metricRose)
-                Text("Workout")
-                    .font(StrandFont.title1).foregroundStyle(StrandPalette.textPrimary)
-            }
+        HStack(alignment: .center, spacing: 10) {
+            Text("N O O P")
+                .font(StrandFont.wordmark)
+                .tracking(StrandFont.wordmarkTracking)
+                .foregroundStyle(StrandPalette.textPrimary)
             Spacer()
-            if let start = model.activeWorkout?.start {
-                TimelineView(.periodic(from: .now, by: 1)) { _ in
+            Text(model.activeWorkout?.sport ?? String(localized: "Workout"))
+                .font(StrandFont.caption.weight(.semibold))
+                .foregroundStyle(StrandPalette.textSecondary)
+            StatusBadge("Live", style: .live)
+        }
+    }
+
+    @ViewBuilder
+    private var timerBlock: some View {
+        if let start = model.activeWorkout?.start {
+            TimelineView(.periodic(from: .now, by: 1)) { _ in
+                VStack(spacing: 3) {
                     Text(Self.elapsed(since: start))
-                        .font(StrandFont.number(34)).monospacedDigit()
+                        .font(StrandFont.timer)
+                        .tracking(StrandFont.timerTracking)
+                        .monospacedDigit()
                         .foregroundStyle(StrandPalette.textPrimary)
+                    Text("Elapsed Time")
+                        .font(StrandFont.micro)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                }
+                .frame(maxWidth: .infinity)
+            }
+        }
+    }
+
+    private var paperHeartRateCard: some View {
+        let values = model.activeWorkout?.samples.suffix(360).map { Double($0.bpm) } ?? []
+        return PaperCard {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("HEART RATE (LAST 3 HOURS)")
+                        .font(StrandFont.sectionOverline)
+                        .tracking(StrandFont.sectionOverlineTracking)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                    Spacer()
+                    Text(model.bpm.map { "\($0) bpm" } ?? "—")
+                        .font(StrandFont.captionNumber)
+                        .foregroundStyle(StrandPalette.liveRed)
+                }
+                if values.count > 1 {
+                    Sparkline(values: values,
+                              gradient: Gradient(colors: [StrandPalette.chargeAccent,
+                                                          StrandPalette.chargeAccent]),
+                              range: 100...180, lineWidth: 2,
+                              showsArea: false, showsHead: false, showsHover: false)
+                        .frame(height: 90)
+                } else {
+                    Text("Heart-rate history will draw as the workout records.")
+                        .font(StrandFont.caption)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .frame(maxWidth: .infinity, minHeight: 90, alignment: .center)
                 }
             }
+        }
+    }
+
+    private var controlRow: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "lock.open.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(StrandPalette.textPrimary)
+                .frame(width: 44, height: 44)
+                .background(StrandPalette.card, in: Circle())
+                .overlay(Circle().strokeBorder(StrandPalette.cardBorder, lineWidth: 1))
+                .accessibilityLabel("Screen controls unlocked")
+            // The existing workout engine has no pause/resume state. Per the visual-only non-goal,
+            // do not add a cosmetic pause button that would keep recording behind a "Paused" label.
+            endButton
         }
     }
 
@@ -241,6 +290,111 @@ struct LiveWorkoutView: View {
         case 4: return String(localized: "Threshold")
         case 5: return String(localized: "Maximum")
         default: return ""
+        }
+    }
+}
+
+private struct PaperLiveWorkoutStatsGrid: View {
+    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var live: LiveState
+    @ObservedObject var recorder: GpsWorkoutRecorder
+    @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
+
+    private var unitSystem: UnitSystem { UnitSystem(rawValue: unitSystemRaw) ?? .metric }
+
+    var body: some View {
+        PaperCard(padding: 0) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: 3), spacing: 0) {
+                metric("DISTANCE", distanceText, nil)
+                metric("PACE", paceText, unitSystem == .imperial ? "/mi" : "/km")
+                metric("HEART RATE", model.bpm.map(String.init) ?? "—", "bpm", tint: StrandPalette.liveRed)
+                metric("CALORIES", "—", "kcal")
+                metric("CADENCE", live.sensorCadence.map { "\(Int($0.rounded()))" } ?? "—", "spm")
+                metric("ELEVATION", "—", unitSystem == .imperial ? "ft" : "m")
+            }
+        }
+    }
+
+    private func metric(_ label: String, _ value: String, _ unit: String?,
+                        tint: Color = StrandPalette.textPrimary) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label).font(StrandFont.micro.weight(.semibold))
+                .foregroundStyle(StrandPalette.textTertiary)
+                .lineLimit(1).minimumScaleFactor(0.7)
+            HStack(alignment: .firstTextBaseline, spacing: 3) {
+                Text(value).font(StrandFont.metricValue).foregroundStyle(tint)
+                    .lineLimit(1).minimumScaleFactor(0.65)
+                if let unit {
+                    Text(unit).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 76, alignment: .leading)
+        .padding(.horizontal, 11)
+        .overlay(alignment: .trailing) {
+            Rectangle().fill(StrandPalette.hairline).frame(width: 1)
+        }
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(StrandPalette.hairline).frame(height: 1)
+        }
+    }
+
+    private var distanceText: String {
+        guard recorder.distanceM > 0 else { return "—" }
+        let amount = unitSystem == .imperial ? recorder.distanceM / 1609.344 : recorder.distanceM / 1000
+        return String(format: "%.2f", amount)
+    }
+
+    private var paceText: String {
+        guard let secPerKm = recorder.paceSecPerKm else { return "—" }
+        let seconds = Int((unitSystem == .imperial ? secPerKm * 1.609344 : secPerKm).rounded())
+        return String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
+}
+
+private struct PaperWorkoutMapCard: View {
+    @ObservedObject var recorder: GpsWorkoutRecorder
+
+    var body: some View {
+        PaperCard(padding: 0) {
+            ZStack(alignment: .bottomLeading) {
+                ZStack {
+                    StrandPalette.inset
+                    Canvas { context, size in
+                        var grid = Path()
+                        for x in stride(from: 0.0, through: size.width, by: 36) {
+                            grid.move(to: CGPoint(x: x, y: 0))
+                            grid.addLine(to: CGPoint(x: x, y: size.height))
+                        }
+                        for y in stride(from: 0.0, through: size.height, by: 28) {
+                            grid.move(to: CGPoint(x: 0, y: y))
+                            grid.addLine(to: CGPoint(x: size.width, y: y))
+                        }
+                        context.stroke(grid, with: .color(StrandPalette.cardBorder), lineWidth: 1)
+                    }
+                    VStack(spacing: 6) {
+                        Image(systemName: recorder.pointCount > 0 ? "location.fill" : "location.slash")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundStyle(recorder.pointCount > 0 ? StrandPalette.link : StrandPalette.textTertiary)
+                        Text(recorder.pointCount > 0
+                             ? "\(recorder.pointCount) GPS points recorded"
+                             : "Waiting for GPS route")
+                            .font(StrandFont.caption)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                    }
+                }
+                .frame(height: 150)
+                HStack(spacing: 6) {
+                    Image(systemName: "map.fill")
+                    Text("Route saving · Local only")
+                }
+                .font(StrandFont.micro.weight(.semibold))
+                .foregroundStyle(StrandPalette.textPrimary)
+                .padding(.horizontal, 10)
+                .frame(height: 30)
+                .background(StrandPalette.card, in: Capsule())
+                .padding(12)
+            }
         }
     }
 }

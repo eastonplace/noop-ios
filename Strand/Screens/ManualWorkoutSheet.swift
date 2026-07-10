@@ -325,6 +325,7 @@ struct StartWorkoutSheet: View {
     private let heading: String
     private let explainer: String
     private let actionVerb: String
+    private let isWorkoutStart: Bool
 
     init(title: String? = nil, subtitle: String? = nil, actionVerb: String? = nil,
          onStart: @escaping (_ sport: String) -> Void) {
@@ -333,16 +334,173 @@ struct StartWorkoutSheet: View {
         self.explainer = subtitle
             ?? String(localized: "Pick a sport. NOOP records HR, peak, average and effort from the live feed.")
         self.actionVerb = actionVerb ?? String(localized: "Start")
+        self.isWorkoutStart = title == nil && actionVerb == nil
     }
 
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var repo: Repository
+    @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
     @State private var query = ""
     @State private var selected = WorkoutCatalog.defaultSportName
+    @State private var recentRows: [WorkoutRow] = []
 
     private var filtered: [WorkoutCatalog.Sport] { WorkoutCatalog.matching(query) }
+    private var unitSystem: UnitSystem { UnitSystem(rawValue: unitSystemRaw) ?? .metric }
     private var inputShape: RoundedRectangle { RoundedRectangle(cornerRadius: 10, style: .continuous) }
 
     var body: some View {
+        Group {
+            if isWorkoutStart { paperWorkoutStart }
+            else { compactSportPicker }
+        }
+        .task { recentRows = await repo.workoutRows(days: 365) }
+    }
+
+    private var paperWorkoutStart: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+                HStack {
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(StrandPalette.textPrimary)
+                            .frame(width: 36, height: 36)
+                            .background(StrandPalette.inset, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    Spacer()
+                    Text("N O O P")
+                        .font(StrandFont.wordmark)
+                        .tracking(StrandFont.wordmarkTracking)
+                        .foregroundStyle(StrandPalette.textPrimary)
+                    Spacer()
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(StrandPalette.textPrimary)
+                        .frame(width: 36, height: 36)
+                }
+
+                HStack(alignment: .top, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(workoutDisplayTitle)
+                            .font(StrandFont.cardTitle)
+                            .foregroundStyle(StrandPalette.textPrimary)
+                        Text(selectedSport?.isDistanceSport == true ? "Outdoor workout" : "Indoor workout")
+                            .font(StrandFont.caption)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                    }
+                    Spacer()
+                    VStack(alignment: .trailing, spacing: 6) {
+                        if selectedSport?.isDistanceSport == true {
+                            StatusBadge("GPS Ready", style: .ready)
+                        }
+                        StatusBadge("Route saving · Local only", style: .imported,
+                                    tint: StrandPalette.textSecondary)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    SectionHeader("Run type")
+                    HStack(spacing: 8) {
+                        ForEach(quickTypes) { sport in
+                            Button { selected = sport.name } label: {
+                                VStack(spacing: 7) {
+                                    Image(systemName: sport.isDistanceSport ? "figure.run" : "figure.run.treadmill")
+                                        .font(.system(size: 17, weight: .medium))
+                                    Text(shortSportName(sport.name))
+                                        .font(StrandFont.micro.weight(.semibold))
+                                        .lineLimit(1).minimumScaleFactor(0.7)
+                                }
+                                .foregroundStyle(StrandPalette.textPrimary)
+                                .frame(maxWidth: .infinity, minHeight: 64)
+                                .background(StrandPalette.card,
+                                            in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .strokeBorder(sport.name == selected ? StrandPalette.ink : StrandPalette.cardBorder,
+                                                  lineWidth: sport.name == selected ? 2 : 1))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+
+                if let routeWorkout {
+                    VStack(alignment: .leading, spacing: 10) {
+                        SectionHeader("Recent route")
+                        PaperCard {
+                            HStack(spacing: 12) {
+                                Image(systemName: "map.fill")
+                                    .font(.system(size: 24, weight: .medium))
+                                    .foregroundStyle(StrandPalette.link)
+                                    .frame(width: 64, height: 64)
+                                    .background(StrandPalette.inset,
+                                                in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(WorkoutSource.displaySport(routeWorkout.sport))
+                                        .font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
+                                    Text(routeSummary(routeWorkout))
+                                        .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                                    Text("Last used \(dateText(routeWorkout.startTs))")
+                                        .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(StrandPalette.textTertiary)
+                            }
+                        }
+                    }
+                }
+
+                if let last = recentRows.first {
+                    VStack(alignment: .leading, spacing: 10) {
+                        SectionHeader("Last workout")
+                        PaperCard {
+                            HStack(spacing: 12) {
+                                if let effort = last.strain {
+                                    ScoreRing(value: effort, range: 0...100,
+                                              accent: StrandPalette.effortAccent,
+                                              size: 56, lineWidth: 4)
+                                }
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(WorkoutSource.displaySport(last.sport))
+                                        .font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
+                                    Text(dateText(last.startTs))
+                                        .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                                    Text(lastWorkoutSummary(last))
+                                        .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                                }
+                                Spacer()
+                            }
+                        }
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    SectionHeader("All workout types")
+                    sportSearchAndList(maxHeight: 170)
+                }
+
+            }
+            .padding(16)
+        }
+        .background(StrandPalette.surfaceBase.ignoresSafeArea())
+        .safeAreaInset(edge: .bottom) {
+            NoopButton("\(actionVerb) \(selected)", systemImage: "play.fill",
+                       kind: .primary, fullWidth: true) {
+                onStart(selected)
+                dismiss()
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(StrandPalette.card.opacity(0.97))
+        }
+        #if os(iOS)
+        .noopSheetPresentation(largeFirst: true)
+        #endif
+    }
+
+    private var compactSportPicker: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.space4) {
             HStack(alignment: .top, spacing: NoopMetrics.space3) {
                 Image(systemName: "figure.run")
@@ -364,45 +522,7 @@ struct StartWorkoutSheet: View {
                 Spacer(minLength: 0)
             }
 
-            TextField("Search sport", text: $query)
-                .textFieldStyle(.plain)
-                .font(StrandFont.body)
-                .foregroundStyle(StrandPalette.textPrimary)
-                .padding(.horizontal, 12).padding(.vertical, 9)
-                .background(StrandPalette.surfaceInset, in: inputShape)
-                .overlay(inputShape.strokeBorder(StrandPalette.hairline, lineWidth: 1))
-                .accessibilityLabel("Search sport")
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(filtered) { sp in
-                        Button {
-                            selected = sp.name
-                        } label: {
-                            HStack(spacing: 6) {
-                                Text(sp.name)
-                                    .font(StrandFont.body)
-                                    .foregroundStyle(sp.name == selected
-                                                     ? StrandPalette.accent : StrandPalette.textPrimary)
-                                if sp.isDistanceSport {
-                                    Text("· GPS")
-                                        .font(StrandFont.footnote)
-                                        .foregroundStyle(StrandPalette.textTertiary)
-                                }
-                                Spacer(minLength: 0)
-                            }
-                            .contentShape(Rectangle())
-                            .padding(.horizontal, 12).padding(.vertical, 9)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Pick \(sp.name)")
-                        .accessibilityAddTraits(sp.name == selected ? [.isSelected] : [])
-                    }
-                }
-            }
-            .frame(maxHeight: 240)
-            .background(StrandPalette.surfaceInset, in: inputShape)
-            .overlay(inputShape.strokeBorder(StrandPalette.hairline, lineWidth: 1))
+            sportSearchAndList(maxHeight: 240)
 
             HStack(spacing: NoopMetrics.space3) {
                 NoopButton("Cancel", kind: .tertiary) { dismiss() }
@@ -423,6 +543,115 @@ struct StartWorkoutSheet: View {
         #endif
         .background(StrandPalette.surfaceOverlay)
     }
+
+    private func sportSearchAndList(maxHeight: CGFloat) -> some View {
+        VStack(spacing: 8) {
+            TextField("Search sport", text: $query)
+                .textFieldStyle(.plain)
+                .font(StrandFont.body)
+                .foregroundStyle(StrandPalette.textPrimary)
+                .padding(.horizontal, 12).padding(.vertical, 9)
+                .background(StrandPalette.surfaceInset, in: inputShape)
+                .overlay(inputShape.strokeBorder(StrandPalette.hairline, lineWidth: 1))
+                .accessibilityLabel("Search sport")
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(filtered) { sport in
+                        Button { selected = sport.name } label: {
+                            HStack(spacing: 6) {
+                                Text(sport.name)
+                                    .font(StrandFont.body)
+                                    .foregroundStyle(sport.name == selected
+                                                     ? StrandPalette.link : StrandPalette.textPrimary)
+                                if sport.isDistanceSport {
+                                    Text("· GPS").font(StrandFont.micro)
+                                        .foregroundStyle(StrandPalette.textTertiary)
+                                }
+                                Spacer()
+                                if sport.name == selected {
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 11, weight: .bold))
+                                        .foregroundStyle(StrandPalette.success)
+                                }
+                            }
+                            .contentShape(Rectangle())
+                            .padding(.horizontal, 12).padding(.vertical, 9)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .frame(maxHeight: maxHeight)
+            .background(StrandPalette.surfaceInset, in: inputShape)
+            .overlay(inputShape.strokeBorder(StrandPalette.hairline, lineWidth: 1))
+        }
+    }
+
+    private var selectedSport: WorkoutCatalog.Sport? { WorkoutCatalog.sport(named: selected) }
+
+    private var quickTypes: [WorkoutCatalog.Sport] {
+        var sports = ["Running", "Treadmill run", "Hiking"].compactMap {
+            WorkoutCatalog.sport(named: $0)
+        }
+        if let selectedSport, !sports.contains(selectedSport) {
+            sports[sports.count - 1] = selectedSport
+        }
+        return sports
+    }
+
+    private var workoutDisplayTitle: String {
+        switch selected {
+        case "Running": return String(localized: "Run")
+        case "Hiking": return String(localized: "Hike")
+        case "Cycling": return String(localized: "Ride")
+        default: return selected
+        }
+    }
+
+    private func shortSportName(_ name: String) -> String {
+        switch name {
+        case "Running": return String(localized: "Outdoor")
+        case "Treadmill run": return String(localized: "Treadmill")
+        case "Hiking": return String(localized: "Trail")
+        default: return name
+        }
+    }
+
+    private var routeWorkout: WorkoutRow? {
+        recentRows.first(where: { RouteStore.load(startTs: $0.startTs, sport: $0.sport) != nil })
+            ?? recentRows.first(where: { ($0.distanceM ?? 0) > 0 })
+    }
+
+    private func routeSummary(_ row: WorkoutRow) -> String {
+        let routeDistance = RouteStore.load(startTs: row.startTs, sport: row.sport)?.distanceM
+            ?? row.distanceM
+        return routeDistance.map { UnitFormatter.distanceFromMeters($0, system: unitSystem) }
+            ?? String(localized: "Local route")
+    }
+
+    private func lastWorkoutSummary(_ row: WorkoutRow) -> String {
+        [row.durationS.map(durationText), row.distanceM.map {
+            UnitFormatter.distanceFromMeters($0, system: unitSystem)
+        }]
+        .compactMap { $0 }
+        .joined(separator: " · ")
+    }
+
+    private func durationText(_ seconds: Double) -> String {
+        let minutes = max(0, Int((seconds / 60).rounded()))
+        return minutes >= 60 ? "\(minutes / 60)h \(minutes % 60)m" : "\(minutes)m"
+    }
+
+    private func dateText(_ timestamp: Int) -> String {
+        Self.dateFormatter.string(from: Date(timeIntervalSince1970: TimeInterval(timestamp)))
+    }
+
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale.current
+        formatter.setLocalizedDateFormatFromTemplate("MMM d yyyy")
+        return formatter
+    }()
 }
 
 #if DEBUG
