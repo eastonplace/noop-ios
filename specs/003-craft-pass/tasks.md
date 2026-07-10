@@ -7,7 +7,7 @@
 > external review. Do not start the next task until approved.** Apply gate feedback,
 > re-shoot, re-gate. The absorbed T56 punch list items live in critique.md.
 
-- [ ] **T60 — Gate**
+- [x] **T60 — Gate**
   - Verify `references/board-v2.png` exists (Easton drops it in). If missing, STOP.
   - `git tag pre-craft-pass` → push branch + tag to `private-noop-report`.
   - Read spec.md D-rulings + critique.md fully. Resolve D9 verifications
@@ -15,10 +15,10 @@
     `Tools/`, `DONATIONS.md`) and note answers here.
   - Confirm deep links recoverydetail/straindetail → PaperPillarDetailView (T56);
     fix if not.
-- [ ] **T61 — Today** — critique §Today items 1–8 (stress ribbon D3, health-tile
+- [x] **T61 — Today** — critique §Today items 1–8 (stress ribbon D3, health-tile
   icon language D2, Live-HR states D5, center FAB D4 — note D4 touches
   RootTabView, shared: land it here, all later screens inherit). GATE.
-- [ ] **T62 — Trends** — critique §Trends 1–6 (chips, C13-legible lines, bullet
+- [x] **T62 — Trends** — critique §Trends 1–6 (chips, C13-legible lines, bullet
   dots, insight dedupe, plot slab). GATE.
 - [ ] **T63 — Sleep** — critique §Sleep 1–4 (triplet swap D8, hypnogram floats,
   marks card label). GATE.

@@ -329,12 +329,10 @@ enum DemoScreens {
         case "rhythm": return AnyView(RhythmEmptyDemoHost())
         case "liveworkout": return AnyView(LiveWorkoutView(onClose: {}))
         case "preworkout": return AnyView(StartWorkoutSheet(onStart: { _ in }))
-        case "recoverydetail": return AnyView(MetricDetailView(
-            metric: MetricCatalog.all.first { $0.key == "recovery" }!
-        ))
-        case "straindetail": return AnyView(MetricDetailView(
-            metric: MetricCatalog.all.first { $0.key == "strain" }!
-        ))
+        // C10/T56: pillar deep links land on the canonical Paper details (same surface the
+        // Today trio opens), not the generic trend explorer.
+        case "recoverydetail": return AnyView(PaperPillarDetailView(kind: .charge))
+        case "straindetail": return AnyView(PaperPillarDetailView(kind: .effort))
         case "sleepdetail": return AnyView(SleepView())
         case "devices":  return AnyView(DevicesView())
         case "devicescatalog": return AnyView(DeviceCardCatalog())
