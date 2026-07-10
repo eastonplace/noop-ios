@@ -298,9 +298,14 @@
     import chips, Apple Health destructive removal, Xiaomi import, and the continued
     full additional-import/connection catalog against sheet 4-3. All importer and
     confirmation handlers are unchanged.
-- [ ] **T21 — Backup & Sync (S9)** — Modify `Strand/Screens/BackupSyncView.swift`
+- [x] **T21 — Backup & Sync (S9)** — Modify `Strand/Screens/BackupSyncView.swift`
   (+ `StorageView.swift` if it owns backup location UI). Spec §6-S9. Verify vs sheet
   4-4. Commit.
+  - Verified 2026-07-09: `NOOPiOS` built and ran. `qa/T21-backup.jpg` confirms the
+    folder row, blue Choose chip, green-tinted auto-backup switch, full-width backup
+    action, restore card, and privacy note against sheet 4-4. The simulator has no
+    selected folder, so backup/restore remain correctly disabled; picker, retention,
+    backup, restore, and destructive-confirmation logic is unchanged.
 - [ ] **T22 — Settings + Support (S10, S11)** — Modify
   `Strand/Screens/SettingsView.swift`, `SupportView.swift`,
   `ProfileAvatarView.swift`. Spec §6-S10/S11; every existing row survives (AC);

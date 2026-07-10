@@ -28,12 +28,17 @@ struct BackupSyncView: View {
     var body: some View {
         ScreenScaffold(
             title: "Backup & Sync",
-            subtitle: "Save a full backup to a folder you choose - point it at Google Drive, iCloud or Dropbox for off-device sync."
+            subtitle: "Keep your local data safe."
         ) {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
+                SectionHeader("Backup location")
                 folderCard
+                SectionHeader("Auto backup")
                 autoCard
+                SectionHeader("Restore")
                 restoreCard
+                NoteCard("Backups are saved to your chosen local or cloud-synced folder. You're in control.",
+                         style: .privacy)
             }
         }
         // Result of a backup or a restore.
@@ -63,26 +68,24 @@ struct BackupSyncView: View {
     // MARK: - Cards
 
     private var folderCard: some View {
-        StrandCard(padding: 20) {
+        PaperCard(padding: 16) {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Backup folder")
-                    .font(StrandFont.headline).foregroundStyle(StrandPalette.textPrimary)
-                Text(folderLabel.map { String(localized: "Saving to: \($0)") }
-                     ?? String(localized: "No folder chosen yet. Pick one your cloud app already syncs, or any local folder."))
-                    .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
+                SettingsRow(icon: "folder.fill", title: "NOOP Backup",
+                            subtitle: LocalizedStringKey(folderLabel ?? String(localized: "No folder chosen")),
+                            showsChevron: false) {
+                    Button(folderLabel == nil ? "Choose" : "Change") { chooseFolder() }
+                        .buttonStyle(ChipButtonStyle())
+                        .disabled(busy)
+                }
                 Text("Tip: choose a folder in iCloud Drive and your backups sync to all your Apple devices automatically, no account setup needed.")
-                    .font(StrandFont.caption).foregroundStyle(StrandPalette.accent)
+                    .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
-                NoopButton(folderLabel == nil ? "Choose folder" : "Change folder",
-                           systemImage: "folder", kind: .secondary) { chooseFolder() }
-                    .disabled(busy)
             }
         }
     }
 
     private var autoCard: some View {
-        StrandCard(padding: 20, tint: auto && folderLabel != nil ? StrandPalette.accent : nil) {
+        PaperCard(padding: 16) {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .center, spacing: 16) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -94,7 +97,7 @@ struct BackupSyncView: View {
                     }
                     Spacer(minLength: 0)
                     Toggle("Daily auto-backup", isOn: $auto)
-                        .labelsHidden().toggleStyle(.switch).tint(StrandPalette.accent)
+                        .labelsHidden().toggleStyle(.switch).tint(StrandPalette.success)
                         .disabled(folderLabel == nil)
                         .onChangeCompat(of: auto) { on in FolderBackup.autoEnabled = on }
                 }
@@ -108,7 +111,7 @@ struct BackupSyncView: View {
     }
 
     private var restoreCard: some View {
-        StrandCard(padding: 20) {
+        PaperCard(padding: 16) {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Restore")
                     .font(StrandFont.headline).foregroundStyle(StrandPalette.textPrimary)
