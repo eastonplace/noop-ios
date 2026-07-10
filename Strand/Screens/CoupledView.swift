@@ -903,21 +903,17 @@ struct PaperPillarDetailView: View {
                     .foregroundStyle(StrandPalette.textSecondary)
                     .padding(.bottom, 8)
                 factorRow(icon: "waveform.path.ecg", name: "HRV",
-                          value: latestDay?.avgHrv.map { "\(Int($0.rounded())) ms" } ?? "—",
-                          status: "Good", statusColor: StrandPalette.recoveryData)
-                factorRow(icon: "heart.fill", name: "RHR",
-                          value: latestDay?.restingHr.map { "\($0) bpm" } ?? "—",
-                          status: "Good", statusColor: StrandPalette.recoveryData)
-                factorRow(icon: "moon.fill", name: "Sleep",
+                          value: latestDay?.avgHrv.map { "\(Int($0.rounded())) ms" } ?? "—")
+                factorRow(icon: "heart", name: "RHR",
+                          value: latestDay?.restingHr.map { "\($0) bpm" } ?? "—")
+                factorRow(icon: "moon", name: "Sleep",
                           value: latestDay.flatMap { AnalyticsEngine.Rest.composite(daily: $0) }
-                            .map { "\(Int($0.rounded()))%" } ?? "—",
-                          status: "Good", statusColor: StrandPalette.recoveryData)
-                factorRow(icon: "lungs.fill", name: "Resp. Rate",
-                          value: latestDay?.respRateBpm.map { String(format: "%.1f rpm", $0) } ?? "—",
-                          status: "Good", statusColor: StrandPalette.recoveryData)
+                            .map { "\(Int($0.rounded()))%" } ?? "—")
+                factorRow(icon: "lungs", name: "Resp. Rate",
+                          value: latestDay?.respRateBpm.map { String(format: "%.1f rpm", $0) } ?? "—")
                 factorRow(icon: "thermometer.medium", name: "Skin Temp",
                           value: latestDay?.skinTempDevC.map { String(format: "%+.1f °C", $0) } ?? "—",
-                          status: "Good", statusColor: StrandPalette.recoveryData, divider: false)
+                          divider: false)
             }
         }
     }
@@ -970,18 +966,15 @@ struct PaperPillarDetailView: View {
                     .tracking(StrandFont.sectionOverlineTracking)
                     .foregroundStyle(StrandPalette.textSecondary)
                     .padding(.bottom, 8)
-                factorRow(icon: "heart.fill", name: "Average HR",
-                          value: averageHR.isEmpty ? "—" : "\(averageHR.reduce(0, +) / averageHR.count) bpm",
-                          status: "High", statusColor: StrandPalette.liveRed)
-                factorRow(icon: "flame.fill", name: "Calories",
-                          value: calories > 0 ? "\(Int(calories.rounded())) kcal" : "—",
-                          status: "High", statusColor: StrandPalette.liveRed)
+                factorRow(icon: "heart", name: "Average HR",
+                          value: averageHR.isEmpty ? "—" : "\(averageHR.reduce(0, +) / averageHR.count) bpm")
+                factorRow(icon: "flame", name: "Calories",
+                          value: calories > 0 ? "\(Int(calories.rounded())) kcal" : "—")
                 factorRow(icon: "heart.circle.fill", name: "Max HR",
-                          value: maxHR.map { "\($0) bpm" } ?? "—",
-                          status: "High", statusColor: StrandPalette.liveRed)
+                          value: maxHR.map { "\($0) bpm" } ?? "—")
                 factorRow(icon: "clock.fill", name: "Duration",
                           value: duration > 0 ? durationText(duration) : "—",
-                          status: "Moderate", statusColor: StrandPalette.warning, divider: false)
+                          divider: false)
             }
         }
     }
@@ -1220,7 +1213,7 @@ struct PaperPillarDetailView: View {
     }
 
     private func factorRow(icon: String, name: LocalizedStringKey, value: String,
-                           status: LocalizedStringKey, statusColor: Color,
+                           status: LocalizedStringKey? = nil, statusColor: Color = .clear,
                            divider: Bool = true) -> some View {
         HStack(spacing: 11) {
             Image(systemName: icon)
@@ -1231,8 +1224,12 @@ struct PaperPillarDetailView: View {
             Text(name).font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
             Spacer(minLength: 8)
             Text(value).font(StrandFont.captionNumber).foregroundStyle(StrandPalette.textSecondary)
-            Text(status).font(StrandFont.micro.weight(.semibold)).foregroundStyle(statusColor)
-                .frame(width: 52, alignment: .trailing)
+            // Craft pass (003): status words render ONLY when computed from real band
+            // logic. The previous hardcoded "Good"/"High" literals lied about the data.
+            if let status {
+                Text(status).font(StrandFont.micro.weight(.semibold)).foregroundStyle(statusColor)
+                    .frame(width: 52, alignment: .trailing)
+            }
         }
         .frame(minHeight: 48)
         .overlay(alignment: .bottom) {
