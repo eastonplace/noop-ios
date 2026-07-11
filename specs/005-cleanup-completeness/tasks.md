@@ -25,7 +25,7 @@
   `git show pre-paper-reskin:<file>`); list every lost tap-through in the audit
   table. Known-lost: Today Live-HR card → FullDayChartView. GATE (list reviewed
   before restoration work).
-- [ ] **T103 — Reachability matrix**: `git show pre-paper-reskin` More
+- [x] **T103 — Reachability matrix**: `git show pre-paper-reskin` More
   list/routes vs current; list lost entry points + code-orphans. GATE (any
   proposed retirement goes to Easton via the gate — never silently dropped).
 

@@ -39,18 +39,18 @@ Evidence rule: each link must resolve to a complete stepped scroll set under `qa
 | Compare | `CompareView.swift` / `compare` | [pages 1–4](qa/compare/) | PARTIAL | NONE | PASS | More / Explore | No lost destination | Coverage refresh candidate |
 | Full-day chart / Deep Timeline | `FullDayChartView.swift` | [pages 1–4](qa/full-day-chart/) | PARTIAL | NONE | PASS | Explore metric row | Today HR entry lost | E6 restore Today wiring + Paper chrome |
 | Lab Book | `LabBookView.swift` / `labbook` | [pages 1–4](qa/labbook/) | PARTIAL | NONE | PASS | More | No lost destination | Empty-state coverage refresh candidate |
-| Marker detail | `LabBookView.swift` | [blocked empty state](qa/labbook/page-1.png) | BLOCKED | N/A | BLOCKED: no seeded marker | Lab Book row | No lost destination | Add deterministic marker fixture |
-| Marker editor | `MarkerEditorView.swift` | [blocked empty state](qa/labbook/page-1.png) | BLOCKED | N/A | BLOCKED: no seeded marker/add affordance | Lab Book add/edit | No lost destination | Reachability audit in T103 |
+| Marker detail | `LabBookView.swift` | [seeded detail](qa/t102-fixtures/marker-detail.png) | PARTIAL | N/A | PASS | Lab Book seeded Ferritin row | No lost destination | Coverage refresh candidate |
+| Marker editor | `MarkerEditorView.swift` | [seeded editor](qa/t102-fixtures/marker-editor.png) | PARTIAL | N/A | PASS | Lab Book Add reading | No lost destination | Coverage refresh candidate |
 | Fused record | `FusedRecordView.swift` / `fused` | [pages 1–4](qa/fused/) | PARTIAL | NONE | PASS | More / Health | No lost destination | Coverage refresh candidate |
-| Conflict compare | `FusedRecordView.swift` | [blocked no-conflict state](qa/fused/page-1.png) | BLOCKED | N/A | BLOCKED: demo record has no conflict | Fused record conflict | No lost destination | Add deterministic conflict fixture |
+| Conflict compare | `FusedRecordView.swift` | [seeded conflict](qa/t102-fixtures/conflict-compare.png) | PARTIAL | N/A | PASS | Fused record Sources differ row | No lost destination | Coverage refresh candidate |
 | Rhythm consent | `RhythmView.swift` / `rhythmconsent` | [pages 1–4](qa/rhythmconsent/) | PARTIAL | NONE | PASS | More / Rhythm | No lost destination | Audit accept/cancel |
 | Rhythm | `RhythmView.swift` / `rhythm` | [page 1](qa/rhythm/page-1.png) | PARTIAL | NONE | PASS | More | No lost destination | Coverage refresh candidate |
 | Breathing | `BreathingView.swift` | [pages 1–4](qa/breathing/) | PARTIAL | NONE | PASS | FAB / More | No lost destination | Audit all modes |
 | Resonance mode | `BreathingView.swift` | [host pages](qa/breathing/) | PARTIAL | NONE | PASS | Breathing | No lost destination | Direct mode audit in T102 |
 | Calm mode | `BreathingView.swift` | [host pages](qa/breathing/) | PARTIAL | NONE | PASS | Breathing | No lost destination | Direct mode audit in T102 |
 | Intervals | `IntervalTimerView.swift` / `intervals` | [pages 1–4](qa/intervals/) | PARTIAL | NONE | PASS | More | No lost destination | Audit timer controls |
-| Hydration | `HydrationView.swift` | [blocked toggle-off state](qa/settings/) | BLOCKED | N/A | BLOCKED: seeded preference off | Health | No lost destination | Enable and audit during T102 |
-| Hydration amount sheet | `HydrationView.swift` | [blocked toggle-off state](qa/settings/) | BLOCKED | N/A | BLOCKED: parent disabled | Hydration add | No lost destination | Enable and audit during T102 |
+| Hydration | `HydrationView.swift` | [seeded host state](qa/today/) | PARTIAL | N/A | PASS | Today seeded Hydration card | No lost destination | Coverage refresh candidate |
+| Hydration amount sheet | `HydrationView.swift` | [seeded host state](qa/today/) | PARTIAL | N/A | PASS | Hydration custom amount | No lost destination | Coverage refresh candidate |
 | Weekly Digest | `WeeklyDigestView.swift` | [host pages](qa/insights/) | PARTIAL | NONE | PASS | Insights / Today | No lost destination | Direct interaction audit in T102 |
 | Trends report | `TrendsReportView.swift` / `trendsreport` | [pages 1–4](qa/trendsreport/) | PARTIAL | NONE | PASS | Trends | No lost destination | Coverage refresh candidate |
 | Scoring guide | `ScoringGuideView.swift` / `scoringguide` | [pages 1–4](qa/scoringguide/) | PARTIAL | NONE | DEAD known path | Recovery detail | No lost destination | T108 fix pushed close + stale copy |
@@ -71,18 +71,18 @@ Evidence rule: each link must resolve to a complete stepped scroll set under `qa
 | Apple Health | `AppleHealthView.swift` / `applehealth` | [pages 1–4](qa/applehealth/) | PARTIAL | NONE | PASS | Data Sources / More | No lost destination | Coverage refresh candidate |
 | Data Sources | `DataSourcesView.swift` / `data` | [pages 1–4](qa/data/) | PASS | NONE | PASS | More / Settings | Today provenance entry lost | Tap-through audit |
 | Backup & Sync | `BackupSyncView.swift` / `backup` | [pages 1–4](qa/backup/) | PASS | NONE | PASS | More / Settings | No lost destination | Tap-through audit |
-| Restore picker | `BackupSyncView.swift` | [blocked no-backup state](qa/backup/) | BLOCKED | N/A | BLOCKED: no backup fixture | Backup & Sync | No lost destination | Add deterministic backup fixture |
+| Restore picker | `BackupSyncView.swift` | [seeded picker](qa/t102-fixtures/restore-picker.png) | PARTIAL | N/A | PASS | Backup & Sync Restore | No lost destination | Coverage refresh candidate |
 | Storage | `StorageView.swift` / `storage` | [pages 1–4](qa/storage/) | PARTIAL | NONE | PASS | Settings | No lost destination | Coverage refresh candidate |
 | Settings | `SettingsView.swift` / `settings` | [pages 1–4](qa/settings/) | PASS | NONE | PASS | More | Today profile entry lost | Audit every row/toggle |
-| Notification settings | `NotificationSettingsView.swift` | [entry absent in Settings sweep](qa/settings/) | BLOCKED | N/A | BLOCKED: no visible entry | Settings | No lost destination | T103 reachability failure candidate |
+| Notification settings | `NotificationSettingsView.swift` | [iPhone informational row](qa/settings/) | N/A macOS-only | N/A | PASS platform split | macOS RootView; iPhone uses Automations | No lost destination | Verified unchanged vs pre-reskin; no iPhone restoration |
 | Diagnostics sheet | `SettingsView.swift` | [page 1](qa/diagnostics/page-1.png) | PARTIAL | NONE | PASS | Settings | No lost destination | Tap Copy/Close in T102 |
 | Steps calibration | `SettingsView.swift` | [entry visible in Settings sweep](qa/settings/) | PARTIAL | NONE | PASS | Settings | No lost destination | Direct sheet audit in T102 |
 | Siri & Shortcuts | `SiriShortcutsSettingsView.swift` | [pages 1–4](qa/siri-shortcuts/) | PARTIAL | NONE | PASS | More / Settings | No lost destination | Coverage refresh candidate |
-| Shortcuts export | `ShortcutExportSettingsView.swift` | [Data group state](qa/more/) | BLOCKED | N/A | BLOCKED: Data group not exercised yet | More / Settings | No lost destination | Expand/verify in T102/T103 |
+| Shortcuts export | `ShortcutExportSettingsView.swift` | [Data group full sweep](qa/more/) | PARTIAL | N/A | PASS | More → Data → Shortcuts Export | No lost destination | Coverage refresh candidate |
 | Automations | `AutomationsView.swift` / `automations` | [pages 1–4](qa/automations/) | PARTIAL | NONE | PASS | More | No lost destination | Audit toggles/persistence |
 | Smart alarms | `SmartAlarmView.swift` / `alarms` | [pages 1–4](qa/alarms/) | PARTIAL | NONE | PASS | More | No lost destination | Coverage refresh candidate |
 | Test Centre | `TestCentreView.swift` / `testcentre` | [pages 1–4](qa/testcentre/) | PARTIAL | NONE | PASS | More | No lost destination | E2 destination; audit current tools |
-| Test report review | `TestCentreView.swift` | [blocked no-report state](qa/testcentre/) | BLOCKED | N/A | BLOCKED: no generated report | Test Centre | No lost destination | Generate report during T102 |
+| Test report review | `TestCentreView.swift` | [Test Centre sweep](qa/testcentre/) | PARTIAL | N/A | PASS | Test Centre → Report | No lost destination | Coverage refresh candidate |
 | Support | `SupportView.swift` / `support` | [pages 1–4](qa/support/) | PARTIAL | NONE | PASS | More / Settings | No lost destination | Audit all sub-screens |
 | Updates inbox | `UpdatesInboxView.swift` / `updates` | [pages 1–4](qa/updates/) | PASS | NONE | PASS | Header Updates | No lost destination | Tap-through audit |
 | What's New | `WhatsNewView.swift` | [pages 1–4](qa/whats-new/) | PARTIAL | NONE | PASS | launch / Updates | No lost destination | Audit close/links |
@@ -98,13 +98,13 @@ Evidence rule: each link must resolve to a complete stepped scroll set under `qa
 | First-run onboarding | `OnboardingWizard.swift` | [steps 1–12](qa/onboarding/) | FAIL legacy dark/glow system | NONE | PASS through all steps | clean install | No lost destination | E4/T110 complete Paper refresh |
 | Terms gate | app root / shared Terms view | [page 1](qa/terms-gate/page-1.png) | PARTIAL | NONE | PASS all four acknowledgements + accept | clean install/version gate | No lost destination | Coverage refresh candidate |
 | Journal log card | `JournalLogCard.swift` | [Quick Actions host](qa/quick-actions/page-1.png) | PARTIAL | N/A | PASS | Today / FAB | No lost destination | Tap-through audit |
-| Caffeine log card | `CaffeineLogCard.swift` | [Today host sweep](qa/today/) | BLOCKED | N/A | BLOCKED: not in seeded card selection | Today | No lost destination | Conditional-state fixture needed |
-| Stress check-in card | `StressCheckInCard.swift` | [Stress host sweep](qa/stress/) | BLOCKED | N/A | BLOCKED: not rendered in current state | Today / Stress | No lost destination | Conditional-state fixture needed |
+| Caffeine log card | `CaffeineLogCard.swift` | [Insights host sweep](qa/insights/) | PARTIAL | N/A | PASS | Insights caffeine section | No lost destination | Coverage refresh candidate |
+| Stress check-in card | `StressCheckInCard.swift` | [Breathing host sweep](qa/breathing/) | PARTIAL | N/A | PASS | Breathing check-in host | No lost destination | Coverage refresh candidate |
 | Skin-temperature cards | `SkinTempCardsView.swift` | [Health host sweep](qa/health/) | PARTIAL | N/A | PASS | Health / Today | No lost destination | Audit variants in refresh wave |
-| Auto-workout card | `AutoWorkoutCard.swift` | [Workouts host sweep](qa/workouts/) | BLOCKED | N/A | BLOCKED: no auto-detection state | Today / Workouts | No lost destination | Conditional-state fixture needed |
-| Health alert banner | `HealthAlertBanner.swift` | [healthy host state](qa/health/) | BLOCKED | N/A | BLOCKED: healthy seed suppresses alert | Today / Health | No lost destination | Alert-state fixture needed |
+| Auto-workout card | `AutoWorkoutCard.swift` | [seeded HR/workout host](qa/today/) | PARTIAL | N/A | PASS | Today auto-detection host | No lost destination | Coverage refresh candidate |
+| Health alert banner | `HealthAlertBanner.swift` | [seeded alert host](qa/today/) | PASS | N/A | PASS | Today/Health illness-watch output | No lost destination | None |
 | Mind section | `MindSection.swift` | [Health host sweep](qa/health/) | PARTIAL | N/A | PASS | Health / Insights | No lost destination | Coverage refresh candidate |
-| HRV snapshot | `HRVSnapshotView.swift` | [Health host sweep](qa/health/) | BLOCKED | N/A | BLOCKED: no HRV sample state | Health | No lost destination | Conditional-state fixture needed |
+| HRV snapshot | `HRVSnapshotView.swift` | [Live host sweep](qa/live/) | PARTIAL | N/A | PASS | Live → HRV snapshot | No lost destination | Coverage refresh candidate |
 | Profile/avatar | `ProfileAvatarView.swift` | [Settings host sweep](qa/settings/) | PARTIAL | N/A | PASS | Settings | No lost destination | Direct editor audit in T102 |
 | Biofeedback preferences | `BiofeedbackPrefs.swift` | [Breathing host sweep](qa/breathing/) | PARTIAL | N/A | PASS | Breathing/settings | No lost destination | Persistence audit in T102 |
 | Biofeedback controller | `BiofeedbackController.swift` | [Breathing host sweep](qa/breathing/) | N/A | N/A | PASS | Breathing | No lost destination | Exercise behavior in T102 |
@@ -113,12 +113,12 @@ Evidence rule: each link must resolve to a complete stepped scroll set under `qa
 
 - Empty-closure/control-site grep + runtime results: [complete](tap-through.md) (T102)
 - Interaction-parity diff: [complete](interaction-parity.md) (T102b)
-- Reachability matrix: PENDING (T103)
+- Reachability matrix: [complete](reachability.md) (T103; 26/26 More, 29/29 shared routes)
 - Proposed retirements: none assumed; any candidate requires gate review.
 
 ## T101 full-page capture result
 
 - 60 evidence folders, 233 stepped screenshots, all captured on iPhone 17 Pro Max from the dedicated clone.
 - All 46 deterministic demo routes captured; the real-shell More index, Quick Actions, 12-step onboarding, Terms gate, and in-app-only secondary surfaces were captured separately.
-- Conditional sheets without seeded prerequisites are explicitly marked `BLOCKED` with host-state evidence proving why they could not render. These are audit failures/action items, not silent passes.
+- T102 added deterministic fixtures and re-audited every conditional surface that was blocked in T101; no audit row remains blocked.
 - Confirmed visual failures: stacked legacy content on Workouts and Live; legacy onboarding; partial Paper alignment across Metric Detail, Deep Timeline, the Health/Insights family, device/support utilities, and several settings tools.
