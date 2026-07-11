@@ -6,10 +6,10 @@ import SwiftUI
 // the uniform, instrument-grade look from the reference. Do not invent ad-hoc cards.
 
 public enum NoopMetrics {
-    public static let cardRadius: CGFloat = 16
+    public static let cardRadius: CGFloat = 14
     public static let cardPadding: CGFloat = 16
     public static let gap: CGFloat = 12
-    public static let sectionGap: CGFloat = 24
+    public static let sectionGap: CGFloat = 20
     public static let screenPadding: CGFloat = 16
     public static let tileHeight: CGFloat = 96   // Design Reset: tighter metric tile
     // Key Metrics grid: one fixed height every tile snaps to, so a sparkline-and-caption tile and a
@@ -58,11 +58,11 @@ public enum NoopMetrics {
     /// Horizontal page margin (the gutter on the left/right edge of a screen). Use via `.screenPadding()`.
     public static let screenHPadding: CGFloat = 16
     /// Vertical gap between top-level page sections.
-    public static let sectionSpacing: CGFloat = 24
+    public static let sectionSpacing: CGFloat = 20
     /// Interior padding inside a card's content (matches `cardPadding`).
     public static let cardInnerPadding: CGFloat = 16
     /// Vertical gap between stacked elements INSIDE a card.
-    public static let cardInnerSpacing: CGFloat = 12
+    public static let cardInnerSpacing: CGFloat = 10
     /// Vertical gap between rows in a list-style card.
     public static let rowSpacing: CGFloat = 10
     /// Standard interactive-control height (buttons, fields, segmented controls).

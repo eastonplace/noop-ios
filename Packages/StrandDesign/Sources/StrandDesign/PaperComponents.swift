@@ -26,7 +26,7 @@ public struct PaperHeaderBar<Trailing: View>: View {
     public var body: some View {
         let primary = onDark ? StrandPalette.onDarkPrimary : StrandPalette.textPrimary
         let secondary = onDark ? StrandPalette.onDarkSecondary : StrandPalette.textSecondary
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             ZStack {
                 Text("N O O P")
                     .font(StrandFont.wordmark)
@@ -48,7 +48,7 @@ public struct PaperHeaderBar<Trailing: View>: View {
                 }
                 .foregroundStyle(primary)
             }
-            .frame(maxWidth: .infinity, minHeight: 32)
+            .frame(maxWidth: .infinity, minHeight: 28)
 
             if title != nil || subtitle != nil {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
