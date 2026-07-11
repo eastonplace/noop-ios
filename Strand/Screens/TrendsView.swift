@@ -25,6 +25,13 @@ struct TrendsView: View {
     /// the Today Sleep score (#732). sleep_performance is a metricSeries, not a DailyMetric field, so load
     /// it once (mirroring TodayView's restScore source) and key by day for `resolve` below.
     @State private var sleepPerfByDay: [String: Double] = [:]
+    // Original #710 wiring restored by E6: the Paper review card browses the same engine-backed
+    // Mon-Sun digests as the pre-reskin screen; 0 is the current week and negatives step backward.
+    @State private var weekOffset: Int
+
+    init(initialWeekOffset: Int = 0) {
+        _weekOffset = State(initialValue: min(0, initialWeekOffset))
+    }
 
     // yyyy-MM-dd → Date (en_US_POSIX, UTC), per task spec.
     private static let dayParser: DateFormatter = {
@@ -96,7 +103,7 @@ struct TrendsView: View {
     // MARK: - Paper Trends (S2)
 
     private var paperDigest: WeeklyDigest {
-        WeeklyDigestSource.digest(from: repo.days, anchorDay: Repository.localDayKey(Date()))
+        WeeklyDigestSource.digest(from: repo.days, anchorDay: weekAnchorDay)
     }
 
     private var paperWeekDays: [DailyMetric] {
@@ -107,7 +114,7 @@ struct TrendsView: View {
     private var paperWeekDates: [Date] { paperWeekDays.compactMap { date($0.day) } }
 
     private var paperWeekRangeLabel: String {
-        let digest = WeeklyDigestSource.digest(from: repo.days, anchorDay: Repository.localDayKey(Date()))
+        let digest = paperDigest
         guard let start = date(digest.weekStart), let end = date(digest.weekEnd) else { return "" }
         let f = DateFormatter(); f.locale = Locale.current; f.setLocalizedDateFormatFromTemplate("MMM d")
         return "\(f.string(from: start)) — \(f.string(from: end))"
@@ -273,7 +280,27 @@ struct TrendsView: View {
     private var paperWeekReview: some View {
         PaperCard {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Week in Review").strandOverline()
+                HStack(spacing: 10) {
+                    Button { stepWeek(-1) } label: {
+                        Image(systemName: "chevron.left").frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(weekOffset <= minWeekOffset ? StrandPalette.textTertiary : StrandPalette.link)
+                    .disabled(weekOffset <= minWeekOffset)
+                    .accessibilityLabel("Previous week")
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Week in Review").strandOverline()
+                        Text(weekOffsetLabel).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                    }
+                    Spacer()
+                    Button { stepWeek(1) } label: {
+                        Image(systemName: "chevron.right").frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(weekOffset >= 0 ? StrandPalette.textTertiary : StrandPalette.link)
+                    .disabled(weekOffset >= 0)
+                    .accessibilityLabel("Next week")
+                }
                 ForEach(Array(paperReviewLines.enumerated()), id: \.offset) { index, line in
                     HStack(alignment: .top, spacing: 9) {
                         Circle().fill(reviewDotColor(for: line))
@@ -284,6 +311,35 @@ struct TrendsView: View {
                 }
             }
         }
+    }
+
+    private var minWeekOffset: Int {
+        guard let earliest = repo.days.first?.day,
+              let earliestMonday = WeeklyDigestEngine.mondayOfWeek(containing: earliest),
+              let thisMonday = WeeklyDigestEngine.mondayOfWeek(containing: Repository.localDayKey(Date()))
+        else { return 0 }
+        var offset = 0
+        var monday = thisMonday
+        while monday > earliestMonday && offset > -520 {
+            monday = WeeklyDigestEngine.addDays(monday, -7)
+            offset -= 1
+        }
+        return offset
+    }
+
+    private var weekAnchorDay: String {
+        WeeklyDigestEngine.addDays(Repository.localDayKey(Date()), weekOffset * 7)
+    }
+
+    private func stepWeek(_ delta: Int) {
+        weekOffset = max(minWeekOffset, min(0, weekOffset + delta))
+    }
+
+    private var weekOffsetLabel: String {
+        let weeksAgo = -weekOffset
+        if weeksAgo == 0 { return String(localized: "This week") }
+        if weeksAgo == 1 { return String(localized: "Last week") }
+        return String(localized: "\(weeksAgo) weeks ago")
     }
 
     @ViewBuilder private var paperInsight: some View {

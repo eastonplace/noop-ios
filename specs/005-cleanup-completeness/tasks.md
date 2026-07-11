@@ -46,7 +46,7 @@
 
 ## Phase C — Dead controls + coverage
 
-- [ ] **T107b — Deep Timeline restore (E6 exemplar)**: Today Live-HR card
+- [x] **T107b — Deep Timeline restore (E6 exemplar)**: Today Live-HR card
   taps through to `FullDayChartView(.hr)` (port the pre-reskin wiring);
   FullDayChartView gets the Paper chrome pass (tokens/header/cards ONLY — the
   zoom/pan/timelineSeries machinery is untouched); every other lost interaction

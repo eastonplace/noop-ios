@@ -16,7 +16,7 @@ Evidence rule: each link must resolve to a complete stepped scroll set under `qa
 
 | Surface | Source / route | Full-page evidence | Paper | Duplication | Tap-through | Reachable from | Parity: lost/restored | Action needed |
 |---|---|---|---|---|---|---|---|---|
-| Today | `TodayView.swift` / `today` | [pages 1–4](qa/today/) | PASS | NONE | PASS | Today tab | 5 lost destinations; see interaction-parity.md | Restore Deep Timeline tap in T107b |
+| Today | `TodayView.swift` / `today` | [original full pages 1–4](qa/today/) · [T107b anchor proof](qa/t107b-today/) | PASS | NONE | PASS — five lost destinations restored; placement/destination proof in interaction-parity.md | Today tab | RESTORED T107b | T107b complete |
 | Trends | `TrendsView.swift` / `trends` | [T106 complete page](qa/t106-trends/) | PASS | NONE | PASS | Trends tab | No lost destination | T106 deleted 661-line orphan builder island; only canonical Paper review renders |
 | Sleep | `SleepView.swift` / `sleep` | [pages 1–4](qa/sleep/) | PASS | NONE | PASS | Sleep tab | No lost destination | Tap-through audit |
 | More index | `RootTabView.swift` | [pages 1–4](qa/more/) | PASS | NONE | PASS | More tab | No lost destination | Tap every row/group |
@@ -37,7 +37,7 @@ Evidence rule: each link must resolve to a complete stepped scroll set under `qa
 | Explore catalog | `MetricExplorerView.swift` / `explore` | [T107 pages 1–4](qa/t107-explore/) | PASS | NONE | PASS — category rows open their current metric destinations | More | Today Show-all entry remains queued for T107b | T107 complete |
 | Metric detail | `MetricExplorerView.swift` | [T107 pages 1–2](qa/t107-metric-detail/) | PASS | NONE | PASS — Calories row opened detail; range and correlation controls retained | Explore metric row | No lost destination | T107 complete |
 | Compare | `CompareView.swift` / `compare` | [pages 1–4](qa/compare/) | PARTIAL | NONE | PASS | More / Explore | No lost destination | Coverage refresh candidate |
-| Full-day chart / Deep Timeline | `FullDayChartView.swift` | [pages 1–4](qa/full-day-chart/) | PARTIAL | NONE | PASS | Explore metric row | Today HR entry lost | E6 restore Today wiring + Paper chrome |
+| Full-day chart / Deep Timeline | `FullDayChartView.swift` | [original full pages 1–4](qa/full-day-chart/) · [T107b populated HR](qa/t107b-interactions/live-hr-deep-timeline.png) | PASS | NONE | PASS — Today HR and Explore both route here; zoom/pan/timeline machinery retained | Today Live HR + Explore Deep Timeline | RESTORED T107b | T107b complete |
 | Lab Book | `LabBookView.swift` / `labbook` | [pages 1–4](qa/labbook/) | PARTIAL | NONE | PASS | More | No lost destination | Empty-state coverage refresh candidate |
 | Marker detail | `LabBookView.swift` | [seeded detail](qa/t102-fixtures/marker-detail.png) | PARTIAL | N/A | PASS | Lab Book seeded Ferritin row | No lost destination | Coverage refresh candidate |
 | Marker editor | `MarkerEditorView.swift` | [seeded editor](qa/t102-fixtures/marker-editor.png) | PARTIAL | N/A | PASS | Lab Book Add reading | No lost destination | Coverage refresh candidate |

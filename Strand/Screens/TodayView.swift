@@ -191,6 +191,7 @@ struct TodayView: View {
     // passes clean tests), so it is left as a follow-up rather than rushed in alongside the load-path fix.
     @EnvironmentObject var profile: ProfileStore
     @EnvironmentObject var router: NavRouter
+    @EnvironmentObject var model: AppModel
     /// The "update ringer", the bell in the top bar opens this inbox; dismissed Today cards post into it.
     @EnvironmentObject var updateStore: UpdateStore
 
@@ -335,6 +336,8 @@ struct TodayView: View {
     // iOS top-bar state: the date-jump popover and the profile/settings sheet.
     @State private var showDayPicker = false
     @State private var showSettings = false
+    @State private var showStartSport = false
+    @State private var showLiveWorkout = false
     /// The Updates inbox sheet (opened by the header bell). Shared across both platforms.
     @State private var showUpdatesInbox = false
 
@@ -1053,6 +1056,13 @@ struct TodayView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Devices")
+            Button { showSettings = true } label: {
+                ProfileAvatarView(imageData: profile.avatarImageData, size: 30)
+                    .contentShape(Circle())
+                    .frame(width: 32, height: 32)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Profile and settings")
         }
     }
 
@@ -1177,8 +1187,9 @@ struct TodayView: View {
                                 state: paperScoreState(restScore, kind: .rest)) { paperPillarDetail = .rest }
                 }
                 Divider().overlay(StrandPalette.hairline)
-                NavigationLink { WorkoutsView() } label: {
-                    HStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    NavigationLink { WorkoutsView() } label: {
+                        HStack(spacing: 8) {
                         Image(systemName: "figure.run")
                             .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(StrandPalette.textPrimary)
@@ -1195,10 +1206,19 @@ struct TodayView: View {
                         Image(systemName: "chevron.right")
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(StrandPalette.textTertiary)
+                        }
+                        .contentShape(Rectangle())
                     }
-                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
+                    Button(model.activeWorkout == nil ? "Start" : "Open") {
+                        if model.activeWorkout == nil { showStartSport = true }
+                        else { showLiveWorkout = true }
+                    }
+                    .font(StrandFont.caption.weight(.semibold))
+                    .foregroundStyle(StrandPalette.link)
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(model.activeWorkout == nil ? "Start workout" : "Open active workout")
                 }
-                .buttonStyle(.plain)
             }
         }
     }
@@ -1268,7 +1288,8 @@ struct TodayView: View {
     private var paperLiveHeartRateCard: some View {
         let latest = hrPoints.last?.value
         let values = Array(hrPoints.suffix(36)).map(\.value)
-        return PaperCard(padding: 12) {
+        return NavigationLink { FullDayChartView() } label: {
+            PaperCard(padding: 12) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 6) {
                     Image(systemName: "heart.fill").font(.system(size: 11, weight: .semibold))
@@ -1312,7 +1333,10 @@ struct TodayView: View {
                     }
                 }
             }
+            }
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Live Heart Rate, open Deep Timeline")
     }
 
     private func loadDaytimeStressForRibbon() async {
@@ -1376,19 +1400,24 @@ struct TodayView: View {
     private var paperHealthMonitorCard: some View {
         let day = displayDay
         let respiratory = day?.respRateBpm ?? sparks["resp_rate"]?.last
-        return NavigationLink { HealthView() } label: {
-            PaperCard(padding: 12) {
+        return PaperCard(padding: 12) {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(alignment: .firstTextBaseline) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("Health Monitor").strandOverline()
-                            Text("All metrics in range")
-                                .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                        NavigationLink { HealthView() } label: {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("Health Monitor").strandOverline()
+                                Text("All metrics in range")
+                                    .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                            }
                         }
+                        .buttonStyle(.plain)
                         Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(StrandPalette.textTertiary)
+                        NavigationLink { MetricExplorerView() } label: {
+                            Text("Show all").font(StrandFont.caption.weight(.semibold))
+                                .foregroundStyle(StrandPalette.link)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Show all metrics")
                     }
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 3), spacing: 4) {
                         MetricTile(icon: "waveform.path.ecg", label: "HRV",
@@ -1412,10 +1441,21 @@ struct TodayView: View {
                                    value: sleepValue(day), unit: nil,
                                    accent: StrandPalette.sleepAccent)
                     }
+                    Divider().overlay(StrandPalette.hairline)
+                    NavigationLink { DataSourcesView() } label: {
+                        HStack {
+                            Text("Data Sources").font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                            Spacer()
+                            Text("View sources").font(StrandFont.caption.weight(.semibold))
+                                .foregroundStyle(StrandPalette.link)
+                            Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(StrandPalette.textTertiary)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
             }
-        }
-        .buttonStyle(.plain)
     }
 
     var body: some View {
@@ -1534,6 +1574,16 @@ struct TodayView: View {
         .sheet(isPresented: $showingSupport) { SupportView() }
         // Profile/settings from the top-bar button.
         .sheet(isPresented: $showSettings) { settingsSheet }
+        .sheet(isPresented: $showLiveWorkout) {
+            LiveWorkoutView(onClose: { showLiveWorkout = false })
+                .environmentObject(model.live)
+        }
+        .sheet(isPresented: $showStartSport) {
+            StartWorkoutSheet { name in
+                model.startWorkout(sport: name)
+                showLiveWorkout = true
+            }
+        }
         #endif
         // The scoring guide, opened at a specific score from its ⓘ.
         .sheet(item: $guideSection) { section in
