@@ -33,5 +33,8 @@
   Build; batch-shoot the secondary set light/dark. GATE.
   Proof: 30 images in `qa/secondary/` plus `qa/T95-secondary-contact-sheet.jpg`;
   `NOOPiOS` build passed. No screen-specific regression fix was required.
-- [ ] **T96 — Final evidence.** XL pass on Today/Sleep/Recovery/Strain, full
+- [x] **T96 — Final evidence.** XL pass on Today/Sleep/Recovery/Strain, full
   light/dark re-shoot, contact sheet, fidelity re-score, clean-tree audit, push.
+  Proof: `qa/final/` contains 25 light + 25 dark + four XL images;
+  `qa/paper-polish-contact-sheet.jpg` was visually reviewed. `fidelity.md`
+  scores every deterministic family Close or High. StrandDesign 43/43 passed.
