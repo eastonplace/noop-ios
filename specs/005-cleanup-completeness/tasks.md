@@ -7,7 +7,7 @@
 
 ## Phase A — Audit (produce the table before touching UI)
 
-- [ ] **T100 — Gate + audit scaffolding**: tag `pre-cleanup`; create
+- [x] **T100 — Gate + audit scaffolding**: tag `pre-cleanup`; create
   `audit.md` with one row per screen/sheet/tool (enumerate from
   `Strand/Screens/*.swift` + StrandiOSApp routes + More list + FAB sheet +
   settings rows). Columns: full-page evidence links · Paper-conformant? ·
