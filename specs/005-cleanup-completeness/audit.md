@@ -34,8 +34,8 @@ Evidence rule: each link must resolve to a complete stepped scroll set under `qa
 | Insights hub | `InsightsHubView.swift` / `insightshub` | [pages 1–4](qa/insightshub/) | PARTIAL | NONE | PASS | More / Insights | No lost destination | Coverage refresh candidate |
 | Intelligence | `IntelligenceView.swift` | [pages 1–4](qa/intelligence/) | PARTIAL | NONE | PASS | More | No lost destination | Coverage refresh candidate |
 | Coach | `CoachView.swift` | [pages 1–4](qa/coach/) | PARTIAL | NONE | PASS | More | No lost destination | Coverage refresh candidate |
-| Explore catalog | `MetricExplorerView.swift` / `explore` | [pages 1–4](qa/explore/) | PARTIAL | NONE | PASS | More | Today Show-all entry lost | E4/T107 alignment |
-| Metric detail | `MetricExplorerView.swift` | [pages 1–4](qa/metric-detail/) | PARTIAL | NONE | PASS | Explore metric row | No lost destination | T107 full alignment |
+| Explore catalog | `MetricExplorerView.swift` / `explore` | [T107 pages 1–4](qa/t107-explore/) | PASS | NONE | PASS — category rows open their current metric destinations | More | Today Show-all entry remains queued for T107b | T107 complete |
+| Metric detail | `MetricExplorerView.swift` | [T107 pages 1–2](qa/t107-metric-detail/) | PASS | NONE | PASS — Calories row opened detail; range and correlation controls retained | Explore metric row | No lost destination | T107 complete |
 | Compare | `CompareView.swift` / `compare` | [pages 1–4](qa/compare/) | PARTIAL | NONE | PASS | More / Explore | No lost destination | Coverage refresh candidate |
 | Full-day chart / Deep Timeline | `FullDayChartView.swift` | [pages 1–4](qa/full-day-chart/) | PARTIAL | NONE | PASS | Explore metric row | Today HR entry lost | E6 restore Today wiring + Paper chrome |
 | Lab Book | `LabBookView.swift` / `labbook` | [pages 1–4](qa/labbook/) | PARTIAL | NONE | PASS | More | No lost destination | Empty-state coverage refresh candidate |

@@ -42,7 +42,7 @@
 - [x] **T106 — Trends legacy builders**: find callers of the pip
   `weekInReview`/`NoopCard` blocks; delete if orphaned (all platforms) else
   Paper-restyle the macOS path. No double week-review anywhere.
-- [ ] **T107 — MetricDetailView full alignment** + Explore catalog screen pass.
+- [x] **T107 — MetricDetailView full alignment** + Explore catalog screen pass.
 
 ## Phase C — Dead controls + coverage
 

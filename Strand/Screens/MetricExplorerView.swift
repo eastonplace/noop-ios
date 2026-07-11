@@ -226,9 +226,8 @@ struct MetricExplorerView: View {
                     VStack(alignment: .leading, spacing: NoopMetrics.gap) {
                         // Localized at the render site only; `category` itself stays the raw
                         // English identifier that `inCategory` filters on.
-                        SectionHeader("\(MetricCatalog.categoryDisplayName(category))", overline: "Category",
-                                      trailing: "\(metrics.count)")
-                        NoopCard(padding: 0) {
+                        catalogSectionHeader(MetricCatalog.categoryDisplayName(category), count: metrics.count)
+                        PaperCard(padding: 0) {
                             VStack(spacing: 0) {
                                 ForEach(Array(metrics.enumerated()), id: \.element.id) { idx, metric in
                                     // Push the detail directly (closure-based), like every other More-tab
@@ -268,10 +267,21 @@ struct MetricExplorerView: View {
         // pairing, which is what double-pushed (#38). Nothing else registers a MetricDescriptor destination.
     }
 
+    private func catalogSectionHeader(_ title: String, count: Int) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("CATEGORY").strandOverline()
+                Text(title).font(StrandFont.cardTitle).foregroundStyle(StrandPalette.textPrimary)
+            }
+            Spacer()
+            Text("\(count)").font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
+        }
+    }
+
     /// The hero entry that opens the Deep Timeline (#575). A full-bleed card, not a list row, so it reads
     /// as the headline above the per-metric catalog.
     private var deepTimelineRow: some View {
-        NoopCard {
+        PaperCard {
             HStack(spacing: 14) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 11, style: .continuous)
@@ -403,6 +413,7 @@ private struct MetricRow: View {
 /// a SegmentedPillControl range, a hero ChartCard (line + latest "as of"), a uniform
 /// StatTile row (Average / Min / Max / Latest / Δ), and a "What correlates" NoopCard.
 struct MetricDetailView: View {
+    @Environment(\.dismiss) private var dismiss
     let metric: MetricDescriptor
     @EnvironmentObject var repo: Repository
 
@@ -554,8 +565,10 @@ struct MetricDetailView: View {
         let effRange = effectiveRange
         let win = slice(for: effRange)
         let fellBack = effRange != range
-        return ScrollView {
-            VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
+        return ScreenScaffold(title: LocalizedStringKey(metric.title),
+                              subtitle: LocalizedStringKey(MetricCatalog.categoryDisplayName(metric.category)),
+                              topBackground: nil,
+                              backAction: { dismiss() }) {
                 if loaded && series.isEmpty {
                     // No data in the entire history — keep the range bar for context, then the
                     // honest empty state (no scenic hero floating over nothing). Deliberately
@@ -576,12 +589,10 @@ struct MetricDetailView: View {
                     statRow(effectiveRange: effRange, windowed: win)
                     correlationCard
                 }
-            }
-            .padding(NoopMetrics.screenPadding)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .background(StrandPalette.surfaceBase)
-        .navigationTitle(metric.title)
+        #if os(iOS)
+        .toolbar(.hidden, for: .navigationBar)
+        #endif
         .task(id: loadTaskID) { await load() }
         // Range changes the window, hence the correlation inputs — recompute the
         // cached scan rather than letting `correlationCard` run it inside body.
@@ -732,10 +743,10 @@ struct MetricDetailView: View {
                 }
             }
         .padding(NoopMetrics.cardPadding)
-        .background(StrandPalette.card)
+        .background(StrandPalette.surfaceRaised)
         .overlay(
             RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous)
-                .strokeBorder(StrandPalette.cardBorder, lineWidth: 1)
+                .strokeBorder(StrandPalette.hairline, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous))
         // The hero shows the LATEST available point (range-independent), so the vessel fills once on
@@ -925,7 +936,7 @@ struct MetricDetailView: View {
 
     private var correlationCard: some View {
         let rows = correlationCache
-        return NoopCard(tint: metricDomain(metric).color) {
+        return PaperCard {
             VStack(alignment: .leading, spacing: NoopMetrics.gap) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("What correlates").strandOverline()
