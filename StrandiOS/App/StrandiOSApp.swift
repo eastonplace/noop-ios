@@ -3,6 +3,7 @@ import SwiftUI
 import StrandDesign
 import WhoopStore
 import WhoopProtocol
+import StrandAnalytics
 
 /// iOS entry point. Unlike the macOS app (which adds a `MenuBarExtra` scene), iOS uses a single
 /// `WindowGroup`; the glanceable menu-bar role is filled by the Home/Lock-Screen widget instead.
@@ -310,9 +311,7 @@ enum DemoScreens {
         case "applehealth": return AnyView(AppleHealthView())
         case "storage": return AnyView(StorageView())
         case "trendsreport": return AnyView(TrendsReportSheet(days: []))
-        case "fused": return AnyView(FusedRecordView(record: FusedRecord(
-            rows: [], dayOwner: nil, contributingSourceCount: 0
-        )))
+        case "fused": return AnyView(FusedRecordView(record: cleanupAuditFusedRecord))
         case "scoringguide": return AnyView(ScoringGuideView(onClose: {}))
         case "updates": return AnyView(UpdatesInboxView(onClose: {}))
         case "xiaomi": return AnyView(XiaomiBandView())
@@ -351,6 +350,20 @@ enum DemoScreens {
         case "ouradevice": return AnyView(OuraDeviceDemoScreen())
         default:         return nil
         }
+    }
+
+    /// DEBUG-only multi-source conflict fixture for the cleanup interaction audit.
+    private static var cleanupAuditFusedRecord: FusedRecord {
+        let contributors = [
+            ContributingSource(source: .whoopImport, value: 58, tier: 0, sourcePriority: 0,
+                               reason: "comes directly from the overnight record"),
+            ContributingSource(source: .appleHealth, value: 71, tier: 1, sourcePriority: 0,
+                               reason: "is the best available secondary source"),
+        ]
+        let point = FusedMetricPoint(metric: "resting_hr", value: 58, winningSource: .whoopImport,
+                                     contributors: contributors, agreement: .conflict)
+        return FusedRecord(rows: [FusedRow(point: point, label: "Resting HR")],
+                           dayOwner: .whoopImport, contributingSourceCount: 2)
     }
 }
 

@@ -35,11 +35,28 @@ enum AppleDemoSeeder {
     /// Seed only if requested AND the store is empty. Safe to call on every launch.
     static func seedIfRequested(into store: WhoopStore) async {
         guard requested else { return }
+        seedDemoPreferences()
         seedDemoDeviceIfNeeded(into: store)
+        let auditFormatter = DateFormatter()
+        auditFormatter.locale = Locale(identifier: "en_US_POSIX")
+        auditFormatter.timeZone = .current
+        auditFormatter.dateFormat = "yyyy-MM-dd"
+        try? await seedCleanupAuditFixtures(into: store, calendar: .current, formatter: auditFormatter)
         let existing = (try? await store.dailyMetrics(deviceId: whoop, from: "0000-00-00", to: "9999-99-99")) ?? []
         guard existing.isEmpty else { return }
         do { try await seed(into: store) }
         catch { NSLog("AppleDemoSeeder: seed failed — \(error)") }
+    }
+
+    /// Audit-only preferences that unlock conditional surfaces. This entire type is DEBUG-only and
+    /// `requested` is true only for `--demo-seed`, so ordinary debug use and every Release build keep
+    /// the production defaults.
+    private static func seedDemoPreferences() {
+        UserDefaults.standard.set(true, forKey: HydrationStore.enabledKey)
+        UserDefaults.standard.set(true, forKey: "behavior.illnessWatch")
+        UserDefaults.standard.set(
+            DashboardCardPrefs.encode(DashboardCard.defaultSelection + [.hydration]),
+            forKey: DashboardCardPrefs.selectionKey)
     }
 
     /// DEBUG/demo-only: so the Devices screen renders with content under `--demo-seed`, pair a second
@@ -202,6 +219,19 @@ enum AppleDemoSeeder {
             }
         }
 
+        // Cleanup audit fixtures: force the final two nights into a corroborated illness-ward state
+        // so HealthAlertBanner and the Heads-Up flow render deterministically under --demo-seed.
+        for index in daily.indices.suffix(2) {
+            let row = daily[index]
+            daily[index] = DailyMetric(
+                day: row.day, totalSleepMin: row.totalSleepMin, efficiency: row.efficiency,
+                deepMin: row.deepMin, remMin: row.remMin, lightMin: row.lightMin,
+                disturbances: row.disturbances, restingHr: 72, avgHrv: 34,
+                recovery: 24, strain: row.strain, exerciseCount: row.exerciseCount,
+                spo2Pct: row.spo2Pct, skinTempDevC: 0.9, respRateBpm: 18.8,
+                steps: row.steps, activeKcalEst: row.activeKcalEst)
+        }
+
         // --- weekly Fitness Age + VO2max estimate (the engine stamps these on each week's
         //     Saturday; mirror that here so the Fitness Age screen renders under --demo-seed).
         //     Trends from ~42 → ~36 (younger) as the demo "fitness" drift climbs; vo2max ~44 → ~50.
@@ -265,7 +295,45 @@ enum AppleDemoSeeder {
         _ = try await store.upsertAppleDaily(appleRows, deviceId: apple)
         if !workouts.isEmpty { _ = try await store.upsertWorkouts(workouts, deviceId: whoop) }
         if !journal.isEmpty { _ = try await store.upsertJournal(journal, deviceId: whoop) }
+        try await seedCleanupAuditFixtures(into: store, calendar: cal, formatter: isoFmt)
         NSLog("AppleDemoSeeder: seeded \(daily.count) days, \(workouts.count) workouts.")
+    }
+
+    /// Real store rows for the surfaces that were blocked in the first cleanup sweep.
+    private static func seedCleanupAuditFixtures(into store: WhoopStore,
+                                                 calendar: Calendar,
+                                                 formatter: DateFormatter) async throws {
+        let now = Date()
+        let today = formatter.string(from: now)
+        let markerRows = [whoop, "\(whoop)-noop"].flatMap { deviceId in
+            (0..<3).map { offset in
+                let date = calendar.date(byAdding: .day, value: -offset * 14, to: now)!
+                return LabMarkerRow(
+                    id: "demo-ferritin-\(deviceId)-\(offset)", deviceId: deviceId, markerKey: "ferritin",
+                    category: "bloodPanel", day: formatter.string(from: date),
+                    takenAt: Int(date.timeIntervalSince1970), value: 72 - Double(offset * 6),
+                    valueText: nil, unit: "ng/mL", source: "demo-audit-v3",
+                    note: offset == 0 ? "Synthetic audit fixture" : nil,
+                    referenceText: "30–300 ng/mL")
+            }
+        }
+        _ = try await store.upsertLabMarkers(markerRows)
+
+        let hydration = [
+            MetricPoint(day: today, key: HydrationStore.key, value: 1_237),
+            MetricPoint(day: formatter.string(from: calendar.date(byAdding: .day, value: -1, to: now)!),
+                        key: HydrationStore.key, value: 1_850),
+        ]
+        _ = try await store.upsertMetricSeries(hydration, deviceId: HydrationStore.sourceId)
+        let entries = [
+            HydrationEntry(id: UUID(uuidString: "00000000-0000-0000-0000-000000000101")!, amountMl: 500,
+                           loggedAt: calendar.date(bySettingHour: 8, minute: 15, second: 0, of: now)!),
+            HydrationEntry(id: UUID(uuidString: "00000000-0000-0000-0000-000000000102")!, amountMl: 737,
+                           loggedAt: calendar.date(bySettingHour: 12, minute: 30, second: 0, of: now)!),
+        ]
+        if let data = try? JSONEncoder().encode(entries) {
+            UserDefaults.standard.set(data, forKey: HydrationStore.entriesKey(forDay: today))
+        }
     }
 
     // MARK: - helpers

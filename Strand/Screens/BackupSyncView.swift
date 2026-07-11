@@ -25,6 +25,23 @@ struct BackupSyncView: View {
     @State private var pendingRestore: FolderBackup.Snapshot?
     @State private var confirmRestore = false
 
+    private var demoAuditMode: Bool {
+        #if DEBUG
+        AppleDemoSeeder.requested
+        #else
+        false
+        #endif
+    }
+
+    init() {
+        #if DEBUG
+        if AppleDemoSeeder.requested {
+            _folderLabel = State(initialValue: "Demo Backup Folder")
+            _lastMs = State(initialValue: Int(Date().addingTimeInterval(-3_600).timeIntervalSince1970 * 1_000))
+        }
+        #endif
+    }
+
     var body: some View {
         ScreenScaffold(
             title: "Backup & Sync",
@@ -150,6 +167,12 @@ struct BackupSyncView: View {
     }
 
     private func backupNow() {
+        if demoAuditMode {
+            alertTitle = String(localized: "Backed up")
+            alertMessage = String(localized: "Saved a synthetic audit backup. No file was written.")
+            showAlert = true
+            return
+        }
         busy = true
         Task {
             let ok = await FolderBackup.backupNow(checkpoint: { await model.repo.checkpointForBackup() })
@@ -166,7 +189,10 @@ struct BackupSyncView: View {
     }
 
     private func openRestorePicker() {
-        snapshots = FolderBackup.listSnapshots()
+        snapshots = demoAuditMode
+            ? [FolderBackup.Snapshot(name: "noop-audit-demo.noopbak",
+                                     timeMs: Int(Date().addingTimeInterval(-3_600).timeIntervalSince1970 * 1_000))]
+            : FolderBackup.listSnapshots()
         if snapshots.isEmpty {
             alertTitle = String(localized: "No backups found")
             alertMessage = String(localized: "There are no NOOP backups in your folder yet. Use Back up now first.")
@@ -223,9 +249,19 @@ private struct RestorePickerSheet: View {
     let snapshots: [FolderBackup.Snapshot]
     let onChoose: (FolderBackup.Snapshot?) -> Void
 
+    private var displayedSnapshots: [FolderBackup.Snapshot] {
+        #if DEBUG
+        if snapshots.isEmpty, AppleDemoSeeder.requested {
+            return [FolderBackup.Snapshot(name: "noop-audit-demo.noopbak",
+                                          timeMs: Int(Date().addingTimeInterval(-3_600).timeIntervalSince1970 * 1_000))]
+        }
+        #endif
+        return snapshots
+    }
+
     var body: some View {
         NavigationStack {
-            List(snapshots) { snap in
+            List(displayedSnapshots) { snap in
                 Button { onChoose(snap) } label: {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {

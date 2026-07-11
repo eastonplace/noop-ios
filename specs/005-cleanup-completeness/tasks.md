@@ -16,7 +16,7 @@
   full-scroll (E5 protocol; use the demo-screen routes + in-app navigation for
   sheets/editors). Fill the evidence column. GATE — this is the "where are we
   actually" artifact Easton asked for; deliver the table before proceeding.
-- [ ] **T102 — Tap-through audit**: walk every screen tapping every control
+- [x] **T102 — Tap-through audit**: walk every screen tapping every control
   once; log works/dead/misroutes. Include: ScoringGuide close (known dead via
   CoupledView:932), every onClose/onAccept callback site (grep list in spec
   §B2), toggles persist after relaunch, links route correctly. GATE.
