@@ -57,10 +57,16 @@
   with sheet 2-2. The card reads the recorder's real live polyline, the shared
   Sparkline adds its 6% area wash, and the control snapshot remains lock +
   Recording + red-outline Finish (no Pause). `NOOPiOS` build passed.
-- [ ] **T88 — Evidence**: full re-shoot of all reference screens light+dark,
+- [x] **T88 — Evidence**: full re-shoot of all reference screens light+dark,
   XL-type pass on Today/Sleep/detail, regenerate
   `qa/pixel-contact-sheet.jpg` (before = 003 qa), re-score fidelity.md with
   type-scale column, push, and hand Easton the sheet for the next alignment.
+  Proof: `qa/final/` contains 25 seeded iPhone 17 Pro Max screens in both light
+  and dark plus XL passes for Today, Sleep, Recovery detail, and Strain detail.
+  `qa/pixel-contact-sheet.jpg` was regenerated with 003 QA as the comparison
+  baseline; `fidelity.md` records every deterministic surface at Close or High.
+  Paused run remains intentionally unmanufactured per C9; Quick Actions remains
+  behaviorally intact without adding a production-only screenshot route.
 
 ## Shipped by Claude — 2026-07-10 (round 5)
 
