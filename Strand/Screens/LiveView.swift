@@ -14,7 +14,7 @@ import WhoopStore
 /// screen instead of the old flat-card layout.
 ///
 /// LiveState (which publishes at ~1 Hz while a strap streams) is observed ONLY in leaf views
-/// (`LiveHeartReadout`, `LivePhysiology`, `LiveHeaderStats`, `LiveSignalTrustRail`, `ActiveWorkoutLive`,
+/// (`LiveHeartReadout`, `LivePhysiology`, `LiveHeaderStats`, `LiveSignalTrustRail`,
 /// `LiveLogCard`, …) — the Today pattern — so a fresh HR / R-R / frame notify re-renders just that leaf,
 /// never the whole screen. The parent only observes the coarse connection transitions it needs to re-arm
 /// the stream and gate the layout.
@@ -33,20 +33,6 @@ struct LiveView: View {
     @AppStorage("selectedWhoopModel") private var selectedModelRaw = WhoopModel.whoop4.rawValue
     private var selectedModel: WhoopModel { WhoopModel(rawValue: selectedModelRaw) ?? .whoop4 }
 
-    /// Maps the picked strap model to the HRV-reading source so the spot caveat is honest (#537): a
-    /// WHOOP 5/MG's R-R is optical PPG (noisier), a WHOOP 4 is electrical R-R. Mirrors the Android
-    /// `LiveScreen` mapping.
-    private var hrvSnapshotSource: SpotHrvReading.Source {
-        switch selectedModel {
-        case .whoop5mg: return .opticalPPG
-        case .whoop4:   return .chestStrap
-        }
-    }
-
-    /// Strain display scale (#268) — routes the live + saved workout Strain read-outs. Display-only.
-    @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.whoop.rawValue
-    private var effortScale: EffortScale { UnitPrefs.resolveEffortScale(effortScaleRaw) }
-
     private var activeConnection: Bool { live.connected && live.bonded }
 
     /// The display name of the active device from the registry ("WHOOP", a strap's nickname, …) — what
@@ -63,10 +49,6 @@ struct LiveView: View {
     /// active. Auto-opens when a workout begins; closing just hides it (the workout keeps recording).
     @State private var showLiveWorkout = false
     @State private var showStartSport = false
-
-    /// Manual HRV snapshot (#127) — presents the "Take an HRV reading" screen as a sheet. Entry sits in
-    /// the Session console and is only enabled while bonded (the reading needs the live R-R stream).
-    @State private var showHRVSnapshot = false
 
     var body: some View {
         ScreenScaffold(title: "Live Body Console",
@@ -98,9 +80,8 @@ struct LiveView: View {
                 if Self.shouldShowStandardHRNote(live.standardHRMode) {
                     standardHRNote(live.standardHRMode ?? "")
                 }
-                sessionConsole
+                startWorkoutPath
                 advancedControlsCard
-                LiveLogCard()
             }
         }
         #if os(iOS)
@@ -126,15 +107,6 @@ struct LiveView: View {
         // off the activeWorkout change above, so no extra navigation is needed here.
         .sheet(isPresented: $showStartSport) {
             StartWorkoutSheet { name in model.startWorkout(sport: name) }
-        }
-        // Manual HRV snapshot (#127) — a still, seated 60s R-R reading.
-        .sheet(isPresented: $showHRVSnapshot) {
-            // Tell the reading where its R-R is coming from so the caveat is honest (#537): a WHOOP 5/MG
-            // derives R-R from the optical pulse signal (noisier) while a WHOOP 4 / chest strap is
-            // electrical R-R. Driven off the picked strap model, mirroring the Android twin.
-            HRVSnapshotView(onClose: { showHRVSnapshot = false }, source: hrvSnapshotSource)
-                .environmentObject(model)
-                .environmentObject(live)
         }
     }
 
@@ -256,85 +228,16 @@ struct LiveView: View {
         }
     }
 
-    // MARK: - Signal trust
+    // MARK: - Workout entry
 
-    /// The "Signal Trust" rail — one tile per signal that has to be current for the console to be
-    /// trustworthy (HR, R-R, connection, history sync, battery, wear). The whole rail is a leaf that
-    /// owns LiveState so its 1 Hz value refresh doesn't re-render the parent screen.
-    private var signalTrustRail: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            SectionHeader("Signal Trust", overline: "Proof that the console is current")
-            LiveSignalTrustRail(activeConnection: activeConnection)
-        }
-    }
-
-    // MARK: - Session console (record / inspect the current stream)
-
-    @ViewBuilder private var sessionConsole: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            SectionHeader("Session", overline: "Record or inspect the current stream")
-            if let w = model.activeWorkout {
-                activeWorkoutCard(w)
-            } else {
-                card {
-                    ViewThatFits(in: .horizontal) {
-                        HStack(alignment: .center, spacing: 14) {
-                            sessionPrompt
-                            Spacer(minLength: 12)
-                            sessionActions
-                        }
-                        VStack(alignment: .leading, spacing: 14) {
-                            sessionPrompt
-                            sessionActions
-                        }
-                    }
-                }
-                if let last = model.lastWorkout {
-                    workoutSavedRow(last)
-                }
-            }
-        }
-    }
-
-    private var sessionPrompt: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Ready to record Strain.")
-                .font(StrandFont.headline)
-                .foregroundStyle(StrandPalette.textPrimary)
-            Text(activeConnection
-                 ? "Start a workout when the stream matters. NOOP records the interval, HR, peak, average and Strain from the same live feed."
-                 : "Connect the strap first, then mark a workout from the live stream.")
-                .font(StrandFont.subhead)
-                .foregroundStyle(StrandPalette.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    private var sessionActions: some View {
-        HStack(spacing: NoopMetrics.rowSpacing) {
-            // All three routed through the unified button system: a filled primary for the lead
-            // action, secondary surfaces for the supporting two — sentence-case, single line, 48pt.
-            NoopButton("Start workout", systemImage: "figure.run", kind: .primary) {
-                showStartSport = true
-            }
-            .disabled(!activeConnection)
-            .help("Track a workout manually. Records heart rate and Strain until you end it.")
-
-            NoopButton("Refresh", systemImage: "arrow.clockwise", kind: .secondary) {
-                model.getBattery()
-            }
-            .disabled(!activeConnection)
-            .help("Refresh strap battery and connection state.")
-
-            // Manual HRV snapshot (#127) — a still, seated 60s R-R reading. Needs the live R-R
-            // stream, so it's gated on a bonded connection just like the workout/refresh actions.
-            NoopButton("HRV reading", systemImage: "waveform.path.ecg", kind: .secondary) {
-                showHRVSnapshot = true
-            }
-            .disabled(!activeConnection)
-            .help(activeConnection
-                  ? "Take a 60-second seated HRV reading from the live R-R stream."
-                  : "Connect your strap first. The reading needs the live R-R stream.")
+    /// E2: Live keeps the reference-composition workout entry, while stream inspection and diagnostic
+    /// controls live in Test Centre. This uses the same current workout flow as the former Session card.
+    private var startWorkoutPath: some View {
+        NoopButton(model.activeWorkout == nil ? "Start workout" : "Open active workout",
+                   systemImage: model.activeWorkout == nil ? "figure.run" : "timer",
+                   kind: .primary, fullWidth: true) {
+            if model.activeWorkout == nil { showStartSport = true }
+            else { showLiveWorkout = true }
         }
     }
 
@@ -350,56 +253,6 @@ struct LiveView: View {
                 manageDevicesRow
             }
         }
-    }
-
-    private func activeWorkoutCard(_ w: AppModel.ActiveWorkout) -> some View {
-        card {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 8) {
-                    Circle().fill(StrandPalette.metricRose).frame(width: 8, height: 8)
-                    Text("RECORDING WORKOUT").font(StrandFont.overline)
-                        .tracking(StrandFont.overlineTracking).foregroundStyle(StrandPalette.metricRose)
-                    Spacer()
-                    // Re-render once a second so the elapsed clock ticks without a manual Timer.
-                    TimelineView(.periodic(from: .now, by: 1)) { _ in
-                        Text(Self.elapsed(since: w.start)).font(StrandFont.number(17)).monospacedDigit()
-                            .foregroundStyle(StrandPalette.textPrimary)
-                    }
-                }
-                // Live HR / avg / peak / effort — the leaf owns LiveState + the active workout so the
-                // 1 Hz stat refresh re-renders only these tiles, plus a liquid effort tube under them.
-                ActiveWorkoutLive(workout: w, effortScale: effortScale)
-                HStack(spacing: NoopMetrics.rowSpacing) {
-                    // Re-open the full live workout screen (#238) after it's been dismissed.
-                    NoopButton("Open live view", systemImage: "rectangle.expand.vertical",
-                               kind: .secondary, fullWidth: true) {
-                        showLiveWorkout = true
-                    }
-                    NoopButton("End workout", systemImage: "stop.circle.fill",
-                               kind: .destructive, fullWidth: true) {
-                        model.endWorkout()
-                    }
-                }
-            }
-        }
-    }
-
-    private func workoutSavedRow(_ row: WorkoutRow) -> some View {
-        let mins = Int((row.durationS ?? 0) / 60)
-        let parts = [String(localized: "\(mins) min"), row.avgHr.map { String(localized: "\($0) avg bpm") },
-                     row.strain.map { String(localized: "Strain \(UnitFormatter.effortDisplay($0, scale: effortScale))") }].compactMap { $0 }
-        return HStack(spacing: 8) {
-            Image(systemName: "checkmark.circle.fill").foregroundStyle(StrandPalette.accent)
-            Text("Workout saved · \(parts.joined(separator: " · "))")
-                .font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 4)
-    }
-
-    private static func elapsed(since start: Date) -> String {
-        let s = max(0, Int(Date().timeIntervalSince(start)))
-        return String(format: "%d:%02d", s / 60, s % 60)
     }
 
     private func reconnectGuideBanner(_ guide: String) -> some View {
@@ -1098,7 +951,7 @@ private struct LivePhysiology: View {
 }
 
 /// The Signal Trust rail's tiles. Owns LiveState so the value + tint refresh re-renders only the rail.
-private struct LiveSignalTrustRail: View {
+struct LiveSignalTrustRail: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var live: LiveState
     let activeConnection: Bool
@@ -1187,45 +1040,11 @@ private struct LiveSignalTrustRail: View {
     }
 }
 
-/// The active-workout live stats (HR / avg / peak / effort) + a liquid effort tube. Owns LiveState +
-/// AppModel so the 1 Hz HR/effort refresh re-renders only this block.
-private struct ActiveWorkoutLive: View {
-    @EnvironmentObject private var model: AppModel
-    let workout: AppModel.ActiveWorkout
-    let effortScale: EffortScale
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: NoopMetrics.gap) {
-                stat("HR", model.bpm.map { "\($0)" } ?? "—",
-                     tint: model.bpm == nil ? StrandPalette.textPrimary : StrandPalette.metricRose)
-                stat(String(localized: "Avg"), workout.avgHr > 0 ? "\(workout.avgHr)" : "—")
-                stat(String(localized: "Peak"), workout.peakHr > 0 ? "\(workout.peakHr)" : "—")
-                stat(String(localized: "Strain"), UnitFormatter.effortDisplay(workout.liveStrain, scale: effortScale),
-                     tint: StrandPalette.strainColor(workout.liveStrain))
-            }
-            // A liquid effort tube — the live effort as a fraction of the 0–100 strain axis.
-            PaperProgressBar(frac: max(0, min(1, StrainScale.displayValue(fromStored: workout.liveStrain) / 21)),
-                       tint: StrandPalette.strainColor(workout.liveStrain), height: 10, animated: true)
-                .accessibilityHidden(true)
-        }
-    }
-
-    private func stat(_ title: String, _ value: String, tint: Color = StrandPalette.textPrimary) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title.uppercased()).font(StrandFont.overline).tracking(StrandFont.overlineTracking)
-                .foregroundStyle(StrandPalette.textSecondary)
-            Text(value).font(StrandFont.number(17))
-                .foregroundStyle(tint).lineLimit(1).minimumScaleFactor(0.6)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
 /// The strap log + export controls + Test Centre link. Owns LiveState so the streaming log lines
 /// re-render only this card. Wrapped in the liquid frosted card style.
-private struct LiveLogCard: View {
+struct LiveLogCard: View {
     @EnvironmentObject private var live: LiveState
+    var showsTestCentreLink = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -1259,28 +1078,28 @@ private struct LiveLogCard: View {
 
             // Users look on Live first when something's wrong (#507/#509), so link straight into the
             // Test Centre diagnostic home, one tap from the log.
-            Divider().overlay(StrandPalette.hairline)
-            NavigationLink(destination: TestCentreView()) {
-                HStack(spacing: 8) {
-                    Image(systemName: "testtube.2").foregroundStyle(StrandPalette.accent)
-                    Text("Open Test Centre to report a bug").font(StrandFont.mono)
-                        .foregroundStyle(StrandPalette.accent)
-                    Spacer()
-                    Image(systemName: "chevron.right").foregroundStyle(StrandPalette.textSecondary)
+            if showsTestCentreLink {
+                Divider().overlay(StrandPalette.hairline)
+                NavigationLink(destination: TestCentreView()) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "testtube.2").foregroundStyle(StrandPalette.accent)
+                        Text("Open Test Centre to report a bug").font(StrandFont.mono)
+                            .foregroundStyle(StrandPalette.accent)
+                        Spacer()
+                        Image(systemName: "chevron.right").foregroundStyle(StrandPalette.textSecondary)
+                    }
+                    .contentShape(Rectangle())
                 }
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .accessibilityLabel("Open Test Centre")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Open Test Centre")
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(StrandPalette.surfaceRaised)
-                .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .strokeBorder(StrandPalette.hairline, lineWidth: 1))
-        )
+        .background(StrandPalette.surfaceRaised,
+                    in: RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous)
+            .strokeBorder(StrandPalette.hairline, lineWidth: 1))
     }
 
     // MARK: - Strap-log export (issue #17 — let macOS users share the log for bug reports)

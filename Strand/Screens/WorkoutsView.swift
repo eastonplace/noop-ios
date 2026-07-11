@@ -1114,8 +1114,8 @@ struct WorkoutsView: View {
 
     private func paperWorkoutHistory(rows: [WorkoutRow], effectiveRange: Range) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            SectionHeader("Workout history", overline: "Complete log",
-                          trailing: String(localized: "\(rows.count) sessions"))
+            workoutHistoryHeader("Workout history", overline: "Complete log",
+                                 trailing: String(localized: "\(rows.count) sessions"))
             rangeBar(rows: rows, effectiveRange: effectiveRange)
             sessionsSection(rows: rows)
         }
@@ -1136,9 +1136,8 @@ struct WorkoutsView: View {
     private func sessionsSection(rows: [WorkoutRow]) -> some View {
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
             HStack(alignment: .firstTextBaseline) {
-                SectionHeader("All Sessions",
-                              overline: "Log",
-                              trailing: String(localized: "\(rows.count) total"))
+                workoutHistoryHeader("All Sessions", overline: "Log",
+                                     trailing: String(localized: "\(rows.count) total"))
                 selectPill(rows: rows)
             }
             if selectionMode { selectionToolbar(rows: rows) }
@@ -1444,8 +1443,11 @@ struct WorkoutsView: View {
                             .lineLimit(1)
                         Spacer(minLength: 0)
                         Text(Self.effortCellLabel(strain: row.strain, scale: effortScale))
-                            .font(StrandFont.number(15))
-                            .foregroundStyle(row.strain != nil ? StrandPalette.effortColor : StrandPalette.textTertiary)
+                            .font(StrandFont.captionNumber.weight(.bold))
+                            .foregroundStyle(row.strain != nil ? StrandPalette.strainAccent : StrandPalette.textTertiary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .background(StrandPalette.strainAccent.opacity(row.strain == nil ? 0 : 0.10), in: Capsule())
                     }
                     Text(compactRowSubtitle(row))
                         .font(StrandFont.footnote)
@@ -1480,6 +1482,19 @@ struct WorkoutsView: View {
         .accessibilityHint(selectionMode
             ? (selectable ? String(localized: "Double-tap to select") : String(localized: "Imported history can't be merged"))
             : String(localized: "Opens workout detail"))
+    }
+
+    private func workoutHistoryHeader(_ title: LocalizedStringKey,
+                                      overline: LocalizedStringKey,
+                                      trailing: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(overline).strandOverline()
+                Text(title).font(StrandFont.cardTitle).foregroundStyle(StrandPalette.textPrimary)
+            }
+            Spacer()
+            Text(trailing).font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
+        }
     }
 
     /// The leading selection glyph: a filled/hollow checkmark for a mergeable row, or a lock for imported

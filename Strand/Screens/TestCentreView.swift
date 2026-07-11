@@ -26,6 +26,9 @@ struct TestCentreView: View {
     @State private var infoTitle = ""
     @State private var infoMessage = ""
     @State private var showInfo = false
+    @State private var showStartSport = false
+    @State private var showLiveWorkout = false
+    @State private var showHRVSnapshot = false
 
     // Section 3: scheduled daily auto-export, the same ScheduledDebugExport store the Settings card uses.
     @State private var debugExportOn = ScheduledDebugExport.isEnabled
@@ -46,6 +49,17 @@ struct TestCentreView: View {
     /// True when the connected strap is a 5/MG, so the 5/MG experimental block shows. Mirrors the
     /// SettingsView gate (#22): a confident 4.0 owner never sees controls that cannot touch their strap.
     private var is5MG: Bool { selectedWhoopModelRaw == WhoopModel.whoop5mg.rawValue }
+    private var activeConnection: Bool { live.connected && live.bonded }
+    private var canExerciseLiveTools: Bool {
+        #if DEBUG
+        return activeConnection || CommandLine.arguments.contains("--demo-seed")
+        #else
+        return activeConnection
+        #endif
+    }
+    private var hrvSnapshotSource: SpotHrvReading.Source {
+        selectedWhoopModelRaw == WhoopModel.whoop5mg.rawValue ? .opticalPPG : .chestStrap
+    }
 
     /// The "whole app" report profile for the section-3 manual Report button. master is not a registry
     /// mode (it has no wear-and-capture flow), so the deep-link self-applies the test:all label via this.
@@ -59,10 +73,11 @@ struct TestCentreView: View {
                        subtitle: "Diagnostics & tools") {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
                 paperTestSummary.staggeredAppear(index: 0)
-                domainModesCard.staggeredAppear(index: 1)
-                diagnosticToolsCard.staggeredAppear(index: 2)
-                exportCard.staggeredAppear(index: 3)
-                advancedCard.staggeredAppear(index: 4)
+                liveDiagnosticsSection.staggeredAppear(index: 1)
+                domainModesCard.staggeredAppear(index: 2)
+                diagnosticToolsCard.staggeredAppear(index: 3)
+                exportCard.staggeredAppear(index: 4)
+                advancedCard.staggeredAppear(index: 5)
             }
         }
         .id(refreshToken)
@@ -72,6 +87,22 @@ struct TestCentreView: View {
         }
         .sheet(item: $report.pending) { _ in
             ReportReviewSheet(report: report)
+        }
+        .sheet(isPresented: $showStartSport) {
+            StartWorkoutSheet { name in
+                model.startWorkout(sport: name)
+                showLiveWorkout = true
+            }
+        }
+        .sheet(isPresented: $showLiveWorkout) {
+            LiveWorkoutView(onClose: { showLiveWorkout = false })
+                .environmentObject(model)
+                .environmentObject(live)
+        }
+        .sheet(isPresented: $showHRVSnapshot) {
+            HRVSnapshotView(onClose: { showHRVSnapshot = false }, source: hrvSnapshotSource)
+                .environmentObject(model)
+                .environmentObject(live)
         }
         .confirmationDialog("Recalibrate your Recovery baseline?",
                             isPresented: $showRecalibrateConfirm, titleVisibility: .visible) {
@@ -84,6 +115,47 @@ struct TestCentreView: View {
             Button("OK", role: .cancel) { }
         } message: {
             Text(infoMessage)
+        }
+    }
+
+    /// E2: the live stream's trust, record and inspect tools are diagnostics, so Test Centre owns them.
+    /// The actions are the original Live wiring: AppModel.startWorkout, getBattery and HRVSnapshotView.
+    private var liveDiagnosticsSection: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
+            SectionHeader("Signal Trust", overline: "Live stream diagnostics")
+            LiveSignalTrustRail(activeConnection: activeConnection)
+
+            SectionHeader("Record & inspect", overline: "Current stream")
+            PaperCard(padding: 14) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(activeConnection
+                         ? "Record a workout interval or inspect the live R-R stream."
+                         : "Connect a strap in Live, then return here to record or inspect its stream.")
+                        .font(StrandFont.caption)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    NoopButton(model.activeWorkout == nil ? "Record workout" : "Open active workout",
+                               systemImage: model.activeWorkout == nil ? "record.circle" : "timer",
+                               kind: .primary, fullWidth: true) {
+                        if model.activeWorkout == nil { showStartSport = true }
+                        else { showLiveWorkout = true }
+                    }
+                    .disabled(!canExerciseLiveTools && model.activeWorkout == nil)
+                    HStack(spacing: NoopMetrics.rowSpacing) {
+                        NoopButton("Refresh strap", systemImage: "arrow.clockwise", kind: .secondary) {
+                            model.getBattery()
+                        }
+                        .disabled(!canExerciseLiveTools)
+                        NoopButton("Inspect HRV", systemImage: "waveform.path.ecg", kind: .secondary) {
+                            showHRVSnapshot = true
+                        }
+                        .disabled(!canExerciseLiveTools)
+                    }
+                }
+            }
+
+            SectionHeader("Stream log", overline: "Inspect & export")
+            LiveLogCard(showsTestCentreLink: false)
         }
     }
 

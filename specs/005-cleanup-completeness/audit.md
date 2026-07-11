@@ -28,7 +28,7 @@ Evidence rule: each link must resolve to a complete stepped scroll set under `qa
 | Workout detail | `WorkoutDetailView.swift` / `workoutdetail` | [pages 1–4](qa/workoutdetail/) | PASS | NONE | PASS | Workouts rows | No lost destination | Tap-through audit |
 | Pre-workout | `LiveWorkoutView.swift` / `preworkout` | [pages 1–4](qa/preworkout/) | PASS | NONE | PASS | Start workout | No lost destination | Tap-through audit |
 | Live workout | `LiveWorkoutView.swift` / `liveworkout` | [pages 1–4](qa/liveworkout/) | PASS | NONE | PASS | Pre-workout Start | No lost destination | Audit controls/map/chart |
-| Live console | `LiveView.swift` / `live` | [pages 1–4](qa/live/) | FAIL lower diagnostics | STACKED | PASS | More / FAB | No lost destination | E2 move diagnostics to Test Centre |
+| Live console | `LiveView.swift` / `live` | [T105 full page](qa/t105-live/) | PASS | NONE | PASS incl. current Start Workout flow | More / FAB | No lost destination | T105 complete; diagnostics moved, Start Workout retained |
 | Health | `HealthView.swift` / `health` | [pages 1–4](qa/health/) | PARTIAL | NONE | PASS | More | No lost destination | Coverage refresh candidate |
 | Insights | `InsightsView.swift` / `insights` | [pages 1–4](qa/insights/) | PARTIAL | NONE | PASS | More | No lost destination | Coverage refresh candidate |
 | Insights hub | `InsightsHubView.swift` / `insightshub` | [pages 1–4](qa/insightshub/) | PARTIAL | NONE | PASS | More / Insights | No lost destination | Coverage refresh candidate |
@@ -81,7 +81,7 @@ Evidence rule: each link must resolve to a complete stepped scroll set under `qa
 | Shortcuts export | `ShortcutExportSettingsView.swift` | [Data group full sweep](qa/more/) | PARTIAL | N/A | PASS | More → Data → Shortcuts Export | No lost destination | Coverage refresh candidate |
 | Automations | `AutomationsView.swift` / `automations` | [pages 1–4](qa/automations/) | PARTIAL | NONE | PASS | More | No lost destination | Audit toggles/persistence |
 | Smart alarms | `SmartAlarmView.swift` / `alarms` | [pages 1–4](qa/alarms/) | PARTIAL | NONE | PASS | More | No lost destination | Coverage refresh candidate |
-| Test Centre | `TestCentreView.swift` / `testcentre` | [pages 1–4](qa/testcentre/) | PARTIAL | NONE | PASS | More | No lost destination | E2 destination; audit current tools |
+| Test Centre | `TestCentreView.swift` / `testcentre` | [T105 full page](qa/t105-testcentre/) | PASS | NONE | PASS record + HRV inspect + stream export | More | No lost destination | T105 owns Signal Trust, Record & Inspect, and Stream Log |
 | Test report review | `TestCentreView.swift` | [Test Centre sweep](qa/testcentre/) | PARTIAL | N/A | PASS | Test Centre → Report | No lost destination | Coverage refresh candidate |
 | Support | `SupportView.swift` / `support` | [pages 1–4](qa/support/) | PARTIAL | NONE | PASS | More / Settings | No lost destination | Audit all sub-screens |
 | Updates inbox | `UpdatesInboxView.swift` / `updates` | [pages 1–4](qa/updates/) | PASS | NONE | PASS | Header Updates | No lost destination | Tap-through audit |

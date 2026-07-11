@@ -35,7 +35,7 @@
   restyle `sessionsSection` fully (paper search/chips/rows, kill any remaining
   liquid module); features intact (add, filters, search, per-row nav). Full-page
   proof. GATE.
-- [ ] **T105 — Live→Test Centre move (E2)**: relocate Signal Trust + record/
+- [x] **T105 — Live→Test Centre move (E2)**: relocate Signal Trust + record/
   inspect tools into Test Centre as Paper sections; exercise record + inspect
   flows before AND after (screen recordings or step logs); Live keeps reference
   content. GATE.
