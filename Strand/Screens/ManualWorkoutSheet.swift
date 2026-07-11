@@ -328,6 +328,7 @@ struct StartWorkoutSheet: View {
     private let isWorkoutStart: Bool
 
     init(title: String? = nil, subtitle: String? = nil, actionVerb: String? = nil,
+         initialSport: String = WorkoutCatalog.defaultSportName,
          onStart: @escaping (_ sport: String) -> Void) {
         self.onStart = onStart
         self.heading = title ?? String(localized: "Start a workout")
@@ -335,14 +336,19 @@ struct StartWorkoutSheet: View {
             ?? String(localized: "Pick a sport. NOOP records HR, peak, average and effort from the live feed.")
         self.actionVerb = actionVerb ?? String(localized: "Start")
         self.isWorkoutStart = title == nil && actionVerb == nil
+        _selected = State(initialValue: WorkoutCatalog.sport(named: initialSport)?.name
+            ?? WorkoutCatalog.defaultSportName)
     }
 
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var repo: Repository
+    @EnvironmentObject private var model: AppModel
     @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
+    @AppStorage("workoutKeepScreenOn") private var keepScreenOn = false
     @State private var query = ""
-    @State private var selected = WorkoutCatalog.defaultSportName
+    @State private var selected: String
     @State private var recentRows: [WorkoutRow] = []
+    @State private var showsAllWorkoutTypes = false
 
     private var filtered: [WorkoutCatalog.Sport] { WorkoutCatalog.matching(query) }
     private var unitSystem: UnitSystem { UnitSystem(rawValue: unitSystemRaw) ?? .metric }
@@ -353,7 +359,7 @@ struct StartWorkoutSheet: View {
             if isWorkoutStart { paperWorkoutStart }
             else { compactSportPicker }
         }
-        .task { recentRows = await repo.workoutRows(days: 365) }
+        .task(id: repo.refreshSeq) { recentRows = await repo.workoutRows(days: 365) }
     }
 
     private var paperWorkoutStart: some View {
@@ -374,10 +380,18 @@ struct StartWorkoutSheet: View {
                         .tracking(StrandFont.wordmarkTracking)
                         .foregroundStyle(StrandPalette.textPrimary)
                     Spacer()
-                    Image(systemName: "gearshape")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(StrandPalette.textPrimary)
-                        .frame(width: 36, height: 36)
+                    Button {
+                        showsAllWorkoutTypes.toggle()
+                    } label: {
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(StrandPalette.textPrimary)
+                            .frame(width: 36, height: 36)
+                            .background(StrandPalette.card, in: Circle())
+                            .overlay(Circle().strokeBorder(StrandPalette.cardBorder, lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Choose workout type")
                 }
 
                 HStack(alignment: .top, spacing: 10) {
@@ -390,12 +404,12 @@ struct StartWorkoutSheet: View {
                             .foregroundStyle(StrandPalette.textSecondary)
                     }
                     Spacer()
-                    VStack(alignment: .trailing, spacing: 6) {
-                        if selectedSport?.isDistanceSport == true {
+                    if selectedSport?.isDistanceSport == true && model.gpsRecorder.canRecordRoute {
+                        VStack(alignment: .trailing, spacing: 6) {
                             StatusBadge("GPS Ready", style: .ready)
+                            StatusBadge("Route saving · Local only", style: .imported,
+                                        tint: StrandPalette.textSecondary)
                         }
-                        StatusBadge("Route saving · Local only", style: .imported,
-                                    tint: StrandPalette.textSecondary)
                     }
                 }
 
@@ -404,18 +418,18 @@ struct StartWorkoutSheet: View {
                     HStack(spacing: 8) {
                         ForEach(quickTypes) { sport in
                             Button { selected = sport.name } label: {
-                                VStack(spacing: 7) {
+                                HStack(spacing: 7) {
                                     Image(systemName: sport.isDistanceSport ? "figure.run" : "figure.run.treadmill")
-                                        .font(.system(size: 17, weight: .medium))
+                                        .font(.system(size: 14, weight: .medium))
                                     Text(shortSportName(sport.name))
                                         .font(StrandFont.micro.weight(.semibold))
                                         .lineLimit(1).minimumScaleFactor(0.7)
                                 }
                                 .foregroundStyle(StrandPalette.textPrimary)
-                                .frame(maxWidth: .infinity, minHeight: 64)
+                                .frame(maxWidth: .infinity, minHeight: 44)
                                 .background(StrandPalette.card,
-                                            in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                            in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                                .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous)
                                     .strokeBorder(sport.name == selected ? StrandPalette.ink : StrandPalette.cardBorder,
                                                   lineWidth: sport.name == selected ? 2 : 1))
                             }
@@ -424,29 +438,27 @@ struct StartWorkoutSheet: View {
                     }
                 }
 
-                if let routeWorkout {
+                if let recentRoute {
                     VStack(alignment: .leading, spacing: 10) {
                         SectionHeader("Recent route")
                         PaperCard {
                             HStack(spacing: 12) {
-                                Image(systemName: "map.fill")
-                                    .font(.system(size: 24, weight: .medium))
-                                    .foregroundStyle(StrandPalette.link)
-                                    .frame(width: 64, height: 64)
-                                    .background(StrandPalette.inset,
-                                                in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                WorkoutRouteMap(points: recentRoute.points, showsEndpoints: false)
+                                    .frame(width: 104, height: 78)
+                                    .allowsHitTesting(false)
+                                    .compositingGroup()
+                                    .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                                    .accessibilityHidden(true)
                                 VStack(alignment: .leading, spacing: 3) {
-                                    Text(WorkoutSource.displaySport(routeWorkout.sport))
+                                    Text(WorkoutSource.displaySport(recentRoute.row.sport))
                                         .font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
-                                    Text(routeSummary(routeWorkout))
+                                    Text(UnitFormatter.distanceFromMeters(recentRoute.route.distanceM,
+                                                                          system: unitSystem))
                                         .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
-                                    Text("Last used \(dateText(routeWorkout.startTs))")
+                                    Text("Last used \(dateText(recentRoute.row.startTs))")
                                         .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
                                 }
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .foregroundStyle(StrandPalette.textTertiary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                             }
                         }
                     }
@@ -466,20 +478,63 @@ struct StartWorkoutSheet: View {
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(WorkoutSource.displaySport(last.sport))
                                         .font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
-                                    Text(dateText(last.startTs))
+                                    Text(lastWorkoutMeta(last))
                                         .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
                                     Text(lastWorkoutSummary(last))
                                         .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                                        .lineLimit(2)
                                 }
-                                Spacer()
+                                .frame(maxWidth: .infinity, alignment: .leading)
                             }
                         }
                     }
                 }
 
                 VStack(alignment: .leading, spacing: 10) {
-                    SectionHeader("All workout types")
-                    sportSearchAndList(maxHeight: 170)
+                    SectionHeader("Run setup")
+                    PaperCard {
+                        VStack(spacing: 0) {
+                            Button {
+                                showsAllWorkoutTypes.toggle()
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: "figure.run")
+                                        .font(.system(size: 14, weight: .medium))
+                                        .frame(width: 24)
+                                    Text("Workout type").font(StrandFont.body)
+                                    Spacer()
+                                    Text(selected)
+                                        .font(StrandFont.caption)
+                                        .foregroundStyle(StrandPalette.textSecondary)
+                                        .lineLimit(1)
+                                    Image(systemName: showsAllWorkoutTypes ? "chevron.up" : "chevron.down")
+                                        .font(.system(size: 10, weight: .semibold))
+                                        .foregroundStyle(StrandPalette.textTertiary)
+                                }
+                                .foregroundStyle(StrandPalette.textPrimary)
+                                .frame(minHeight: 42)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            Divider().overlay(StrandPalette.hairline)
+                            Toggle(isOn: $keepScreenOn) {
+                                HStack(spacing: 10) {
+                                    Image(systemName: "sun.max")
+                                        .font(.system(size: 14, weight: .medium))
+                                        .frame(width: 24)
+                                    Text("Keep screen awake").font(StrandFont.body)
+                                }
+                                .foregroundStyle(StrandPalette.textPrimary)
+                            }
+                            .toggleStyle(.switch)
+                            .tint(StrandPalette.ink)
+                            .frame(minHeight: 42)
+                            .accessibilityHint("Stops the screen dimming while a workout is recording")
+                        }
+                    }
+                    if showsAllWorkoutTypes {
+                        sportSearchAndList(maxHeight: 170)
+                    }
                 }
 
             }
@@ -487,7 +542,7 @@ struct StartWorkoutSheet: View {
         }
         .background(StrandPalette.surfaceBase.ignoresSafeArea())
         .safeAreaInset(edge: .bottom) {
-            NoopButton("\(actionVerb) \(selected)", systemImage: "play.fill",
+            NoopButton("\(actionVerb) \(workoutDisplayTitle)", systemImage: "play.fill",
                        kind: .primary, fullWidth: true) {
                 onStart(selected)
                 dismiss()
@@ -591,13 +646,9 @@ struct StartWorkoutSheet: View {
     private var selectedSport: WorkoutCatalog.Sport? { WorkoutCatalog.sport(named: selected) }
 
     private var quickTypes: [WorkoutCatalog.Sport] {
-        var sports = ["Running", "Treadmill run", "Hiking"].compactMap {
+        ["Running", "Treadmill run", "Hiking"].compactMap {
             WorkoutCatalog.sport(named: $0)
         }
-        if let selectedSport, !sports.contains(selectedSport) {
-            sports[sports.count - 1] = selectedSport
-        }
-        return sports
     }
 
     private var workoutDisplayTitle: String {
@@ -611,36 +662,60 @@ struct StartWorkoutSheet: View {
 
     private func shortSportName(_ name: String) -> String {
         switch name {
-        case "Running": return String(localized: "Outdoor")
+        case "Running": return String(localized: "Outdoor Run")
         case "Treadmill run": return String(localized: "Treadmill")
-        case "Hiking": return String(localized: "Trail")
+        case "Hiking": return String(localized: "Trail Run")
         default: return name
         }
     }
 
-    private var routeWorkout: WorkoutRow? {
-        recentRows.first(where: { RouteStore.load(startTs: $0.startTs, sport: $0.sport) != nil })
-            ?? recentRows.first(where: { ($0.distanceM ?? 0) > 0 })
+    private struct RecentRoute {
+        let row: WorkoutRow
+        let route: WorkoutRoute
+        let points: [RouteMath.LatLng]
     }
 
-    private func routeSummary(_ row: WorkoutRow) -> String {
-        let routeDistance = RouteStore.load(startTs: row.startTs, sport: row.sport)?.distanceM
-            ?? row.distanceM
-        return routeDistance.map { UnitFormatter.distanceFromMeters($0, system: unitSystem) }
-            ?? String(localized: "Local route")
+    /// D15: only a genuinely persisted, decodable route earns a route card. A distance-only
+    /// workout stays route-less; no map placeholder or synthetic production fallback is shown.
+    private var recentRoute: RecentRoute? {
+        for row in recentRows {
+            guard let route = RouteStore.load(startTs: row.startTs, sport: row.sport) else { continue }
+            let points = RouteMath.decode(route.polyline)
+            guard points.count >= 2 else { continue }
+            return RecentRoute(row: row, route: route, points: points)
+        }
+        return nil
+    }
+
+    private func lastWorkoutMeta(_ row: WorkoutRow) -> String {
+        [dateText(row.startTs), row.durationS.map(clockDuration)].compactMap { $0 }.joined(separator: " · ")
     }
 
     private func lastWorkoutSummary(_ row: WorkoutRow) -> String {
-        [row.durationS.map(durationText), row.distanceM.map {
+        [row.distanceM.map {
             UnitFormatter.distanceFromMeters($0, system: unitSystem)
-        }]
+        }, averagePace(row), row.avgHr.map { "\($0) bpm" }]
         .compactMap { $0 }
         .joined(separator: " · ")
     }
 
-    private func durationText(_ seconds: Double) -> String {
-        let minutes = max(0, Int((seconds / 60).rounded()))
-        return minutes >= 60 ? "\(minutes / 60)h \(minutes % 60)m" : "\(minutes)m"
+    private func averagePace(_ row: WorkoutRow) -> String? {
+        guard let meters = row.distanceM, meters > 0 else { return nil }
+        let seconds = row.durationS ?? Double(row.endTs - row.startTs)
+        guard seconds > 0 else { return nil }
+        let units = unitSystem == .imperial ? meters / 1609.344 : meters / 1000
+        guard units > 0 else { return nil }
+        let pace = Int((seconds / units).rounded())
+        return String(format: "%d:%02d %@", pace / 60, pace % 60,
+                      unitSystem == .imperial ? "/mi" : "/km")
+    }
+
+    private func clockDuration(_ seconds: Double) -> String {
+        let total = max(0, Int(seconds.rounded()))
+        if total >= 3600 {
+            return String(format: "%d:%02d:%02d", total / 3600, (total % 3600) / 60, total % 60)
+        }
+        return String(format: "%d:%02d", total / 60, total % 60)
     }
 
     private func dateText(_ timestamp: Int) -> String {

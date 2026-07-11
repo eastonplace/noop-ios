@@ -308,6 +308,16 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
     private var track: [RouteMath.LatLng] = []
     private var startMs: Int64 = 0
 
+    /// Whether this device can offer route capture right now. `.notDetermined` is available —
+    /// Start will ask once — while denied/restricted states stay honest and hide GPS-ready UI.
+    var canRecordRoute: Bool {
+        guard CLLocationManager.locationServicesEnabled() else { return false }
+        switch manager.authorizationStatus {
+        case .denied, .restricted: return false
+        default: return true
+        }
+    }
+
     /// Workouts & GPS test mode (Test Centre): the tagged sink for the `.workouts` GPS-fix lines, wired by
     /// AppModel to `live.append(log:domain:)`. Default nil (inert). We ALWAYS check `TestCentre.active(.workouts)`
     /// BEFORE building any line, so the recorder pays nothing when the mode is off. Diagnostic only - it never

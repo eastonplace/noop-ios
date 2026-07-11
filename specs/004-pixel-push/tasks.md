@@ -43,9 +43,13 @@
   side-by-side with sheet 3. `StrandDesignTests.testFactorBands*` 3/3 and
   `NOOPiOS` simulator build passed. Calories/Duration remain value-only because
   the engine exposes no normative baseline for either.
-- [ ] **T86 — D15 pre-run rebuild** per sheet 2-1 (run-type segmented cards,
+- [x] **T86 — D15 pre-run rebuild** per sheet 2-1 (run-type segmented cards,
   last-workout card, run-setup rows, Start button; route card only if route
   data exists). GATE.
+  Proof: `qa/T86-pre-run.png` on iPhone 17 Pro Max, compared side-by-side
+  with sheet 2-1. Route thumbnail is gated on a persisted, decodable
+  `RouteStore` polyline; the DEBUG proof fixture keys it to a real seeded row.
+  `NOOPiOS` simulator build passed.
 - [ ] **T87 — D15 live-run**: map card returns between grid and HR chart; HR
   chart gradient underfill; verify controls unchanged (C9). GATE (simulate
   workout via Test Centre for the populated shot).

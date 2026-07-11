@@ -715,6 +715,12 @@ typealias RouteMapRepresentable = NSViewRepresentable
 #if canImport(MapKit)
 struct WorkoutRouteMap: RouteMapRepresentable {
     let points: [RouteMath.LatLng]
+    let showsEndpoints: Bool
+
+    init(points: [RouteMath.LatLng], showsEndpoints: Bool = true) {
+        self.points = points
+        self.showsEndpoints = showsEndpoints
+    }
 
     private var coordinates: [CLLocationCoordinate2D] {
         points.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
@@ -742,9 +748,11 @@ struct WorkoutRouteMap: RouteMapRepresentable {
         let line = MKPolyline(coordinates: coords, count: coords.count)
         map.addOverlay(line)
 
-        let start = MKPointAnnotation(); start.coordinate = coords.first!; start.title = String(localized: "Start")
-        let end = MKPointAnnotation(); end.coordinate = coords.last!; end.title = String(localized: "Finish")
-        map.addAnnotations([start, end])
+        if showsEndpoints {
+            let start = MKPointAnnotation(); start.coordinate = coords.first!; start.title = String(localized: "Start")
+            let end = MKPointAnnotation(); end.coordinate = coords.last!; end.title = String(localized: "Finish")
+            map.addAnnotations([start, end])
+        }
 
         // Frame the whole route with a little padding so the line isn't flush to the edges.
         let rect = line.boundingMapRect
@@ -756,9 +764,9 @@ struct WorkoutRouteMap: RouteMapRepresentable {
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
             guard let line = overlay as? MKPolyline else { return MKOverlayRenderer(overlay: overlay) }
             let r = MKPolylineRenderer(polyline: line)
-            // Strain-amber world, matching the rest of the workout detail. A platform colour (the
-            // renderer needs a UIColor/NSColor, not a SwiftUI Color); kept close to the Strain accent.
-            r.strokeColor = RoutePlatformColor.effort
+            // Paper run-flow reference: route is the constant navigation blue, distinct from
+            // physiological zone colors. MapKit needs a platform color rather than SwiftUI Color.
+            r.strokeColor = RoutePlatformColor.route
             r.lineWidth = 4
             r.lineJoin = .round
             r.lineCap = .round
@@ -777,13 +785,12 @@ struct WorkoutRouteMap: RouteMapRepresentable {
     #endif
 }
 
-/// The route stroke colour as a platform colour (MapKit's renderer can't take a SwiftUI `Color`). A fixed
-/// Strain-amber so it reads in the same colour world as the rest of the screen on both platforms.
+/// The route stroke colour as a platform colour (MapKit's renderer can't take a SwiftUI `Color`).
 private enum RoutePlatformColor {
     #if canImport(UIKit)
-    static let effort = UIColor(red: 0.98, green: 0.62, blue: 0.16, alpha: 1.0)
+    static let route = UIColor(red: 0.08, green: 0.45, blue: 0.96, alpha: 1.0)
     #elseif canImport(AppKit)
-    static let effort = NSColor(red: 0.98, green: 0.62, blue: 0.16, alpha: 1.0)
+    static let route = NSColor(red: 0.08, green: 0.45, blue: 0.96, alpha: 1.0)
     #endif
 }
 #else

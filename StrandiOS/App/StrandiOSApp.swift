@@ -330,7 +330,7 @@ enum DemoScreens {
         case "rhythmconsent": return AnyView(RhythmConsentGate(onAccept: {}))
         case "rhythm": return AnyView(RhythmEmptyDemoHost())
         case "liveworkout": return AnyView(LiveWorkoutView(onClose: {}))
-        case "preworkout": return AnyView(StartWorkoutSheet(onStart: { _ in }))
+        case "preworkout": return AnyView(PreWorkoutDemoHost())
         // C10/T56: pillar deep links land on the canonical Paper details (same surface the
         // Today trio opens), not the generic trend explorer.
         case "recoverydetail": return AnyView(PaperPillarDetailView(kind: .charge))
@@ -351,6 +351,40 @@ enum DemoScreens {
         default:         return nil
         }
     }
+}
+
+/// Populated D15 pre-run proof. The route is written through the real `RouteStore` and
+/// keyed to a real seeded workout; this fixture is DEBUG-only and stripped from Release.
+private struct PreWorkoutDemoHost: View {
+    @EnvironmentObject private var repo: Repository
+    @State private var routeRevision = 0
+
+    var body: some View {
+        StartWorkoutSheet(initialSport: "Running", onStart: { _ in })
+            .id(routeRevision)
+            .task(id: repo.refreshSeq) {
+                guard routeRevision == 0 else { return }
+                let rows = await repo.workoutRows(days: 365)
+                guard let row = rows.first(where: { ($0.distanceM ?? 0) > 0 }) else { return }
+                if RouteStore.load(startTs: row.startTs, sport: row.sport) == nil {
+                    let points = Self.riversideLoop
+                    RouteStore.store(
+                        WorkoutRoute(polyline: RouteMath.encode(points),
+                                     distanceM: RouteMath.totalMeters(points)),
+                        startTs: row.startTs,
+                        sport: row.sport)
+                }
+                routeRevision = 1
+            }
+    }
+
+    private static let riversideLoop: [RouteMath.LatLng] = [
+        .init(40.80058, -73.97010), .init(40.80258, -73.97149),
+        .init(40.80502, -73.97326), .init(40.80738, -73.97486),
+        .init(40.80956, -73.97331), .init(40.80829, -73.97027),
+        .init(40.80582, -73.96872), .init(40.80335, -73.96729),
+        .init(40.80119, -73.96805), .init(40.80058, -73.97010),
+    ]
 }
 #endif
 #endif
