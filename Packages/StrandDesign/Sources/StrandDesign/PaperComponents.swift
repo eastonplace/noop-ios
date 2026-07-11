@@ -510,6 +510,20 @@ public struct SplitsTable: View {
     }
 }
 
+/// Maps measured hour/value pairs onto the fixed 24-hour visual rail. This is a
+/// rendering helper, not stress math: absent and explicitly unscored hours stay
+/// nil so callers cannot accidentally manufacture a full-day history from a
+/// daily rollup.
+public enum StressTimelineSlots {
+    public static func map(_ hourLevels: [(hour: Int, level: Double?)]) -> [Double?] {
+        var slots = [Double?](repeating: nil, count: 24)
+        for point in hourLevels where point.hour >= 0 && point.hour < 24 {
+            slots[point.hour] = point.level
+        }
+        return slots
+    }
+}
+
 public struct StressTimelineBar: View {
     private let values: [Double?]
     public init(values: [Double?]) { self.values = values }

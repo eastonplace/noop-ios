@@ -8,9 +8,11 @@
   and Recovery detail light/dark. GATE.
   Proof: `qa/T90-{light,dark}-{today,settings,recoverydetail}.png`; `NOOPiOS`
   simulator build passed. Tap/control heights remain unchanged.
-- [ ] **T91 — Honest stress module.** Apply E1: remove daily-score replication,
+- [x] **T91 — Honest stress module.** Apply E1: remove daily-score replication,
   retain neutral missing-hour track, extract a pure slot mapper, and unit-test
   empty/partial/mixed/full cases. Build; shoot Today light/dark. GATE.
+  Proof: `qa/T91-{light,dark}-today.png`; neutral timeline with daily value
+  retained. `StressTimelineSlotsTests` 4/4 and `NOOPiOS` build passed.
 - [ ] **T92 — Today core polish.** Tighten trio/Live HR/stress/Health Monitor and
   section handoffs without changing data or navigation. Build; shoot Today
   light/dark and compare to sheet 1-1. GATE.

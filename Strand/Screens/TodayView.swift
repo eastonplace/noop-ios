@@ -1330,18 +1330,10 @@ struct TodayView: View {
             hr: hr, rr: rr, tzOffsetSeconds: TimeZone.current.secondsFromGMT(for: Date()))
     }
 
-    /// 24 hour-slots for the ribbon: scored hours carry their 0–3 level, unscored hours
-    /// nil (rendered as bare track). Falls back to a flat today's-score fill only when
-    /// no intraday read exists at all.
+    /// 24 hour-slots for the ribbon: scored hours carry their 0–3 level and every
+    /// missing hour stays nil. The daily rollup never fabricates an hourly history.
     private var stressRibbonSlots: [Double?] {
-        if let result = daytimeStress, !result.hours.isEmpty {
-            var slots = [Double?](repeating: nil, count: 24)
-            for point in result.hours where point.hour >= 0 && point.hour < 24 {
-                slots[point.hour] = point.level
-            }
-            return slots
-        }
-        return stressToday.map { Array(repeating: Optional($0), count: 24) } ?? []
+        StressTimelineSlots.map((daytimeStress?.hours ?? []).map { ($0.hour, $0.level) })
     }
 
     private var paperStressCard: some View {
