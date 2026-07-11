@@ -537,7 +537,7 @@ struct CoupledView: View {
                     // The general METHOD behind the score, clearly separated from today's values, exactly
                     // the link the Today breakdown carries. Pushes within this sheet's own NavigationStack.
                     NavigationLink {
-                        ScoringGuideView(initialSection: .charge, onClose: { showChargeBreakdown = false })
+                        ScoringGuideView(initialSection: .recovery, onClose: { showChargeBreakdown = false })
                     } label: {
                         HStack(spacing: 10) {
                             Image(systemName: "function")
@@ -929,7 +929,7 @@ struct PaperPillarDetailView: View {
 
     private var recommendationCard: some View {
         NavigationLink {
-            ScoringGuideView(initialSection: .charge, onClose: {})
+            ScoringGuideView(initialSection: .recovery)
                 #if os(iOS)
                 .toolbar(.visible, for: .navigationBar)
                 #endif

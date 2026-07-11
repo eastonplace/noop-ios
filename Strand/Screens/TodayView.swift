@@ -1406,7 +1406,7 @@ struct TodayView: View {
                         NavigationLink { HealthView() } label: {
                             VStack(alignment: .leading, spacing: 3) {
                                 Text("Health Monitor").strandOverline()
-                                Text("All metrics in range")
+                                Text(model.healthAlert == nil ? "All metrics in range" : "Metrics outside your range")
                                     .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
                             }
                         }
@@ -2011,7 +2011,7 @@ struct TodayView: View {
                     // general METHOD behind the score, so the two are clearly separated, not conflated. It
                     // pushes within this sheet's own NavigationStack, so there is no second modal to manage.
                     NavigationLink {
-                        ScoringGuideView(initialSection: .charge, onClose: { showChargeBreakdown = false })
+            ScoringGuideView(initialSection: .recovery, onClose: { showChargeBreakdown = false })
                     } label: {
                         HStack(spacing: 10) {
                             Image(systemName: "function")
@@ -2753,12 +2753,12 @@ struct TodayView: View {
             // edge, INSIDE the ring frame so it adds no stacked height, keeping the #762 self-sizing row
             // untouched). It opens the Charge breakdown sheet (the existing ChargeBreakdownSection), built
             // lazily on tap. No new badge/dot/tier sits under the ring (that would re-load the #762 stack).
-            heroRingColumn(section: .charge, domain: .charge, provenanceKey: "recovery",
+            heroRingColumn(section: .recovery, domain: .charge, provenanceKey: "recovery",
                            onRingTap: { showChargeBreakdown = true }) {
                 chargeRing(score: score, d: d, diameter: ring)
             }
-            heroRingColumn(section: .effort, domain: .effort) { effortRing(d: d, diameter: ring) }
-            heroRingColumn(section: .rest, domain: .rest, provenanceKey: "sleep_performance") { restRing(diameter: ring) }
+            heroRingColumn(section: .strain, domain: .effort) { effortRing(d: d, diameter: ring) }
+            heroRingColumn(section: .sleep, domain: .rest, provenanceKey: "sleep_performance") { restRing(diameter: ring) }
         }
         .frame(maxWidth: .infinity, alignment: .center)
         // Zero-impact width reader: a clear background that publishes the row's width up via preference. It
@@ -3386,7 +3386,7 @@ struct TodayView: View {
                 sparkline: sparks["strain"],
                 sparkColor: StrandPalette.strain066,
                 // Inline ⓘ in the tile header (not a corner overlay) so it never sits over the value (#495).
-                accessory: { scoreInfoButton(.effort) }
+                accessory: { scoreInfoButton(.strain) }
             )
         case .rest:
             // Unscored TODAY → "building, wear it tonight" instead of a lone ", " caption (#527);
@@ -3404,7 +3404,7 @@ struct TodayView: View {
                 sparkline: sparks["sleep_performance"],
                 sparkColor: StrandPalette.metricPurple,
                 // Inline ⓘ in the tile header (not a corner overlay) so it never sits over the value (#495).
-                accessory: { scoreInfoButton(.rest) }
+                accessory: { scoreInfoButton(.sleep) }
             )
         case .hrv:
             // Carry the last scored night's HRV at the rollover (#543), today's wins, the carried value

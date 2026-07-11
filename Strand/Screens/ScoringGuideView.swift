@@ -4,33 +4,32 @@ import StrandDesign
 // MARK: - Scoring guide
 //
 // "How your scores work" — the one honest explainer for NOOP's three daily scores
-// (Charge, Strain, Sleep) and the confidence labels. Presented as a sheet, mirroring
+// (Recovery, Strain, Sleep) and the confidence labels. Presented as a sheet, mirroring
 // WhatsNewView's presentation + dismiss + layout idiom: a fixed header with a close
 // button, a scrollable column of cards, and a "Got it" footer. Reachable from
 // Settings → About, the ⓘ on each Today score, and the one-time first-run card.
 //
 // All copy here is the single approved source of truth, shared verbatim across
 // macOS / iOS / Android. Each score section is tinted with the SAME Reset accent the
-// rest of the app uses for that score's hero ring (Charge = green, Strain = blue
-// accent, Sleep = restColor slate), so a glance maps a section to its Today ring.
+// rest of the app uses for that score's hero ring (Recovery = banded, Strain = blue,
+// Sleep = slate), so a glance maps a section to its Today ring.
 
 /// The three score sections the guide can deep-link to. The raw value is used as the
 /// ScrollViewReader anchor id. The Android port mirrors these case names exactly.
 enum ScoreSection: String, CaseIterable, Identifiable {
-    case charge
-    case effort
-    case rest
+    case recovery
+    case strain
+    case sleep
 
     var id: String { rawValue }
 
     /// The accent each section uses — the SAME Reset score token its Today hero ring draws with, so a
-    /// section reads as that score's colour. No gold / strain / sleep-purple: Charge = chargeColor green,
-    /// Strain = effortColor blue accent, Sleep = restColor slate (Design Reset, 2026-06-23).
+    /// section reads as that score's colour.
     var accent: Color {
         switch self {
-        case .charge: return StrandPalette.recoveryData
-        case .effort: return StrandPalette.effortColor     // Strain hero ring — blue accent
-        case .rest:   return StrandPalette.restColor       // Sleep hero ring — slate
+        case .recovery: return StrandPalette.recoveryData
+        case .strain:   return StrandPalette.strainAccent
+        case .sleep:    return StrandPalette.sleepAccent
         }
     }
 
@@ -38,15 +37,15 @@ enum ScoreSection: String, CaseIterable, Identifiable {
     /// "what a strong day looks like" reading, purely decorative in the guide.
     var sampleFraction: Double {
         switch self {
-        case .charge: return 0.82
-        case .effort: return 0.64
-        case .rest:   return 0.88
+        case .recovery: return 0.82
+        case .strain: return 0.64
+        case .sleep: return 0.88
         }
     }
 
     /// The number shown inside the sample gauge on that pillar's canonical display scale.
     var sampleNumber: String {
-        if self == .effort {
+        if self == .strain {
             return String(format: "%.1f", StrainScale.displayValue(fromStored: sampleFraction * 100))
         }
         return "\(Int((sampleFraction * 100).rounded()))"
@@ -55,27 +54,28 @@ enum ScoreSection: String, CaseIterable, Identifiable {
     /// The SF Symbol for the section header (heart/spark · flame · moon).
     var icon: String {
         switch self {
-        case .charge: return "heart.circle.fill"
-        case .effort: return "flame.fill"
-        case .rest:   return "moon.stars.fill"
+        case .recovery: return "heart.circle.fill"
+        case .strain: return "flame.fill"
+        case .sleep: return "moon.stars.fill"
         }
     }
 
     /// Localized display name for the section (the raw value stays the stable anchor id).
     var displayName: String {
         switch self {
-        case .charge: return String(localized: "Recovery")
-        case .effort: return String(localized: "Strain")
-        case .rest:   return String(localized: "Sleep")
+        case .recovery: return String(localized: "Recovery")
+        case .strain: return String(localized: "Strain")
+        case .sleep: return String(localized: "Sleep")
         }
     }
 }
 
 struct ScoringGuideView: View {
+    @Environment(\.dismiss) private var dismiss
     /// When set, the guide scrolls to (and briefly highlights) this section on appear —
     /// used by the ⓘ affordances on the Today screen so each opens at its own score.
     var initialSection: ScoreSection? = nil
-    let onClose: () -> Void
+    var onClose: (() -> Void)? = nil
 
     /// Drives the brief highlight pulse on the deep-linked section.
     @State private var highlighted: ScoreSection? = nil
@@ -91,15 +91,15 @@ struct ScoringGuideView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
                         introCard
-                        scoreCard(.charge,
+                        scoreCard(.recovery,
                                   headline: String(localized: "Recovery: how recovered are you?"),
                                   body: String(localized: "Led by your heart-rate variability (HRV) measured against your own personal baseline, plus resting heart rate, last night's Sleep, breathing rate, and a skin-temperature signal (an early illness or overreach flag). Higher HRV versus your baseline means higher Recovery. NOOP needs a few nights to learn your baseline first. Until then you'll see “Calibrating”."),
                                   vsWhoop: String(localized: "Same core idea as WHOOP's Recovery % (HRV-led recovery), but our weighting and baseline maths are our own, and openly documented."))
-                        scoreCard(.effort,
+                        scoreCard(.strain,
                                   headline: String(localized: "Strain: how hard did your heart work?"),
                                   body: String(localized: "Your cardiovascular load. NOOP turns every second of heart rate into a training impulse using heart-rate-reserve zones (Karvonen), weights time in harder zones more heavily (Edwards / Banister), and displays the result on the canonical 0–21 Strain scale. Easy days sit low and a value near 21 stays genuinely rare. A long walk with little cardio still counts through a steps / active-energy floor."),
                                   vsWhoop: String(localized: "The display uses WHOOP's familiar 0–21 Day Strain scale. NOOP's underlying training-load recipe remains its own and is documented here."))
-                        scoreCard(.rest,
+                        scoreCard(.sleep,
                                   headline: String(localized: "Sleep: how restorative was your sleep?"),
                                   body: String(localized: "A blend of how long you slept versus your personal need (the biggest factor), how efficiently (asleep versus in bed), how much was restorative (deep + REM sleep), and how consistent your sleep and wake timing is."),
                                   vsWhoop: String(localized: "Similar in spirit to WHOOP's Sleep Performance %; our composite is our own."))
@@ -139,7 +139,7 @@ struct ScoringGuideView: View {
                     .foregroundStyle(StrandPalette.textSecondary)
             }
             Spacer()
-            Button(action: onClose) {
+            Button(action: close) {
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 22))
                     .foregroundStyle(StrandPalette.textTertiary)
@@ -153,7 +153,7 @@ struct ScoringGuideView: View {
     private var footerBar: some View {
         HStack {
             Spacer()
-            Button(action: onClose) {
+            Button(action: close) {
                 Text("Got it").frame(minWidth: 120).padding(.vertical, 4)
             }
             .buttonStyle(.borderedProminent)
@@ -161,6 +161,11 @@ struct ScoringGuideView: View {
             .keyboardShortcut(.defaultAction)
         }
         .padding(16)
+    }
+
+    /// Sheet hosts supply their state callback; pushed guides use the ambient navigation dismissal.
+    private func close() {
+        if let onClose { onClose() } else { dismiss() }
     }
 
     // MARK: - Cards
@@ -177,9 +182,9 @@ struct ScoringGuideView: View {
                     .fixedSize(horizontal: false, vertical: true)
                 // The three accents as a quick legend, echoing the section colours below.
                 HStack(spacing: 16) {
-                    legendDot(.charge, String(localized: "Recovery"))
-                    legendDot(.effort, String(localized: "Strain"))
-                    legendDot(.rest, String(localized: "Sleep"))
+                    legendDot(.recovery, String(localized: "Recovery"))
+                    legendDot(.strain, String(localized: "Strain"))
+                    legendDot(.sleep, String(localized: "Sleep"))
                 }
                 .padding(.top, 2)
             }
@@ -265,7 +270,7 @@ struct ScoringGuideView: View {
         VStack(spacing: 5) {
             GlowRing(
                 fraction: section.sampleFraction,
-                value: section == .effort
+                value: section == .strain
                     ? StrainScale.displayValue(fromStored: section.sampleFraction * 100)
                     : section.sampleFraction * 100,
                 format: { _ in section.sampleNumber },
@@ -331,7 +336,7 @@ struct ScoringGuideView: View {
 
 #if DEBUG
 #Preview("Scoring guide") {
-    ScoringGuideView(initialSection: .effort, onClose: {})
+    ScoringGuideView(initialSection: .strain, onClose: {})
         .preferredColorScheme(.dark)
 }
 #endif

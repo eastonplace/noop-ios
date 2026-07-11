@@ -21,7 +21,7 @@ Evidence rule: each link must resolve to a complete stepped scroll set under `qa
 | Sleep | `SleepView.swift` / `sleep` | [pages 1–4](qa/sleep/) | PASS | NONE | PASS | Sleep tab | No lost destination | Tap-through audit |
 | More index | `RootTabView.swift` | [pages 1–4](qa/more/) | PASS | NONE | PASS | More tab | No lost destination | Tap every row/group |
 | Quick Actions | `RootTabView.swift` / FAB | [page 1](qa/quick-actions/page-1.png) | PASS | NONE | PASS | Centre FAB | No lost destination | Tap every action |
-| Recovery detail | `CoupledView.swift` / `recoverydetail` | [pages 1–4](qa/recoverydetail/) | PASS | NONE | DEAD known guide close path | Today Recovery | No lost destination | T108 scoring-guide close |
+| Recovery detail | `CoupledView.swift` / `recoverydetail` | [original pages 1–4](qa/recoverydetail/) · [T108 entry](qa/t108-scoring-guide/recovery-entry.png) | PASS | NONE | PASS — recommendation guide Close/Got it dismiss pushed route | Today Recovery | No lost destination | T108 complete |
 | Strain detail | `CoupledView.swift` / `straindetail` | [pages 1–4](qa/straindetail/) | PASS | NONE | PASS | Today Strain | No lost destination | Tap-through audit |
 | Stress detail | `StressView.swift` / `stress` | [pages 1–4](qa/stress/) | PASS | NONE | PASS | Today / More | No lost destination | Tap-through audit |
 | Workouts | `WorkoutsView.swift` / `workouts` | [T104 full page](qa/t104-workouts/) | PASS | NONE | PASS incl. history row → detail | More / workout flows | No lost destination | T104 complete; add, ranges, sport/source filters, search, selection/actions, and row navigation retained |
@@ -53,7 +53,7 @@ Evidence rule: each link must resolve to a complete stepped scroll set under `qa
 | Hydration amount sheet | `HydrationView.swift` | [seeded host state](qa/today/) | PARTIAL | N/A | PASS | Hydration custom amount | No lost destination | Coverage refresh candidate |
 | Weekly Digest | `WeeklyDigestView.swift` | [host pages](qa/insights/) | PARTIAL | NONE | PASS | Insights / Today | No lost destination | Direct interaction audit in T102 |
 | Trends report | `TrendsReportView.swift` / `trendsreport` | [pages 1–4](qa/trendsreport/) | PARTIAL | NONE | PASS | Trends | No lost destination | Coverage refresh candidate |
-| Scoring guide | `ScoringGuideView.swift` / `scoringguide` | [pages 1–4](qa/scoringguide/) | PARTIAL | NONE | DEAD known path | Recovery detail | No lost destination | T108 fix pushed close + stale copy |
+| Scoring guide | `ScoringGuideView.swift` / `scoringguide` | [original pages 1–4](qa/scoringguide/) · [T108 reviewed guide](qa/t108-scoring-guide/page-1.png) | PASS | NONE | PASS — sheet callbacks retained; pushed path uses environment dismissal | Recovery detail | No lost destination | T108 complete; identifiers/copy use Recovery · Strain · Sleep |
 | How NOOP Works | `HowNoopWorksView.swift` | [pages 1–4](qa/how-noop-works/) | PARTIAL | NONE | PASS | Settings / guide | No lost destination | Coverage refresh candidate |
 
 ## Devices, data, settings, and support

@@ -17,7 +17,7 @@ Runtime: iPhone 17 Pro Max, iOS 26.5, `--demo-seed`, Debug build from `~/Code/no
 | Root shell | Today, Trends, Sleep, More, Quick Actions, Updates, Devices | PASS | All route correctly; active-tab reselection refresh remains wired. |
 | Today header/body | date picker, three score pillars, glance row, stress, health monitor, cards, customise | PASS with parity losses | Rendered controls work. Five pre-reskin destinations are missing and recorded in `interaction-parity.md`. |
 | Trends/Sleep | range/segment controls, chart rows, report/export, sleep detail/settings actions | PASS | State changes and destinations render; no crash/misroute. |
-| Recovery/Strain/Stress details | factor rows, guide links, history/range controls | ONE DEAD | `CoupledView.swift:932` pushes `ScoringGuideView(... onClose: {})`; its visible Close button does nothing. Back navigation still works. |
+| Recovery/Strain/Stress details | factor rows, guide links, history/range controls | PASS — T108 | Recovery recommendation pushes `ScoringGuideView(initialSection: .recovery)` without a callback; Close and Got it now use ambient `dismiss()` and pop the pushed guide. Sheet hosts retain explicit close callbacks. [Entry + guide proof](qa/t108-scoring-guide/) |
 | Workouts/history | Start, Add, range chips, sport/source filters, search, workout rows, row menus | PASS | All behavior remains reachable; visual duplication remains an E1 failure. |
 | Pre/live/post workout | run type, setup rows, Start, Pause/Resume/Finish, map/chart/splits, Save | PASS | No fake Pause state; controls preserve existing workout state machinery. |
 | Live console | Scan, device management, workout start, diagnostics/record/inspect controls | PASS | Existing tools work; they remain visually duplicated pending E2 relocation. |
@@ -36,9 +36,9 @@ Runtime: iPhone 17 Pro Max, iOS 26.5, `--demo-seed`, Debug build from `~/Code/no
 
 ## Empty-callback audit
 
-Production finding:
+Production finding — fixed T108:
 
-- `Strand/Screens/CoupledView.swift:932` — `ScoringGuideView(initialSection: .charge, onClose: {})`: confirmed dead Close button.
+- `Strand/Screens/CoupledView.swift` Recovery recommendation now constructs `ScoringGuideView(initialSection: .recovery)` with no callback; the guide's shared `close()` falls through to environment dismissal for this pushed path.
 
 Expected non-production/semantic no-ops:
 
@@ -48,3 +48,4 @@ Expected non-production/semantic no-ops:
 
 No second production dead control or misroute was found. T108 owns the confirmed fix and re-tap proof.
 
+Android parity note: the old source comment said Android mirrored the internal `charge` / `effort` / `rest` section case names. T108 renamed the Apple-only identifiers to `recovery` / `strain` / `sleep`; that Android mirror comment is now stale. Android synchronization is explicitly out of scope for Spec 005.

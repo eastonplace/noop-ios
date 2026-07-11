@@ -52,7 +52,7 @@
   zoom/pan/timelineSeries machinery is untouched); every other lost interaction
   from T102b restored the same way: copy original wiring + destination, Paper
   the chrome. Full-page + interaction proof (zoom/pan exercised in-sim). GATE.
-- [ ] **T108 — Dead-control fixes**: everything T102 logged. Known: ScoringGuide
+- [x] **T108 — Dead-control fixes**: everything T102 logged. Known: ScoringGuide
   onClose (dismiss-on-push fix) + its stale 0–100/Effort copy + `.charge`
   section ids. Re-tap-through to verify. GATE.
 - [ ] **T109 — Coverage refresh wave 1** (worst offenders from T101, spec §C
