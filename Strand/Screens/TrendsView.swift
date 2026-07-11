@@ -330,7 +330,7 @@ struct TrendsView: View {
 
     private var paperScoresOverTime: some View {
         PaperCard {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 10) {
                 Text("Scores Over Time").strandOverline()
                 HStack(spacing: 12) {
                     paperLegend("Recovery", color: StrandPalette.recoveryData)
@@ -449,7 +449,7 @@ struct TrendsView: View {
 
     private var paperWeekReview: some View {
         PaperCard {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 10) {
                 Text("Week in Review").strandOverline()
                 ForEach(Array(paperReviewLines.enumerated()), id: \.offset) { index, line in
                     HStack(alignment: .top, spacing: 9) {

@@ -334,7 +334,7 @@ struct SleepView: View {
         let restingHR = repo.days.last(where: { $0.day == wakeDay })?.restingHr
 
         return PaperCard {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 20) {
                     if let score {
                         ScoreRing(value: score, range: 0...100, accent: StrandPalette.restAccent,
@@ -389,7 +389,7 @@ struct SleepView: View {
         ]
 
         return PaperCard {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 10) {
                 Text("SLEEP STAGES")
                     .font(StrandFont.sectionOverline)
                     .tracking(StrandFont.sectionOverlineTracking)

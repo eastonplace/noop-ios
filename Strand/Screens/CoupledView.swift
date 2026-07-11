@@ -796,7 +796,7 @@ struct PaperPillarDetailView: View {
 
     private var heroCard: some View {
         PaperCard {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 20) {
                     if let latest {
                         ScoreRing(value: latest, range: detailRange, accent: accent, size: 96,
@@ -849,7 +849,7 @@ struct PaperPillarDetailView: View {
 
     private var overTimeCard: some View {
         PaperCard {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 10) {
                 Text("\(detailTitle.uppercased()) OVER TIME")
                     .font(StrandFont.sectionOverline)
                     .tracking(StrandFont.sectionOverlineTracking)
@@ -998,7 +998,7 @@ struct PaperPillarDetailView: View {
         let zoneSet = profile.hrMax > 0
             ? HRZones.zones(maxHR: Double(profile.hrMax), source: "profile") : nil
         return PaperCard {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Text("HEART RATE ZONES")
                         .font(StrandFont.sectionOverline)
@@ -1039,7 +1039,7 @@ struct PaperPillarDetailView: View {
             (String(localized: "Deep"), StrandPalette.sleepDeep)
         ]
         return PaperCard {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 10) {
                 Text("SLEEP STAGES")
                     .font(StrandFont.sectionOverline)
                     .tracking(StrandFont.sectionOverlineTracking)

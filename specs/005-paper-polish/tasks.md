@@ -18,9 +18,11 @@
   light/dark and compare to sheet 1-1. GATE.
   Proof: `qa/T92-{light,dark}-today.png`; `NOOPiOS` build passed. Internal
   composition now follows the shared 8–10 pt rhythm without shrinking controls.
-- [ ] **T93 — Trends, Sleep, and pillar details.** Normalize chart gaps, factor
+- [x] **T93 — Trends, Sleep, and pillar details.** Normalize chart gaps, factor
   rows, and card rhythm on the core analytics surfaces. Build; batch-shoot
   Trends, Sleep, Recovery detail, Strain detail, Stress detail light/dark. GATE.
+  Proof: `qa/T93-{light,dark}-{trends,sleep,recoverydetail,straindetail,stress}.png`;
+  `NOOPiOS` build passed and the reference-core batch was visually reviewed.
 - [ ] **T94 — Workouts and run flow.** Refine map crops, metric alignment, zones,
   and control/content spacing across Workouts, pre-run, live-run, and post-run.
   Preserve route gating and C9. Build; batch-shoot all four light/dark. GATE.
