@@ -20,7 +20,7 @@
   once; log works/dead/misroutes. Include: ScoringGuide close (known dead via
   CoupledView:932), every onClose/onAccept callback site (grep list in spec
   §B2), toggles persist after relaunch, links route correctly. GATE.
-- [ ] **T102b — Interaction-parity diff (E6)**: per reskinned screen, diff
+- [x] **T102b — Interaction-parity diff (E6)**: per reskinned screen, diff
   pre-reskin NavigationLink/tap destinations vs current (script the grep over
   `git show pre-paper-reskin:<file>`); list every lost tap-through in the audit
   table. Known-lost: Today Live-HR card → FullDayChartView. GATE (list reviewed
