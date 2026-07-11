@@ -12,7 +12,7 @@
   `Strand/Screens/*.swift` + StrandiOSApp routes + More list + FAB sheet +
   settings rows). Columns: full-page evidence links · Paper-conformant? ·
   duplication? · tap-through result · reachable from? · action needed.
-- [ ] **T101 — Full-page capture sweep**: seeded sim, capture EVERY screen
+- [x] **T101 — Full-page capture sweep**: seeded sim, capture EVERY screen
   full-scroll (E5 protocol; use the demo-screen routes + in-app navigation for
   sheets/editors). Fill the evidence column. GATE — this is the "where are we
   actually" artifact Easton asked for; deliver the table before proceeding.
