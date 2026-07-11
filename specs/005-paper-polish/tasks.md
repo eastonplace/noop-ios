@@ -13,9 +13,11 @@
   empty/partial/mixed/full cases. Build; shoot Today light/dark. GATE.
   Proof: `qa/T91-{light,dark}-today.png`; neutral timeline with daily value
   retained. `StressTimelineSlotsTests` 4/4 and `NOOPiOS` build passed.
-- [ ] **T92 — Today core polish.** Tighten trio/Live HR/stress/Health Monitor and
+- [x] **T92 — Today core polish.** Tighten trio/Live HR/stress/Health Monitor and
   section handoffs without changing data or navigation. Build; shoot Today
   light/dark and compare to sheet 1-1. GATE.
+  Proof: `qa/T92-{light,dark}-today.png`; `NOOPiOS` build passed. Internal
+  composition now follows the shared 8–10 pt rhythm without shrinking controls.
 - [ ] **T93 — Trends, Sleep, and pillar details.** Normalize chart gaps, factor
   rows, and card rhythm on the core analytics surfaces. Build; batch-shoot
   Trends, Sleep, Recovery detail, Strain detail, Stress detail light/dark. GATE.

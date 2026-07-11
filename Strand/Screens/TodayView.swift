@@ -1165,8 +1165,8 @@ struct TodayView: View {
         let effort = effortStrain(day)
         let strain = effort.map { StrainScale.displayValue(fromStored: $0) }
         return PaperCard(padding: 12) {
-            VStack(spacing: 10) {
-                HStack(alignment: .top, spacing: 8) {
+            VStack(spacing: 8) {
+                HStack(alignment: .top, spacing: 6) {
                     paperPillar("Recovery", value: charge,
                                 accent: charge.map { RecoveryBands.color(for: $0) } ?? StrandPalette.recoveryData,
                                 state: paperScoreState(charge, kind: .charge)) { paperPillarDetail = .charge }
@@ -1178,7 +1178,7 @@ struct TodayView: View {
                 }
                 Divider().overlay(StrandPalette.hairline)
                 NavigationLink { WorkoutsView() } label: {
-                    HStack(spacing: 9) {
+                    HStack(spacing: 8) {
                         Image(systemName: "figure.run")
                             .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(StrandPalette.textPrimary)
@@ -1269,13 +1269,13 @@ struct TodayView: View {
         let latest = hrPoints.last?.value
         let values = Array(hrPoints.suffix(36)).map(\.value)
         return PaperCard(padding: 12) {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 6) {
                     Image(systemName: "heart.fill").font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(StrandPalette.liveRed)
                     Text("Live Heart Rate").strandOverline()
                 }
-                HStack(alignment: .center, spacing: 12) {
+                HStack(alignment: .center, spacing: 10) {
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(alignment: .firstTextBaseline, spacing: 4) {
                             Text(latest.map { "\(Int($0.rounded()))" } ?? "—")
@@ -1378,7 +1378,7 @@ struct TodayView: View {
         let respiratory = day?.respRateBpm ?? sparks["resp_rate"]?.last
         return NavigationLink { HealthView() } label: {
             PaperCard(padding: 12) {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 6) {
                     HStack(alignment: .firstTextBaseline) {
                         VStack(alignment: .leading, spacing: 3) {
                             Text("Health Monitor").strandOverline()
@@ -1390,7 +1390,7 @@ struct TodayView: View {
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(StrandPalette.textTertiary)
                     }
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 6) {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 3), spacing: 4) {
                         MetricTile(icon: "waveform.path.ecg", label: "HRV",
                                    value: day?.avgHrv.map { "\(Int($0.rounded()))" } ?? "—", unit: "ms",
                                    spark: sparks["hrv"], accent: StrandPalette.recoveryData)
