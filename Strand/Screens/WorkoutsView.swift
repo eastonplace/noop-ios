@@ -160,9 +160,7 @@ struct WorkoutsView: View {
                 paperWorkoutScore(rows: windowRows)
                 paperRecentWorkouts(rows: windowRows)
                 paperWorkoutBreakdown(rows: windowRows, zones: zonesSummary)
-                SectionHeader("Workout history")
-                rangeBar(rows: windowRows, effectiveRange: resolved)
-                sessionsSection(rows: windowRows)
+                paperWorkoutHistory(rows: windowRows, effectiveRange: resolved)
             }
         }
         #if os(iOS)
@@ -357,7 +355,8 @@ struct WorkoutsView: View {
         #else
         let stacked = false
         #endif
-        return VStack(alignment: .leading, spacing: 8) {
+        return PaperCard(padding: 14) {
+            VStack(alignment: .leading, spacing: 10) {
             if stacked {
                 // iPhone: button on its own row, the range pill full-width below — no crushed sliver.
                 addWorkoutButton
@@ -376,6 +375,7 @@ struct WorkoutsView: View {
                 .foregroundStyle(fellBack ? StrandPalette.statusWarning : StrandPalette.textTertiary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityLabel(caption)
+            }
         }
     }
 
@@ -444,9 +444,13 @@ struct WorkoutsView: View {
                 }
             }
             .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(StrandPalette.surfaceInset.opacity(0.6),
+            .frame(minHeight: 38)
+            .background(StrandPalette.inset,
                         in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(StrandPalette.hairline, lineWidth: 1)
+            }
         }
     }
 
@@ -1106,7 +1110,18 @@ struct WorkoutsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // MARK: - All sessions (one NoopCard, uniform fixed-height rows)
+    // MARK: - Paper workout history
+
+    private func paperWorkoutHistory(rows: [WorkoutRow], effectiveRange: Range) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeader("Workout history", overline: "Complete log",
+                          trailing: String(localized: "\(rows.count) sessions"))
+            rangeBar(rows: rows, effectiveRange: effectiveRange)
+            sessionsSection(rows: rows)
+        }
+    }
+
+    // MARK: - All sessions (one PaperCard, uniform fixed-height rows)
 
     /// Whether the compact-native session list is used. iPhone (.compact) gets full-width rows; macOS and
     /// iPad regular width keep the fixed-column table byte-identical (#64).
@@ -1127,10 +1142,10 @@ struct WorkoutsView: View {
                 selectPill(rows: rows)
             }
             if selectionMode { selectionToolbar(rows: rows) }
-            NoopCard(padding: 0) {
+            PaperCard(padding: 0) {
                 if usesCompactSessions {
                     // #64: full-width native rows, no horizontal scroll — the iPhone list reads like the
-                    // rest of the app (Apple-Fitness x WHOOP), and the Android weight-column list. The
+                    // rest of the Paper app. The
                     // ••• menu is visible per row + the tap-to-detail is natural, so the old hint caption
                     // (that taught the horizontal-scroll table) is gone here.
                     compactSessionsList(rows: rows)
@@ -1169,10 +1184,11 @@ struct WorkoutsView: View {
                     .font(StrandFont.footnote)
                     .foregroundStyle(selectionMode ? StrandPalette.effortColor : StrandPalette.accent)
                     .padding(.horizontal, 12).padding(.vertical, 6)
-                    .background(
-                        (selectionMode ? StrandPalette.effortColor.opacity(0.14)
-                                       : StrandPalette.surfaceInset.opacity(0.6)),
-                        in: Capsule())
+                    .background(selectionMode ? StrandPalette.effortColor.opacity(0.12) : StrandPalette.inset,
+                                in: Capsule())
+                    .overlay {
+                        Capsule().strokeBorder(StrandPalette.hairline, lineWidth: 1)
+                    }
             }
             .accessibilityLabel(selectionMode
                 ? String(localized: "Finish selecting")
@@ -1215,8 +1231,12 @@ struct WorkoutsView: View {
         }
         .padding(.horizontal, NoopMetrics.space3)
         .padding(.vertical, NoopMetrics.space3)
-        .background(StrandPalette.effortColor.opacity(0.08),
+        .background(StrandPalette.inset,
                     in: RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous)
+                .strokeBorder(StrandPalette.hairline, lineWidth: 1)
+        }
         .accessibilityElement(children: .contain)
     }
 
@@ -1243,18 +1263,16 @@ struct WorkoutsView: View {
         }
     }
 
-    /// #64: the compact-native list — full-width NoopCard rows, alternating zebra, tap-to-detail, the
+    /// #64: the compact-native list — full-width Paper rows, tap-to-detail, the
     /// existing ••• menu, and (in selection mode) a leading checkmark / lock glyph.
     @ViewBuilder
     private func compactSessionsList(rows: [WorkoutRow]) -> some View {
         LazyVStack(spacing: 0) {
             ForEach(Array(rows.enumerated()), id: \.offset) { idx, row in
                 compactSessionRow(row)
-                    .background(idx % 2 == 1
-                                ? StrandPalette.surfaceInset.opacity(0.4)
-                                : Color.clear)
                 if idx != rows.count - 1 {
-                    Divider().overlay(StrandPalette.hairline.opacity(0.5))
+                    Divider().overlay(StrandPalette.hairline)
+                        .padding(.leading, 50)
                 }
             }
         }
@@ -1267,11 +1285,8 @@ struct WorkoutsView: View {
             Divider().overlay(StrandPalette.hairline)
             ForEach(Array(rows.enumerated()), id: \.offset) { idx, row in
                 sessionRow(row)
-                    .background(idx % 2 == 1
-                                ? StrandPalette.surfaceInset.opacity(0.4)
-                                : Color.clear)
                 if idx != rows.count - 1 {
-                    Divider().overlay(StrandPalette.hairline.opacity(0.5))
+                    Divider().overlay(StrandPalette.hairline)
                 }
             }
         }

@@ -24,7 +24,7 @@ Evidence rule: each link must resolve to a complete stepped scroll set under `qa
 | Recovery detail | `CoupledView.swift` / `recoverydetail` | [pages 1–4](qa/recoverydetail/) | PASS | NONE | DEAD known guide close path | Today Recovery | No lost destination | T108 scoring-guide close |
 | Strain detail | `CoupledView.swift` / `straindetail` | [pages 1–4](qa/straindetail/) | PASS | NONE | PASS | Today Strain | No lost destination | Tap-through audit |
 | Stress detail | `StressView.swift` / `stress` | [pages 1–4](qa/stress/) | PASS | NONE | PASS | Today / More | No lost destination | Tap-through audit |
-| Workouts | `WorkoutsView.swift` / `workouts` | [pages 1–4](qa/workouts/) | FAIL lower history | STACKED | PASS | More / workout flows | No lost destination | E1 full history Paper pass |
+| Workouts | `WorkoutsView.swift` / `workouts` | [T104 full page](qa/t104-workouts/) | PASS | NONE | PASS incl. history row → detail | More / workout flows | No lost destination | T104 complete; add, ranges, sport/source filters, search, selection/actions, and row navigation retained |
 | Workout detail | `WorkoutDetailView.swift` / `workoutdetail` | [pages 1–4](qa/workoutdetail/) | PASS | NONE | PASS | Workouts rows | No lost destination | Tap-through audit |
 | Pre-workout | `LiveWorkoutView.swift` / `preworkout` | [pages 1–4](qa/preworkout/) | PASS | NONE | PASS | Start workout | No lost destination | Tap-through audit |
 | Live workout | `LiveWorkoutView.swift` / `liveworkout` | [pages 1–4](qa/liveworkout/) | PASS | NONE | PASS | Pre-workout Start | No lost destination | Audit controls/map/chart |

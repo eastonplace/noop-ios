@@ -31,7 +31,7 @@
 
 ## Phase B — Dedupe & relocation (per Easton rulings E1–E3)
 
-- [ ] **T104 — Workouts history Paper pass (E1)**: keep history below the tab;
+- [x] **T104 — Workouts history Paper pass (E1)**: keep history below the tab;
   restyle `sessionsSection` fully (paper search/chips/rows, kill any remaining
   liquid module); features intact (add, filters, search, per-row nav). Full-page
   proof. GATE.
