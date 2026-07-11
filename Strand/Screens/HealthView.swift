@@ -9,7 +9,7 @@ import WhoopStore
 /// then a uniform LazyVGrid of the body's vital signs (respiratory rate, blood
 /// oxygen, resting HR, HRV, skin temp) as fixed-height StatTiles, each tinted and
 /// captioned with its in-range state. Re-skinned to the locked NOOP component
-/// system: every surface is a NoopCard, every metric is a StatTile, every chart is
+/// system: every surface is a PaperCard, every metric is a StatTile, every chart is
 /// a ChartCard — no ad-hoc card heights or paddings.
 struct HealthView: View {
     @EnvironmentObject var repo: Repository
@@ -31,8 +31,7 @@ struct HealthView: View {
                        // demand instead of all up-front.
                        onRefresh: { await repo.refresh() },
                        lazy: true,
-                       // The day-of-sky liquid backdrop, matching Today / Sleep / Trends: a fixed,
-                       // full-bleed time-of-day sky behind the scroll content (does not scroll).
+                       // Paper's quiet base canvas keeps the long health readout visually consistent.
                        topBackground: nil) {
             if repo.days.isEmpty {
                 // First run / no history: whether to show the empty state or the full live stack depends
@@ -142,7 +141,7 @@ private struct SyncStatusSection: View {
             SectionHeader("Sync", overline: "Strap history",
                           trailing: live.connected ? (live.bonded ? String(localized: "Connected") : String(localized: "Pairing…")) : String(localized: "Offline"))
 
-            NoopCard(tint: StrandPalette.success) {
+            PaperCard {
                 VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
                     statusRow
 
@@ -501,7 +500,7 @@ private struct RecoveryContributorsSection: View {
                     ScoreStatePill(.calibrating, text: "Calibrating (\(priorCount) of \(Baselines.minNightsSeed))")
                 }
             }
-            NoopCard(tint: StrandPalette.recoveryData) {
+            PaperCard {
                 VStack(alignment: .leading, spacing: NoopMetrics.space4) {
                     ForEach(Array(contributors.enumerated()), id: \.offset) { idx, c in
                         ContributorBar(label: c.label, strength: ready ? c.strength : nil,
@@ -873,7 +872,7 @@ private struct ReadinessChecklistCard: View {
     private var unlocksVO2: [FitnessReadinessItem] { readiness.items.filter { $0.role == .unlocksVO2max } }
 
     var body: some View {
-        NoopCard(tint: StrandPalette.chargeColor) {
+        PaperCard {
             VStack(alignment: .leading, spacing: NoopMetrics.space4) {
                 HStack(spacing: NoopMetrics.rowSpacing) {
                     confidencePill
@@ -1161,14 +1160,14 @@ private struct VitalsSection: View {
 
 /// One headline vital sign rendered in the liquid finish: a metric-tinted `PaperGauge` gauge (filled
 /// to the vital's physiological fraction), the value counting up beside it, the banded state caption, and
-/// the same sparkline trail the classic StatTile drew. A frosted `NoopCard` tinted to the metric's accent,
+/// the same sparkline trail the classic StatTile drew. A flat `PaperCard` with metric accent details,
 /// matching Today's Key-Metrics tiles. Presentation-only: value, banding and source are unchanged — this
 /// just gives each vital a real liquid gauge instead of a flat tile.
 private struct PaperVitalTile: View {
     let reading: BodyVitalReading
 
     var body: some View {
-        NoopCard(padding: 14, tint: reading.accent) {
+        PaperCard(padding: 14) {
             VStack(alignment: .leading, spacing: 0) {
                 Text("\(reading.label)").strandOverline()
                 Spacer(minLength: 8)
@@ -1320,7 +1319,7 @@ private struct HealthHubLinksSection: View {
     private func linkRow(title: String, subtitle: String, symbol: String, tint: Color,
                          action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            NoopCard {
+            PaperCard {
                 HStack(spacing: 12) {
                     Image(systemName: symbol)
                         .font(.system(size: 16, weight: .semibold))

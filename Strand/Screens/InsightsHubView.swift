@@ -239,7 +239,7 @@ struct InsightsHubView: View {
             return "\(arrow) \(String(format: "%.1f", abs(e.delta)))"
         }()
 
-        return NoopCard(tint: outcome.domain.color) {
+        return PaperCard {
             VStack(alignment: .leading, spacing: NoopMetrics.gap) {
                 // Header: behaviour name + lead/lag chip + confidence pill.
                 HStack(alignment: .firstTextBaseline) {
@@ -304,7 +304,7 @@ struct InsightsHubView: View {
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
             SectionHeader("Dose-response", overline: "Personal curve · prior-shrunk")
             if model.doseCards.isEmpty {
-                NoopCard {
+                PaperCard {
                     Text(String(localized: "Log alcohol or late caffeine with an amount and NOOP fits a personal dose curve: how much each extra unit tends to move your numbers. Until then it shows typical patterns, clearly labelled as not yet yours."))
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textSecondary)
@@ -461,7 +461,7 @@ private struct DoseResponseCardView: View {
 
     var body: some View {
         let r = card.response
-        NoopCard(tint: domain.color) {
+        PaperCard {
             VStack(alignment: .leading, spacing: NoopMetrics.gap) {
                 header(r)
 

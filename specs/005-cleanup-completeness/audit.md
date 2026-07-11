@@ -29,10 +29,10 @@ Evidence rule: each link must resolve to a complete stepped scroll set under `qa
 | Pre-workout | `LiveWorkoutView.swift` / `preworkout` | [pages 1–4](qa/preworkout/) | PASS | NONE | PASS | Start workout | No lost destination | Tap-through audit |
 | Live workout | `LiveWorkoutView.swift` / `liveworkout` | [pages 1–4](qa/liveworkout/) | PASS | NONE | PASS | Pre-workout Start | No lost destination | Audit controls/map/chart |
 | Live console | `LiveView.swift` / `live` | [T105 full page](qa/t105-live/) | PASS | NONE | PASS incl. current Start Workout flow | More / FAB | No lost destination | T105 complete; diagnostics moved, Start Workout retained |
-| Health | `HealthView.swift` / `health` | [pages 1–4](qa/health/) | PARTIAL | NONE | PASS | More | No lost destination | Coverage refresh candidate |
-| Insights | `InsightsView.swift` / `insights` | [pages 1–4](qa/insights/) | PARTIAL | NONE | PASS | More | No lost destination | Coverage refresh candidate |
-| Insights hub | `InsightsHubView.swift` / `insightshub` | [pages 1–4](qa/insightshub/) | PARTIAL | NONE | PASS | More / Insights | No lost destination | Coverage refresh candidate |
-| Intelligence | `IntelligenceView.swift` | [pages 1–4](qa/intelligence/) | PARTIAL | NONE | PASS | More | No lost destination | Coverage refresh candidate |
+| Health | `HealthView.swift` / `health` | [full pages 1–4](qa/health/) · [T109 refreshed render](qa/t109-health/page-1.png) | PASS | NONE | PASS | More | No lost destination | T109 complete — all card vessels Paper |
+| Insights | `InsightsView.swift` / `insights` | [full pages 1–4](qa/insights/) · [T109 refreshed render](qa/t109-insights/page-1.png) | PASS | NONE | PASS | More | No lost destination | T109 complete — journal/effects/cards Paper |
+| Insights hub | `InsightsHubView.swift` / `insightshub` | [full pages 1–4](qa/insightshub/) · [T109 refreshed render](qa/t109-insights-hub/page-1.png) | PASS | NONE | PASS | More / Insights | No lost destination | T109 complete — association/dose cards Paper |
+| Intelligence | `IntelligenceView.swift` / `intelligence` | [full pages 1–4](qa/intelligence/) · [T109 refreshed render](qa/t109-intelligence/page-1.png) | PASS | NONE | PASS | More | No lost destination | T109 complete — model/day cards Paper; QA route restored |
 | Coach | `CoachView.swift` | [pages 1–4](qa/coach/) | PARTIAL | NONE | PASS | More | No lost destination | Coverage refresh candidate |
 | Explore catalog | `MetricExplorerView.swift` / `explore` | [T107 pages 1–4](qa/t107-explore/) | PASS | NONE | PASS — category rows open their current metric destinations | More | Today Show-all entry remains queued for T107b | T107 complete |
 | Metric detail | `MetricExplorerView.swift` | [T107 pages 1–2](qa/t107-metric-detail/) | PASS | NONE | PASS — Calories row opened detail; range and correlation controls retained | Explore metric row | No lost destination | T107 complete |

@@ -55,7 +55,7 @@
 - [x] **T108 — Dead-control fixes**: everything T102 logged. Known: ScoringGuide
   onClose (dismiss-on-push fix) + its stale 0–100/Effort copy + `.charge`
   section ids. Re-tap-through to verify. GATE.
-- [ ] **T109 — Coverage refresh wave 1** (worst offenders from T101, spec §C
+- [x] **T109 — Coverage refresh wave 1** (worst offenders from T101, spec §C
   list): each screen brought fully onto Paper, full-page proof per screen.
   Batch gates every 3–4 screens.
 - [ ] **T110 — Coverage refresh wave 2**: remainder of §C incl. onboarding +

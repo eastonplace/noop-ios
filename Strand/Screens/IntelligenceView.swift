@@ -28,16 +28,14 @@ struct IntelligenceView: View {
         // imported history, an eager VStack built every card up-front on the main thread and froze
         // the app when ALL was tapped (#345); LazyVStack only materialises what's on screen.
         ScreenScaffold(title: "Intelligence",
-                       subtitle: "NOOP scores your recovery, effort and rest itself: on-device, no cloud.",
+                       subtitle: "Recovery, Strain and Sleep — scored on-device.",
                        lazy: true,
-                       // Liquid finish: the same full-bleed day-of-sky backdrop Today + the other liquid
-                       // tabs carry, so Intelligence sits in one atmosphere. Static + non-interactive; the
-                       // frosted cards below sit on the opaque canvas and stay legible.
+                       // Paper's quiet base canvas keeps the long-form model readout consistent.
                        topBackground: nil) {
             if let f = forecast { forecastCard(f) }
             explainerCard
             if intelligence.computing {
-                NoopCard(padding: 20, tint: StrandPalette.recoveryData) {
+                PaperCard(padding: 20) {
                     HStack(spacing: NoopMetrics.rowSpacing) {
                         ProgressView().controlSize(.small)
                         Text("Crunching your raw streams…").font(StrandFont.subhead)
@@ -45,7 +43,7 @@ struct IntelligenceView: View {
                     }
                 }
             } else if let note = intelligence.note {
-                NoopCard(padding: 20, tint: StrandPalette.recoveryData) {
+                PaperCard(padding: 20) {
                     HStack(alignment: .top, spacing: NoopMetrics.rowSpacing) {
                         Image(systemName: "moon.zzz.fill").foregroundStyle(StrandPalette.recoveryData)
                             .accessibilityHidden(true)
@@ -79,7 +77,7 @@ struct IntelligenceView: View {
                     .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if filtered.isEmpty {
-                    NoopCard(padding: 18, tint: StrandPalette.recoveryData) {
+                    PaperCard(padding: 18) {
                         Text("No scored days in this window. Widen the range or import more history.")
                             .font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -146,7 +144,7 @@ struct IntelligenceView: View {
         let frac = min(max(f.charge / 100.0, 0), 1)
         return VStack(alignment: .leading, spacing: NoopMetrics.gap) {
             SectionHeader("Tomorrow's Recovery", overline: "Evening forecast", trailing: String(localized: "Estimate"))
-            NoopCard(padding: 20, tint: StrandPalette.recoveryData) {
+            PaperCard(padding: 20) {
                 VStack(spacing: 14) {
                     // The signature liquid gauge: a filling vessel tinted to the forecast Charge, with the
                     // 0–100 estimate counting up over it and the ± band + state word beneath (Sleep's
@@ -195,7 +193,7 @@ struct IntelligenceView: View {
     }
 
     private var explainerCard: some View {
-        NoopCard(padding: 20, tint: StrandPalette.recoveryData) {
+        PaperCard(padding: 20) {
             VStack(alignment: .leading, spacing: NoopMetrics.space4) {
                 HStack(spacing: NoopMetrics.rowSpacing) {
                     Image(systemName: "brain.head.profile").foregroundStyle(StrandPalette.recoveryData)
@@ -245,7 +243,7 @@ struct IntelligenceView: View {
     }
 
     private func dayCard(_ d: IntelligenceEngine.Computed) -> some View {
-        NoopCard(padding: 18, tint: StrandPalette.recoveryData) {
+        PaperCard(padding: 18) {
             VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
                 HStack {
                     // A small liquid vessel filled to the day's Charge (a real 0–100 metric, so it earns a

@@ -209,9 +209,7 @@ struct InsightsView: View {
                        // alignment/spacing/header). The content is one inner eager VStack, so any nested
                        // staggered reveals are unchanged; this only defers building that stack on scroll-in.
                        lazy: true,
-                       // Liquid finish: the same full-bleed day-of-sky backdrop Today + the other liquid
-                       // tabs carry, so Insights sits in one atmosphere ("the options change, not the page").
-                       // Static + non-interactive; the cards below sit on the opaque canvas and stay legible.
+                       // Paper's quiet base canvas keeps journal and analysis sections in one system.
                        topBackground: nil) {
             if !loaded {
                 ComingSoon(what: "Reading your journal and outcomes…")
@@ -239,7 +237,7 @@ struct InsightsView: View {
                     experimentSection
                     if behaviours.isEmpty {
                         // No journal yet, explain, without dead-ending on a paid export.
-                        NoopCard {
+                        PaperCard {
                             Text("Log behaviours above. After a few days of answers, NOOP ranks how each one moves your recovery, HRV and rest. Importing a WHOOP export (which includes its journal) backfills history instantly.")
                                 .font(StrandFont.subhead)
                                 .foregroundStyle(StrandPalette.textSecondary)
@@ -280,7 +278,7 @@ struct InsightsView: View {
     /// The deep-link row into the v5 "What moves you" hub.
     private var whatMovesYouLink: some View {
         Button { router.openInsightsHub() } label: {
-            NoopCard(tint: StrandPalette.recoveryData) {
+            PaperCard {
                 HStack(spacing: 12) {
                     Image(systemName: "wand.and.sparkles")
                         .font(.system(size: 16, weight: .semibold))
@@ -532,7 +530,7 @@ struct InsightsView: View {
             SectionHeader("Personal Experiment",
                           overline: "N-of-1 protocol",
                           trailing: activeExperimentSnapshot?.phaseLabel ?? String(localized: "Setup"))
-            NoopCard {
+            PaperCard {
                 if let snapshot = activeExperimentSnapshot {
                     activeExperimentCard(snapshot)
                 } else {
@@ -997,7 +995,7 @@ struct InsightsView: View {
     }
 
     private var noEffects: some View {
-        NoopCard {
+        PaperCard {
             Text(String(localized: "Not enough overlap between your journal answers and \(outcome.outcomeName.lowercased()) to measure an effect yet. Keep logging. Effects need days both with and without each behaviour."))
                 .font(StrandFont.subhead)
                 .foregroundStyle(StrandPalette.textTertiary)
@@ -1034,7 +1032,7 @@ struct InsightsView: View {
         // The card wash reads as the OUTCOME's colour world (so the whole Behaviour
         // Effects section sits in one world), while the dot / StatTile accents stay
         // sign-aware to flag the good/bad direction.
-        return NoopCard(tint: outcome.domain.color) {
+        return PaperCard {
             VStack(alignment: .leading, spacing: NoopMetrics.gap) {
 
                 // Header: behaviour name + significance pill. The old direction dot becomes a small liquid
@@ -1107,7 +1105,7 @@ struct InsightsView: View {
 
     // MARK: - Activity Cost section (#439)
 
-    /// "What each activity costs your recovery": one ranked NoopCard per sport that cleared the
+    /// "What each activity costs your recovery": one ranked PaperCard per sport that cleared the
     /// engine's minSessions gate, each carrying next-morning Charge vs rest baseline, days-to-baseline,
     /// the sample count + confidence pill, and the engine's plain-English sentence. Sign-aware tint:
     /// a positive cost (recovery dipped) reads warmer/critical, a recovery-POSITIVE delta reads green.
@@ -1115,7 +1113,7 @@ struct InsightsView: View {
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
             SectionHeader("Activity Cost", overline: "What each activity costs your recovery")
             if activityCosts.isEmpty {
-                NoopCard {
+                PaperCard {
                     Text("Tag a few sessions of the same activity and NOOP will learn its personal recovery cost.")
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textSecondary)
@@ -1142,7 +1140,7 @@ struct InsightsView: View {
         let scoreState: ScoreState = cost.confidence == .solid ? .solid : .building
         let pointsLabel = String(format: "%@%.0f", cost.delta >= 0 ? "−" : "+", abs(cost.delta))
 
-        return NoopCard(tint: accent) {
+        return PaperCard {
             VStack(alignment: .leading, spacing: NoopMetrics.gap) {
                 HStack(alignment: .center, spacing: 8) {
                     Image(systemName: sportSymbol(cost.sport))
@@ -1191,7 +1189,7 @@ struct InsightsView: View {
             SectionHeader("Metric Relationships", overline: "Pearson r")
 
             if rels.isEmpty {
-                NoopCard {
+                PaperCard {
                     Text("Not enough overlapping history to correlate your metrics yet.")
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textTertiary)
@@ -1200,7 +1198,7 @@ struct InsightsView: View {
             } else {
                 // Every curated relationship terminates in Charge, so the card sits in
                 // the Charge (green) colour world via a faint wash.
-                NoopCard(tint: DomainTheme.charge.color) {
+                PaperCard {
                     VStack(spacing: 0) {
                         ForEach(Array(rels.enumerated()), id: \.element.id) { idx, rel in
                             relationshipRow(rel)
