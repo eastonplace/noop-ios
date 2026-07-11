@@ -119,7 +119,7 @@ struct LiveWorkoutView: View {
     private var paperHeartRateCard: some View {
         let values = model.activeWorkout?.samples.suffix(360).map { Double($0.bpm) } ?? []
         return PaperCard {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .firstTextBaseline) {
                     Text("HEART RATE (LAST 3 HOURS)")
                         .font(StrandFont.sectionOverline)
@@ -149,7 +149,7 @@ struct LiveWorkoutView: View {
     }
 
     private var controlRow: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             Image(systemName: "lock.open.fill")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(StrandPalette.textPrimary)

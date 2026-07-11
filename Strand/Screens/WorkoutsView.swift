@@ -592,7 +592,7 @@ struct WorkoutsView: View {
         let display = average.map { UnitFormatter.effortValue($0, scale: effortScale) }
         let spark = rows.reversed().compactMap(\.strain)
         return PaperCard {
-            HStack(spacing: 18) {
+            HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 5) {
                     Text("WORKOUT SCORE")
                         .font(StrandFont.sectionOverline)
@@ -694,7 +694,7 @@ struct WorkoutsView: View {
     private func paperWorkoutBreakdown(rows: [WorkoutRow], zones: WorkoutZones.Summary?) -> some View {
         let zoneSet = model.profile.hrMax > 0
             ? HRZones.zones(maxHR: Double(model.profile.hrMax), source: "profile") : nil
-        return VStack(alignment: .leading, spacing: 12) {
+        return VStack(alignment: .leading, spacing: 10) {
             PaperCard(padding: 12) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("HR ZONES")

@@ -23,9 +23,11 @@
   Trends, Sleep, Recovery detail, Strain detail, Stress detail light/dark. GATE.
   Proof: `qa/T93-{light,dark}-{trends,sleep,recoverydetail,straindetail,stress}.png`;
   `NOOPiOS` build passed and the reference-core batch was visually reviewed.
-- [ ] **T94 — Workouts and run flow.** Refine map crops, metric alignment, zones,
+- [x] **T94 — Workouts and run flow.** Refine map crops, metric alignment, zones,
   and control/content spacing across Workouts, pre-run, live-run, and post-run.
   Preserve route gating and C9. Build; batch-shoot all four light/dark. GATE.
+  Proof: `qa/T94-{light,dark}-{workouts,preworkout,liveworkout,workoutdetail}.png`;
+  `NOOPiOS` build passed. Real route gating and recording/finish controls remain.
 - [ ] **T95 — Secondary regression sweep.** Review remaining deterministic
   screens after shared-token propagation; fix only visible density regressions.
   Build; batch-shoot the secondary set light/dark. GATE.

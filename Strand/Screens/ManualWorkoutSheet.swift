@@ -413,7 +413,7 @@ struct StartWorkoutSheet: View {
                     }
                 }
 
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 8) {
                     SectionHeader("Run type")
                     HStack(spacing: 8) {
                         ForEach(quickTypes) { sport in
@@ -439,7 +439,7 @@ struct StartWorkoutSheet: View {
                 }
 
                 if let recentRoute {
-                    VStack(alignment: .leading, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 8) {
                         SectionHeader("Recent route")
                         PaperCard {
                             HStack(spacing: 12) {
@@ -465,7 +465,7 @@ struct StartWorkoutSheet: View {
                 }
 
                 if let last = recentRows.first {
-                    VStack(alignment: .leading, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 8) {
                         SectionHeader("Last workout")
                         PaperCard {
                             HStack(spacing: 12) {
@@ -490,7 +490,7 @@ struct StartWorkoutSheet: View {
                     }
                 }
 
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 8) {
                     SectionHeader("Run setup")
                     PaperCard {
                         VStack(spacing: 0) {

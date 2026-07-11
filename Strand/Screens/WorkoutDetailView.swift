@@ -163,12 +163,12 @@ struct WorkoutDetailView: View {
         let display = row.strain.map { UnitFormatter.effortValue($0, scale: effortScale) }
         let maximum: Double = 21
         return PaperCard {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 10) {
                 Text("RUN STRAIN")
                     .font(StrandFont.sectionOverline)
                     .tracking(StrandFont.sectionOverlineTracking)
                     .foregroundStyle(StrandPalette.textSecondary)
-                HStack(spacing: 20) {
+                HStack(spacing: 16) {
                     if let display {
                         ScoreRing(value: display, range: 0...maximum,
                                   accent: StrandPalette.strainAccent,
@@ -259,7 +259,7 @@ struct WorkoutDetailView: View {
             let zoneSet = profile.hrMax > 0
                 ? HRZones.zones(maxHR: Double(profile.hrMax), source: "profile") : nil
             PaperCard {
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 10) {
                     HStack {
                         Text("HEART RATE ZONES")
                             .font(StrandFont.sectionOverline)
