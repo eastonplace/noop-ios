@@ -75,6 +75,24 @@ get an entry point or an explicit Easton decision to retire).
    orphaned, any Liquid remnants) — `grep` + call-site proof per deletion.
 3. xcstrings sweep across ALL languages for stale pillar terms and dead keys.
 
+### F. Lost interactions (RULING E6 — Easton, 2026-07-11, verified in code)
+The reskin dropped tap-through destinations while rebuilding cards. Confirmed
+case: pre-reskin Today's HR section navigated to **`FullDayChartView`** (the
+"Deep Timeline", #575 — full-day zoom/pan chart, metric picker, resolution-
+adaptive reads). It still exists and works (Explore → tap-through at
+`MetricExplorerView.swift:211`), but the paper `paperLiveHeartRateCard` has NO
+tap action — the interaction was lost, not the screen. Ruling:
+1. Restore the Today Live-HR card tap → `FullDayChartView` (opening on `.hr`),
+   and give that screen the Paper pass (it's on the §C list) WITHOUT touching
+   its zoom/pan/read machinery — chrome and tokens only.
+2. **Interaction-parity audit** (generalizes the class): for every reskinned
+   screen, diff its pre-reskin source (`git show pre-paper-reskin:…`) for
+   NavigationLink/Button/onTap destinations vs current; every lost destination
+   is restored by COPYING the original wiring and destination from the
+   pre-reskin code (the original app is the reference implementation — port,
+   don't reinvent) and refreshing its UI to Paper. Log each in the audit table
+   (column: "interactions lost/restored").
+
 ## Evidence protocol (new, mandatory — RULING E5)
 Top-of-fold screenshots hid every stacked-duplication bug. From 005 on, screen
 evidence = **full-page capture**: scroll in viewport-height steps and shoot

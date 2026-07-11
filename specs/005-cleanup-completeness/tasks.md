@@ -20,6 +20,11 @@
   once; log works/dead/misroutes. Include: ScoringGuide close (known dead via
   CoupledView:932), every onClose/onAccept callback site (grep list in spec
   §B2), toggles persist after relaunch, links route correctly. GATE.
+- [ ] **T102b — Interaction-parity diff (E6)**: per reskinned screen, diff
+  pre-reskin NavigationLink/tap destinations vs current (script the grep over
+  `git show pre-paper-reskin:<file>`); list every lost tap-through in the audit
+  table. Known-lost: Today Live-HR card → FullDayChartView. GATE (list reviewed
+  before restoration work).
 - [ ] **T103 — Reachability matrix**: `git show pre-paper-reskin` More
   list/routes vs current; list lost entry points + code-orphans. GATE (any
   proposed retirement goes to Easton via the gate — never silently dropped).
@@ -41,6 +46,12 @@
 
 ## Phase C — Dead controls + coverage
 
+- [ ] **T107b — Deep Timeline restore (E6 exemplar)**: Today Live-HR card
+  taps through to `FullDayChartView(.hr)` (port the pre-reskin wiring);
+  FullDayChartView gets the Paper chrome pass (tokens/header/cards ONLY — the
+  zoom/pan/timelineSeries machinery is untouched); every other lost interaction
+  from T102b restored the same way: copy original wiring + destination, Paper
+  the chrome. Full-page + interaction proof (zoom/pan exercised in-sim). GATE.
 - [ ] **T108 — Dead-control fixes**: everything T102 logged. Known: ScoringGuide
   onClose (dismiss-on-push fix) + its stale 0–100/Effort copy + `.charge`
   section ids. Re-tap-through to verify. GATE.
