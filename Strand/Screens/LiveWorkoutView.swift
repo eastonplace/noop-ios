@@ -135,7 +135,8 @@ struct LiveWorkoutView: View {
                               gradient: Gradient(colors: [StrandPalette.chargeAccent,
                                                           StrandPalette.chargeAccent]),
                               range: 100...180, lineWidth: 2,
-                              showsArea: false, showsHead: false, showsHover: false)
+                              // D15: Sparkline's shared area wash is 6% alpha, safely under 12%.
+                              showsArea: true, showsHead: false, showsHover: false)
                         .frame(height: 90)
                 } else {
                     Text("Heart-rate history will draw as the workout records.")
@@ -373,29 +374,25 @@ private struct PaperWorkoutMapCard: View {
     var body: some View {
         PaperCard(padding: 0) {
             ZStack(alignment: .bottomLeading) {
-                ZStack {
-                    StrandPalette.inset
-                    Canvas { context, size in
-                        var grid = Path()
-                        for x in stride(from: 0.0, through: size.width, by: 36) {
-                            grid.move(to: CGPoint(x: x, y: 0))
-                            grid.addLine(to: CGPoint(x: x, y: size.height))
+                Group {
+                    if recorder.routePoints.count >= 2 {
+                        WorkoutRouteMap(points: recorder.routePoints, showsEndpoints: false)
+                            .allowsHitTesting(false)
+                            .accessibilityLabel("Live GPS route")
+                    } else {
+                        VStack(spacing: 6) {
+                            Image(systemName: recorder.pointCount > 0 ? "location.fill" : "location.slash")
+                                .font(.system(size: 22, weight: .semibold))
+                                .foregroundStyle(recorder.pointCount > 0
+                                                 ? StrandPalette.link : StrandPalette.textTertiary)
+                            Text(recorder.pointCount > 0
+                                 ? "\(recorder.pointCount) GPS points recorded"
+                                 : "Waiting for GPS route")
+                                .font(StrandFont.caption)
+                                .foregroundStyle(StrandPalette.textSecondary)
                         }
-                        for y in stride(from: 0.0, through: size.height, by: 28) {
-                            grid.move(to: CGPoint(x: 0, y: y))
-                            grid.addLine(to: CGPoint(x: size.width, y: y))
-                        }
-                        context.stroke(grid, with: .color(StrandPalette.cardBorder), lineWidth: 1)
-                    }
-                    VStack(spacing: 6) {
-                        Image(systemName: recorder.pointCount > 0 ? "location.fill" : "location.slash")
-                            .font(.system(size: 22, weight: .semibold))
-                            .foregroundStyle(recorder.pointCount > 0 ? StrandPalette.link : StrandPalette.textTertiary)
-                        Text(recorder.pointCount > 0
-                             ? "\(recorder.pointCount) GPS points recorded"
-                             : "Waiting for GPS route")
-                            .font(StrandFont.caption)
-                            .foregroundStyle(StrandPalette.textSecondary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(StrandPalette.inset)
                     }
                 }
                 .frame(height: 150)

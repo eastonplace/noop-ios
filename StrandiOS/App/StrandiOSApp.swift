@@ -2,6 +2,7 @@
 import SwiftUI
 import StrandDesign
 import WhoopStore
+import WhoopProtocol
 
 /// iOS entry point. Unlike the macOS app (which adds a `MenuBarExtra` scene), iOS uses a single
 /// `WindowGroup`; the glanceable menu-bar role is filled by the Home/Lock-Screen widget instead.
@@ -329,7 +330,7 @@ enum DemoScreens {
         case "testcentre": return AnyView(TestCentreView())
         case "rhythmconsent": return AnyView(RhythmConsentGate(onAccept: {}))
         case "rhythm": return AnyView(RhythmEmptyDemoHost())
-        case "liveworkout": return AnyView(LiveWorkoutView(onClose: {}))
+        case "liveworkout": return AnyView(LiveWorkoutDemoHost())
         case "preworkout": return AnyView(PreWorkoutDemoHost())
         // C10/T56: pillar deep links land on the canonical Paper details (same surface the
         // Today trio opens), not the generic trend explorer.
@@ -367,7 +368,7 @@ private struct PreWorkoutDemoHost: View {
                 let rows = await repo.workoutRows(days: 365)
                 guard let row = rows.first(where: { ($0.distanceM ?? 0) > 0 }) else { return }
                 if RouteStore.load(startTs: row.startTs, sport: row.sport) == nil {
-                    let points = Self.riversideLoop
+                    let points = PaperRunDemoRoute.loop
                     RouteStore.store(
                         WorkoutRoute(polyline: RouteMath.encode(points),
                                      distanceM: RouteMath.totalMeters(points)),
@@ -378,13 +379,54 @@ private struct PreWorkoutDemoHost: View {
             }
     }
 
-    private static let riversideLoop: [RouteMath.LatLng] = [
+}
+
+/// Populated D15 live-run proof. Production still receives every value from the live
+/// sensor/GPS engines; this host exists only in DEBUG screenshot builds.
+private struct LiveWorkoutDemoHost: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var seeded = false
+
+    var body: some View {
+        LiveWorkoutView(onClose: {})
+            .task {
+                guard !seeded else { return }
+                seeded = true
+                // Let LiveWorkoutView arm realtime first (which clears stale smoothing), then
+                // publish the deterministic populated state used by the screenshot gate.
+                await Task.yield()
+                let elapsed = 32.0 * 60.0 + 47.0
+                let start = Date().addingTimeInterval(-elapsed)
+                var samples = (0..<180).map { index -> HRSample in
+                    let phase = Double(index)
+                    let slowWave = 9.0 * sin(phase / 10.0)
+                    let fastWave = 4.0 * sin(phase / 3.7)
+                    let bpm = Int((143.0 + slowWave + fastWave).rounded())
+                    return HRSample(ts: Int(start.timeIntervalSince1970) + index * 11, bpm: bpm)
+                }
+                samples[samples.count - 1] = HRSample(ts: Int(Date().timeIntervalSince1970), bpm: 152)
+                model.activeWorkout = AppModel.ActiveWorkout(
+                    start: start, sport: "Running", samples: samples,
+                    liveStrain: 54.3, avgHr: 144, peakHr: 171)
+                model.bpm = 152
+                model.live.sensorCadence = 168
+                model.gpsRecorder.seedDemoRoute(points: PaperRunDemoRoute.liveRoute,
+                                                elapsedSeconds: elapsed)
+            }
+    }
+}
+
+private enum PaperRunDemoRoute {
+    static let loop: [RouteMath.LatLng] = [
         .init(40.80058, -73.97010), .init(40.80258, -73.97149),
         .init(40.80502, -73.97326), .init(40.80738, -73.97486),
         .init(40.80956, -73.97331), .init(40.80829, -73.97027),
         .init(40.80582, -73.96872), .init(40.80335, -73.96729),
         .init(40.80119, -73.96805), .init(40.80058, -73.97010),
     ]
+
+    /// Roughly 6 km while keeping the map framed on the same honest loop.
+    static let liveRoute = loop + Array(loop.dropFirst()) + Array(loop.dropFirst().prefix(6))
 }
 #endif
 #endif

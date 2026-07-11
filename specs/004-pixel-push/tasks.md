@@ -50,9 +50,13 @@
   with sheet 2-1. Route thumbnail is gated on a persisted, decodable
   `RouteStore` polyline; the DEBUG proof fixture keys it to a real seeded row.
   `NOOPiOS` simulator build passed.
-- [ ] **T87 — D15 live-run**: map card returns between grid and HR chart; HR
+- [x] **T87 — D15 live-run**: map card returns between grid and HR chart; HR
   chart gradient underfill; verify controls unchanged (C9). GATE (simulate
   workout via Test Centre for the populated shot).
+  Proof: `qa/T87-live-run.png` on iPhone 17 Pro Max, compared side-by-side
+  with sheet 2-2. The card reads the recorder's real live polyline, the shared
+  Sparkline adds its 6% area wash, and the control snapshot remains lock +
+  Recording + red-outline Finish (no Pause). `NOOPiOS` build passed.
 - [ ] **T88 — Evidence**: full re-shoot of all reference screens light+dark,
   XL-type pass on Today/Sleep/detail, regenerate
   `qa/pixel-contact-sheet.jpg` (before = 003 qa), re-score fidelity.md with

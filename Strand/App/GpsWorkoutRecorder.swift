@@ -308,6 +308,10 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
     private var track: [RouteMath.LatLng] = []
     private var startMs: Int64 = 0
 
+    /// Read-only live polyline for the in-workout map. The recorder remains the sole owner;
+    /// views cannot mutate or synthesize route state.
+    var routePoints: [RouteMath.LatLng] { track }
+
     /// Whether this device can offer route capture right now. `.notDetermined` is available —
     /// Start will ask once — while denied/restricted states stay honest and hide GPS-ready UI.
     var canRecordRoute: Bool {
@@ -317,6 +321,18 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
         default: return true
         }
     }
+
+    #if DEBUG
+    /// Deterministic screenshot fixture, stripped from Release. It fills the same published
+    /// fields the CoreLocation ingest path owns without changing the production recorder path.
+    func seedDemoRoute(points: [RouteMath.LatLng], elapsedSeconds: Double) {
+        track = points
+        pointCount = points.count
+        distanceM = RouteMath.totalMeters(points)
+        paceSecPerKm = RouteMath.paceSecPerKm(meters: distanceM, seconds: elapsedSeconds)
+        isRecording = true
+    }
+    #endif
 
     /// Workouts & GPS test mode (Test Centre): the tagged sink for the `.workouts` GPS-fix lines, wired by
     /// AppModel to `live.append(log:domain:)`. Default nil (inert). We ALWAYS check `TestCentre.active(.workouts)`
