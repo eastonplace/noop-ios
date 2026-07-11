@@ -28,8 +28,10 @@
   Preserve route gating and C9. Build; batch-shoot all four light/dark. GATE.
   Proof: `qa/T94-{light,dark}-{workouts,preworkout,liveworkout,workoutdetail}.png`;
   `NOOPiOS` build passed. Real route gating and recording/finish controls remain.
-- [ ] **T95 — Secondary regression sweep.** Review remaining deterministic
+- [x] **T95 — Secondary regression sweep.** Review remaining deterministic
   screens after shared-token propagation; fix only visible density regressions.
   Build; batch-shoot the secondary set light/dark. GATE.
+  Proof: 30 images in `qa/secondary/` plus `qa/T95-secondary-contact-sheet.jpg`;
+  `NOOPiOS` build passed. No screen-specific regression fix was required.
 - [ ] **T96 — Final evidence.** XL pass on Today/Sleep/Recovery/Strain, full
   light/dark re-shoot, contact sheet, fidelity re-score, clean-tree audit, push.
