@@ -17,7 +17,7 @@ Evidence rule: each link must resolve to a complete stepped scroll set under `qa
 | Surface | Source / route | Full-page evidence | Paper | Duplication | Tap-through | Reachable from | Parity: lost/restored | Action needed |
 |---|---|---|---|---|---|---|---|---|
 | Today | `TodayView.swift` / `today` | [pages 1–4](qa/today/) | PASS | NONE | PASS | Today tab | 5 lost destinations; see interaction-parity.md | Restore Deep Timeline tap in T107b |
-| Trends | `TrendsView.swift` / `trends` | [pages 1–4](qa/trends/) | PASS rendered path | SUSPECT source-only builders | PASS | Trends tab | No lost destination | T106 prove/delete legacy builders |
+| Trends | `TrendsView.swift` / `trends` | [T106 complete page](qa/t106-trends/) | PASS | NONE | PASS | Trends tab | No lost destination | T106 deleted 661-line orphan builder island; only canonical Paper review renders |
 | Sleep | `SleepView.swift` / `sleep` | [pages 1–4](qa/sleep/) | PASS | NONE | PASS | Sleep tab | No lost destination | Tap-through audit |
 | More index | `RootTabView.swift` | [pages 1–4](qa/more/) | PASS | NONE | PASS | More tab | No lost destination | Tap every row/group |
 | Quick Actions | `RootTabView.swift` / FAB | [page 1](qa/quick-actions/page-1.png) | PASS | NONE | PASS | Centre FAB | No lost destination | Tap every action |

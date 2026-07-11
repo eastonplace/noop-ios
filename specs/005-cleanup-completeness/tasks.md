@@ -39,7 +39,7 @@
   inspect tools into Test Centre as Paper sections; exercise record + inspect
   flows before AND after (screen recordings or step logs); Live keeps reference
   content. GATE.
-- [ ] **T106 — Trends legacy builders**: find callers of the pip
+- [x] **T106 — Trends legacy builders**: find callers of the pip
   `weekInReview`/`NoopCard` blocks; delete if orphaned (all platforms) else
   Paper-restyle the macOS path. No double week-review anywhere.
 - [ ] **T107 — MetricDetailView full alignment** + Explore catalog screen pass.
