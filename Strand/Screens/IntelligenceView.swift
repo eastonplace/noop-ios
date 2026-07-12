@@ -157,11 +157,11 @@ struct IntelligenceView: View {
                                 value: f.charge,
                                 format: { "\(Int($0.rounded()))" },
                                 font: StrandFont.rounded(52),
-                                color: StrandPalette.onDarkPrimary
+                                color: StrandPalette.textPrimary
                             )
                             Text("± \(Int(f.band.rounded())) · \(StrandPalette.recoveryState(f.charge))")
                                 .font(StrandFont.captionNumber)
-                                .foregroundStyle(StrandPalette.onDarkSecondary)
+                                .foregroundStyle(StrandPalette.textSecondary)
                         }
                         .allowsHitTesting(false)   // taps fall through to the vessel → splash
                     }

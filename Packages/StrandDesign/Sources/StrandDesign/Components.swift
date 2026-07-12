@@ -164,7 +164,9 @@ public struct SectionHeader: View {
             }
             Spacer()
             if let trailing {
-                Text(trailing).font(StrandFont.caption).foregroundStyle(StrandPalette.link)
+                // SectionHeader's trailing value is display-only. Interactive headers must supply
+                // their own Button/NavigationLink so link blue never lies about a static status/count.
+                Text(trailing).font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
             }
         }
     }

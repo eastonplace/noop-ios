@@ -305,6 +305,7 @@ private struct HeartRateSection: View {
                 subtitle: hrIsDerived ? String(localized: "Estimated from R-R interval")
                     : (hasLiveHR ? String(localized: "Streaming live") : String(localized: "Awaiting strap")),
                 trailing: hasLiveHR ? "\(displayHR!) bpm" : "—",
+                height: hasLiveHR ? NoopMetrics.chartHeight : 112,
                 tint: StrandPalette.metricRose
             ) {
                 heroChart(displayHR: displayHR, hasLiveHR: hasLiveHR,
@@ -771,7 +772,7 @@ private struct FitnessAgeSection: View {
                         PaperGauge(value: fitnessAgeFraction(age), tint: StrandPalette.chargeColor, animated: true)
                             .frame(width: 96, height: 96)
                         CountUpNumber(value: Double(shown), font: StrandFont.rounded(30))
-                            .foregroundStyle(StrandPalette.onDarkPrimary)
+                            .foregroundStyle(StrandPalette.textPrimary)
                             .allowsHitTesting(false)
                     }
                     VStack(alignment: .leading, spacing: NoopMetrics.space1) {
@@ -1049,7 +1050,7 @@ private struct VitalitySection: View {
                         PaperGauge(value: max(0, min(1, v / 100)), tint: StrandPalette.chargeColor, animated: true)
                             .frame(width: 108, height: 108)
                         CountUpNumber(value: v, font: StrandFont.rounded(38))
-                            .foregroundStyle(StrandPalette.onDarkPrimary)
+                            .foregroundStyle(StrandPalette.textPrimary)
                         .allowsHitTesting(false)
                     }
                     .accessibilityElement(children: .ignore)
