@@ -232,7 +232,7 @@ struct XiaomiBandView: View {
         let allDays = series.values.flatMap { $0 }.map(\.day)
         guard let first = allDays.min(), let last = allDays.max(),
               let lo = date(first), let hi = date(last) else {
-            return String(localized: "Steps, heart rate, sleep, SpO₂ and stress, imported from Mi Fitness, read locally on \(Platform.deviceNounPhrase).")
+            return String(localized: "Mi Fitness data, stored and read locally.")
         }
         let loS = Self.spanFormatter.string(from: lo)
         let hiS = Self.spanFormatter.string(from: hi)

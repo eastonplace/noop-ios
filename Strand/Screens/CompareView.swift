@@ -297,7 +297,7 @@ struct CompareView: View {
     private var metricSection: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
             SectionHeader("Metrics", overline: "Overlay 2-4 signals")
-            NoopCard {
+            PaperCard {
                 VStack(alignment: .leading, spacing: NoopMetrics.gap) {
                     // Responsive: range pills + the Add menu side-by-side when there's room, else
                     // stacked so the pills don't overflow/clip on a narrow window (ported from the iOS port).
@@ -518,7 +518,7 @@ struct CompareView: View {
                                                         : String(localized: "\(pairs.count) pairs")))
 
             if pairs.isEmpty {
-                NoopCard {
+                PaperCard {
                     Text("Not enough overlapping days between these metrics in \(range.phrase). Widen the range.")
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textTertiary)
@@ -533,12 +533,12 @@ struct CompareView: View {
         }
     }
 
-    /// One pairwise correlation as its own NoopCard.
+    /// One pairwise correlation as its own Paper card.
     private func pairCard(_ p: PairResult) -> some View {
         let tint = correlationColor(p.r)
         // Frosted card washed by the relationship's own colour (green positive / rose negative), with a
         // TrendChip surfacing the signed direction at a glance — the Today delta idiom, applied to r.
-        return NoopCard(tint: tint) {
+        return PaperCard {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 10) {
                     // A small liquid vessel filled to the correlation STRENGTH (|r|, a neutral 0–1

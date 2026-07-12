@@ -119,7 +119,7 @@ struct SupportView: View {
                         Button { withAnimation(.easeOut(duration: 0.15)) { selected = coin.symbol } } label: {
                             Text(coin.symbol).font(StrandFont.rounded(12, weight: .bold))
                                 .padding(.horizontal, 14).padding(.vertical, 7)
-                                .background(Capsule().fill(on ? StrandPalette.accent : StrandPalette.surfaceInset))
+                                .background(Capsule().fill(on ? StrandPalette.textPrimary : StrandPalette.surfaceInset))
                                 .foregroundStyle(on ? StrandPalette.surfaceBase : StrandPalette.textSecondary)
                                 .overlay(Capsule().strokeBorder(on ? Color.clear : StrandPalette.hairline, lineWidth: 1))
                         }

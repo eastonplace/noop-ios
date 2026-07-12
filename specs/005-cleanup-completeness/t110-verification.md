@@ -56,3 +56,13 @@ Build: `NOOPiOS`, Debug iPhone Simulator, iPhone 17 Pro Max, `--demo-seed` — P
 - [What's New](qa/t110-whats-new/page-1.png): expectations and release history migrated from legacy tinted vessels to `PaperCard`; Got It now uses the black primary treatment.
 - [How NOOP Works](qa/t110-how-noop-works/page-1.png): primer and scoring-method sections migrated to `PaperCard`; Got It now uses the black primary treatment.
 - Added debug-only direct routes for What's New and How NOOP Works so their screenshot evidence is deterministic without changing production reachability.
+
+## Batch 7 — carry-alongs, Compare, and Coach
+
+Build: `NOOPiOS`, Debug iPhone Simulator, iPhone 17 Pro Max, `--demo-seed` — PASS.
+
+- [Support](qa/t110g-support/page-1.png): the active crypto selector now uses ink Paper selection chrome instead of blue; copy and QR behavior is unchanged.
+- [Mi Band](qa/t110g-xiaomi/page-1.png): the empty-state header now uses concise, fully visible local-data copy.
+- [Compare](qa/t110g-compare/page-1.png): metric selection, empty correlation, and pair-result vessels migrated from legacy `NoopCard` to flat `PaperCard`; chart and correlation logic are untouched.
+- [Coach](qa/t110g-coach/page-1.png): consent/pattern/instruction vessels migrated to `PaperCard`; header copy now fits without truncation and uses current Recovery/Strain/Sleep language. Provider, key, model, and consent wiring are unchanged.
+- Added a debug-only Coach route for deterministic evidence; production reachability is unchanged.

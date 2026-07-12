@@ -275,7 +275,7 @@ private struct iOSRootView: View {
 enum DemoScreens {
     static let routeNames: [String] = [
         "today", "trends", "trendslastweek", "fullday", "sleep", "live", "stress", "workouts", "workoutdetail", "health",
-        "insights", "insightshub", "intelligence", "explore", "compare", "settings", "applehealth",
+        "insights", "insightshub", "intelligence", "explore", "compare", "coach", "settings", "applehealth",
         "storage", "trendsreport", "fused", "scoringguide", "updates", "whatsnew", "hownoopworks", "xiaomi",
         "intervals", "watchsetup", "watchabout", "dashboardeditor",
         "keymetricseditor", "data", "backup", "support", "labbook", "automations",
@@ -316,6 +316,7 @@ enum DemoScreens {
         case "intelligence": return AnyView(IntelligenceView())
         case "explore":  return AnyView(MetricExplorerView())
         case "compare":  return AnyView(CompareView())
+        case "coach":    return AnyView(CoachView())
         case "settings": return AnyView(SettingsView())
         case "applehealth": return AnyView(AppleHealthView())
         case "storage": return AnyView(StorageView())
