@@ -46,3 +46,13 @@ Build: `NOOPiOS`, Debug iPhone Simulator, iPhone 17 Pro Max, `--demo-seed` — P
 - [Xiaomi](qa/t110-device-xiaomi/page-1.png): designed empty/import state uses one compact Paper card with no fake device data.
 - [Apple Watch setup](qa/t110-device-watch-setup/page-1.png): primary Continue/Done actions now use canonical black Paper treatment; close, back, and Health permission wiring is unchanged.
 - [Apple Watch about](qa/t110-device-watch-about/page-1.png): capability and calibration states remain semantic, readable, and fully Paper-aligned.
+
+## Batch 6 — utilities and support
+
+Build: `NOOPiOS`, Debug iPhone Simulator, iPhone 17 Pro Max, `--demo-seed` — PASS.
+
+- [Storage](qa/t110-storage/page-1.png): footprint, cleanup state, and explanatory content use flat Paper cards; cleanup behavior is unchanged.
+- [Support](qa/t110-support/page-1.png): donation selector, copy action, QR, contact actions, and privacy note are fully visible after the entrance-animation window. The QR retains its required black-on-white scanner surface.
+- [What's New](qa/t110-whats-new/page-1.png): expectations and release history migrated from legacy tinted vessels to `PaperCard`; Got It now uses the black primary treatment.
+- [How NOOP Works](qa/t110-how-noop-works/page-1.png): primer and scoring-method sections migrated to `PaperCard`; Got It now uses the black primary treatment.
+- Added debug-only direct routes for What's New and How NOOP Works so their screenshot evidence is deterministic without changing production reachability.

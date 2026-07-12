@@ -68,7 +68,7 @@ struct WhatsNewView: View {
     }
 
     private var expectationsCard: some View {
-        NoopCard(tint: StrandPalette.accent) {
+        PaperCard {
             VStack(alignment: .leading, spacing: 14) {
                 Text("WHAT TO EXPECT").font(StrandFont.overline)
                     .tracking(StrandFont.overlineTracking)
@@ -94,7 +94,7 @@ struct WhatsNewView: View {
     }
 
     private func releaseCard(_ release: AppChangelog.Release, isLatest: Bool = false) -> some View {
-        NoopCard(tint: isLatest ? StrandPalette.accent : nil) {
+        PaperCard {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
                     SourceBadge("v\(release.version)")
@@ -125,7 +125,7 @@ struct WhatsNewView: View {
                 Text("Got it").frame(minWidth: 120).padding(.vertical, 4)
             }
             .buttonStyle(.borderedProminent)
-            .tint(StrandPalette.accent)
+            .tint(StrandPalette.textPrimary)
             .keyboardShortcut(.defaultAction)
         }
         .padding(16)

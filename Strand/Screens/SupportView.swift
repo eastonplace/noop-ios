@@ -78,7 +78,7 @@ struct SupportView: View {
     }
 
     private var builtOnCard: some View {
-        NoopCard {
+        PaperCard {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 10) {
                     Image(systemName: "hands.clap.fill")

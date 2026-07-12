@@ -149,7 +149,7 @@ struct HowNoopWorksView: View {
                 Text("Got it").frame(minWidth: 120).padding(.vertical, 4)
             }
             .buttonStyle(.borderedProminent)
-            .tint(StrandPalette.accent)
+            .tint(StrandPalette.textPrimary)
             .keyboardShortcut(.defaultAction)
         }
         .padding(16)
@@ -158,7 +158,7 @@ struct HowNoopWorksView: View {
     // MARK: - Cards
 
     private var introCard: some View {
-        NoopCard {
+        PaperCard {
             VStack(alignment: .leading, spacing: 14) {
                 Text("THE ONE RULE").font(StrandFont.overline)
                     .tracking(StrandFont.overlineTracking)
@@ -176,7 +176,7 @@ struct HowNoopWorksView: View {
     /// title, then the plain-English body. The icon is decorative (hidden from
     /// VoiceOver); the card reads its title and body together.
     private func primerCard(_ section: Section) -> some View {
-        NoopCard(tint: section.tint) {
+        PaperCard {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 10) {
                     Image(systemName: section.icon)
@@ -263,7 +263,7 @@ struct HowNoopWorksView: View {
     /// A7 , the "How your scores are computed" card: one row per score naming its published method
     /// family, honest about the approach without claiming a proprietary-identical result.
     private var scoringMethodsCard: some View {
-        NoopCard(tint: DomainTheme.charge.color) {
+        PaperCard {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 10) {
                     Image(systemName: "function")

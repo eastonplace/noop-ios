@@ -276,7 +276,7 @@ enum DemoScreens {
     static let routeNames: [String] = [
         "today", "trends", "trendslastweek", "fullday", "sleep", "live", "stress", "workouts", "workoutdetail", "health",
         "insights", "insightshub", "intelligence", "explore", "compare", "settings", "applehealth",
-        "storage", "trendsreport", "fused", "scoringguide", "updates", "xiaomi",
+        "storage", "trendsreport", "fused", "scoringguide", "updates", "whatsnew", "hownoopworks", "xiaomi",
         "intervals", "watchsetup", "watchabout", "dashboardeditor",
         "keymetricseditor", "data", "backup", "support", "labbook", "automations",
         "alarms", "testcentre", "rhythmconsent", "rhythm", "liveworkout",
@@ -323,6 +323,8 @@ enum DemoScreens {
         case "fused": return AnyView(FusedRecordView(record: cleanupAuditFusedRecord))
         case "scoringguide": return AnyView(ScoringGuideView(onClose: {}))
         case "updates": return AnyView(UpdatesInboxView(onClose: {}))
+        case "whatsnew": return AnyView(WhatsNewView(onClose: {}))
+        case "hownoopworks": return AnyView(HowNoopWorksView(onClose: {}))
         case "xiaomi": return AnyView(XiaomiBandView())
         case "intervals": return AnyView(IntervalTimerView())
         case "watchsetup": return AnyView(AppleWatchSetupView(onClose: {}))
