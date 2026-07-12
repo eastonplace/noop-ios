@@ -37,3 +37,12 @@ Build: `NOOPiOS`, Debug iPhone Simulator, iPhone 17 Pro Max, `--demo-seed` — P
 - [Step 12](qa/t110-onboarding-steps/step-12.png): removed the final decorative bloom; the thread glyph, ink headline, secondary copy, and black Enter action now finish the flow cleanly.
 
 All 12 onboarding steps now have current iPhone 17 Pro Max evidence in `qa/t110-onboarding-steps/`.
+
+## Batch 5 — device utilities
+
+Build: `NOOPiOS`, Debug iPhone Simulator, iPhone 17 Pro Max, `--demo-seed` — PASS.
+
+- [Add Device](qa/t110-device-add/page-1.png): full catalog remains reachable with honest Beta/Experimental states and flat Paper rows.
+- [Xiaomi](qa/t110-device-xiaomi/page-1.png): designed empty/import state uses one compact Paper card with no fake device data.
+- [Apple Watch setup](qa/t110-device-watch-setup/page-1.png): primary Continue/Done actions now use canonical black Paper treatment; close, back, and Health permission wiring is unchanged.
+- [Apple Watch about](qa/t110-device-watch-about/page-1.png): capability and calibration states remain semantic, readable, and fully Paper-aligned.

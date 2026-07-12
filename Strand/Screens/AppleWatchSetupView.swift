@@ -97,7 +97,7 @@ struct AppleWatchSetupView: View {
                     Text("Continue").frame(minWidth: 120).padding(.vertical, 4)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(StrandPalette.accent)
+                .tint(StrandPalette.textPrimary)
                 .keyboardShortcut(.defaultAction)
                 .accessibilityHint("Goes to the Apple Health permission step")
             }
@@ -118,7 +118,7 @@ struct AppleWatchSetupView: View {
                         Text("Done").frame(minWidth: 120).padding(.vertical, 4)
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(StrandPalette.accent)
+                    .tint(StrandPalette.textPrimary)
                     .keyboardShortcut(.defaultAction)
                 } else {
                     Button("Not now") { onClose() }
