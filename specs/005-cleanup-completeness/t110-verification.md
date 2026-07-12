@@ -17,3 +17,12 @@ Build: `NOOPiOS`, Debug iPhone Simulator, iPhone 17 Pro Max, `--demo-seed` — P
 - [Step 1](qa/t110-onboarding-steps/step-1.png): the custom Welcome headline now uses `textPrimary` ink; its explanatory subtitle remains secondary.
 - [Step 2](qa/t110-onboarding-steps/step-2.png), [Step 3](qa/t110-onboarding-steps/step-3.png), and [Step 4](qa/t110-onboarding-steps/step-4.png): shared `StepShell` titles render in ink, subtitles remain secondary, cards stay flat Paper, and primary actions remain black.
 - Added debug-only `onboarding-1`…`onboarding-12` routes so every step can be captured deterministically without changing production onboarding state, completion, or navigation wiring.
+
+## Batch 3 — onboarding steps 5–8
+
+Build: `NOOPiOS`, Debug iPhone Simulator, iPhone 17 Pro Max, `--demo-seed` — PASS.
+
+- [Step 5](qa/t110-onboarding-steps/step-5.png): replaced the blurred strap halo with a flat raised Paper disc and hairline.
+- [Step 6](qa/t110-onboarding-steps/step-6.png): scan controls, state pill, strap selector, help disclosure, and black primary action remain fully visible and wired.
+- [Step 7](qa/t110-onboarding-steps/step-7.png): removed the celebration bloom; the real Recovery ring and positive status colour carry the state without decorative glow.
+- [Step 8](qa/t110-onboarding-steps/step-8.png): profile controls remain ink-first on a single Paper card with secondary explanatory copy.

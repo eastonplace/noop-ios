@@ -455,9 +455,9 @@ private struct WearStep: View {
             VStack(spacing: 22) {
                 ZStack {
                     Circle()
-                        .fill(StrandPalette.accent.opacity(0.16))
+                        .fill(StrandPalette.surfaceRaised)
                         .frame(width: 130, height: 130)
-                        .blur(radius: 24)
+                        .overlay(Circle().stroke(StrandPalette.hairline))
                     Image(systemName: "applewatch.side.right")
                         .font(.system(size: 58, weight: .regular))
                         .foregroundStyle(StrandPalette.textPrimary)
@@ -635,12 +635,6 @@ private struct BondedStep: View {
             VStack(spacing: 26) {
                 Spacer()
                 ZStack {
-                    Circle()
-                        .fill(StrandPalette.statusPositive)
-                        .frame(width: 160, height: 160)
-                        .blur(radius: 70)
-                        .opacity(bloom ? 0.5 : 0.0)
-                        .blendMode(.plusLighter)
                     // A ring materialises — a taste of the signature component.
                     RecoveryRing(score: 100, supporting: nil, diameter: 200, lineWidth: 14, showsLabel: false)
                         .scaleEffect(bloom ? 1 : 0.7)
