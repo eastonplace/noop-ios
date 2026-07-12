@@ -27,6 +27,16 @@ struct AutoWorkoutCard: View {
     /// Guards the Save button while the write is in flight.
     @State private var saving = false
 
+    #if DEBUG
+    /// Screenshot/audit fixture only. Production still obtains every suggestion from the detector.
+    private let demoCandidate: DetectedWorkout?
+
+    init(demoCandidate: DetectedWorkout? = nil) {
+        self.demoCandidate = demoCandidate
+        _candidate = State(initialValue: demoCandidate)
+    }
+    #endif
+
     var body: some View {
         Group {
             if autoDetectEnabled, !handledThisSession, let w = candidate {
@@ -35,6 +45,9 @@ struct AutoWorkoutCard: View {
         }
         // Re-scan whenever the data refreshes (a sync bumps refreshSeq) or the toggle flips on.
         .task(id: AutoWorkoutLoadKey(seq: repo.refreshSeq, enabled: autoDetectEnabled)) {
+            #if DEBUG
+            if demoCandidate != nil { return }
+            #endif
             await reload()
         }
     }
@@ -76,7 +89,7 @@ struct AutoWorkoutCard: View {
                         Label("Save it", systemImage: "checkmark")
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(StrandPalette.accent)
+                    .tint(StrandPalette.textPrimary)
                     .disabled(saving)
 
                     Button("Not a workout") { dismiss(w) }

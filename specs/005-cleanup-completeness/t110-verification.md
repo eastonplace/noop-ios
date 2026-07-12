@@ -95,3 +95,12 @@ Build: `NOOPiOS`, Debug iPhone Simulator, iPhone 17 Pro Max, `--demo-seed` — P
 - [Stress Check-in](qa/t110j-stress-checkin/page-1.png): seeded passive nudge proves the black primary action, secondary dismissal, tertiary opt-out, and engine-derived RMSSD copy.
 - [Skin Temperature](qa/t110j-skin-temp/page-1.png): seeded cycle-awareness and illness heads-up states prove Paper cards, privacy copy, range—not fixed-date—language, and semantic status treatment.
 - Added debug-only fixture hosts for deterministic evidence; production card placement and behavior are unchanged.
+
+## Batch 11 — final embedded workout and mind cards
+
+Build: `NOOPiOS`, Debug iPhone Simulator, iPhone 17 Pro Max, `--demo-seed` — PASS.
+
+- [Auto Workout](qa/t110k-auto-workout/page-1.png): a debug-only detector candidate proves the compact Paper suggestion, black Save action, secondary rejection, and dismiss affordance. Production detection, save, and durable-dismiss wiring are unchanged.
+- [Mind](qa/t110k-mind/page-1.png): the check-in remains a quiet, neutral Paper surface with its original mood-selection and journal flow intact.
+- [HRV Snapshot](qa/t110k-hrv-snapshot/page-1.png): the idle dial now uses a solid slate ring and ink value treatment; the primary action uses black Paper chrome when enabled, while disconnected-state honesty and capture logic remain unchanged.
+- Added debug-only direct routes and fixture injection for deterministic evidence; no production entry point or analytics behavior changed.

@@ -277,7 +277,7 @@ enum DemoScreens {
         "today", "trends", "trendslastweek", "fullday", "sleep", "live", "stress", "workouts", "workoutdetail", "health",
         "insights", "insightshub", "intelligence", "explore", "compare", "coach", "settings", "applehealth",
         "storage", "trendsreport", "fused", "scoringguide", "updates", "whatsnew", "hownoopworks", "xiaomi",
-        "intervals", "hydration", "breathing", "manualworkout", "journalcard", "caffeinecard", "stresscheckin", "skintempcards", "watchsetup", "watchabout", "dashboardeditor",
+        "intervals", "hydration", "breathing", "manualworkout", "journalcard", "caffeinecard", "stresscheckin", "skintempcards", "autoworkoutcard", "mindsection", "hrvsnapshot", "watchsetup", "watchabout", "dashboardeditor",
         "keymetricseditor", "data", "backup", "support", "labbook", "automations",
         "alarms", "testcentre", "rhythmconsent", "rhythm", "liveworkout",
         "preworkout", "recoverydetail", "straindetail", "sleepdetail", "devices",
@@ -337,6 +337,9 @@ enum DemoScreens {
         case "caffeinecard": return AnyView(CaffeineCardDemoHost())
         case "stresscheckin": return AnyView(StressCheckInDemoHost())
         case "skintempcards": return AnyView(SkinTempCardsDemoHost())
+        case "autoworkoutcard": return AnyView(AutoWorkoutCardDemoHost())
+        case "mindsection": return AnyView(MindSectionDemoHost())
+        case "hrvsnapshot": return AnyView(HRVSnapshotView())
         case "watchsetup": return AnyView(AppleWatchSetupView(onClose: {}))
         case "watchabout": return AnyView(AppleWatchAboutView())
         case "dashboardeditor": return AnyView(DashboardCardsEditorSheet(selectionRaw: .constant("")))
@@ -559,6 +562,32 @@ private struct SkinTempCardsDemoHost: View {
                     copy: "Heads-up — your body looks strained. On-device estimate — not a diagnosis."))
             }
             .padding(NoopMetrics.screenPadding)
+        }
+        .background(StrandPalette.surfaceBase)
+    }
+}
+
+private struct AutoWorkoutCardDemoHost: View {
+    var body: some View {
+        ScrollView {
+            AutoWorkoutCard(demoCandidate: DetectedWorkout(
+                startSec: Int(Date().addingTimeInterval(-42 * 60).timeIntervalSince1970),
+                endSec: Int(Date().addingTimeInterval(-15 * 60).timeIntervalSince1970),
+                avgBpm: 148,
+                peakBpm: 171,
+                durationMin: 27
+            ))
+            .padding(NoopMetrics.screenPadding)
+        }
+        .background(StrandPalette.surfaceBase)
+        .onAppear { UserDefaults.standard.set(true, forKey: PuffinExperiment.autoDetectWorkoutsKey) }
+    }
+}
+
+private struct MindSectionDemoHost: View {
+    var body: some View {
+        ScrollView {
+            MindSection().padding(NoopMetrics.screenPadding)
         }
         .background(StrandPalette.surfaceBase)
     }

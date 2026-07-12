@@ -159,8 +159,7 @@ struct HRVSnapshotView: View {
                 Circle()
                     .trim(from: 0, to: captureFraction)
                     .stroke(
-                        AngularGradient(colors: [StrandPalette.restDeep, StrandPalette.restBright],
-                                        center: .center),
+                        StrandPalette.restColor,
                         style: StrokeStyle(lineWidth: 10, lineCap: .round)
                     )
                     .rotationEffect(.degrees(-90))
@@ -170,7 +169,7 @@ struct HRVSnapshotView: View {
                 VStack(spacing: 2) {
                     Text(dialValue)
                         .font(StrandFont.number(48))
-                        .foregroundStyle(StrandPalette.metricPurple)
+                        .foregroundStyle(StrandPalette.textPrimary)
                         .contentTransition(.numericText())
                         .animation(.snappy, value: dialValue)
                     Text(dialUnit)
@@ -253,7 +252,7 @@ struct HRVSnapshotView: View {
                     .padding(.vertical, 12)
             }
             .buttonStyle(.borderedProminent)
-            .tint(phase == .capturing ? StrandPalette.statusCritical : StrandPalette.accent)
+            .tint(phase == .capturing ? StrandPalette.statusCritical : StrandPalette.textPrimary)
             .disabled(!bonded && phase != .capturing)
             .help(bonded
                   ? "Take a 60-second seated HRV reading from the live R-R stream."
