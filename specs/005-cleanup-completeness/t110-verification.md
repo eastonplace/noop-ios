@@ -26,3 +26,14 @@ Build: `NOOPiOS`, Debug iPhone Simulator, iPhone 17 Pro Max, `--demo-seed` — P
 - [Step 6](qa/t110-onboarding-steps/step-6.png): scan controls, state pill, strap selector, help disclosure, and black primary action remain fully visible and wired.
 - [Step 7](qa/t110-onboarding-steps/step-7.png): removed the celebration bloom; the real Recovery ring and positive status colour carry the state without decorative glow.
 - [Step 8](qa/t110-onboarding-steps/step-8.png): profile controls remain ink-first on a single Paper card with secondary explanatory copy.
+
+## Batch 4 — onboarding steps 9–12
+
+Build: `NOOPiOS`, Debug iPhone Simulator, iPhone 17 Pro Max, `--demo-seed` — PASS.
+
+- [Step 9](qa/t110-onboarding-steps/step-9.png): import actions retain their original file-picker wiring inside flat Paper rows.
+- [Step 10](qa/t110-onboarding-steps/step-10.png): notification explanation and wrist-alert status remain ink-first with restrained semantic colour.
+- [Step 11](qa/t110-onboarding-steps/step-11.png): appearance selection remains interactive and immediately updates the app theme.
+- [Step 12](qa/t110-onboarding-steps/step-12.png): removed the final decorative bloom; the thread glyph, ink headline, secondary copy, and black Enter action now finish the flow cleanly.
+
+All 12 onboarding steps now have current iPhone 17 Pro Max evidence in `qa/t110-onboarding-steps/`.

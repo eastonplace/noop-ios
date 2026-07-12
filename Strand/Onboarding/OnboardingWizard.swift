@@ -956,12 +956,6 @@ private struct DoneStep: View {
             VStack(spacing: 22) {
                 Spacer()
                 ZStack {
-                    Circle()
-                        .fill(StrandPalette.recovery100)
-                        .frame(width: 120, height: 120)
-                        .blur(radius: 64)
-                        .opacity(appear ? 0.5 : 0)
-                        .blendMode(.plusLighter)
                     Image(systemName: "point.topleft.down.curvedto.point.bottomright.up")
                         .font(.system(size: 52, weight: .light))
                         .foregroundStyle(
