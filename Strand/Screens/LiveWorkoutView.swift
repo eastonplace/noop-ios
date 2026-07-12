@@ -174,32 +174,6 @@ struct LiveWorkoutView: View {
         }
     }
 
-    private var heroHeartRate: some View {
-        let tint = zone >= 1 ? StrandPalette.hrZoneColor(zone) : StrandPalette.effortColor
-        return NoopCard(padding: NoopMetrics.space6, tint: StrandPalette.effortColor) {
-            VStack(spacing: NoopMetrics.space2) {
-                Text("HEART RATE")
-                    .font(StrandFont.overline).tracking(StrandFont.overlineTracking)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                // The big live HR ticks up to its new reading on each beat — crisp, flat, no halo.
-                if let bpm = model.bpm {
-                    CountUpText(value: Double(bpm),
-                                format: { "\(Int($0.rounded()))" },
-                                font: StrandFont.rounded(80, weight: .semibold),
-                                color: tint)
-                } else {
-                    Text("—")
-                        .font(StrandFont.rounded(80, weight: .semibold))
-                        .foregroundStyle(tint)
-                }
-                Text("bpm").font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
-                Text(zone >= 1 ? "Zone \(zone) · \(Self.zoneName(zone))" : "Below Zone 1")
-                    .font(StrandFont.captionNumber)
-                    .foregroundStyle(tint)
-            }
-            .frame(maxWidth: .infinity)
-        }
-    }
 
     /// The accumulating Strain, on the same layered StrainGauge the rest of the app uses — the live
     /// `liveStrain` is on NOOP's 0–100 Strain axis. The gauge renders on the user's selected Strain
@@ -257,32 +231,7 @@ struct LiveWorkoutView: View {
         }
     }
 
-    private var statsGrid: some View {
-        let w = model.activeWorkout
-        return HStack(spacing: NoopMetrics.gap) {
-            stat(String(localized: "AVG"), (w?.avgHr ?? 0) > 0 ? "\(w!.avgHr)" : "—",
-                 tint: (w?.avgHr ?? 0) > 0 ? StrandPalette.metricRose : StrandPalette.textPrimary)
-            stat(String(localized: "PEAK"), (w?.peakHr ?? 0) > 0 ? "\(w!.peakHr)" : "—",
-                 tint: (w?.peakHr ?? 0) > 0 ? StrandPalette.metricRose : StrandPalette.textPrimary)
-            stat(String(localized: "STRAIN"), UnitFormatter.effortDisplay(w?.liveStrain ?? 0, scale: effortScale),
-                 tint: StrandPalette.strainColor(w?.liveStrain ?? 0))
-        }
-    }
 
-    private func stat(_ title: String, _ value: String, tint: Color = StrandPalette.textPrimary) -> some View {
-        NoopCard(padding: 14, tint: tint) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(title)
-                    .font(StrandFont.overline).tracking(StrandFont.overlineTracking)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                Text(value)
-                    .font(StrandFont.number(26))
-                    .foregroundStyle(tint)
-                    .lineLimit(1).minimumScaleFactor(0.6)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
 
     private var endButton: some View {
         NoopButton("Finish", systemImage: "flag.checkered", kind: .destructive) {

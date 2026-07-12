@@ -11,7 +11,7 @@ final class StrandDesignTests: XCTestCase {
     func testPaperProportionContract() {
         XCTAssertEqual(NoopMetrics.trioRingDiameter, 64)
         XCTAssertEqual(NoopMetrics.trioRingLineWidth, 4)
-        XCTAssertEqual(NoopMetrics.trioRingNumeralSize, 30)
+        XCTAssertEqual(NoopMetrics.trioRingNumeralSize, 26)
         XCTAssertEqual(NoopMetrics.heroRingDiameter, 96)
         XCTAssertEqual(NoopMetrics.heroRingLineWidth, 6)
         XCTAssertEqual(NoopMetrics.heroRingNumeralSize, 44)

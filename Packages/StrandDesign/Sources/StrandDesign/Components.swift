@@ -26,7 +26,7 @@ public enum NoopMetrics {
     // cannot quietly drift apart again.
     public static let trioRingDiameter: CGFloat = 64
     public static let trioRingLineWidth: CGFloat = 4
-    public static let trioRingNumeralSize: CGFloat = 30
+    public static let trioRingNumeralSize: CGFloat = 26
     public static let heroRingDiameter: CGFloat = 96
     public static let heroRingLineWidth: CGFloat = 6
     public static let heroRingNumeralSize: CGFloat = 44

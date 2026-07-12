@@ -3001,65 +3001,6 @@
         }
       }
     },
-    "%@, %@%@": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@, %@%@"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@, %@%@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@, %@%@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@, %@%@"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@, %@%@"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@, %@%@"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@, %@%@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@、%@%@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@、%@%@"
-          }
-        }
-      }
-    },
     "%@, %@, in use": {
       "localizations": {
         "de": {
@@ -3842,65 +3783,6 @@
         }
       }
     },
-    "%@: %@ last night%@": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@: %@ letzte Nacht%@"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@: %@ last night%@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@: %@ anoche%@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ : %@ la nuit dernière%@"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@: %@ la scorsa notte%@"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@: %@ anoche%@"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@: %@ прошлой ночью%@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@：昨晚 %@%@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@：昨晚 %@%@"
-          }
-        }
-      }
-    },
     "%@: %@ last night, %lld percent of the night": {
       "localizations": {
         "de": {
@@ -3943,53 +3825,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@：昨晚 %@，佔整晚的百分之 %lld"
-          }
-        }
-      }
-    },
-    "%@: %@ last night, %lld percent of the night%@": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@: %2$@ letzte Nacht, %3$lld Prozent der Nacht%4$@"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "new",
-            "value": "%1$@: %2$@ last night, %3$lld percent of the night%4$@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@: %@ anoche, %lld por ciento de la noche%@"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@: %2$@ la scorsa notte, %3$lld percento della notte%4$@"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@: %@ anoche, %lld por cento da noite%@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@：昨晚 %2$@，占整晚的百分之 %3$lld%4$@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@：昨晚 %2$@，佔整晚的百分之 %3$lld%4$@"
           }
         }
       }
@@ -4822,53 +4657,6 @@
         }
       }
     },
-    "%lld %@ reading your heart rate": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$lld %2$@ lesen deine Herzfrequenz"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "new",
-            "value": "%1$lld %2$@ reading your heart rate"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld %@ leyendo tu frecuencia cardíaca"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$lld %2$@ che leggono la tua frequenza cardiaca"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld %@ leyendo o teu frequência cardíaca"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$lld %2$@ 正在读取你的心率"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$lld %2$@ 正在讀取你的心率"
-          }
-        }
-      }
-    },
     "%lld / %lld": {
       "localizations": {
         "de": {
@@ -4923,65 +4711,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld / %lld"
-          }
-        }
-      }
-    },
-    "%lld app%@ on": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld App%@ aktiv"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld app%@ on"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld app%@ activas"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld app%@ sur"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld app%@ attive"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld app%@ ativas"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Включено приложений: %lld"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已开启 %lld 个应用%@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已開啟 %lld 個應用程式%@"
           }
         }
       }
@@ -5858,65 +5587,6 @@
         }
       }
     },
-    "%lld frame%@ captured this session.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld Frame%@ in dieser Sitzung erfasst."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld frame%@ captured this session."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld fotograma%@ capturados en esta sesión."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld trame%@ capturée cette séance."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld frame%@ acquisiti in questa sessione."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld fotograma%@ capturados en esta sessão."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "За эту сессию записано измерений: %lld."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "本次会话已捕获 %lld 帧%@。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "本次工作階段已擷取 %lld 幀%@。"
-          }
-        }
-      }
-    },
     "%lld frames captured this session.": {
       "localizations": {
         "de": {
@@ -6713,65 +6383,6 @@
         }
       }
     },
-    "%lld of %lld nights": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld von %lld Nächten"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld of %lld nights"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld de %lld noches"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld de %lld nuits"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld di %lld notti"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld de %lld noites"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld из %lld ночей"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld / %lld 晚"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld / %lld 晚"
-          }
-        }
-      }
-    },
     "%lld of %lld sessions": {
       "localizations": {
         "de": {
@@ -7112,100 +6723,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld 分"
-          }
-        }
-      }
-    },
-    "%lld reading%@ line up so far, not enough to read a trend yet (NOOP waits for %lld).": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$lld Messwert%2$@ stimmen bisher überein, noch nicht genug für einen Trend (NOOP wartet auf %3$lld)."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "new",
-            "value": "%1$lld reading%2$@ line up so far, not enough to read a trend yet (NOOP waits for %3$lld)."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld lectura%@ coinciden hasta ahora, no es suficiente para leer una tendencia todavía (NOOP espera %lld)."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$lld lettura%2$@ allineate finora, non abbastanza per leggere un andamento (NOOP aspetta %3$lld)."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld leitura%@ coinciden até agora, no es suficiente para leer uma tendência todavía (NOOP espera %lld)."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "目前已有 %1$lld 条读数%2$@对齐，还不足以读出趋势（NOOP 需等待 %3$lld 条）。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "目前已有 %1$lld 筆讀數%2$@對齊，還不足以讀出趨勢（NOOP 需等待 %3$lld 筆）。"
-          }
-        }
-      }
-    },
-    "%lld reading%@ · your own entries": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$lld Messwert%2$@ · deine eigenen Einträge"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "new",
-            "value": "%1$lld reading%2$@ · your own entries"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld lectura%@ · tus propias entradas"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$lld lettura%2$@ · le tue voci"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld leitura%@ · os teus próprias entradas"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$lld 条读数%2$@ · 你自己的记录"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$lld 筆讀數%2$@ · 你自己的記錄"
           }
         }
       }
@@ -7984,53 +7501,6 @@
         }
       }
     },
-    "%lld type-0x2F historical-offload frame%@ seen outside our sync. These are history (e.g. another app pulling the strap's backlog), not a live R22 stream (#494).": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$lld type-0x2F-Frame%2$@ (historischer Offload) außerhalb unserer Synchronisierung gesehen. Das ist Verlauf (z. B. eine andere App, die den Rückstand des Straps abruft), kein Live-R22-Stream (#494)."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "new",
-            "value": "%1$lld type-0x2F historical-offload frame%2$@ seen outside our sync, these are history (e.g. another app pulling the strap's backlog), not a live R22 stream (#494)."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld trama%@ de descarga histórica tipo 0x2F vistos fuera de nuestra sincronización. Son historial (p. ej., otra app extrayendo el archivo de la pulsera), no una transmisión R22 en vivo (#494)."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$lld frame%2$@ di scarico storico type-0x2F visti al di fuori della nostra sincronizzazione, sono cronologia (es. un'altra app che scarica l'arretrato della fascia), non uno stream R22 in diretta (#494)."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld trama%@ de transferência histórica tipo 0x2F vistos fuera de nuestra sincronização. Son histórico (p. ej., outra app extrayendo el ficheiro da bracelete), no uma transmisión R22 em tempo real (#494)."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在我们的同步之外检测到 %1$lld 个 type-0x2F 历史卸载帧%2$@，这些是历史数据（例如另一个应用在拉取手环的积压数据），而非实时 R22 流（#494）。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在我們的同步之外偵測到 %1$lld 個 type-0x2F 歷史卸載幀%2$@，這些是歷史資料（例如另一個應用程式在拉取手環的積壓資料），而非即時 R22 流（#494）。"
-          }
-        }
-      }
-    },
     "%lld type-0x2F historical-offload frames seen outside our sync. These are history (e.g. another app pulling the strap's backlog), not a live R22 stream (#494).": {
       "localizations": {
         "de": {
@@ -8151,53 +7621,6 @@
         }
       }
     },
-    "%lld year%@ %@ than your age": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$lld Jahr%2$@ %3$@ als dein Alter"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "new",
-            "value": "%1$lld year%2$@ %3$@ than your age"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld año%@ %@ que tu edad"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$lld ann%2$@ %3$@ della tua età"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld ano%@ %@ que o teu edad"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "比你的年龄%3$@ %1$lld 岁%2$@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "比你的年齡%3$@ %1$lld 歲%2$@"
-          }
-        }
-      }
-    },
     "%lld years older than your age": {
       "localizations": {
         "de": {
@@ -8274,53 +7697,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "比你的實際年齡年輕 %lld 歲"
-          }
-        }
-      }
-    },
-    "%lld yr%@ %@": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$lld Jahr%2$@ %3$@"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "new",
-            "value": "%1$lld yr%2$@ %3$@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld año%@ %@"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$lld ann%2$@ %3$@"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld ano%@ %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$lld 岁%2$@ %3$@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$lld 歲%2$@ %3$@"
           }
         }
       }
@@ -13187,65 +12563,6 @@
         }
       }
     },
-    "A private window into your recovery, sleep and strain, read straight from your strap, kept only on this Mac.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ein privater Blick auf deine Erholung, deinen Schlaf und deine Belastung, direkt vom Strap gelesen und nur auf diesem Mac gespeichert."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A private window into your recovery, sleep and strain, read straight from your strap, kept only on this Mac."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Una ventana privada a tu recuperación, sueño y esfuerzo, leída directamente desde tu pulsera y guardada solo en esta Mac."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Une fenêtre privée sur votre récupération, sommeil et effort, lu directement depuis votre bracelet, conservé uniquement sur ce Mac."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Una finestra privata sul tuo recupero, sonno e carico, letti direttamente dalla tua fascia, conservati solo su questo Mac."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Uma janela privada a o teu recuperação, sono e esforço, leída directamente desde o teu bracelete e guardada só en esta Mac."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Личное окно с вашими показателями восстановления, сна и нагрузки, данные поступают напрямую с браслета и хранятся только на этом Mac"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "一扇通往你恢复、睡眠与强度的私密窗口，，直接从手环读取，只保存在这台 Mac 上。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "一扇通往你恢復、睡眠與強度的私密窗口，，直接從手環讀取，只保存在這台 Mac 上。"
-          }
-        }
-      }
-    },
     "A private window into your recovery, sleep and strain. Read straight from your strap, kept only on %@.": {
       "localizations": {
         "de": {
@@ -13602,65 +12919,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "一個會根據你的消耗進行調整的簡單目標。一般性的健康指引，而非醫療建議。"
-          }
-        }
-      }
-    },
-    "A standalone companion for your WHOOP. Everything stays on this device, your history, your live stream, your numbers. Nothing is uploaded. NOOP is an independent, experimental project, not the WHOOP app.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ein eigenständiger Begleiter für dein WHOOP. Alles bleibt auf diesem Gerät, deine Historie, dein Live-Stream, deine Werte. Nichts wird hochgeladen. NOOP ist ein unabhängiges, experimentelles Projekt, nicht die WHOOP-App."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A standalone companion for your WHOOP. Everything stays on this device, your history, your live stream, your numbers. Nothing is uploaded. NOOP is an independent, experimental project, not the WHOOP app."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Un complemento independiente para tu WHOOP. Todo permanece en este dispositivo: tu historial, tu transmisión de datos, tus números. No se sube nada. NOOP es un proyecto independiente y experimental, no la app de WHOOP."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Un compagnon autonome pour votre WHOOP. Tout reste sur cet appareil, votre historique, votre flux en direct, vos chiffres. Rien n'est téléchargé. NOOP est un projet indépendant et expérimental, pas l'application WHOOP."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Un'app companion autonoma per il tuo WHOOP. Tutto resta su questo dispositivo, la tua cronologia, il tuo flusso in diretta, i tuoi numeri. Nulla viene caricato online. NOOP è un progetto indipendente e sperimentale, non è l'app WHOOP."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Um complemento independiente para o teu WHOOP. Tudo permanece en este dispositivo: o teu histórico, o teu transmisión de dados, os teus números. No se sobe nada. NOOP es um proyecto independiente e experimental, no a app de WHOOP."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Это отдельное приложение-компаньон для вашего браслета Whoop. Все данные, история, поток измерений в реальном времени, показатели, хранятся только на этом устройстве, ничего не отправляется в облако. NOOP, независимый экспериментальный проект, и это не официальное приложение Whoop."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "为你的 WHOOP 打造的独立伴侣应用。一切都留在这台设备上，，你的历史、你的实时数据流、你的各项数值。不上传任何内容。NOOP 是一个独立的实验性项目，并非 WHOOP 官方应用。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "為你的 WHOOP 打造的獨立伴侶應用程式。一切都留在這台裝置上，，你的歷史、你的即時資料流、你的各項數值。不上傳任何內容。NOOP 是一個獨立的實驗性專案，並非 WHOOP 官方應用程式。"
           }
         }
       }
@@ -18869,65 +18127,6 @@
         }
       }
     },
-    "Ask about your recovery, strain, sleep and workouts, grounded in your own numbers.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Frage nach deiner Erholung, Belastung, deinem Schlaf und deinen Workouts, basierend auf deinen eigenen Werten."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ask about your recovery, strain, sleep and workouts, grounded in your own numbers."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pregunta sobre tu recuperación, esfuerzo, sueño y entrenamientos, basados en tus propios números."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Posez des questions sur votre récupération, effort, sommeil et entraînements, basées sur vos propres chiffres."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fai domande su recupero, carico, sonno e allenamenti, basate sui tuoi numeri."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pregunta sobre o teu recuperação, esforço, sono e treinos, basados en os teus próprios números."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Спрашивайте о восстановлении, нагрузке, сне и тренировках, на основе ваших собственных данных."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "询问你的恢复、强度、睡眠和锻炼，，一切都基于你自己的数据。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "詢問你的恢復、強度、睡眠和鍛鍊，，一切都基於你自己的數據。"
-          }
-        }
-      }
-    },
     "Ask your first question": {
       "localizations": {
         "de": {
@@ -19196,65 +18395,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "睡眠時長"
-          }
-        }
-      }
-    },
-    "At a glance": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Auf einen Blick"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "At a glance"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "De un vistazo"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "En un coup d'œil"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "In sintesi"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "De um vistazo"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Краткий обзор"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "一目了然"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "一目了然"
           }
         }
       }
@@ -24691,53 +23831,6 @@
         }
       }
     },
-    "Building your baseline. About %lld more %@ until your scores are personal.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Deine Basislinie wird aufgebaut. Noch etwa %1$lld %2$@, bis deine Werte persönlich sind."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "new",
-            "value": "Building your baseline. About %1$lld more %2$@ until your scores are personal."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Construyendo tu línea base. Faltan unos %lld %@ para que tus puntuaciones sean personales."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Creazione della tua linea di base. Ancora circa %1$lld %2$@ prima che i tuoi punteggi siano personalizzati."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Construyendo o teu linha de base. Faltan unos %lld %@ para que os teus puntuaciones sean personales."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在构建你的基线。大约还需 %1$lld %2$@，你的评分才会变得个性化。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在建立你的基線。大約還需 %1$lld %2$@，你的評分才會變得個人化。"
-          }
-        }
-      }
-    },
     "Building your baseline. About %lld more nights until your scores are personal.": {
       "localizations": {
         "de": {
@@ -25624,65 +24717,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "當這些應用程式通知你時，讓手環震動。一切都在 %@ 上執行。"
-          }
-        }
-      }
-    },
-    "Buzz your strap when these apps notify you. Everything runs on this Mac.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lass deinen Strap vibrieren, wenn diese Apps dich benachrichtigen. Alles läuft auf diesem Mac."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Buzz your strap when these apps notify you. Everything runs on this Mac."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Haz vibrar tu pulsera cuando estas apps te notifiquen. Todo se ejecuta en esta Mac."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vibrez votre bracelet quand ces apps vous notifient. Tout fonctionne sur ce Mac."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fai vibrare la tua fascia quando queste app ti inviano notifiche. Tutto avviene su questo Mac."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Faz vibrar o teu bracelete quando estas apps te notifiquen. Tudo se ejecuta en esta Mac."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Браслет вибрирует, когда эти приложения присылают уведомления. Всё работает на этом Mac."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "当这些应用通知你时，让手环震动。一切都在这台 Mac 上运行。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "當這些應用程式通知你時，讓手環震動。一切都在這台 Mac 上執行。"
           }
         }
       }
@@ -26641,65 +25675,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "校準中，%1$lld / %2$lld"
-          }
-        }
-      }
-    },
-    "Calibrating, %lld of %lld": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kalibrierung, %lld von %lld"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Calibrating, %lld of %lld"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Calibrando, %lld de %lld"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Calibration, %lld de %lld"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Calibrazione, %lld di %lld"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Calibrando, %lld de %lld"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Калибровка, %lld из %lld"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "校准中，，%lld / %lld"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "校準中，，%lld / %lld"
           }
         }
       }
@@ -29866,65 +28841,6 @@
         }
       }
     },
-    "Coach uses your own API key. Pick a provider, paste a key, and choose a model. Your key is stored securely in the macOS Keychain and never leaves your Mac except as the request you make.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Der Coach nutzt deinen eigenen API-Schlüssel. Wähle einen Anbieter, füge einen Schlüssel ein und wähle ein Modell. Dein Schlüssel wird sicher im macOS-Schlüsselbund gespeichert und verlässt deinen Mac nur als die Anfrage, die du stellst."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Coach uses your own API key. Pick a provider, paste a key, and choose a model. Your key is stored securely in the macOS Keychain and never leaves your Mac except as the request you make."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "El Entrenador usa tu propia clave de API. Elige un proveedor, pega una clave y elige un modelo. Tu clave se almacena de forma segura en el Llavero de macOS y nunca sale de tu Mac salvo como la solicitud que tú haces."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Coach utilise votre propre clé API. Choisissez un fournisseur, collez une clé et sélectionnez un modèle. Votre clé est stockée de façon sécurisée dans le trousseau macOS et ne quitte jamais votre Mac sauf pour la requête que vous effectuez."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Il Coach usa la tua chiave API. Scegli un provider, incolla una chiave e seleziona un modello. La tua chiave è conservata in modo sicuro nel Portachiavi di macOS e non lascia mai il tuo Mac, se non come parte della richiesta che effettui."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O Treinador usa o teu própria chave de API. Escolhe um fornecedor, pega uma chave e escolhe um modelo. O teu chave se armazena de forma segura no Llavero de macOS e nunca sale de o teu Mac salvo como a pedido que tú haces."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ИИ-тренер использует ваш API-ключ. Выберите провайдера, вставьте ключ и выберите модель. Ключ надёжно хранится в «Связке ключей» macOS и отправляется только при выполнении вашего запроса."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "教练使用你自己的 API 密钥。选择一个服务商，粘贴密钥，再选择一个模型。你的密钥安全地存储在 macOS 钥匙串中，除了你发起的请求外，绝不会离开你的 Mac。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "教練使用你自己的 API 金鑰。選擇一個服務供應商，貼上金鑰，再選擇一個模型。你的金鑰安全地儲存在 macOS 鑰匙圈中，除了你發起的請求外，絕不會離開你的 Mac。"
-          }
-        }
-      }
-    },
     "Coherence": {
       "localizations": {
         "de": {
@@ -31431,65 +30347,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "請先連接你的手環，讀數需要即時 R-R 資料流。"
-          }
-        }
-      }
-    },
-    "Connect your strap for haptic guidance, you'll feel one pulse on the inhale, two on the exhale, so you can breathe with your eyes closed.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Verbinde deinen Strap für haptische Führung, du spürst einen Impuls beim Einatmen, zwei beim Ausatmen, sodass du mit geschlossenen Augen atmen kannst."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Connect your strap for haptic guidance, you'll feel one pulse on the inhale, two on the exhale, so you can breathe with your eyes closed."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Conecta tu pulsera para recibir guía háptica: sentirás un pulso al inhalar y dos al exhalar, para que puedas respirar con los ojos cerrados."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Connectez votre bracelet pour un guidage haptique, vous sentirez une impulsion à l'inspiration, deux à l'expiration, pour respirer les yeux fermés."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Collega la tua fascia per la guida aptica, sentirai un impulso durante l'inspirazione e due durante l'espirazione, così puoi respirare a occhi chiusi."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Conecta o teu bracelete para recibir guía háptica: sentirás um pulso al inhalar e dos al exhalar, para que puedas respirar com os ojos cerrados."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Подключите браслет, чтобы он подсказывал ритм вибрацией: один импульс на вдохе, два, на выдохе. Так можно дышать с закрытыми глазами."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "连接你的手环以获得触感引导，，吸气时一次脉冲，呼气时两次，让你闭着眼也能跟着呼吸。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "連接你的手環以獲得觸感引導，，吸氣時一次脈衝，呼氣時兩次，讓你閉著眼也能跟著呼吸。"
           }
         }
       }
@@ -35486,65 +34343,6 @@
         }
       }
     },
-    "Day Strain": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tagesbelastung"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Day Strain"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esfuerzo del día"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Strain du jour"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Carico giornaliero"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Esforço do dia"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Дневная нагрузка"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "当日强度"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "當日強度"
-          }
-        }
-      }
-    },
     "Day Stress": {
       "localizations": {
         "de": {
@@ -35581,65 +34379,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "日間壓力"
-          }
-        }
-      }
-    },
-    "Day strain": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tagesbelastung"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Day strain"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esfuerzo del día"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Strain du jour"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Carico giornaliero"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Esforço do dia"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Дневная нагрузка"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "当日强度"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "當日強度"
           }
         }
       }
@@ -39910,65 +38649,6 @@
         }
       }
     },
-    "Email": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "E-Mail"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Email"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Correo electrónico"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "E-mail"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Email"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "email electrónico"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Эл. почта"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "电子邮件"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "電子郵件"
-          }
-        }
-      }
-    },
     "Email %@": {
       "localizations": {
         "de": {
@@ -40877,65 +39557,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "根據今天的消耗、你通常的睡眠以及你 %lld 晚的恢復基線得出的估算，而非測量值。你真正的恢復是在你醒來後根據明天的 HRV 評分得出的。"
-          }
-        }
-      }
-    },
-    "Estimate only, a higher RMSSD while paced usually means your parasympathetic \"rest\" branch is engaging. It is not a clinical reading; trends over a session matter more than any single number.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nur eine Schätzung, ein höherer RMSSD beim getakteten Atmen bedeutet meist, dass dein parasympathischer \"Ruhe\"-Zweig aktiv wird. Es ist kein klinischer Wert; Trends über eine Sitzung sind wichtiger als ein einzelner Wert."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Estimate only, a higher RMSSD while paced usually means your parasympathetic \"rest\" branch is engaging. It is not a clinical reading; trends over a session matter more than any single number."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Solo una estimación: un RMSSD más alto durante la respiración pausada suele indicar que tu rama parasimpática de «descanso» se está activando. No es una lectura clínica; las tendencias a lo largo de una sesión importan más que cualquier número aislado."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Estimation uniquement, un RMSSD plus élevé lors d'un rythme imposé signifie généralement que votre branche parasympathique de « repos » s'engage. Ce n'est pas une lecture clinique ; les tendances sur une séance comptent plus que chaque chiffre seul."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Solo una stima, un RMSSD più alto durante la respirazione guidata di solito significa che il ramo parasimpatico del \"riposo\" si sta attivando. Non è una lettura clinica; gli andamenti nel corso di una sessione contano più di qualsiasi singolo numero."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Só uma estimativa: um RMSSD mais alto durante a respiração pausada suele indicar que o teu rama parasimpática de «descanso» se está activando. No es uma leitura clínica; as tendências a lo largo de uma sessão importan mais que qualquer número aislado."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Это только оценка: более высокий RMSSD при дыхании в заданном ритме обычно указывает на активацию парасимпатического отдела. Это не медицинское измерение; важнее динамика в течение сессии, а не отдельное значение."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "仅为估计，，节律呼吸时较高的 RMSSD 通常意味着你副交感神经的「休息」分支正在发挥作用。这不是临床读数；一次会话内的趋势比任何单一数值都更重要。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "僅為估計，，節律呼吸時較高的 RMSSD 通常意味著你副交感神經的「休息」分支正在發揮作用。這不是臨床讀數；一次工作階段內的趨勢比任何單一數值都更重要。"
           }
         }
       }
@@ -41979,65 +40600,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "一切都留在 %@ 上。把你的歷史匯入一次，從此便歸你所有。"
-          }
-        }
-      }
-    },
-    "Everything stays on this Mac. Bring your history in once, then it's yours.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alles bleibt auf diesem Mac. Importiere deine Historie einmal, dann gehört sie dir."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Everything stays on this Mac. Bring your history in once, then it's yours."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Todo permanece en esta Mac. Importa tu historial una vez y será tuyo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tout reste sur ce Mac. Importez votre historique une fois, il est à vous."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tutto resta su questo Mac. Importa la tua cronologia una volta, poi è tua."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tudo permanece en esta Mac. Importa o teu histórico uma vez e será tuyo."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Всё остаётся на этом Mac. Один раз импортируйте историю, и она будет у вас."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "一切都留在这台 Mac 上。把你的历史导入一次，从此便归你所有。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "一切都留在這台 Mac 上。把你的歷史匯入一次，從此便歸你所有。"
           }
         }
       }
@@ -44001,65 +42563,6 @@
         }
       }
     },
-    "Find it in the sidebar under Data Sources.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Du findest es in der Seitenleiste unter Datenquellen."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Find it in the sidebar under Data Sources."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Encuéntralo en la barra lateral, en Fuentes de datos."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Retrouvez-le dans la barre latérale sous Sources de données."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lo trovi nella barra laterale sotto Sorgenti dati."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Encontra-o na barra lateral, en fontes de dados."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вы найдёте это в боковой панели, в разделе «Источники данных»."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在侧边栏的「数据来源」下找到它。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在側邊欄的「資料來源」下找到它。"
-          }
-        }
-      }
-    },
     "Find your resonance pace": {
       "localizations": {
         "de": {
@@ -44672,53 +43175,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "體能年齡 %1$lld，%2$@。點一下查看趨勢。"
-          }
-        }
-      }
-    },
-    "Fitness Age %lld, %lld year%@ %@ than your age. Tap to see the trend.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fitnessalter %1$lld, %2$lld Jahr%3$@ %4$@ als dein Alter. Tippe für den Trend."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "new",
-            "value": "Fitness Age %1$lld, %2$lld year%3$@ %4$@ than your age. Tap to see the trend."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Edad fitness %lld, %lld año%@ %@ que tu edad. Toca para ver la tendencia."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Età di fitness %1$lld, %2$lld anno%3$@ %4$@ rispetto alla tua età. Tocca per vedere l'andamento."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Edad fitness %lld, %lld ano%@ %@ que o teu edad. toca para ver a tendência."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "体能年龄 %1$lld 岁，比你的年龄%4$@ %2$lld 岁%3$@。点击查看趋势。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "體能年齡 %1$lld 歲，比你的年齡%4$@ %2$lld 歲%3$@。點擊查看趨勢。"
           }
         }
       }
@@ -45853,65 +44309,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "先把它準備好，然後掃描。"
-          }
-        }
-      }
-    },
-    "Get the latest release": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Neueste Version laden"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Get the latest release"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Obtén la última versión"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Obtenir la dernière version"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Scarica l'ultima versione"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Obtén a última versión"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Скачать последнюю версию"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "获取最新版本"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "取得最新版本"
           }
         }
       }
@@ -48024,65 +46421,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "觸感節律呼吸 · 找到你的節奏 · 平靜下來"
-          }
-        }
-      }
-    },
-    "Haptic-paced breathing · watch your HRV respond": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Haptisch getaktetes Atmen · beobachte, wie deine HRV reagiert"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Haptic-paced breathing · watch your HRV respond"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Respiración guiada por hápticos · observa cómo responde tu VFC"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Respiration rythmée haptiquement · observez votre VFC réagir"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Respirazione guidata da vibrazioni · osserva la risposta del tuo HRV"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "respiração guiada por hápticos · observa como responde o teu VFC"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Дыхание по вибросигналам · следите, как реагирует ВСР"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "触感节律呼吸 · 观察你的 HRV 如何响应"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "觸感節律呼吸 · 觀察你的 HRV 如何回應"
           }
         }
       }
@@ -50857,47 +49195,6 @@
         }
       }
     },
-    "How accurate is this? %@ the data behind your Fitness Age": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wie genau ist das? %@: die Daten hinter deinem Fitnessalter"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "¿Qué tan preciso es esto? %@ los datos detrás de tu Edad Física"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quanto è accurato? %@ i dati dietro la tua Età di fitness"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Qué tan preciso es isto? %@ os dados detrás de o teu Edad Física"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "这有多准确？%@ 你体能年龄背后的数据"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "這有多準確？%@ 你體能年齡背後的資料"
-          }
-        }
-      }
-    },
     "How accurate is this? Hide the data behind your Fitness Age": {
       "localizations": {
         "de": {
@@ -51908,65 +50205,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "我已閱讀並接受這些條款，並且我是在自擔風險的情況下，使用我自己的裝置和我自己的資料來使用 NOOP。"
-          }
-        }
-      }
-    },
-    "I keep this project anonymous, so crypto is the only way to chip in, no Patreon, no PayPal, no name attached. Quick, global, and private for both of us.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ich halte dieses Projekt anonym, daher ist Krypto die einzige Möglichkeit, beizutragen, kein Patreon, kein PayPal, kein Name. Schnell, weltweit und privat für uns beide."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "I keep this project anonymous, so crypto is the only way to chip in, no Patreon, no PayPal, no name attached. Quick, global, and private for both of us."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mantengo este proyecto de forma anónima, así que las criptomonedas son la única forma de contribuir: sin Patreon, sin PayPal, sin nombres. Rápido, global y privado para ambos."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Je maintiens ce projet anonyme, donc la crypto est le seul moyen de contribuer, pas de Patreon, pas de PayPal, pas de nom attaché. Rapide, mondial et privé pour nous deux."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mantengo questo progetto anonimo, quindi le cripto sono l'unico modo per contribuire, niente Patreon, niente PayPal, nessun nome collegato. Veloce, globale e privato per entrambi."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mantengo este proyecto de forma anónima, así que as criptomonedas son a única forma de contribuir: sem Patreon, sem PayPal, sem nombres. Rápido, global e privado para ambos."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Проект остаётся анонимным, поэтому поддержать его можно только криптовалютой: без Patreon, PayPal и привязки к имени. Это быстро, доступно из любой страны и приватно для нас обоих."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "我让这个项目保持匿名，所以加密货币是唯一的支持方式，，没有 Patreon，没有 PayPal，不附带任何名字。快捷、全球通用，对你我双方都私密。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "我讓這個專案保持匿名，所以加密貨幣是唯一的支持方式，，沒有 Patreon，沒有 PayPal，不附帶任何名字。快捷、全球通用，對你我雙方都私密。"
           }
         }
       }
@@ -53675,65 +51913,6 @@
         }
       }
     },
-    "Importing overwrites everything currently on this Mac. Your old data is kept in a side file just in case. NOOP needs a relaunch for an import to take effect.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Der Import überschreibt alles, was sich derzeit auf diesem Mac befindet. Deine alten Daten werden sicherheitshalber in einer separaten Datei aufbewahrt. NOOP muss neu gestartet werden, damit ein Import wirksam wird."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Importing overwrites everything currently on this Mac. Your old data is kept in a side file just in case. NOOP needs a relaunch for an import to take effect."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Importar sobrescribe todo lo que hay actualmente en este Mac. Tus datos antiguos se guardan en un archivo aparte por si acaso. NOOP necesita reiniciarse para que una importación tenga efecto."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "L'importation écrase tout ce qui se trouve actuellement sur ce Mac. Vos anciennes données sont conservées dans un fichier annexe au cas où. NOOP doit être relancé pour qu'une importation prenne effet."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "L'importazione sovrascrive tutto ciò che è attualmente su questo Mac. I tuoi vecchi dati vengono conservati in un file a parte per sicurezza. NOOP deve essere riavviato perché l'importazione abbia effetto."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Importar sobrescribe tudo lo que hay actualmente en este Mac. Os teus dados antiguos se guardan en um ficheiro aparte por si acaso. NOOP precisa reiniciarse para que uma importação tenga efecto."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "При импорте все текущие данные на этом Mac будут перезаписаны. Старые данные на всякий случай сохранятся в отдельном файле. Чтобы импорт вступил в силу, перезапустите NOOP."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "导入会覆盖这台 Mac 上当前的所有内容。以防万一，你的旧数据会保存在一个备用文件中。导入生效需要重新启动 NOOP。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "匯入會覆蓋這台 Mac 上目前的所有內容。以防萬一，你的舊資料會保存在一個備用檔案中。匯入生效需要重新啟動 NOOP。"
-          }
-        }
-      }
-    },
     "Importing…": {
       "localizations": {
         "de": {
@@ -54155,65 +52334,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "洞察"
-          }
-        }
-      }
-    },
-    "Insights read your journal and outcomes. Import your WHOOP export, which includes your journal, in Data Sources to unlock them.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Einblicke lesen dein Journal und deine Ergebnisse. Importiere deinen WHOOP-Export, der dein Journal enthält, unter Datenquellen, um sie freizuschalten."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Insights read your journal and outcomes. Import your WHOOP export, which includes your journal, in Data Sources to unlock them."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Los análisis leen tu diario y tus resultados. Importa tu exportación de WHOOP, que incluye tu diario, en Fuentes de datos para desbloquearlos."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Les perspectives lisent votre journal et vos résultats. Importez votre export WHOOP, qui inclut votre journal, dans Sources de données pour les débloquer."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gli Approfondimenti leggono il tuo diario e i risultati. Importa la tua esportazione WHOOP, che include il tuo diario, in Sorgenti dati per sbloccarli."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Os análisis leen o teu diario e os teus resultados. Importa o teu exportação de WHOOP, que incluye o teu diario, en fontes de dados para desbloquearlos."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Выводы строятся на данных из вашего журнала и результатах. Чтобы открыть их, импортируйте данные WHOOP, включая журнал, в разделе «Источники данных»."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "洞察会读取你的日志和结果。请在「数据来源」中导入包含日志的 WHOOP 导出文件来解锁它们。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "洞察會讀取你的日誌和結果。請在「資料來源」中匯入包含日誌的 WHOOP 匯出檔案來解鎖它們。"
           }
         }
       }
@@ -58724,65 +56844,6 @@
         }
       }
     },
-    "Live heart rate already works on a WHOOP 5/MG strap. These probes go further and try to coax more out of it. They are guesses, off by default, and only ever touch a 5/MG strap, WHOOP 4.0 is never affected.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Die Live-Herzfrequenz funktioniert bereits an einem WHOOP 5/MG-Strap. Diese Tests gehen weiter und versuchen, mehr herauszuholen. Es sind Vermutungen, standardmäßig deaktiviert, und betreffen nur einen 5/MG-Strap, WHOOP 4.0 ist nie betroffen."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Live heart rate already works on a WHOOP 5/MG strap. These probes go further and try to coax more out of it. They are guesses, off by default, and only ever touch a 5/MG strap, WHOOP 4.0 is never affected."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La frecuencia cardíaca en vivo ya funciona en una pulsera WHOOP 5/MG. Estas pruebas van más allá e intentan sacarle más beneficio. Son conjeturas, están desactivadas por defecto y solo afectan a una correa 5/MG: la WHOOP 4.0 nunca se ve afectada."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La fréquence cardiaque en direct fonctionne déjà sur un bracelet WHOOP 5/MG. Ces sondes vont plus loin et essaient d'en extraire davantage. Ce sont des estimations, désactivées par défaut, et elles ne touchent jamais qu'un bracelet 5/MG, le WHOOP 4.0 n'est jamais affecté."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La frequenza cardiaca in diretta funziona già su una fascia WHOOP 5/MG. Queste sonde vanno oltre e cercano di ottenere di più. Sono ipotesi, disattivate per impostazione predefinita, e interessano solo una fascia 5/MG, la WHOOP 4.0 non viene mai toccata."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "A frequência cardíaca em tempo real já funciona en uma bracelete WHOOP 5/MG. Estas pruebas van mais allá e intentan sacarle mais beneficio. Son conjeturas, están desactivadas por defecto e só afectan a uma bracelete 5/MG: a WHOOP 4.0 nunca se ve afectada."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Пульс в реальном времени уже работает на браслете WHOOP 5/MG. Эти экспериментальные функции идут дальше и пытаются получить больше данных. Они основаны на предположениях, по умолчанию выключены и работают только с браслетом 5/MG, WHOOP 4.0 они никогда не затрагивают."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "实时心率已能在 WHOOP 5/MG 手环上工作。这些探测会更进一步，尝试从中挖掘更多。它们只是猜测，默认关闭，并且只会作用于 5/MG 手环，，WHOOP 4.0 绝不受影响。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "即時心率已能在 WHOOP 5/MG 手環上運作。這些探測會更進一步，嘗試從中挖掘更多。它們只是猜測，預設關閉，並且只會作用於 5/MG 手環，，WHOOP 4.0 絕不受影響。"
-          }
-        }
-      }
-    },
     "Live heart rate already works on a WHOOP 5/MG strap. These probes go further and try to coax more out of it. They are guesses, off by default, and only ever touch a 5/MG strap. WHOOP 4.0 is never affected.": {
       "localizations": {
         "de": {
@@ -61619,65 +59680,6 @@
         }
       }
     },
-    "Make the strap do things, tap to act, walk away to lock, train by feel.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lass den Strap Dinge tun, tippen zum Auslösen, weggehen zum Sperren, nach Gefühl trainieren."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Make the strap do things, tap to act, walk away to lock, train by feel."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Haz que la correa haga cosas: toca para actuar, aléjate para bloquear, entrena por sensaciones."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Faites faire des choses au bracelet, tapez pour agir, éloignez-vous pour verrouiller, entraînez-vous au ressenti."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fai fare cose alla fascia, tocca per agire, allontanati per bloccare, allenati a sensazione."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Faz que a bracelete haga cosas: toca para actuar, aléjate para bloquear, entrena por sensaciones."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Настройте действия браслета: коснитесь, чтобы выполнить команду; отойдите, чтобы заблокировать; тренируйтесь, ориентируясь по сигналам."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "让手环为你做事，，轻点执行，走开即锁定，凭感觉训练。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "讓手環為你做事，，輕點執行，走開即鎖定，憑感覺訓練。"
-          }
-        }
-      }
-    },
     "Make the strap do things: tap to act, walk away to lock, train by feel.": {
       "localizations": {
         "de": {
@@ -63002,65 +61004,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "平均值"
-          }
-        }
-      }
-    },
-    "Mean %@": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mittelwert %@"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mean %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Media %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Moyenne %@"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Media %@"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Media %@"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Среднее %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "平均值 %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "平均值 %@"
           }
         }
       }
@@ -64545,65 +62488,6 @@
         }
       }
     },
-    "Move all your NOOP data to another machine. Export saves everything, history, sleeps, workouts, settings, to a single file you can copy across; import replaces this Mac's data with a backup.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Übertrage alle deine NOOP-Daten auf einen anderen Rechner. Der Export speichert alles, Historie, Schlafphasen, Workouts, Einstellungen, in einer einzelnen Datei, die du kopieren kannst; der Import ersetzt die Daten dieses Macs durch eine Sicherung."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Move all your NOOP data to another machine. Export saves everything, history, sleeps, workouts, settings, to a single file you can copy across; import replaces this Mac's data with a backup."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mueve todos tus datos de NOOP a otra máquina. La exportación guarda todo, historial, sueños, entrenamientos, ajustes, en un único archivo que puedes copiar; la importación reemplaza los datos de este Mac con una copia de seguridad."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Transférez toutes vos données NOOP vers une autre machine. L'export sauvegarde tout, historique, nuits, entraînements, paramètres, dans un seul fichier à copier ; l'import remplace les données de ce Mac par une sauvegarde."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sposta tutti i tuoi dati NOOP su un altro computer. L'esportazione salva tutto, cronologia, sonni, allenamenti, impostazioni, in un unico file che puoi copiare; l'importazione sostituisce i dati di questo Mac con un backup."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Move todos os teus dados de NOOP a outra máquina. A exportação guarda tudo, histórico, sonos, treinos, definições, en um único ficheiro que podes copiar; a importação reemplaza os dados de este Mac com uma copia de seguridad."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Перенесите все данные NOOP на другой компьютер. Экспорт сохраняет всё, историю, данные о сне, тренировки и настройки, в один файл, который можно скопировать на другое устройство. При импорте данные на этом Mac заменяются данными из резервной копии."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "将你所有的 NOOP 数据迁移到另一台机器。导出会把一切，，历史、睡眠、锻炼、设置，，保存到一个可供复制的单一文件中；导入则用备份替换这台 Mac 的数据。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "將你所有的 NOOP 資料遷移到另一台機器。匯出會把一切，，歷史、睡眠、鍛鍊、設定，，保存到一個可供複製的單一檔案中；匯入則用備份替換這台 Mac 的資料。"
-          }
-        }
-      }
-    },
     "Move reminder": {
       "localizations": {
         "de": {
@@ -65894,65 +63778,6 @@
         }
       }
     },
-    "NOOP pairs directly with your WHOOP over Bluetooth, no WHOOP app, no cloud.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "NOOP koppelt sich direkt über Bluetooth mit deinem WHOOP, keine WHOOP-App, keine Cloud."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "NOOP pairs directly with your WHOOP over Bluetooth, no WHOOP app, no cloud."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "NOOP se conecta directamente con tu WHOOP por Bluetooth: sin app de WHOOP, sin nube."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "NOOP se connecte directement à votre WHOOP via Bluetooth, sans app WHOOP, sans cloud."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "NOOP si abbina direttamente al tuo WHOOP via Bluetooth, niente app WHOOP, niente cloud."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "NOOP se conecta directamente com o teu WHOOP por Bluetooth: sem app de WHOOP, sem nuvem."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "NOOP подключается к вашему WHOOP напрямую по Bluetooth, без приложения WHOOP и без облака."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "NOOP 通过蓝牙直接与你的 WHOOP 配对，，无需 WHOOP 应用，无需云端。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "NOOP 透過藍牙直接與你的 WHOOP 配對，，無需 WHOOP 應用程式，無需雲端。"
-          }
-        }
-      }
-    },
     "NOOP pairs directly with your WHOOP over Bluetooth: no WHOOP app, no cloud.": {
       "localizations": {
         "de": {
@@ -66269,65 +64094,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "NOOP 自行計算你的恢復、消耗和休息評分，在裝置本地，無需雲端。"
-          }
-        }
-      }
-    },
-    "NOOP scores your recovery, strain and sleep itself, on-device, no cloud.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "NOOP berechnet deine Erholung, Belastung und deinen Schlaf selbst, auf dem Gerät, ohne Cloud."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "NOOP scores your recovery, strain and sleep itself, on-device, no cloud."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "NOOP calcula tu recuperación, esfuerzo y sueño por sí mismo: en el dispositivo, sin nube."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "NOOP calcule lui-même votre récupération, effort et sommeil, sur l'appareil, sans cloud."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "NOOP calcola da sé il tuo recupero, carico e sonno, sul dispositivo, senza cloud."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "NOOP calcula o teu recuperação, esforço e sono por sí mesmo: no dispositivo, sem nuvem."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "NOOP сам рассчитывает восстановление, нагрузку и показатели сна, прямо на устройстве, без облака."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "NOOP 自行计算你的恢复、强度和睡眠评分，，在设备本地，无需云端。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "NOOP 自行計算你的恢復、強度和睡眠評分，，在裝置本地，無需雲端。"
           }
         }
       }
@@ -66745,124 +64511,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "NOOP 主要、完整支援的手環"
-          }
-        }
-      }
-    },
-    "NOOP, all your data, none of the cloud.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "NOOP, all deine Daten, nichts in der Cloud."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "NOOP, all your data, none of the cloud."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "NOOP: todos tus datos, nada en la nube."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "NOOP, toutes vos données, sans le cloud."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "NOOP, tutti i tuoi dati, niente cloud."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "NOOP: todos os teus dados, nada na nuvem."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "NOOP, все ваши данные, без облачных сервисов."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "NOOP，，你的全部数据，不上云端。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "NOOP，，你的全部資料，不上雲端。"
-          }
-        }
-      }
-    },
-    "NOOP-computed": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Von NOOP berechnet"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "NOOP-computed"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Calculado por NOOP"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Calculé par NOOP"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Calcolato da NOOP"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Calculado por NOOP"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Рассчитано NOOP"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "由 NOOP 计算"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "由 NOOP 計算"
           }
         }
       }
@@ -70680,65 +68328,6 @@
         }
       }
     },
-    "No workouts yet. They come from your WHOOP and Apple Health history. Import in Data Sources to bring them in.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Noch keine Workouts. Sie stammen aus deinem WHOOP- und Apple-Health-Verlauf. Importiere sie unter Datenquellen."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No workouts yet. They come from your WHOOP and Apple Health history. Import in Data Sources to bring them in."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aún no hay entrenamientos. Provienen de tu historial de WHOOP y Apple Health. Impórtalos en Fuentes de datos para añadirlos."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pas encore d'entraînements. Ils proviennent de votre historique WHOOP et Apple Santé. Importez dans Sources de données pour les intégrer."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ancora nessun allenamento. Provengono dalla cronologia del tuo WHOOP e di Apple Health. Importa in Sorgenti dati per aggiungerli."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ainda não há treinos. Provienen de o teu histórico de WHOOP e Apple Health. Impórtalos en fontes de dados para añadirlos."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Они берутся из истории WHOOP и Apple Здоровье. Импортируйте данные в разделе «Источники данных»."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "暂无锻炼记录。它们来自你的 WHOOP 和 Apple 健康历史。请在「数据来源」中导入以引入它们。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "暫無鍛鍊記錄。它們來自你的 WHOOP 和 Apple 健康歷史。請在「資料來源」中匯入以引入它們。"
-          }
-        }
-      }
-    },
     "Non-binary": {
       "localizations": {
         "de": {
@@ -73484,65 +71073,6 @@
         }
       }
     },
-    "Off, the coach answers generally and sends none of your metrics.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aus, der Coach antwortet allgemein und sendet keine deiner Metriken."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Off, the coach answers generally and sends none of your metrics."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Desactivado: el entrenador responde de forma general y no envía ninguna de tus métricas."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Désactivé, le coach répond de manière générale et n'envoie aucune de vos métriques."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Off, il Coach risponde in modo generico e non invia nessuna delle tue metriche."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Desactivado: o treinador responde de forma general e no envía nenhuma de os teus métricas."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Выкл., ИИ-тренер отвечает общими рекомендациями и не отправляет ваши показатели."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "关闭，，教练只作一般性回答，不会发送你的任何指标。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "關閉，，教練只作一般性回答，不會發送你的任何指標。"
-          }
-        }
-      }
-    },
     "Off: only your core metrics are shared, not your patterns or Lab Book.": {
       "localizations": {
         "de": {
@@ -74077,65 +71607,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "戴在手腕上"
-          }
-        }
-      }
-    },
-    "On, your recovery, sleep, HRV and workouts are shared with the provider for tailored coaching.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "An, deine Erholung, dein Schlaf, deine HRV und Workouts werden für maßgeschneidertes Coaching mit dem Anbieter geteilt."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "On, your recovery, sleep, HRV and workouts are shared with the provider for tailored coaching."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Activado: tu recuperación, sueño, VFC y entrenamientos se comparten con el proveedor para un asesoramiento personalizado."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Activé, votre récupération, sommeil, VFC et entraînements sont partagés avec le fournisseur pour un coaching personnalisé."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "On, il tuo recupero, sonno, HRV e allenamenti vengono condivisi con il provider per un coaching su misura."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Activado: o teu recuperação, sono, VFC e treinos se comparten com el fornecedor para um asesoramiento personalizado."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вкл., ваше восстановление, сон, ВСР и тренировки передаются провайдеру для персональных рекомендаций."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "开启，，你的恢复、睡眠、HRV 和锻炼会分享给服务商，以获得量身定制的指导。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "開啟，，你的恢復、睡眠、HRV 和鍛鍊會分享給服務供應商，以獲得量身定制的指導。"
           }
         }
       }
@@ -75200,65 +72671,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "打開「裝置」畫面，你可以在其中配對和切換手環。"
-          }
-        }
-      }
-    },
-    "Opens the GitHub releases page in your browser. NOOP itself makes no network connections, the macOS sandbox has no network entitlement.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Öffnet die GitHub-Releases-Seite in deinem Browser. NOOP selbst stellt keine Netzwerkverbindungen her, die macOS-Sandbox hat keine Netzwerk-Berechtigung."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Opens the GitHub releases page in your browser. NOOP itself makes no network connections, the macOS sandbox has no network entitlement."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abre la página de versiones de GitHub en tu navegador. NOOP en sí no realiza conexiones de red: el sandbox de macOS no tiene permiso de red."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ouvre la page des versions GitHub dans votre navigateur. NOOP lui-même n'effectue aucune connexion réseau, le bac à sable macOS n'a pas de droit réseau."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Apre la pagina delle release di GitHub nel tuo browser. NOOP di per sé non effettua alcuna connessione di rete, la sandbox di macOS non ha l'autorizzazione di rete."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Abre a página de versiones de GitHub en o teu navegador. NOOP en sí no realiza conexiones de red: el sandbox de macOS no tiene permiso de red."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Откроет страницу релизов GitHub в браузере. Сам NOOP не устанавливает сетевые соединения, у песочницы macOS нет разрешения на доступ к сети."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在你的浏览器中打开 GitHub 发布页面。NOOP 本身不建立任何网络连接，，macOS 沙盒没有网络权限。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在你的瀏覽器中打開 GitHub 發布頁面。NOOP 本身不建立任何網路連接，，macOS 沙盒沒有網路權限。"
           }
         }
       }
@@ -80261,65 +77673,6 @@
         }
       }
     },
-    "Questions, feedback, bugs, %@": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fragen, Feedback, Fehler, %@"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Questions, feedback, bugs, %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Preguntas, comentarios, errores, %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Questions, retours, bugs, %@"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Domande, feedback, bug, %@"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Preguntas, comentarios, errores, %@"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вопросы, отзывы, ошибки, %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "问题、反馈、错误，，%@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "問題、回饋、錯誤，，%@"
-          }
-        }
-      }
-    },
     "Questions, feedback, bugs: %@": {
       "localizations": {
         "de": {
@@ -84854,65 +82207,6 @@
         }
       }
     },
-    "Recovery weighs your HRV against your personal baseline (~60%), resting heart rate (~20%), sleep performance (~15%) and respiration (~5%). Day strain is a 0–21 cardiovascular load from time in heart-rate zones. Sleep is staged from movement and heart rate. Everything is computed here from the strap's raw data, it works for any day NOOP collected raw streams.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Die Erholung gewichtet deine HRV gegenüber deiner persönlichen Basislinie (~60 %), die Ruheherzfrequenz (~20 %), die Schlafleistung (~15 %) und die Atmung (~5 %). Die Tagesbelastung ist eine kardiovaskuläre Last von 0–21 aus der Zeit in Herzfrequenzzonen. Der Schlaf wird aus Bewegung und Herzfrequenz in Phasen eingeteilt. Alles wird hier aus den Rohdaten des Straps berechnet, es funktioniert für jeden Tag, an dem NOOP Rohdaten erfasst hat."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Recovery weighs your HRV against your personal baseline (~60%), resting heart rate (~20%), sleep performance (~15%) and respiration (~5%). Day strain is a 0–21 cardiovascular load from time in heart-rate zones. Sleep is staged from movement and heart rate. Everything is computed here from the strap's raw data, it works for any day NOOP collected raw streams."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La recuperación pondera tu VFC frente a tu línea base personal (~60%), la frecuencia cardíaca en reposo (~20%), el rendimiento del sueño (~15%) y la respiración (~5%). El esfuerzo del día es una carga cardiovascular de 0–21 según el tiempo en zonas de frecuencia cardíaca. El sueño se clasifica a partir del movimiento y la frecuencia cardíaca. Todo se calcula aquí a partir de los datos en bruto de la pulsera: funciona para cualquier día en el que NOOP recopiló flujos en bruto."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La récupération pondère votre VFC par rapport à votre référence personnelle (~60%), fréquence cardiaque au repos (~20%), performance du sommeil (~15%) et respiration (~5%). L'effort du jour est une charge cardiovasculaire de 0 à 21 basée sur le temps dans les zones de fréquence cardiaque. Le sommeil est stagé à partir du mouvement et de la fréquence cardiaque. Tout est calculé ici à partir des données brutes du bracelet, cela fonctionne pour chaque jour où NOOP a collecté des flux bruts."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Il recupero pesa il tuo HRV rispetto alla tua linea di base personale (~60%), la frequenza cardiaca a riposo (~20%), la prestazione del sonno (~15%) e la respirazione (~5%). Il carico giornaliero è un carico cardiovascolare da 0 a 21 basato sul tempo trascorso nelle zone di frequenza cardiaca. Il sonno viene suddiviso in fasi a partire da movimento e frequenza cardiaca. Tutto viene calcolato qui dai dati grezzi della fascia, funziona per qualsiasi giorno in cui NOOP ha raccolto i flussi grezzi."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "A recuperação pondera o teu VFC versus o teu linha de base personal (~60%), a frequência cardíaca en repouso (~20%), el rendimiento do sono (~15%) e a respiração (~5%). El esforço do dia es uma carga cardiovascular de 0–21 conforme el tempo en zonas de frequência cardíaca. El sono se clasifica a partir do movimento e a frequência cardíaca. Tudo se calcula aquí a partir dos dados en bruto da bracelete: funciona para qualquer dia no que NOOP recopiló flujos en bruto."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Восстановление рассчитывается на основе вашей ВСР относительно личной нормы (~60%), пульса в покое (~20%), качества сна (~15%) и частоты дыхания (~5%). Дневная нагрузка, это сердечно-сосудистая нагрузка от 0 до 21, рассчитанная по времени в пульсовых зонах. Стадии сна определяются по движению и пульсу. Всё рассчитывается здесь, на основе исходных данных браслета, и работает для любого дня, когда NOOP собирал исходные потоки данных."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "恢复会将你的 HRV 与你的个人基线（约 60%）、静息心率（约 20%）、睡眠表现（约 15%）和呼吸（约 5%）进行加权。当日强度是根据在各心率区间的时间得出的 0–21 心血管负荷。睡眠则根据体动和心率分期。一切都在这里根据手环的原始数据计算，，只要 NOOP 采集到原始数据流的任何一天都适用。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "恢復會將你的 HRV 與你的個人基線（約 60%）、靜息心率（約 20%）、睡眠表現（約 15%）和呼吸（約 5%）進行加權。當日強度是根據在各心率區間的時間得出的 0–21 心血管負荷。睡眠則根據體動和心率分期。一切都在這裡根據手環的原始資料計算，，只要 NOOP 採集到原始資料流的任何一天都適用。"
-          }
-        }
-      }
-    },
     "Recovery · %@ pts": {
       "localizations": {
         "de": {
@@ -86905,65 +84199,6 @@
         }
       }
     },
-    "Reset API key": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "API-Schlüssel zurücksetzen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reset API key"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Restablecer clave de API"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Réinitialiser la clé API"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reimposta chiave API"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Repor chave de API"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сбросить API-ключ"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重置 API 密钥"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重設 API 金鑰"
-          }
-        }
-      }
-    },
     "Reset Key Metrics to default": {
       "localizations": {
         "de": {
@@ -87160,65 +84395,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "請先在 Oura 應用程式中重置它。"
-          }
-        }
-      }
-    },
-    "Reset key": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Schlüssel zurücksetzen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reset key"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Restablecer clave"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Réinitialiser la clé"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reimposta chiave"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Repor chave"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сбросить ключ"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重置密钥"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重設金鑰"
           }
         }
       }
@@ -91303,65 +88479,6 @@
         }
       }
     },
-    "Saves every raw 5/MG frame (with a timestamp and the live heart rate) to a JSON file you can share to help map the biometric layout. This only records frames the strap already sent, it never writes to your strap, so it is safe to leave on. Export the file and attach it to a protocol-mapping issue.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Speichert jeden rohen 5/MG-Frame (mit Zeitstempel und Live-Herzfrequenz) in einer JSON-Datei, die du teilen kannst, um das biometrische Layout zu kartieren. Dies zeichnet nur Frames auf, die der Strap bereits gesendet hat, es schreibt nie auf deinen Strap, daher ist es sicher, es aktiviert zu lassen. Exportiere die Datei und hänge sie an ein Protokoll-Mapping-Issue an."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Saves every raw 5/MG frame (with a timestamp and the live heart rate) to a JSON file you can share to help map the biometric layout. This only records frames the strap already sent, it never writes to your strap, so it is safe to leave on. Export the file and attach it to a protocol-mapping issue."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Guarda cada fotograma en bruto 5/MG (con una marca de tiempo y la frecuencia cardíaca en vivo) en un archivo JSON que puedes compartir para ayudar a mapear la disposición biométrica. Esto solo registra los fotogramas que la correa ya envió, nunca escribe en tu correa, así que es seguro dejarlo activado. Exporta el archivo y adjúntalo a un issue de mapeo del protocolo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enregistre chaque trame brute 5/MG (avec un horodatage et la fréquence cardiaque en direct) dans un fichier JSON que vous pouvez partager pour aider à cartographier la disposition biométrique. Cela n'enregistre que les trames que le bracelet a déjà envoyées, il n'écrit jamais sur votre bracelet, il est donc sans danger de le laisser activé. Exportez le fichier et joignez-le à une issue de cartographie de protocole."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Salva ogni frame grezzo 5/MG (con un timestamp e la frequenza cardiaca in diretta) in un file JSON che puoi condividere per aiutare a mappare la struttura biometrica. Registra solo i frame che la fascia ha già inviato, non scrive mai sulla tua fascia, quindi è sicuro lasciarlo attivo. Esporta il file e allegalo a una issue di mappatura del protocollo."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Guarda cada fotograma en bruto 5/MG (com uma marca de tempo e a frequência cardíaca em tempo real) en um ficheiro JSON que podes partilhar para ayudar a mapear a disposición biométrica. Isto só registra os fotogramas que a bracelete já envió, nunca escribe en o teu bracelete, así que es seguro dejarlo activado. Exporta el ficheiro e adjúntalo a um issue de mapeo do protocolo."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сохраняет каждый исходный пакет данных 5/MG с меткой времени и текущим пульсом в JSON-файл, которым можно поделиться, чтобы помочь разобраться в структуре биометрических данных. Записываются только пакеты, которые браслет уже отправил; данные на браслет не записываются, поэтому эту опцию безопасно оставлять включённой. Экспортируйте файл и приложите его к задаче по разбору протокола."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "将每一个原始 5/MG 帧（带时间戳和实时心率）保存到一个 JSON 文件，你可以分享它来帮助绘制生物数据布局。它只记录手环已经发送的帧，，绝不会向你的手环写入任何内容，，因此可以放心保持开启。导出该文件并将其附加到协议映射的 issue 中。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "將每一個原始 5/MG 幀（帶時間戳和即時心率）保存到一個 JSON 檔案，你可以分享它來幫助繪製生物數據佈局。它只記錄手環已經發送的幀，，絕不會向你的手環寫入任何內容，，因此可以放心保持開啟。匯出該檔案並將其附加到協議對映的 issue 中。"
-          }
-        }
-      }
-    },
     "Saves the raw capture and the strap log together as a matched pair. Attach both to a protocol-mapping issue.": {
       "localizations": {
         "de": {
@@ -91594,65 +88711,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "掃描"
-          }
-        }
-      }
-    },
-    "Scan & Connect": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Suchen & Verbinden"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Scan & Connect"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Escanear y conectar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Scanner et connecter"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Scansiona e collega"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Escanear e ligar"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Найти и подключить"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "扫描并连接"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "掃描並連接"
           }
         }
       }
@@ -93481,65 +90539,6 @@
         }
       }
     },
-    "Share of imported zone time, duration-weighted across sessions, approximate.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Anteil der importierten Zonenzeit, zeitgewichtet über alle Einheiten, Näherungswert."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Share of imported zone time, duration-weighted across sessions, approximate."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Proporción del tiempo en zona importado, ponderado por duración entre sesiones, aproximado."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Part du temps de zone importé, pondéré par la durée entre les séances, approximatif."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quota del tempo importato per zona, ponderata per durata tra le sessioni, approssimativa."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Proporción do tempo en zona importado, ponderado por duração entre sessões, aproximado."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Доля импортированного времени в пульсовых зонах, взвешенная по длительности сессий. Приблизительно."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "导入的各区间时间占比，按各会话的时长加权，，近似值。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "匯入的各區間時間佔比，按各工作階段的時長加權，，近似值。"
-          }
-        }
-      }
-    },
     "Sharing %lld bpm. Waiting for a device to pair.": {
       "localizations": {
         "de": {
@@ -94336,65 +91335,6 @@
         }
       }
     },
-    "Silent haptic HIIT, the strap buzzes the transitions": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stilles haptisches HIIT, der Strap vibriert die Übergänge"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Silent haptic HIIT, the strap buzzes the transitions"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "HIIT háptico silencioso: la correa vibra en las transiciones"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "HIIT haptique silencieux, le bracelet vibre aux transitions"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "HIIT aptico silenzioso, la fascia vibra alle transizioni"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "HIIT háptico silencioso: a bracelete vibra nas transiciones"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Тихая высокоинтенсивная интервальная тренировка с вибросигналами, браслет подсказывает смену интервалов"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "静默触感 HIIT，，手环以震动提示各阶段切换"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "靜默觸感 HIIT，，手環以震動提示各階段切換"
-          }
-        }
-      }
-    },
     "Silent haptic HIIT: the strap buzzes the transitions": {
       "localizations": {
         "de": {
@@ -95163,65 +92103,6 @@
         }
       }
     },
-    "Skip for now": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vorerst überspringen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Skip for now"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Omitir por ahora"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Passer pour l'instant"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Salta per ora"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Omitir por agora"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Пропустить пока"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "暂时跳过"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "暫時跳過"
-          }
-        }
-      }
-    },
     "Skip today": {
       "localizations": {
         "de": {
@@ -95494,65 +92375,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "睡眠需求"
-          }
-        }
-      }
-    },
-    "Sleep Performance": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Schlafleistung"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sleep Performance"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rendimiento del sueño"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Performance du sommeil"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prestazione del sonno"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Rendimiento do sono"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Качество сна"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "睡眠表现"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "睡眠表現"
           }
         }
       }
@@ -101223,65 +98045,6 @@
         }
       }
     },
-    "Stress · M": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stress · M"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stress · M"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Estrés · M"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stress · M"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stress · M"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Estrés · M"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Стресс · M"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "压力 · M"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "壓力 · M"
-          }
-        }
-      }
-    },
     "Strong": {
       "localizations": {
         "de": {
@@ -101594,65 +98357,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "支持 NOOP"
-          }
-        }
-      }
-    },
-    "Support NOOP, donate or get in touch": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "NOOP unterstützen, spenden oder Kontakt aufnehmen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Support NOOP, donate or get in touch"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Apoya a NOOP: dona o ponte en contacto"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Soutenir NOOP, faire un don ou nous contacter"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sostieni NOOP, fai una donazione o mettiti in contatto"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Apoya a NOOP: dona o ponte en contacto"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Поддержите NOOP, сделайте пожертвование или свяжитесь с нами"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "支持 NOOP，，捐赠或取得联系"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "支持 NOOP，，捐贈或取得聯繫"
           }
         }
       }
@@ -104611,47 +101315,6 @@
         }
       }
     },
-    "The wake-alarm above buzzes your wrist from the strap's own firmware. It can't sound a loud alarm, and a sideloaded app can't sound a reliable background wake on this device either (that needs a critical-alert permission this build doesn't have). Keep your phone's built-in Clock alarm as a backup. NOOP's phone-based smart wake (light-sleep detection) is available on the Android app.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Der Weckalarm oben vibriert dein Handgelenk aus der Firmware des Straps. Er kann keinen lauten Alarm abspielen, und eine sideloadete App kann auf diesem Gerät auch kein zuverlässiges Hintergrund-Wecken abspielen (dafür braucht es eine Berechtigung für kritische Hinweise, die dieser Build nicht hat). Behalte den eingebauten Wecker deines Telefons als Backup. NOOPs telefonbasiertes Smart-Wecken (Leichtschlaf-Erkennung) gibt es in der Android-App."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La alarma de despertar de arriba vibra en tu muñeca desde el propio firmware de la pulsera. No puede sonar como una alarma fuerte, y una app instalada por sideload tampoco puede garantizar un despertar en segundo plano en este dispositivo (eso requiere un permiso de alertas críticas que esta versión no tiene). Mantén la alarma del Reloj de tu teléfono como respaldo. El despertar inteligente de NOOP basado en el teléfono (detección de sueño ligero) está disponible en la app de Android."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La sveglia qui sopra fa vibrare il tuo polso dal firmware stesso della fascia. Non può emettere una sveglia sonora, e nemmeno un'app installata tramite sideload può emettere una sveglia in background affidabile su questo dispositivo (servirebbe un permesso di avviso critico che questa build non ha). Tieni la sveglia integrata Orologio del tuo telefono come riserva. La sveglia intelligente di NOOP basata sul telefono (rilevamento del sonno leggero) è disponibile nell'app Android."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "A alarma de despertar de arriba vibra en o teu pulso desde el próprio firmware da bracelete. No pode sonar como uma alarma forte, e uma app instalada por sideload tampoco pode garantizar um despertar en segundo plano en este dispositivo (eso requiere um permiso de alertas críticas que esta versión no tiene). Mantén a alarma do Relógio de o teu telemóvel como cópia de segurança. El despertar inteligente de NOOP basado no telemóvel (detección de sono ligero) está disponível na app de Android."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "上方的唤醒闹钟通过手环自身的固件震动你的手腕。它无法发出响亮的闹钟声，而旁加载的应用在此设备上也无法发出可靠的后台唤醒（那需要此版本所不具备的关键提醒权限）。请保留你手机内置的「时钟」闹钟作为备用。NOOP 基于手机的智能唤醒（浅睡检测）在 Android 应用上可用。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "上方的喚醒鬧鐘透過手環自身的韌體震動你的手腕。它無法發出響亮的鬧鐘聲，而側載的應用程式在此裝置上也無法發出可靠的背景喚醒（那需要此版本所不具備的關鍵提醒權限）。請保留你手機內建的「時鐘」鬧鐘作為備用。NOOP 基於手機的智慧喚醒（淺睡偵測）在 Android 應用程式上可用。"
-          }
-        }
-      }
-    },
     "The wake-alarm above buzzes your wrist from the strap's own firmware. It can't sound a loud alarm. We also schedule a backup notification at your wake time, but a sideloaded app can't sound a guaranteed wake on this device (that needs a critical-alert permission this build doesn't have), so Focus or silent mode can still mute it. Keep your phone's built-in Clock alarm as your real backup. NOOP's phone-based smart wake (light-sleep detection) is available on the Android app.": {
       "localizations": {
         "de": {
@@ -105408,147 +102071,6 @@
         }
       }
     },
-    "This builds from the strap as it syncs. Strain and sleep appear after you have worn it and slept a night. Recovery needs about a week of nights to learn your baseline, or import your WHOOP export to skip the wait.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dies baut sich aus dem Strap auf, während er synchronisiert. Belastung und Schlaf erscheinen, nachdem du ihn getragen und eine Nacht geschlafen hast. Die Erholung braucht etwa eine Woche an Nächten, um deine Basislinie zu lernen, oder importiere deinen WHOOP-Export, um die Wartezeit zu überspringen."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This builds from the strap as it syncs. Strain and sleep appear after you have worn it and slept a night. Recovery needs about a week of nights to learn your baseline, or import your WHOOP export to skip the wait."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esto se construye desde la correa a medida que se sincroniza. El esfuerzo y el sueño aparecen después de haberla llevado puesta y haber dormido una noche. La recuperación necesita alrededor de una semana de noches para aprender tu línea base, o importa tu exportación de WHOOP para evitar la espera."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ceci se construit depuis le bracelet au fil de la synchronisation. L'effort et le sommeil apparaissent après que vous l'ayez porté et dormi une nuit. La récupération nécessite environ une semaine de nuits pour apprendre votre référence, ou importez votre export WHOOP pour éviter l'attente."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Si costruisce dalla fascia man mano che si sincronizza. Carico e sonno compaiono dopo che l'hai indossata e hai dormito una notte. Il recupero ha bisogno di circa una settimana di notti per apprendere la tua linea di base, oppure importa la tua esportazione WHOOP per evitare l'attesa."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Isto se construye desde a bracelete a medida que se sincroniza. El esforço e el sono aparecen depois de haberla llevado puesta e haber dormido uma noite. A recuperação precisa cerca de uma semana de noites para aprender o teu linha de base, o importa o teu exportação de WHOOP para evitar a espera."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Данные формируются по мере синхронизации с браслетом. Нагрузка и сон появятся после того, как вы поносите браслет и поспите с ним одну ночь. Для восстановления нужна примерно неделя ночей, чтобы определить вашу норму. Или импортируйте данные WHOOP, чтобы не ждать."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "这会随着手环同步逐步构建。在你佩戴并睡过一晚后，强度和睡眠便会出现。恢复需要大约一周的夜晚来学习你的基线，或者导入你的 WHOOP 导出文件以跳过等待。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "這會隨著手環同步逐步建立。在你佩戴並睡過一晚後，強度和睡眠便會出現。恢復需要大約一週的夜晚來學習你的基線，或者匯入你的 WHOOP 匯出檔案以跳過等待。"
-          }
-        }
-      }
-    },
-    "This install can't connect to Apple Health directly. It was sideloaded with a free signing profile, which doesn't include Apple's Health permission, so there's nothing to enable, and NOOP won't appear under Settings › Health.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Diese Installation kann sich nicht direkt mit Apple Health verbinden. Sie wurde mit einem kostenlosen Signaturprofil sideloadet, das Apples Health-Berechtigung nicht enthält – es gibt also nichts zu aktivieren, und NOOP erscheint nicht unter Einstellungen › Health."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esta instalación no puede conectarse a Apple Health directamente. Se instaló por sideload con un perfil de firma gratuito, que no incluye el permiso de Salud de Apple, así que no hay nada que activar, y NOOP no aparecerá en Ajustes › Salud."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Questa installazione non può connettersi direttamente ad Apple Health. È stata installata tramite sideload con un profilo di firma gratuito, che non include il permesso Health di Apple, quindi non c'è nulla da attivare, e NOOP non comparirà in Impostazioni › Salute."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Esta instalación no pode conectarse a Apple Health directamente. Se instaló por sideload com um perfil de firma gratuito, que no incluye el permiso de Saúde de Apple, así que não há nada que ativar, e NOOP no aparecerá en definições › Saúde."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此安装无法直接连接 Apple 健康。它是用免费签名配置文件旁加载的，其中不包含 Apple 的健康权限，因此没有可启用的项，NOOP 也不会出现在「设置 › 健康」下。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此安裝無法直接連接 Apple 健康。它是用免費簽名設定檔側載的，其中不包含 Apple 的健康權限，因此沒有可啟用的項，NOOP 也不會出現在「設定 › 健康」下。"
-          }
-        }
-      }
-    },
-    "This install can't connect to Apple Health directly. It was sideloaded with a free signing profile, which doesn't include Apple's Health permission, so there's nothing to grant here.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Diese Installation kann sich nicht direkt mit Apple Health verbinden. Sie wurde mit einem kostenlosen Signaturprofil sideloadet, das Apples Health-Berechtigung nicht enthält – hier gibt es also nichts zu gewähren."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esta instalación no puede conectarse a Apple Health directamente. Se instaló por sideload con un perfil de firma gratuito, que no incluye el permiso de Salud de Apple, así que aquí no hay nada que conceder."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Questa installazione non può connettersi direttamente ad Apple Health. È stata installata tramite sideload con un profilo di firma gratuito, che non include il permesso Health di Apple, quindi non c'è nulla da concedere qui."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Esta instalación no pode conectarse a Apple Health directamente. Se instaló por sideload com um perfil de firma gratuito, que no incluye el permiso de Saúde de Apple, así que aquí não há nada que conceder."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此安装无法直接连接 Apple 健康。它是用免费签名配置文件旁加载的，其中不包含 Apple 的健康权限，因此这里没有可授予的项。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此安裝無法直接連接 Apple 健康。它是用免費簽名設定檔側載的，其中不包含 Apple 的健康權限，因此這裡沒有可授予的項。"
-          }
-        }
-      }
-    },
     "This install can't connect to Apple Health directly. It was signed with a profile that doesn't include Apple's Health permission, so there's nothing to enable, and NOOP won't appear under Settings › Health.": {
       "localizations": {
         "de": {
@@ -105831,65 +102353,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "這是唯一會離開 %1$@ 的功能，它使用你自己的金鑰，將你各項指標的摘要發送到 %2$@。在你主動請求之前，不會發送任何內容。"
-          }
-        }
-      }
-    },
-    "This is the only feature that leaves your Mac, it sends a summary of your metrics to %@ using your own key. Nothing is sent until you ask.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dies ist die einzige Funktion, die deinen Mac verlässt, sie sendet eine Zusammenfassung deiner Metriken mit deinem eigenen Schlüssel an %@. Es wird nichts gesendet, bis du es anforderst."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This is the only feature that leaves your Mac, it sends a summary of your metrics to %@ using your own key. Nothing is sent until you ask."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esta es la única función que sale de tu Mac: envía un resumen de tus métricas a %@ usando tu propia clave. No se envía nada hasta que tú lo pides."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "C'est la seule fonctionnalité qui quitte votre Mac, elle envoie un résumé de vos métriques à %@ en utilisant votre propre clé. Rien n'est envoyé jusqu'à ce que vous le demandiez."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Questa è l'unica funzione che lascia il tuo Mac, invia un riepilogo delle tue metriche a %@ usando la tua chiave. Nulla viene inviato finché non lo chiedi."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Esta es a única función que sale de o teu Mac: envía um resumo de os teus métricas a %@ usando o teu própria chave. No se envía nada até que tú lo pides."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Это единственная функция, при которой данные покидают ваш Mac: она отправляет сводку ваших показателей в %@ с помощью вашего ключа. Ничего не отправляется без вашего запроса."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "这是唯一会离开你 Mac 的功能，，它使用你自己的密钥，将你各项指标的摘要发送到 %@。在你主动请求之前，不会发送任何内容。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "這是唯一會離開你 Mac 的功能，，它使用你自己的金鑰，將你各項指標的摘要發送到 %@。在你主動請求之前，不會發送任何內容。"
           }
         }
       }
@@ -111914,65 +108377,6 @@
         }
       }
     },
-    "WHOOP straps don't appear in macOS System Settings → Bluetooth. They advertise on a custom profile that only apps like NOOP can find, so there's nothing to pair there, and you shouldn't try.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "WHOOP-Straps erscheinen nicht in den macOS-Systemeinstellungen → Bluetooth. Sie senden über ein eigenes Profil, das nur Apps wie NOOP finden können, dort gibt es also nichts zu koppeln, und du solltest es nicht versuchen."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "WHOOP straps don't appear in macOS System Settings → Bluetooth. They advertise on a custom profile that only apps like NOOP can find, so there's nothing to pair there, and you shouldn't try."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Las pulseras WHOOP no aparecen en Ajustes del sistema de macOS → Bluetooth. Se anuncian con un perfil personalizado que solo apps como NOOP pueden encontrar, así que no hay nada que emparejar ahí y no deberías intentarlo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "WHOOP straps don't appear in macOS System Settings → Bluetooth. They advertise on a custom profile that only apps like NOOP can find, so there's nothing to pair there, and you shouldn't try."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Le fasce WHOOP non compaiono in Impostazioni di Sistema → Bluetooth su macOS. Si annunciano su un profilo personalizzato che solo app come NOOP possono trovare, quindi non c'è nulla da abbinare lì e non dovresti provarci."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "As braceletes WHOOP no aparecen en definições do sistema de macOS → Bluetooth. Se anuncian com um perfil personalizado que só apps como NOOP podem encontrar, así que não há nada que emparelhar ahí e no deberías intentarlo."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Браслеты WHOOP не отображаются в «Системных настройках» macOS → Bluetooth. Они работают через особый профиль, который видят только приложения вроде NOOP, поэтому там нечего подключать, и пытаться не нужно."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "WHOOP 手环不会出现在 macOS 的「系统设置 → 蓝牙」中。它们通过一个只有 NOOP 这类应用才能找到的自定义配置文件进行广播，，所以那里没有可配对的设备，你也不应尝试。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "WHOOP 手環不會出現在 macOS 的「系統設定 → 藍牙」中。它們透過一個只有 NOOP 這類應用程式才能找到的自訂設定檔進行廣播，，所以那裡沒有可配對的裝置，你也不應嘗試。"
-          }
-        }
-      }
-    },
     "WHOOP straps don't appear in your %@'s Bluetooth settings. They advertise on a custom profile that only apps like NOOP can find, so there's nothing to pair there, and you shouldn't try.": {
       "localizations": {
         "de": {
@@ -115673,65 +112077,6 @@
         }
       }
     },
-    "Which strap?": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Welcher Strap?"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Which strap?"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "¿Qué pulsera?"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quel bracelet ?"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quale fascia?"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Qué bracelete?"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Какой браслет?"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "哪一个手环？"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "哪一個手環？"
-          }
-        }
-      }
-    },
     "Whoop": {
       "localizations": {
         "de": {
@@ -116854,65 +113199,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "手腕提醒"
-          }
-        }
-      }
-    },
-    "Wrist delivery isn't live yet, it needs a small on-device watcher (coming in an update) to read macOS notifications. Everything stays on this Mac. Your choices are saved now and will apply automatically once delivery ships.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Die Zustellung ans Handgelenk ist noch nicht aktiv, sie benötigt einen kleinen Dienst auf dem Gerät (kommt in einem Update), um macOS-Mitteilungen zu lesen. Alles bleibt auf diesem Mac. Deine Auswahl ist jetzt gespeichert und wird automatisch angewendet, sobald die Zustellung verfügbar ist."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wrist delivery isn't live yet, it needs a small on-device watcher (coming in an update) to read macOS notifications. Everything stays on this Mac. Your choices are saved now and will apply automatically once delivery ships."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La entrega en la muñeca aún no está disponible: necesita un pequeño observador en el dispositivo (próximamente en una actualización) para leer las notificaciones de macOS. Todo permanece en este Mac. Tus elecciones se guardan ahora y se aplicarán automáticamente cuando la entrega esté disponible."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wrist delivery isn't live yet, it needs a small on-device watcher (coming in an update) to read macOS notifications. Everything stays on this Mac. Your choices are saved now and will apply automatically once delivery ships."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La consegna al polso non è ancora attiva, richiede un piccolo servizio sul dispositivo (in arrivo in un aggiornamento) per leggere le notifiche di macOS. Tutto resta su questo Mac. Le tue scelte sono salvate ora e verranno applicate automaticamente non appena la consegna sarà disponibile."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "A entrega na pulso ainda no está disponível: precisa um pequeno observador no dispositivo (próximamente en uma actualización) para leer as notificações de macOS. Tudo permanece en este Mac. Os teus elecciones se guardan agora e se aplicarán automáticamente quando a entrega esté disponível."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Доставка уведомлений на браслет пока не работает: для чтения уведомлений macOS нужен небольшой локальный компонент, он появится в обновлении. Всё остаётся на этом Mac. Ваши настройки уже сохранены и применятся автоматически, когда функция станет доступна."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "手腕推送尚未上线，，它需要一个小型的设备端监听程序（将在后续更新中推出）来读取 macOS 通知。一切都留在这台 Mac 上。你的选择现已保存，一旦推送功能上线便会自动生效。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "手腕推送尚未上線，，它需要一個小型的裝置端監聽程式（將在後續更新中推出）來讀取 macOS 通知。一切都留在這台 Mac 上。你的選擇現已保存，一旦推送功能上線便會自動生效。"
           }
         }
       }
@@ -118989,65 +115275,6 @@
         }
       }
     },
-    "Your live heart rate is working from the strap, and recovery, strain and sleep build from it over your next few nights of wear, sharpening as it learns your baseline. Want your full history instantly? Import your WHOOP export in Data Sources and it backfills in about a minute.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Deine Live-Herzfrequenz funktioniert über den Strap, und Erholung, Belastung und Schlaf bauen sich daraus über deine nächsten Nächte des Tragens auf und werden schärfer, während er deine Basislinie lernt. Willst du sofort deine vollständige Historie? Importiere deinen WHOOP-Export unter Datenquellen, und er wird in etwa einer Minute nachgefüllt."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Your live heart rate is working from the strap, and recovery, strain and sleep build from it over your next few nights of wear, sharpening as it learns your baseline. Want your full history instantly? Import your WHOOP export in Data Sources and it backfills in about a minute."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tu frecuencia cardíaca en vivo funciona desde la correa, y la recuperación, el esfuerzo y el sueño se construyen a partir de ella durante tus próximas noches de uso, afinándose a medida que aprende tu línea base. ¿Quieres todo tu historial al instante? Importa tu exportación de WHOOP en Fuentes de datos y se rellenará en aproximadamente un minuto."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Votre fréquence cardiaque en direct fonctionne depuis le bracelet, et la récupération, l'effort et le sommeil se construisent à partir de là sur vos prochaines nuits de port, s'affinant au fur et à mesure qu'il apprend votre référence. Vous voulez votre historique complet instantanément ? Importez votre export WHOOP dans Sources de données et il se remplit en environ une minute."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La tua frequenza cardiaca in diretta funziona dalla fascia, e recupero, carico e sonno si costruiscono da essa nelle tue prossime notti di utilizzo, affinandosi man mano che apprende la tua linea di base. Vuoi subito la tua cronologia completa? Importa la tua esportazione WHOOP in Sorgenti dati e verrà ricostruita in circa un minuto."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O teu frequência cardíaca em tempo real funciona desde a bracelete, e a recuperação, el esforço e el sono se construyen a partir de ella durante os teus próximas noites de uso, afinándose a medida que aprende o teu linha de base. Quieres tudo o teu histórico al instante? Importa o teu exportação de WHOOP en fontes de dados e se rellenará en aproximadamente um minuto."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Пульс в реальном времени уже поступает с браслета. Восстановление, нагрузка и сон будут формироваться на его основе в течение следующих нескольких ночей и уточняться по мере определения вашей нормы. Хотите сразу получить всю историю? Импортируйте данные WHOOP в разделе «Источники данных», история заполнится примерно за минуту."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "你的实时心率正通过手环工作，而恢复、强度和睡眠会在你接下来几晚的佩戴中逐步建立，并随着它学习你的基线而愈发精准。想立即获得完整历史？请在「数据来源」中导入你的 WHOOP 导出文件，约一分钟即可回填。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "你的即時心率正透過手環工作，而恢復、強度和睡眠會在你接下來幾晚的佩戴中逐步建立，並隨著它學習你的基線而愈發精準。想立即獲得完整歷史？請在「資料來源」中匯入你的 WHOOP 匯出檔案，約一分鐘即可回填。"
-          }
-        }
-      }
-    },
     "Your locked pace": {
       "localizations": {
         "de": {
@@ -119204,65 +115431,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "你的數值、你的手環，以及 NOOP 的運作原理。全部都在 %@ 上。"
-          }
-        }
-      }
-    },
-    "Your numbers, your strap, and how NOOP works. All on this Mac.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Deine Werte, dein Strap und wie NOOP funktioniert. Alles auf diesem Mac."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Your numbers, your strap, and how NOOP works. All on this Mac."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tus números, tu correa y cómo funciona NOOP. Todo en este Mac."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vos chiffres, votre bracelet et comment NOOP fonctionne. Tout sur ce Mac."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "I tuoi numeri, la tua fascia e come funziona NOOP. Tutto su questo Mac."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Os teus números, o teu bracelete e como funciona NOOP. Tudo en este Mac."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ваши показатели, ваш браслет и принципы работы NOOP. Всё на этом Mac."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "你的数值、你的手环，以及 NOOP 的工作原理。全部都在这台 Mac 上。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "你的數值、你的手環，以及 NOOP 的運作原理。全部都在這台 Mac 上。"
           }
         }
       }
@@ -119583,65 +115751,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "你的分數會在幾個夜晚間逐步建立"
-          }
-        }
-      }
-    },
-    "Your strap in real time, heart rate and frames as they arrive.": {
-      "extractionState": "stale",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dein Strap in Echtzeit, Herzfrequenz und Frames, sobald sie eintreffen."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Your strap in real time, heart rate and frames as they arrive."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tu pulsera en tiempo real: frecuencia cardíaca y fotogramas a medida que llegan."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Votre bracelet en temps réel, fréquence cardiaque et trames à mesure qu'ils arrivent."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La tua fascia in tempo reale, frequenza cardiaca e frame man mano che arrivano."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O teu bracelete en tempo real: frequência cardíaca e fotogramas a medida que llegan."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ваш браслет в реальном времени, пульс и данные по мере поступления."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "你的手环实时呈现，，心率与数据帧随到随显。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "你的手環即時呈現，，心率與資料幀隨到隨顯。"
           }
         }
       }

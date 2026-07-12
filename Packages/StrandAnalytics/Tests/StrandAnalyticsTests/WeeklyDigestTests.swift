@@ -154,16 +154,16 @@ final class WeeklyDigestTests: XCTestCase {
     // MARK: - Focal points
 
     func testFocalPointSurfacesBiggestMover() {
-        // Charge up big this week, last week flat-low; both weeks fully populated.
+        // Recovery up big this week, last week flat-low; both weeks fully populated.
         var charge: [String: Double] = [:]
         for d in 8...14 { charge[String(format: "2026-06-%02d", d)] = 80 }  // this week
         for d in 1...7  { charge[String(format: "2026-06-%02d", d)] = 55 }  // last week
         let d = WeeklyDigestEngine.build(byMetric: [.charge: charge], anchorDay: "2026-06-13")
         XCTAssertFalse(d.focalPoints.isEmpty)
         let top = d.focalPoints[0]
-        XCTAssertTrue(top.contains("Charge"), "Expected Charge in: \(top)")
+        XCTAssertTrue(top.contains("Recovery"), "Expected Recovery in: \(top)")
         XCTAssertTrue(top.contains("up"), "Expected an upward move in: \(top)")
-        XCTAssertTrue(top.contains("good sign"), "Charge rising should read positively: \(top)")
+        XCTAssertTrue(top.contains("good sign"), "Recovery rising should read positively: \(top)")
     }
 
     func testRestingHRRiseReadsAsWorthALook() {

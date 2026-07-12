@@ -58,12 +58,12 @@
 - [x] **T109 — Coverage refresh wave 1** (worst offenders from T101, spec §C
   list): each screen brought fully onto Paper, full-page proof per screen.
   Batch gates every 3–4 screens.
-- [ ] **T110 — Coverage refresh wave 2**: remainder of §C incl. onboarding +
+- [x] **T110 — Coverage refresh wave 2**: remainder of §C incl. onboarding +
   editor sheets. Same protocol.
 
 ## Phase D — Hygiene + handoff
 
-- [ ] **T111 — Tests + dead code + strings**: fix WeeklyDigest "Charge"
+- [x] **T111 — Tests + dead code + strings**: fix WeeklyDigest "Charge"
   assertion + T81 proportion test to current rulings; delete proven-orphan
   legacy code (call-site proof in commit message); xcstrings stale-term/dead-key
   sweep (all languages). Suite green.
