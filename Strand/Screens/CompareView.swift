@@ -124,14 +124,21 @@ struct CompareView: View {
     @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.whoop.rawValue
     private var effortScale: EffortScale { UnitPrefs.resolveEffortScale(effortScaleRaw) }
 
-    // Distinct, high-legibility series colors (avoid the recovery/strain ramps so
-    // overlay lines read as categorical, not as a value gradient).
+    // Trends-compatible categorical series colors. Recovery and Sleep keep their
+    // canonical two-blue/slate distinction; additional series receive distinct hues.
     private static let seriesPalette: [Color] = [
-        StrandPalette.accent,        // mint-green
-        StrandPalette.metricCyan,    // cyan
+        StrandPalette.recoveryData,  // canonical Recovery blue
+        StrandPalette.sleepAccent,   // canonical Sleep slate
         StrandPalette.metricPurple,  // purple
         StrandPalette.metricAmber,   // amber
     ]
+
+    private func seriesColor(for metric: MetricDescriptor, index: Int) -> Color {
+        let key = metric.key.lowercased()
+        if key.contains("sleep") { return StrandPalette.sleepAccent }
+        if key.contains("recovery") { return StrandPalette.recoveryData }
+        return Self.seriesPalette[index % Self.seriesPalette.count]
+    }
 
     /// Default starter selection (falls back gracefully if a key is missing).
     private static let defaultKeys = ["recovery", "sleep_performance", "weight"]
@@ -228,7 +235,7 @@ struct CompareView: View {
             let rows = slice(full, effectiveRange(full))
             return CompareSeries(
                 metric: metric,
-                color: Self.seriesPalette[idx % Self.seriesPalette.count],
+                color: seriesColor(for: metric, index: idx),
                 rows: rows
             )
         }
@@ -374,7 +381,7 @@ struct CompareView: View {
 
     private func colorFor(_ metric: MetricDescriptor) -> Color {
         guard let idx = selected.firstIndex(of: metric) else { return StrandPalette.textSecondary }
-        return Self.seriesPalette[idx % Self.seriesPalette.count]
+        return seriesColor(for: metric, index: idx)
     }
 
     private func toggle(_ metric: MetricDescriptor) {

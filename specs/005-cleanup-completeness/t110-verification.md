@@ -66,3 +66,12 @@ Build: `NOOPiOS`, Debug iPhone Simulator, iPhone 17 Pro Max, `--demo-seed` — P
 - [Compare](qa/t110g-compare/page-1.png): metric selection, empty correlation, and pair-result vessels migrated from legacy `NoopCard` to flat `PaperCard`; chart and correlation logic are untouched.
 - [Coach](qa/t110g-coach/page-1.png): consent/pattern/instruction vessels migrated to `PaperCard`; header copy now fits without truncation and uses current Recovery/Strain/Sleep language. Provider, key, model, and consent wiring are unchanged.
 - Added a debug-only Coach route for deterministic evidence; production reachability is unchanged.
+
+## Batch 8 — Compare colours and data utilities
+
+Build: `NOOPiOS`, Debug iPhone Simulator, iPhone 17 Pro Max, `--demo-seed` — PASS.
+
+- [Compare](qa/t110h-compare/page-1.png): Sleep now uses canonical `sleepAccent` slate in its chip dot, line, legend, and pair swatch; Recovery remains the Trends Recovery blue and additional series receive distinct categorical hues. Calculations and normalization are unchanged.
+- [Trends Report](qa/t110h-trends-report/page-1.png): range selection, preview, and black Export action remain fully Paper-aligned and wired.
+- [Fused Record](qa/t110h-fused/page-1.png): seeded source-conflict state retains honest provenance, comparison affordance, and semantic warning treatment.
+- [Apple Health](qa/t110h-apple-health/page-1.png): loading vessel migrated to `PaperCard`; Enable/Open Settings primary actions now use black Paper styling. HealthKit permission and sync behavior are unchanged.

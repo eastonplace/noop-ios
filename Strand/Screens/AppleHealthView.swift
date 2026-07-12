@@ -353,7 +353,7 @@ struct AppleHealthView: View {
     }
 
     private var loadingState: some View {
-        NoopCard(tint: StrandPalette.metricCyan) {
+        PaperCard {
             HStack(spacing: 10) {
                 ConnectionDot(tone: .accent, pulsing: true)
                 Text("Reading your Apple Health history…")
@@ -428,7 +428,7 @@ struct AppleHealthView: View {
                         Label("Enable Apple Health", systemImage: "heart.fill")
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(StrandPalette.metricCyan)
+                    .tint(StrandPalette.textPrimary)
 
                 case .denied:
                     StatePill("Permission needed", tone: .warning)
@@ -440,7 +440,7 @@ struct AppleHealthView: View {
                         Label("Open Settings", systemImage: "gear")
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(StrandPalette.metricCyan)
+                    .tint(StrandPalette.textPrimary)
 
                 case .authorized:
                     if let last = health.lastSync {
