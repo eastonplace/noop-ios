@@ -75,3 +75,13 @@ Build: `NOOPiOS`, Debug iPhone Simulator, iPhone 17 Pro Max, `--demo-seed` — P
 - [Trends Report](qa/t110h-trends-report/page-1.png): range selection, preview, and black Export action remain fully Paper-aligned and wired.
 - [Fused Record](qa/t110h-fused/page-1.png): seeded source-conflict state retains honest provenance, comparison affordance, and semantic warning treatment.
 - [Apple Health](qa/t110h-apple-health/page-1.png): loading vessel migrated to `PaperCard`; Enable/Open Settings primary actions now use black Paper styling. HealthKit permission and sync behavior are unchanged.
+
+## Batch 9 — wellness tools and sheets
+
+Build: `NOOPiOS`, Debug iPhone Simulator, iPhone 17 Pro Max, `--demo-seed` — PASS.
+
+- [Interval Timer](qa/t110i-intervals/page-1.png): controls, state bands, session summary, and configuration remain Paper-aligned; the header subtitle now fits without truncation.
+- [Hydration](qa/t110i-hydration/page-1.png): hero numeral and goal copy now use ink/secondary tokens on the light gauge. Quick amounts, custom amount entry, history, edit, and persistence are unchanged.
+- [Manual Workout](qa/t110i-manual-workout/page-1.png): add/start sheet retains every validated input and uses Paper form chrome with honest disabled state until a sport is entered.
+- [Breathing](qa/t110i-breathing/page-1.png): pacer numeral and unit now use ink/tertiary tokens on the light gauge. Breathe, Resonance, Calm, haptics, and Biofeedback controller wiring are unchanged.
+- Added debug-only direct routes for Hydration, Manual Workout, and Breathing to make evidence deterministic.

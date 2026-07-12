@@ -277,7 +277,7 @@ enum DemoScreens {
         "today", "trends", "trendslastweek", "fullday", "sleep", "live", "stress", "workouts", "workoutdetail", "health",
         "insights", "insightshub", "intelligence", "explore", "compare", "coach", "settings", "applehealth",
         "storage", "trendsreport", "fused", "scoringguide", "updates", "whatsnew", "hownoopworks", "xiaomi",
-        "intervals", "watchsetup", "watchabout", "dashboardeditor",
+        "intervals", "hydration", "breathing", "manualworkout", "watchsetup", "watchabout", "dashboardeditor",
         "keymetricseditor", "data", "backup", "support", "labbook", "automations",
         "alarms", "testcentre", "rhythmconsent", "rhythm", "liveworkout",
         "preworkout", "recoverydetail", "straindetail", "sleepdetail", "devices",
@@ -328,6 +328,9 @@ enum DemoScreens {
         case "hownoopworks": return AnyView(HowNoopWorksView(onClose: {}))
         case "xiaomi": return AnyView(XiaomiBandView())
         case "intervals": return AnyView(IntervalTimerView())
+        case "hydration": return AnyView(HydrationView())
+        case "breathing": return AnyView(BreathingView())
+        case "manualworkout": return AnyView(ManualWorkoutSheet { _, _ in })
         case "watchsetup": return AnyView(AppleWatchSetupView(onClose: {}))
         case "watchabout": return AnyView(AppleWatchAboutView())
         case "dashboardeditor": return AnyView(DashboardCardsEditorSheet(selectionRaw: .constant("")))

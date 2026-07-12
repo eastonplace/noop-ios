@@ -100,7 +100,7 @@ struct IntervalTimerView: View {
 
     var body: some View {
         ScreenScaffold(title: "Interval Timer",
-                       subtitle: "Silent haptic HIIT: the strap buzzes the transitions") {
+                       subtitle: "Silent haptic intervals, cued by your strap.") {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
                 let cards: [AnyView] = [
                     AnyView(statusRow),

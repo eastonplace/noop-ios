@@ -98,10 +98,10 @@ struct HydrationView: View {
                         CountUpText(value: HydrationGoal.litres(fromML: totalML),
                                     format: { String(format: "%.1f", $0) },
                                     font: StrandFont.rounded(40, weight: .bold),
-                                    color: StrandPalette.onDarkPrimary)
+                                    color: StrandPalette.textPrimary)
                         Text(String(localized: "of \(String(format: "%.1f", HydrationGoal.litres(fromML: Double(goalML)))) L"))
                             .font(StrandFont.subhead)
-                            .foregroundStyle(StrandPalette.onDarkSecondary)
+                            .foregroundStyle(StrandPalette.textSecondary)
                     }
                     .allowsHitTesting(false)   // taps fall through to the vessel → splash
                 }
