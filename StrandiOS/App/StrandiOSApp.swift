@@ -282,7 +282,7 @@ enum DemoScreens {
         "alarms", "testcentre", "rhythmconsent", "rhythm", "liveworkout",
         "preworkout", "recoverydetail", "straindetail", "sleepdetail", "devices",
         "devicescatalog", "fitnessage", "vitality", "addwizard", "ouraonboarding",
-        "ouradevice",
+        "ouradevice", "onboarding",
     ]
 
     /// The screen named by `--demo-screen <name>`, or nil if the arg is absent/unknown.
@@ -351,6 +351,7 @@ enum DemoScreens {
         // Oura device card: the locally-adopted Oura ring card (Beta chip + per-gen honest capability copy
         // + battery + local-state note), rendered with mock data, no ring required.
         case "ouradevice": return AnyView(OuraDeviceDemoScreen())
+        case "onboarding": return AnyView(OnboardingWizard(onFinished: {}))
         default:         return nil
         }
     }

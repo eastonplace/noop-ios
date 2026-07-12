@@ -40,20 +40,21 @@ struct KeyMetricsEditorSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            header
-            // Each tile is its own frosted row, tinted by that metric's own accent, so the editor
-            // reads like a stack of the cards it controls rather than a flat settings list.
-            VStack(spacing: 8) {
-                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                    row(item, at: index)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                header
+                VStack(spacing: 8) {
+                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                        row(item, at: index)
+                    }
                 }
+                footer
             }
-            footer
+            .padding(20)
+            .frame(maxWidth: 620)
+            .frame(maxWidth: .infinity)
         }
-        .padding(24)
-        .frame(width: 420)
-        .background(StrandPalette.canvas)
+        .background(StrandPalette.surfaceBase.ignoresSafeArea())
     }
 
     // MARK: Rows
@@ -155,8 +156,12 @@ struct KeyMetricsEditorSheet: View {
                 commit()
                 dismiss()
             }
-            .buttonStyle(.borderedProminent)
-            .tint(StrandPalette.accent)
+            .buttonStyle(.plain)
+            .font(StrandFont.body.weight(.semibold))
+            .foregroundStyle(StrandPalette.surfaceBase)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 10)
+            .background(Capsule().fill(StrandPalette.textPrimary))
             // At least one tile must stay visible — an empty grid reads as a bug, not a choice.
             .disabled(!items.contains { $0.enabled })
             .accessibilityLabel("Done editing Key Metrics")

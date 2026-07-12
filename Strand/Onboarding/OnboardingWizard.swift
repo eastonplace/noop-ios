@@ -5,9 +5,9 @@ import WhoopStore
 
 // MARK: - OnboardingWizard
 //
-// A full-screen, paged onboarding + pairing flow for NOOP. Cinematic and calm:
-// a dark surfaceBase substrate with a slow ambient glow, a bottom progress "thread"
-// that fills as you advance, Back always available, and a forward CTA per step.
+// A full-screen, paged onboarding + pairing flow for NOOP. The Paper treatment
+// keeps the canvas quiet, uses the progress thread for continuity, and reserves
+// colour for state and data.
 //
 // Steps:
 //  1 Welcome           — NOOP + "all your data, none of the cloud"
@@ -1300,14 +1300,13 @@ private struct PrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .frame(maxWidth: .infinity)
-            .foregroundStyle(Color.white)
+            .foregroundStyle(StrandPalette.surfaceBase)
             .padding(.vertical, 14)
             .padding(.horizontal, 20)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(configuration.isPressed ? StrandPalette.accentHover : StrandPalette.accent)
+                    .fill(StrandPalette.textPrimary.opacity(configuration.isPressed ? 0.82 : 1))
             )
-            .shadow(color: StrandPalette.accent.opacity(0.4), radius: 12, y: 4)
             .scaleEffect(configuration.isPressed ? 0.985 : 1)
             .animation(StrandMotion.interactive, value: configuration.isPressed)
     }

@@ -48,7 +48,12 @@ struct DashboardCardsEditorSheet: View {
 
     var body: some View {
         NavigationStack {
-            List {
+            VStack(spacing: 0) {
+                paperHeader
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+
+                List {
                 Section {
                     ForEach($items) { $item in
                         PaperCard(padding: 12) { row($item) }
@@ -65,29 +70,16 @@ struct DashboardCardsEditorSheet: View {
                         .foregroundStyle(StrandPalette.textTertiary)
                 }
                 .listRowBackground(Color.clear)
+                }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
             }
-            .scrollContentBackground(.hidden)
             .background(StrandPalette.surfaceBase)
             #if os(iOS)
             .environment(\.editMode, $editMode)
             .navigationBarTitleDisplayMode(.inline)
             #endif
-            .navigationTitle("My Dashboard")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Reset") { resetToDefault() }
-                        .foregroundStyle(StrandPalette.accent)
-                        .accessibilityLabel("Reset dashboard cards to default")
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { commit(); dismiss() }
-                        .fontWeight(.semibold)
-                        .foregroundStyle(StrandPalette.accent)
-                        // At least one card must stay visible — an empty dashboard reads as a bug.
-                        .disabled(!items.contains { $0.enabled })
-                        .accessibilityLabel("Done customising dashboard")
-                }
-            }
+            .toolbar(.hidden, for: .navigationBar)
             // Persist on EVERY change (toggle / reorder / reset), not only on Done — so closing the sheet by
             // swipe still keeps the edit, mirroring WHOOP's live "My Dashboard" customise. Done just dismisses.
             .onChange(of: items) { _ in commit() }
@@ -97,6 +89,25 @@ struct DashboardCardsEditorSheet: View {
         // macOS sheets don't auto-size to content the way iOS does — give it a usable frame.
         .frame(width: 420, height: 540)
         #endif
+    }
+
+    private var paperHeader: some View {
+        HStack {
+            Button("Reset") { resetToDefault() }
+                .foregroundStyle(StrandPalette.link)
+                .accessibilityLabel("Reset dashboard cards to default")
+            Spacer()
+            Text("My Dashboard")
+                .font(StrandFont.headline)
+                .foregroundStyle(StrandPalette.textPrimary)
+            Spacer()
+            Button("Done") { commit(); dismiss() }
+                .fontWeight(.semibold)
+                .foregroundStyle(StrandPalette.link)
+                .disabled(!items.contains { $0.enabled })
+                .accessibilityLabel("Done customising dashboard")
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: Row
