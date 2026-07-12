@@ -31,6 +31,15 @@ public struct OnboardingWizard: View {
         self.onFinished = onFinished
     }
 
+    #if DEBUG
+    /// Screenshot harness entry point. Production callers always begin at Welcome.
+    public init(onFinished: @escaping () -> Void, initialStepIndex: Int) {
+        self.onFinished = onFinished
+        let boundedIndex = min(max(initialStepIndex, 0), Step.allCases.count - 1)
+        _step = State(initialValue: Step(rawValue: boundedIndex) ?? .welcome)
+    }
+    #endif
+
     // NOTE: the root deliberately does NOT observe the fast-updating model/live/profile
     // env objects — doing so re-rendered the whole animated wizard on every HR tick and
     // caused flicker. Child steps observe what they need; a hidden BondWatcher (below)
@@ -233,7 +242,7 @@ private struct WelcomeStep: View {
                     .opacity(appear ? 1 : 0)
                 Text("all your data, none of the cloud")
                     .font(StrandFont.title2)
-                    .foregroundStyle(StrandPalette.textSecondary)
+                    .foregroundStyle(StrandPalette.textPrimary)
                     .opacity(appear ? 1 : 0)
                 Text("A private window into your recovery, sleep and strain. Read straight from your strap, kept only on \(Platform.deviceNounPhrase).")
                     .font(StrandFont.body)

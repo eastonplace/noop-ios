@@ -294,6 +294,12 @@ enum DemoScreens {
 
     /// Pure route resolver used by both the launch harness and the iOS smoke test.
     static func view(named name: String) -> AnyView? {
+        if name.lowercased().hasPrefix("onboarding-") {
+            let suffix = name.dropFirst("onboarding-".count)
+            if let step = Int(suffix), (1...12).contains(step) {
+                return AnyView(OnboardingWizard(onFinished: {}, initialStepIndex: step - 1))
+            }
+        }
         switch name.lowercased() {
         case "today":    return AnyView(TodayView())
         case "trends":   return AnyView(TrendsView())
