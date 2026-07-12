@@ -85,3 +85,13 @@ Build: `NOOPiOS`, Debug iPhone Simulator, iPhone 17 Pro Max, `--demo-seed` — P
 - [Manual Workout](qa/t110i-manual-workout/page-1.png): add/start sheet retains every validated input and uses Paper form chrome with honest disabled state until a sport is entered.
 - [Breathing](qa/t110i-breathing/page-1.png): pacer numeral and unit now use ink/tertiary tokens on the light gauge. Breathe, Resonance, Calm, haptics, and Biofeedback controller wiring are unchanged.
 - Added debug-only direct routes for Hydration, Manual Workout, and Breathing to make evidence deterministic.
+
+## Batch 10 — embedded journal and health cards
+
+Build: `NOOPiOS`, Debug iPhone Simulator, iPhone 17 Pro Max, `--demo-seed` — PASS.
+
+- [Journal](qa/t110j-journal/page-1.png): day and answer selections now use ink Paper selection chrome; editing, tri-state answers, custom items, and repository writes are unchanged.
+- [Caffeine](qa/t110j-caffeine/page-1.png): timing selections now use ink Paper selection chrome; optional-dose honesty, decay estimate, cutoff toggle, and persistence are unchanged.
+- [Stress Check-in](qa/t110j-stress-checkin/page-1.png): seeded passive nudge proves the black primary action, secondary dismissal, tertiary opt-out, and engine-derived RMSSD copy.
+- [Skin Temperature](qa/t110j-skin-temp/page-1.png): seeded cycle-awareness and illness heads-up states prove Paper cards, privacy copy, range—not fixed-date—language, and semantic status treatment.
+- Added debug-only fixture hosts for deterministic evidence; production card placement and behavior are unchanged.

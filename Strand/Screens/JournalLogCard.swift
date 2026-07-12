@@ -359,9 +359,9 @@ struct JournalLogCard: View {
                 .foregroundStyle(selected ? StrandPalette.surfaceBase : StrandPalette.textSecondary)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 5)
-                .background(selected ? StrandPalette.restColor : StrandPalette.surfaceInset,
+                .background(selected ? StrandPalette.textPrimary : StrandPalette.surfaceInset,
                             in: Capsule())
-                .overlay(Capsule().stroke(selected ? StrandPalette.restColor : StrandPalette.hairline,
+                .overlay(Capsule().stroke(selected ? StrandPalette.textPrimary : StrandPalette.hairline,
                                           lineWidth: 1))
         }
         .buttonStyle(.plain)

@@ -277,7 +277,7 @@ enum DemoScreens {
         "today", "trends", "trendslastweek", "fullday", "sleep", "live", "stress", "workouts", "workoutdetail", "health",
         "insights", "insightshub", "intelligence", "explore", "compare", "coach", "settings", "applehealth",
         "storage", "trendsreport", "fused", "scoringguide", "updates", "whatsnew", "hownoopworks", "xiaomi",
-        "intervals", "hydration", "breathing", "manualworkout", "watchsetup", "watchabout", "dashboardeditor",
+        "intervals", "hydration", "breathing", "manualworkout", "journalcard", "caffeinecard", "stresscheckin", "skintempcards", "watchsetup", "watchabout", "dashboardeditor",
         "keymetricseditor", "data", "backup", "support", "labbook", "automations",
         "alarms", "testcentre", "rhythmconsent", "rhythm", "liveworkout",
         "preworkout", "recoverydetail", "straindetail", "sleepdetail", "devices",
@@ -286,6 +286,7 @@ enum DemoScreens {
     ]
 
     /// The screen named by `--demo-screen <name>`, or nil if the arg is absent/unknown.
+    @MainActor
     static var requested: AnyView? {
         let args = CommandLine.arguments
         guard let i = args.firstIndex(of: "--demo-screen"), i + 1 < args.count else { return nil }
@@ -293,6 +294,7 @@ enum DemoScreens {
     }
 
     /// Pure route resolver used by both the launch harness and the iOS smoke test.
+    @MainActor
     static func view(named name: String) -> AnyView? {
         if name.lowercased().hasPrefix("onboarding-") {
             let suffix = name.dropFirst("onboarding-".count)
@@ -331,6 +333,10 @@ enum DemoScreens {
         case "hydration": return AnyView(HydrationView())
         case "breathing": return AnyView(BreathingView())
         case "manualworkout": return AnyView(ManualWorkoutSheet { _, _ in })
+        case "journalcard": return AnyView(JournalCardDemoHost())
+        case "caffeinecard": return AnyView(CaffeineCardDemoHost())
+        case "stresscheckin": return AnyView(StressCheckInDemoHost())
+        case "skintempcards": return AnyView(SkinTempCardsDemoHost())
         case "watchsetup": return AnyView(AppleWatchSetupView(onClose: {}))
         case "watchabout": return AnyView(AppleWatchAboutView())
         case "dashboardeditor": return AnyView(DashboardCardsEditorSheet(selectionRaw: .constant("")))
@@ -500,3 +506,61 @@ private struct WorkoutDetailDemoHost: View {
         }
     }
 }
+
+#if DEBUG
+private struct JournalCardDemoHost: View {
+    @State private var dayOffset = 0
+    var body: some View {
+        ScrollView {
+            JournalLogCard(importedQuestions: [], answers: [:], dayOffset: $dayOffset, onChanged: {})
+                .padding(NoopMetrics.screenPadding)
+        }
+        .background(StrandPalette.surfaceBase)
+    }
+}
+
+private struct CaffeineCardDemoHost: View {
+    var body: some View {
+        ScrollView {
+            CaffeineLogCard().padding(NoopMetrics.screenPadding)
+        }
+        .background(StrandPalette.surfaceBase)
+    }
+}
+
+@MainActor
+private struct StressCheckInDemoHost: View {
+    @StateObject private var center = StressNudgeCenter()
+    var body: some View {
+        ScrollView {
+            StressCheckInCard(center: center, onBreatheNow: {})
+                .padding(NoopMetrics.screenPadding)
+        }
+        .background(StrandPalette.surfaceBase)
+        .task { center.present(fastRMSSD: 42, baselineRMSSD: 68) }
+    }
+}
+
+private struct SkinTempCardsDemoHost: View {
+    var body: some View {
+        ScrollView {
+            VStack(spacing: NoopMetrics.sectionGap) {
+                CycleAwarenessCard(
+                    result: .init(phase: .luteal, confidence: .solid,
+                                  cycleDayLow: 20, cycleDayHigh: 24, cycleLengthDays: 28,
+                                  nextPeriodWindow: .init(earliestDay: "2026-07-18", latestDay: "2026-07-22"),
+                                  shiftMarkers: [], note: "Temperature is running above your baseline."),
+                    curve: (0..<40).map { 0.1 * sin(Double($0) / 8) + 0.04 },
+                    onLogPeriod: {}, onOpenDetail: {})
+                HeadsUpCard(result: .init(
+                    score: 64, level: .raised,
+                    firedSignals: ["RHR +6", "HRV −22%", "skin temp +0.7 °C"],
+                    suppressedBy: [], signalCount: 3,
+                    copy: "Heads-up — your body looks strained. On-device estimate — not a diagnosis."))
+            }
+            .padding(NoopMetrics.screenPadding)
+        }
+        .background(StrandPalette.surfaceBase)
+    }
+}
+#endif

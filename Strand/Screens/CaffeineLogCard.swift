@@ -318,8 +318,8 @@ struct CaffeineLogCard: View {
                 .foregroundStyle(selected ? StrandPalette.surfaceBase : StrandPalette.textSecondary)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 5)
-                .background(selected ? StrandPalette.accent : StrandPalette.surfaceInset, in: Capsule())
-                .overlay(Capsule().stroke(selected ? StrandPalette.accent : StrandPalette.hairline,
+                .background(selected ? StrandPalette.textPrimary : StrandPalette.surfaceInset, in: Capsule())
+                .overlay(Capsule().stroke(selected ? StrandPalette.textPrimary : StrandPalette.hairline,
                                           lineWidth: 1))
         }
         .buttonStyle(.plain)
