@@ -67,6 +67,6 @@
   assertion + T81 proportion test to current rulings; delete proven-orphan
   legacy code (call-site proof in commit message); xcstrings stale-term/dead-key
   sweep (all languages). Suite green.
-- [ ] **T112 — Evidence + PR update**: regenerate full-page contact set,
+- [x] **T112 — Evidence + PR update**: regenerate full-page contact set,
   fidelity.md "complete & clean" column, update the audit table to final state,
   push, summarize for Easton's next alignment.
