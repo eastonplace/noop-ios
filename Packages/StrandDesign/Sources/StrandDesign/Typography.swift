@@ -52,8 +52,11 @@ public enum StrandFont {
         sf(size, weight: weight).monospacedDigit()
     }
 
-    /// Title1 28 / Bold. Scales with Dynamic Type.
-    public static let title1 = sfScaled(28, weight: .bold, relativeTo: .title)
+    /// Large Title 34 / 40 / Bold. Scales with Dynamic Type.
+    public static let largeTitle = sfScaled(34, weight: .bold, relativeTo: .largeTitle)
+
+    /// Title1 28 / 34 / Semibold. Scales with Dynamic Type.
+    public static let title1 = sfScaled(28, weight: .semibold, relativeTo: .title)
 
     /// Title2 22 / Semibold. Scales with Dynamic Type.
     public static let title2 = sfScaled(22, weight: .semibold, relativeTo: .title2)
@@ -61,8 +64,8 @@ public enum StrandFont {
     /// Headline 17 / Semibold. Scales with Dynamic Type.
     public static let headline = sfScaled(17, weight: .semibold, relativeTo: .headline)
 
-    /// Body 15 / Regular. Scales with Dynamic Type.
-    public static let body = sfScaled(15, weight: .regular, relativeTo: .body)
+    /// Body 17 / 24 / Regular. Scales with Dynamic Type.
+    public static let body = sfScaled(17, weight: .regular, relativeTo: .body)
 
     /// Subhead 13. Scales with Dynamic Type.
     public static let subhead = sfScaled(13, weight: .regular, relativeTo: .subheadline)
@@ -97,7 +100,7 @@ public enum StrandFont {
 
     /// SF Pro body number — for inline live values that should align. Scales with Dynamic
     /// Type alongside its sibling `body`/`caption` labels so a value and its label stay matched.
-    public static let bodyNumber = sfScaled(15, weight: .medium, relativeTo: .body).monospacedDigit()
+    public static let bodyNumber = sfScaled(17, weight: .medium, relativeTo: .body).monospacedDigit()
 
     /// SF Pro caption number — for small live values (sparklines, chips). Scales with Dynamic Type.
     public static let captionNumber = sfScaled(13, weight: .medium, relativeTo: .caption).monospacedDigit()
@@ -110,14 +113,14 @@ public enum StrandFont {
     // MARK: Paper roles (spec §2.3)
 
     public static let wordmark = sfScaled(13, weight: .semibold, relativeTo: .caption)
-    public static let screenOverline = sfScaled(12, weight: .semibold, relativeTo: .caption)
-    public static let sectionOverline = sfScaled(9.5, weight: .medium, relativeTo: .caption2)
+    public static let screenOverline = sfScaled(11, weight: .semibold, relativeTo: .caption2)
+    public static let sectionOverline = sfScaled(11, weight: .semibold, relativeTo: .caption2)
     public static let ringScoreSmall = sf(30, weight: .semibold).monospacedDigit()
     public static let ringScoreLarge = sf(48, weight: .bold).monospacedDigit()
     public static let timer = sf(64, weight: .bold).monospacedDigit()
     public static let metricValue = sf(28, weight: .bold).monospacedDigit()
     public static let statValue = sf(32, weight: .bold).monospacedDigit()
-    public static let cardTitle = sfScaled(16, weight: .semibold, relativeTo: .headline)
+    public static let cardTitle = sfScaled(17, weight: .semibold, relativeTo: .headline)
     public static let micro = sfScaled(11, weight: .regular, relativeTo: .caption2)
 
     public static let wordmarkTracking: CGFloat = 4

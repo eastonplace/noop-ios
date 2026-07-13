@@ -68,18 +68,18 @@ public enum StrandPalette {
     // MARK: Paper surfaces
     public static let canvas         = Color(light: "#F7F6F3", dark: "#131311")
     public static let card           = Color(light: "#FFFFFF", dark: "#1C1C1A")
-    public static let cardBorder     = Color(light: "#ECEAE5", dark: "#2A2A27")
+    public static let cardBorder     = Color(light: "#ECEBE7", dark: "#2A2A27")
     public static let inset          = Color(light: "#F4F3F0", dark: "#232321")
     public static let surfaceBase    = canvas
     public static let surfaceRaised  = card
     public static let surfaceOverlay = card
     public static let surfaceInset   = inset
-    public static let hairline       = Color(light: "#F0EEEA", dark: "#262624")
+    public static let hairline       = Color(light: "#00000014", dark: "#FFFFFF14")
     public static let hairlineStrong = cardBorder
 
     // MARK: Text — warm ink on paper / warm off-white on near-black
-    public static let textPrimary    = Color(light: "#141414", dark: "#F2F1EE")
-    public static let textSecondary  = Color(light: "#6F6F6C", dark: "#A5A4A0")
+    public static let textPrimary    = Color(light: "#000000", dark: "#F2F1EE")
+    public static let textSecondary  = Color(light: "#666666", dark: "#A5A4A0")
     // AC-3: these are the nearest warm grays that keep the tertiary hierarchy while
     // clearing 4.5:1 on canvas in both schemes (4.57 light, 5.17 dark).
     public static let textTertiary   = Color(light: "#72706C", dark: "#888782")
@@ -118,7 +118,7 @@ public enum StrandPalette {
     public static let effortTint     = Color(hex: "#2A2440")
     public static let restAccent     = sleepAccent
     public static let restTint       = Color(hex: "#232840")
-    public static let stressAccent   = Color(hex: "#EBBE5C")
+    public static let stressAccent   = Color(hex: "#FF8A00")
     public static let stressTint     = Color(hex: "#382F1E")
     public static let liveRed        = Color(hex: "#F26B6F")
     public static let liveRedTint    = Color(hex: "#3A2021")
@@ -135,17 +135,19 @@ public enum StrandPalette {
 
     // Journal and Experimental affordances intentionally keep their purple identity
     // when the old Strain token migrates to constant Strain blue.
-    public static let journalAccent  = Color(light: "#7A5AF8", dark: "#9B82FF")
+    public static let journalAccent  = Color(hex: "#7C4DFF")
 
     public static let stressRestful  = chargeAccent
     public static let stressLow      = Color(hex: "#CDE7D6")
     public static let stressMedium   = stressAccent
     public static let stressHigh     = liveRed
 
-    public static let success        = chargeAccent
-    public static let warning        = Color(light: "#E07B39", dark: "#F29A5A")
+    public static let success        = Color(hex: "#16C784")
+    public static let info           = Color(hex: "#2D8CFF")
+    public static let warning        = Color(hex: "#FFB020")
     public static let warningBg      = Color(light: "#FBF1E6", dark: "#3A291E")
-    public static let destructive    = Color(light: "#D93025", dark: "#F26B6F")
+    public static let destructive    = Color(hex: "#FF3B30")
+    public static let error          = destructive
 
     // MARK: - Chart style (data-viz colour mode) — Titanium (brand) or Classic (throwback)
     //

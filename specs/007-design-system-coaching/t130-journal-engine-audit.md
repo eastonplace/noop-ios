@@ -1,6 +1,6 @@
 # T130 Journal Engine Audit
 
-Status: **READY FOR EXTERNAL REVIEW, WITH REFERENCE-ASSET BLOCKER**  
+Status: **APPROVED — T131/T132 AUTHORIZED**  
 Baseline: `pre-007` → `a80a83ced85b111c48118c07c757450e8d528ec0`  
 Scope: code and storage audit only; no schema, engine, navigation, or UI changes.
 
@@ -177,4 +177,15 @@ External review should approve or revise:
 4. The rule that G3 groups are presentation metadata and never alter canonical behavior identity.
 5. The missing-board blocker: both canonical PNGs must land under `references/` before T131.
 
-**STOP:** T131–T139 have not started.
+The T130 stop was observed; T131/T132 began only after the external approval below.
+
+## External-review rulings
+
+- Set/membership split approved.
+- `coachingQuantityMetadata` rejected. T137 must extend the existing
+  `journal.numericValue` + `noop-journal-dose` contract exclusively; stack-use carries provenance.
+- Stack items write real journal occurrences through the existing API; stack-use is provenance only.
+- Coaching groups are presentation metadata; canonical strings remain immutable.
+- G1 transcription authorizes T131/T132 without the PNGs. T133/T139 remain hard-blocked until both
+  boards land under `references/`.
+- All six T138 integration oracles are approved.

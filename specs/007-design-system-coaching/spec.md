@@ -92,10 +92,10 @@
 
 ## Tasks (T130–T139)
 
-- [ ] T130 — Gate: tag `pre-007`; drop both reference boards in; journal
+- [x] T130 — Gate: tag `pre-007`; drop both reference boards in; journal
   engine audit (existing behaviors/storage/associations mapped vs sheet
   needs; additive-schema proposal). STOP for review.
-- [ ] T131 — G1 token rebase (type/spacing/radius/color/shadow/divider).
+- [x] T131 — G1 token rebase (type/spacing/radius/color/shadow/divider).
 - [ ] T132 — G1 component rebase (toggles, buttons, chips, rows, banners,
   menus, dialogs, nav 76, badges) + absorb pending T126a items.
 - [ ] T133 — GATE: full-app re-shoot, deadness check vs the board.

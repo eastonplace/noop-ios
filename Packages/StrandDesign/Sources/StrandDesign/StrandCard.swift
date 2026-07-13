@@ -36,8 +36,8 @@ public struct FrostedCardSurface: View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         shape
             .fill(StrandPalette.card)
-            .overlay(shape.strokeBorder(StrandPalette.cardBorder, lineWidth: 0.75))
-            .shadow(color: Color.black.opacity(0.025), radius: 2, x: 0, y: 1)
+            .overlay(shape.strokeBorder(StrandPalette.cardBorder, lineWidth: 1))
+            .shadow(color: Color.black.opacity(0.10), radius: 8, x: 0, y: 2)
     }
 }
 

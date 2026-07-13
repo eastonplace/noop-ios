@@ -6,11 +6,11 @@ import SwiftUI
 // the uniform, instrument-grade look from the reference. Do not invent ad-hoc cards.
 
 public enum NoopMetrics {
-    public static let cardRadius: CGFloat = 14
+    public static let cardRadius: CGFloat = 16
     public static let cardPadding: CGFloat = 16
-    public static let gap: CGFloat = 12
-    public static let sectionGap: CGFloat = 20
-    public static let screenPadding: CGFloat = 16
+    public static let gap: CGFloat = 18
+    public static let sectionGap: CGFloat = 24
+    public static let screenPadding: CGFloat = 20
     public static let tileHeight: CGFloat = 96   // Design Reset: tighter metric tile
     // Key Metrics grid: one fixed height every tile snaps to, so a sparkline-and-caption tile and a
     // plain value tile read the same. maxHeight: .infinity can't equalise them inside a LazyVGrid (the
@@ -53,20 +53,31 @@ public enum NoopMetrics {
     public static let space6:  CGFloat = 24
     public static let space8:  CGFloat = 32
     public static let space10: CGFloat = 40
+    public static let space12: CGFloat = 48
+    public static let space16: CGFloat = 64
 
     // MARK: Named layout constants — the canonical margins/heights screens compose with.
     /// Horizontal page margin (the gutter on the left/right edge of a screen). Use via `.screenPadding()`.
-    public static let screenHPadding: CGFloat = 16
+    public static let screenHPadding: CGFloat = 20
     /// Vertical gap between top-level page sections.
-    public static let sectionSpacing: CGFloat = 20
+    public static let sectionSpacing: CGFloat = 24
     /// Interior padding inside a card's content (matches `cardPadding`).
     public static let cardInnerPadding: CGFloat = 16
     /// Vertical gap between stacked elements INSIDE a card.
     public static let cardInnerSpacing: CGFloat = 10
     /// Vertical gap between rows in a list-style card.
-    public static let rowSpacing: CGFloat = 10
+    public static let rowSpacing: CGFloat = 18
     /// Standard interactive-control height (buttons, fields, segmented controls).
-    public static let controlHeight: CGFloat = 48
+    public static let controlHeight: CGFloat = 56
+    public static let rowHeight: CGFloat = 56
+    public static let navBarHeight: CGFloat = 76
+    public static let radius1: CGFloat = 8
+    public static let radius2: CGFloat = 12
+    public static let radius3: CGFloat = 16
+    public static let radius4: CGFloat = 20
+    public static let radius5: CGFloat = 22
+    public static let radius6: CGFloat = 28
+    public static let radius7: CGFloat = 32
     /// Fully-rounded corner radius — pills, chips, capsule buttons.
     public static let pillRadius: CGFloat = 999
 }
