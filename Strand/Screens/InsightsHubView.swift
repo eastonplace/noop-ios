@@ -33,6 +33,7 @@ import WhoopStore
 struct InsightsHubView: View {
     @EnvironmentObject private var repo: Repository
     @StateObject private var model = InsightsHubViewModel()
+    @State private var showJournal = false
 
     /// The currently-selected outcome for the ranked feed (Charge / HRV / Sleep / RHR).
     @State private var outcome: InsightsHubViewModel.Outcome = .recovery
@@ -51,7 +52,7 @@ struct InsightsHubView: View {
 
     var body: some View {
         ScreenScaffold(title: "Insights",
-                       subtitle: "Personal data associations ranked by effect size.",
+                       subtitle: nil,
                        // PERF (scroll): lazy column — byte-identical layout (LazyVStack == eager VStack
                        // alignment/spacing/header). The content is one inner eager VStack, so the staggered
                        // mover reveal is unchanged; this only defers building that stack until it scrolls in.
@@ -73,6 +74,18 @@ struct InsightsHubView: View {
             applyFilter()
         }
         .onChangeCompat(of: filter) { _ in applyFilter() }
+        .sheet(isPresented: $showJournal) {
+            NavigationStack {
+                InsightsView(focusedJournal: true)
+                    .toolbarBackground(.hidden, for: .navigationBar)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Done") { showJournal = false }
+                                .foregroundStyle(StrandPalette.link)
+                        }
+                    }
+            }
+        }
     }
 
     // MARK: - What moves your Charge (ranked, lag-aware)
@@ -89,7 +102,16 @@ struct InsightsHubView: View {
             }
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 6) {
-                StatusBadge("Journal", style: .experimental)
+                Button { showJournal = true } label: {
+                    Label("Journal", systemImage: "square.and.pencil")
+                        .font(StrandFont.micro.weight(.semibold))
+                        .foregroundStyle(StrandPalette.textPrimary)
+                        .padding(.horizontal, 10)
+                        .frame(height: 28)
+                        .background(StrandPalette.effortAccent.opacity(0.12), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Opens your daily journal")
                 StatusBadge("Local only", style: .notConnected)
             }
         }

@@ -62,6 +62,15 @@ struct InsightsView: View {
     /// #860 item 4: foreground signal for the day-rollover re-load (see `currentDayKey`).
     @Environment(\.scenePhase) private var scenePhase
 
+    /// Presentation-only focus used by the reference-aligned Journal entry. The same loader, bindings,
+    /// save callbacks, catalog and day-attribution machinery remain in charge; this only suppresses the
+    /// analysis sections that belong on the separate Insights landing page.
+    private let focusedJournal: Bool
+
+    init(focusedJournal: Bool = false) {
+        self.focusedJournal = focusedJournal
+    }
+
     // MARK: Selected outcome (segmented)
 
     /// One interrogable outcome metric: how to fetch it and how to read its direction.
@@ -215,10 +224,10 @@ struct InsightsView: View {
                 ComingSoon(what: "Reading your journal and outcomes…")
             } else {
                 VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
-                    // v5: a single row into the "What moves you" hub, the lag-aware ranked-effect feed
-                    // + alcohol/caffeine dose-response. Reachable as its own destination too; this is the
-                    // honest in-Insights entry point.
-                    whatMovesYouLink
+                    if !focusedJournal {
+                        // Existing combined/desktop callers keep their original entry ordering.
+                        whatMovesYouLink
+                    }
                     // Native logging, always reachable: the account-free way into Insights.
                     JournalLogCard(importedQuestions: importedQuestions,
                                    answers: dayAnswers,
@@ -234,20 +243,24 @@ struct InsightsView: View {
                     // Self-contained (owns its own UserDefaults-backed store); sits in the same
                     // "log today" block. Opt-in: shows nothing until the user logs an intake.
                     CaffeineLogCard()
-                    experimentSection
-                    if behaviours.isEmpty {
-                        // No journal yet, explain, without dead-ending on a paid export.
-                        PaperCard {
-                            Text("Log behaviours above. After a few days of answers, NOOP ranks how each one moves your recovery, HRV and rest. Importing a WHOOP export (which includes its journal) backfills history instantly.")
-                                .font(StrandFont.subhead)
-                                .foregroundStyle(StrandPalette.textSecondary)
-                                .fixedSize(horizontal: false, vertical: true)
+                    if !focusedJournal {
+                        // Legacy combined presentation remains available to existing desktop callers;
+                        // iPhone's reference-aligned landing now owns the association hierarchy.
+                        experimentSection
+                        if behaviours.isEmpty {
+                            // No journal yet, explain, without dead-ending on a paid export.
+                            PaperCard {
+                                Text("Log behaviours above. After a few days of answers, NOOP ranks how each one moves your recovery, HRV and rest. Importing a WHOOP export (which includes its journal) backfills history instantly.")
+                                    .font(StrandFont.subhead)
+                                    .foregroundStyle(StrandPalette.textSecondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        } else {
+                            behaviourSection
                         }
-                    } else {
-                        behaviourSection
+                        activityCostSection
+                        relationshipsSection
                     }
-                    activityCostSection
-                    relationshipsSection
                 }
             }
         }

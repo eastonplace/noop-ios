@@ -197,7 +197,7 @@ struct RootTabView: View {
         case .workout:
             quickScreen(WorkoutsView())
         case .journal:
-            quickScreen(InsightsView())
+            quickScreen(InsightsView(focusedJournal: true))
         case .breathe:
             quickScreen(BreathingView())
         }
@@ -274,7 +274,7 @@ struct RootTabView: View {
                     MoreRow("What Moves You", "wand.and.sparkles") { InsightsHubView() }
                     MoreRow("Intelligence", "brain.head.profile") { IntelligenceView() }
                     MoreRow("Coach", "sparkles") { CoachView() }
-                    MoreRow("Insights", "lightbulb.fill") { InsightsView() }
+                    MoreRow("Insights", "lightbulb.fill") { InsightsHubView() }
                     MoreRow("Explore", "square.grid.2x2.fill") { MetricExplorerView() }
                     MoreRow("Compare", "rectangle.split.2x1.fill") { CompareView() }
                 }
