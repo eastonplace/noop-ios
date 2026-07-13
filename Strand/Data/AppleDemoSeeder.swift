@@ -17,6 +17,10 @@ import WhoopProtocol
 // drift) so the charts, trends and insights all read like a real account.
 enum AppleDemoSeeder {
 
+    private enum Scenario: String {
+        case healthy, illness
+    }
+
     static let whoop = "my-whoop"
     static let apple = "apple-health"
     private static let DAYS = 120
@@ -31,6 +35,16 @@ enum AppleDemoSeeder {
     /// True when the process was launched asking for the demo seed (Xcode scheme arg or `simctl
     /// launch … --demo-seed`).
     static var requested: Bool { CommandLine.arguments.contains("--demo-seed") }
+
+    /// F7: evidence launches default to a healthy populated day. The prior illness
+    /// fixture remains available explicitly via `--demo-scenario illness`.
+    private static var scenario: Scenario {
+        let args = CommandLine.arguments
+        guard let index = args.firstIndex(of: "--demo-scenario"), index + 1 < args.count else {
+            return .healthy
+        }
+        return Scenario(rawValue: args[index + 1].lowercased()) ?? .healthy
+    }
 
     /// Seed only if requested AND the store is empty. Safe to call on every launch.
     static func seedIfRequested(into store: WhoopStore) async {
@@ -227,17 +241,18 @@ enum AppleDemoSeeder {
             }
         }
 
-        // Cleanup audit fixtures: force the final two nights into a corroborated illness-ward state
-        // so HealthAlertBanner and the Heads-Up flow render deterministically under --demo-seed.
-        for index in daily.indices.suffix(2) {
-            let row = daily[index]
-            daily[index] = DailyMetric(
-                day: row.day, totalSleepMin: row.totalSleepMin, efficiency: row.efficiency,
-                deepMin: row.deepMin, remMin: row.remMin, lightMin: row.lightMin,
-                disturbances: row.disturbances, restingHr: 72, avgHrv: 34,
-                recovery: 24, strain: row.strain, exerciseCount: row.exerciseCount,
-                spo2Pct: row.spo2Pct, skinTempDevC: 0.9, respRateBpm: 18.8,
-                steps: row.steps, activeKcalEst: row.activeKcalEst)
+        // The cleanup illness surface is opt-in now; healthy is the F7 screenshot default.
+        if scenario == .illness {
+            for index in daily.indices.suffix(2) {
+                let row = daily[index]
+                daily[index] = DailyMetric(
+                    day: row.day, totalSleepMin: row.totalSleepMin, efficiency: row.efficiency,
+                    deepMin: row.deepMin, remMin: row.remMin, lightMin: row.lightMin,
+                    disturbances: row.disturbances, restingHr: 72, avgHrv: 34,
+                    recovery: 24, strain: row.strain, exerciseCount: row.exerciseCount,
+                    spo2Pct: row.spo2Pct, skinTempDevC: 0.9, respRateBpm: 18.8,
+                    steps: row.steps, activeKcalEst: row.activeKcalEst)
+            }
         }
 
         // --- weekly Fitness Age + VO2max estimate (the engine stamps these on each week's
