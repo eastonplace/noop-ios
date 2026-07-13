@@ -355,7 +355,7 @@ struct IntervalTimerView: View {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text("\(value.wrappedValue)")
                     .font(StrandFont.number(24))
-                    .foregroundStyle(tint)
+                    .foregroundStyle(StrandPalette.textPrimary)
                     .frame(minWidth: 44, alignment: .trailing)
                 if let unit {
                     Text(unit).font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)

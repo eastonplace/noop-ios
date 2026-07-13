@@ -551,7 +551,7 @@ private struct FlowChips: View {
         ForEach(values, id: \.self) { v in
             Text(v)
                 .font(StrandFont.captionNumber)
-                .foregroundStyle(tint)
+                .foregroundStyle(StrandPalette.textPrimary)
                 .padding(.horizontal, 7).padding(.vertical, 2)
                 .background(tint.opacity(0.14), in: Capsule(style: .continuous))
         }

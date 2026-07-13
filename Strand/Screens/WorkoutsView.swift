@@ -608,7 +608,10 @@ struct WorkoutsView: View {
                             .foregroundStyle(StrandPalette.textPrimary)
                         Text(workoutScoreState(average))
                             .font(StrandFont.caption.weight(.semibold))
-                            .foregroundStyle(StrandPalette.effortAccent)
+                            .foregroundStyle(StrandPalette.textPrimary)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(StrandPalette.effortAccent.opacity(0.12), in: Capsule())
                     }
                     Text(workoutScoreDelta)
                         .font(StrandFont.micro)
@@ -902,7 +905,7 @@ struct WorkoutsView: View {
                 .font(StrandFont.overline).tracking(StrandFont.overlineTracking)
                 .foregroundStyle(StrandPalette.textSecondary)
             Text(value).font(StrandFont.number(20))
-                .foregroundStyle(tint).lineLimit(1).minimumScaleFactor(0.6)
+                .foregroundStyle(StrandPalette.textPrimary).lineLimit(1).minimumScaleFactor(0.6)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -1037,7 +1040,7 @@ struct WorkoutsView: View {
             Text(label).strandOverline()
             Text(value)
                 .font(StrandFont.number(15))
-                .foregroundStyle(tint)
+                .foregroundStyle(StrandPalette.textPrimary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
         }

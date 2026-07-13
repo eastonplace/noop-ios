@@ -102,7 +102,7 @@ private struct ActiveWorkoutIndicatorCard: View {
                     Text("WORKOUT IN PROGRESS")
                         .font(StrandFont.overline)
                         .tracking(StrandFont.overlineTracking)
-                        .foregroundStyle(StrandPalette.metricRose)
+                        .foregroundStyle(StrandPalette.textPrimary)
                     Spacer(minLength: NoopMetrics.space2)
                     // A per-second live clock. The TimelineView re-evaluates ONLY this Text every second, so
                     // the tick never re-renders the rest of the card (let alone TodayView.body). bodyNumber
@@ -4617,7 +4617,7 @@ private struct StrapSyncRow: View {
                     if let error = live.lastSyncError {
                         Text(error)
                             .font(StrandFont.captionNumber)
-                            .foregroundStyle(StrandPalette.statusWarning)
+                            .foregroundStyle(StrandPalette.textPrimary)
                             .multilineTextAlignment(.trailing)
                             .fixedSize(horizontal: false, vertical: true)
                     } else if let at = live.lastSyncedAt {

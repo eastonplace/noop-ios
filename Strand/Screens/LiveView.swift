@@ -778,7 +778,7 @@ private struct LiveHeartReadout: View {
                     // em-dash while there's no HR yet.
                     if displayHR != nil {
                         CountUpNumber(value: shown, font: StrandFont.rounded(88, weight: .semibold))
-                            .foregroundStyle(tint)
+                            .foregroundStyle(StrandPalette.textPrimary)
                             .shadow(color: .black.opacity(0.4), radius: 6, y: 1)
                     } else {
                         Text("—")
@@ -792,7 +792,7 @@ private struct LiveHeartReadout: View {
                         Text("ZONE \(liveZone)")
                             .font(StrandFont.overline)
                             .tracking(StrandFont.overlineTracking)
-                            .foregroundStyle(tint)
+                            .foregroundStyle(StrandPalette.textPrimary)
                             .padding(.top, NoopMetrics.space1)
                     }
                 }
@@ -859,7 +859,7 @@ private struct LivePhysiology: View {
                             .foregroundStyle(StrandPalette.textTertiary)
                         Text("\(Int(rmssd.rounded())) ms")
                             .font(StrandFont.number(24))
-                            .foregroundStyle(StrandPalette.metricCyan)
+                            .foregroundStyle(StrandPalette.textPrimary)
                     }
                     .accessibilityElement(children: .combine)
                     .accessibilityLabel("Rolling RMSSD \(Int(rmssd.rounded())) milliseconds")

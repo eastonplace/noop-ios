@@ -787,7 +787,7 @@ private struct FitnessAgeSection: View {
                             Text("VO₂max").strandOverline()
                             Text(String(format: "%.0f", vo2))
                                 .font(StrandFont.number(30))
-                                .foregroundStyle(StrandPalette.metricCyan)
+                                .foregroundStyle(StrandPalette.textPrimary)
                             Text("ml/kg/min")
                                 .font(StrandFont.footnote)
                                 .foregroundStyle(StrandPalette.textTertiary)

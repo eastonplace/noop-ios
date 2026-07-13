@@ -741,7 +741,7 @@ struct DataSourcesView: View {
                 if let note = hrBroadcaster.statusNote {
                     Text(note)
                         .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.statusWarning)
+                        .foregroundStyle(StrandPalette.textPrimary)
                         .fixedSize(horizontal: false, vertical: true)
                 } else if hrBroadcaster.subscriberCount > 0 {
                     let n = hrBroadcaster.subscriberCount

@@ -14,3 +14,4 @@
 - Recovery and Strain details show the larger hero metrics and visibly varied over-time charts without clipped cards.
 - The dark strip was re-shot after forcing `theme.appearance=dark`; it is not a recolored or duplicated light set.
 - Values remain ink/white by surface role; semantic color is carried by rings, chart marks, chips, dots, bars, and glyphs.
+- The T126 audit replaced the Recovery and Workouts light/dark captures after removing the last colored status words and zone percentages, then regenerated both composite artifacts.

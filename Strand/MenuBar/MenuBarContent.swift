@@ -240,7 +240,7 @@ public struct MenuBarContent: View {
                 .minimumScaleFactor(0.7)
             Text(value)
                 .font(StrandFont.number(17, weight: .medium))
-                .foregroundStyle(tint)
+                .foregroundStyle(StrandPalette.textPrimary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
         }
@@ -271,7 +271,7 @@ public struct MenuBarContent: View {
             } else if let error = live.lastSyncError {
                 Text(error)
                     .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.statusWarning)
+                    .foregroundStyle(StrandPalette.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
             } else if let at = live.lastSyncedAt {
                 Text("History synced \(relativeAgo(at))")

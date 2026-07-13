@@ -1130,7 +1130,7 @@ private struct CalmModeView: View {
                     } else {
                         Text("—")
                             .font(StrandFont.number(48))
-                            .foregroundStyle(StrandPalette.metricRose)
+                            .foregroundStyle(StrandPalette.textTertiary)
                     }
                     Image(systemName: "arrow.right")
                         .foregroundStyle(StrandPalette.textTertiary)

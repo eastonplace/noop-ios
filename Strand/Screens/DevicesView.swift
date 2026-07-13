@@ -386,7 +386,7 @@ private struct DeviceCard: View {
                         }
                         if let warning = liveClockWarning {
                             Text(warning).font(StrandFont.footnote)
-                                .foregroundStyle(StrandPalette.statusWarning)
+                                .foregroundStyle(StrandPalette.textPrimary)
                         }
                         if let fw = liveFirmware {
                             Text("Firmware \(fw)").font(StrandFont.footnote)
@@ -426,13 +426,15 @@ private struct DeviceCard: View {
     }
 
     private func compactStatus(symbol: String, text: String, tint: Color) -> some View {
-        Label {
-            Text(text).lineLimit(1).minimumScaleFactor(0.75)
-        } icon: {
+        HStack(spacing: 5) {
             Image(systemName: symbol)
+                .foregroundStyle(tint)
+            Text(text)
+                .foregroundStyle(StrandPalette.textPrimary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
         }
         .font(StrandFont.footnote)
-        .foregroundStyle(tint)
     }
 
     /// The card's primary tap action, or nil when there isn't one. A paired-but-not-active band → make it
@@ -553,7 +555,7 @@ private struct DeviceCard: View {
                 .accessibilityHidden(true)
             Text(text)
                 .font(StrandFont.caption)
-                .foregroundStyle(tint)
+                .foregroundStyle(StrandPalette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -576,7 +578,7 @@ private struct DeviceCard: View {
                 .accessibilityHidden(true)
             Text("Paired locally. NOOP owns this ring while it holds the key. If you reset it again or set it up in the Oura app, NOOP no longer owns it and you would re-add it to take it over.")
                 .font(StrandFont.caption)
-                .foregroundStyle(StrandPalette.statusWarning)
+                .foregroundStyle(StrandPalette.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }

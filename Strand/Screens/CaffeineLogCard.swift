@@ -137,7 +137,7 @@ struct CaffeineLogCard: View {
                     .accessibilityHidden(true)
                 Text(lateNudgeText)
                     .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.statusWarning)
+                    .foregroundStyle(StrandPalette.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(10)

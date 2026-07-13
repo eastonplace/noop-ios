@@ -633,11 +633,11 @@ struct AddDeviceWizard: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("A ring talks to one owner at a time.")
                     .font(StrandFont.subhead)
-                    .foregroundStyle(StrandPalette.statusWarning)
+                    .foregroundStyle(StrandPalette.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
                 Text("If the Oura app is still running it will hold the ring and adoption will fail. Force-quit Oura, then scan.")
                     .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.statusWarning)
+                    .foregroundStyle(StrandPalette.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
@@ -692,7 +692,7 @@ struct AddDeviceWizard: View {
                 .accessibilityHidden(true)
             Text("If you extracted your ring's 16-byte key from a previous Oura setup, NOOP can talk to the ring with that key without resetting it, so the Oura app keeps working too. NOOP does not extract keys for you and cannot help you find one. If you do not know what this means, go back and use the standard setup or file import.")
                 .font(StrandFont.footnote)
-                .foregroundStyle(StrandPalette.statusWarning)
+                .foregroundStyle(StrandPalette.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(12)
@@ -960,10 +960,10 @@ struct AddDeviceWizard: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Beta. Read this first.")
                     .font(StrandFont.subhead)
-                    .foregroundStyle(StrandPalette.statusWarning)
+                    .foregroundStyle(StrandPalette.textPrimary)
                 Text("Local Oura support is new and we cannot test every ring here. It may not connect on your ring, and it can change between updates. NOOP never makes up a number. If something does not work, it will tell you plainly.")
                     .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.statusWarning)
+                    .foregroundStyle(StrandPalette.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -1386,7 +1386,7 @@ struct AddDeviceWizard: View {
                 .accessibilityHidden(true)
             Text("Experimental, best-effort support. We're still testing these, so they might not connect on every device. They never make up data, and they'll tell you honestly when live isn't possible.")
                 .font(StrandFont.footnote)
-                .foregroundStyle(StrandPalette.statusWarning)
+                .foregroundStyle(StrandPalette.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(12)
@@ -1402,7 +1402,7 @@ struct AddDeviceWizard: View {
                 .accessibilityHidden(true)
             Text("WHOOP 5.0 / MG support is newer and still experimental in NOOP.")
                 .font(StrandFont.footnote)
-                .foregroundStyle(StrandPalette.statusWarning)
+                .foregroundStyle(StrandPalette.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(12)
@@ -1423,11 +1423,11 @@ struct AddDeviceWizard: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Your WHOOP only talks to one phone at a time.")
                     .font(StrandFont.subhead)
-                    .foregroundStyle(StrandPalette.statusWarning)
+                    .foregroundStyle(StrandPalette.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
                 Text("Force-quit the official WHOOP app first, or pairing may fail.")
                     .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.statusWarning)
+                    .foregroundStyle(StrandPalette.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
@@ -1676,7 +1676,7 @@ private struct SearchingCard: View {
             if whoopHint {
                 Text("Not showing up? The official WHOOP app may still be holding it. Force-quit that app, then tap Rescan.")
                     .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.statusWarning)
+                    .foregroundStyle(StrandPalette.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }

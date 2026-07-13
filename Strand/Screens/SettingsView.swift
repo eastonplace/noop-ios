@@ -1328,7 +1328,7 @@ struct SettingsView: View {
                             .accessibilityHidden(true)
                         Text("Broadcast HR is ON. Your strap is advertising its heart rate continuously, which keeps its radio hot and drains the battery faster. Turn it off when you're not using it with another device.")
                             .font(StrandFont.caption)
-                            .foregroundStyle(StrandPalette.statusWarning)
+                            .foregroundStyle(StrandPalette.textPrimary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -1961,7 +1961,7 @@ struct SettingsView: View {
                         } else if case .failed = updateChecker.state {
                             Text("Couldn't check. Try again.")
                                 .font(StrandFont.footnote)
-                                .foregroundStyle(StrandPalette.statusWarning)
+                                .foregroundStyle(StrandPalette.textPrimary)
                         }
                         Spacer()
                     }

@@ -480,7 +480,7 @@ public struct SourceBadge: View {
         Text(text).textCase(.uppercase).font(.system(size: 10, weight: .semibold, design: .rounded)).tracking(0.5)
             .padding(.horizontal, 9).padding(.vertical, 3)
             .background(tint.opacity(0.16), in: Capsule(style: .continuous))
-            .foregroundStyle(tint)
+            .foregroundStyle(StrandPalette.textPrimary)
             .overlay(Capsule(style: .continuous).strokeBorder(tint.opacity(0.34), lineWidth: 1))
     }
 }

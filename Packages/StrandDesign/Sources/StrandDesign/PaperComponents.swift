@@ -430,7 +430,7 @@ public struct ZoneBars: View {
     public var body: some View {
         // C14 + D14: each zone reads like WHOOP's row — "Z5 (161+ bpm)" when
         // the zones engine supplied real boundaries, otherwise "Z5 (90–100%)".
-        // The share remains zone-tinted and the duration stays right-aligned.
+        // The bar carries the zone colour; the numeric share remains readable ink (F4).
         VStack(spacing: 12) {
             ForEach(items, id: \.zone) { item in
                 VStack(spacing: 5) {
@@ -440,7 +440,7 @@ public struct ZoneBars: View {
                             .foregroundStyle(StrandPalette.textSecondary)
                         Text("\(Int((item.fraction * 100).rounded()))%")
                             .font(StrandFont.micro.weight(.semibold))
-                            .foregroundStyle(StrandPalette.hrZoneColor(item.zone))
+                            .foregroundStyle(StrandPalette.textSecondary)
                         Spacer(minLength: 8)
                         Text(item.duration)
                             .font(StrandFont.captionNumber.weight(.semibold))

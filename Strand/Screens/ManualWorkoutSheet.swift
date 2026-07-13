@@ -240,7 +240,7 @@ struct ManualWorkoutSheet: View {
     private func noteRow(_ text: String) -> some View {
         Text(text)
             .font(StrandFont.footnote)
-            .foregroundStyle(StrandPalette.statusWarning)
+            .foregroundStyle(StrandPalette.textPrimary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityLabel(text)
     }

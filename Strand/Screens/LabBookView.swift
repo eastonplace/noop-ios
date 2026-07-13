@@ -856,7 +856,7 @@ private struct MarkerDetailView: View {
                 TrendChip(text: LabBookSignals.signedR(c.r), color: tint)
                 Text("r = \(LabBookSignals.signedR(c.r))")
                     .font(StrandFont.number(18))
-                    .foregroundStyle(tint)
+                    .foregroundStyle(StrandPalette.textPrimary)
             }
             Text(LabBookSignals.insightSentence(markerName: displayName,
                                                  signalName: signal?.title ?? "the signal",

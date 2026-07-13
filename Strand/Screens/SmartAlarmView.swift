@@ -138,7 +138,7 @@ struct SmartAlarmView: View {
             Text(label).strandOverline()
             Text(time)
                 .font(StrandFont.number(28))
-                .foregroundStyle(tint)
+                .foregroundStyle(StrandPalette.textPrimary)
         }
     }
 
@@ -224,7 +224,7 @@ struct SmartAlarmView: View {
                     if model.whoop5Detected && !PuffinExperiment.isEnabled {
                         Text("Your WHOOP 5/MG won't arm this until Experimental mode is on (Settings, Experimental). Right now your wake time is saved but the strap is NOT armed. Even with Experimental on, a 5/MG strap-driven wake is still unconfirmed on our side, so keep a backup alarm.")
                             .font(StrandFont.footnote)
-                            .foregroundStyle(StrandPalette.statusWarning)
+                            .foregroundStyle(StrandPalette.textPrimary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     } else if model.whoop5Detected {
                         // 5/MG with Experimental ON: the strap IS armed (the rev-4 puffin payload), but a

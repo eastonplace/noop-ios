@@ -660,7 +660,7 @@ private struct ConnectionReadoutPanel: View {
                 // single most common "no history" root cause and the fix is in the sentence.
                 Text(rtcWarning)
                     .font(StrandFont.caption)
-                    .foregroundStyle(StrandPalette.statusWarning)
+                    .foregroundStyle(StrandPalette.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityLabel(rtcWarning)
             }
@@ -809,7 +809,7 @@ private struct ReportReviewSheet: View {
                     // the fix, BEFORE the user ships a report a maintainer can't act on.
                     Text("Heads up: this test mode is off, so the report has no capture for it. For a useful report, turn the mode on, reproduce the problem while wearing the strap, then report again.")
                         .font(StrandFont.caption)
-                        .foregroundStyle(StrandPalette.statusWarning)
+                        .foregroundStyle(StrandPalette.textPrimary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 NoopCard {

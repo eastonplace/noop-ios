@@ -406,7 +406,7 @@ private struct SensorRowIfPresent: View {
                     .foregroundStyle(StrandPalette.textSecondary)
                 Text(value)
                     .font(StrandFont.number(26))
-                    .foregroundStyle(tint)
+                    .foregroundStyle(StrandPalette.textPrimary)
                     .lineLimit(1).minimumScaleFactor(0.6)
             }
             .frame(maxWidth: .infinity, alignment: .leading)

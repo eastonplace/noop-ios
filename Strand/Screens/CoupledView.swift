@@ -242,7 +242,7 @@ struct CoupledView: View {
         return Text(word.uppercased())
             .font(StrandFont.overline)
             .tracking(StrandFont.overlineTracking)
-            .foregroundStyle(tint)
+            .foregroundStyle(StrandPalette.textPrimary)
             .padding(.horizontal, 12).padding(.vertical, 5)
             .background(Capsule(style: .continuous).fill(tint.opacity(0.12)))
             .overlay(Capsule(style: .continuous).stroke(tint.opacity(0.32), lineWidth: 1))
@@ -322,7 +322,7 @@ struct CoupledView: View {
                 .foregroundStyle(StrandPalette.textSecondary)
             Text(Self.optimalStrainRangeText(recovery: recovery))
                 .font(StrandFont.number(20))
-                .foregroundStyle(StrandPalette.recoveryData)
+                .foregroundStyle(StrandPalette.textPrimary)
                 .lineLimit(1).minimumScaleFactor(0.6)
             PaperProgressBar(frac: optimalUpperFraction, tint: StrandPalette.recoveryData, height: 8, animated: false)
         }
@@ -344,7 +344,7 @@ struct CoupledView: View {
                 .font(StrandFont.overline).tracking(StrandFont.overlineTracking)
                 .foregroundStyle(StrandPalette.textSecondary)
             Text(value).font(StrandFont.number(20))
-                .foregroundStyle(tint).lineLimit(1).minimumScaleFactor(0.6)
+                .foregroundStyle(StrandPalette.textPrimary).lineLimit(1).minimumScaleFactor(0.6)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -816,7 +816,7 @@ struct PaperPillarDetailView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(heroTitle)
                             .font(StrandFont.cardTitle)
-                            .foregroundStyle(kind == .charge ? accent : StrandPalette.textPrimary)
+                            .foregroundStyle(StrandPalette.textPrimary)
                         Text(heroCaption)
                             .font(StrandFont.body)
                             .foregroundStyle(StrandPalette.textSecondary)
