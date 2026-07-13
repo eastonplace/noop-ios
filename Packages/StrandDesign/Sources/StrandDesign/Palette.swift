@@ -112,26 +112,26 @@ public enum StrandPalette {
     public static let disabledOpacity: Double = 0.45
 
     // MARK: Pillar accents and semantic tints
-    public static let chargeAccent   = Color(light: "#2FA45C", dark: "#43C173")
-    public static let chargeTint     = Color(light: "#E7F4EC", dark: "#183124")
+    public static let chargeAccent   = Color(hex: "#43C173")
+    public static let chargeTint     = Color(hex: "#183124")
     public static let effortAccent   = strainAccent
-    public static let effortTint     = Color(light: "#F0EBFE", dark: "#2A2440")
+    public static let effortTint     = Color(hex: "#2A2440")
     public static let restAccent     = sleepAccent
-    public static let restTint       = Color(light: "#EAEDFE", dark: "#232840")
-    public static let stressAccent   = Color(light: "#E0A63A", dark: "#EBBE5C")
-    public static let stressTint     = Color(light: "#FBF3DF", dark: "#382F1E")
-    public static let liveRed        = Color(light: "#E5484D", dark: "#F26B6F")
-    public static let liveRedTint    = Color(light: "#FDEBEC", dark: "#3A2021")
+    public static let restTint       = Color(hex: "#232840")
+    public static let stressAccent   = Color(hex: "#EBBE5C")
+    public static let stressTint     = Color(hex: "#382F1E")
+    public static let liveRed        = Color(hex: "#F26B6F")
+    public static let liveRedTint    = Color(hex: "#3A2021")
 
-    // C13 pillar grammar. The WHOOP values are the dark variants; light values are
-    // luminance-adapted for the warm Paper canvas. Recovery is the only banded pillar.
-    public static let recoveryHigh   = Color(light: "#12A833", dark: "#16EC06")
-    public static let recoveryMed    = Color(light: "#C29200", dark: "#FFDE00")
-    public static let recoveryLow    = Color(light: "#E00028", dark: "#FF0026")
-    public static let recoveryData   = Color(light: "#3E87C7", dark: "#67AEE6")
-    public static let strainAccent   = Color(light: "#0084CE", dark: "#0093E7")
-    public static let sleepAccent    = Color(light: "#5E86A3", dark: "#7BA1BB")
-    public static let sleepNeedTeal  = Color(light: "#00A66E", dark: "#00F19F")
+    // F3: graphic data tokens are scheme-invariant WHOOP hexes. Paper changes the canvas,
+    // never the biometric palette. Recovery is the only banded pillar.
+    public static let recoveryHigh   = Color(hex: "#16EC06")
+    public static let recoveryMed    = Color(hex: "#FFDE00")
+    public static let recoveryLow    = Color(hex: "#FF0026")
+    public static let recoveryData   = Color(hex: "#67AEE6")
+    public static let strainAccent   = Color(hex: "#0093E7")
+    public static let sleepAccent    = Color(hex: "#7BA1BB")
+    public static let sleepNeedTeal  = Color(hex: "#00F19F")
 
     // Journal and Experimental affordances intentionally keep their purple identity
     // when the old Strain token migrates to constant Strain blue.
@@ -198,10 +198,10 @@ public enum StrandPalette {
 
     // MARK: Recovery / Charge gradient — retained for legacy charts until flat ScoreRing lands.
     // Every stop stays in the canonical Charge green family (R3); score meaning is unchanged.
-    public static let recovery000 = Color(light: "#A7D7B9", dark: "#245C38")
-    public static let recovery030 = Color(light: "#7CC793", dark: "#2F7849")
-    public static let recovery055 = Color(light: "#55B975", dark: "#38975C")
-    public static let recovery078 = Color(light: "#3AAC63", dark: "#43AD69")
+    public static let recovery000 = Color(hex: "#245C38")
+    public static let recovery030 = Color(hex: "#2F7849")
+    public static let recovery055 = Color(hex: "#38975C")
+    public static let recovery078 = Color(hex: "#43AD69")
     public static let recovery100 = chargeAccent
 
     /// Ordered gradient stops for the recovery scale (Titanium gold ramp, or the Classic red→green).
@@ -246,13 +246,12 @@ public enum StrandPalette {
     public static var sleepLight: Color { stageLight }
     public static var sleepDeep:  Color { stageDeep }
 
-    // C14 (spec 003): WHOOP's HR-zone grammar — Z5 orange-red, Z4 orange, Z3 green,
-    // Z2 blue, Z1 pale slate. Dark hexes match WHOOP's app; light are paper-adapted.
-    public static let zoneZ5 = Color(light: "#E64A19", dark: "#FF6B2C")
-    public static let zoneZ4 = Color(light: "#E08E00", dark: "#FFA424")
-    public static let zoneZ3 = Color(light: "#27A85C", dark: "#33BE66")
-    public static let zoneZ2 = Color(light: "#4C9FE0", dark: "#64B5F6")
-    public static let zoneZ1 = Color(light: "#9FB3BF", dark: "#B7C9D3")
+    // C14 + F3: WHOOP's exact HR-zone grammar in both appearances.
+    public static let zoneZ5 = Color(hex: "#FF6B2C")
+    public static let zoneZ4 = Color(hex: "#FFA424")
+    public static let zoneZ3 = Color(hex: "#33BE66")
+    public static let zoneZ2 = Color(hex: "#64B5F6")
+    public static let zoneZ1 = Color(hex: "#B7C9D3")
     public static var zone1: Color { zoneZ1 }
     public static var zone2: Color { zoneZ2 }
     public static var zone3: Color { zoneZ3 }
@@ -286,8 +285,8 @@ public enum StrandPalette {
 
     /// Charge (recovery) — green.
     public static var chargeColor: Color  { chargeAccent }
-    public static var chargeDeep: Color   { Color(light: "#257F48", dark: "#319E5C") }
-    public static var chargeBright: Color { Color(light: "#55B978", dark: "#64D58A") }
+    public static var chargeDeep: Color   { Color(hex: "#319E5C") }
+    public static var chargeBright: Color { Color(hex: "#64D58A") }
     public static var chargeGlow: Color   { chargeAccent }
     /// Diagonal accent pair for the Charge card wash + gauge stroke (deep → bright).
     public static var chargeGradient: Gradient { Gradient(colors: [chargeDeep, chargeBright]) }

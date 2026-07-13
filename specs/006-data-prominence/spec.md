@@ -56,7 +56,7 @@
 ## Tasks (T120–T126, one batch, gate at end)
 
 - [x] T120 — F1 type tokens + F2 ring scale (Typography/NoopMetrics/ScoreRing).
-- [ ] T121 — F3 palette collapse to true hexes for graphic tokens (both modes);
+- [x] T121 — F3 palette collapse to true hexes for graphic tokens (both modes);
   contrast re-check for any graphic ON tinted fills.
 - [ ] T122 — F4 no-color-text sweep app-wide (values→ink, meaning→chip/glyph/
   dot); includes deltas, factor words, zone %, effect sizes.
