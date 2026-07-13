@@ -303,8 +303,15 @@ struct TrendsView: View {
                 }
                 ForEach(Array(paperReviewLines.enumerated()), id: \.offset) { index, line in
                     HStack(alignment: .top, spacing: 9) {
-                        Circle().fill(reviewDotColor(for: line))
-                            .frame(width: 8, height: 8).padding(.top, 5)
+                        ZStack {
+                            Circle().fill(reviewDotColor(for: line))
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundStyle(Color.white)
+                        }
+                        .frame(width: 18, height: 18)
+                        .padding(.top, 1)
+                        .accessibilityHidden(true)
                         Text(line).font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
