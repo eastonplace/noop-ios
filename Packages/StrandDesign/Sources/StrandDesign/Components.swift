@@ -211,7 +211,7 @@ public struct StatTile<Accessory: View>: View {
                 }
                 Spacer(minLength: 4)
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(value).font(StrandFont.number(26)).foregroundStyle(accent).lineLimit(1).minimumScaleFactor(0.6)
+                    Text(value).font(StrandFont.metricValue).foregroundStyle(StrandPalette.textPrimary).lineLimit(1).minimumScaleFactor(0.6)
                     Spacer(minLength: 0)
                     // Trend chip — the delta as a tinted pill with a direction arrow.
                     if let delta { TrendChip(text: delta, color: deltaColor) }
@@ -283,7 +283,7 @@ public struct TrendChip: View {
             // the pill never grows a tile past its floor. Matches Android's unconditional ellipsize (#934).
             Text(text).font(StrandFont.captionNumber).lineLimit(1)
         }
-        .foregroundStyle(color)
+        .foregroundStyle(StrandPalette.textPrimary)
         .padding(.horizontal, 6).padding(.vertical, 2)
         .background(color.opacity(0.14), in: Capsule(style: .continuous))
         .accessibilityHidden(true)
@@ -394,7 +394,7 @@ public struct InsightCard: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(category).strandOverline()
                         .padding(.trailing, titleTrailingInset)
-                    Text(status).font(StrandFont.cardTitle).foregroundStyle(statusColor)
+                    Text(status).font(StrandFont.cardTitle).foregroundStyle(StrandPalette.textPrimary)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.trailing, titleTrailingInset)
                     Text(detail).font(StrandFont.body).foregroundStyle(StrandPalette.textSecondary)

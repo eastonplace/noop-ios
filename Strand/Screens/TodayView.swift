@@ -1198,7 +1198,7 @@ struct TodayView: View {
                                 .font(StrandFont.micro.weight(.semibold))
                                 .foregroundStyle(StrandPalette.textPrimary)
                             Text(paperGlanceText)
-                                .font(StrandFont.sf(13, relativeTo: .caption))
+                                .font(.system(size: 13))
                                 .foregroundStyle(StrandPalette.textSecondary)
                                 .lineLimit(1)
                         }
@@ -1375,7 +1375,7 @@ struct TodayView: View {
                         Spacer()
                         Text(display)
                             .font(.system(size: 10, weight: .semibold)).monospacedDigit()
-                            .foregroundStyle(StrandPalette.stressAccent)
+                            .foregroundStyle(StrandPalette.textPrimary)
                             .padding(.horizontal, 7).frame(height: 18)
                             .background(StrandPalette.stressTint, in: Capsule())
                     }

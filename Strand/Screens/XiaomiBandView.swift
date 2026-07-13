@@ -420,7 +420,7 @@ struct XiaomiBandView: View {
     private func singlePoint(_ value: Double, fmt: (Double) -> String, accent: Color) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Latest reading").strandOverline()
-            Text(fmt(value)).font(StrandFont.number(34)).foregroundStyle(accent)
+            Text(fmt(value)).font(StrandFont.number(34)).foregroundStyle(StrandPalette.textPrimary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
     }

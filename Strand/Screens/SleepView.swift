@@ -476,7 +476,7 @@ struct SleepView: View {
                                   size: 96, centerCaption: nil)
                         Text(sleepScoreWord(score))
                             .font(StrandFont.subhead.weight(.semibold))
-                            .foregroundStyle(StrandPalette.restAccent)
+                            .foregroundStyle(StrandPalette.textPrimary)
                     }
                     .padding(.top, NoopMetrics.space1)
                     .accessibilityElement(children: .ignore)
@@ -489,7 +489,7 @@ struct SleepView: View {
                             value: model.night.stages.asleep,
                             format: { durationText($0) },
                             font: StrandFont.number(46),
-                            color: StrandPalette.restBright
+                            color: StrandPalette.textPrimary
                         )
                         Text("asleep last night")
                             .font(StrandFont.subhead)
@@ -1096,7 +1096,7 @@ struct SleepView: View {
                 .frame(width: 56, alignment: .leading)
             Text("\(percent)%")
                 .font(StrandFont.captionNumber)
-                .foregroundStyle(color)
+                .foregroundStyle(StrandPalette.textPrimary)
                 .frame(width: 38, alignment: .leading)
             // The NOOP signature: a segmented PipBar that counts up to the share-of-night fraction,
             // tinted in the stage colour over the canonical inset track. Flat, crisp, no glow.
@@ -1599,7 +1599,7 @@ struct SleepView: View {
                                 value: ledger.magnitudeMin,
                                 format: { debtHeadline(forMagnitudeMin: $0, ledger: ledger) },
                                 font: StrandFont.number(26),
-                                color: debtBalanceColor(ledger)
+                                color: StrandPalette.textPrimary
                             )
                             .lineLimit(1)
                             .minimumScaleFactor(0.6)
@@ -1715,13 +1715,13 @@ struct SleepView: View {
                     .foregroundStyle(StrandPalette.textPrimary)
                 Text("\(sharePct)%")
                     .font(StrandFont.captionNumber)
-                    .foregroundStyle(color)
+                    .foregroundStyle(StrandPalette.textPrimary)
                 Spacer()
                 Text(durationText(last)).font(StrandFont.captionNumber).foregroundStyle(StrandPalette.textPrimary)
                 if !deltaText.isEmpty {
                     Text(deltaText)
                         .font(StrandFont.footnote)
-                        .foregroundStyle(last >= (typical ?? last) ? StrandPalette.statusPositive : StrandPalette.statusWarning)
+                        .foregroundStyle(StrandPalette.textSecondary)
                 }
             }
             GeometryReader { geo in

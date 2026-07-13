@@ -938,7 +938,7 @@ private struct ResonanceModeView: View {
                     CountUpText(value: result.lockedBpm,
                                 format: { String(format: "%.1f", $0) },
                                 font: StrandFont.number(40),
-                                color: StrandPalette.restBright)
+                                color: StrandPalette.textPrimary)
                     Text("br/min")
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textTertiary)
@@ -974,7 +974,7 @@ private struct ResonanceModeView: View {
                     CountUpText(value: bpm,
                                 format: { String(format: "%.1f", $0) },
                                 font: StrandFont.number(34),
-                                color: StrandPalette.restBright)
+                                color: StrandPalette.textPrimary)
                     Text("br/min")
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textTertiary)
@@ -1126,7 +1126,7 @@ private struct CalmModeView: View {
                         CountUpText(value: Double(bpm),
                                     format: { "\(Int($0.rounded()))" },
                                     font: StrandFont.number(48),
-                                    color: StrandPalette.metricRose)
+                                    color: StrandPalette.textPrimary)
                     } else {
                         Text("—")
                             .font(StrandFont.number(48))

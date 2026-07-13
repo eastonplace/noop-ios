@@ -664,7 +664,7 @@ struct WorkoutsView: View {
                             }
                             Text(StrainScale.badgeText(fromStored: row.strain))
                                 .font(StrandFont.captionNumber.weight(.bold))
-                                .foregroundStyle(StrandPalette.strainAccent)
+                                .foregroundStyle(StrandPalette.textPrimary)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 5)
                                 .background(StrandPalette.strainAccent.opacity(0.10), in: Capsule())
@@ -915,7 +915,7 @@ struct WorkoutsView: View {
             Text(title.uppercased())
                 .font(StrandFont.overline).tracking(StrandFont.overlineTracking)
                 .foregroundStyle(StrandPalette.textSecondary)
-            CountUpText(value: value, format: format, font: StrandFont.number(20), color: tint)
+            CountUpText(value: value, format: format, font: StrandFont.number(20), color: StrandPalette.textPrimary)
                 .lineLimit(1).minimumScaleFactor(0.6)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1444,7 +1444,7 @@ struct WorkoutsView: View {
                         Spacer(minLength: 0)
                         Text(Self.effortCellLabel(strain: row.strain, scale: effortScale))
                             .font(StrandFont.captionNumber.weight(.bold))
-                            .foregroundStyle(row.strain != nil ? StrandPalette.strainAccent : StrandPalette.textTertiary)
+                            .foregroundStyle(row.strain != nil ? StrandPalette.textPrimary : StrandPalette.textTertiary)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 5)
                             .background(StrandPalette.strainAccent.opacity(row.strain == nil ? 0 : 0.10), in: Capsule())

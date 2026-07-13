@@ -287,7 +287,7 @@ private struct PaperLiveWorkoutStatsGrid: View {
                 .foregroundStyle(StrandPalette.textTertiary)
                 .lineLimit(1).minimumScaleFactor(0.7)
             HStack(alignment: .firstTextBaseline, spacing: 3) {
-                Text(value).font(StrandFont.metricValue).foregroundStyle(tint)
+                Text(value).font(StrandFont.metricValue).foregroundStyle(StrandPalette.textPrimary)
                     .lineLimit(1).minimumScaleFactor(0.65)
                 if let unit {
                     Text(unit).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)

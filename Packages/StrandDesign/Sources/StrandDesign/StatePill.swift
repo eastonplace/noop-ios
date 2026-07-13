@@ -48,7 +48,7 @@ public struct StatePill: View {
             Text(title)
                 .font(StrandFont.overline)
                 .tracking(0.4)
-                .foregroundStyle(tone.color)
+                .foregroundStyle(StrandPalette.textPrimary)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)

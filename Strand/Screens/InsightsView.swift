@@ -710,7 +710,7 @@ struct InsightsView: View {
                 .lineLimit(1)
             Text(value)
                 .font(StrandFont.number(22))
-                .foregroundStyle(tint)
+                .foregroundStyle(StrandPalette.textPrimary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
             Text(caption)
@@ -1086,7 +1086,7 @@ struct InsightsView: View {
                     HStack(spacing: 6) {
                         Text(String(format: "d = %.2f", e.cohensD))
                             .font(StrandFont.captionNumber)
-                            .foregroundStyle(tintColor)
+                            .foregroundStyle(StrandPalette.textPrimary)
                         Text(effectMagnitudeWord(e.cohensD))
                             .font(StrandFont.caption)
                             .foregroundStyle(StrandPalette.textTertiary)
@@ -1281,7 +1281,7 @@ struct InsightsView: View {
                 Spacer()
                 Text(String(format: "r = %+.2f", r))
                     .font(StrandFont.number(16))
-                    .foregroundStyle(strength)
+                    .foregroundStyle(StrandPalette.textPrimary)
                 StatePill(rel.corr.pApprox < 0.05 ? "p < 0.05" : "n.s.",
                           tone: rel.corr.pApprox < 0.05 ? .accent : .neutral,
                           showsDot: false)

@@ -231,7 +231,7 @@ struct IntelligenceView: View {
             HStack {
                 Text(label).font(StrandFont.subhead).foregroundStyle(StrandPalette.textPrimary)
                 Spacer()
-                Text(percent).font(StrandFont.captionNumber).foregroundStyle(color)
+                Text(percent).font(StrandFont.captionNumber).foregroundStyle(StrandPalette.textPrimary)
             }
             // The horizontal liquid tube — the same vessel Today's Key Metrics + Sleep's stage bars use —
             // tinted to the input's accent. The Charge weights span 0…0.55, so the tube reads each input's
@@ -307,7 +307,7 @@ struct IntelligenceView: View {
     private func stat(_ label: String, _ value: String, _ color: Color) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(label.uppercased()).font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
-            Text(value).font(StrandFont.number(20)).foregroundStyle(color).lineLimit(1).minimumScaleFactor(0.6)
+            Text(value).font(StrandFont.number(20)).foregroundStyle(StrandPalette.textPrimary).lineLimit(1).minimumScaleFactor(0.6)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

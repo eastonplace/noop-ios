@@ -58,7 +58,7 @@
 - [x] T120 — F1 type tokens + F2 ring scale (Typography/NoopMetrics/ScoreRing).
 - [x] T121 — F3 palette collapse to true hexes for graphic tokens (both modes);
   contrast re-check for any graphic ON tinted fills.
-- [ ] T122 — F4 no-color-text sweep app-wide (values→ink, meaning→chip/glyph/
+- [x] T122 — F4 no-color-text sweep app-wide (values→ink, meaning→chip/glyph/
   dot); includes deltas, factor words, zone %, effect sizes.
 - [ ] T123 — F5 chart pass (weight, opacity, underfill, heights, ref-placed
   dots) + seeder variance.

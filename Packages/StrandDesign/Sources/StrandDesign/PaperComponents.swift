@@ -141,7 +141,7 @@ public struct StatusBadge: View {
                 .font(StrandFont.micro.weight(.semibold))
                 .lineLimit(1)
         }
-        .foregroundStyle(color)
+        .foregroundStyle(StrandPalette.textPrimary)
         .padding(.horizontal, 9)
         .frame(height: 24)
         .background(color.opacity(0.10), in: Capsule(style: .continuous))
@@ -325,7 +325,7 @@ public struct NoteCard: View {
                 if let title {
                     Text(title).font(StrandFont.caption.weight(.semibold)).foregroundStyle(StrandPalette.textPrimary)
                 }
-                Text(text).font(StrandFont.caption).foregroundStyle(style == .warning ? color : StrandPalette.textSecondary)
+                Text(text).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
             }
         }
         .padding(12)

@@ -181,20 +181,20 @@ struct InsightsHubView: View {
                 Spacer(minLength: 8)
                 Text(String(format: "%+.2f", row.effect.cohensD))
                     .font(StrandFont.statValue)
-                    .foregroundStyle(tint)
+                    .foregroundStyle(StrandPalette.textPrimary)
             }
             HStack(spacing: 8) {
                 Text("With").font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
                 Text(format(row.effect.meanWith, outcome: row.outcome))
                     .font(StrandFont.captionNumber.weight(.semibold))
-                    .foregroundStyle(effectMovedGood(row) ? StrandPalette.success : StrandPalette.destructive)
+                    .foregroundStyle(StrandPalette.textPrimary)
                 Image(systemName: "arrow.right")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(StrandPalette.textTertiary)
                 Text("Without").font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
                 Text(format(row.effect.meanWithout, outcome: row.outcome))
                     .font(StrandFont.captionNumber.weight(.semibold))
-                    .foregroundStyle(effectMovedGood(row) ? StrandPalette.destructive : StrandPalette.success)
+                    .foregroundStyle(StrandPalette.textPrimary)
                 Spacer()
             }
             .padding(.leading, 44)
@@ -285,7 +285,7 @@ struct InsightsHubView: View {
                     HStack(spacing: 6) {
                         Text(String(format: "d = %.2f", e.cohensD))
                             .font(StrandFont.captionNumber)
-                            .foregroundStyle(tintColor)
+                            .foregroundStyle(StrandPalette.textPrimary)
                         Text(Self.effectMagnitudeWord(e.cohensD))
                             .font(StrandFont.caption)
                             .foregroundStyle(StrandPalette.textTertiary)

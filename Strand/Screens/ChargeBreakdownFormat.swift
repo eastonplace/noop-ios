@@ -249,7 +249,7 @@ struct ChargeDriverRow: View {
                 // The signed point-delta chip , green for a supporting term, red for a limiting one.
                 Text(chipText)
                     .font(StrandFont.captionNumber)
-                    .foregroundStyle(chipHue)
+                    .foregroundStyle(StrandPalette.textPrimary)
                     .padding(.horizontal, 8).padding(.vertical, 2)
                     .background(chipHue.opacity(0.14), in: Capsule(style: .continuous))
             }
@@ -301,7 +301,7 @@ struct SkinTempDeviationRow: View {
                         .foregroundStyle(StrandPalette.textPrimary)
                     Text(deviationText)
                         .font(StrandFont.captionNumber)
-                        .foregroundStyle(StrandPalette.metricAmber)
+                        .foregroundStyle(StrandPalette.textPrimary)
                 }
                 Text(tierWord)
                     .font(StrandFont.footnote)

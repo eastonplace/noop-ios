@@ -355,7 +355,7 @@ private struct HeartRateSection: View {
                         CountUpText(value: Double(hr),
                                     format: { "\(Int($0.rounded()))" },
                                     font: StrandFont.display(72),
-                                    color: hasLiveHR ? StrandPalette.hrZoneColor(zone) : StrandPalette.textTertiary)
+                                    color: hasLiveHR ? StrandPalette.textPrimary : StrandPalette.textTertiary)
                             .tracking(StrandFont.displayTracking(72))
                     } else {
                         Text("—")
@@ -1065,18 +1065,18 @@ private struct VitalitySection: View {
                                 color: StrandPalette.textPrimary)
                     Text(bodyAgeDeltaLine(yrs: yrs, younger: younger))
                         .font(StrandFont.footnote)
-                        .foregroundStyle(younger ? StrandPalette.statusPositive : StrandPalette.statusWarning)
+                        .foregroundStyle(StrandPalette.textSecondary)
                 }
             }
             if (best?.lnHazard ?? 0) < 0 || (worst?.lnHazard ?? 0) > 0 {
                 Divider().overlay(StrandPalette.hairline)
                 if let best, best.lnHazard < 0 {
                     Text("Helping most: \(best.label)")
-                        .font(StrandFont.footnote).foregroundStyle(StrandPalette.statusPositive)
+                        .font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
                 }
                 if let worst, worst.lnHazard > 0 {
                     Text("Holding you back: \(worst.label)")
-                        .font(StrandFont.footnote).foregroundStyle(StrandPalette.statusWarning)
+                        .font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
                 }
             }
             Text("A wellness estimate from your habits, not a clinical biological age.")
@@ -1183,11 +1183,11 @@ private struct PaperVitalTile: View {
                         CountUpText(value: value,
                                     format: { "\(reading.format($0)) \(reading.unit)" },
                                     font: StrandFont.number(24),
-                                    color: reading.accent)
+                                    color: StrandPalette.textPrimary)
                             .lineLimit(1)
                             .minimumScaleFactor(0.6)
                     } else {
-                        Text("—").font(StrandFont.number(24)).foregroundStyle(reading.accent)
+                        Text("—").font(StrandFont.number(24)).foregroundStyle(StrandPalette.textTertiary)
                     }
                     Spacer(minLength: 0)
                 }

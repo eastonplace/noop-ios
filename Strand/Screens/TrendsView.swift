@@ -146,12 +146,12 @@ struct TrendsView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(LocalizedStringKey(metric.label))
                     .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
-                Text(value).font(StrandFont.statValue).foregroundStyle(accent)
+                Text(value).font(StrandFont.statValue).foregroundStyle(StrandPalette.textPrimary)
                 Text(hasValue
                      ? "\(sign)\(metric == .effort ? StrainScale.formattedDelta(abs(delta)) : "\(Int(abs(delta).rounded()))") vs last week"
                      : "No data this week")
                     .font(StrandFont.micro)
-                    .foregroundStyle(summary?.wowGoodness == -1 ? StrandPalette.destructive : StrandPalette.success)
+                    .foregroundStyle(StrandPalette.textSecondary)
                     .lineLimit(2)
             }
             .frame(maxWidth: .infinity, minHeight: 70, alignment: .leading)
@@ -237,7 +237,7 @@ struct TrendsView: View {
                         }
                         AxisMarks(position: .trailing, values: [0, 7, 14, 21]) { _ in
                             AxisValueLabel().font(StrandFont.micro)
-                                .foregroundStyle(StrandPalette.strainAccent)
+                                .foregroundStyle(StrandPalette.textTertiary)
                         }
                     }
                 }

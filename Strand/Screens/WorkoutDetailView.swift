@@ -433,7 +433,7 @@ struct WorkoutDetailView: View {
             Text(title.uppercased()).strandOverline()
             Text(value)
                 .font(StrandFont.number(15))
-                .foregroundStyle(tint)
+                .foregroundStyle(StrandPalette.textPrimary)
                 .lineLimit(1).minimumScaleFactor(0.7)
         }
         .frame(maxWidth: .infinity, alignment: .leading)

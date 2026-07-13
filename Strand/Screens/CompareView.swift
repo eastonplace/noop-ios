@@ -567,7 +567,7 @@ struct CompareView: View {
                     TrendChip(text: signedR(p.r), color: tint)
                     Text("r = \(signedR(p.r))")
                         .font(StrandFont.number(18))
-                        .foregroundStyle(tint)
+                        .foregroundStyle(StrandPalette.textPrimary)
                 }
 
                 Text(insightSentence(p))

@@ -1288,8 +1288,10 @@ struct PaperPillarDetailView: View {
             if let status {
                 Text(LocalizedStringKey(status.localizationKey))
                     .font(StrandFont.micro.weight(.semibold))
-                    .foregroundStyle(status.color)
-                    .frame(width: 52, alignment: .trailing)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(status.color.opacity(0.14), in: Capsule())
             }
         }
         .frame(minHeight: 40)
