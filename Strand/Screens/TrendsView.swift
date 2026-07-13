@@ -145,7 +145,7 @@ struct TrendsView: View {
         return PaperCard(padding: 12) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(LocalizedStringKey(metric.label))
-                    .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                    .font(StrandFont.caption.weight(.semibold)).foregroundStyle(accent)
                 Text(value).font(StrandFont.statValue).foregroundStyle(StrandPalette.textPrimary)
                 Text(hasValue
                      ? "\(sign)\(metric == .effort ? StrainScale.formattedDelta(abs(delta)) : "\(Int(abs(delta).rounded()))") vs last week"
