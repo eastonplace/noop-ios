@@ -314,7 +314,7 @@ enum DemoScreens {
         case "workoutdetail": return AnyView(WorkoutDetailDemoHost())
         case "health":   return AnyView(HealthView())
         case "insights": return AnyView(InsightsHubView())
-        case "journal": return AnyView(InsightsView(focusedJournal: true))
+        case "journal": return AnyView(CoachingRootView())
         case "insightshub": return AnyView(InsightsHubView())
         case "intelligence": return AnyView(IntelligenceView())
         case "explore":  return AnyView(MetricExplorerView())

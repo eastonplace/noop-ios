@@ -75,16 +75,14 @@ struct InsightsHubView: View {
         }
         .onChangeCompat(of: filter) { _ in applyFilter() }
         .sheet(isPresented: $showJournal) {
-            NavigationStack {
-                InsightsView(focusedJournal: true)
-                    .toolbarBackground(.hidden, for: .navigationBar)
-                    .toolbar {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button("Done") { showJournal = false }
-                                .foregroundStyle(StrandPalette.link)
-                        }
+            CoachingRootView()
+                .toolbarBackground(.hidden, for: .navigationBar)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Done") { showJournal = false }
+                            .foregroundStyle(StrandPalette.textPrimary)
                     }
-            }
+                }
         }
     }
 

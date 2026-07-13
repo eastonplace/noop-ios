@@ -198,7 +198,7 @@ struct RootTabView: View {
         case .workout:
             quickScreen(WorkoutsView())
         case .journal:
-            quickScreen(InsightsView(focusedJournal: true))
+            quickScreen(CoachingRootView())
         case .breathe:
             quickScreen(BreathingView())
         }

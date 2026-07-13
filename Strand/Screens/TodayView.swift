@@ -1373,11 +1373,7 @@ struct TodayView: View {
                         Circle().fill(StrandPalette.stressAccent).frame(width: 8, height: 8)
                         Text("Today’s Stress").strandOverline()
                         Spacer()
-                        Text(display)
-                            .font(.system(size: 10, weight: .semibold)).monospacedDigit()
-                            .foregroundStyle(StrandPalette.textPrimary)
-                            .padding(.horizontal, 7).frame(height: 18)
-                            .background(StrandPalette.stressTint, in: Capsule())
+                        TinyMetricBadge(display, tint: StrandPalette.stressAccent)
                     }
                     Text(paperStressState(value))
                         .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
