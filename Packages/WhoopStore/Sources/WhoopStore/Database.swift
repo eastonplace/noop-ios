@@ -446,6 +446,31 @@ extension WhoopStore {
                 t.primaryKey(["deviceId", "startTs"])
             }
         }
+
+        // v23 (Spec 007 / G4): coaching presentation configuration. These tables reference the
+        // existing journal catalog by immutable canonical question string; they never copy, rename,
+        // migrate, or replace journal occurrences. The active set and its membership/order/Quick Add
+        // flags are additive local configuration only.
+        migrator.registerMigration("v23-coaching-behavior-sets") { db in
+            try db.create(table: "coachingBehaviorSet") { t in
+                t.column("id", .text).primaryKey()
+                t.column("name", .text).notNull()
+                t.column("isActive", .boolean).notNull()
+                t.column("createdAt", .integer).notNull()
+                t.column("updatedAt", .integer).notNull()
+            }
+            try db.create(table: "coachingBehaviorMembership") { t in
+                t.column("setId", .text).notNull()
+                t.column("canonicalQuestion", .text).notNull()
+                t.column("coachingGroup", .text).notNull()
+                t.column("sortIndex", .integer).notNull()
+                t.column("isActive", .boolean).notNull()
+                t.column("isQuickAdd", .boolean).notNull()
+                t.primaryKey(["setId", "canonicalQuestion"])
+            }
+            try db.create(index: "idx_coachingMembership_set_order",
+                          on: "coachingBehaviorMembership", columns: ["setId", "sortIndex"])
+        }
         return migrator
     }
 }

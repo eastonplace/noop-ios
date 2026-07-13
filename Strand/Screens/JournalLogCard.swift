@@ -1,5 +1,6 @@
 import SwiftUI
 import StrandDesign
+import WhoopStore
 
 /// Native journal logging, yes/no chips and numeric fields for the merged behaviour catalog plus a
 /// custom-question field, hosted at the top of Insights. Answers write under
@@ -413,6 +414,7 @@ struct CoachingRootView: View {
     @State private var todayAnswers: [String: Bool] = [:]
     @State private var todayNumeric: [String: Double] = [:]
     @State private var recentEntries: [CoachingRecentEntry] = []
+    @State private var coachingMemberships: [CoachingBehaviorMembership] = []
     @State private var loaded = false
     @State private var savedMessage: String?
 
@@ -424,7 +426,12 @@ struct CoachingRootView: View {
     private var loggedCount: Int {
         activeItems.filter { todayAnswers[$0.canonical] != nil || todayNumeric[$0.canonical] != nil }.count
     }
-    private var quickItems: [JournalCatalogItem] { Array(activeItems.prefix(6)) }
+    private var quickItems: [JournalCatalogItem] {
+        let quick = coachingMemberships.filter { $0.isActive && $0.isQuickAdd }.map(\.canonicalQuestion)
+        let keys = quick.isEmpty ? Array(activeItems.prefix(6).map(\.canonical)) : quick
+        let byKey = Dictionary(uniqueKeysWithValues: activeItems.map { ($0.canonical, $0) })
+        return keys.compactMap { byKey[$0] }
+    }
 
     var body: some View {
         NavigationStack {
@@ -509,7 +516,7 @@ struct CoachingRootView: View {
                     }
                     .frame(minHeight: NoopMetrics.rowHeight)
                     Divider().overlay(StrandPalette.hairline)
-                    NavigationLink { InsightsView(focusedJournal: true) } label: {
+                    NavigationLink { CoachingBehaviorSettingsView() } label: {
                         SettingsRow(icon: "slider.horizontal.3", title: "Edit behaviors",
                                     subtitle: "Names, groups and logging type")
                     }
@@ -524,7 +531,7 @@ struct CoachingRootView: View {
             HStack {
                 SectionHeader("Quick Add")
                 Spacer()
-                NavigationLink { InsightsView(focusedJournal: true) } label: {
+                NavigationLink { CoachingQuickAddView() } label: {
                     Text("More").font(StrandFont.caption.weight(.semibold))
                         .foregroundStyle(StrandPalette.journalAccent)
                 }
@@ -624,6 +631,17 @@ struct CoachingRootView: View {
         let answers = await repo.nativeJournalAnswers(day: todayKey)
         let numeric = await repo.nativeJournalNumeric(day: todayKey)
         importedQuestions = Array(Set(imported.map(\.question))).sorted()
+        let resolved = catalog.resolvedItems(imported: importedQuestions)
+        if let store = await repo.storeHandle() {
+            let defaults = resolved.enumerated().map { index, item in
+                CoachingBehaviorMembership(setId: "daily-fundamentals", canonicalQuestion: item.canonical,
+                                           coachingGroup: coachingPresentationGroup(for: item).rawValue,
+                                           sortIndex: index, isActive: true, isQuickAdd: index < 6)
+            }
+            if let set = try? await store.ensureDefaultCoachingSet(name: "Daily fundamentals", memberships: defaults) {
+                coachingMemberships = (try? await store.coachingMemberships(setId: set.id)) ?? []
+            }
+        }
         todayAnswers = answers
         todayNumeric = numeric
         recentEntries = all.reversed().prefix(12).map {
@@ -706,6 +724,18 @@ private enum CoachingCheckInGroup: String, CaseIterable, Identifiable {
     }
 }
 
+private func coachingPresentationGroup(for item: JournalCatalogItem) -> CoachingCheckInGroup {
+    switch item.group {
+    case .nutrition: return .fuel
+    case .supplements: return .supplements
+    case .health, .behaviour: return .recovery
+    case .other: return .training
+    case .lifestyle:
+        let q = JournalCatalogStore.norm(item.canonical)
+        return (q.contains("bed") || q.contains("read")) ? .sleep : .recovery
+    }
+}
+
 private enum CoachingCheckInControl {
     case toggle
     case quantity(step: Double, unit: String)
@@ -725,13 +755,15 @@ struct CoachingCheckInView: View {
     @State private var collapsed: Set<CoachingCheckInGroup> = []
     @State private var loaded = false
     @State private var saving = false
+    @State private var activeCanonicals: Set<String> = []
 
     init(onSaved: @escaping () -> Void = {}) { self.onSaved = onSaved }
 
     private var todayKey: String { Repository.localDayKey(Date()) }
     private var items: [JournalCatalogItem] {
-        catalog.resolvedItems(imported: importedQuestions)
+        let resolved = catalog.resolvedItems(imported: importedQuestions)
             .sorted { ($0.sortIndex, $0.display) < ($1.sortIndex, $1.display) }
+        return activeCanonicals.isEmpty ? resolved : resolved.filter { activeCanonicals.contains($0.canonical) }
     }
     private var answeredCount: Int {
         items.filter { answers[$0.canonical] != nil || quantities[$0.canonical] != nil }.count
@@ -887,15 +919,7 @@ struct CoachingCheckInView: View {
     }
 
     private func coachingGroup(for item: JournalCatalogItem) -> CoachingCheckInGroup {
-        switch item.group {
-        case .nutrition: return .fuel
-        case .supplements: return .supplements
-        case .health, .behaviour: return .recovery
-        case .other: return .training
-        case .lifestyle:
-            let q = JournalCatalogStore.norm(item.canonical)
-            return (q.contains("bed") || q.contains("read")) ? .sleep : .recovery
-        }
+        coachingPresentationGroup(for: item)
     }
 
     private func control(for item: JournalCatalogItem) -> CoachingCheckInControl {
@@ -918,6 +942,18 @@ struct CoachingCheckInView: View {
     @MainActor private func load() async {
         let imported = await repo.importedJournalEntries()
         importedQuestions = Array(Set(imported.map(\.question))).sorted()
+        let resolved = catalog.resolvedItems(imported: importedQuestions)
+        if let store = await repo.storeHandle() {
+            let defaults = resolved.enumerated().map { index, item in
+                CoachingBehaviorMembership(setId: "daily-fundamentals", canonicalQuestion: item.canonical,
+                                           coachingGroup: coachingPresentationGroup(for: item).rawValue,
+                                           sortIndex: index, isActive: true, isQuickAdd: index < 6)
+            }
+            if let set = try? await store.ensureDefaultCoachingSet(name: "Daily fundamentals", memberships: defaults) {
+                let membership = (try? await store.coachingMemberships(setId: set.id)) ?? []
+                activeCanonicals = Set(membership.filter(\.isActive).map(\.canonicalQuestion))
+            }
+        }
         answers = await repo.nativeJournalAnswers(day: todayKey)
         quantities = await repo.nativeJournalNumeric(day: todayKey)
         loaded = true
@@ -951,5 +987,286 @@ private struct CoachingAccentButtonStyle: ButtonStyle {
                         in: RoundedRectangle(cornerRadius: NoopButtonMetrics.cornerRadius,
                                              style: .continuous))
             .opacity(isEnabled ? (configuration.isPressed ? 0.78 : 1) : 0.4)
+    }
+}
+
+// MARK: - Behavior settings
+
+struct CoachingBehaviorSettingsView: View {
+    @EnvironmentObject private var repo: Repository
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var catalog = JournalCatalogStore()
+    @State private var importedQuestions: [String] = []
+    @State private var activeSet: CoachingBehaviorSet?
+    @State private var memberships: [CoachingBehaviorMembership] = []
+    @State private var showAdd = false
+
+    private var resolved: [String: JournalCatalogItem] {
+        Dictionary(uniqueKeysWithValues: catalog.resolvedItems(imported: importedQuestions,
+                                                               includeHidden: true).map { ($0.canonical, $0) })
+    }
+
+    var body: some View {
+        ScreenScaffold(title: "Behavior Settings", subtitle: "Your check-in set", backAction: { dismiss() }) {
+            VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+                activeSetCard
+                addButton
+                SectionHeader("Behaviors", overline: "Drag to reorder")
+                PaperCard {
+                    VStack(spacing: 0) {
+                        ForEach(Array(memberships.enumerated()), id: \.element.id) { index, membership in
+                            if index > 0 { Divider().overlay(StrandPalette.hairline) }
+                            behaviorRow(membership, index: index)
+                        }
+                    }
+                }
+                NoteCard("Active controls whether an item appears in Check-In. Quick Add controls the Coaching shortcut grid. Neither setting changes journal history or What Moves You keys.",
+                         style: .info)
+            }
+        }
+        .task { await load() }
+        .sheet(isPresented: $showAdd) { CoachingAddBehaviorSheet(catalog: catalog) { Task { await load() } } }
+        .tint(StrandPalette.journalAccent)
+        .navigationBarBackButtonHidden(true)
+    }
+
+    private var activeSetCard: some View {
+        PaperCard {
+            HStack(spacing: 12) {
+                Circle().fill(StrandPalette.journalAccent.opacity(0.14)).frame(width: 44, height: 44)
+                    .overlay(Image(systemName: "checklist").foregroundStyle(StrandPalette.journalAccent))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Active behavior set").font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                    Text(activeSet?.name ?? "Daily fundamentals")
+                        .font(StrandFont.cardTitle).foregroundStyle(StrandPalette.textPrimary)
+                }
+                Spacer()
+                Menu("Change Set") {
+                    Button(activeSet?.name ?? "Daily fundamentals") {}
+                }
+                .font(StrandFont.caption.weight(.semibold))
+                .foregroundStyle(StrandPalette.journalAccent)
+            }
+        }
+    }
+
+    private var addButton: some View {
+        Button { showAdd = true } label: {
+            Label("Add custom behavior", systemImage: "plus")
+                .font(StrandFont.body.weight(.semibold))
+                .foregroundStyle(StrandPalette.textPrimary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16)
+                .frame(height: NoopMetrics.controlHeight)
+                .background(StrandPalette.journalAccent.opacity(0.10),
+                            in: RoundedRectangle(cornerRadius: NoopMetrics.radius3, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func behaviorRow(_ membership: CoachingBehaviorMembership, index: Int) -> some View {
+        let item = resolved[membership.canonicalQuestion]
+        return HStack(spacing: 10) {
+            Menu {
+                Button("Move up") { move(index, by: -1) }.disabled(index == 0)
+                Button("Move down") { move(index, by: 1) }.disabled(index == memberships.count - 1)
+            } label: {
+                Image(systemName: "line.3.horizontal")
+                    .foregroundStyle(StrandPalette.textTertiary).frame(width: 24, height: 40)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item?.display ?? membership.canonicalQuestion)
+                    .font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary).lineLimit(2)
+                Text(membership.coachingGroup)
+                    .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+            }
+            Spacer(minLength: 6)
+            VStack(spacing: 2) {
+                Text("ACTIVE").font(StrandFont.micro).foregroundStyle(StrandPalette.textSecondary)
+                Toggle("", isOn: membershipBinding(membership, keyPath: \.isActive)).labelsHidden().noopToggle()
+            }
+            VStack(spacing: 2) {
+                Text("QUICK ADD").font(StrandFont.micro).foregroundStyle(StrandPalette.textSecondary)
+                Toggle("", isOn: membershipBinding(membership, keyPath: \.isQuickAdd)).labelsHidden().noopToggle()
+            }
+        }
+        .frame(minHeight: 68)
+    }
+
+    private func membershipBinding(_ membership: CoachingBehaviorMembership,
+                                   keyPath: KeyPath<CoachingBehaviorMembership, Bool>) -> Binding<Bool> {
+        Binding(get: { memberships.first(where: { $0.id == membership.id })?[keyPath: keyPath] ?? false },
+                set: { value in update(membership, keyPath: keyPath, value: value) })
+    }
+
+    private func update(_ membership: CoachingBehaviorMembership,
+                        keyPath: KeyPath<CoachingBehaviorMembership, Bool>, value: Bool) {
+        guard let index = memberships.firstIndex(where: { $0.id == membership.id }) else { return }
+        let current = memberships[index]
+        memberships[index] = CoachingBehaviorMembership(
+            setId: current.setId, canonicalQuestion: current.canonicalQuestion,
+            coachingGroup: current.coachingGroup, sortIndex: current.sortIndex,
+            isActive: keyPath == \.isActive ? value : current.isActive,
+            isQuickAdd: keyPath == \.isQuickAdd ? value : current.isQuickAdd)
+        persist()
+    }
+
+    private func move(_ index: Int, by delta: Int) {
+        let destination = index + delta
+        guard memberships.indices.contains(destination) else { return }
+        memberships.swapAt(index, destination)
+        memberships = memberships.enumerated().map { offset, current in
+            CoachingBehaviorMembership(setId: current.setId, canonicalQuestion: current.canonicalQuestion,
+                                       coachingGroup: current.coachingGroup, sortIndex: offset,
+                                       isActive: current.isActive, isQuickAdd: current.isQuickAdd)
+        }
+        persist()
+    }
+
+    private func persist() {
+        let rows = memberships
+        Task { if let store = await repo.storeHandle() { try? await store.upsertCoachingMemberships(rows) } }
+    }
+
+    @MainActor private func load() async {
+        let imported = await repo.importedJournalEntries()
+        importedQuestions = Array(Set(imported.map(\.question))).sorted()
+        let items = catalog.resolvedItems(imported: importedQuestions)
+        guard let store = await repo.storeHandle() else { return }
+        let defaults = items.enumerated().map { index, item in
+            CoachingBehaviorMembership(setId: "daily-fundamentals", canonicalQuestion: item.canonical,
+                                       coachingGroup: coachingPresentationGroup(for: item).rawValue,
+                                       sortIndex: index, isActive: true, isQuickAdd: index < 6)
+        }
+        if let set = try? await store.ensureDefaultCoachingSet(name: "Daily fundamentals", memberships: defaults) {
+            activeSet = set
+            memberships = (try? await store.coachingMemberships(setId: set.id)) ?? []
+        }
+    }
+}
+
+private struct CoachingAddBehaviorSheet: View {
+    @ObservedObject var catalog: JournalCatalogStore
+    let onAdded: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var group: JournalGroup = .other
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: NoopMetrics.space4) {
+                CompactFormField("Behavior name", text: $name)
+                NoopDropdown("Group", options: JournalGroup.displayOrder, selection: $group) { $0.title }
+                Spacer()
+                Button("Add behavior") {
+                    catalog.addCustom(name, group: group)
+                    onAdded()
+                    dismiss()
+                }
+                .buttonStyle(CoachingAccentButtonStyle())
+                .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            .padding(NoopMetrics.screenPadding)
+            .background(StrandPalette.surfaceBase.ignoresSafeArea())
+            .navigationTitle("Add Behavior")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+        }
+        .presentationDetents([.medium])
+    }
+}
+
+// MARK: - Quick Add
+
+struct CoachingQuickAddView: View {
+    @EnvironmentObject private var repo: Repository
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var catalog = JournalCatalogStore()
+    @State private var importedQuestions: [String] = []
+    @State private var memberships: [CoachingBehaviorMembership] = []
+    @State private var answers: [String: Bool] = [:]
+    @State private var search = ""
+    @State private var showAll = false
+
+    private var todayKey: String { Repository.localDayKey(Date()) }
+    private var resolved: [String: JournalCatalogItem] {
+        Dictionary(uniqueKeysWithValues: catalog.resolvedItems(imported: importedQuestions).map { ($0.canonical, $0) })
+    }
+    private var visible: [CoachingBehaviorMembership] {
+        memberships.filter { membership in
+            membership.isActive && (showAll || membership.isQuickAdd) &&
+            (search.isEmpty || (resolved[membership.canonicalQuestion]?.display ?? membership.canonicalQuestion)
+                .localizedCaseInsensitiveContains(search))
+        }
+    }
+
+    var body: some View {
+        ScreenScaffold(title: "Quick Add", subtitle: "Log without the full check-in", backAction: { dismiss() }) {
+            VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+                HStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(StrandPalette.textSecondary)
+                    TextField("Search behaviors", text: $search).font(StrandFont.body)
+                }
+                .padding(.horizontal, 14).frame(height: NoopMetrics.controlHeight)
+                .background(StrandPalette.card, in: RoundedRectangle(cornerRadius: NoopMetrics.radius3))
+                .overlay(RoundedRectangle(cornerRadius: NoopMetrics.radius3)
+                    .strokeBorder(StrandPalette.cardBorder, lineWidth: 1))
+
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: NoopMetrics.space3) {
+                    ForEach(visible) { membership in quickTile(membership) }
+                }
+
+                Button(showAll ? "Show Quick Add only" : "View all behaviors") { showAll.toggle() }
+                    .font(StrandFont.body.weight(.semibold))
+                    .foregroundStyle(StrandPalette.journalAccent)
+                    .frame(maxWidth: .infinity).frame(height: 48)
+                    .background(StrandPalette.journalAccent.opacity(0.10), in: RoundedRectangle(cornerRadius: NoopMetrics.radius3))
+                    .buttonStyle(.plain)
+            }
+        }
+        .task { await load() }
+        .tint(StrandPalette.journalAccent)
+        .navigationBarBackButtonHidden(true)
+    }
+
+    private func quickTile(_ membership: CoachingBehaviorMembership) -> some View {
+        let item = resolved[membership.canonicalQuestion]
+        let logged = answers[membership.canonicalQuestion] == true
+        return PaperCard(padding: 14) {
+            VStack(alignment: .leading, spacing: 10) {
+                Image(systemName: logged ? "checkmark.circle.fill" : "plus.circle.fill")
+                    .font(StrandFont.title2).foregroundStyle(StrandPalette.journalAccent)
+                Text(item?.display ?? membership.canonicalQuestion)
+                    .font(StrandFont.body.weight(.semibold)).foregroundStyle(StrandPalette.textPrimary)
+                    .lineLimit(2).frame(maxWidth: .infinity, minHeight: 48, alignment: .topLeading)
+                Text(membership.coachingGroup).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                Button(logged ? "Added" : "Add") { Task { await add(membership) } }
+                    .font(StrandFont.caption.weight(.semibold)).foregroundStyle(StrandPalette.textPrimary)
+                    .frame(maxWidth: .infinity).frame(height: 36)
+                    .background(StrandPalette.journalAccent.opacity(logged ? 0.18 : 0.10), in: Capsule())
+                    .buttonStyle(.plain)
+            }
+        }
+    }
+
+    @MainActor private func load() async {
+        let imported = await repo.importedJournalEntries()
+        importedQuestions = Array(Set(imported.map(\.question))).sorted()
+        let items = catalog.resolvedItems(imported: importedQuestions)
+        answers = await repo.nativeJournalAnswers(day: todayKey)
+        guard let store = await repo.storeHandle() else { return }
+        let defaults = items.enumerated().map { index, item in
+            CoachingBehaviorMembership(setId: "daily-fundamentals", canonicalQuestion: item.canonical,
+                                       coachingGroup: coachingPresentationGroup(for: item).rawValue,
+                                       sortIndex: index, isActive: true, isQuickAdd: index < 6)
+        }
+        if let set = try? await store.ensureDefaultCoachingSet(name: "Daily fundamentals", memberships: defaults) {
+            memberships = (try? await store.coachingMemberships(setId: set.id)) ?? []
+        }
+    }
+
+    @MainActor private func add(_ membership: CoachingBehaviorMembership) async {
+        await repo.saveJournalAnswer(day: todayKey, question: membership.canonicalQuestion, answeredYes: true)
+        answers = await repo.nativeJournalAnswers(day: todayKey)
     }
 }
