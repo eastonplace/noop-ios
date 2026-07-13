@@ -60,7 +60,7 @@
   contrast re-check for any graphic ON tinted fills.
 - [x] T122 — F4 no-color-text sweep app-wide (values→ink, meaning→chip/glyph/
   dot); includes deltas, factor words, zone %, effect sizes.
-- [ ] T123 — F5 chart pass (weight, opacity, underfill, heights, ref-placed
+- [x] T123 — F5 chart pass (weight, opacity, underfill, heights, ref-placed
   dots) + seeder variance.
 - [ ] T124 — F6 small items (tile flip, ✓ badges, insight-always).
 - [ ] T125 — healthy-day default scenario + full re-shoot: 8 light pairs +

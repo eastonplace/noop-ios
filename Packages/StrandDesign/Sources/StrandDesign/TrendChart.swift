@@ -72,7 +72,7 @@ public struct TrendChart: View {
         gradient: Gradient = StrandPalette.recoveryGradient,
         valueRange: ClosedRange<Double> = 0...100,
         showsArea: Bool = true,
-        height: CGFloat = 220,
+        height: CGFloat = NoopMetrics.chartHeight,
         showsHover: Bool = true,
         valueFormat: @escaping (Double) -> String = { String(Int($0.rounded())) },
         dateFormat: @escaping (Date) -> String = { TrendChart.defaultDateString($0) },
@@ -178,7 +178,7 @@ public struct TrendChart: View {
                     .foregroundStyle(
                         LinearGradient(
                             colors: [
-                                StrandPalette.sample(stops: gradient.toStops(), at: unit(averageValue)).opacity(0.28),
+                                StrandPalette.sample(stops: gradient.toStops(), at: unit(averageValue)).opacity(0.14),
                                 Color.clear
                             ],
                             startPoint: .top, endPoint: .bottom
@@ -205,7 +205,7 @@ public struct TrendChart: View {
                         x: .value("Date", p.date),
                         y: .value("Value", p.value)
                     )
-                    .symbolSize(18)
+                    .symbolSize(12)
                     .foregroundStyle(StrandPalette.sample(stops: gradient.toStops(), at: unit(p.value)))
                 }
             }

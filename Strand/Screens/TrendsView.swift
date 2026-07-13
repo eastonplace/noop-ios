@@ -189,7 +189,7 @@ struct TrendsView: View {
                         }
                     }
                     .chartForegroundStyleScale(domain: ["Recovery", "Sleep"],
-                                               range: [StrandPalette.recoveryData.opacity(0.55),
+                                               range: [StrandPalette.recoveryData,
                                                        StrandPalette.sleepAccent])
                     .chartLegend(.hidden)
                     .chartYScale(domain: 0...100)
@@ -241,7 +241,7 @@ struct TrendsView: View {
                         }
                     }
                 }
-                .frame(height: 180)
+                .frame(height: NoopMetrics.chartHeight)
             }
         }
     }

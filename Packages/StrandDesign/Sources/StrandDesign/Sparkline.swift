@@ -68,7 +68,7 @@ public struct Sparkline: View {
     /// The area-wash top colour (gradient sampled at 0.7, dimmed). Computed once per body eval instead of
     /// re-sampling the gradient inside the ZStack on every draw.
     private var areaWashColor: Color {
-        StrandPalette.sample(stops: gradient.stops, at: 0.7).opacity(0.06)
+        StrandPalette.sample(stops: gradient.stops, at: 0.7).opacity(0.14)
     }
     /// The head-dot ring colour (gradient sampled at its bright end). Computed once per body eval.
     private var headColor: Color {

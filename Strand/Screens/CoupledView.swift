@@ -859,12 +859,12 @@ struct PaperPillarDetailView: View {
                         if let date = Self.dayFormatter.date(from: item.day) {
                             LineMark(x: .value("Day", date), y: .value("Score", item.value))
                                 .foregroundStyle(kind == .charge ? StrandPalette.recoveryData : accent)
-                                .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-                            if kind == .charge {
-                                PointMark(x: .value("Day", date), y: .value("Score", item.value))
-                                    .foregroundStyle(RecoveryBands.color(for: item.value))
-                                    .symbolSize(24)
-                            }
+                                .lineStyle(StrokeStyle(lineWidth: NoopMetrics.chartLineWidth,
+                                                       lineCap: .round, lineJoin: .round))
+                            PointMark(x: .value("Day", date), y: .value("Score", item.value))
+                                .foregroundStyle(kind == .charge
+                                    ? RecoveryBands.color(for: item.value) : accent)
+                                .symbolSize(12)
                         }
                     }
                     if let sevenDayAverage {

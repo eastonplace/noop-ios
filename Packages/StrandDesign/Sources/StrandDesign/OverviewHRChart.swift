@@ -286,7 +286,7 @@ public struct OverviewHRChart: View {
                 .foregroundStyle(
                     LinearGradient(
                         colors: [
-                            StrandPalette.sample(stops: gradient.toStops(), at: unit(averageValue)).opacity(0.06),
+                            StrandPalette.sample(stops: gradient.toStops(), at: unit(averageValue)).opacity(0.14),
                             Color.clear
                         ],
                         startPoint: .top, endPoint: .bottom
@@ -296,7 +296,7 @@ public struct OverviewHRChart: View {
         ForEach(displayPoints) { p in
             LineMark(x: .value("Time", p.date), y: .value("BPM", p.value))
                 .interpolationMethod(.catmullRom)
-                .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                .lineStyle(StrokeStyle(lineWidth: NoopMetrics.chartLineWidth, lineCap: .round, lineJoin: .round))
                 .foregroundStyle(valueGradient)
         }
 

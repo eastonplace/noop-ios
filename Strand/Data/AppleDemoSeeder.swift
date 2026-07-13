@@ -105,6 +105,11 @@ enum AppleDemoSeeder {
             let weekday = cal.component(.weekday, from: date)  // 1=Sun … 7=Sat
             let weekend = (weekday == 1 || weekday == 7)
             fitness += 0.012
+            // F5 evidence fixture: keep the deterministic account physiologically alive. The
+            // slow wave prevents ruler-straight baselines; periodic fatigue days create the
+            // recovery dips / RHR spikes a real 120-day history contains. DEBUG-only seed data.
+            let autonomicWave = Foundation.sin(Double(i) / 3.7)
+            let fatigueDay = i % 19 == 7
 
             // --- training load for the day ---
             let trains = weekend ? rng.nextDouble() < 0.40 : rng.nextDouble() < 0.62
@@ -119,17 +124,20 @@ enum AppleDemoSeeder {
             let disturbances = Int(gauss(&rng, 6.0, 3.0).clamped(0.0, 18.0))
 
             // --- autonomic markers ---
-            let hrv = (gauss(&rng, 78.0 + fitness * 1.5, 12.0) + (weekend ? 6 : 0) - Double(nWorkouts) * 4)
+            let hrv = (gauss(&rng, 78.0 + fitness * 1.5 + autonomicWave * 5.0, 12.0)
+                + (weekend ? 6 : 0) - Double(nWorkouts) * 4 - (fatigueDay ? 16 : 0))
                 .clamped(28.0, 150.0)
-            let rhr = Int((gauss(&rng, 56.0 - fitness * 0.4, 3.0) + Double(nWorkouts) * 1.2).clamped(42.0, 70.0))
+            let rhr = Int((gauss(&rng, 56.0 - fitness * 0.4 - autonomicWave * 1.8, 3.0)
+                + Double(nWorkouts) * 1.2 + (fatigueDay ? 6 : 0)).clamped(42.0, 74.0))
             let spo2 = gauss(&rng, 96.5, 0.8).clamped(93.0, 100.0)
-            let skinTempDev = gauss(&rng, 0.0, 0.25).clamped(-1.2, 1.4)
-            let resp = gauss(&rng, 14.6, 0.9).clamped(11.0, 19.0)
+            let skinTempDev = (gauss(&rng, 0.0, 0.25) + (fatigueDay ? 0.45 : 0)).clamped(-1.2, 1.4)
+            let resp = (gauss(&rng, 14.6, 0.9) + (fatigueDay ? 1.3 : 0)).clamped(11.0, 19.0)
 
             // --- recovery: a function of HRV, sleep quality and resting-HR ---
             let recovery = (
                 40 + (hrv - 70) * 0.55 + (efficiency - 85) * 0.6 + (totalSleep - 420) * 0.03 -
-                    (Double(rhr) - 55) * 1.4 - Double(disturbances) * 0.8 + gauss(&rng, 0.0, 5.0)
+                    (Double(rhr) - 55) * 1.4 - Double(disturbances) * 0.8
+                    - (fatigueDay ? 8 : 0) + gauss(&rng, 0.0, 5.0)
             ).clamped(8.0, 99.0)
 
             // --- strain (Effort): workout-driven, rescaled 0–21 → 0–100 ---
