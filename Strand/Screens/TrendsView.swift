@@ -261,9 +261,13 @@ struct TrendsView: View {
         return lines.isEmpty ? [digest.balance.sentence] : lines
     }
 
-    /// Insight only renders when it adds something the bullets don't already say.
-    private var paperInsightIsDistinct: Bool {
-        !paperReviewLines.contains(paperDigest.balance.sentence)
+    /// F6: the card never disappears. Prefer the engine's balance read, then the next
+    /// focal point not already used by Week in Review. When the engine has emitted no
+    /// second distinct read yet, keep the slot honest instead of repeating a bullet.
+    private var paperInsightText: String {
+        let candidates = [paperDigest.balance.sentence] + paperDigest.focalPoints
+        return candidates.first(where: { !paperReviewLines.contains($0) })
+            ?? String(localized: "Keep logging this week. The next distinct pattern will appear as soon as it clears the weekly signal threshold.")
     }
 
     /// Bullet dot tinted by the pillar the sentence is about (board v2's colored review dots);
@@ -350,10 +354,8 @@ struct TrendsView: View {
     }
 
     @ViewBuilder private var paperInsight: some View {
-        if paperInsightIsDistinct {
-            InsightCard(symbol: "sparkles", title: "Insight",
-                        body: LocalizedStringKey(paperDigest.balance.sentence), accent: StrandPalette.link)
-        }
+        InsightCard(symbol: "sparkles", title: "Insight",
+                    body: LocalizedStringKey(paperInsightText), accent: StrandPalette.link)
     }
 
 }

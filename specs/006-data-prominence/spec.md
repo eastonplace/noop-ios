@@ -62,7 +62,7 @@
   dot); includes deltas, factor words, zone %, effect sizes.
 - [x] T123 — F5 chart pass (weight, opacity, underfill, heights, ref-placed
   dots) + seeder variance.
-- [ ] T124 — F6 small items (tile flip, ✓ badges, insight-always).
+- [x] T124 — F6 small items (tile flip, ✓ badges, insight-always).
 - [ ] T125 — healthy-day default scenario + full re-shoot: 8 light pairs +
   dark strip, regenerate side-by-side stack.
 - [ ] T126 — GATE: external review of the stack. No PR until approved.
