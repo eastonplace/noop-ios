@@ -1910,6 +1910,28 @@ final class Repository: ObservableObject {
         _ = try? await store.deleteJournal(deviceId: Self.journalDeviceId, day: day, question: question)
     }
 
+    /// Log one coaching stack without creating a parallel behavior path. Checked items fan out through
+    /// the existing journal APIs (numeric doses still imply answeredYes=true); coachingStackUse is only
+    /// the provenance record tying those ordinary occurrences back to the initiating stack.
+    @discardableResult
+    func logCoachingStack(stackId: String, day: String, items: [CoachingStackItem],
+                          notes: String?, skipped: Bool = false) async -> CoachingStackUse? {
+        guard let store = await ensureStore() else { return nil }
+        if !skipped {
+            for item in items {
+                if let dose = item.dose, dose > 0 {
+                    await saveJournalNumeric(day: day, question: item.canonicalQuestion,
+                                             value: dose, notes: notes)
+                } else {
+                    await saveJournalAnswer(day: day, question: item.canonicalQuestion,
+                                            answeredYes: true, notes: notes)
+                }
+            }
+        }
+        return try? await store.logCoachingStackUse(stackId: stackId, day: day,
+                                                    notes: notes, skipped: skipped)
+    }
+
     /// All workouts (Whoop + Apple Health + on-device detected bouts), newest first.
     ///
     /// Detected bouts are surfaced with an honest "Detected" badge so the user can see , and

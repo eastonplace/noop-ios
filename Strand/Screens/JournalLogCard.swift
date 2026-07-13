@@ -1486,18 +1486,10 @@ struct CoachingStackDetailView: View {
 
     @MainActor private func logStack() async {
         saving = true
-        for item in items where selected.contains(item.canonicalQuestion) {
-            if let dose = item.dose, dose > 0 {
-                await repo.saveJournalNumeric(day: todayKey, question: item.canonicalQuestion,
-                                              value: dose, notes: notes.nilIfEmpty)
-            } else {
-                await repo.saveJournalAnswer(day: todayKey, question: item.canonicalQuestion,
-                                             answeredYes: true, notes: notes.nilIfEmpty)
-            }
-        }
-        if let store = await repo.storeHandle() {
-            _ = try? await store.logCoachingStackUse(stackId: stack.id, day: todayKey,
-                                                     notes: notes.nilIfEmpty, skipped: false)
+        let checked = items.filter { selected.contains($0.canonicalQuestion) }
+        if await repo.logCoachingStack(stackId: stack.id, day: todayKey, items: checked,
+                                       notes: notes.nilIfEmpty) != nil,
+           let store = await repo.storeHandle() {
             lastUse = try? await store.coachingStackUses(stackId: stack.id).first
         }
         saving = false
@@ -1506,9 +1498,8 @@ struct CoachingStackDetailView: View {
     }
 
     @MainActor private func skip() async {
-        guard let store = await repo.storeHandle() else { return }
-        _ = try? await store.logCoachingStackUse(stackId: stack.id, day: todayKey,
-                                                 notes: notes.nilIfEmpty, skipped: true)
+        _ = await repo.logCoachingStack(stackId: stack.id, day: todayKey, items: [],
+                                        notes: notes.nilIfEmpty, skipped: true)
         onChanged()
         dismiss()
     }

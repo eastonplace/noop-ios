@@ -103,7 +103,7 @@
 - [x] T135 — Check-In flow (groups, steppers, counters, save/cancel).
 - [x] T136 — Behavior Settings + Quick Add grid. GATE (with T134/T135).
 - [x] T137 — Stacks (additive storage + detail screen + shortcuts wiring).
-- [ ] T138 — G4 integration proofs + tests (associations unchanged; quantity
+- [x] T138 — G4 integration proofs + tests (associations unchanged; quantity
   metadata round-trips; relaunch persistence).
 - [ ] T139 — GATE: final evidence — full-page set + side-by-side vs the
   coaching sheet AND spot-pairs vs the component library. External review.
