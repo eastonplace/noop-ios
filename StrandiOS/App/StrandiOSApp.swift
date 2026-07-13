@@ -277,7 +277,7 @@ enum DemoScreens {
         "today", "trends", "trendslastweek", "fullday", "sleep", "live", "stress", "workouts", "workoutdetail", "health",
         "insights", "insightshub", "intelligence", "explore", "compare", "coach", "settings", "applehealth",
         "storage", "trendsreport", "fused", "scoringguide", "updates", "whatsnew", "hownoopworks", "xiaomi",
-        "intervals", "hydration", "breathing", "manualworkout", "journal", "journalcard", "caffeinecard", "stresscheckin", "skintempcards", "autoworkoutcard", "mindsection", "hrvsnapshot", "watchsetup", "watchabout", "dashboardeditor",
+        "intervals", "hydration", "breathing", "manualworkout", "journal", "checkin", "journalcard", "caffeinecard", "stresscheckin", "skintempcards", "autoworkoutcard", "mindsection", "hrvsnapshot", "watchsetup", "watchabout", "dashboardeditor",
         "keymetricseditor", "data", "backup", "support", "labbook", "automations",
         "alarms", "testcentre", "rhythmconsent", "rhythm", "liveworkout",
         "preworkout", "recoverydetail", "straindetail", "sleepdetail", "devices",
@@ -315,6 +315,7 @@ enum DemoScreens {
         case "health":   return AnyView(HealthView())
         case "insights": return AnyView(InsightsHubView())
         case "journal": return AnyView(CoachingRootView())
+        case "checkin": return AnyView(NavigationStack { CoachingCheckInView() })
         case "insightshub": return AnyView(InsightsHubView())
         case "intelligence": return AnyView(IntelligenceView())
         case "explore":  return AnyView(MetricExplorerView())

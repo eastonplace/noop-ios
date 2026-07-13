@@ -100,7 +100,7 @@
   menus, dialogs, nav 76, badges) + absorb pending T126a items.
 - [x] T133 — GATE: full-app re-shoot, deadness check vs the board.
 - [x] T134 — Coaching Root + G5 entry-point rewiring.
-- [ ] T135 — Check-In flow (groups, steppers, counters, save/cancel).
+- [x] T135 — Check-In flow (groups, steppers, counters, save/cancel).
 - [ ] T136 — Behavior Settings + Quick Add grid. GATE (with T134/T135).
 - [ ] T137 — Stacks (additive storage + detail screen + shortcuts wiring).
 - [ ] T138 — G4 integration proofs + tests (associations unchanged; quantity

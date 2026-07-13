@@ -469,7 +469,7 @@ struct CoachingRootView: View {
                 }
 
                 NavigationLink {
-                    InsightsView(focusedJournal: true)
+                    CoachingCheckInView { Task { await load() } }
                 } label: {
                     Label("Continue check-in", systemImage: "arrow.right")
                         .font(StrandFont.headline.weight(.semibold))
@@ -684,5 +684,272 @@ private struct CoachingRecentEntry: Identifiable {
 
     static func format(_ value: Double) -> String {
         value == value.rounded() ? String(Int(value)) : String(format: "%.1f", value)
+    }
+}
+
+private enum CoachingCheckInGroup: String, CaseIterable, Identifiable {
+    case sleep = "Sleep setup"
+    case fuel = "Fuel"
+    case training = "Training & activity"
+    case recovery = "Recovery & stress"
+    case supplements = "Supplements & medication"
+
+    var id: String { rawValue }
+    var icon: String {
+        switch self {
+        case .sleep: return "moon"
+        case .fuel: return "fork.knife"
+        case .training: return "figure.run"
+        case .recovery: return "heart.text.square"
+        case .supplements: return "pills"
+        }
+    }
+}
+
+private enum CoachingCheckInControl {
+    case toggle
+    case quantity(step: Double, unit: String)
+}
+
+/// Full daily check-in. Grouping and control choice are presentation only; immutable catalog
+/// canonicals remain the keys for every Repository write.
+struct CoachingCheckInView: View {
+    @EnvironmentObject private var repo: Repository
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var catalog = JournalCatalogStore()
+
+    private let onSaved: () -> Void
+    @State private var importedQuestions: [String] = []
+    @State private var answers: [String: Bool] = [:]
+    @State private var quantities: [String: Double] = [:]
+    @State private var collapsed: Set<CoachingCheckInGroup> = []
+    @State private var loaded = false
+    @State private var saving = false
+
+    init(onSaved: @escaping () -> Void = {}) { self.onSaved = onSaved }
+
+    private var todayKey: String { Repository.localDayKey(Date()) }
+    private var items: [JournalCatalogItem] {
+        catalog.resolvedItems(imported: importedQuestions)
+            .sorted { ($0.sortIndex, $0.display) < ($1.sortIndex, $1.display) }
+    }
+    private var answeredCount: Int {
+        items.filter { answers[$0.canonical] != nil || quantities[$0.canonical] != nil }.count
+    }
+    private var progress: Double { items.isEmpty ? 0 : Double(answeredCount) / Double(items.count) }
+
+    var body: some View {
+        ScreenScaffold(title: "Evening Check-In", subtitle: "Saved locally", backAction: { dismiss() }) {
+            if loaded {
+                VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+                    progressHeader
+                    ForEach(CoachingCheckInGroup.allCases) { group in
+                        groupCard(group)
+                    }
+                    classicLink
+                    actions
+                }
+            } else {
+                ComingSoon(what: "Loading your behaviors…", symbol: "checkmark.circle")
+            }
+        }
+        .task { await load() }
+        .tint(StrandPalette.journalAccent)
+        .navigationBarBackButtonHidden(true)
+    }
+
+    private var progressHeader: some View {
+        PaperCard {
+            HStack(spacing: NoopMetrics.space4) {
+                CoachingProgressRing(value: progress, label: "\(Int((progress * 100).rounded()))%")
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("How did today go?").font(StrandFont.title2).foregroundStyle(StrandPalette.textPrimary)
+                    Text("\(answeredCount) of \(items.count) behaviors answered")
+                        .font(StrandFont.body).foregroundStyle(StrandPalette.textSecondary)
+                    Label("Nothing leaves this device", systemImage: "lock.fill")
+                        .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                }
+            }
+        }
+    }
+
+    private func groupItems(_ group: CoachingCheckInGroup) -> [JournalCatalogItem] {
+        items.filter { coachingGroup(for: $0) == group }
+    }
+
+    @ViewBuilder private func groupCard(_ group: CoachingCheckInGroup) -> some View {
+        let rows = groupItems(group)
+        if !rows.isEmpty {
+            PaperCard {
+                VStack(spacing: 0) {
+                    Button {
+                        if collapsed.contains(group) { collapsed.remove(group) } else { collapsed.insert(group) }
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: group.icon).foregroundStyle(StrandPalette.journalAccent).frame(width: 24)
+                            Text(group.rawValue).font(StrandFont.cardTitle).foregroundStyle(StrandPalette.textPrimary)
+                            Spacer()
+                            Text("\(rows.count)").font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                            Image(systemName: collapsed.contains(group) ? "chevron.right" : "chevron.down")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(StrandPalette.textTertiary)
+                        }
+                        .frame(minHeight: NoopMetrics.rowHeight)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+
+                    if !collapsed.contains(group) {
+                        ForEach(rows) { item in
+                            Divider().overlay(StrandPalette.hairline)
+                            checkInRow(item)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func checkInRow(_ item: JournalCatalogItem) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.display).font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(controlCaption(item)).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+            }
+            Spacer(minLength: 8)
+            switch control(for: item) {
+            case .toggle:
+                Toggle("", isOn: answerBinding(item.canonical))
+                    .labelsHidden()
+                    .tint(StrandPalette.journalAccent)
+            case let .quantity(step, unit):
+                quantityControl(item, step: step, unit: unit)
+            }
+        }
+        .frame(minHeight: NoopMetrics.rowHeight)
+    }
+
+    private func quantityControl(_ item: JournalCatalogItem, step: Double, unit: String) -> some View {
+        HStack(spacing: 6) {
+            Button { adjust(item.canonical, by: -step) } label: {
+                Image(systemName: "minus").frame(width: 30, height: 30)
+                    .background(StrandPalette.inset, in: Circle())
+            }
+            .buttonStyle(.plain)
+            VStack(spacing: 0) {
+                Text(CoachingRecentEntry.format(quantities[item.canonical] ?? 0))
+                    .font(StrandFont.bodyNumber).foregroundStyle(StrandPalette.textPrimary)
+                Text(unit).font(StrandFont.micro).foregroundStyle(StrandPalette.textSecondary)
+            }
+            .frame(minWidth: 46)
+            Button { adjust(item.canonical, by: step) } label: {
+                Image(systemName: "plus").frame(width: 30, height: 30)
+                    .background(StrandPalette.journalAccent.opacity(0.12), in: Circle())
+            }
+            .buttonStyle(.plain)
+        }
+        .foregroundStyle(StrandPalette.textPrimary)
+    }
+
+    private var classicLink: some View {
+        NavigationLink { InsightsView(focusedJournal: true) } label: {
+            PaperCard {
+                SettingsRow(icon: "list.bullet.rectangle", title: "Open classic journal",
+                            subtitle: "Use Yes / No chips or edit custom questions")
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var actions: some View {
+        HStack(spacing: NoopMetrics.space3) {
+            Button("Cancel") { dismiss() }
+                .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
+            Button {
+                Task { await save() }
+            } label: {
+                Label(saving ? "Saving…" : "Save check-in", systemImage: "checkmark")
+            }
+            .buttonStyle(CoachingAccentButtonStyle())
+            .disabled(saving)
+        }
+    }
+
+    private func answerBinding(_ canonical: String) -> Binding<Bool> {
+        Binding(get: { answers[canonical] ?? false }, set: { answers[canonical] = $0 })
+    }
+
+    private func adjust(_ canonical: String, by step: Double) {
+        let next = max(0, (quantities[canonical] ?? 0) + step)
+        quantities[canonical] = next
+        answers[canonical] = next > 0
+    }
+
+    private func coachingGroup(for item: JournalCatalogItem) -> CoachingCheckInGroup {
+        switch item.group {
+        case .nutrition: return .fuel
+        case .supplements: return .supplements
+        case .health, .behaviour: return .recovery
+        case .other: return .training
+        case .lifestyle:
+            let q = JournalCatalogStore.norm(item.canonical)
+            return (q.contains("bed") || q.contains("read")) ? .sleep : .recovery
+        }
+    }
+
+    private func control(for item: JournalCatalogItem) -> CoachingCheckInControl {
+        if item.kind.isNumeric { return .quantity(step: 1, unit: item.kind.unitLabel ?? "units") }
+        let q = JournalCatalogStore.norm(item.canonical)
+        if q.contains("alcohol") { return .quantity(step: 1, unit: "servings") }
+        if q.contains("caffeine") { return .quantity(step: 1, unit: "servings") }
+        if q.contains("magnesium") { return .quantity(step: 1, unit: "dose") }
+        if q.contains("sauna") { return .quantity(step: 10, unit: "min") }
+        return .toggle
+    }
+
+    private func controlCaption(_ item: JournalCatalogItem) -> String {
+        switch control(for: item) {
+        case .toggle: return String(localized: "Tap if this happened")
+        case let .quantity(_, unit): return String(localized: "Log \(unit)")
+        }
+    }
+
+    @MainActor private func load() async {
+        let imported = await repo.importedJournalEntries()
+        importedQuestions = Array(Set(imported.map(\.question))).sorted()
+        answers = await repo.nativeJournalAnswers(day: todayKey)
+        quantities = await repo.nativeJournalNumeric(day: todayKey)
+        loaded = true
+    }
+
+    @MainActor private func save() async {
+        saving = true
+        for item in items where answers[item.canonical] != nil || quantities[item.canonical] != nil {
+            if let value = quantities[item.canonical], value > 0 {
+                await repo.saveJournalNumeric(day: todayKey, question: item.canonical, value: value)
+            } else {
+                await repo.saveJournalAnswer(day: todayKey, question: item.canonical,
+                                             answeredYes: answers[item.canonical] ?? false)
+            }
+        }
+        saving = false
+        onSaved()
+        dismiss()
+    }
+}
+
+private struct CoachingAccentButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(StrandFont.headline.weight(.semibold))
+            .foregroundStyle(Color.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: NoopMetrics.controlHeight)
+            .background(StrandPalette.journalAccent,
+                        in: RoundedRectangle(cornerRadius: NoopButtonMetrics.cornerRadius,
+                                             style: .continuous))
+            .opacity(isEnabled ? (configuration.isPressed ? 0.78 : 1) : 0.4)
     }
 }
