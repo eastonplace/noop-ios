@@ -105,5 +105,5 @@
 - [x] T137 — Stacks (additive storage + detail screen + shortcuts wiring).
 - [x] T138 — G4 integration proofs + tests (associations unchanged; quantity
   metadata round-trips; relaunch persistence).
-- [ ] T139 — GATE: final evidence — full-page set + side-by-side vs the
+- [x] T139 — GATE: final evidence — full-page set + side-by-side vs the
   coaching sheet AND spot-pairs vs the component library. External review.

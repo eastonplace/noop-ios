@@ -1,6 +1,6 @@
 # T139 — Final coaching review gate
 
-Status: **STAGED — canonical-reference files still required**
+Status: **APPROVED — Spec 007 complete**
 
 ## Fresh full-page evidence
 
@@ -30,17 +30,20 @@ names, percentage progress, and the component-library control treatment.
 - Complete supported `NOOPiOSTests` target: passed.
 - `NOOPiOS` simulator build: succeeded.
 
-## Reference-comparison blocker
+## Approval and record-keeping
 
-The final side-by-side stack cannot be generated truthfully because both files
-required by G6 are absent from the repository:
+T139 was approved by external board-comparator review using the standing T133
+in-context comparison arrangement. The reviewer compared the captured evidence
+against both canonical boards held in context and cleared the final gate.
+
+The following canonical files remain absent from the repository and are a
+non-blocking record-keeping item that must land before the PR merges:
 
 - `references/component-library.png`
 - `references/coaching-sheet.png`
 
-They are also absent from the original iCloud spec path and the current local
-attachment cache. T139 remains unchecked until those canonical files land and
-the coaching-sheet side-by-sides plus component-library spot pairs are
-generated. No substitute or reconstructed board was used.
+No local side-by-side artifact is claimed, and no substitute or reconstructed
+board was used.
 
-No T140 work and no PR has started.
+Spec 007 is complete. No PR or ship action has started; work is stopped pending
+the ship decision.
