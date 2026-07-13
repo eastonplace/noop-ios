@@ -9,18 +9,18 @@ final class StrandDesignTests: XCTestCase {
     }
 
     func testPaperProportionContract() {
-        XCTAssertEqual(NoopMetrics.trioRingDiameter, 64)
-        XCTAssertEqual(NoopMetrics.trioRingLineWidth, 4)
-        XCTAssertEqual(NoopMetrics.trioRingNumeralSize, 26)
-        XCTAssertEqual(NoopMetrics.heroRingDiameter, 96)
-        XCTAssertEqual(NoopMetrics.heroRingLineWidth, 6)
-        XCTAssertEqual(NoopMetrics.heroRingNumeralSize, 44)
+        XCTAssertEqual(NoopMetrics.trioRingDiameter, 72)
+        XCTAssertEqual(NoopMetrics.trioRingLineWidth, 4.5)
+        XCTAssertEqual(NoopMetrics.trioRingNumeralSize, 30)
+        XCTAssertEqual(NoopMetrics.heroRingDiameter, 104)
+        XCTAssertEqual(NoopMetrics.heroRingLineWidth, 6.5)
+        XCTAssertEqual(NoopMetrics.heroRingNumeralSize, 48)
         XCTAssertEqual(NoopMetrics.liveRunTimerSize, 64)
         XCTAssertEqual(NoopMetrics.healthTileIconSize, 16)
         XCTAssertEqual(NoopMetrics.healthTileLabelSize, 13)
-        XCTAssertEqual(NoopMetrics.healthTileValueSize, 20)
+        XCTAssertEqual(NoopMetrics.healthTileValueSize, 24)
         XCTAssertEqual(NoopMetrics.stressTimelineHeight, 4)
-        XCTAssertEqual(NoopMetrics.chartLineWidth, 2)
+        XCTAssertEqual(NoopMetrics.chartLineWidth, 2.5)
         XCTAssertGreaterThanOrEqual(NoopMetrics.iconCircleDiameter, 32)
         XCTAssertLessThanOrEqual(NoopMetrics.iconCircleDiameter, 36)
     }

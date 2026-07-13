@@ -1198,7 +1198,7 @@ struct TodayView: View {
                                 .font(StrandFont.micro.weight(.semibold))
                                 .foregroundStyle(StrandPalette.textPrimary)
                             Text(paperGlanceText)
-                                .font(StrandFont.micro)
+                                .font(StrandFont.sf(13, relativeTo: .caption))
                                 .foregroundStyle(StrandPalette.textSecondary)
                                 .lineLimit(1)
                         }
@@ -1300,7 +1300,7 @@ struct TodayView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(alignment: .firstTextBaseline, spacing: 4) {
                             Text(latest.map { "\(Int($0.rounded()))" } ?? "—")
-                                .font(StrandFont.metricValue).foregroundStyle(StrandPalette.textPrimary)
+                                .font(StrandFont.number(34, weight: .bold)).foregroundStyle(StrandPalette.textPrimary)
                             Text("BPM").font(StrandFont.micro).foregroundStyle(StrandPalette.textSecondary)
                         }
                         Text(latest == nil ? "Waiting for live signal" : "Latest")
