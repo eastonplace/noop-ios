@@ -54,4 +54,41 @@ final class CoachingStoreTests: XCTestCase {
         XCTAssertFalse(row.isActive)
         XCTAssertFalse(row.isQuickAdd)
     }
+
+    func testStackConfigurationAndUseProvenanceRoundTrip() async throws {
+        let store = try await WhoopStore.inMemory()
+        let tables = try await store.tableNames()
+        XCTAssertTrue(tables.contains("coachingStack"))
+        XCTAssertTrue(tables.contains("coachingStackItem"))
+        XCTAssertTrue(tables.contains("coachingStackUse"))
+
+        let stack = CoachingStack(id: "evening", name: "Evening recovery",
+                                  description: "Wind down", scheduleLabel: "Daily",
+                                  isActive: true, notes: nil, sortIndex: 0)
+        let seedItems = [
+            CoachingStackItem(stackId: stack.id, canonicalQuestion: "Did you take magnesium?",
+                              dose: 1, unit: "dose", sortIndex: 0),
+            CoachingStackItem(stackId: stack.id, canonicalQuestion: "Did you use a sauna?",
+                              dose: 10, unit: "min", sortIndex: 1),
+        ]
+        _ = try await store.ensureDefaultCoachingStack(stack, items: seedItems)
+        let initialStacks = try await store.coachingStacks()
+        let initialItems = try await store.coachingStackItems(stackId: stack.id)
+        XCTAssertEqual(initialStacks, [stack])
+        XCTAssertEqual(initialItems, seedItems)
+
+        // A subsequent default seed must not overwrite user state.
+        try await store.updateCoachingStack(id: stack.id, isActive: false, notes: "Paused for travel")
+        _ = try await store.ensureDefaultCoachingStack(stack, items: seedItems)
+        let storedStacks = try await store.coachingStacks()
+        let persisted = try XCTUnwrap(storedStacks.first)
+        XCTAssertFalse(persisted.isActive)
+        XCTAssertEqual(persisted.notes, "Paused for travel")
+
+        let use = try await store.logCoachingStackUse(stackId: stack.id, day: "2026-07-13",
+                                                      notes: "Felt good", skipped: false,
+                                                      id: "use-1", loggedAt: 123)
+        let uses = try await store.coachingStackUses(stackId: stack.id)
+        XCTAssertEqual(uses, [use])
+    }
 }

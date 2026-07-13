@@ -318,6 +318,7 @@ enum DemoScreens {
         case "checkin": return AnyView(NavigationStack { CoachingCheckInView() })
         case "behaviorsettings": return AnyView(NavigationStack { CoachingBehaviorSettingsView() })
         case "quickadd": return AnyView(NavigationStack { CoachingQuickAddView() })
+        case "stackdetail": return AnyView(NavigationStack { CoachingStackDemoRoute() })
         case "insightshub": return AnyView(InsightsHubView())
         case "intelligence": return AnyView(IntelligenceView())
         case "explore":  return AnyView(MetricExplorerView())

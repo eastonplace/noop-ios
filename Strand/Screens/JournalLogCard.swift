@@ -415,6 +415,7 @@ struct CoachingRootView: View {
     @State private var todayNumeric: [String: Double] = [:]
     @State private var recentEntries: [CoachingRecentEntry] = []
     @State private var coachingMemberships: [CoachingBehaviorMembership] = []
+    @State private var stacks: [CoachingStack] = []
     @State private var loaded = false
     @State private var savedMessage: String?
 
@@ -458,8 +459,9 @@ struct CoachingRootView: View {
         PaperCard {
             VStack(alignment: .leading, spacing: NoopMetrics.space4) {
                 HStack(spacing: NoopMetrics.space4) {
-                    CoachingProgressRing(value: activeItems.isEmpty ? 0 : Double(loggedCount) / Double(activeItems.count),
-                                         label: "\(loggedCount)")
+                    let progress = activeItems.isEmpty ? 0 : Double(loggedCount) / Double(activeItems.count)
+                    CoachingProgressRing(value: progress,
+                                         label: "\(Int((progress * 100).rounded()))%")
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Today’s check-in")
                             .font(StrandFont.title2)
@@ -503,18 +505,30 @@ struct CoachingRootView: View {
                         Task { await repeatYesterday() }
                     }
                     Divider().overlay(StrandPalette.hairline)
-                    HStack(spacing: 12) {
-                        Circle().fill(StrandPalette.textTertiary).frame(width: 8, height: 8)
-                        Image(systemName: "square.stack.3d.up")
-                            .foregroundStyle(StrandPalette.textPrimary).frame(width: 24)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Stacks").font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
-                            Text("No stacks configured").font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                    if let stack = stacks.first {
+                        NavigationLink { CoachingStackDetailView(stack: stack) { Task { await load() } } } label: {
+                            HStack(spacing: 12) {
+                                Circle().fill(stack.isActive ? StrandPalette.journalAccent : StrandPalette.textTertiary)
+                                    .frame(width: 8, height: 8)
+                                Image(systemName: "square.stack.3d.up")
+                                    .foregroundStyle(StrandPalette.textPrimary).frame(width: 24)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Stacks").font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
+                                    Text(stack.name).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                                }
+                                Spacer()
+                                StatusBadge(stack.isActive ? "Active" : "Paused", style: stack.isActive ? .success : .queued)
+                                Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(StrandPalette.textTertiary)
+                            }
+                            .frame(minHeight: NoopMetrics.rowHeight)
                         }
-                        Spacer()
-                        StatusBadge("Not configured", style: .notConnected)
+                        .buttonStyle(.plain)
+                    } else {
+                        SettingsRow(icon: "square.stack.3d.up", title: "Stacks", subtitle: "No stacks configured") {
+                            StatusBadge("Not configured", style: .notConnected)
+                        }
                     }
-                    .frame(minHeight: NoopMetrics.rowHeight)
                     Divider().overlay(StrandPalette.hairline)
                     NavigationLink { CoachingBehaviorSettingsView() } label: {
                         SettingsRow(icon: "slider.horizontal.3", title: "Edit behaviors",
@@ -542,7 +556,7 @@ struct CoachingRootView: View {
                         HStack(spacing: 8) {
                             Image(systemName: todayAnswers[item.canonical] == true ? "checkmark.circle.fill" : "plus.circle")
                                 .foregroundStyle(StrandPalette.journalAccent)
-                            Text(item.display)
+                            Text(coachingShortDisplayName(for: item))
                                 .font(StrandFont.caption.weight(.medium))
                                 .foregroundStyle(StrandPalette.textPrimary)
                                 .lineLimit(2)
@@ -641,6 +655,21 @@ struct CoachingRootView: View {
             if let set = try? await store.ensureDefaultCoachingSet(name: "Daily fundamentals", memberships: defaults) {
                 coachingMemberships = (try? await store.coachingMemberships(setId: set.id)) ?? []
             }
+            let magnesium = resolved.first { JournalCatalogStore.norm($0.canonical).contains("magnesium") }
+            let sauna = resolved.first { JournalCatalogStore.norm($0.canonical).contains("sauna") }
+            let preset = CoachingStack(id: "evening-recovery", name: "Evening recovery",
+                                       description: "A simple wind-down routine for the behaviors you already track.",
+                                       scheduleLabel: "Daily", isActive: true, notes: nil, sortIndex: 0)
+            let presetItems = [
+                magnesium.map { CoachingStackItem(stackId: preset.id, canonicalQuestion: $0.canonical,
+                                                  dose: 1, unit: "dose", sortIndex: 0) },
+                sauna.map { CoachingStackItem(stackId: preset.id, canonicalQuestion: $0.canonical,
+                                              dose: 10, unit: "min", sortIndex: 1) },
+            ].compactMap { $0 }
+            if !presetItems.isEmpty {
+                _ = try? await store.ensureDefaultCoachingStack(preset, items: presetItems)
+            }
+            stacks = (try? await store.coachingStacks()) ?? []
         }
         todayAnswers = answers
         todayNumeric = numeric
@@ -734,6 +763,29 @@ private func coachingPresentationGroup(for item: JournalCatalogItem) -> Coaching
         let q = JournalCatalogStore.norm(item.canonical)
         return (q.contains("bed") || q.contains("read")) ? .sleep : .recovery
     }
+}
+
+/// Coaching shortcuts use compact catalog labels while every persistence/analytics call continues
+/// to receive `item.canonical`. User-authored display renames still win verbatim.
+private func coachingShortDisplayName(for item: JournalCatalogItem) -> String {
+    if let renamed = item.displayName?.trimmingCharacters(in: .whitespacesAndNewlines), !renamed.isEmpty {
+        return renamed
+    }
+    let q = JournalCatalogStore.norm(item.canonical)
+    if q.contains("alcohol") { return "Alcohol" }
+    if q.contains("caffeine") { return "Late caffeine" }
+    if q.contains("screen") && q.contains("bed") { return "Screen in bed" }
+    if q.contains("eat close") || q.contains("bedtime") { return "Late meal" }
+    if q.contains("stressed") { return "Stress" }
+    if q.contains("sauna") { return "Sauna" }
+    if q.contains("share") && q.contains("bed") { return "Shared bed" }
+    if q.contains("sick") || q.contains("ill") { return "Sick / illness" }
+    if q.contains("magnesium") { return "Magnesium" }
+    if q.contains("read") && q.contains("bed") { return "Read before bed" }
+    var label = item.canonical.trimmingCharacters(in: .whitespacesAndNewlines)
+    if label.lowercased().hasPrefix("did you ") { label.removeFirst(8) }
+    if label.hasSuffix("?") { label.removeLast() }
+    return label.prefix(1).uppercased() + label.dropFirst()
 }
 
 private enum CoachingCheckInControl {
@@ -1195,8 +1247,12 @@ struct CoachingQuickAddView: View {
     private var visible: [CoachingBehaviorMembership] {
         memberships.filter { membership in
             membership.isActive && (showAll || membership.isQuickAdd) &&
-            (search.isEmpty || (resolved[membership.canonicalQuestion]?.display ?? membership.canonicalQuestion)
-                .localizedCaseInsensitiveContains(search))
+            (search.isEmpty || {
+                let item = resolved[membership.canonicalQuestion]
+                let short = item.map(coachingShortDisplayName(for:)) ?? membership.canonicalQuestion
+                return short.localizedCaseInsensitiveContains(search) ||
+                    membership.canonicalQuestion.localizedCaseInsensitiveContains(search)
+            }())
         }
     }
 
@@ -1236,7 +1292,7 @@ struct CoachingQuickAddView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Image(systemName: logged ? "checkmark.circle.fill" : "plus.circle.fill")
                     .font(StrandFont.title2).foregroundStyle(StrandPalette.journalAccent)
-                Text(item?.display ?? membership.canonicalQuestion)
+                Text(item.map(coachingShortDisplayName(for:)) ?? membership.canonicalQuestion)
                     .font(StrandFont.body.weight(.semibold)).foregroundStyle(StrandPalette.textPrimary)
                     .lineLimit(2).frame(maxWidth: .infinity, minHeight: 48, alignment: .topLeading)
                 Text(membership.coachingGroup).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
@@ -1268,5 +1324,235 @@ struct CoachingQuickAddView: View {
     @MainActor private func add(_ membership: CoachingBehaviorMembership) async {
         await repo.saveJournalAnswer(day: todayKey, question: membership.canonicalQuestion, answeredYes: true)
         answers = await repo.nativeJournalAnswers(day: todayKey)
+    }
+}
+
+/// Detail for a configured routine. Stack use is provenance only: checked items always write real
+/// journal occurrences through Repository so What Moves You sees the same canonical inputs as manual logs.
+struct CoachingStackDetailView: View {
+    @EnvironmentObject private var repo: Repository
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var catalog = JournalCatalogStore()
+
+    let stack: CoachingStack
+    let onChanged: () -> Void
+    @State private var items: [CoachingStackItem] = []
+    @State private var selected: Set<String> = []
+    @State private var notes = ""
+    @State private var isActive = true
+    @State private var lastUse: CoachingStackUse?
+    @State private var saving = false
+    @State private var didSave = false
+
+    init(stack: CoachingStack, onChanged: @escaping () -> Void = {}) {
+        self.stack = stack
+        self.onChanged = onChanged
+    }
+
+    private var todayKey: String { Repository.localDayKey(Date()) }
+
+    var body: some View {
+        ScreenScaffold(title: LocalizedStringKey(stack.name), subtitle: "Stack detail", backAction: { dismiss() }) {
+            VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+                hero
+                itemChecklist
+                historyCard
+                notesCard
+                actions
+            }
+        }
+        .task { await load() }
+        .tint(StrandPalette.journalAccent)
+        .navigationBarBackButtonHidden(true)
+    }
+
+    private var hero: some View {
+        PaperCard {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    StatusBadge(isActive ? "Active" : "Paused", style: isActive ? .success : .queued)
+                    Spacer()
+                    Toggle("", isOn: Binding(get: { isActive }, set: { value in
+                        isActive = value
+                        Task { await persistSettings() }
+                    }))
+                    .labelsHidden()
+                }
+                Text("Preset · \(stack.scheduleLabel ?? "Any time")")
+                    .font(StrandFont.overline).foregroundStyle(StrandPalette.textSecondary)
+                Text(stack.description ?? "Log the checked items together without changing their journal identity.")
+                    .font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var itemChecklist: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
+            SectionHeader("Items", overline: "This use")
+            PaperCard {
+                if items.isEmpty {
+                    Text("No items in this stack yet.").font(StrandFont.body)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                            if index > 0 { Divider().overlay(StrandPalette.hairline) }
+                            Button { toggle(item) } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: selected.contains(item.canonicalQuestion)
+                                          ? "checkmark.circle.fill" : "circle")
+                                        .font(StrandFont.title2).foregroundStyle(StrandPalette.journalAccent)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(shortName(item.canonicalQuestion)).font(StrandFont.body)
+                                            .foregroundStyle(StrandPalette.textPrimary)
+                                        Text(doseLabel(item)).font(StrandFont.caption)
+                                            .foregroundStyle(StrandPalette.textSecondary)
+                                    }
+                                    Spacer()
+                                }
+                                .frame(minHeight: NoopMetrics.rowHeight).contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var historyCard: some View {
+        PaperCard {
+            SettingsRow(icon: "clock", title: "Last used",
+                        subtitle: lastUse.map { $0.skipped ? "Skipped \($0.day)" : "Logged \($0.day)" }
+                            ?? "Not used yet")
+        }
+    }
+
+    private var notesCard: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
+            SectionHeader("Notes")
+            TextField("Optional note for this routine", text: $notes, axis: .vertical)
+                .font(StrandFont.body).lineLimit(3...6).padding(16)
+                .background(StrandPalette.card, in: RoundedRectangle(cornerRadius: NoopMetrics.radius3))
+                .overlay(RoundedRectangle(cornerRadius: NoopMetrics.radius3)
+                    .strokeBorder(StrandPalette.cardBorder, lineWidth: 1))
+        }
+    }
+
+    private var actions: some View {
+        VStack(spacing: NoopMetrics.space3) {
+            Button { Task { await logStack() } } label: {
+                Label(didSave ? "Stack logged" : saving ? "Logging…" : "Log Stack",
+                      systemImage: didSave ? "checkmark" : "square.stack.3d.up.fill")
+            }
+            .buttonStyle(NoopButtonStyle(.primary, fullWidth: true)).disabled(saving || selected.isEmpty)
+            Button("Skip for now") { Task { await skip() } }
+                .font(StrandFont.body.weight(.semibold)).foregroundStyle(StrandPalette.textSecondary)
+                .frame(maxWidth: .infinity).frame(height: 48).buttonStyle(.plain)
+        }
+    }
+
+    private func shortName(_ canonical: String) -> String {
+        let item = catalog.resolvedItems(imported: []).first { $0.canonical == canonical }
+        return item.map(coachingShortDisplayName(for:)) ?? canonical
+    }
+
+    private func doseLabel(_ item: CoachingStackItem) -> String {
+        guard let dose = item.dose else { return "Journal occurrence" }
+        return "\(CoachingRecentEntry.format(dose)) \(item.unit ?? "units")"
+    }
+
+    private func toggle(_ item: CoachingStackItem) {
+        if selected.contains(item.canonicalQuestion) { selected.remove(item.canonicalQuestion) }
+        else { selected.insert(item.canonicalQuestion) }
+    }
+
+    @MainActor private func load() async {
+        guard let store = await repo.storeHandle() else { return }
+        items = (try? await store.coachingStackItems(stackId: stack.id)) ?? []
+        selected = Set(items.map(\.canonicalQuestion))
+        lastUse = try? await store.coachingStackUses(stackId: stack.id).first
+        notes = stack.notes ?? ""
+        isActive = stack.isActive
+    }
+
+    @MainActor private func persistSettings() async {
+        guard let store = await repo.storeHandle() else { return }
+        try? await store.updateCoachingStack(id: stack.id, isActive: isActive,
+                                             notes: notes.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty)
+        onChanged()
+    }
+
+    @MainActor private func logStack() async {
+        saving = true
+        for item in items where selected.contains(item.canonicalQuestion) {
+            if let dose = item.dose, dose > 0 {
+                await repo.saveJournalNumeric(day: todayKey, question: item.canonicalQuestion,
+                                              value: dose, notes: notes.nilIfEmpty)
+            } else {
+                await repo.saveJournalAnswer(day: todayKey, question: item.canonicalQuestion,
+                                             answeredYes: true, notes: notes.nilIfEmpty)
+            }
+        }
+        if let store = await repo.storeHandle() {
+            _ = try? await store.logCoachingStackUse(stackId: stack.id, day: todayKey,
+                                                     notes: notes.nilIfEmpty, skipped: false)
+            lastUse = try? await store.coachingStackUses(stackId: stack.id).first
+        }
+        saving = false
+        didSave = true
+        onChanged()
+    }
+
+    @MainActor private func skip() async {
+        guard let store = await repo.storeHandle() else { return }
+        _ = try? await store.logCoachingStackUse(stackId: stack.id, day: todayKey,
+                                                 notes: notes.nilIfEmpty, skipped: true)
+        onChanged()
+        dismiss()
+    }
+}
+
+/// Stable simulator entry for the T137/T139 full-page proof. It resolves the same persisted preset
+/// used by Coaching Root rather than constructing a view-only fake stack.
+struct CoachingStackDemoRoute: View {
+    @EnvironmentObject private var repo: Repository
+    @State private var stack: CoachingStack?
+
+    var body: some View {
+        Group {
+            if let stack {
+                CoachingStackDetailView(stack: stack)
+            } else {
+                ComingSoon(what: "Loading your stack…", symbol: "square.stack.3d.up")
+                    .task { await load() }
+            }
+        }
+    }
+
+    @MainActor private func load() async {
+        guard let store = await repo.storeHandle() else { return }
+        if let existing = try? await store.coachingStacks().first {
+            stack = existing
+            return
+        }
+        let preset = CoachingStack(id: "evening-recovery", name: "Evening recovery",
+                                   description: "A simple wind-down routine for the behaviors you already track.",
+                                   scheduleLabel: "Daily", isActive: true, notes: nil, sortIndex: 0)
+        let items = [
+            CoachingStackItem(stackId: preset.id, canonicalQuestion: "Did you take magnesium?",
+                              dose: 1, unit: "dose", sortIndex: 0),
+            CoachingStackItem(stackId: preset.id, canonicalQuestion: "Did you use a sauna?",
+                              dose: 10, unit: "min", sortIndex: 1),
+        ]
+        stack = try? await store.ensureDefaultCoachingStack(preset, items: items)
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        let value = trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
     }
 }

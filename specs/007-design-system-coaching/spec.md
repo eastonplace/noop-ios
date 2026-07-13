@@ -102,7 +102,7 @@
 - [x] T134 — Coaching Root + G5 entry-point rewiring.
 - [x] T135 — Check-In flow (groups, steppers, counters, save/cancel).
 - [x] T136 — Behavior Settings + Quick Add grid. GATE (with T134/T135).
-- [ ] T137 — Stacks (additive storage + detail screen + shortcuts wiring).
+- [x] T137 — Stacks (additive storage + detail screen + shortcuts wiring).
 - [ ] T138 — G4 integration proofs + tests (associations unchanged; quantity
   metadata round-trips; relaunch persistence).
 - [ ] T139 — GATE: final evidence — full-page set + side-by-side vs the

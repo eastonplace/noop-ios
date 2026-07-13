@@ -471,6 +471,45 @@ extension WhoopStore {
             try db.create(index: "idx_coachingMembership_set_order",
                           on: "coachingBehaviorMembership", columns: ["setId", "sortIndex"])
         }
+
+        // v24 (Spec 007 / G4): coaching stacks are additive configuration plus a provenance log.
+        // Stack items reference the existing immutable journal canonical. Logging a checked item still
+        // writes the existing journal row through Repository; coachingStackUse records only which stack
+        // initiated that write. There is deliberately no second quantity table: doses reuse
+        // journal.numericValue + noop-journal-dose exactly as approved at the T130 gate.
+        migrator.registerMigration("v24-coaching-stacks") { db in
+            try db.create(table: "coachingStack") { t in
+                t.column("id", .text).primaryKey()
+                t.column("name", .text).notNull()
+                t.column("description", .text)
+                t.column("scheduleLabel", .text)
+                t.column("isActive", .boolean).notNull()
+                t.column("notes", .text)
+                t.column("sortIndex", .integer).notNull()
+            }
+            try db.create(table: "coachingStackItem") { t in
+                t.column("stackId", .text).notNull()
+                t.column("canonicalQuestion", .text).notNull()
+                t.column("dose", .double)
+                t.column("unit", .text)
+                t.column("sortIndex", .integer).notNull()
+                t.primaryKey(["stackId", "canonicalQuestion"])
+            }
+            try db.create(table: "coachingStackUse") { t in
+                t.column("id", .text).primaryKey()
+                t.column("stackId", .text).notNull()
+                t.column("day", .text).notNull()
+                t.column("loggedAt", .integer).notNull()
+                t.column("notes", .text)
+                t.column("skipped", .boolean).notNull()
+            }
+            try db.create(index: "idx_coachingStack_order",
+                          on: "coachingStack", columns: ["sortIndex"])
+            try db.create(index: "idx_coachingStackItem_stack_order",
+                          on: "coachingStackItem", columns: ["stackId", "sortIndex"])
+            try db.create(index: "idx_coachingStackUse_stack_time",
+                          on: "coachingStackUse", columns: ["stackId", "loggedAt"])
+        }
         return migrator
     }
 }
