@@ -75,7 +75,7 @@ struct KeyMetricsEditorSheet: View {
                         .foregroundStyle(item.enabled ? StrandPalette.textPrimary : StrandPalette.textTertiary)
                 }
                 .toggleStyle(.switch)
-                .tint(StrandPalette.accent)
+                .tint(StrandPalette.ink)
                 .accessibilityLabel("Show \(item.metric.title)")
 
                 Spacer(minLength: 0)

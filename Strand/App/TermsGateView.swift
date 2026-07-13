@@ -85,7 +85,7 @@ struct TermsGateView: View {
                         .padding(.vertical, 9)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(StrandPalette.accent)
+                .tint(StrandPalette.ink)
                 .disabled(!allChecked)
                 .keyboardShortcut(.defaultAction)
                 .padding(26)

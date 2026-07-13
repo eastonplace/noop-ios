@@ -80,7 +80,7 @@ struct DonationNudgeCard: View {
                             Label("Donate", systemImage: "heart.fill")
                         }
                         .buttonStyle(.borderedProminent)
-                        .tint(StrandPalette.accent)
+                        .tint(StrandPalette.ink)
                         Button("Later") { stamp() }
                             .buttonStyle(.bordered)
                         Spacer()

@@ -15,7 +15,7 @@ import SwiftUI
 // optional leading icon as one unit, and degrade gracefully under Reduce Motion (the
 // press scale drops; only the dim remains).
 
-/// The four button roles. Primary/destructive share the 52pt Paper geometry.
+/// The four button roles. Primary/destructive share the component-library 56pt / r22 geometry.
 public enum NoopButtonKind: Sendable {
     /// Filled ink, on-ink label — the one primary action on a screen.
     case primary
@@ -32,10 +32,10 @@ public enum NoopButtonKind: Sendable {
 /// Fixed geometry shared by the convenience view and the ButtonStyle so the two paths
 /// are pixel-identical. The single source of truth for button shape.
 public enum NoopButtonMetrics {
-    /// Standard Paper primary/destructive control height.
-    public static let height: CGFloat = 52
-    /// Corner radius (14) — softer than a card, not a pill.
-    public static let cornerRadius: CGFloat = 14
+    /// Standard component-library primary/destructive control height.
+    public static let height: CGFloat = 56
+    /// Component-library button radius.
+    public static let cornerRadius: CGFloat = 22
     /// Horizontal label inset.
     public static let hPadding: CGFloat = 18
     /// Spacing between a leading icon and the label.

@@ -41,6 +41,7 @@ struct RootTabView: View {
         appearance.selectionIndicatorTintColor = .clear
         UITabBar.appearance().standardAppearance = appearance
         UITabBar.appearance().scrollEdgeAppearance = appearance
+        UISwitch.appearance().onTintColor = UIColor(StrandPalette.ink)
     }
 
     var body: some View {
@@ -525,7 +526,7 @@ private struct PaperTabBar: View {
                 quickActionsButton
                 ForEach(nav.suffix(2)) { tabButton($0) }
             }
-            .frame(height: 56)
+            .frame(height: NoopMetrics.navBarHeight)
         }
         .background(StrandPalette.card)
     }

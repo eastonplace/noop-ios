@@ -99,12 +99,13 @@ public struct PaperCard<Content: View>: View {
 // MARK: - Paper status and list primitives
 
 public enum StatusBadgeStyle: Sendable {
-    case connected, live, paused, beta, experimental, imported, upToDate, ready, notConnected
+    case connected, queued, success, blocked, live, paused, beta, experimental, imported, upToDate, ready, notConnected
 
     fileprivate var color: Color {
         switch self {
-        case .connected, .live, .upToDate, .ready: StrandPalette.success
-        case .paused: StrandPalette.destructive
+        case .connected, .success, .live, .upToDate, .ready: StrandPalette.success
+        case .queued: StrandPalette.warning
+        case .blocked, .paused: StrandPalette.error
         case .experimental: StrandPalette.journalAccent
         case .imported: StrandPalette.link
         case .beta, .notConnected: StrandPalette.textSecondary
@@ -113,7 +114,7 @@ public enum StatusBadgeStyle: Sendable {
 
     fileprivate var showsDot: Bool {
         switch self {
-        case .connected, .live, .paused, .ready, .notConnected: true
+        case .connected, .queued, .success, .blocked, .live, .paused, .ready, .notConnected: true
         case .beta, .experimental, .imported, .upToDate: false
         }
     }
@@ -149,11 +150,14 @@ public struct StatusBadge: View {
     }
 }
 
+public enum SettingsRowRole: Sendable { case standard, destructive }
+
 public struct SettingsRow<Trailing: View>: View {
     private let icon: String?
     private let title: LocalizedStringKey
     private let subtitle: LocalizedStringKey?
     private let showsChevron: Bool
+    private let role: SettingsRowRole
     @ViewBuilder private let trailing: () -> Trailing
 
     public init(
@@ -161,12 +165,14 @@ public struct SettingsRow<Trailing: View>: View {
         title: LocalizedStringKey,
         subtitle: LocalizedStringKey? = nil,
         showsChevron: Bool = false,
+        role: SettingsRowRole = .standard,
         @ViewBuilder trailing: @escaping () -> Trailing
     ) {
         self.icon = icon
         self.title = title
         self.subtitle = subtitle
         self.showsChevron = showsChevron
+        self.role = role
         self.trailing = trailing
     }
 
@@ -175,12 +181,13 @@ public struct SettingsRow<Trailing: View>: View {
             if let icon {
                 Image(systemName: icon)
                     .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(StrandPalette.textPrimary)
+                    .foregroundStyle(role == .destructive ? StrandPalette.error : StrandPalette.textPrimary)
                     .frame(width: 36, height: 36)
                     .background(StrandPalette.inset, in: Circle())
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
+                Text(title).font(StrandFont.body)
+                    .foregroundStyle(role == .destructive ? StrandPalette.error : StrandPalette.textPrimary)
                 if let subtitle {
                     Text(subtitle).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
                 }
@@ -189,22 +196,23 @@ public struct SettingsRow<Trailing: View>: View {
             trailing()
                 .font(StrandFont.caption)
                 .foregroundStyle(StrandPalette.textSecondary)
-                .tint(StrandPalette.success)
+                .tint(StrandPalette.ink)
             if showsChevron {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(StrandPalette.textTertiary)
             }
         }
-        .frame(minHeight: 56)
+        .frame(minHeight: NoopMetrics.rowHeight)
         .contentShape(Rectangle())
     }
 }
 
 public extension SettingsRow where Trailing == EmptyView {
     init(icon: String? = nil, title: LocalizedStringKey,
-         subtitle: LocalizedStringKey? = nil, showsChevron: Bool = true) {
-        self.init(icon: icon, title: title, subtitle: subtitle, showsChevron: showsChevron) {
+         subtitle: LocalizedStringKey? = nil, showsChevron: Bool = true,
+         role: SettingsRowRole = .standard) {
+        self.init(icon: icon, title: title, subtitle: subtitle, showsChevron: showsChevron, role: role) {
             EmptyView()
         }
     }
@@ -280,33 +288,39 @@ public extension DeviceRow where Trailing == EmptyView {
     }
 }
 
-public enum NoteCardStyle: Sendable { case privacy, warning, info }
+public enum NoteCardStyle: Sendable { case privacy, warning, info, success, error }
 
 public struct NoteCard: View {
     private let title: LocalizedStringKey?
     private let text: LocalizedStringKey
     private let style: NoteCardStyle
+    private let onDismiss: (() -> Void)?
 
     public init(_ text: LocalizedStringKey, title: LocalizedStringKey? = nil,
-                style: NoteCardStyle) {
+                style: NoteCardStyle, onDismiss: (() -> Void)? = nil) {
         self.text = text
         self.title = title
         self.style = style
+        self.onDismiss = onDismiss
     }
 
     private var color: Color {
         switch style {
         case .privacy: StrandPalette.textSecondary
         case .warning: StrandPalette.warning
-        case .info: StrandPalette.link
+        case .info: StrandPalette.info
+        case .success: StrandPalette.success
+        case .error: StrandPalette.error
         }
     }
 
     private var fill: Color {
         switch style {
         case .privacy: StrandPalette.inset
-        case .warning: StrandPalette.warningBg
-        case .info: StrandPalette.link.opacity(0.08)
+        case .warning: StrandPalette.warning.opacity(0.10)
+        case .info: StrandPalette.info.opacity(0.10)
+        case .success: StrandPalette.success.opacity(0.10)
+        case .error: StrandPalette.error.opacity(0.10)
         }
     }
 
@@ -315,6 +329,8 @@ public struct NoteCard: View {
         case .privacy: "lock.fill"
         case .warning: "exclamationmark.triangle.fill"
         case .info: "info.circle.fill"
+        case .success: "checkmark.circle.fill"
+        case .error: "xmark.octagon.fill"
         }
     }
 
@@ -327,10 +343,191 @@ public struct NoteCard: View {
                 }
                 Text(text).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
             }
+            Spacer(minLength: 8)
+            if let onDismiss {
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Dismiss")
+            }
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(fill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+// MARK: - Canonical controls and feedback
+
+public extension View {
+    /// Component-library switch treatment: native behavior and accessibility, black selected chrome.
+    func noopToggle() -> some View {
+        self.toggleStyle(.switch).tint(StrandPalette.ink)
+    }
+}
+
+public struct NoopIconButton: View {
+    private let systemImage: String
+    private let accessibilityLabel: LocalizedStringKey
+    private let action: () -> Void
+
+    public init(_ systemImage: String, accessibilityLabel: LocalizedStringKey,
+                action: @escaping () -> Void) {
+        self.systemImage = systemImage
+        self.accessibilityLabel = accessibilityLabel
+        self.action = action
+    }
+
+    public var body: some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(StrandPalette.textPrimary)
+                .frame(width: 40, height: 40)
+                .background(StrandPalette.surfaceRaised,
+                            in: RoundedRectangle(cornerRadius: NoopMetrics.radius2, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: NoopMetrics.radius2, style: .continuous)
+                    .strokeBorder(StrandPalette.cardBorder, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel)
+    }
+}
+
+public struct InlineAlertRow: View {
+    private let text: LocalizedStringKey
+    private let style: NoteCardStyle
+
+    public init(_ text: LocalizedStringKey, style: NoteCardStyle) {
+        self.text = text
+        self.style = style
+    }
+
+    private var color: Color {
+        switch style {
+        case .privacy: StrandPalette.textSecondary
+        case .warning: StrandPalette.warning
+        case .info: StrandPalette.info
+        case .success: StrandPalette.success
+        case .error: StrandPalette.error
+        }
+    }
+
+    public var body: some View {
+        HStack(spacing: NoopMetrics.space2) {
+            Circle().fill(color).frame(width: 8, height: 8)
+            Text(text).font(StrandFont.caption).foregroundStyle(StrandPalette.textPrimary)
+            Spacer(minLength: 0)
+        }
+        .frame(minHeight: 36)
+        .padding(.horizontal, NoopMetrics.space3)
+        .background(color.opacity(0.10),
+                    in: RoundedRectangle(cornerRadius: NoopMetrics.radius2, style: .continuous))
+    }
+}
+
+public struct NotificationBadge: View {
+    private let count: Int
+    public init(_ count: Int) { self.count = count }
+
+    public var body: some View {
+        Text("\(max(0, count))")
+            .font(StrandFont.micro.weight(.semibold))
+            .foregroundStyle(StrandPalette.textPrimary)
+            .padding(.horizontal, 6)
+            .frame(minWidth: 20, minHeight: 20)
+            .background(StrandPalette.error.opacity(0.16), in: Capsule(style: .continuous))
+            .accessibilityLabel("\(count) notifications")
+    }
+}
+
+public struct TinyMetricBadge: View {
+    private let text: String
+    private let tint: Color
+    public init(_ text: String, tint: Color) { self.text = text; self.tint = tint }
+
+    public var body: some View {
+        Text(text)
+            .font(StrandFont.captionNumber)
+            .foregroundStyle(StrandPalette.textPrimary)
+            .padding(.horizontal, 7)
+            .frame(height: 24)
+            .background(tint.opacity(0.14), in: Capsule(style: .continuous))
+    }
+}
+
+public struct CompactFormField: View {
+    private let title: LocalizedStringKey
+    @Binding private var text: String
+
+    public init(_ title: LocalizedStringKey, text: Binding<String>) {
+        self.title = title
+        self._text = text
+    }
+
+    public var body: some View {
+        TextField(title, text: $text)
+            .font(StrandFont.body)
+            .padding(.horizontal, NoopMetrics.space4)
+            .frame(height: NoopMetrics.controlHeight)
+            .background(StrandPalette.surfaceRaised,
+                        in: RoundedRectangle(cornerRadius: NoopMetrics.radius3, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: NoopMetrics.radius3, style: .continuous)
+                .strokeBorder(StrandPalette.cardBorder, lineWidth: 1))
+    }
+}
+
+public struct NoopDropdown<Option: Hashable>: View {
+    private let title: LocalizedStringKey
+    private let options: [Option]
+    private let label: (Option) -> String
+    @Binding private var selection: Option
+
+    public init(_ title: LocalizedStringKey, options: [Option], selection: Binding<Option>,
+                label: @escaping (Option) -> String) {
+        self.title = title
+        self.options = options
+        self._selection = selection
+        self.label = label
+    }
+
+    public var body: some View {
+        Menu {
+            ForEach(Array(options.enumerated()), id: \.offset) { _, option in
+                Button {
+                    selection = option
+                } label: {
+                    if option == selection {
+                        Label(label(option), systemImage: "checkmark")
+                    } else {
+                        Text(label(option))
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: NoopMetrics.space2) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                    Text(label(selection)).font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(StrandPalette.textSecondary)
+            }
+            .padding(.horizontal, NoopMetrics.space4)
+            .frame(height: NoopMetrics.controlHeight)
+            .background(StrandPalette.surfaceRaised,
+                        in: RoundedRectangle(cornerRadius: NoopMetrics.radius3, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: NoopMetrics.radius3, style: .continuous)
+                .strokeBorder(StrandPalette.cardBorder, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
     }
 }
 

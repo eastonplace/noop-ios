@@ -806,7 +806,7 @@ struct SettingsView: View {
                         .foregroundStyle(StrandPalette.textPrimary)
                 }
                 .toggleStyle(.switch)
-                .tint(StrandPalette.accent)
+                .tint(StrandPalette.ink)
                 Text("Shows a soft sunrise, day, dusk and night scene behind the Today screen. Turn it off for a plain dark canvas. Your cards stay exactly as readable.")
                     .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textTertiary)
@@ -900,7 +900,7 @@ struct SettingsView: View {
                         .foregroundStyle(StrandPalette.textPrimary)
                 }
                 .toggleStyle(.switch)
-                .tint(StrandPalette.accent)
+                .tint(StrandPalette.ink)
                 .onChangeCompat(of: continuousHrvEnabled) { on in model.ble.setKeepRealtimeForData(on) }
                 Text("Keeps the detailed beat-to-beat heart-rate stream running all day and night, not just while a live screen is open, so NOOP captures much more for overnight HRV, recovery and sleep. Uses more battery: your strap streams heart rate continuously while connected.")
                     .font(StrandFont.caption)
@@ -917,7 +917,7 @@ struct SettingsView: View {
                             .foregroundStyle(StrandPalette.textPrimary)
                     }
                     .toggleStyle(.switch)
-                    .tint(StrandPalette.accent)
+                    .tint(StrandPalette.ink)
                     .onChangeCompat(of: continuousHrvOvernightOnly) { _ in
                         model.ble.setKeepRealtimeForData(PuffinExperiment.keepRealtimeForDataEnabled)
                     }
@@ -942,7 +942,7 @@ struct SettingsView: View {
                         .foregroundStyle(StrandPalette.textPrimary)
                 }
                 .toggleStyle(.switch)
-                .tint(StrandPalette.accent)
+                .tint(StrandPalette.ink)
                 Text("Shows your live heart rate on the Lock Screen and in the Dynamic Island while the strap is connected. Turn it off to keep your live HR out of the Dynamic Island. (Any one already showing clears within a moment.)")
                     .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textTertiary)
@@ -1103,7 +1103,7 @@ struct SettingsView: View {
                         .foregroundStyle(StrandPalette.textPrimary)
                 }
                 .toggleStyle(.switch)
-                .tint(StrandPalette.accent)
+                .tint(StrandPalette.ink)
                 .accessibilityHint("Adds a water-log card to your dashboard")
 
                 Text("Adds a simple fluid log with a daily goal that adjusts to your effort. Tap to add a sip, cup or bottle and watch a progress ring fill. On \(Platform.deviceNounPhrase) only. Nothing is synced.")
@@ -1119,7 +1119,7 @@ struct SettingsView: View {
                         .foregroundStyle(StrandPalette.textPrimary)
                 }
                 .toggleStyle(.switch)
-                .tint(StrandPalette.accent)
+                .tint(StrandPalette.ink)
                 .accessibilityHint("Offers to save a workout when it spots sustained elevated heart rate")
 
                 Text("After a sync, NOOP looks over your recent heart rate for a sustained, raised stretch that looks like exercise and offers to save it. It only ever suggests. Nothing is saved until you tap Save, and you can dismiss any suggestion. Deliberately conservative, so the odd workout may be missed. On \(Platform.deviceNounPhrase) only.")
@@ -1135,7 +1135,7 @@ struct SettingsView: View {
                         .foregroundStyle(StrandPalette.textPrimary)
                 }
                 .toggleStyle(.switch)
-                .tint(StrandPalette.accent)
+                .tint(StrandPalette.ink)
                 .accessibilityHint("Stops the screen dimming while a workout is recording")
 
                 Text("Holds the screen awake while you're recording a workout, so your live heart rate stays visible without the device dimming. Only applies during a recording. The screen sleeps normally the rest of the time. Leaving it on does use a bit more battery, and means your unlocked screen stays visible for the whole workout, so flip it off if that's a concern.")
@@ -1177,7 +1177,7 @@ struct SettingsView: View {
                         .foregroundStyle(StrandPalette.textPrimary)
                 }
                 .toggleStyle(.switch)
-                .tint(StrandPalette.accent)
+                .tint(StrandPalette.ink)
                 Text("Silence-first strap coaching during workouts.")
                     .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textTertiary)
@@ -1202,7 +1202,7 @@ struct SettingsView: View {
                         .foregroundStyle(StrandPalette.textPrimary)
                 }
                 .toggleStyle(.switch)
-                .tint(StrandPalette.accent)
+                .tint(StrandPalette.ink)
                 Text("A transparent cardiorespiratory recipe that recovers deep and REM better than the default staging. Opt-in and experimental: it only changes how already-detected nights are split into stages (detection and scores are unchanged), and the default staging stays in place if you leave this off. Takes effect on the next nights staged.")
                     .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textTertiary)
@@ -1250,7 +1250,7 @@ struct SettingsView: View {
                         .foregroundStyle(StrandPalette.textPrimary)
                 }
                 .toggleStyle(.switch)
-                .tint(StrandPalette.accent)
+                .tint(StrandPalette.ink)
                 Text("On a 5/MG connection NOOP will send a puffin realtime-stream request after the handshake, and log what comes back. If you have a 5/MG strap, turning this on and sharing your strap log helps map the protocol. No effect on WHOOP 4.0.")
                     .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textTertiary)
@@ -1265,7 +1265,7 @@ struct SettingsView: View {
                         .foregroundStyle(StrandPalette.textPrimary)
                 }
                 .toggleStyle(.switch)
-                .tint(StrandPalette.accent)
+                .tint(StrandPalette.ink)
                 Text("WHOOP 5/MG straps hand a fresh app only live heart rate. The official app switches on the deeper streams (high-rate HR + motion + history) by writing a set of feature flags, a sequence two independent projects have documented. With this on, the button below sends that exact sequence to your strap. Unlike everything else here it does write to the strap, but it's reversible (it only changes which data the strap chooses to emit) and is the same thing the official app does. Experimental: it may do nothing on your firmware. iPhone/Android only. A Mac can't write to a 5/MG.")
                     .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textTertiary)
@@ -1312,7 +1312,7 @@ struct SettingsView: View {
                         .foregroundStyle(StrandPalette.textPrimary)
                 }
                 .toggleStyle(.switch)
-                .tint(StrandPalette.accent)
+                .tint(StrandPalette.ink)
                 .onChangeCompat(of: broadcastHrEnabled) { on in model.ble.setBroadcastHr(on) }
                 Text("Makes your WHOOP 5.0/MG advertise its heart rate as a standard Bluetooth HR sensor, so a Garmin (Edge/watch), Zwift or gym equipment can use it during a workout. Applied on the next connection (and immediately if connected); writes the strap's whoop_live_hr_in_adv_ind_pkt flag. Reversible. iPhone-side only. A Mac can't write to a 5/MG.")
                     .font(StrandFont.caption)
@@ -1341,7 +1341,7 @@ struct SettingsView: View {
                         .foregroundStyle(StrandPalette.textPrimary)
                 }
                 .toggleStyle(.switch)
-                .tint(StrandPalette.accent)
+                .tint(StrandPalette.ink)
                 Text("Saves every raw 5/MG frame (with a timestamp and the live heart rate) to a JSON file you can share to help map the biometric layout. This only records frames the strap already sent (it never writes to your strap), so it is safe to leave on. Export the file and attach it to a protocol-mapping issue.")
                     .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textTertiary)
@@ -1442,7 +1442,7 @@ struct SettingsView: View {
                 .foregroundStyle(StrandPalette.textPrimary)
         }
         .toggleStyle(.switch)
-        .tint(StrandPalette.accent)
+        .tint(StrandPalette.ink)
         .onChangeCompat(of: debugExportOn) { on in ScheduledDebugExport.setEnabled(on) }
 
         if debugExportOn {
@@ -2697,7 +2697,7 @@ struct StepsCalibrationSheet: View {
                     // Commit on release — snap a tiny drag back to 0 (auto) so "auto" is reachable.
                     if !editing { profile.stepsManualCoefficient = draftManual < 0.5 ? 0 : draftManual }
                 }
-                .tint(StrandPalette.accent)
+                .tint(StrandPalette.ink)
                 .accessibilityValue(draftManual > 0
                                     ? "\(String(format: "%.1f", draftManual)) steps per motion unit"
                                     : "Automatic")

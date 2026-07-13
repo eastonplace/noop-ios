@@ -52,7 +52,7 @@ struct SmartAlarmView: View {
                         SettingsRow(icon: "bell", title: "Smart Wake",
                                     subtitle: "Silent strap vibration", showsChevron: false) {
                             Toggle("", isOn: $behavior.smartAlarmEnabled)
-                                .labelsHidden().tint(StrandPalette.success)
+                                .labelsHidden().tint(StrandPalette.ink)
                         }
                         Divider().overlay(StrandPalette.hairline)
                         SettingsRow(title: "Target time", showsChevron: false) {
@@ -74,7 +74,7 @@ struct SmartAlarmView: View {
                         SettingsRow(icon: "moon", title: "Wind-down reminder",
                                     subtitle: "Help build a consistent bedtime", showsChevron: false) {
                             Toggle("", isOn: $windDownOn)
-                                .labelsHidden().tint(StrandPalette.success)
+                                .labelsHidden().tint(StrandPalette.ink)
                                 .onChangeCompat(of: windDownOn) { on in WindDownNudge.setEnabled(on) }
                         }
                         Divider().overlay(StrandPalette.hairline)
@@ -196,7 +196,7 @@ struct SmartAlarmView: View {
                     }
                     Spacer()
                     Toggle("", isOn: $behavior.smartAlarmEnabled)
-                        .labelsHidden().toggleStyle(.switch).tint(StrandPalette.accent)
+                        .labelsHidden().toggleStyle(.switch).tint(StrandPalette.ink)
                         .accessibilityLabel("Wake me with a strap buzz")
                 }
                 .frame(minHeight: 42)
@@ -276,7 +276,7 @@ struct SmartAlarmView: View {
                     }
                     Spacer()
                     Toggle("", isOn: $windDownOn)
-                        .labelsHidden().toggleStyle(.switch).tint(StrandPalette.accent)
+                        .labelsHidden().toggleStyle(.switch).tint(StrandPalette.ink)
                         .accessibilityLabel("Remind me to wind down")
                         .onChangeCompat(of: windDownOn) { on in WindDownNudge.setEnabled(on) }
                 }
@@ -325,7 +325,7 @@ struct SmartAlarmView: View {
             }
             Spacer()
             Toggle("", isOn: $perDayOn)
-                .labelsHidden().toggleStyle(.switch).tint(StrandPalette.accent)
+                .labelsHidden().toggleStyle(.switch).tint(StrandPalette.ink)
                 .accessibilityLabel("Different wake time per day")
                 .onChangeCompat(of: perDayOn) { on in
                     // Turning the section OFF clears every override (so the nudge reverts to the single time);

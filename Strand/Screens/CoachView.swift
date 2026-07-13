@@ -102,7 +102,7 @@ struct CoachView: View {
                 }
                 Spacer(minLength: 8)
                 Toggle("", isOn: $coach.dataConsent)
-                    .labelsHidden().toggleStyle(.switch).tint(StrandPalette.accent)
+                    .labelsHidden().toggleStyle(.switch).tint(StrandPalette.ink)
                     .accessibilityLabel("Let the coach use my data")
             }
         }
@@ -127,7 +127,7 @@ struct CoachView: View {
                 }
                 Spacer(minLength: 8)
                 Toggle("", isOn: $coach.includeOnDeviceSignals)
-                    .labelsHidden().toggleStyle(.switch).tint(StrandPalette.accent)
+                    .labelsHidden().toggleStyle(.switch).tint(StrandPalette.ink)
                     .accessibilityLabel("Also share my patterns and Lab Book with the coach")
             }
         }
@@ -470,7 +470,7 @@ struct CoachView: View {
 
     private var typingIndicator: some View {
         HStack(spacing: 8) {
-            ProgressView().controlSize(.small).tint(StrandPalette.accent)
+            ProgressView().controlSize(.small).tint(StrandPalette.ink)
             Text("Coach is thinking…")
                 .font(StrandFont.subhead)
                 .foregroundStyle(StrandPalette.textSecondary)

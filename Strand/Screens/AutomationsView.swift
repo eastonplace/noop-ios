@@ -69,7 +69,7 @@ struct AutomationsView: View {
                         #if os(iOS)
                         SettingsRow(icon: "bell", title: "Wrist alerts",
                                     subtitle: "Get gentle alerts on your wrist", showsChevron: false) {
-                            Toggle("", isOn: $wristAlertsMaster).labelsHidden().tint(StrandPalette.success)
+                            Toggle("", isOn: $wristAlertsMaster).labelsHidden().tint(StrandPalette.ink)
                         }
                         Divider().overlay(StrandPalette.hairline)
                         #endif
@@ -89,7 +89,7 @@ struct AutomationsView: View {
                 PaperCard(padding: 14) {
                     SettingsRow(icon: "figure.run", title: "HR-zone coaching",
                                 subtitle: "Coach effort with strap buzzes", showsChevron: false) {
-                        Toggle("", isOn: $behavior.zoneCoaching).labelsHidden().tint(StrandPalette.success)
+                        Toggle("", isOn: $behavior.zoneCoaching).labelsHidden().tint(StrandPalette.ink)
                     }
                 }
             }
@@ -99,12 +99,12 @@ struct AutomationsView: View {
                     VStack(spacing: 0) {
                         SettingsRow(icon: "timer", title: "Inactivity reminder",
                                     subtitle: "Move a little if you've been still", showsChevron: false) {
-                            Toggle("", isOn: $inactivity.enabled).labelsHidden().tint(StrandPalette.success)
+                            Toggle("", isOn: $inactivity.enabled).labelsHidden().tint(StrandPalette.ink)
                         }
                         Divider().overlay(StrandPalette.hairline)
                         SettingsRow(icon: "brain.head.profile", title: "Stress check-in",
                                     subtitle: "Gentle nudge during high stress", showsChevron: false) {
-                            Toggle("", isOn: $behavior.stressCheckIn).labelsHidden().tint(StrandPalette.success)
+                            Toggle("", isOn: $behavior.stressCheckIn).labelsHidden().tint(StrandPalette.ink)
                         }
                     }
                 }
@@ -154,7 +154,7 @@ struct AutomationsView: View {
                     Button {
                         model.runMacAction(behavior.doubleTapAction, shortcut: behavior.doubleTapShortcut)
                     } label: { Label("Test action", systemImage: "play.fill") }
-                    .buttonStyle(.bordered).tint(StrandPalette.accent)
+                    .buttonStyle(.bordered).tint(StrandPalette.ink)
                     .disabled(behavior.doubleTapAction == .none)
                     Spacer()
                     // Live-observing leaf: re-renders on its own when the strap's bond state flips, so a
@@ -401,7 +401,7 @@ struct AutomationsView: View {
                         Button {
                             router.openRhythm()
                         } label: { Label("Open", systemImage: "waveform.path") }
-                        .buttonStyle(.bordered).tint(StrandPalette.accent)
+                        .buttonStyle(.bordered).tint(StrandPalette.ink)
                     }
                     .frame(minHeight: 42).padding(.vertical, 4)
                 }
@@ -573,7 +573,7 @@ private struct ToggleRow: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
-            Toggle("", isOn: $isOn).labelsHidden().toggleStyle(.switch).tint(StrandPalette.accent)
+            Toggle("", isOn: $isOn).labelsHidden().toggleStyle(.switch).tint(StrandPalette.ink)
                 .accessibilityLabel(label)
         }
         .frame(minHeight: 42).padding(.vertical, 4)

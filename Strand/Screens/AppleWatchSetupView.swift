@@ -108,7 +108,7 @@ struct AppleWatchSetupView: View {
                     withAnimation(.easeInOut(duration: 0.2)) { step = .intro }
                 }
                 .buttonStyle(.bordered)
-                .tint(StrandPalette.accent)
+                .tint(StrandPalette.ink)
                 Spacer()
                 #if os(iOS)
                 if health.auth == .authorized {
@@ -128,7 +128,7 @@ struct AppleWatchSetupView: View {
                 #else
                 Button("Close") { onClose() }
                     .buttonStyle(.bordered)
-                    .tint(StrandPalette.accent)
+                    .tint(StrandPalette.ink)
                 #endif
             }
             .padding(16)

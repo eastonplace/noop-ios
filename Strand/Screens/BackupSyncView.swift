@@ -114,7 +114,7 @@ struct BackupSyncView: View {
                     }
                     Spacer(minLength: 0)
                     Toggle("Daily auto-backup", isOn: $auto)
-                        .labelsHidden().toggleStyle(.switch).tint(StrandPalette.success)
+                        .labelsHidden().toggleStyle(.switch).tint(StrandPalette.ink)
                         .disabled(folderLabel == nil)
                         .onChangeCompat(of: auto) { on in FolderBackup.autoEnabled = on }
                 }

@@ -806,7 +806,7 @@ private struct ImportStep: View {
                 if model.hasActiveImport {
                     ProgressView()
                         .controlSize(.small)
-                        .tint(StrandPalette.accent)
+                        .tint(StrandPalette.ink)
                 }
 
                 // Show the summary for the source the user last imported, styled off the typed

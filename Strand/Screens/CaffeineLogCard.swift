@@ -104,7 +104,7 @@ struct CaffeineLogCard: View {
                 }
                 Spacer(minLength: 8)
                 Toggle("", isOn: $cutoffEnabled)
-                    .labelsHidden().toggleStyle(.switch).tint(StrandPalette.accent)
+                    .labelsHidden().toggleStyle(.switch).tint(StrandPalette.ink)
                     .accessibilityLabel("Warn me about caffeine close to bedtime")
             }
             if cutoffEnabled {

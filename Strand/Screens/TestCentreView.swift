@@ -320,7 +320,7 @@ struct TestCentreView: View {
                     Text("Daily auto-export of the strap log")
                         .font(StrandFont.subhead).foregroundStyle(StrandPalette.textPrimary)
                 }
-                .toggleStyle(.switch).tint(StrandPalette.accent)
+                .toggleStyle(.switch).tint(StrandPalette.ink)
                 .onChangeCompat(of: debugExportOn) { on in ScheduledDebugExport.setEnabled(on) }
 
                 if debugExportOn {
@@ -356,13 +356,13 @@ struct TestCentreView: View {
                     Text("Experimental sleep staging (V2)")
                         .font(StrandFont.subhead).foregroundStyle(StrandPalette.textPrimary)
                 }
-                .toggleStyle(.switch).tint(StrandPalette.accent)
+                .toggleStyle(.switch).tint(StrandPalette.ink)
 
                 Toggle(isOn: $continuousHrvEnabled) {
                     Text("Continuous HRV capture")
                         .font(StrandFont.subhead).foregroundStyle(StrandPalette.textPrimary)
                 }
-                .toggleStyle(.switch).tint(StrandPalette.accent)
+                .toggleStyle(.switch).tint(StrandPalette.ink)
                 .onChangeCompat(of: continuousHrvEnabled) { on in model.ble.setKeepRealtimeForData(on) }
 
                 // 5/MG-only probes, hidden off a 4.0 strap (the #22 gate, same as SettingsView).
@@ -375,26 +375,26 @@ struct TestCentreView: View {
                         Text("Try WHOOP 5/MG protocol probes")
                             .font(StrandFont.subhead).foregroundStyle(StrandPalette.textPrimary)
                     }
-                    .toggleStyle(.switch).tint(StrandPalette.accent)
+                    .toggleStyle(.switch).tint(StrandPalette.ink)
 
                     Toggle(isOn: $deepDataEnabled) {
                         Text("Unlock WHOOP 5/MG deep data (R22)")
                             .font(StrandFont.subhead).foregroundStyle(StrandPalette.textPrimary)
                     }
-                    .toggleStyle(.switch).tint(StrandPalette.accent)
+                    .toggleStyle(.switch).tint(StrandPalette.ink)
 
                     Toggle(isOn: $broadcastHrEnabled) {
                         Text("Broadcast heart rate (Garmin/ANT)")
                             .font(StrandFont.subhead).foregroundStyle(StrandPalette.textPrimary)
                     }
-                    .toggleStyle(.switch).tint(StrandPalette.accent)
+                    .toggleStyle(.switch).tint(StrandPalette.ink)
                     .onChangeCompat(of: broadcastHrEnabled) { on in model.ble.setBroadcastHr(on) }
 
                     Toggle(isOn: $puffinCapture) {
                         Text("Record puffin frames to a file")
                             .font(StrandFont.subhead).foregroundStyle(StrandPalette.textPrimary)
                     }
-                    .toggleStyle(.switch).tint(StrandPalette.accent)
+                    .toggleStyle(.switch).tint(StrandPalette.ink)
                 }
 
                 Text("These are experimental probes, off by default. The fuller WHOOP 5/MG controls and the raw-sensor CSV export still live in Settings under Diagnostics.")
@@ -493,7 +493,7 @@ private struct TestModeRow: View {
                 Spacer()
                 Toggle("", isOn: $on)
                     .labelsHidden()
-                    .tint(StrandPalette.accent)
+                    .tint(StrandPalette.ink)
                     .accessibilityLabel("\(mode.title) test mode")
                     .onChangeCompat(of: on) { isOn in
                         if isOn { TestCentre.activate(mode.domain) } else { TestCentre.deactivate(mode.domain) }

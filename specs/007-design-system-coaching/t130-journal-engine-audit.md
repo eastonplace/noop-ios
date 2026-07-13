@@ -1,6 +1,6 @@
 # T130 Journal Engine Audit
 
-Status: **APPROVED — T131/T132 AUTHORIZED**  
+Status: **APPROVED — T131/T132 AUTHORIZED**
 Baseline: `pre-007` → `a80a83ced85b111c48118c07c757450e8d528ec0`  
 Scope: code and storage audit only; no schema, engine, navigation, or UI changes.
 

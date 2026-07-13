@@ -151,7 +151,7 @@ struct RhythmConsentGate: View {
                             .foregroundStyle(StrandPalette.textPrimary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                    .tint(StrandPalette.success)
+                    .tint(StrandPalette.ink)
                     #if os(macOS)
                     .toggleStyle(.checkbox)
                     #endif
