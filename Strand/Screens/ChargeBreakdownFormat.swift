@@ -5,7 +5,7 @@ import StrandAnalytics
 // MARK: - Charge breakdown presentation (pure, testable)
 //
 // LANE 2 (iOS UI) presentation helpers for the "What shaped it" Charge breakdown, the score-
-// confidence tier chip, the calibrating countdown copy and the relative skin-temp label. Every
+// confidence tier presentation, the calibrating countdown copy and the relative skin-temp label. Every
 // helper here is PURE (no SwiftUI state, no I/O) so the chip formatter and countdown copy are
 // unit-tested directly; the views below consume them. They are presentation only: nothing here
 // recomputes a score, a confidence or a driver delta - those arrive from the engine
@@ -103,6 +103,16 @@ enum ChargeBreakdownFormat {
         tierState(confidence).color
     }
 
+    /// VoiceOver phrasing retained when the old hand-rolled confidence chip is rendered by the
+    /// canonical `ScoreStatePill`.
+    static func confidenceAccessibilityLabel(_ confidence: ScoreConfidence) -> String {
+        switch confidence {
+        case .calibrating: return String(localized: "Confidence: calibrating")
+        case .building:    return String(localized: "Confidence: estimate")
+        case .solid:       return String(localized: "Confidence: reliable")
+        }
+    }
+
     // MARK: - Calibrating countdown copy (A4)
 
     /// The hero countdown line shown in place of an empty/zero Charge while the baseline is still
@@ -148,47 +158,6 @@ enum ChargeBreakdownFormat {
     }
 }
 
-// MARK: - A3: confidence dot + tier tag pill
-
-/// A small confidence dot + tier tag pill (CALIBRATING / EST. / REL.) surfaced on score tiles and the
-/// breakdown header. PURE presentation of the EXISTING `ScoreConfidence` , it never recomputes the
-/// confidence; it maps it onto the design system's `ScoreState` hue + a short tag. Uses the same
-/// rounded capsule chrome as `ScoreStatePill` so it sits consistently next to the source badge.
-struct ConfidenceTierChip: View {
-    let confidence: ScoreConfidence
-
-    private var tag: String { ChargeBreakdownFormat.tierTag(confidence) }
-    private var hue: Color { ChargeBreakdownFormat.confidenceDotColor(confidence) }
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(hue)
-                .frame(width: 7, height: 7)
-                .shadow(color: hue.opacity(0.8), radius: 2)
-                .accessibilityHidden(true)
-            Text(tag)
-                .font(StrandFont.overline)
-                .tracking(0.4)
-                .foregroundStyle(hue)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(Capsule(style: .continuous).fill(hue.opacity(0.12)))
-        .overlay(Capsule(style: .continuous).stroke(hue.opacity(0.32), lineWidth: 1))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibility)
-    }
-
-    private var accessibility: String {
-        switch confidence {
-        case .calibrating: return String(localized: "Confidence: calibrating")
-        case .building:    return String(localized: "Confidence: estimate")
-        case .solid:       return String(localized: "Confidence: reliable")
-        }
-    }
-}
-
 // MARK: - A1: "What shaped it" Charge breakdown
 
 /// The "What shaped it" breakdown rendered under the Charge ring: a header carrying the confidence
@@ -207,7 +176,11 @@ struct ChargeBreakdownSection: View {
             HStack(alignment: .firstTextBaseline) {
                 Text("What shaped it").strandOverline()
                 Spacer()
-                ConfidenceTierChip(confidence: confidence)
+                ScoreStatePill(
+                    ChargeBreakdownFormat.tierState(confidence),
+                    text: "\(ChargeBreakdownFormat.tierTag(confidence))"
+                )
+                .accessibilityLabel(ChargeBreakdownFormat.confidenceAccessibilityLabel(confidence))
             }
             VStack(spacing: NoopMetrics.rowSpacing) {
                 let maxMag = drivers.map { abs($0.deltaPoints) }.max() ?? 1
@@ -247,11 +220,7 @@ struct ChargeDriverRow: View {
                     .foregroundStyle(StrandPalette.textPrimary)
                 Spacer(minLength: 8)
                 // The signed point-delta chip , green for a supporting term, red for a limiting one.
-                Text(chipText)
-                    .font(StrandFont.captionNumber)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                    .padding(.horizontal, 8).padding(.vertical, 2)
-                    .background(chipHue.opacity(0.14), in: Capsule(style: .continuous))
+                MicroBadge("\(chipText)", tint: chipHue)
             }
             // value vs baseline , the baseline line is omitted for terms with no learned baseline.
             HStack(spacing: 6) {
@@ -309,7 +278,10 @@ struct SkinTempDeviationRow: View {
             }
             Spacer(minLength: 0)
             // The relative tier is a reliable read of a measured deviation, so it carries the REL. tag.
-            ConfidenceTierChip(confidence: .solid)
+            ScoreStatePill(
+                ChargeBreakdownFormat.tierState(.solid),
+                text: "\(ChargeBreakdownFormat.tierTag(.solid))"
+            )
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Skin temperature \(deviationText). \(tierWord). Reliable.")
@@ -321,9 +293,9 @@ struct SkinTempDeviationRow: View {
     ScrollView {
         VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
             HStack(spacing: 10) {
-                ConfidenceTierChip(confidence: .calibrating)
-                ConfidenceTierChip(confidence: .building)
-                ConfidenceTierChip(confidence: .solid)
+                ScoreStatePill(.calibrating, text: "\(ChargeBreakdownFormat.tierTag(.calibrating))")
+                ScoreStatePill(.building, text: "\(ChargeBreakdownFormat.tierTag(.building))")
+                ScoreStatePill(.solid, text: "\(ChargeBreakdownFormat.tierTag(.solid))")
             }
             NoopCard(padding: 18, tint: StrandPalette.recoveryData) {
                 ChargeBreakdownSection(

@@ -102,20 +102,13 @@ struct MarkerEditorView: View {
     }
 
     private var searchField: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 13))
-                .foregroundStyle(StrandPalette.textTertiary)
-                .accessibilityHidden(true)
-            TextField("Search markers (e.g. LDL, ferritin)", text: $search)
-                .textFieldStyle(.plain)
-                .font(StrandFont.body)
-                .foregroundStyle(StrandPalette.textPrimary)
-                .accessibilityLabel("Search markers")
-        }
-        .padding(.horizontal, 12).padding(.vertical, 9)
-        .background(StrandPalette.surfaceInset, in: inputShape)
-        .overlay(inputShape.strokeBorder(StrandPalette.hairline, lineWidth: 1))
+        PaperSearchField(
+            "Search markers (e.g. LDL, ferritin)",
+            text: $search,
+            height: 42,
+            cornerRadius: 10
+        )
+        .accessibilityLabel("Search markers")
     }
 
     private var filteredCatalog: [MarkerDefinition] {

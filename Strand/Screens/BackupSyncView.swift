@@ -13,10 +13,11 @@ struct BackupSyncView: View {
     @State private var lastMs = FolderBackup.lastBackupMs
     @State private var busy = false
 
-    // Result alert (backup outcome / restore outcome).
-    @State private var alertTitle = ""
-    @State private var alertMessage = ""
-    @State private var showAlert = false
+    // Successful operations are transient; failures remain visible with a truthful
+    // retry route until the next attempt succeeds or replaces them.
+    @State private var successToast: String?
+    @State private var operationFailure: BackupOperationFailure?
+    @State private var runningOperation: BackupOperationKind?
 
     // Restore-from-folder flow (must-fix #1 + #2): a sheet lists the folder's snapshots; choosing one
     // arms a destructive confirmation; only confirming runs the overwrite.
@@ -54,14 +55,36 @@ struct BackupSyncView: View {
                 autoCard
                 SectionHeader("Restore")
                 restoreCard
+                if let runningOperation {
+                    PaperOperationFeedback(
+                        title: runningOperation.runningTitle,
+                        message: runningOperation.runningMessage,
+                        phase: .running
+                    )
+                } else if let operationFailure {
+                    PaperOperationFeedback(
+                        title: operationFailure.title,
+                        message: operationFailure.message,
+                        phase: .failed,
+                        actionTitle: operationFailure.actionTitle,
+                        retry: { retry(operationFailure.retry) }
+                    )
+                }
                 NoteCard("Backups are saved to your chosen local or cloud-synced folder. You're in control.",
                          style: .privacy)
             }
         }
-        // Result of a backup or a restore.
-        .alert(alertTitle, isPresented: $showAlert) {
-            Button("OK", role: .cancel) {}
-        } message: { Text(alertMessage) }
+        .paperToast(
+            isPresented: Binding(
+                get: { successToast != nil },
+                set: { if !$0 { successToast = nil } }
+            )
+        ) {
+            PaperToast(
+                LocalizedStringKey(successToast!),
+                announcement: successToast
+            )
+        }
         // Pick which snapshot to restore - the folder's own snapshots, newest first (must-fix #1).
         .sheet(isPresented: $showRestoreSheet) {
             RestorePickerSheet(snapshots: snapshots) { chosen in
@@ -157,10 +180,14 @@ struct BackupSyncView: View {
         Task {
             if await FolderBackup.pickFolder() != nil {
                 folderLabel = FolderBackup.folderLabel()
+                operationFailure = nil
             } else {
-                alertTitle = String(localized: "No folder selected")
-                alertMessage = String(localized: "NOOP didn't get a folder back from the picker. If the Select button won't enable, try creating a fresh folder in Files (under On My iPhone or iCloud Drive) and choosing that instead.")
-                showAlert = true
+                operationFailure = BackupOperationFailure(
+                    title: String(localized: "No folder selected"),
+                    message: String(localized: "NOOP didn't get a folder back from the picker. If the Select button won't enable, try creating a fresh folder in Files (under On My iPhone or iCloud Drive) and choosing that instead."),
+                    retry: .chooseFolder,
+                    actionTitle: "Choose again"
+                )
             }
         }
         #endif
@@ -168,22 +195,33 @@ struct BackupSyncView: View {
 
     private func backupNow() {
         if demoAuditMode {
-            alertTitle = String(localized: "Backed up")
-            alertMessage = String(localized: "Saved a synthetic audit backup. No file was written.")
-            showAlert = true
+            presentSuccess(
+                title: String(localized: "Backed up"),
+                message: String(localized: "Saved a synthetic audit backup. No file was written.")
+            )
             return
         }
+        runningOperation = .backup
+        operationFailure = nil
         busy = true
         Task {
             let ok = await FolderBackup.backupNow(checkpoint: { await model.repo.checkpointForBackup() })
             await MainActor.run {
                 lastMs = FolderBackup.lastBackupMs
                 busy = false
-                alertTitle = ok ? String(localized: "Backed up") : String(localized: "Backup problem")
-                alertMessage = ok
-                    ? String(localized: "Saved a backup to your folder.")
-                    : String(localized: "Backup failed - re-pick the folder and try again.")
-                showAlert = true
+                runningOperation = nil
+                if ok {
+                    presentSuccess(
+                        title: String(localized: "Backed up"),
+                        message: String(localized: "Saved a backup to your folder.")
+                    )
+                } else {
+                    operationFailure = BackupOperationFailure(
+                        title: String(localized: "Backup problem"),
+                        message: String(localized: "Backup failed - re-pick the folder and try again."),
+                        retry: .backup
+                    )
+                }
             }
         }
     }
@@ -194,16 +232,22 @@ struct BackupSyncView: View {
                                      timeMs: Int(Date().addingTimeInterval(-3_600).timeIntervalSince1970 * 1_000))]
             : FolderBackup.listSnapshots()
         if snapshots.isEmpty {
-            alertTitle = String(localized: "No backups found")
-            alertMessage = String(localized: "There are no NOOP backups in your folder yet. Use Back up now first.")
-            showAlert = true
+            operationFailure = BackupOperationFailure(
+                title: String(localized: "No backups found"),
+                message: String(localized: "There are no NOOP backups in your folder yet. Use Back up now first."),
+                retry: .backup,
+                actionTitle: "Back up now"
+            )
         } else {
+            operationFailure = nil
             showRestoreSheet = true
         }
     }
 
     private func runRestore(_ snap: FolderBackup.Snapshot) {
         pendingRestore = nil
+        runningOperation = .restore
+        operationFailure = nil
         busy = true
         Task {
             // The restore is synchronous file I/O; run it off the main actor so the UI stays responsive
@@ -213,17 +257,40 @@ struct BackupSyncView: View {
             }.value
             await MainActor.run {
                 busy = false
+                runningOperation = nil
                 switch result {
                 case .imported:
-                    alertTitle = String(localized: "Restored")
-                    alertMessage = String(localized: "Fully quit and reopen NOOP to load it.")
+                    presentSuccess(
+                        title: String(localized: "Restored"),
+                        message: String(localized: "Fully quit and reopen NOOP to load it.")
+                    )
                 case .failure(let m):
-                    alertTitle = String(localized: "Restore problem"); alertMessage = m
+                    operationFailure = BackupOperationFailure(
+                        title: String(localized: "Restore problem"),
+                        message: m,
+                        retry: .restore(snap)
+                    )
                 case .cancelled, .exported:
-                    alertTitle = String(localized: "Restore problem"); alertMessage = String(localized: "Couldn't restore that backup.")
+                    operationFailure = BackupOperationFailure(
+                        title: String(localized: "Restore problem"),
+                        message: String(localized: "Couldn't restore that backup."),
+                        retry: .restore(snap)
+                    )
                 }
-                showAlert = true
             }
+        }
+    }
+
+    private func presentSuccess(title: String, message: String) {
+        operationFailure = nil
+        successToast = "\(title). \(message)"
+    }
+
+    private func retry(_ action: BackupRetry) {
+        switch action {
+        case .chooseFolder: chooseFolder()
+        case .backup: backupNow()
+        case .restore(let snapshot): runRestore(snapshot)
         }
     }
 
@@ -240,6 +307,38 @@ struct BackupSyncView: View {
         f.timeStyle = .short
         return f.string(from: Date(timeIntervalSince1970: Double(ms) / 1000.0))
     }
+}
+
+private enum BackupOperationKind {
+    case backup
+    case restore
+
+    var runningTitle: String {
+        switch self {
+        case .backup: return String(localized: "Backing up")
+        case .restore: return String(localized: "Restoring")
+        }
+    }
+
+    var runningMessage: String {
+        switch self {
+        case .backup: return String(localized: "Saving a backup to your folder.")
+        case .restore: return String(localized: "Replacing local data with the selected backup.")
+        }
+    }
+}
+
+private enum BackupRetry {
+    case chooseFolder
+    case backup
+    case restore(FolderBackup.Snapshot)
+}
+
+private struct BackupOperationFailure {
+    let title: String
+    let message: String
+    let retry: BackupRetry
+    var actionTitle: LocalizedStringKey = "Retry"
 }
 
 /// The snapshot chooser shown before a restore (must-fix #1: pick from the folder, newest first).

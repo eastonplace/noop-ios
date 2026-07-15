@@ -135,8 +135,21 @@ public struct Hypnogram: View {
         return ivs
     }
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     /// Index of the hovered interval, or nil.
     @State private var hoverIndex: Int? = nil
+
+    /// Selection and hover opacity share one pure rule so the 0.18 design-lab
+    /// contract can be regression-tested without snapshotting a SwiftUI render.
+    static func intervalOpacity(
+        for stage: SleepStage,
+        highlightedStage: SleepStage?,
+        isDimmedByHover: Bool
+    ) -> Double {
+        if let highlightedStage, stage != highlightedStage { return 0.18 }
+        return isDimmedByHover ? 0.45 : 1.0
+    }
 
     private static let clockFormatter: DateFormatter = {
         // "jmm" respects the device's 12-/24-hour setting (#337) rather than forcing 24-hour.
@@ -231,7 +244,6 @@ public struct Hypnogram: View {
                                 let rect = bandRect(for: interval, in: geo.size)
                                 let color = StrandPalette.sleepStageColor(interval.stage)
                                 let hoverDimmed = hoverIndex != nil && hoverIndex != idx
-                                let stageDimmed = highlightedStage != nil && interval.stage != highlightedStage
                                 // WHOOP hypnogram: squared, uniform ribbon segments — the night reads as
                                 // one continuous square-wave step line. No pill caps: a brief stage draws
                                 // at its true duration as a thin tick, never inflated into a dot. When a
@@ -239,7 +251,11 @@ public struct Hypnogram: View {
                                 RoundedRectangle(cornerRadius: 2.5, style: .continuous)
                                     .fill(color)
                                     .frame(width: rect.width, height: rect.height)
-                                    .opacity(stageDimmed ? 0.22 : (hoverDimmed ? 0.45 : 1.0))
+                                    .opacity(Hypnogram.intervalOpacity(
+                                        for: interval.stage,
+                                        highlightedStage: highlightedStage,
+                                        isDimmedByHover: hoverDimmed
+                                    ))
                                     .position(x: rect.midX, y: rect.midY)
                             }
                         }
@@ -271,8 +287,8 @@ public struct Hypnogram: View {
                             )
                         }
                     }
-                    .animation(StrandMotion.fade, value: hoverIndex)
-                    .animation(StrandMotion.fade, value: highlightedStage)
+                    .animation(reduceMotion ? nil : StrandMotion.fade, value: hoverIndex)
+                    .animation(reduceMotion ? nil : StrandMotion.fade, value: highlightedStage)
                     .contentShape(Rectangle())
                     .onContinuousHover(coordinateSpace: .local) { phase in
                         guard showsHover else { return }

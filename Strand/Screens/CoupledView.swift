@@ -239,13 +239,7 @@ struct CoupledView: View {
     /// Today hero pill chrome. Reuses TodayView's word + level colour so the read stays consistent.
     private func readinessPill(_ word: String) -> some View {
         let tint = readinessTint(readinessLevel)
-        return Text(word.uppercased())
-            .font(StrandFont.overline)
-            .tracking(StrandFont.overlineTracking)
-            .foregroundStyle(StrandPalette.textPrimary)
-            .padding(.horizontal, 12).padding(.vertical, 5)
-            .background(Capsule(style: .continuous).fill(tint.opacity(0.12)))
-            .overlay(Capsule(style: .continuous).stroke(tint.opacity(0.32), lineWidth: 1))
+        return MicroBadge("\(word)", tint: tint)
             .accessibilityLabel("Readiness: \(word)")
     }
 
@@ -336,16 +330,9 @@ struct CoupledView: View {
         return max(0, min(1, Double(band.upperBound) / 21))
     }
 
-    /// The heroStat idiom (WorkoutsView.swift:500–509): an UPPERCASE tracked overline over a big tinted
-    /// number. Reproduced here so the coupled stat stack reads identically to the Workouts hero stats.
+    /// Canonical compact value treatment shared with the Workouts hero stack.
     private func heroStat(_ title: String, _ value: String, tint: Color) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title.uppercased())
-                .font(StrandFont.overline).tracking(StrandFont.overlineTracking)
-                .foregroundStyle(StrandPalette.textSecondary)
-            Text(value).font(StrandFont.number(20))
-                .foregroundStyle(StrandPalette.textPrimary).lineLimit(1).minimumScaleFactor(0.6)
-        }
+        ValueToken(LocalizedStringKey(title), value: value, tint: tint)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -604,7 +591,11 @@ struct CoupledView: View {
                             .font(StrandFont.headline)
                             .foregroundStyle(StrandPalette.textPrimary)
                         Spacer(minLength: 0)
-                        ConfidenceTierChip(confidence: .calibrating)
+                        ScoreStatePill(
+                            ChargeBreakdownFormat.tierState(.calibrating),
+                            text: "\(ChargeBreakdownFormat.tierTag(.calibrating))"
+                        )
+                        .accessibilityLabel(ChargeBreakdownFormat.confidenceAccessibilityLabel(.calibrating))
                     }
                     Text(unlock)
                         .font(StrandFont.subhead)
@@ -1286,12 +1277,7 @@ struct PaperPillarDetailView: View {
             // D16: every word comes from FactorBands + the cited analytics source;
             // nil preserves the honest value-only fallback for metrics without a baseline.
             if let status {
-                Text(LocalizedStringKey(status.localizationKey))
-                    .font(StrandFont.micro.weight(.semibold))
-                    .foregroundStyle(StrandPalette.textPrimary)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
-                    .background(status.color.opacity(0.14), in: Capsule())
+                MicroBadge(LocalizedStringKey(status.localizationKey), tint: status.color)
             }
         }
         .frame(minHeight: 40)

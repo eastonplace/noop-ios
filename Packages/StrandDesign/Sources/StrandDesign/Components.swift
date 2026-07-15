@@ -426,6 +426,8 @@ public struct SegmentedPillControl<T: Hashable>: View {
     /// Defaults to everything enabled; ADDED additively, no existing call site touched.
     let isEnabled: (T) -> Bool
     @Binding var selection: T
+    @Namespace private var selectionThumb
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     public init(_ items: [T], selection: Binding<T>, label: @escaping (T) -> String) {
         self.init(items, selection: selection, isEnabled: { _ in true }, label: label)
     }
@@ -435,13 +437,21 @@ public struct SegmentedPillControl<T: Hashable>: View {
     }
     public var body: some View {
         HStack(spacing: 4) {
-            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+            ForEach(items, id: \.self) { item in
                 let sel = item == selection
                 let enabled = isEnabled(item)
                 Button {
-                    guard selection != item else { return }   // re-tapping the active segment stays silent
-                    StrandHaptic.selection.play()
-                    withAnimation(StrandMotion.interactive) { selection = item }
+                    SegmentedPillSelection.perform(
+                        current: selection,
+                        next: item,
+                        isEnabled: enabled,
+                        setSelection: { newSelection in
+                            withAnimation(reduceMotion ? nil : StrandMotion.press) {
+                                selection = newSelection
+                            }
+                        },
+                        feedback: playSelectionFallback
+                    )
                 } label: {
                     Text(label(item))
                         .font(StrandFont.captionNumber)
@@ -456,10 +466,16 @@ public struct SegmentedPillControl<T: Hashable>: View {
                         .frame(minWidth: 26, maxHeight: .infinity)
                         .padding(.horizontal, 9)
                         .background(
-                            // WHOOP selection chrome: a flat LIGHTER-grey pill on dark (white ink), a flat
-                            Capsule(style: .continuous)
-                                .fill(sel ? AnyShapeStyle(StrandPalette.ink)
-                                          : AnyShapeStyle(Color.clear))
+                            Group {
+                                if sel {
+                                    Capsule(style: .continuous)
+                                        .fill(StrandPalette.ink)
+                                        .matchedGeometryEffect(
+                                            id: "selected-segment",
+                                            in: selectionThumb
+                                        )
+                                }
+                            }
                         )
                         .contentShape(Capsule(style: .continuous))
                 }
@@ -473,6 +489,32 @@ public struct SegmentedPillControl<T: Hashable>: View {
         .padding(3)
         .background(StrandPalette.surfaceInset, in: Capsule(style: .continuous))
         .overlay(Capsule(style: .continuous).strokeBorder(StrandPalette.hairline, lineWidth: 1))
+        .accessibilityElement(children: .contain)
+        .strandHaptic(.selection, trigger: selection)
+    }
+
+    private func playSelectionFallback() {
+        #if os(iOS)
+        if #unavailable(iOS 17.0) {
+            StrandHaptic.selection.play()
+        }
+        #elseif os(watchOS)
+        StrandHaptic.selection.play()
+        #endif
+    }
+}
+
+enum SegmentedPillSelection {
+    static func perform<T: Equatable>(
+        current: T,
+        next: T,
+        isEnabled: Bool,
+        setSelection: (T) -> Void,
+        feedback: () -> Void
+    ) {
+        guard isEnabled, current != next else { return }
+        setSelection(next)
+        feedback()
     }
 }
 

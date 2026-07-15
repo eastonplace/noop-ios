@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 #if os(macOS)
 import AppKit
 #endif
@@ -188,19 +189,13 @@ struct LiveView: View {
         // Distinguish a GENUINE encrypted bond from the 5/MG live-HR shortcut that flips `bonded` true
         // over the unbonded standard profile (#69): green "Bonded · streaming" only when encryptedBond,
         // amber "Live HR (not fully paired)" otherwise. The pairingHintBanner below gives the how-to.
-        let (label, color): (String, Color) =
-            (activeConnection && live.encryptedBond) ? (String(localized: "Bonded · streaming"), StrandPalette.accent)
-            : activeConnection ? (String(localized: "Live HR (not fully paired)"), StrandPalette.statusWarning)
-            : live.connected ? (String(localized: "Connected"), StrandPalette.statusWarning)
-            : live.encryptedBond ? (String(localized: "Paired · idle"), StrandPalette.statusWarning)
-            : (String(localized: "Disconnected"), StrandPalette.metricRose)
-        return HStack(spacing: 8) {
-            Circle().fill(color).frame(width: 9, height: 9)
-            Text(label).font(StrandFont.subhead).foregroundStyle(StrandPalette.textPrimary)
-        }
-        .padding(.horizontal, 14).padding(.vertical, 8)
-        .background(StrandPalette.surfaceInset, in: Capsule())
-        .overlay(Capsule().strokeBorder(StrandPalette.hairline, lineWidth: 1))
+        let (label, tone): (String, StrandTone) =
+            (activeConnection && live.encryptedBond) ? (String(localized: "Bonded · streaming"), .accent)
+            : activeConnection ? (String(localized: "Live HR (not fully paired)"), .warning)
+            : live.connected ? (String(localized: "Connected"), .warning)
+            : live.encryptedBond ? (String(localized: "Paired · idle"), .warning)
+            : (String(localized: "Disconnected"), .critical)
+        return StatePill("\(label)", tone: tone, pulsing: activeConnection)
     }
 
     // MARK: - Body console (live BPM vessel + live physiology)
@@ -587,9 +582,22 @@ private struct PaperLiveHeartCard: View {
     let hrMax: Int
     let restingHR: Int?
 
+    /// View-local receipt time, deliberately updated from every raw `@Published`
+    /// heart-rate arrival (including repeated BPM values). A BPM value changing is
+    /// not a freshness signal: a steady heart rate can legitimately repeat for minutes.
+    @State private var lastHRArrival: Date?
+    @State private var freshnessNow = Date()
+
     private var bpm: Int? { model.bpm }
     private var zoneSet: HRZoneSet { HRZones.zones(maxHR: Double(max(1, hrMax)), source: "profile") }
     private var zone: Int { bpm.map { zoneSet.zoneNumber(forBPM: Double($0)) } ?? 0 }
+    private var vitalPresentation: LiveVitalPresentation {
+        LiveVitalPresentation.resolve(
+            isConnected: activeConnection,
+            lastHRArrival: lastHRArrival,
+            now: freshnessNow
+        )
+    }
 
     var body: some View {
         PaperCard {
@@ -615,9 +623,11 @@ private struct PaperLiveHeartCard: View {
                             }
                             .frame(width: 96, height: 96)
                         }
-                        StatusBadge(activeConnection ? "Live" : "Waiting",
-                                    style: activeConnection ? .live : .notConnected,
-                                    tint: activeConnection ? StrandPalette.liveRed : nil)
+                        StatePill(
+                            vitalPresentation.label,
+                            tone: vitalPresentation.tone,
+                            pulsing: vitalPresentation.pulsing
+                        )
                     }
                     VStack(spacing: 0) {
                         metricRow(label: zone > 0 ? "ZONE \(zone)" : "ZONE 1",
@@ -629,6 +639,24 @@ private struct PaperLiveHeartCard: View {
                     }
                     Spacer(minLength: 0)
                 }
+            }
+        }
+        .onReceive(LiveVitalArrivalPolicy.newArrivals(from: live.$heartRate)) { rawBPM in
+            guard activeConnection, let rawBPM, (30...220).contains(rawBPM) else { return }
+            let arrival = Date()
+            lastHRArrival = arrival
+            freshnessNow = arrival
+        }
+        .onChangeCompat(of: activeConnection) { connected in
+            if !connected { lastHRArrival = nil }
+            freshnessNow = Date()
+        }
+        .task(id: activeConnection) {
+            guard activeConnection else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard !Task.isCancelled else { return }
+                freshnessNow = Date()
             }
         }
     }
@@ -650,20 +678,67 @@ private struct PaperLiveHeartCard: View {
     private func metricRow(label: String, value: String, positive: Bool = false,
                            divider: Bool = true) -> some View {
         HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(label).font(StrandFont.micro.weight(.semibold))
-                    .foregroundStyle(StrandPalette.textSecondary)
-                Text(value).font(StrandFont.captionNumber)
-                    .foregroundStyle(StrandPalette.textPrimary)
-            }
-            Spacer(minLength: 4)
-            if positive { Circle().fill(StrandPalette.success).frame(width: 7, height: 7) }
+            ValueToken(LocalizedStringKey(label), value: value)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if positive { MicroStatusDot(color: StrandPalette.success) }
         }
         .frame(minHeight: 43)
         .overlay(alignment: .bottom) {
             if divider { Rectangle().fill(StrandPalette.hairline).frame(height: 1) }
         }
     }
+}
+
+/// `@Published` replays its cached value immediately to every new subscriber. That
+/// replay is not a packet arrival, so liveness deliberately ignores it while retaining
+/// every subsequent publication, including repeated BPM values.
+enum LiveVitalArrivalPolicy {
+    static func newArrivals<P: Publisher>(from publisher: P) -> Publishers.Drop<P>
+    where P.Failure == Never {
+        publisher.dropFirst()
+    }
+}
+
+/// Pure visual mapper for the Live heart-rate badge. The five-second quiet window
+/// is the debounce: ordinary packet jitter cannot flip Live↔Stale, while a genuinely
+/// silent stream becomes visibly stale without writing anything back to `LiveState`.
+enum LiveVitalPresentation: Equatable {
+    static let staleAfter: TimeInterval = 5
+
+    case waiting
+    case live
+    case stale
+    case offline
+
+    static func resolve(
+        isConnected: Bool,
+        lastHRArrival: Date?,
+        now: Date,
+        staleAfter: TimeInterval = Self.staleAfter
+    ) -> Self {
+        guard isConnected else { return .offline }
+        guard let lastHRArrival else { return .waiting }
+        return now.timeIntervalSince(lastHRArrival) <= staleAfter ? .live : .stale
+    }
+
+    var label: LocalizedStringKey {
+        switch self {
+        case .waiting: return "Waiting"
+        case .live: return "Live"
+        case .stale: return "Stale"
+        case .offline: return "Offline"
+        }
+    }
+
+    var tone: StrandTone {
+        switch self {
+        case .live: return .positive
+        case .waiting, .stale: return .warning
+        case .offline: return .critical
+        }
+    }
+
+    var pulsing: Bool { self == .live }
 }
 
 private struct PaperLiveStatusCard: View {
@@ -705,7 +780,10 @@ private struct LiveHeaderStats: View {
     let deviceName: String
 
     var body: some View {
-        HStack(spacing: 16) {
+        LazyVGrid(
+            columns: [GridItem(.flexible()), GridItem(.flexible())],
+            spacing: NoopMetrics.space2
+        ) {
             stat(String(localized: "Device"), deviceName)
             stat(String(localized: "Battery"), live.batteryPct.map { "\(Int($0))%" } ?? "—")
             stat(String(localized: "Worn"), activeConnection ? (live.worn ? String(localized: "Yes") : String(localized: "No")) : "—")
@@ -714,16 +792,8 @@ private struct LiveHeaderStats: View {
     }
 
     private func stat(_ title: String, _ value: String) -> some View {
-        VStack(alignment: .trailing, spacing: 1) {
-            Text(title.uppercased())
-                .font(StrandFont.footnote)
-                .foregroundStyle(StrandPalette.textTertiary)
-            Text(value)
-                .font(StrandFont.captionNumber)
-                .foregroundStyle(StrandPalette.textSecondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-        }
+        ValueToken(LocalizedStringKey(title), value: value, tint: StrandPalette.textSecondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var lastSyncLabel: String { LiveSyncFormat.lastSyncLabel(live.lastSyncedAt) }
@@ -853,15 +923,7 @@ private struct LivePhysiology: View {
                 }
                 Spacer()
                 if let rmssd = rollingRMSSD {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text("RMSSD")
-                            .font(StrandFont.footnote)
-                            .foregroundStyle(StrandPalette.textTertiary)
-                        Text("\(Int(rmssd.rounded())) ms")
-                            .font(StrandFont.number(24))
-                            .foregroundStyle(StrandPalette.textPrimary)
-                    }
-                    .accessibilityElement(children: .combine)
+                    ValueToken("RMSSD", value: "\(Int(rmssd.rounded())) ms")
                     .accessibilityLabel("Rolling RMSSD \(Int(rmssd.rounded())) milliseconds")
                 }
             }
@@ -908,22 +970,12 @@ private struct LivePhysiology: View {
     /// (regardless of the passed accent) so an idle tile reads as a muted empty state rather than a
     /// broken live readout. The callers pass a word ("Offline") instead of a bare em-dash in that case.
     private func proofMetric(_ label: String, _ value: String, _ tint: Color, offline: Bool = false) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(label.uppercased())
-                .font(StrandFont.footnote)
-                .foregroundStyle(StrandPalette.textTertiary)
-            Text(value)
-                .font(StrandFont.captionNumber)
-                .foregroundStyle(offline ? StrandPalette.textTertiary : tint)
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-        }
+        ValueToken(
+            LocalizedStringKey(label),
+            value: value,
+            tint: offline ? StrandPalette.textTertiary : tint
+        )
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(NoopMetrics.rowSpacing)
-        .background(StrandPalette.surfaceInset, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .strokeBorder(StrandPalette.hairline, lineWidth: 1))
-        .accessibilityElement(children: .combine)
         .accessibilityLabel("\(label): \(value)")
     }
 

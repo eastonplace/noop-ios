@@ -699,13 +699,12 @@ private struct ProfileStep: View {
 
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Sex").strandOverline()
-                            Picker("Sex", selection: $profile.sex) {
-                                ForEach(sexes, id: \.0) { key, label in
-                                    Text(label).tag(key)
-                                }
-                            }
-                            .pickerStyle(.segmented)
-                            .labelsHidden()
+                            SegmentedPillControl(
+                                sexes.map { $0.0 },
+                                selection: $profile.sex,
+                                label: sexLabel
+                            )
+                            .accessibilityLabel("Sex")
                         }
 
                         Divider().overlay(StrandPalette.hairline)
@@ -717,12 +716,15 @@ private struct ProfileStep: View {
                         // via UnitFormatter). Same key (`units.system`) the Settings → Units card writes.
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Units").strandOverline()
-                            Picker("Units", selection: $unitSystemRaw) {
-                                Text("Metric").tag(UnitSystem.metric.rawValue)
-                                Text("Imperial").tag(UnitSystem.imperial.rawValue)
+                            SegmentedPillControl(
+                                [UnitSystem.metric.rawValue, UnitSystem.imperial.rawValue],
+                                selection: $unitSystemRaw
+                            ) { rawValue in
+                                rawValue == UnitSystem.metric.rawValue
+                                    ? String(localized: "Metric")
+                                    : String(localized: "Imperial")
                             }
-                            .pickerStyle(.segmented)
-                            .labelsHidden()
+                            .accessibilityLabel("Units")
                         }
 
                         Divider().overlay(StrandPalette.hairline)
@@ -753,6 +755,10 @@ private struct ProfileStep: View {
                 }
             }
         }
+    }
+
+    private func sexLabel(_ key: String) -> String {
+        sexes.first(where: { $0.0 == key })?.1 ?? key
     }
 }
 

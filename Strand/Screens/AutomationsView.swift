@@ -511,8 +511,10 @@ private struct AutomationConnectionBanner: View {
     var body: some View {
         PaperCard(padding: 14) {
             HStack(spacing: 10) {
-                Circle().fill(live.bonded ? StrandPalette.success : StrandPalette.destructive)
-                    .frame(width: 8, height: 8)
+                MicroStatusDot(
+                    color: live.bonded ? StrandPalette.success : StrandPalette.destructive,
+                    isActive: live.bonded
+                )
                 VStack(alignment: .leading, spacing: 2) {
                     Text(live.bonded ? "Strap connected" : "Strap not connected")
                         .font(StrandFont.body.weight(.semibold))

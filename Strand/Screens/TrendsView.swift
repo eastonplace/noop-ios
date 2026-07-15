@@ -10,6 +10,69 @@ import Foundation
 // The weekly longitudinal view, rendered only through the canonical Paper score tiles,
 // over-time chart, Week in Review card, and distinct insight.
 
+enum TrendSummaryGoodDirection: Equatable {
+    case higher, lower, neutral
+}
+
+enum TrendSummaryDeltaTone: Equatable {
+    case positive, negative, neutral
+}
+
+/// Pure presentation derived from the exact `TrendPoint` array handed to the chart.
+/// Keeping the source array on the value makes the single-source contract explicit and
+/// testable: latest, delta, and the <= 7-point spark never query or rebuild data.
+struct TrendSummaryPresentation {
+    let source: [TrendPoint]
+    let latest: Double?
+    let delta: Double?
+    let spark: [TrendPoint]
+    let deltaTone: TrendSummaryDeltaTone
+
+    init(series: [TrendPoint], goodDirection: TrendSummaryGoodDirection) {
+        source = series
+        latest = series.last?.value
+        delta = series.count > 1 ? series[series.count - 1].value - series[series.count - 2].value : nil
+        spark = Array(series.suffix(7))
+
+        guard let delta, abs(delta) > 0.000_000_1 else {
+            deltaTone = .neutral
+            return
+        }
+        switch goodDirection {
+        case .higher:
+            deltaTone = delta > 0 ? .positive : .negative
+        case .lower:
+            deltaTone = delta < 0 ? .positive : .negative
+        case .neutral:
+            deltaTone = .neutral
+        }
+    }
+}
+
+struct PaperTrendSeries {
+    let recovery: [TrendPoint]
+    let strain: [TrendPoint]
+    let sleep: [TrendPoint]
+
+    static func build(days: [DailyMetric], sleepByDay: [String: Double],
+                      date: (String) -> Date?) -> PaperTrendSeries {
+        PaperTrendSeries(
+            recovery: days.compactMap { day in
+                guard let value = day.recovery, let date = date(day.day) else { return nil }
+                return TrendPoint(date: date, value: value)
+            },
+            strain: days.compactMap { day in
+                guard let stored = day.strain, let date = date(day.day) else { return nil }
+                return TrendPoint(date: date, value: StrainScale.displayValue(fromStored: stored))
+            },
+            sleep: days.compactMap { day in
+                guard let value = sleepByDay[day.day], let date = date(day.day) else { return nil }
+                return TrendPoint(date: date, value: value)
+            }
+        )
+    }
+}
+
 struct TrendsView: View {
     @EnvironmentObject var repo: Repository
     // NOTE: deliberately does NOT observe LiveState — Trends shows historical data only, and
@@ -133,6 +196,12 @@ struct TrendsView: View {
         }
     }
 
+    /// One derivation for both the chart marks and summary rows. Do not split this
+    /// back into view-local maps: T030 pins the exact shared arrays.
+    private var paperTrendSeries: PaperTrendSeries {
+        PaperTrendSeries.build(days: paperWeekDays, sleepByDay: sleepPerfByDay, date: date)
+    }
+
     private func paperScoreTile(_ metric: WeeklyMetric, accent: Color) -> some View {
         let summary = paperDigest.summary(metric)
         let hasValue = (summary?.thisWeek.n ?? 0) > 0
@@ -159,7 +228,8 @@ struct TrendsView: View {
     }
 
     private var paperScoresOverTime: some View {
-        PaperCard {
+        let series = paperTrendSeries
+        return PaperCard {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Scores Over Time").strandOverline()
                 HStack(spacing: 12) {
@@ -169,23 +239,21 @@ struct TrendsView: View {
                 }
                 ZStack {
                     Chart {
-                        ForEach(paperWeekDays, id: \.day) { day in
-                            if let value = day.recovery, let date = date(day.day) {
-                                LineMark(x: .value("Day", date), y: .value("Recovery", value))
-                                    .lineStyle(StrokeStyle(lineWidth: NoopMetrics.chartLineWidth,
-                                                           lineCap: .round, lineJoin: .round))
-                                    .foregroundStyle(by: .value("Series", "Recovery"))
-                                PointMark(x: .value("Day", date), y: .value("Recovery", value))
-                                    .foregroundStyle(RecoveryBands.color(for: value)).symbolSize(12)
-                            }
-                            if let value = sleepPerfByDay[day.day], let date = date(day.day) {
-                                LineMark(x: .value("Day", date), y: .value("Sleep", value))
-                                    .lineStyle(StrokeStyle(lineWidth: NoopMetrics.chartLineWidth,
-                                                           lineCap: .round, lineJoin: .round))
-                                    .foregroundStyle(by: .value("Series", "Sleep"))
-                                PointMark(x: .value("Day", date), y: .value("Sleep", value))
-                                    .foregroundStyle(StrandPalette.sleepAccent).symbolSize(12)
-                            }
+                        ForEach(series.recovery) { point in
+                            LineMark(x: .value("Day", point.date), y: .value("Recovery", point.value))
+                                .lineStyle(StrokeStyle(lineWidth: NoopMetrics.chartLineWidth,
+                                                       lineCap: .round, lineJoin: .round))
+                                .foregroundStyle(by: .value("Series", "Recovery"))
+                            PointMark(x: .value("Day", point.date), y: .value("Recovery", point.value))
+                                .foregroundStyle(RecoveryBands.color(for: point.value)).symbolSize(12)
+                        }
+                        ForEach(series.sleep) { point in
+                            LineMark(x: .value("Day", point.date), y: .value("Sleep", point.value))
+                                .lineStyle(StrokeStyle(lineWidth: NoopMetrics.chartLineWidth,
+                                                       lineCap: .round, lineJoin: .round))
+                                .foregroundStyle(by: .value("Series", "Sleep"))
+                            PointMark(x: .value("Day", point.date), y: .value("Sleep", point.value))
+                                .foregroundStyle(StrandPalette.sleepAccent).symbolSize(12)
                         }
                     }
                     .chartForegroundStyleScale(domain: ["Recovery", "Sleep"],
@@ -214,16 +282,13 @@ struct TrendsView: View {
                     }
 
                     Chart {
-                        ForEach(paperWeekDays, id: \.day) { day in
-                            if let stored = day.strain, let date = date(day.day) {
-                                let value = StrainScale.displayValue(fromStored: stored)
-                                LineMark(x: .value("Day", date), y: .value("Strain", value))
-                                    .lineStyle(StrokeStyle(lineWidth: NoopMetrics.chartLineWidth,
-                                                           lineCap: .round, lineJoin: .round))
-                                    .foregroundStyle(StrandPalette.strainAccent)
-                                PointMark(x: .value("Day", date), y: .value("Strain", value))
-                                    .foregroundStyle(StrandPalette.strainAccent).symbolSize(12)
-                            }
+                        ForEach(series.strain) { point in
+                            LineMark(x: .value("Day", point.date), y: .value("Strain", point.value))
+                                .lineStyle(StrokeStyle(lineWidth: NoopMetrics.chartLineWidth,
+                                                       lineCap: .round, lineJoin: .round))
+                                .foregroundStyle(StrandPalette.strainAccent)
+                            PointMark(x: .value("Day", point.date), y: .value("Strain", point.value))
+                                .foregroundStyle(StrandPalette.strainAccent).symbolSize(12)
                         }
                     }
                     .chartYScale(domain: StrainScale.displayRange)
@@ -242,6 +307,33 @@ struct TrendsView: View {
                     }
                 }
                 .frame(height: NoopMetrics.chartHeight)
+                Divider().overlay(StrandPalette.hairline)
+                VStack(spacing: 4) {
+                    TrendSummaryRow(
+                        title: "Recovery",
+                        presentation: TrendSummaryPresentation(series: series.recovery, goodDirection: .higher),
+                        color: StrandPalette.recoveryData,
+                        gradient: StrandPalette.recoveryGradient,
+                        valueFormat: { "\(Int($0.rounded()))" },
+                        deltaFormat: { "\(Int(abs($0).rounded()))" }
+                    )
+                    TrendSummaryRow(
+                        title: "Strain",
+                        presentation: TrendSummaryPresentation(series: series.strain, goodDirection: .neutral),
+                        color: StrandPalette.strainAccent,
+                        gradient: StrandPalette.strainGradient,
+                        valueFormat: StrainScale.formatted,
+                        deltaFormat: { StrainScale.formattedDelta(abs($0)) }
+                    )
+                    TrendSummaryRow(
+                        title: "Sleep",
+                        presentation: TrendSummaryPresentation(series: series.sleep, goodDirection: .higher),
+                        color: StrandPalette.sleepAccent,
+                        gradient: StrandPalette.restGradient,
+                        valueFormat: { "\(Int($0.rounded()))" },
+                        deltaFormat: { "\(Int(abs($0).rounded()))" }
+                    )
+                }
             }
         }
     }
@@ -358,6 +450,73 @@ struct TrendsView: View {
                     body: LocalizedStringKey(paperInsightText), accent: StrandPalette.link)
     }
 
+}
+
+private struct TrendSummaryRow: View {
+    let title: LocalizedStringKey
+    let presentation: TrendSummaryPresentation
+    let color: Color
+    let gradient: Gradient
+    let valueFormat: (Double) -> String
+    let deltaFormat: (Double) -> String
+
+    private var valueText: String {
+        presentation.latest.map(valueFormat) ?? "—"
+    }
+
+    private var deltaText: String {
+        guard let delta = presentation.delta else { return "—" }
+        if abs(delta) <= 0.000_000_1 { return "0" }
+        return "\(delta > 0 ? "+" : "−")\(deltaFormat(delta))"
+    }
+
+    private var deltaColor: Color {
+        switch presentation.deltaTone {
+        case .positive: return StrandPalette.statusPositive
+        case .negative: return StrandPalette.statusCritical
+        case .neutral: return StrandPalette.textSecondary
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Circle()
+                .fill(color)
+                .frame(width: 7, height: 7)
+                .accessibilityHidden(true)
+            Text(title)
+                .font(StrandFont.caption.weight(.semibold))
+                .foregroundStyle(StrandPalette.textPrimary)
+            Spacer(minLength: 8)
+            if presentation.spark.count > 1 {
+                Sparkline(
+                    values: presentation.spark.map(\.value),
+                    gradient: gradient,
+                    lineWidth: 1.6,
+                    showsArea: false,
+                    showsHead: false,
+                    showsHover: false
+                )
+                .frame(width: 64, height: 18)
+                .opacity(0.85)
+                .accessibilityHidden(true)
+            } else {
+                Color.clear.frame(width: 64, height: 18)
+            }
+            Text(valueText)
+                .font(StrandFont.captionNumber.weight(.semibold))
+                .monospacedDigit()
+                .foregroundStyle(StrandPalette.textPrimary)
+                .frame(minWidth: 34, alignment: .trailing)
+            Text(deltaText)
+                .font(StrandFont.micro.weight(.bold))
+                .monospacedDigit()
+                .foregroundStyle(deltaColor)
+                .frame(minWidth: 34, alignment: .trailing)
+        }
+        .frame(minHeight: 32)
+        .accessibilityElement(children: .combine)
+    }
 }
 
 #if DEBUG

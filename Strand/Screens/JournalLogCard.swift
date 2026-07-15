@@ -1221,7 +1221,9 @@ private struct CoachingAddBehaviorSheet: View {
             .padding(NoopMetrics.screenPadding)
             .background(StrandPalette.surfaceBase.ignoresSafeArea())
             .navigationTitle("Add Behavior")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
         }
         .presentationDetents([.medium])
@@ -1259,14 +1261,12 @@ struct CoachingQuickAddView: View {
     var body: some View {
         ScreenScaffold(title: "Quick Add", subtitle: "Log without the full check-in", backAction: { dismiss() }) {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
-                HStack(spacing: 10) {
-                    Image(systemName: "magnifyingglass").foregroundStyle(StrandPalette.textSecondary)
-                    TextField("Search behaviors", text: $search).font(StrandFont.body)
-                }
-                .padding(.horizontal, 14).frame(height: NoopMetrics.controlHeight)
-                .background(StrandPalette.card, in: RoundedRectangle(cornerRadius: NoopMetrics.radius3))
-                .overlay(RoundedRectangle(cornerRadius: NoopMetrics.radius3)
-                    .strokeBorder(StrandPalette.cardBorder, lineWidth: 1))
+                PaperSearchField(
+                    "Search behaviors",
+                    text: $search,
+                    height: NoopMetrics.controlHeight,
+                    cornerRadius: NoopMetrics.radius3
+                )
 
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: NoopMetrics.space3) {
                     ForEach(visible) { membership in quickTile(membership) }

@@ -261,7 +261,11 @@ struct IntelligenceView: View {
                     // (CALIBRATING / EST. / REL.) next to the source badge. Pure presentation of
                     // `d.confidence` , only shown once there's a Charge to qualify.
                     if d.recovery != nil {
-                        ConfidenceTierChip(confidence: d.confidence)
+                        ScoreStatePill(
+                            ChargeBreakdownFormat.tierState(d.confidence),
+                            text: "\(ChargeBreakdownFormat.tierTag(d.confidence))"
+                        )
+                        .accessibilityLabel(ChargeBreakdownFormat.confidenceAccessibilityLabel(d.confidence))
                     }
                     // The REAL source of the day's dashboard headline, not a hard-coded "NOOP-computed".
                     // The By-Day numbers are always NOOP's on-device scores, but when an import covers the

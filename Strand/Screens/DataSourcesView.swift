@@ -33,6 +33,7 @@ struct DataSourcesView: View {
     @State private var wearableImporting = false
     @State private var wearableSummary: String?
     @State private var wearableFailed = false
+    @State private var importSuccessToast: String?
     // "Remove Apple Health imported data" (ah-delete #616): a destructive escape hatch that purges every
     // row stored under the "apple-health" source via DeviceRegistryStore.deleteAllData. Two-step (a
     // confirmation alert) since it can't be undone. Local to this screen; no live strap data is touched.
@@ -86,7 +87,12 @@ struct DataSourcesView: View {
                        lazy: true) {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
                 if let pickerError {
-                    NoteCard(LocalizedStringKey(pickerError), title: "Import failed", style: .warning)
+                    PaperOperationFeedback(
+                        title: String(localized: "Import failed"),
+                        message: pickerError,
+                        phase: .failed,
+                        retry: { presentImporter(importTarget) }
+                    )
                 }
                 SectionHeader("Import from file or app")
                 whoopCard.staggeredAppear(index: 0)
@@ -117,6 +123,27 @@ struct DataSourcesView: View {
             // radio when the screen goes away; toggling it back on (or revisiting) re-starts it.
             hrBroadcaster.stop()
         }
+        .onChangeCompat(of: model.isImporting(.whoop)) { importing in
+            if !importing { presentModelImportSuccess(model.whoopImportSummary, failed: model.whoopImportFailed) }
+        }
+        .onChangeCompat(of: model.isImporting(.appleHealth)) { importing in
+            if !importing { presentModelImportSuccess(model.appleHealthImportSummary, failed: model.appleHealthImportFailed) }
+        }
+        .onChangeCompat(of: model.isImporting(.xiaomi)) { importing in
+            if !importing { presentModelImportSuccess(model.xiaomiImportSummary, failed: model.xiaomiImportFailed) }
+        }
+        .onChangeCompat(of: nutritionImporting) { importing in
+            if !importing { presentModelImportSuccess(nutritionSummary, failed: nutritionFailed) }
+        }
+        .onChangeCompat(of: liftingImporting) { importing in
+            if !importing { presentModelImportSuccess(liftingSummary, failed: liftingFailed) }
+        }
+        .onChangeCompat(of: activityFileImporting) { importing in
+            if !importing { presentModelImportSuccess(activityFileSummary, failed: activityFileFailed) }
+        }
+        .onChangeCompat(of: wearableImporting) { importing in
+            if !importing { presentModelImportSuccess(wearableSummary, failed: wearableFailed) }
+        }
         // A single target-aware importer avoids SwiftUI collapsing competing importers on the same screen.
         .fileImporter(isPresented: $showingImporter,
                       allowedContentTypes: importTarget.allowedContentTypes,
@@ -130,6 +157,17 @@ struct DataSourcesView: View {
         } message: {
             Text("This permanently deletes everything imported from Apple Health: heart rate, HRV, sleep, steps, workouts and more. Your live strap data is untouched. This can't be undone.")
         }
+        .paperToast(
+            isPresented: Binding(
+                get: { importSuccessToast != nil },
+                set: { if !$0 { importSuccessToast = nil } }
+            )
+        ) {
+            PaperToast(
+                LocalizedStringKey(importSuccessToast!),
+                announcement: importSuccessToast
+            )
+        }
     }
 
     private var whoopCard: some View {
@@ -140,21 +178,13 @@ struct DataSourcesView: View {
                                tone: hasWhoop ? .accent : .neutral),
              subtitle: String(localized: "Import your full WHOOP history (recovery, strain, sleep, workouts) from a data export (.zip). Works for WHOOP 4.0, 5.0 and MG. Get one at app.whoop.com → Data Management.")) {
             let importingWhoop = model.isImporting(.whoop)
-            HStack(spacing: NoopMetrics.space3) {
-                Button {
-                    presentImporter(.whoop)
-                } label: {
-                    Label(importingWhoop ? "Importing…" : "Choose export…",
-                          systemImage: "tray.and.arrow.down")
-                }
-                .buttonStyle(ChipButtonStyle())
-                .disabled(model.hasActiveImport || nutritionImporting || liftingImporting || activityFileImporting)
-                if importingWhoop { ProgressView().controlSize(.small) }
-            }
-            if let s = model.whoopImportSummary {
-                Text(s).font(StrandFont.subhead)
-                    .foregroundStyle(model.whoopImportFailed ? StrandPalette.statusWarning : StrandPalette.statusPositive)
-            }
+            importOperation(
+                idleTitle: "Choose export…",
+                runningTitle: "Importing…",
+                importing: importingWhoop,
+                failure: model.whoopImportFailed ? model.whoopImportSummary : nil,
+                disabled: model.hasActiveImport || nutritionImporting || liftingImporting || activityFileImporting
+            ) { presentImporter(.whoop) }
             Text("\(repo.days.count) days · \(repo.sleeps.count) sleeps stored")
                 .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
         }
@@ -165,18 +195,13 @@ struct DataSourcesView: View {
              tint: StrandPalette.metricCyan,
              subtitle: String(localized: "Import an Apple Health export (Health app → profile → Export All Health Data → export.zip). 7 years of HR, HRV, sleep, SpO₂, steps and more, streamed locally. Large exports take a minute or two.")) {
             let importingAppleHealth = model.isImporting(.appleHealth)
-            HStack(spacing: NoopMetrics.space3) {
-                Button { presentImporter(.appleHealth) } label: {
-                    Label(importingAppleHealth ? "Working…" : "Choose export.zip…", systemImage: "tray.and.arrow.down")
-                }
-                .buttonStyle(ChipButtonStyle())
-                .disabled(model.hasActiveImport || nutritionImporting || liftingImporting || activityFileImporting || appleHealthDeleting)
-                if importingAppleHealth { ProgressView().controlSize(.small) }
-            }
-            if let s = model.appleHealthImportSummary {
-                Text(s).font(StrandFont.subhead)
-                    .foregroundStyle(model.appleHealthImportFailed ? StrandPalette.statusWarning : StrandPalette.statusPositive)
-            }
+            importOperation(
+                idleTitle: "Choose export.zip…",
+                runningTitle: "Working…",
+                importing: importingAppleHealth,
+                failure: model.appleHealthImportFailed ? model.appleHealthImportSummary : nil,
+                disabled: model.hasActiveImport || nutritionImporting || liftingImporting || activityFileImporting || appleHealthDeleting
+            ) { presentImporter(.appleHealth) }
             // ah-delete (#616): a destructive "Remove imported data" action wired to
             // DeviceRegistryStore.deleteAllData(deviceId: "apple-health"). Always offered (the user may
             // have imported in a prior session, so we don't gate on this run's summary), with a
@@ -204,18 +229,13 @@ struct DataSourcesView: View {
              tint: StrandPalette.metricAmber,
              subtitle: String(localized: "Import your Mi Band history (steps, heart rate, resting HR, sleep stages, SpO₂, stress and sleep score) straight from the Mi Fitness app. On your iPhone: Files → On My iPhone → Mi Fitness, long-press the folder → Compress, then choose the .zip here. Fully offline; no Xiaomi account or Bluetooth needed. Smart Band 8/9/10.")) {
             let importingXiaomi = model.isImporting(.xiaomi)
-            HStack(spacing: NoopMetrics.space3) {
-                Button { presentImporter(.xiaomi) } label: {
-                    Label(importingXiaomi ? "Importing…" : "Choose Mi Fitness export…", systemImage: "tray.and.arrow.down")
-                }
-                .buttonStyle(ChipButtonStyle())
-                .disabled(model.hasActiveImport || nutritionImporting || liftingImporting || activityFileImporting)
-                if importingXiaomi { ProgressView().controlSize(.small) }
-            }
-            if let s = model.xiaomiImportSummary {
-                Text(s).font(StrandFont.subhead)
-                    .foregroundStyle(model.xiaomiImportFailed ? StrandPalette.statusWarning : StrandPalette.statusPositive)
-            }
+            importOperation(
+                idleTitle: "Choose Mi Fitness export…",
+                runningTitle: "Importing…",
+                importing: importingXiaomi,
+                failure: model.xiaomiImportFailed ? model.xiaomiImportSummary : nil,
+                disabled: model.hasActiveImport || nutritionImporting || liftingImporting || activityFileImporting
+            ) { presentImporter(.xiaomi) }
         }
     }
 
@@ -223,18 +243,13 @@ struct DataSourcesView: View {
         card(title: String(localized: "Nutrition (.csv)"), icon: "fork.knife",
              tint: StrandPalette.metricAmber,
              subtitle: String(localized: "Import daily nutrition totals from a Cronometer or MacroFactor CSV export: calories in, protein, carbs, fat (and weight if present). Other trackers work too if the file has a date column and daily totals.")) {
-            HStack(spacing: NoopMetrics.space3) {
-                Button { presentImporter(.nutrition) } label: {
-                    Label(nutritionImporting ? "Importing…" : "Choose .csv…", systemImage: "tray.and.arrow.down")
-                }
-                .buttonStyle(ChipButtonStyle())
-                .disabled(model.hasActiveImport || nutritionImporting || liftingImporting || activityFileImporting)
-                if nutritionImporting { ProgressView().controlSize(.small) }
-            }
-            if let s = nutritionSummary {
-                Text(s).font(StrandFont.subhead)
-                    .foregroundStyle(nutritionFailed ? StrandPalette.statusWarning : StrandPalette.statusPositive)
-            }
+            importOperation(
+                idleTitle: "Choose .csv…",
+                runningTitle: "Importing…",
+                importing: nutritionImporting,
+                failure: nutritionFailed ? nutritionSummary : nil,
+                disabled: model.hasActiveImport || nutritionImporting || liftingImporting || activityFileImporting
+            ) { presentImporter(.nutrition) }
         }
     }
 
@@ -242,18 +257,13 @@ struct DataSourcesView: View {
         card(title: String(localized: "Lifting log (Hevy / Liftosaur)"), icon: "dumbbell.fill",
              tint: DomainTheme.effort.color,
              subtitle: String(localized: "Import your strength-training history from a Hevy CSV export or a Liftosaur JSON export. Each workout becomes a Strength session with a training-volume estimate (weight × reps). It's a volume figure, not a measured strain. It never changes your Strain.")) {
-            HStack(spacing: NoopMetrics.space3) {
-                Button { presentImporter(.lifting) } label: {
-                    Label(liftingImporting ? "Importing…" : "Choose export…", systemImage: "tray.and.arrow.down")
-                }
-                .buttonStyle(ChipButtonStyle())
-                .disabled(model.hasActiveImport || nutritionImporting || liftingImporting || activityFileImporting)
-                if liftingImporting { ProgressView().controlSize(.small) }
-            }
-            if let s = liftingSummary {
-                Text(s).font(StrandFont.subhead)
-                    .foregroundStyle(liftingFailed ? StrandPalette.statusWarning : StrandPalette.statusPositive)
-            }
+            importOperation(
+                idleTitle: "Choose export…",
+                runningTitle: "Importing…",
+                importing: liftingImporting,
+                failure: liftingFailed ? liftingSummary : nil,
+                disabled: model.hasActiveImport || nutritionImporting || liftingImporting || activityFileImporting
+            ) { presentImporter(.lifting) }
         }
     }
 
@@ -261,18 +271,13 @@ struct DataSourcesView: View {
         card(title: String(localized: "Workout file (GPX / TCX / FIT)"), icon: "point.topleft.down.curvedto.point.bottomright.up",
              tint: StrandPalette.metricAmber,
              subtitle: String(localized: "Import a single exported workout file from any brand (Garmin, Coros, Suunto, Wahoo, Polar, Strava, Apple) straight off your device. GPS route, distance, heart rate and calories come in where the file has them. Fully offline; nothing leaves \(Platform.deviceNounPhrase).")) {
-            HStack(spacing: NoopMetrics.space3) {
-                Button { presentImporter(.activityFile) } label: {
-                    Label(activityFileImporting ? "Importing…" : "Choose .gpx / .tcx / .fit…", systemImage: "tray.and.arrow.down")
-                }
-                .buttonStyle(ChipButtonStyle())
-                .disabled(model.hasActiveImport || nutritionImporting || liftingImporting || activityFileImporting)
-                if activityFileImporting { ProgressView().controlSize(.small) }
-            }
-            if let s = activityFileSummary {
-                Text(s).font(StrandFont.subhead)
-                    .foregroundStyle(activityFileFailed ? StrandPalette.statusWarning : StrandPalette.statusPositive)
-            }
+            importOperation(
+                idleTitle: "Choose .gpx / .tcx / .fit…",
+                runningTitle: "Importing…",
+                importing: activityFileImporting,
+                failure: activityFileFailed ? activityFileSummary : nil,
+                disabled: model.hasActiveImport || nutritionImporting || liftingImporting || activityFileImporting
+            ) { presentImporter(.activityFile) }
         }
     }
 
@@ -280,18 +285,56 @@ struct DataSourcesView: View {
         card(title: String(localized: "Oura / Fitbit / Garmin export"), icon: "figure.mind.and.body",
              tint: StrandPalette.metricPurple,
              subtitle: String(localized: "Import your own data export from Oura, Fitbit or Garmin: sleep, resting heart rate, HRV, steps and more, where the export has them. Download it from the brand's app (Oura: Account → Export Data; Fitbit: Google Takeout; Garmin: Export Your Data), then choose the file here. Fully offline; nothing leaves \(Platform.deviceNounPhrase). Each brand's own readiness or sleep score is kept for reference only. Your scores stay yours.")) {
+            importOperation(
+                idleTitle: "Choose export…",
+                runningTitle: "Importing…",
+                importing: wearableImporting,
+                failure: wearableFailed ? wearableSummary : nil,
+                disabled: model.hasActiveImport || nutritionImporting || liftingImporting || activityFileImporting || wearableImporting
+            ) { presentImporter(.wearable) }
+        }
+    }
+
+    /// One operation presentation for every import card. Running keeps the existing
+    /// button/progress behavior; failure replaces it with the exact existing message
+    /// and an explicit retry that reopens the same picker.
+    @ViewBuilder
+    private func importOperation(
+        idleTitle: LocalizedStringKey,
+        runningTitle: LocalizedStringKey,
+        importing: Bool,
+        failure: String?,
+        disabled: Bool,
+        retry: @escaping () -> Void
+    ) -> some View {
+        if let failure {
+            PaperOperationFeedback(
+                title: String(localized: "Import failed"),
+                message: failure,
+                phase: .failed,
+                retry: retry
+            )
+        } else {
             HStack(spacing: NoopMetrics.space3) {
-                Button { presentImporter(.wearable) } label: {
-                    Label(wearableImporting ? "Importing…" : "Choose export…", systemImage: "tray.and.arrow.down")
+                Button(action: retry) {
+                    Label(importing ? runningTitle : idleTitle,
+                          systemImage: "tray.and.arrow.down")
                 }
                 .buttonStyle(ChipButtonStyle())
-                .disabled(model.hasActiveImport || nutritionImporting || liftingImporting || activityFileImporting || wearableImporting)
-                if wearableImporting { ProgressView().controlSize(.small) }
+                .disabled(disabled)
+                if importing { ProgressView().controlSize(.small) }
             }
-            if let s = wearableSummary {
-                Text(s).font(StrandFont.subhead)
-                    .foregroundStyle(wearableFailed ? StrandPalette.statusWarning : StrandPalette.statusPositive)
-            }
+        }
+    }
+
+    private func presentModelImportSuccess(_ summary: String?, failed: Bool) {
+        guard !failed, let summary, !summary.isEmpty else { return }
+        // Flip through hidden so a same-copy completion while the prior toast is still
+        // dwelling is a genuine re-presentation and receives a fresh dwell window.
+        importSuccessToast = nil
+        Task { @MainActor in
+            await Task.yield()
+            importSuccessToast = summary
         }
     }
 

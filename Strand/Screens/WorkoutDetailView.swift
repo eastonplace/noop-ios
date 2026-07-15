@@ -236,17 +236,10 @@ struct WorkoutDetailView: View {
     }
 
     private func paperStat(_ label: String, _ value: String, _ unit: String?) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(label).font(StrandFont.micro.weight(.semibold))
-                .foregroundStyle(StrandPalette.textTertiary)
-                .lineLimit(1).minimumScaleFactor(0.7)
-            HStack(alignment: .firstTextBaseline, spacing: 3) {
-                Text(value).font(StrandFont.metricValue)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                    .lineLimit(1).minimumScaleFactor(0.6)
-                if let unit { Text(unit).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary) }
-            }
-        }
+        ValueToken(
+            LocalizedStringKey(label),
+            value: unit.map { "\(value) \($0)" } ?? value
+        )
         .frame(maxWidth: .infinity, minHeight: 76, alignment: .leading)
         .padding(.horizontal, 11)
         .overlay(alignment: .trailing) { Rectangle().fill(StrandPalette.hairline).frame(width: 1) }
@@ -429,13 +422,7 @@ struct WorkoutDetailView: View {
     }
 
     private func routeStat(_ title: String, _ value: String, tint: Color) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title.uppercased()).strandOverline()
-            Text(value)
-                .font(StrandFont.number(15))
-                .foregroundStyle(StrandPalette.textPrimary)
-                .lineLimit(1).minimumScaleFactor(0.7)
-        }
+        ValueToken(LocalizedStringKey(title), value: value, tint: tint)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 

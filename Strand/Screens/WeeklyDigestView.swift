@@ -290,17 +290,11 @@ struct WeeklyDigestContent: View {
     private func deltaChip(_ s: WeeklyMetricSummary) -> some View {
         let tone = chipTone(s)
         let arrow = s.wowDelta > 0 ? "arrow.up" : (s.wowDelta < 0 ? "arrow.down" : "minus")
-        return HStack(spacing: 3) {
-            Image(systemName: arrow)
-                .font(.system(size: 9, weight: .bold))
-                .accessibilityHidden(true)
-            Text(deltaText(s))
-                .font(StrandFont.captionNumber)
-        }
-        .foregroundStyle(tone)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 3)
-        .background(tone.opacity(0.12), in: Capsule())
+        return MicroBadge(
+            LocalizedStringKey(deltaText(s)),
+            systemImage: arrow,
+            tint: tone
+        )
     }
 
     // MARK: Footer (full screen only)

@@ -75,6 +75,7 @@ struct InsightsHubView: View {
         }
         .onChangeCompat(of: filter) { _ in applyFilter() }
         .sheet(isPresented: $showJournal) {
+            #if os(iOS)
             CoachingRootView()
                 .toolbarBackground(.hidden, for: .navigationBar)
                 .toolbar {
@@ -83,6 +84,14 @@ struct InsightsHubView: View {
                             .foregroundStyle(StrandPalette.textPrimary)
                     }
                 }
+            #else
+            CoachingRootView()
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { showJournal = false }
+                    }
+                }
+            #endif
         }
     }
 
@@ -101,12 +110,11 @@ struct InsightsHubView: View {
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 6) {
                 Button { showJournal = true } label: {
-                    Label("Journal", systemImage: "square.and.pencil")
-                        .font(StrandFont.micro.weight(.semibold))
-                        .foregroundStyle(StrandPalette.textPrimary)
-                        .padding(.horizontal, 10)
-                        .frame(height: 28)
-                        .background(StrandPalette.effortAccent.opacity(0.12), in: Capsule())
+                    MicroBadge(
+                        "Journal",
+                        systemImage: "square.and.pencil",
+                        tint: StrandPalette.textPrimary
+                    )
                 }
                 .buttonStyle(.plain)
                 .accessibilityHint("Opens your daily journal")

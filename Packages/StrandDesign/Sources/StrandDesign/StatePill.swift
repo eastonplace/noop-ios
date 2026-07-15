@@ -43,7 +43,11 @@ public struct StatePill: View {
     public var body: some View {
         HStack(spacing: 6) {
             if showsDot {
-                ConnectionDot(tone: tone, pulsing: pulsing, size: 7)
+                if pulsing {
+                    MicroStatusDot(color: tone.color, isActive: true, diameter: 7)
+                } else {
+                    ConnectionDot(tone: tone, pulsing: false, size: 7)
+                }
             }
             Text(title)
                 .font(StrandFont.overline)

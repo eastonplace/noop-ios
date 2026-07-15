@@ -91,6 +91,21 @@ final class ChargeBreakdownFormatTests: XCTestCase {
         XCTAssertEqual(ChargeBreakdownFormat.tierState(.solid), .solid)
     }
 
+    func testCanonicalConfidencePillKeepsExistingVoiceOverCopy() {
+        XCTAssertEqual(
+            ChargeBreakdownFormat.confidenceAccessibilityLabel(.calibrating),
+            "Confidence: calibrating"
+        )
+        XCTAssertEqual(
+            ChargeBreakdownFormat.confidenceAccessibilityLabel(.building),
+            "Confidence: estimate"
+        )
+        XCTAssertEqual(
+            ChargeBreakdownFormat.confidenceAccessibilityLabel(.solid),
+            "Confidence: reliable"
+        )
+    }
+
     // MARK: - A4: calibrating countdown copy
 
     func testCalibrationCountdownPluralizes() {

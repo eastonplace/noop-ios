@@ -95,10 +95,7 @@ private struct ActiveWorkoutIndicatorCard: View {
             VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
                 HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
                     // Decorative "live" dot, hidden from VoiceOver (the card itself reads the full state).
-                    Circle()
-                        .fill(StrandPalette.metricRose)
-                        .frame(width: NoopMetrics.space2, height: NoopMetrics.space2)
-                        .accessibilityHidden(true)
+                    MicroStatusDot(color: StrandPalette.metricRose, isActive: true)
                     Text("WORKOUT IN PROGRESS")
                         .font(StrandFont.overline)
                         .tracking(StrandFont.overlineTracking)
@@ -1049,9 +1046,7 @@ struct TodayView: View {
             Button {
                 StrandHaptic.selection.play(); router.openDevices()
             } label: {
-                Circle()
-                    .fill(StrandPalette.statusPositive)
-                    .frame(width: 8, height: 8)
+                MicroStatusDot(color: StrandPalette.statusPositive)
                     .frame(width: 32, height: 32)
             }
             .buttonStyle(.plain)
@@ -1074,11 +1069,10 @@ struct TodayView: View {
                 .foregroundStyle(StrandPalette.textPrimary)
             Spacer(minLength: 8)
             Button { showDayPicker = true } label: {
-                Text(dayNavHint ?? dayNavDateText)
+                animatedDayNavText
                     .font(StrandFont.caption)
                     .foregroundStyle(dayNavHint != nil ? StrandPalette.link : StrandPalette.textSecondary)
                     .lineLimit(1)
-                    .contentTransition(.opacity)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("\(dayNavLabel). Swipe or tap to change day")
@@ -1102,6 +1096,22 @@ struct TodayView: View {
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
                 withAnimation(.easeInOut(duration: 0.3)) { dayNavHint = nil }
             }
+        }
+    }
+
+    /// The date uses numeric continuity while the periodic affordance hint keeps its
+    /// existing fade. This does not own or mutate the day cursor.
+    @ViewBuilder private var animatedDayNavText: some View {
+        if let dayNavHint {
+            Text(dayNavHint).contentTransition(.opacity)
+        } else if #available(iOS 17.0, *) {
+            Text(dayNavDateText)
+                .contentTransition(.numericText())
+                .animation(reduceMotion ? nil : StrandMotion.value, value: selectedDayOffset)
+        } else {
+            Text(dayNavDateText)
+                .contentTransition(.opacity)
+                .animation(reduceMotion ? nil : StrandMotion.fade, value: selectedDayOffset)
         }
     }
 
@@ -1370,7 +1380,7 @@ struct TodayView: View {
                 // word, thin ribbon — the reference module, not a headline block.
                 VStack(alignment: .leading, spacing: 7) {
                     HStack(spacing: 6) {
-                        Circle().fill(StrandPalette.stressAccent).frame(width: 8, height: 8)
+                        MicroStatusDot(color: StrandPalette.stressAccent)
                         Text("Today’s Stress").strandOverline()
                         Spacer()
                         TinyMetricBadge(display, tint: StrandPalette.stressAccent)
@@ -1782,8 +1792,7 @@ struct TodayView: View {
             NoopCard {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(spacing: 10) {
-                            Circle().fill(readinessColor(r.level)).frame(width: 10, height: 10)
-                                .accessibilityHidden(true)
+                            MicroStatusDot(color: readinessColor(r.level))
                             Text(r.headline).font(StrandFont.headline)
                                 .foregroundStyle(StrandPalette.textPrimary)
                                 .accessibilityLabel("Readiness: \(levelWord(r.level)). \(r.headline)")
@@ -1955,7 +1964,11 @@ struct TodayView: View {
                             .font(StrandFont.headline)
                             .foregroundStyle(StrandPalette.textPrimary)
                         Spacer(minLength: 0)
-                        ConfidenceTierChip(confidence: .calibrating)
+                        ScoreStatePill(
+                            ChargeBreakdownFormat.tierState(.calibrating),
+                            text: "\(ChargeBreakdownFormat.tierTag(.calibrating))"
+                        )
+                        .accessibilityLabel(ChargeBreakdownFormat.confidenceAccessibilityLabel(.calibrating))
                     }
                     Text(unlock)
                         .font(StrandFont.subhead)
@@ -2212,14 +2225,7 @@ struct TodayView: View {
         Button {
             showChargeBreakdown = true
         } label: {
-            Text(word)
-                .font(StrandFont.overline)
-                .tracking(StrandFont.overlineTracking)
-                .foregroundStyle(readinessColor(readiness.level))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(Capsule(style: .continuous).fill(readinessColor(readiness.level).opacity(0.12)))
-                .overlay(Capsule(style: .continuous).stroke(readinessColor(readiness.level).opacity(0.32), lineWidth: 1))
+            MicroBadge("\(word)", tint: readinessColor(readiness.level))
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -4557,9 +4563,12 @@ private struct RecordingStatusLight: View {
         Button(action: onTap) {
             Circle().fill(StrandPalette.surfaceInset)
                 .frame(width: 36, height: 36)
-                .overlay(Circle()
-                    .fill(state.map(hue) ?? StrandPalette.textTertiary.opacity(0.4))
-                    .frame(width: 10, height: 10))
+                .overlay {
+                    MicroStatusDot(
+                        color: state.map(hue) ?? StrandPalette.textTertiary.opacity(0.4),
+                        isActive: state == .recording
+                    )
+                }
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)

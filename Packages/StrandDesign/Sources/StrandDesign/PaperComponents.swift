@@ -124,11 +124,18 @@ public struct StatusBadge: View {
     private let text: LocalizedStringKey
     private let style: StatusBadgeStyle
     private let customColor: Color?
+    private let pulsing: Bool
 
-    public init(_ text: LocalizedStringKey, style: StatusBadgeStyle, tint: Color? = nil) {
+    public init(
+        _ text: LocalizedStringKey,
+        style: StatusBadgeStyle,
+        tint: Color? = nil,
+        pulsing: Bool = false
+    ) {
         self.text = text
         self.style = style
         self.customColor = tint
+        self.pulsing = pulsing
     }
 
     private var color: Color { customColor ?? style.color }
@@ -136,7 +143,11 @@ public struct StatusBadge: View {
     public var body: some View {
         HStack(spacing: 5) {
             if style.showsDot {
-                Circle().fill(color).frame(width: 6, height: 6)
+                if pulsing {
+                    MicroStatusDot(color: color, isActive: true, diameter: 6)
+                } else {
+                    Circle().fill(color).frame(width: 6, height: 6)
+                }
             }
             Text(text)
                 .font(StrandFont.micro.weight(.semibold))
@@ -722,17 +733,41 @@ public enum StressTimelineSlots {
 }
 
 public struct StressTimelineBar: View {
+    private struct HourSlot: Identifiable {
+        let id: Int
+        let value: Double?
+    }
+
+    private struct RulerLabel: Identifiable {
+        let id: Int
+        let title: LocalizedStringKey
+    }
+
     private let values: [Double?]
     public init(values: [Double?]) { self.values = values }
     public init(values: [Double]) { self.values = values.map(Optional.some) }
+
+    private var hourSlots: [HourSlot] {
+        values.enumerated().map { HourSlot(id: $0.offset, value: $0.element) }
+    }
+
+    private let rulerLabels: [RulerLabel] = [
+        RulerLabel(id: 0, title: "12AM"),
+        RulerLabel(id: 1, title: "6AM"),
+        RulerLabel(id: 2, title: "12PM"),
+        RulerLabel(id: 3, title: "6PM"),
+        RulerLabel(id: 4, title: "12AM"),
+    ]
 
     public var body: some View {
         VStack(spacing: 6) {
             GeometryReader { _ in
                 HStack(spacing: 0) {
-                    ForEach(Array(values.enumerated()), id: \.offset) { _, value in
+                    ForEach(hourSlots) { slot in
                         // nil = hour with no scorable signal: the inset track shows through.
-                        Rectangle().fill(value.map(color(for:)) ?? Color.clear)
+                        Rectangle().fill(slot.value.map { value in
+                            color(for: value).opacity(bandOpacity(for: value))
+                        } ?? Color.clear)
                     }
                 }
                 .clipShape(Capsule(style: .continuous))
@@ -740,12 +775,18 @@ public struct StressTimelineBar: View {
             }
             .frame(height: NoopMetrics.stressTimelineHeight)
             HStack(spacing: 0) {
-                ForEach(Array(["12AM", "6AM", "12PM", "6PM", "12AM"].enumerated()), id: \.offset) { index, label in
-                    Text(label).font(.system(size: 9)).foregroundStyle(StrandPalette.textTertiary)
-                    if index < 4 { Spacer(minLength: 0) }
+                ForEach(rulerLabels) { label in
+                    Text(label.title).font(.system(size: 9)).foregroundStyle(StrandPalette.textTertiary)
+                    if label.id < 4 { Spacer(minLength: 0) }
                 }
             }
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Hourly stress across the day")
+    }
+
+    private func bandOpacity(for value: Double) -> Double {
+        0.28 + min(max(value / 3, 0), 1) * 0.72
     }
 
     private func color(for value: Double) -> Color {

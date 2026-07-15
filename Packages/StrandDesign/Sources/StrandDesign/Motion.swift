@@ -19,6 +19,15 @@ public enum StrandMotion {
     /// A slower, more deliberate spring for hero transitions (e.g. first ring materialize).
     public static let hero = Animation.spring(response: 0.85, dampingFraction: 0.85)
 
+    /// Direct-control press and selection motion promoted from the design lab.
+    public static let press = Animation.spring(response: 0.26, dampingFraction: 0.82)
+
+    /// Compact value-change motion promoted from the design lab.
+    public static let value = Animation.spring(response: 0.48, dampingFraction: 0.86)
+
+    /// Deliberate entry/reveal motion promoted from the design lab.
+    public static let reveal = Animation.spring(response: 0.62, dampingFraction: 0.88)
+
     // MARK: Durations
 
     /// Fast UI feedback (hover lift, chip state).

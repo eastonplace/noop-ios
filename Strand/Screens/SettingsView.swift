@@ -297,24 +297,23 @@ struct SettingsView: View {
             PaperCard(padding: 14) {
                 VStack(spacing: 0) {
                     SettingsRow(icon: "ruler", title: "Units", showsChevron: false) {
-                        Picker("Units", selection: $unitSystemRaw) {
-                            Text("US").tag(UnitSystem.imperial.rawValue)
-                            Text("Metric").tag(UnitSystem.metric.rawValue)
-                        }
-                        .labelsHidden()
-                        .pickerStyle(.segmented)
+                        SegmentedPillControl(
+                            [UnitSystem.imperial.rawValue, UnitSystem.metric.rawValue],
+                            selection: $unitSystemRaw
+                        ) { $0 == UnitSystem.imperial.rawValue ? "US" : "Metric" }
+                        .accessibilityLabel("Units")
                         .frame(width: 132)
                     }
                     rowDivider
                     SettingsRow(title: "Appearance", showsChevron: false) {
-                        Picker("Appearance", selection: $appearanceRaw) {
-                            Text("Light").tag(AppearanceMode.light.rawValue)
-                            Text("System").tag(AppearanceMode.system.rawValue)
-                            Text("Dark").tag(AppearanceMode.dark.rawValue)
-                        }
-                        .labelsHidden()
-                        .pickerStyle(.segmented)
-                        .controlSize(.small)
+                        SegmentedPillControl(
+                            [AppearanceMode.light, .system, .dark],
+                            selection: Binding(
+                                get: { AppearanceMode(rawValue: appearanceRaw) ?? .system },
+                                set: { appearanceRaw = $0.rawValue }
+                            )
+                        ) { $0.label }
+                        .accessibilityLabel("Appearance")
                         .frame(width: 168)
                     }
                     rowDivider
@@ -428,13 +427,16 @@ struct SettingsView: View {
                 }
                 rowDivider
                 FormRow(label: "Sex") {
-                    Picker("Sex", selection: $profile.sex) {
-                        Text("Male").tag("male")
-                        Text("Female").tag("female")
-                        Text("Non-binary").tag("nonbinary")
+                    SegmentedPillControl(
+                        ["male", "female", "nonbinary"],
+                        selection: $profile.sex
+                    ) { value in
+                        switch value {
+                        case "male": "Male"
+                        case "female": "Female"
+                        default: "Non-binary"
+                        }
                     }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
                     .fixedSize()
                     .accessibilityLabel("Sex")
                 }
@@ -710,12 +712,10 @@ struct SettingsView: View {
         ) {
             VStack(spacing: 0) {
                 FormRow(label: "Measurement system") {
-                    Picker("Measurement system", selection: $unitSystemRaw) {
-                        Text("Metric").tag(UnitSystem.metric.rawValue)
-                        Text("Imperial").tag(UnitSystem.imperial.rawValue)
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
+                    SegmentedPillControl(
+                        [UnitSystem.metric.rawValue, UnitSystem.imperial.rawValue],
+                        selection: $unitSystemRaw
+                    ) { $0 == UnitSystem.metric.rawValue ? "Metric" : "Imperial" }
                     .fixedSize()
                     .accessibilityLabel("Measurement system")
                 }
@@ -723,13 +723,16 @@ struct SettingsView: View {
                 FormRow(label: "Temperature") {
                     // Three-way: "Match" follows the system above; °C / °F pin it explicitly. Stored as
                     // an empty string ("match") or the TemperatureUnit raw value.
-                    Picker("Temperature", selection: $temperatureRaw) {
-                        Text("Match").tag("")
-                        Text("°C").tag(TemperatureUnit.celsius.rawValue)
-                        Text("°F").tag(TemperatureUnit.fahrenheit.rawValue)
+                    SegmentedPillControl(
+                        ["", TemperatureUnit.celsius.rawValue, TemperatureUnit.fahrenheit.rawValue],
+                        selection: $temperatureRaw
+                    ) { value in
+                        switch value {
+                        case TemperatureUnit.celsius.rawValue: "°C"
+                        case TemperatureUnit.fahrenheit.rawValue: "°F"
+                        default: "Match"
+                        }
                     }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
                     .fixedSize()
                     .accessibilityLabel("Temperature unit")
                 }
@@ -760,37 +763,35 @@ struct SettingsView: View {
         ) {
             VStack(spacing: 0) {
                 FormRow(label: "Theme") {
-                    Picker("Theme", selection: $appearanceRaw) {
-                        ForEach(AppearanceMode.allCases) { mode in
-                            Text(mode.label).tag(mode.rawValue)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
+                    SegmentedPillControl(
+                        AppearanceMode.allCases,
+                        selection: Binding(
+                            get: { AppearanceMode(rawValue: appearanceRaw) ?? .system },
+                            set: { appearanceRaw = $0.rawValue }
+                        )
+                    ) { $0.label }
                     .fixedSize()
                     .accessibilityLabel("Theme")
                 }
                 FormRow(label: "Chart colours") {
                     // Default = NOOP's clean metric ramps; Classic = the throwback red→amber→green
                     // readiness scale (cool→hot zones, green→red stress). Both schemes.
-                    Picker("Chart colours", selection: $chartStyleRaw) {
-                        ForEach(ChartStyle.allCases) { style in
-                            Text(style.label).tag(style.rawValue)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
+                    SegmentedPillControl(
+                        ChartStyle.allCases,
+                        selection: Binding(
+                            get: { ChartStyle.resolve(chartStyleRaw) },
+                            set: { chartStyleRaw = $0.rawValue }
+                        )
+                    ) { $0.label }
                     .fixedSize()
                     .accessibilityLabel("Chart colours")
                 }
                 #if os(iOS)
                 FormRow(label: "App icon") {
-                    Picker("App icon", selection: $useNavyIcon) {
-                        Text("Default").tag(false)
-                        Text("Navy").tag(true)
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
+                    SegmentedPillControl(
+                        [false, true],
+                        selection: $useNavyIcon
+                    ) { $0 ? "Navy" : "Default" }
                     .fixedSize()
                     .accessibilityLabel("App icon")
                     .onChangeCompat(of: useNavyIcon) { applyAppIcon($0) }

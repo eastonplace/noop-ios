@@ -159,7 +159,7 @@ struct StressView: View {
 
             // 3. Today's intraday timeline — when in the day stress ran high, + a
             //    passive Breathe suggestion when the recent hours stay elevated.
-            if let daytime, !daytime.scored.isEmpty {
+            if let daytime, !daytime.hours.isEmpty {
                 daytimeSection(daytime)
                     .staggeredAppear(index: 2)
             }
@@ -199,33 +199,11 @@ struct StressView: View {
 
             NoopCard(tint: StressRamp.calm) {
                 VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
-                    HStack {
-                        Text("Autonomic load through the day").strandOverline()
-                        Spacer()
-                        if let peak = day.peak, let lvl = peak.level {
-                            Text("peak \(String(format: "%.1f", lvl)) · \(hourLabel(peak.hour))")
-                                .font(StrandFont.captionNumber)
-                                .foregroundStyle(StressRamp.color(lvl))
-                        }
-                    }
+                    Text("Autonomic load through the day").strandOverline()
 
                     // README screen-9: the day autonomic-load LINE, drawn with the same
                     // 3-stop blue→green→amber WHOOP gradient as the gauge.
-                    DaytimeLoadLine(hours: day.hours)
-
-                    // Hour ruler under the line (first / midday / last covered hour).
-                    if let lo = day.hours.first?.hour, let hi = day.hours.last?.hour {
-                        HStack {
-                            Text(hourLabel(lo)).font(StrandFont.footnote)
-                                .foregroundStyle(StrandPalette.textTertiary)
-                            Spacer()
-                            Text(hourLabel((lo + hi) / 2)).font(StrandFont.footnote)
-                                .foregroundStyle(StrandPalette.textTertiary)
-                            Spacer()
-                            Text(hourLabel(hi)).font(StrandFont.footnote)
-                                .foregroundStyle(StrandPalette.textTertiary)
-                        }
-                    }
+                    DaytimeLoadLine(hours: day.hours, peak: day.peak, hourLabel: hourLabel)
 
                     Divider().overlay(StrandPalette.hairline)
 
@@ -608,7 +586,7 @@ private struct StressHeroGauge: View {
 
 // MARK: - Stress band
 
-enum StressBand {
+enum StressBand: Hashable {
     case low, medium, high
 
     init(score: Double) {
@@ -883,64 +861,150 @@ enum StressMath {
 
 struct DaytimeLoadLine: View {
     let hours: [DaytimeStress.HourPoint]
+    let peak: DaytimeStress.HourPoint?
+    let hourLabel: (Int) -> String
 
-    private let chartHeight: CGFloat = 78
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var reveal = false
+
+    private let chartHeight: CGFloat = 110
+
+    init(
+        hours: [DaytimeStress.HourPoint],
+        peak: DaytimeStress.HourPoint?,
+        hourLabel: @escaping (Int) -> String
+    ) {
+        self.hours = hours
+        self.peak = peak
+        self.hourLabel = hourLabel
+    }
 
     var body: some View {
-        GeometryReader { geo in
-            let w = geo.size.width
-            let h = geo.size.height
-            let n = max(hours.count, 1)
-            // x for an hour index; y maps a 0–3 level into the chart (0 at bottom).
-            // (closures, not `func` — a `@ViewBuilder` closure can't contain declarations)
-            let x: (Int) -> CGFloat = { i in n <= 1 ? w / 2 : w * CGFloat(i) / CGFloat(n - 1) }
-            let y: (Double) -> CGFloat = { level in h - h * CGFloat(min(max(level / 3.0, 0), 1)) }
-
-            let pts: [(CGFloat, CGFloat)] = hours.enumerated().compactMap { i, p in
-                p.level.map { (x(i), y($0)) }
+        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+            HStack {
+                Text("Hourly load")
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                Spacer()
+                if let annotation = StressPresentationMapper.peakAnnotation(
+                    peak: peak,
+                    hourLabel: hourLabel
+                ), let level = peak?.level {
+                    Text(annotation)
+                        .font(StrandFont.captionNumber)
+                        .foregroundStyle(StressRamp.color(level))
+                }
             }
 
-            ZStack {
-                // Baseline (1.5 of 3) reference line.
-                Path { p in
-                    let yb = y(1.5)
-                    p.move(to: CGPoint(x: 0, y: yb))
-                    p.addLine(to: CGPoint(x: w, y: yb))
+            GeometryReader { geo in
+                let w = geo.size.width
+                let h = geo.size.height
+                let n = max(hours.count, 1)
+                let x: (Int) -> CGFloat = { i in n <= 1 ? w / 2 : w * CGFloat(i) / CGFloat(n - 1) }
+                let y: (Double) -> CGFloat = { level in h - h * CGFloat(min(max(level / 3.0, 0), 1)) }
+                let pts: [(CGFloat, CGFloat)] = hours.enumerated().compactMap { i, p in
+                    p.level.map { (x(i), y($0)) }
                 }
-                .stroke(StrandPalette.hairline, style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                let peakPoint: CGPoint? = peak.flatMap { explicitPeak in
+                    guard let index = hours.firstIndex(where: {
+                        $0.startTs == explicitPeak.startTs && $0.hour == explicitPeak.hour
+                    }), let level = explicitPeak.level else { return nil }
+                    return CGPoint(x: x(index), y: y(level))
+                }
 
-                if pts.count >= 2 {
-                    // Soft area fill under the curve — a calm WHOOP-blue wash (no gold).
-                    areaPath(pts, width: w, height: h)
-                        .fill(
-                            LinearGradient(
-                                gradient: Gradient(colors: [
-                                    StressRamp.calm.opacity(0.22),
-                                    StressRamp.calm.opacity(0.02),
-                                ]),
-                                startPoint: .top, endPoint: .bottom
-                            )
-                        )
-                    // The gradient line itself (blue→green→amber, left→right).
-                    linePath(pts)
+                ZStack {
+                    ForEach([1.0, 2.0], id: \.self) { level in
+                        Path { path in
+                            path.move(to: CGPoint(x: 0, y: y(level)))
+                            path.addLine(to: CGPoint(x: w, y: y(level)))
+                        }
                         .stroke(
-                            LinearGradient(gradient: StressRamp.gradient,
-                                           startPoint: .leading, endPoint: .trailing),
-                            style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round)
+                            StrandPalette.hairlineStrong.opacity(0.7),
+                            style: StrokeStyle(lineWidth: 0.7, dash: [3, 4])
                         )
-                } else if let only = pts.first {
-                    // A single scored hour: a lone dot rather than a line.
-                    Circle()
-                        .fill(StressRamp.color(1.5))
-                        .frame(width: 6, height: 6)
-                        .position(x: only.0, y: only.1)
+                    }
+
+                    if pts.count >= 2 {
+                        areaPath(pts, width: w, height: h)
+                            .fill(
+                                LinearGradient(
+                                    gradient: Gradient(colors: [
+                                        StressRamp.calm.opacity(0.22),
+                                        StressRamp.calm.opacity(0.02),
+                                    ]),
+                                    startPoint: .top, endPoint: .bottom
+                                )
+                            )
+                            .opacity(reveal ? 1 : 0)
+                        linePath(pts)
+                            .trim(from: 0, to: reveal ? 1 : 0)
+                            .stroke(
+                                LinearGradient(gradient: StressRamp.gradient,
+                                               startPoint: .leading, endPoint: .trailing),
+                                style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round)
+                            )
+                    } else if let only = pts.first {
+                        Circle()
+                            .fill(StressRamp.color(hours.compactMap(\.level).first ?? 1.5))
+                            .frame(width: 7, height: 7)
+                            .position(x: only.0, y: only.1)
+                            .opacity(reveal ? 1 : 0)
+                    }
+
+                    if let peakPoint, let level = peak?.level {
+                        Circle()
+                            .fill(StressRamp.color(level))
+                            .frame(width: 8, height: 8)
+                            .overlay(Circle().stroke(StrandPalette.surfaceRaised, lineWidth: 1.5))
+                            .position(peakPoint)
+                            .opacity(reveal ? 1 : 0)
+                    }
                 }
+            }
+            .frame(height: chartHeight)
+
+            if let first = hours.first?.hour, let last = hours.last?.hour {
+                HStack {
+                    Text(hourLabel(first))
+                    Spacer()
+                    Text(hourLabel((first + last) / 2))
+                    Spacer()
+                    Text(hourLabel(last))
+                }
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textTertiary)
+            }
+
+            HStack(spacing: NoopMetrics.space3) {
+                bandKey(range: "0–1", label: "Calm", color: StressRamp.calm)
+                bandKey(range: "1–2", label: "Moderate", color: StressRamp.steady)
+                bandKey(range: "2–3", label: "High", color: StressRamp.tense)
             }
         }
-        .frame(height: chartHeight)
-        .frame(maxWidth: .infinity)
+        .onAppear {
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.85).delay(0.1)) {
+                reveal = true
+            }
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilitySummary)
+    }
+
+    private func bandKey(range: String, label: LocalizedStringKey, color: Color) -> some View {
+        HStack(spacing: NoopMetrics.space1) {
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .fill(color)
+                .frame(width: 10, height: 7)
+                .accessibilityHidden(true)
+            Text(range)
+                .font(StrandFont.micro.weight(.bold))
+                .monospacedDigit()
+                .foregroundStyle(StrandPalette.textPrimary)
+            Text(label)
+                .font(StrandFont.micro)
+                .textCase(.uppercase)
+                .foregroundStyle(StrandPalette.textSecondary)
+        }
     }
 
     /// A smooth (Catmull-Rom-ish) stroke through the scored points.
@@ -976,6 +1040,20 @@ struct DaytimeLoadLine: View {
         guard !scored.isEmpty else { return String(localized: "No intraday stress data yet today.") }
         let parts = scored.map { "\($0.0):00 \(String(format: "%.1f", $0.1))" }
         return String(localized: "Autonomic load today: \(parts.joined(separator: ", "))")
+    }
+}
+
+enum StressPresentationMapper {
+    static func band(for level: Double) -> StressBand {
+        StressBand(score: level)
+    }
+
+    static func peakAnnotation(
+        peak: DaytimeStress.HourPoint?,
+        hourLabel: (Int) -> String
+    ) -> String? {
+        guard let peak, let level = peak.level else { return nil }
+        return String(localized: "PEAK \(String(format: "%.1f", level)) · \(hourLabel(peak.hour))")
     }
 }
 
@@ -1035,7 +1113,7 @@ struct StressTotalsBar: View {
     let totals: StressTotals
 
     private struct Band: Identifiable {
-        let id = UUID()
+        var id: StressBand { band }
         let band: StressBand
         let label: String
         let color: Color
@@ -1062,9 +1140,13 @@ struct StressTotalsBar: View {
                             .font(StrandFont.footnote)
                             .foregroundStyle(StrandPalette.textTertiary)
                     }
-                    // The signature liquid tube: fills to the band's share of the scored day, tinted to the
-                    // band colour. Static (posed) — a row of small bars shouldn't each run a live Canvas.
-                    PaperProgressBar(frac: totals.fraction(b.band), tint: b.color, height: 10, animated: false)
+                    PipBar(
+                        value: totals.fraction(b.band),
+                        range: 0...1,
+                        segments: 20,
+                        tint: b.color,
+                        height: 8
+                    )
                 }
             }
         }
@@ -1144,7 +1226,13 @@ private struct StressPreviewHarness: View {
                 NoopCard(tint: StressRamp.calm) {
                     VStack(alignment: .leading, spacing: 14) {
                         Text("Autonomic load through the day").strandOverline()
-                        DaytimeLoadLine(hours: hours)
+                        DaytimeLoadLine(
+                            hours: hours,
+                            peak: hours.compactMap { point in
+                                point.level.map { (point, $0) }
+                            }.max(by: { $0.1 < $1.1 })?.0,
+                            hourLabel: { "\($0):00" }
+                        )
                         Divider().overlay(StrandPalette.hairline)
                         StressTotalsBar(totals: StressTotals(hours: hours))
                     }

@@ -75,6 +75,7 @@ struct WorkoutsView: View {
     /// A transient one-line note shown after a manual save / relabel for a sport that already has a
     /// solid/building ActivityCost entry — "Sessions like this usually …" (#439). Auto-clears.
     @State private var postLogNote: String?
+    @State private var postLogGeneration = 0
 
     // MARK: - Filters + selection (#64)
 
@@ -156,7 +157,6 @@ struct WorkoutsView: View {
                 let zonesSummary = WorkoutZones.summary(from: windowRows)
 
                 startLiveWorkoutButton
-                if let postLogNote { postLogBanner(postLogNote) }
                 paperWorkoutScore(rows: windowRows)
                 paperRecentWorkouts(rows: windowRows)
                 paperWorkoutBreakdown(rows: windowRows, zones: zonesSummary)
@@ -184,6 +184,14 @@ struct WorkoutsView: View {
                 range = defaultRange(for: allRows)
                 seededInitialRange = true
             }
+        }
+        .paperToast(isPresented: postLogToastPresented, autoDismiss: false) {
+            PaperToast(
+                LocalizedStringKey(postLogNote ?? ""),
+                systemImage: "chart.line.uptrend.xyaxis",
+                tint: StrandPalette.effortColor,
+                announcement: postLogNote
+            )
         }
         // #797: when the user picks a range wider than the bounded first-paint window (typically "All"),
         // page the full history in. A pick that fits the loaded window is a no-op. Also covers the
@@ -281,39 +289,37 @@ struct WorkoutsView: View {
     private func showPostLogNote(forSport sport: String) async {
         let costs = InsightsView.computeActivityCosts(workouts: allRows, days: repo.days)
         guard let match = costs.first(where: { $0.sport == sport }) else {
-            await MainActor.run { postLogNote = nil }
+            await MainActor.run {
+                postLogGeneration &+= 1
+                postLogNote = nil
+            }
             return
         }
         let sentence = match.sentence()
-        await MainActor.run { withAnimation(.easeOut(duration: 0.2)) { postLogNote = sentence } }
+        let generation = await MainActor.run { () -> Int in
+            postLogGeneration &+= 1
+            withAnimation(.easeOut(duration: 0.2)) { postLogNote = sentence }
+            return postLogGeneration
+        }
         // Auto-dismiss after a few seconds (transient caption, not a permanent card).
         try? await Task.sleep(nanoseconds: 7_000_000_000)
         await MainActor.run {
-            if postLogNote == sentence { withAnimation(.easeOut(duration: 0.2)) { postLogNote = nil } }
+            if postLogGeneration == generation {
+                withAnimation(.easeOut(duration: 0.2)) { postLogNote = nil }
+            }
         }
     }
 
-    /// The transient "personal pattern" caption — an Strain-tinted frosted strip with a chart glyph.
-    private func postLogBanner(_ text: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "chart.line.uptrend.xyaxis")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(StrandPalette.effortColor)
-                .accessibilityHidden(true)
-            Text(text)
-                .font(StrandFont.footnote)
-                .foregroundStyle(StrandPalette.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-        }
-        .padding(NoopMetrics.space3)
-        .background(StrandPalette.effortColor.opacity(0.10),
-                    in: RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous)
-            .strokeBorder(StrandPalette.effortColor.opacity(0.22), lineWidth: 1))
-        .transition(.opacity)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(text)
+    /// Presentation is owner-controlled: `showPostLogNote` remains the sole seven-second timer and its
+    /// generation check prevents an older task (including one with identical copy) dismissing a newer note.
+    private var postLogToastPresented: Binding<Bool> {
+        Binding(
+            get: { postLogNote != nil },
+            set: { presented in
+                guard !presented else { return }
+                postLogNote = nil
+            }
+        )
     }
 
     // MARK: - Row actions (edit · relabel · dismiss · delete)
@@ -421,36 +427,11 @@ struct WorkoutsView: View {
                 }
                 Spacer(minLength: 0)
             }
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(StrandPalette.textTertiary)
-                    .accessibilityHidden(true)
-                TextField(String(localized: "Search sport"), text: $searchText)
-                    .font(StrandFont.subhead)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                    .textFieldStyle(.plain)
-                    #if os(iOS)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-                    #endif
-                if !searchText.isEmpty {
-                    Button { searchText = "" } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 12))
-                            .foregroundStyle(StrandPalette.textTertiary)
-                    }
-                    .accessibilityLabel(String(localized: "Clear search"))
-                }
-            }
-            .padding(.horizontal, 10)
-            .frame(minHeight: 38)
-            .background(StrandPalette.inset,
-                        in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(StrandPalette.hairline, lineWidth: 1)
-            }
+            PaperSearchField("Search sport", text: $searchText, height: 38, cornerRadius: 10)
+                #if os(iOS)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+                #endif
         }
     }
 
@@ -606,12 +587,10 @@ struct WorkoutsView: View {
                         Text(display.map { String(format: "%.1f", $0) } ?? "—")
                             .font(StrandFont.metricValue)
                             .foregroundStyle(StrandPalette.textPrimary)
-                        Text(workoutScoreState(average))
-                            .font(StrandFont.caption.weight(.semibold))
-                            .foregroundStyle(StrandPalette.textPrimary)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 3)
-                            .background(StrandPalette.effortAccent.opacity(0.12), in: Capsule())
+                        MicroBadge(
+                            LocalizedStringKey(workoutScoreState(average)),
+                            tint: StrandPalette.effortColor
+                        )
                     }
                     Text(workoutScoreDelta)
                         .font(StrandFont.micro)
@@ -665,12 +644,12 @@ struct WorkoutsView: View {
                                     .font(StrandFont.caption)
                                     .foregroundStyle(StrandPalette.textTertiary)
                             }
-                            Text(StrainScale.badgeText(fromStored: row.strain))
-                                .font(StrandFont.captionNumber.weight(.bold))
-                                .foregroundStyle(StrandPalette.textPrimary)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 5)
-                                .background(StrandPalette.strainAccent.opacity(0.10), in: Capsule())
+                            MicroBadge(
+                                LocalizedStringKey(StrainScale.badgeText(fromStored: row.strain)),
+                                tint: row.strain == nil
+                                    ? StrandPalette.textTertiary
+                                    : StrandPalette.strainAccent
+                            )
                         }
                         .padding(.horizontal, 16)
                         .frame(minHeight: 62)
@@ -900,27 +879,15 @@ struct WorkoutsView: View {
     }
 
     private func heroStat(_ title: String, _ value: String, tint: Color) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title.uppercased())
-                .font(StrandFont.overline).tracking(StrandFont.overlineTracking)
-                .foregroundStyle(StrandPalette.textSecondary)
-            Text(value).font(StrandFont.number(20))
-                .foregroundStyle(StrandPalette.textPrimary).lineLimit(1).minimumScaleFactor(0.6)
-        }
+        ValueToken(LocalizedStringKey(title), value: value, tint: tint)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// A hero stat whose number ticks up to its value on appear/change — the NOOP signature for a big
-    /// count. Same layout as `heroStat`; used for the plain session count.
+    /// The plain session-count value, kept as a separate helper so its numeric formatting remains
+    /// explicit while sharing the same canonical value presentation as the other hero stats.
     private func heroCountStat(_ title: String, value: Double,
                                format: @escaping (Double) -> String, tint: Color) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title.uppercased())
-                .font(StrandFont.overline).tracking(StrandFont.overlineTracking)
-                .foregroundStyle(StrandPalette.textSecondary)
-            CountUpText(value: value, format: format, font: StrandFont.number(20), color: StrandPalette.textPrimary)
-                .lineLimit(1).minimumScaleFactor(0.6)
-        }
+        ValueToken(LocalizedStringKey(title), value: format(value), tint: tint)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -1036,14 +1003,7 @@ struct WorkoutsView: View {
     }
 
     private func miniStat(_ label: String, _ value: String, tint: Color = StrandPalette.textPrimary) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(label).strandOverline()
-            Text(value)
-                .font(StrandFont.number(15))
-                .foregroundStyle(StrandPalette.textPrimary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-        }
+        ValueToken(LocalizedStringKey(label), value: value, tint: tint)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -1445,12 +1405,12 @@ struct WorkoutsView: View {
                             .foregroundStyle(StrandPalette.textPrimary)
                             .lineLimit(1)
                         Spacer(minLength: 0)
-                        Text(Self.effortCellLabel(strain: row.strain, scale: effortScale))
-                            .font(StrandFont.captionNumber.weight(.bold))
-                            .foregroundStyle(row.strain != nil ? StrandPalette.textPrimary : StrandPalette.textTertiary)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 5)
-                            .background(StrandPalette.strainAccent.opacity(row.strain == nil ? 0 : 0.10), in: Capsule())
+                        MicroBadge(
+                            LocalizedStringKey(Self.effortCellLabel(strain: row.strain, scale: effortScale)),
+                            tint: row.strain == nil
+                                ? StrandPalette.textTertiary
+                                : StrandPalette.strainAccent
+                        )
                     }
                     Text(compactRowSubtitle(row))
                         .font(StrandFont.footnote)

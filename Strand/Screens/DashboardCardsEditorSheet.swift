@@ -78,8 +78,8 @@ struct DashboardCardsEditorSheet: View {
             #if os(iOS)
             .environment(\.editMode, $editMode)
             .navigationBarTitleDisplayMode(.inline)
-            #endif
             .toolbar(.hidden, for: .navigationBar)
+            #endif
             // Persist on EVERY change (toggle / reorder / reset), not only on Done — so closing the sheet by
             // swipe still keeps the edit, mirroring WHOOP's live "My Dashboard" customise. Done just dismisses.
             .onChange(of: items) { _ in commit() }

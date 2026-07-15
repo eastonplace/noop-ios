@@ -18,6 +18,7 @@ public struct DayNavBar: View {
     private let onSelect: (Int) -> Void
 
     @State private var showingPicker = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// `today` is the caller's LOGICAL day (the same anchor the rest of Today uses, rolling at 04:00),
     /// so every label here counts back from it. Passing it in instead of reading `Date()` keeps the
@@ -60,14 +61,14 @@ public struct DayNavBar: View {
             // Centre accent block — the selected day's label + full date, tappable to jump.
             Button { showingPicker = true } label: {
                 VStack(spacing: 2) {
-                    Text(label)
+                    numericTransition(Text(label))
                         .font(StrandFont.caption)
                         .foregroundStyle(StrandPalette.textPrimary)
                         .lineLimit(1)
                     // On today the label already reads "Today"; the full date would just duplicate the
                     // header, so it's shown only once you've navigated to another day (for orientation).
                     if selectedOffset > 0 {
-                        Text(Self.fullDateFmt.string(from: selectedDay))
+                        numericTransition(Text(Self.fullDateFmt.string(from: selectedDay)))
                             .font(StrandFont.captionNumber)
                             .foregroundStyle(StrandPalette.link)
                             .lineLimit(1)
@@ -99,6 +100,21 @@ public struct DayNavBar: View {
             .disabled(!canGoNewer)
             .accessibilityLabel("Next day")
             Spacer(minLength: 0)
+        }
+    }
+
+    /// Numeric continuity is presentation-only: the caller remains the sole owner of
+    /// the date cursor and reload behavior. iOS 16/macOS 13 retain an opacity fallback.
+    @ViewBuilder
+    private func numericTransition(_ text: Text) -> some View {
+        if #available(iOS 17.0, macOS 14.0, *) {
+            text
+                .contentTransition(.numericText())
+                .animation(reduceMotion ? nil : StrandMotion.value, value: selectedOffset)
+        } else {
+            text
+                .contentTransition(.opacity)
+                .animation(reduceMotion ? nil : StrandMotion.fade, value: selectedOffset)
         }
     }
 

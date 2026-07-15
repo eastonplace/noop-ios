@@ -189,15 +189,11 @@ struct NotificationSettingsView: View {
                 }
             }
         } label: {
-            HStack(spacing: 5) {
-                Image(systemName: "waveform.path").font(.system(size: 11))
-                Text(store.pattern(app.id).label).font(StrandFont.caption)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(StrandPalette.surfaceInset, in: Capsule())
-            .overlay(Capsule().strokeBorder(StrandPalette.hairline, lineWidth: 1))
-            .foregroundStyle(StrandPalette.textSecondary)
+            MicroBadge(
+                LocalizedStringKey(store.pattern(app.id).label),
+                systemImage: "waveform.path",
+                tint: StrandPalette.textSecondary
+            )
         }
         .menuStyle(.borderlessButton)
         .fixedSize()

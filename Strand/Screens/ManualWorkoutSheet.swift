@@ -602,13 +602,7 @@ struct StartWorkoutSheet: View {
 
     private func sportSearchAndList(maxHeight: CGFloat) -> some View {
         VStack(spacing: 8) {
-            TextField("Search sport", text: $query)
-                .textFieldStyle(.plain)
-                .font(StrandFont.body)
-                .foregroundStyle(StrandPalette.textPrimary)
-                .padding(.horizontal, 12).padding(.vertical, 9)
-                .background(StrandPalette.surfaceInset, in: inputShape)
-                .overlay(inputShape.strokeBorder(StrandPalette.hairline, lineWidth: 1))
+            PaperSearchField("Search sport", text: $query, height: 42, cornerRadius: 10)
                 .accessibilityLabel("Search sport")
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {

@@ -225,13 +225,16 @@ struct CoachView: View {
                 // Provider
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Provider").strandOverline()
-                    Picker("Provider", selection: $coach.provider) {
-                        ForEach(AIProvider.allCases) { p in
-                            Text(p.displayName).tag(p)
+                    SegmentedPillControl(
+                        AIProvider.allCases,
+                        selection: $coach.provider
+                    ) { provider in
+                        switch provider {
+                        case .gemini: "Gemini"
+                        case .custom: "Custom"
+                        default: provider.displayName
                         }
                     }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
                     .accessibilityLabel("Provider")
                 }
 
