@@ -518,6 +518,12 @@
   captures, verified the 9/9, 44/44 (including T031), and 55/55 green gates, checked
   base/HEAD blob identity for all three stale-test files, and confirmed the seven
   assertions are pre-existing expectation drift rather than Spec 008 regressions.
+- Published reviewed final tree `dd88543841b1396e11f2cf24bb0429ff9ae8e966`
+  to remote branch `reskin/design-lab-adoption`; draft PR
+  [#2](https://github.com/eastonplace-ai/noop/pull/2) targets the exact
+  `reskin/paper-ui` base `44d36bd`. GitHub reports the PR mergeable with 55
+  changed files. The connector-published tree hash exactly matches the local
+  seven-phase checkpoint branch tree.
 - Remaining risk is limited to the five baseline-stale test cases above and
   existing compiler warnings. Neither was introduced by Spec 008. Final independent
   QA and publish evidence are appended after the closed-gate review.
