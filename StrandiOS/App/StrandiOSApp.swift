@@ -60,6 +60,8 @@ struct StrandiOSApp: App {
     var body: some Scene {
         WindowGroup {
             iOSRootView()
+                .contentSurfacePresentation(.flat)
+                .background(StrandPalette.appCanvas.ignoresSafeArea())
                 .environmentObject(model)
                 .environmentObject(model.live)
                 .environmentObject(model.repo)
@@ -199,7 +201,7 @@ private struct iOSRootView: View {
             return AnyView(
                 NavigationStack {
                     demo
-                        .background(StrandPalette.surfaceBase.ignoresSafeArea())
+                        .background(StrandPalette.appCanvas.ignoresSafeArea())
                         .navigationBarTitleDisplayMode(.inline)
                 }
             )

@@ -36,7 +36,7 @@ struct RootTabView: View {
         // The native bar stays hidden, but keep its appearance correct for transient UIKit hosts.
         let appearance = UITabBarAppearance()
         appearance.configureWithOpaqueBackground()
-        appearance.backgroundColor = UIColor(StrandPalette.card)
+        appearance.backgroundColor = UIColor(StrandPalette.appCanvas)
         appearance.shadowColor = UIColor(StrandPalette.hairline)
         appearance.selectionIndicatorTintColor = .clear
         UITabBar.appearance().standardAppearance = appearance
@@ -159,7 +159,7 @@ struct RootTabView: View {
                 case .liveSession: TodayView()
                 }
             }
-            .background(StrandPalette.surfaceBase.ignoresSafeArea())
+            .background(StrandPalette.appCanvas.ignoresSafeArea())
             .navigationBarTitleDisplayMode(.inline)
             // #1027: same fix as quickScreen — the pillar screens draw the full-bleed liquid sky, so a
             // transparent nav bar keeps it edge-to-edge instead of an opaque band clipping the top on scroll.
@@ -209,7 +209,7 @@ struct RootTabView: View {
     private func quickScreen<V: View>(_ view: V) -> some View {
         NavigationStack {
             view
-                .background(StrandPalette.surfaceBase.ignoresSafeArea())
+                .background(StrandPalette.appCanvas.ignoresSafeArea())
                 .navigationBarTitleDisplayMode(.inline)
                 // #1027: these screens draw a full-bleed liquid sky (ScreenScaffold topBackground) that runs
                 // edge-to-edge under a transparent bar — exactly how the tab roots present it. An OPAQUE
@@ -231,7 +231,7 @@ struct RootTabView: View {
     private var devicesScreen: some View {
         NavigationStack {
             DevicesView()
-                .background(StrandPalette.surfaceBase.ignoresSafeArea())
+                .background(StrandPalette.appCanvas.ignoresSafeArea())
                 .navigationBarTitleDisplayMode(.inline)
                 // #1027: same fix as quickScreen — Devices draws the full-bleed liquid sky, so a transparent
                 // nav bar keeps it edge-to-edge instead of an opaque band clipping the top on scroll.
@@ -254,7 +254,7 @@ struct RootTabView: View {
         // detail screens get their own nav bar + back button.
         NavigationStack {
             view
-                .background(StrandPalette.surfaceBase.ignoresSafeArea())
+                .background(StrandPalette.appCanvas.ignoresSafeArea())
                 .toolbar(.hidden, for: .navigationBar)
         }
         .toolbar(.hidden, for: .tabBar)   // we draw our own PaperTabBar

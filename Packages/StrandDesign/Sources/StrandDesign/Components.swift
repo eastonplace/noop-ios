@@ -119,13 +119,34 @@ public struct NoopCard<Content: View>: View {
     private let padding: CGFloat
     private let tint: Color?
     @ViewBuilder private let content: () -> Content
+    @Environment(\.contentSurfacePresentation) private var contentSurfacePresentation
     #if os(macOS)
     @State private var hover = false
     #endif
     public init(padding: CGFloat = NoopMetrics.cardPadding, tint: Color? = nil, @ViewBuilder content: @escaping () -> Content) {
         self.padding = padding; self.tint = tint; self.content = content
     }
-    public var body: some View {
+    @ViewBuilder public var body: some View {
+        #if os(iOS)
+        if contentSurfacePresentation == .flat {
+            content()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, min(padding, NoopMetrics.space3))
+                .overlay(alignment: .bottom) {
+                    Rectangle()
+                        .fill(StrandPalette.hairline)
+                        .frame(height: 1)
+                        .accessibilityHidden(true)
+                }
+        } else {
+            boundedBody
+        }
+        #else
+        boundedBody
+        #endif
+    }
+
+    private var boundedBody: some View {
         content()
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)

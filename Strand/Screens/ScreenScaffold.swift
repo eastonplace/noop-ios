@@ -43,7 +43,9 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
             // Unified side margins matching the liquid home (16pt) so every page's cards + header line up
             // to the same edges (2026-07-02); macOS keeps the classic 28 in the #else branch.
             .padding(.horizontal, 16)
-            .padding(.top, 4)
+            // Flat pages begin immediately below the compact header; the old card canvas needed
+            // extra breathing room here, but on a continuous surface it read as an accidental gap.
+            .padding(.top, 0)
             // The tab bar floats over the scroll content, so the last card sat hidden behind it.
             // Reserve extra bottom scroll room so every screen's final card clears the floating bar.
             .padding(.bottom, NoopMetrics.tabBarClearance)
@@ -61,8 +63,8 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             header
                 .padding(.horizontal, 16)
-                .padding(.bottom, 4)
-                .background(StrandPalette.surfaceBase)
+                .padding(.bottom, 0)
+                .background(StrandPalette.appCanvas)
         }
         // #697: stop a vertical scroll from drifting/bouncing the screen left-right. `.basedOnSize` only
         // permits horizontal bounce when content genuinely overflows the width (it does not here, the column
@@ -75,7 +77,11 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
         // on the opaque canvas and stay fully legible (2026-06-23: cards were "losing the data").
         .background(alignment: .top) {
             ZStack(alignment: .top) {
+                #if os(iOS)
+                StrandPalette.appCanvas
+                #else
                 StrandPalette.surfaceBase
+                #endif
                 topBackground
             }
             .ignoresSafeArea()
@@ -168,8 +174,7 @@ struct ComingSoon: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(20).frame(maxWidth: .infinity, alignment: .leading)
-        .frostedCardSurface()
+        .contentRowSurface(boundedPadding: 20)
     }
 }
 

@@ -203,13 +203,19 @@ struct StressView: View {
 
                     // README screen-9: the day autonomic-load LINE, drawn with the same
                     // 3-stop blue→green→amber WHOOP gradient as the gauge.
-                    DaytimeLoadLine(hours: day.hours, peak: day.peak, hourLabel: hourLabel)
+                    StressLoadChart(
+                        points: day.hours.map {
+                            StressLoadPoint(id: $0.startTs, hour: $0.hour, level: $0.level)
+                        },
+                        peakID: day.peak?.startTs,
+                        hourLabel: hourLabel
+                    )
 
                     Divider().overlay(StrandPalette.hairline)
 
                     // README screen-9: the Calm / Moderate / High totals bar — one stacked
                     // bar split by how many waking hours sat in each band, with durations.
-                    StressTotalsBar(totals: StressTotals(hours: day.hours))
+                    StressBandTotalsView(totals: stressBandTotals(StressTotals(hours: day.hours)))
 
                     Text("The line is each waking hour's 0-3 proxy, scored against your own calm hours today. The bar below splits your day into calm, moderate and high stress time.")
                         .font(StrandFont.footnote)
@@ -228,6 +234,36 @@ struct StressView: View {
         let n = day.scored.count
         guard let mean = day.dayMean else { return String(localized: "\(n)h") }
         return String(localized: "avg \(String(format: "%.1f", mean)) · \(n)h")
+    }
+
+    private func stressBandTotals(_ totals: StressTotals) -> [StressBandTotal] {
+        [
+            StressBandTotal(
+                id: "calm",
+                label: String(localized: "Calm"),
+                duration: stressDurationLabel(totals.calmHours),
+                fraction: totals.fraction(.low),
+                band: 0
+            ),
+            StressBandTotal(
+                id: "moderate",
+                label: String(localized: "Moderate"),
+                duration: stressDurationLabel(totals.moderateHours),
+                fraction: totals.fraction(.medium),
+                band: 1
+            ),
+            StressBandTotal(
+                id: "high",
+                label: String(localized: "High"),
+                duration: stressDurationLabel(totals.highHours),
+                fraction: totals.fraction(.high),
+                band: 2
+            ),
+        ]
+    }
+
+    private func stressDurationLabel(_ hours: Int) -> String {
+        hours <= 0 ? "—" : String(localized: "\(hours)h")
     }
 
     /// A passive, in-app nudge to run a Breathe session after a sustained high-stress run.
@@ -1225,15 +1261,20 @@ private struct StressPreviewHarness: View {
                 NoopCard(tint: StressRamp.calm) {
                     VStack(alignment: .leading, spacing: 14) {
                         Text("Autonomic load through the day").strandOverline()
-                        DaytimeLoadLine(
-                            hours: hours,
-                            peak: hours.compactMap { point in
-                                point.level.map { (point, $0) }
-                            }.max(by: { $0.1 < $1.1 })?.0,
+                        let peak = hours.compactMap { point in
+                            point.level.map { (point, $0) }
+                        }.max(by: { $0.1 < $1.1 })?.0
+                        StressLoadChart(
+                            points: hours.map {
+                                StressLoadPoint(id: $0.startTs, hour: $0.hour, level: $0.level)
+                            },
+                            peakID: peak?.startTs,
                             hourLabel: { "\($0):00" }
                         )
                         Divider().overlay(StrandPalette.hairline)
-                        StressTotalsBar(totals: StressTotals(hours: hours))
+                        StressBandTotalsView(
+                            totals: StressView.previewStressBandTotals(StressTotals(hours: hours))
+                        )
                     }
                 }
 
@@ -1261,6 +1302,19 @@ private struct StressPreviewHarness: View {
             .padding(NoopMetrics.screenPadding)
         }
         .background(StrandPalette.surfaceBase)
+    }
+}
+
+private extension StressView {
+    static func previewStressBandTotals(_ totals: StressTotals) -> [StressBandTotal] {
+        [
+            .init(id: "calm", label: "Calm", duration: totals.calmHours == 0 ? "—" : "\(totals.calmHours)h",
+                  fraction: totals.fraction(.low), band: 0),
+            .init(id: "moderate", label: "Moderate", duration: totals.moderateHours == 0 ? "—" : "\(totals.moderateHours)h",
+                  fraction: totals.fraction(.medium), band: 1),
+            .init(id: "high", label: "High", duration: totals.highHours == 0 ? "—" : "\(totals.highHours)h",
+                  fraction: totals.fraction(.high), band: 2),
+        ]
     }
 }
 

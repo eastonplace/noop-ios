@@ -54,6 +54,7 @@ public struct StrandCard<Content: View>: View {
     public var cornerRadius: CGFloat
     public var tint: Color?
     @ViewBuilder public var content: () -> Content
+    @Environment(\.contentSurfacePresentation) private var contentSurfacePresentation
 
     public init(
         padding: CGFloat = 16,
@@ -67,7 +68,27 @@ public struct StrandCard<Content: View>: View {
         self.content = content
     }
 
-    public var body: some View {
+    @ViewBuilder public var body: some View {
+        #if os(iOS)
+        if contentSurfacePresentation == .flat {
+            content()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, min(padding, NoopMetrics.space3))
+                .overlay(alignment: .bottom) {
+                    Rectangle()
+                        .fill(StrandPalette.hairline)
+                        .frame(height: 1)
+                        .accessibilityHidden(true)
+                }
+        } else {
+            boundedBody
+        }
+        #else
+        boundedBody
+        #endif
+    }
+
+    private var boundedBody: some View {
         content()
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)

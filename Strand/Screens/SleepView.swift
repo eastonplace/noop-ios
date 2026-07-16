@@ -592,40 +592,18 @@ struct SleepView: View {
         )
         return PaperCard {
             VStack(alignment: .leading, spacing: NoopMetrics.rowSpacing) {
-                HStack(spacing: 0) {
-                    paperSleepWindowValue(label: "Asleep", value: night.onsetText, alignment: .leading)
-                    Rectangle().fill(StrandPalette.hairline).frame(width: 1, height: 48)
-                    VStack(spacing: 3) {
-                        Text(presentation.asleepDuration)
-                            .font(StrandFont.statValue)
-                            .foregroundStyle(StrandPalette.textPrimary)
-                        Text("\(presentation.inBedDuration) in bed")
-                            .font(StrandFont.micro)
-                            .foregroundStyle(StrandPalette.textTertiary)
-                    }
-                    .frame(maxWidth: .infinity)
-                    Rectangle().fill(StrandPalette.hairline).frame(width: 1, height: 48)
-                    HStack(spacing: 5) {
-                        paperSleepWindowValue(label: "Woke", value: night.wakeText, alignment: .trailing)
-                        wakeEditButton(night)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                }
+                SleepWindowStrip(
+                    asleepTime: night.onsetText,
+                    asleepDuration: presentation.asleepDuration,
+                    inBedDuration: presentation.inBedDuration,
+                    wakeTime: night.wakeText,
+                    wakeAccessory: { wakeEditButton(night) }
+                )
 
                 Divider().overlay(StrandPalette.hairline)
                 mainSleepFooter(night)
             }
         }
-    }
-
-    private func paperSleepWindowValue(label: LocalizedStringKey, value: String,
-                                       alignment: HorizontalAlignment) -> some View {
-        VStack(alignment: alignment, spacing: 4) {
-            Text(label).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
-            Text(value).font(StrandFont.statValue).foregroundStyle(StrandPalette.textPrimary)
-                .lineLimit(1).minimumScaleFactor(0.75)
-        }
-        .frame(maxWidth: .infinity, alignment: alignment == .leading ? .leading : .trailing)
     }
 
     /// The Sleep world's opening: a scenic indigo backdrop with — when the night carries a 0–100
@@ -1814,8 +1792,10 @@ struct SleepView: View {
     /// (accent) for a surplus, down (rose) for a deficit — scaled to the largest |delta|.
     @ViewBuilder
     private func debtDeltaBars(_ ledger: SleepDebtLedger) -> some View {
-        SleepDebtDeltaBars(
-            ledger: ledger,
+        SleepDebtBalanceBars(
+            deltas: ledger.nights.map {
+                SleepDebtDelta(id: $0.day, minutes: $0.deltaMin)
+            },
             accessibilitySummary: "Per-night sleep balance: \(ledger.nightCount) nights, net \(debtSigned(ledger.balanceMin))"
         )
     }
@@ -1851,8 +1831,6 @@ struct SleepView: View {
     /// context the prior vertical-only marker implied.
     @ViewBuilder
     private func stageRow(stage: SleepStage, last: Double, typical: Double?, nightTotal: Double) -> some View {
-        let label = stage.label
-        let color = StrandPalette.sleepStageColor(stage)
         let presentation = SleepStageRowPresentation(
             stage: stage,
             minutes: last,
@@ -1862,65 +1840,24 @@ struct SleepView: View {
         // Scale both values against a shared per-row max so the typical hatch + marker are meaningful.
         let scaleMax = max(last, typical ?? 0) * 1.18
         let max = scaleMax > 0 ? scaleMax : 1
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                    .fill(color)
-                    .frame(width: 12, height: 12)
-                    .accessibilityHidden(true)
-                Text(label.uppercased())
-                    .font(StrandFont.overline)
-                    .tracking(StrandFont.overlineTracking)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                Text("\(presentation.percent)%")
-                    .font(StrandFont.captionNumber)
-                    .foregroundStyle(color)
-                Spacer()
-                Text(presentation.duration)
-                    .font(StrandFont.captionNumber)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                if let delta = presentation.delta, let tone = presentation.deltaTone {
-                    Text(delta)
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(tone == .positive
-                                         ? StrandPalette.statusPositive
-                                         : StrandPalette.statusWarning)
-                }
+        SleepStageComparisonRow(
+            stage: stage,
+            value: last,
+            typical: typical,
+            scaleMaximum: max,
+            percent: presentation.percent,
+            duration: presentation.duration,
+            delta: presentation.delta,
+            deltaTone: presentation.deltaTone.map {
+                $0 == .positive ? .positive : .warning
             }
-            GeometryReader { geo in
-                let w = geo.size.width
-                ZStack(alignment: .leading) {
-                    // Last-night value as the signature liquid tube — "solid = you", now a filling liquid
-                    // capsule tinted in the stage colour (static/posed, like Today's grid tubes). It renders
-                    // its own dark capsule track, so it replaces the flat solid fill + track. The fraction
-                    // is unchanged (last / shared per-row max).
-                    PaperProgressBar(frac: min(1, last / max), tint: color, height: 12, animated: false)
-                    // Typical-range CONTEXT overlaid on top: a diagonal-hatch track spanning the personal
-                    // mean for this stage. "Hatch = the context" — the liquid value sits under it.
-                    if let typical, typical > 0 {
-                        DiagonalHatch(spacing: 5, lineWidth: 1)
-                            .stroke(color.opacity(0.6), lineWidth: 1)
-                            .frame(width: w * CGFloat(min(1, typical / max)))
-                            .clipShape(Capsule(style: .continuous))
-                    }
-                    // Crisp typical-mean marker so the exact mean still reads at a glance.
-                    if let typical, typical > 0 {
-                        Rectangle()
-                            .fill(StrandPalette.textPrimary)
-                            .frame(width: 2, height: 18)
-                            .position(x: w * CGFloat(min(1, typical / max)), y: 6)
-                    }
-                }
-            }
-            .frame(height: 12)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(stageRowAccessibilityLabel(
-                label: label,
-                last: last,
-                sharePct: presentation.percent,
-                typical: typical
-            ))
-        }
+        )
+        .accessibilityLabel(stageRowAccessibilityLabel(
+            label: stage.label,
+            last: last,
+            sharePct: presentation.percent,
+            typical: typical
+        ))
     }
 
     /// Whole-string VoiceOver label for a stage row: one key per variant, never a stitched tail fragment.

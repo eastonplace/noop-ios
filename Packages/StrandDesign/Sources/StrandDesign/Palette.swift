@@ -65,6 +65,15 @@ public extension Color {
 
 public enum StrandPalette {
 
+    /// The full-page canvas used by the iPhone/iPad app's flat-content grammar.
+    /// Other platforms intentionally resolve to the existing canvas so adopting this
+    /// token in shared screen code cannot redesign macOS or watchOS.
+    #if os(iOS)
+    public static let appCanvas      = Color(light: "#FFFFFF", dark: "#0B0D10")
+    #else
+    public static let appCanvas      = canvas
+    #endif
+
     // MARK: Paper surfaces
     public static let canvas         = Color(light: "#F7F6F3", dark: "#131311")
     public static let card           = Color(light: "#FFFFFF", dark: "#1C1C1A")

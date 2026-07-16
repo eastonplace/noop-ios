@@ -835,14 +835,7 @@ private struct FitnessAgeSection: View {
                 ? "How accurate is this? Hide the data behind your Fitness Age"
                 : "How accurate is this? Show the data behind your Fitness Age")
         }
-        .padding(NoopMetrics.space5)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        // Apple-flat WHOOP card: a plain frosted surface tinted to the Charge (green) world —
-        // no scenic starfield / bloom, no gold border. Fill contrast carries the edge.
-        .background {
-            FrostedCardSurface(tint: StrandPalette.chargeColor, cornerRadius: NoopMetrics.cardRadius)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous))
+        .contentRowSurface(boundedPadding: NoopMetrics.space5)
     }
 
     /// Load the latest weekly Fitness Age (+ optional VO₂max) from the strap's metricSeries. Uses the
@@ -1082,14 +1075,7 @@ private struct VitalitySection: View {
             Text("A wellness estimate from your habits, not a clinical biological age.")
                 .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
         }
-        .padding(NoopMetrics.space5)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        // Apple-flat WHOOP card: a plain frosted surface tinted to the Charge (green) world —
-        // no scenic starfield / bloom, no gold border. Fill contrast carries the edge.
-        .background {
-            FrostedCardSurface(tint: StrandPalette.chargeColor, cornerRadius: NoopMetrics.cardRadius)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous))
+        .contentRowSurface(boundedPadding: NoopMetrics.space5)
     }
 
     /// The Body Age delta as whole-phrase variants per count and direction, so translators see

@@ -1046,11 +1046,9 @@ struct TodayView: View {
             Button {
                 StrandHaptic.selection.play(); router.openDevices()
             } label: {
-                MicroStatusDot(color: StrandPalette.statusPositive)
-                    .frame(width: 32, height: 32)
+                TodayHeaderBatteryStatus()
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Devices")
             Button { showSettings = true } label: {
                 ProfileAvatarView(imageData: profile.avatarImageData, size: 30)
                     .contentShape(Circle())
@@ -1370,11 +1368,16 @@ struct TodayView: View {
         StressTimelineSlots.map((daytimeStress?.hours ?? []).map { ($0.hour, $0.level) })
     }
 
+    /// The ONE canonical Stress detail. Both Today entry points (the paper module below and the
+    /// "Your cards" Stress row) push this same screen, so the routes can't drift apart the way
+    /// they did while the module still opened the retired PaperPillarDetailView stress sheet.
+    private var stressDetail: some View { StressView() }
+
     private var paperStressCard: some View {
         let value = stressToday
         let display = value.map { String(format: "%.1f", $0) } ?? "—"
         let timeline = stressRibbonSlots
-        return Button { paperPillarDetail = .stress } label: {
+        return NavigationLink { stressDetail } label: {
             PaperCard(padding: 12) {
                 // D13 (spec 004): dot + overline + value badge on one quiet row, small state
                 // word, thin ribbon — the reference module, not a headline block.
@@ -1596,9 +1599,15 @@ struct TodayView: View {
             ScoringGuideView(initialSection: section, onClose: { guideSection = nil })
         }
         .sheet(item: $paperPillarDetail) { kind in
-            if kind == .rest {
+            switch kind {
+            case .rest:
                 SleepView()
-            } else {
+            case .stress:
+                // Nothing sets .stress any more (paperStressCard pushes stressDetail directly);
+                // this case only keeps a future setter from resurrecting the retired
+                // PaperPillarDetailView stress surface instead of the canonical StressView.
+                stressDetail
+            case .charge, .effort:
                 PaperPillarDetailView(kind: kind)
             }
         }
@@ -2281,7 +2290,7 @@ struct TodayView: View {
         switch card {
         case .stress:
             pinnedCardRow(icon: card.icon, tint: tint, title: card.title, subtitle: card.subtitle,
-                          value: dashboardValue(card)) { StressView() }
+                          value: dashboardValue(card)) { stressDetail }
         case .fitnessAge:
             pinnedCardRow(icon: card.icon, tint: tint, title: card.title, subtitle: card.subtitle,
                           value: dashboardValue(card)) { HealthView() }
@@ -2433,9 +2442,7 @@ struct TodayView: View {
                 Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(StrandPalette.textTertiary)
             }
-            .padding(.horizontal, 13).padding(.vertical, 11)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(FrostedCardSurface(cornerRadius: NoopMetrics.cardRadius))
+            .contentRowSurface(boundedPadding: 13, flatVerticalPadding: 11)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -4475,6 +4482,40 @@ struct TodayView: View {
         f.setLocalizedDateFormatFromTemplate("jmm")
         return f
     }()
+}
+
+/// Compact top-bar connection read. Isolated from `TodayView` so the high-frequency LiveState
+/// publisher cannot invalidate the dashboard; it only redraws this tiny leaf when battery or link
+/// state changes. A percentage appears only for a real reading—never a seeded/fabricated fallback.
+private struct TodayHeaderBatteryStatus: View {
+    @EnvironmentObject private var live: LiveState
+
+    private var statusColor: Color {
+        live.connected ? StrandPalette.statusPositive : StrandPalette.textTertiary
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            MicroStatusDot(color: statusColor)
+            if live.connected, let pct = live.batteryPct {
+                Text("\(Int(pct.rounded()))%")
+                    .font(StrandFont.micro.weight(.semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(StrandPalette.textSecondary)
+            }
+        }
+        .padding(.horizontal, 6)
+        .frame(minWidth: 32, minHeight: 32)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    private var accessibilityLabel: String {
+        guard live.connected else { return "Devices, strap disconnected" }
+        guard let pct = live.batteryPct else { return "Devices, strap connected, battery unavailable" }
+        return "Devices, strap connected, battery \(Int(pct.rounded())) percent"
+    }
 }
 
 /// `.task(id:)` key combining the data refresh sequence with the selected day so a reload runs on
