@@ -8,7 +8,17 @@ enum StorePaths {
         let containerAppSupport = macOSProductionContainerAppSupport(defaultingTo: appSupport)
         let base = containerAppSupport.appendingPathComponent("OpenWhoop", isDirectory: true)
         try fm.createDirectory(at: base, withIntermediateDirectories: true)
-        let dbURL = base.appendingPathComponent("whoop.sqlite")
+        #if DEBUG
+        // Simulator demos live in a versioned database that is physically separate
+        // from the normal store. AppleDemoSeeder.requested is simulator-only, so a
+        // device build always resolves to whoop.sqlite even if someone passes the flag.
+        let databaseFilename = AppleDemoSeeder.requested
+            ? AppleDemoSeeder.databaseFilename
+            : "whoop.sqlite"
+        #else
+        let databaseFilename = "whoop.sqlite"
+        #endif
+        let dbURL = base.appendingPathComponent(databaseFilename)
 
         #if os(iOS)
         // iOS files default to NSFileProtectionComplete, which makes the SQLite DB and its `-wal`/`-shm`

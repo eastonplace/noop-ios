@@ -17,6 +17,12 @@ import WhoopProtocol
 // drift) so the charts, trends and insights all read like a real account.
 enum AppleDemoSeeder {
 
+    /// Bump when the fixture shape changes. The simulator demo uses this in its
+    /// database filename, so a newer fixture never gets trapped behind an older,
+    /// partially-seeded database.
+    static let fixtureVersion = 2
+    static var databaseFilename: String { "whoop-demo-v\(fixtureVersion).sqlite" }
+
     private enum Scenario: String {
         case healthy, illness
     }
@@ -34,7 +40,14 @@ enum AppleDemoSeeder {
 
     /// True when the process was launched asking for the demo seed (Xcode scheme arg or `simctl
     /// launch … --demo-seed`).
-    static var requested: Bool { CommandLine.arguments.contains("--demo-seed") }
+    static var requested: Bool {
+        #if targetEnvironment(simulator)
+        CommandLine.arguments.contains("--demo-seed")
+        #else
+        // Even a DEBUG-signed build on a real phone must never enter demo mode.
+        false
+        #endif
+    }
 
     /// F7: evidence launches default to a healthy populated day. The prior illness
     /// fixture remains available explicitly via `--demo-scenario illness`.

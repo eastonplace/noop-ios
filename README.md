@@ -6,10 +6,10 @@
 
 <p align="center"><b>Your strap. Your data. Your machine. Offline, on-device, no cloud.</b></p>
 
-<p align="center"><sub>Now in the all-new <b>Liquid Metal</b> design: one living look across iPhone, Android and Mac.</sub></p>
+<p align="center"><sub>Now in the all-new <b>Liquid Metal</b> design: one living look across iPhone and Mac.</sub></p>
 
 <p align="center">
-  <img alt="Platforms" src="https://img.shields.io/badge/platforms-macOS%20%C2%B7%20Android%20%C2%B7%20iOS-E8B84B?style=flat-square">
+  <img alt="Platforms" src="https://img.shields.io/badge/platforms-macOS%20%C2%B7%20iOS-E8B84B?style=flat-square">
   <img alt="Local first" src="https://img.shields.io/badge/local-first-E8B84B?style=flat-square">
   <img alt="Account free" src="https://img.shields.io/badge/account-free-C8902F?style=flat-square">
   <img alt="WHOOP 4 and 5" src="https://img.shields.io/badge/works%20with-WHOOP%204.0%20%26%205.0-6B737B?style=flat-square">
@@ -44,17 +44,13 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/NoopApp/noop/releases/latest"><img src="docs/assets/hero-v8.jpg" alt="NOOP in the new Liquid Metal design, on iPhone, Mac and Android" width="820"></a>
+  <a href="https://github.com/NoopApp/noop/releases/latest"><img src="docs/assets/hero-v8.jpg" alt="NOOP in the new Liquid Metal design" width="820"></a>
 </p>
 
 <p align="center">
   <img src="docs/assets/shot-ios-today.png" alt="Today on iPhone" width="218">
-  &nbsp;&nbsp;
-  <img src="docs/assets/shot-android-today.png" alt="Today on Android" width="218">
-  &nbsp;&nbsp;
-  <img src="docs/assets/shot-android-trend.png" alt="A metric's own trend on Android" width="218">
 </p>
-<p align="center"><sub>The all-new <b>Liquid Metal</b> look: living liquid scores, a sky that moves with your day, rebuilt on every screen. The same Today on iPhone and Android, and a metric&rsquo;s own trend. One design across iPhone, Android &amp; Mac.</sub></p>
+<p align="center"><sub>The all-new <b>Liquid Metal</b> look: living liquid scores, a sky that moves with your day, rebuilt on every screen. One design across iPhone and Mac.</sub></p>
 
 ---
 
@@ -103,7 +99,6 @@ Pre-built apps you can run right now:
 | Platform | Build | Notes |
 |---|---|---|
 | **macOS** | `NOOP.app` (see [Releases](https://github.com/NoopApp/noop/releases)) or Homebrew: `brew tap noopapp/noop && brew trust noopapp/noop && brew install --cask noop` | Apple Silicon + Intel. Drag to Applications. Not notarized — see **First launch on macOS** below. The one-time `brew trust noopapp/noop` is needed on Homebrew 6.0+ (harmless on older versions) — see [Homebrew docs](docs/HOMEBREW.md). |
-| **Android** | `NOOP-full.apk` (see [Releases](https://github.com/NoopApp/noop/releases)) | The full app. `minSdk 26` (Android 8+). Sideload — enable "install unknown apps". Blocked by Play Protect? See **Installing on Android** below. |
 | **iOS** | `NOOP-vX-ios.ipa` (see [Releases](https://github.com/NoopApp/noop/releases)) — sideload with AltStore/SideStore | Now a **direct download**. The `.ipa` is unsigned; **you** sign it on your iPhone with your own free Apple ID (no App Store, no developer account — NOOP stays anonymous). Re-signs every 7 days (AltStore automates it); Apple Health + Live Activity widgets may be limited under a free signing identity. See [docs/IOS.md](docs/IOS.md). Or build from source in Xcode. |
 
 > **First launch on macOS.** NOOP is **not notarized** by Apple — notarization needs a paid Apple
@@ -119,23 +114,6 @@ Pre-built apps you can run right now:
 >   earlier you can also right-click the app → **Open**.)
 >
 > Prefer to avoid this entirely? Build from source — see [Quickstart](#quickstart-macos).
-
-> **Installing on Android (Play Protect blocked it?).** NOOP isn't on the Play Store — it's an
-> **unsigned, source-available APK** you sideload, because the project is anonymous and has no paid
-> Play identity to publish or sign under. So Android treats it as an "unknown app" and **Google
-> Play Protect** may warn or block on install (most stubbornly on stock Pixel / recent Android).
-> Nothing is wrong with the file — it's just missing a Play signature. To get it on:
->
-> - **Tap "Install anyway."** When the warning appears, choose **More details → Install anyway**.
-> - **No "Install anyway" button?** It can vanish after a first install + uninstall. Grant the source
->   directly: **Settings → Apps → Special app access → Install unknown apps**, pick the **browser or
->   file manager you're installing from**, turn on **"Allow from this source"**, then open the APK again.
-> - **Still blocked by Play Protect?** It's your call to make for an unsigned app you trust: open the
->   **Play Store → your profile icon → Play Protect → ⚙ Settings**, toggle **"Scan apps with Play
->   Protect" off**, install NOOP, then switch it **back on**.
-> - **Reinstalling is safe.** Uninstalling and installing again won't hurt anything — NOOP keeps all
->   data on-device with `allowBackup=false`, so a reinstall simply starts fresh. There's no cloud copy
->   to lose either way.
 
 Prefer to build it yourself? See [`docs/BUILD.md`](docs/BUILD.md).
 
@@ -206,7 +184,7 @@ that premise:
 
 The macOS reference app organizes everything behind a single sidebar
 (`Strand/App/RootView.swift`). Each item below is a real screen in
-`Strand/Screens/`. The same feature set ships on macOS, Android, and iOS via the
+`Strand/Screens/`. The same feature set ships on macOS and iOS via the
 shared cross-platform code.
 
 | Screen | What it does |
@@ -229,7 +207,7 @@ shared cross-platform code.
 | **Data Sources** | One-tap import of a WHOOP CSV export, an Apple Health export, or a **nutrition CSV** (Cronometer / MacroFactor), plus live-strap status. "Bring your history in once, then it's yours." |
 | **Notifications** | Configure local notifications and thresholds (`Strand/Data/NotificationSettingsStore.swift`). |
 | **Automations** | Turn the strap's physical inputs and live biometrics into Mac actions — all on-device (see below). |
-| **Coach** | An optional **AI Coach** you can ask about your data in plain language. It's the one feature that can ever use the network: off until you add your own key — Anthropic, OpenAI, or any OpenAI-compatible endpoint including a local/self-hosted model (Ollama, LM Studio) — and it sends only a short text summary of recent metrics plus your question, never raw streams or identifiers. With a local model the conversation never leaves your machine. Available on macOS, Android, and iOS. See [`docs/PRIVACY_SECURITY.md`](docs/PRIVACY_SECURITY.md). |
+| **Coach** | An optional **AI Coach** you can ask about your data in plain language. It's the one feature that can ever use the network: off until you add your own key — Anthropic, OpenAI, or any OpenAI-compatible endpoint including a local/self-hosted model (Ollama, LM Studio) — and it sends only a short text summary of recent metrics plus your question, never raw streams or identifiers. With a local model the conversation never leaves your machine. Available on macOS and iOS. See [`docs/PRIVACY_SECURITY.md`](docs/PRIVACY_SECURITY.md). |
 | **Settings** | Profile, preferences, **step calibration** (tune the stride/step estimate to your own walking), unit choices, the in-app **What's new** changelog, and an opt-in **Experimental** section (WHOOP 5/MG protocol probes). On **iOS**, also **Export for Shortcuts** — a HealthKit-free path that hands your metrics to Apple Health via the Shortcuts app. |
 | **Support** | Attribution + **optional** crypto donations. The whole app works without them. |
 
@@ -261,23 +239,21 @@ and an in-app **"What's new"** changelog shown after each update.
 
 ## Platform status
 
-NOOP's logic lives in cross-platform Swift packages, and the same protocol,
-storage, analytics, and scoring is ported to Kotlin on Android. Both apps pair
-with the strap and **score recovery, strain and sleep on your own device** — no
-import required.
+NOOP's logic lives in cross-platform Swift packages shared by the macOS and iOS
+apps. Both pair with the strap and **score recovery, strain and sleep on your own
+device** — no import required.
 
 <p>
   <a href="https://github.com/NoopApp/noop/releases/latest"><img alt="Latest across all platforms" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FNoopApp%2Fnoop%2Fmain%2Fdocs%2Fstats%2Frelease.json&style=flat-square"></a>
   <img alt="Commits per month" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FNoopApp%2Fnoop%2Fmain%2Fdocs%2Fstats%2Flastcommit.json&style=flat-square">
-  <img alt="Top language" src="https://img.shields.io/badge/languages-Swift%20%C2%B7%20Kotlin-E8B84B?style=flat-square">
+  <img alt="Top language" src="https://img.shields.io/badge/language-Swift-E8B84B?style=flat-square">
   <img alt="Code size" src="https://img.shields.io/badge/build-from%20source-6B737B?style=flat-square">
 </p>
 
 | Platform | Status |
 |---|---|
 | **macOS** | ✅ Full app (`Strand/`, SwiftUI, macOS 13+). Pairs over BLE, offloads the strap's history, and scores recovery / strain / sleep on-device. The complete feature set above runs here. |
-| **Android** | ✅ Full app (`android/`, Jetpack Compose, Android 8+). Pairs over BLE, persists and scores on-device, and imports WHOOP / Apple Health / Health Connect. Grab the APK from [Releases](https://github.com/NoopApp/noop/releases). |
-| **iOS** | 📲 **Direct download**: an unsigned `.ipa` you sideload with AltStore/SideStore — it signs on your iPhone with your *own* free Apple ID, so there's an anonymous install path with no App Store / developer account (see [docs/IOS.md](docs/IOS.md)). Also still builds from source in Xcode. Shares the cross-platform Swift packages, so scoring matches macOS. Newer and less battle-tested than macOS/Android — live BLE on a real iPhone is still being validated; Apple Health + Live Activity widgets can be limited under a free signing identity. |
+| **iOS** | 📲 **Direct download**: an unsigned `.ipa` you sideload with AltStore/SideStore — it signs on your iPhone with your *own* free Apple ID, so there's an anonymous install path with no App Store / developer account (see [docs/IOS.md](docs/IOS.md)). Also still builds from source in Xcode. Shares the cross-platform Swift packages, so scoring matches macOS. Live BLE on a real iPhone is still being validated; Apple Health + Live Activity widgets can be limited under a free signing identity. |
 
 ### Strap support
 
