@@ -510,6 +510,56 @@ extension WhoopStore {
             try db.create(index: "idx_coachingStackUse_stack_time",
                           on: "coachingStackUse", columns: ["stackId", "loggedAt"])
         }
+
+        // Private v25 = upstream v23: raw WHOOP 4.0 SpO2 ADC cache.
+        migrator.registerMigration("v25-daily-spo2-raw") { db in
+            try db.alter(table: "dailyMetric") { t in
+                t.add(column: "spo2Red", .integer)
+                t.add(column: "spo2Ir", .integer)
+            }
+        }
+
+        // Private v26 = upstream v24 (#163): equal R-R beat preservation.
+        migrator.registerMigration("v26-rr-seq") { db in
+            try db.create(table: "rrInterval_new") { t in
+                t.column("deviceId", .text).notNull()
+                t.column("ts", .integer).notNull()
+                t.column("rrMs", .integer).notNull()
+                t.column("seq", .integer).notNull().defaults(to: 0)
+                t.column("synced", .integer).notNull().defaults(to: 0)
+                t.primaryKey(["deviceId", "ts", "rrMs", "seq"])
+            }
+            try db.execute(sql: """
+                INSERT INTO rrInterval_new (deviceId, ts, rrMs, seq, synced)
+                SELECT deviceId, ts, rrMs, 0, synced FROM rrInterval
+                """)
+            try db.execute(sql: "DROP TABLE rrInterval")
+            try db.execute(sql: "ALTER TABLE rrInterval_new RENAME TO rrInterval")
+        }
+
+        // Private v27 = upstream v26: percentage-to-fraction heal.
+        migrator.registerMigration("v27-efficiency-heal") { db in
+            try db.execute(sql: """
+                UPDATE sleepSession
+                SET efficiency = efficiency / 100.0
+                WHERE efficiency > 1.5
+                """)
+            try db.execute(sql: """
+                UPDATE dailyMetric
+                SET efficiency = efficiency / 100.0
+                WHERE efficiency > 1.5
+                """)
+        }
+
+        // Private v28 = upstream v27 (#156): durable v26 PPG waveform.
+        migrator.registerMigration("v28-ppg-waveform") { db in
+            try db.create(table: "ppgWaveformSample") { t in
+                t.column("deviceId", .text).notNull()
+                t.column("ts", .integer).notNull()
+                t.column("samples", .blob).notNull()
+                t.primaryKey(["deviceId", "ts"])
+            }
+        }
         return migrator
     }
 }
