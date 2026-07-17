@@ -311,6 +311,11 @@ public struct TrendPanelChart: View {
 
 // MARK: - TrendMonthHeat
 
+public enum TrendHeatColorScale: Sendable {
+    case intensity
+    case recoveryBands
+}
+
 /// The last 35 days as a heat grid, Monday columns, best day ringed. Colour carries
 /// intensity; the ring and the caption carry meaning without colour (a11y rule).
 public struct TrendMonthHeat: View {
@@ -318,6 +323,7 @@ public struct TrendMonthHeat: View {
     let values: [Double]
     let tint: Color
     var valueFormat: (Double) -> String = { "\(Int($0.rounded()))" }
+    var colorScale: TrendHeatColorScale = .intensity
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var revealed = false
@@ -360,7 +366,7 @@ public struct TrendMonthHeat: View {
                         let index = row * 7 + column
                         let value = values.indices.contains(index) ? values[index] : nil
                         RoundedRectangle(cornerRadius: 4, style: .continuous)
-                            .fill(value.map { tint.opacity(0.12 + 0.78 * ($0 - lo) / span) } ?? StrandPalette.surfaceInset)
+                            .fill(value.map { cellColor(for: $0, low: lo, span: span) } ?? StrandPalette.surfaceInset)
                             .frame(height: 22)
                             .overlay {
                                 if index == bestIndex {
@@ -376,6 +382,15 @@ public struct TrendMonthHeat: View {
                     }
                 }
             }
+        }
+    }
+
+    private func cellColor(for value: Double, low: Double, span: Double) -> Color {
+        switch colorScale {
+        case .intensity:
+            return tint.opacity(0.12 + 0.78 * (value - low) / span)
+        case .recoveryBands:
+            return RecoveryBands.color(for: value)
         }
     }
 

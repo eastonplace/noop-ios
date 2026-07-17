@@ -305,10 +305,13 @@ public extension TrendPanelChart {
 }
 
 public extension TrendMonthHeat {
-    init(_publicAPI: Void = (), values: [Double], tint: Color, valueFormat: @escaping (Double) -> String = { "\(Int($0.rounded()))" }) {
+    init(_publicAPI: Void = (), values: [Double], tint: Color,
+         valueFormat: @escaping (Double) -> String = { "\(Int($0.rounded()))" },
+         colorScale: TrendHeatColorScale = .intensity) {
         self.values = values
         self.tint = tint
         self.valueFormat = valueFormat
+        self.colorScale = colorScale
     }
 }
 

@@ -321,7 +321,8 @@ struct TrendsView: View {
                 .id("\(selectedMetric.rawValue)-\(selectedRange.rawValue)")
                 if selectedRange != .week {
                     TrendMonthHeat(values: selectedValues, tint: selectedMetric.tint,
-                                   valueFormat: selectedMetric.format)
+                                   valueFormat: selectedMetric.format,
+                                   colorScale: selectedMetric == .recovery ? .recoveryBands : .intensity)
                         .id("heat-\(selectedMetric.rawValue)-\(selectedRange.rawValue)")
                 }
             }
