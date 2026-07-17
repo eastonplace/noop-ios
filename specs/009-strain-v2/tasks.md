@@ -7,6 +7,6 @@
 - [x] T005 Add nullable strain-version provenance and shadow-series persistence.
 - [x] T006 Add resumable, imported-score-safe V2 cutover support and comparison report.
 - [x] T007 Update scoring and analytics documentation.
-- [~] T008 Run package/app tests, iPhone build, and independent QA. WhoopStore (273),
+- [x] T008 Run package/app tests, iPhone build, and independent QA. WhoopStore (273),
   StrandAnalytics (1,108), and NOOPiOS simulator (12) pass; the signed iPhone build succeeds.
-  In-place installation remains pending while CoreDevice reports the connected phone unavailable.
+  In-place installation and launch succeeded on Easton’s iPhone 17 Pro without uninstalling the app.
