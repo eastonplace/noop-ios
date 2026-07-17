@@ -22,4 +22,4 @@
 - [x] T021 Pass migration, R-R/HRV, import/export and HealthKit fixtures.
 - [ ] T022 Build signed Release for iPhone and install in place with data preserved.
 - [ ] T023 Record available physical WHOOP QA and focused iPhone visual evidence.
-- [ ] T024 Commit, push, open draft PR, and record exact evidence.
+- [x] T024 Commit, push, open draft PR, and record exact evidence.

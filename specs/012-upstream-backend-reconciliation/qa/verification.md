@@ -2,6 +2,8 @@
 
 Status: implementation complete; delivery/hardware gates active
 
+Draft PR: https://github.com/eastonplace-ai/noop/pull/3
+
 ## Automated
 
 - `Packages/WhoopProtocol`: 0 failures.
