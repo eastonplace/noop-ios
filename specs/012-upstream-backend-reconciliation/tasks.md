@@ -23,3 +23,4 @@
 - [ ] T022 Build signed Release for iPhone and install in place with data preserved.
 - [ ] T023 Record available physical WHOOP QA and focused iPhone visual evidence.
 - [x] T024 Commit, push, open draft PR, and record exact evidence.
+- [x] T025 Diagnose the pre-run GitHub Actions failures and record the external billing gate.

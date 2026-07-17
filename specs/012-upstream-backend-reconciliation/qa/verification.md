@@ -1,6 +1,6 @@
 # Verification Ledger
 
-Status: implementation complete; delivery/hardware gates active
+Status: implementation and draft delivery complete; external CI and hardware gates active
 
 Draft PR: https://github.com/eastonplace-ai/noop/pull/3
 
@@ -11,6 +11,15 @@ Draft PR: https://github.com/eastonplace-ai/noop/pull/3
 - `Packages/StrandAnalytics`: 1,097 tests, 0 failures.
 - `Packages/StrandImport`: 189 tests, 0 failures, 1 environment-fixture skip.
 - `NOOPiOS` Release, generic physical iOS destination, signing disabled: build passed.
+
+## GitHub Actions
+
+- Both PR workflows were accepted for commit `70ff4df7`, but every macOS job ended before
+  runner allocation: `runner_id` is `0`, `steps` is empty, and no job log exists.
+- GitHub's check annotation says the jobs were not started because recent account payments
+  failed or the Actions spending limit must be increased.
+- This is an account billing/limit gate, not a source or workflow failure. CI must be rerun
+  after resolving **Settings → Billing & plans**; no speculative workflow change was made.
 
 ## Database and data integrity
 
