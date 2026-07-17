@@ -119,12 +119,12 @@ targets:
     dependencies:
       - package: WhoopProtocol
       - package: WhoopStore
+      - package: OuraProtocol
       - package: StrandAnalytics
       - package: StrandImport
       - package: StrandDesign
       - package: MarkdownUI
       - package: ZIPFoundation
-      - package: OuraProtocol
   StrandTests:
     type: bundle.unit-test
     platform: macOS
@@ -153,6 +153,8 @@ targets:
     dependencies:
       - target: NOOPiOS
       - package: StrandDesign
+      - package: WhoopProtocol
+      - package: WhoopStore
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
@@ -278,6 +280,7 @@ targets:
     dependencies:
       - package: WhoopProtocol
       - package: WhoopStore
+      - package: OuraProtocol
       - package: StrandAnalytics
       - package: StrandImport
       - package: StrandDesign

@@ -99,4 +99,12 @@ final class HrvGapAwareTests: XCTestCase {
         XCTAssertNil(HRVAnalyzer.rmssdGapAware([600.0, 900.0], [false, false]))
         XCTAssertNil(HRVAnalyzer.pnn50GapAware([600.0, 900.0], [false, false]))
     }
+
+    func testPhysiologicalOrderFixtureMatchesDirectSourceAnalysis() {
+        let source = [800.0, 1000.0, 900.0]
+        XCTAssertEqual(HRVAnalyzer.rmssdRaw(source)!, 158.11388300841898, accuracy: 1e-9)
+        let contiguous = [false, true, true]
+        XCTAssertEqual(HRVAnalyzer.rmssdGapAware(source, contiguous), HRVAnalyzer.rmssdRaw(source))
+        XCTAssertEqual(HRVAnalyzer.pnn50GapAware(source, contiguous), 100.0)
+    }
 }

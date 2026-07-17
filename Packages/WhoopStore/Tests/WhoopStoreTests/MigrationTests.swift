@@ -39,26 +39,27 @@ final class MigrationTests: XCTestCase {
     func testRrIntervalPrimaryKeyIncludesSeq() async throws {
         let store = try await WhoopStore.inMemory()
         let cols = try await store.primaryKeyColumns("rrInterval")
-        XCTAssertEqual(cols, ["deviceId", "ts", "rrMs", "seq"])
+        XCTAssertEqual(cols, ["deviceId", "ts", "seq"])
     }
 
-    func testV26KeepsEqualSameSecondBeatsAndReplayIsIdempotent() async throws {
+    func testV26PreservesSameSecondPhysiologicalOrderAndReplayIsIdempotent() async throws {
         let store = try await WhoopStore.inMemory()
         try await store.upsertDevice(id: "dev1", mac: nil, name: nil)
         let batch = Streams(rr: [
-            RRInterval(ts: 100, rrMs: 812),
-            RRInterval(ts: 100, rrMs: 812),
+            RRInterval(ts: 100, rrMs: 800),
+            RRInterval(ts: 100, rrMs: 1000),
+            RRInterval(ts: 100, rrMs: 900),
             RRInterval(ts: 101, rrMs: 805),
         ])
 
         let first = try await store.insert(batch, deviceId: "dev1")
         let second = try await store.insert(batch, deviceId: "dev1")
-        XCTAssertEqual(first.rr, 3)
+        XCTAssertEqual(first.rr, 4)
         XCTAssertEqual(second.rr, 0)
 
         let rows = try await store.rrIntervals(
             deviceId: "dev1", from: 0, to: 1_000, limit: 100)
-        XCTAssertEqual(rows.filter { $0.ts == 100 && $0.rrMs == 812 }.count, 2)
+        XCTAssertEqual(rows.filter { $0.ts == 100 }.map(\.rrMs), [800, 1000, 900])
     }
 
     /// v5 adds a `synced` column to all 8 decoded tables.
@@ -69,7 +70,7 @@ final class MigrationTests: XCTestCase {
             let cols = try await store.columnNamesForTest(table: table)
             XCTAssertTrue(cols.contains("synced"), "\(table) missing synced column")
         }
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 18)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 29)
     }
 
     /// v13 adds the `userEdited` flag to sleepSession (user-corrected wake times survive re-sync).

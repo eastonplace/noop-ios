@@ -250,11 +250,9 @@ struct BackupSyncView: View {
         operationFailure = nil
         busy = true
         Task {
-            // The restore is synchronous file I/O; run it off the main actor so the UI stays responsive
-            // for a large store, then report on the main actor.
-            let result = await Task.detached(priority: .userInitiated) {
-                FolderBackup.restore(snapshotNamed: snap.name)
-            }.value
+            let result = await FolderBackup.restore(
+                snapshotNamed: snap.name,
+                lifecycle: model.backupRestoreLifecycle)
             await MainActor.run {
                 busy = false
                 runningOperation = nil
@@ -262,7 +260,7 @@ struct BackupSyncView: View {
                 case .imported:
                     presentSuccess(
                         title: String(localized: "Restored"),
-                        message: String(localized: "Fully quit and reopen NOOP to load it.")
+                        message: String(localized: "The restored database is open and ready to use.")
                     )
                 case .failure(let m):
                     operationFailure = BackupOperationFailure(

@@ -527,11 +527,14 @@ extension WhoopStore {
                 t.column("rrMs", .integer).notNull()
                 t.column("seq", .integer).notNull().defaults(to: 0)
                 t.column("synced", .integer).notNull().defaults(to: 0)
-                t.primaryKey(["deviceId", "ts", "rrMs", "seq"])
+                t.primaryKey(["deviceId", "ts", "seq"])
             }
             try db.execute(sql: """
                 INSERT INTO rrInterval_new (deviceId, ts, rrMs, seq, synced)
-                SELECT deviceId, ts, rrMs, 0, synced FROM rrInterval
+                SELECT deviceId, ts, rrMs,
+                       ROW_NUMBER() OVER (PARTITION BY deviceId, ts ORDER BY rrMs) - 1,
+                       synced
+                FROM rrInterval
                 """)
             try db.execute(sql: "DROP TABLE rrInterval")
             try db.execute(sql: "ALTER TABLE rrInterval_new RENAME TO rrInterval")
@@ -558,6 +561,17 @@ extension WhoopStore {
                 t.column("ts", .integer).notNull()
                 t.column("samples", .blob).notNull()
                 t.primaryKey(["deviceId", "ts"])
+            }
+        }
+
+        // v29 (Spec 009): provenance for NOOP-computed Strain V2. Nullable is intentional:
+        // imported WHOOP daily/workout scores retain their source semantics.
+        migrator.registerMigration("v29-strain-v2") { db in
+            try db.alter(table: "dailyMetric") { t in
+                t.add(column: "strainVersion", .integer)
+            }
+            try db.alter(table: "workout") { t in
+                t.add(column: "strainVersion", .integer)
             }
         }
         return migrator

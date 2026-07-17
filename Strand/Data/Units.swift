@@ -75,8 +75,8 @@ enum UnitPrefs {
     static let systemKey = "units.system"
     /// Temperature override. Empty string = "match the length/mass system" (the default).
     static let temperatureKey = "units.temperature"
-    /// Effort display scale (#268). Stored raw is an `EffortScale` rawValue; an unset/unknown value
-    /// resolves to `.hundred` (NOOP's native axis). Mirrored on Android by NoopPrefs("effort.scale").
+    /// Legacy effort-scale preference key retained for stored-settings compatibility. Paper has one
+    /// canonical 0–21 Strain presentation regardless of any older value at this key.
     static let effortScaleKey = "effort.scale"
 
     /// Trend chart style (line vs bar). Stored raw is a `TrendChartStyle` rawValue; an unset/unknown
@@ -89,12 +89,10 @@ enum UnitPrefs {
     /// reads it and a Settings switch re-scores. Mirrored on Android by NoopPrefs("hrv.window").
     static let hrvWindowKey = "hrv.window"
 
-    /// Display factor for the #268 Effort scale: the stored 0-100 value multiplied by this renders on
-    /// the user's chosen axis (1.0 for the native 0-100, 0.21 for the WHOOP-style 0-21). Display-only,
-    /// mirrors Android's effortDisplayFactor helper so digest sentences match the charts on both.
+    /// Display factor at the only supported 0–21 presentation boundary. The persisted analytics value
+    /// remains 0–100 for schema compatibility, including imported and pre-V2 history.
     static func currentEffortDisplayFactor() -> Double {
-        let raw = UserDefaults.standard.string(forKey: effortScaleKey) ?? ""
-        return raw == EffortScale.whoop.rawValue ? 0.21 : 1.0
+        0.21
     }
 
     /// Whether the live-HR Live Activity (Lock Screen + Dynamic Island) may show, iOS only (#336).

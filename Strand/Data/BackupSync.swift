@@ -319,7 +319,21 @@ enum FolderBackup {
     /// hardened safety (magic-byte + GRDB-origin validation, sidecar snapshot, rollback) still applies.
     /// The destructive confirmation is the screen's responsibility (must-fix #2); this is the final
     /// step it calls only AFTER the user confirms.
-    static func restore(snapshotNamed name: String) -> DataBackup.BackupResult {
+    private enum StagedSnapshot { case ready(URL), failure(String) }
+
+    @MainActor
+    static func restore(snapshotNamed name: String,
+                        lifecycle: DataBackup.RestoreLifecycle) async -> DataBackup.BackupResult {
+        let staged = await Task.detached(priority: .userInitiated) { stageSnapshot(named: name) }.value
+        switch staged {
+        case .failure(let message): return .failure(message)
+        case .ready(let localCopy):
+            defer { try? FileManager.default.removeItem(at: localCopy) }
+            return await DataBackup.restore(from: localCopy, lifecycle: lifecycle)
+        }
+    }
+
+    private static func stageSnapshot(named name: String) -> StagedSnapshot {
         guard let folder = resolveFolder() else {
             return .failure("Couldn't open your backup folder - re-pick it and try again.")
         }
@@ -347,7 +361,14 @@ enum FolderBackup {
                 ? "That backup is still downloading from iCloud - wait a moment and try again."
                 : "That backup is no longer in your folder.")
         }
-        return DataBackup.restore(from: source)
+        let localCopy = FileManager.default.temporaryDirectory
+            .appendingPathComponent("noop-folder-restore-\(UUID().uuidString).noopbak")
+        do {
+            try FileManager.default.copyItem(at: source, to: localCopy)
+            return .ready(localCopy)
+        } catch {
+            return .failure("Couldn't stage that backup for restore: \(error.localizedDescription)")
+        }
     }
 
     // MARK: - Folder picker

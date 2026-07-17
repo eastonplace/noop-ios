@@ -24,3 +24,7 @@
 - [ ] T023 Record available physical WHOOP QA and focused iPhone visual evidence.
 - [x] T024 Commit, push, open draft PR, and record exact evidence.
 - [x] T025 Diagnose the pre-run GitHub Actions failures and record the external billing gate.
+- [x] T026 Reconcile the newer Strain V2 task without undoing backend fixes: schema v29,
+      continuous HRR scoring, sleep-to-sleep shadow rows, imported-score protection, and canonical 0–21 display.
+- [x] T027 Pass updated WhoopStore (273), StrandAnalytics (1,108), StrandImport (189),
+      and NOOPiOS simulator (12) regression tests; produce a signed physical-device build.

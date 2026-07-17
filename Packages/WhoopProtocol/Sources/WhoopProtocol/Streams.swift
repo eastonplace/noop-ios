@@ -13,7 +13,19 @@ public struct HRSample: Equatable, Codable {
 public struct RRInterval: Equatable, Codable {
     public let ts: Int          // wall-clock unix seconds
     public let rrMs: Int
-    public init(ts: Int, rrMs: Int) { self.ts = ts; self.rrMs = rrMs }
+    /// Stable order within all intervals sharing `ts`. Parsers set this from source-array order;
+    /// callers that omit it retain source order through the store's deterministic batch fallback.
+    public let sourceOrdinal: Int?
+    public init(ts: Int, rrMs: Int, sourceOrdinal: Int? = nil) {
+        self.ts = ts; self.rrMs = rrMs; self.sourceOrdinal = sourceOrdinal
+    }
+
+    /// Storage ordering metadata is deliberately excluded from value equality. Existing decode
+    /// parity fixtures describe the physiological interval (`ts`, `rrMs`); `sourceOrdinal` is an
+    /// internal persistence tiebreaker and must not change those public value semantics.
+    public static func == (lhs: RRInterval, rhs: RRInterval) -> Bool {
+        lhs.ts == rhs.ts && lhs.rrMs == rhs.rrMs
+    }
 }
 
 public struct WhoopEvent: Equatable, Codable {
@@ -334,6 +346,15 @@ private func toWall(_ deviceTs: Int?, _ deviceClockRef: Int, _ wallClockRef: Int
 public func extractStreams(_ parsed: [ParsedFrame],
                            deviceClockRef: Int, wallClockRef: Int) -> Streams {
     var out = Streams()
+    var nextRrOrdinalByTs: [Int: Int] = [:]
+    func appendRR(_ values: [Int], at ts: Int) {
+        var ordinal = nextRrOrdinalByTs[ts, default: 0]
+        for value in values {
+            out.rr.append(RRInterval(ts: ts, rrMs: value, sourceOrdinal: ordinal))
+            ordinal += 1
+        }
+        nextRrOrdinalByTs[ts] = ordinal
+    }
     for r in parsed {
         if !r.ok || r.crcOK == false { continue }
         let p = r.parsed
@@ -345,7 +366,7 @@ public func extractStreams(_ parsed: [ParsedFrame],
             }
             // Unlike Python, drop RR rows when timestamp is absent (a ts-less RR row is unstorable).
             if let ts = ts, let rrs = p["rr_intervals"]?.intArrayValue {
-                for rr in rrs { out.rr.append(RRInterval(ts: ts, rrMs: rr)) }
+                appendRR(rrs, at: ts)
             }
         case "EVENT":
             // EVENT timestamps are real RTC unix seconds — already wall-clock, NOT offset.

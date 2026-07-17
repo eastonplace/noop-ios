@@ -56,6 +56,31 @@ final class AppModel: ObservableObject {
     /// On-device WHOOP-style recovery/strain/sleep computation from raw strap streams.
     let intelligence: IntelligenceEngine
 
+    var backupRestoreLifecycle: DataBackup.RestoreLifecycle {
+        DataBackup.RestoreLifecycle(
+            quiesce: { [weak self] in
+                guard let self else { return }
+                try await self.ble.quiesceStoreForRestore()
+                do {
+                    try await self.repo.quiesceStoreForRestore()
+                } catch {
+                    try? await self.ble.reopenStoreAfterRestore()
+                    throw error
+                }
+            },
+            reopenAndMigrate: { [weak self] in
+                guard let self else { return }
+                try await self.repo.reopenStoreAfterRestore()
+                do {
+                    try await self.ble.reopenStoreAfterRestore()
+                } catch {
+                    try? await self.repo.quiesceStoreForRestore()
+                    throw error
+                }
+            }
+        )
+    }
+
     /// Opt-in AI coach (bring-your-own-key) , the one networked feature, off until the user enables it.
     let coach: AICoachEngine
 
@@ -683,7 +708,7 @@ final class AppModel: ObservableObject {
             : Int((Double(samples.map(\.bpm).reduce(0, +)) / Double(samples.count)).rounded())
         let peak = samples.map(\.bpm).max()
         let strain = samples.count >= 2
-            ? StrainScorer.strain(samples, maxHR: Double(profile.hrMax), sex: profile.sex) : nil
+            ? StrainScorerV2.strain(samples, maxHR: Double(profile.hrMax), mode: .activity) : nil
         // Estimate calories from the captured HR window (same Keytel/Harris–Benedict model the
         // auto-detector uses) so a manual session shows energy too, not just duration/strain. (#117)
         let up = UserProfile(weightKg: profile.weightKg, heightCm: profile.heightCm,
@@ -730,7 +755,8 @@ final class AppModel: ObservableObject {
         w.samples.append(HRSample(ts: Int(Date().timeIntervalSince1970), bpm: hr))
         w.peakHr = max(w.peakHr, hr)
         w.avgHr = Int((Double(w.samples.map(\.bpm).reduce(0, +)) / Double(w.samples.count)).rounded())
-        w.liveStrain = StrainScorer.strain(w.samples, maxHR: Double(profile.hrMax), sex: profile.sex) ?? 0
+        w.liveStrain = StrainScorerV2.strain(
+            w.samples, maxHR: Double(profile.hrMax), mode: .activity) ?? 0
         activeWorkout = w
         // Re-snapshot the durable session so a kill keeps the latest accumulated HR window (#529).
         persistActiveWorkout()

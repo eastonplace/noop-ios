@@ -13,7 +13,7 @@ final class TestReportLinkTests: XCTestCase {
             version: "7.3.0", platform: "iOS", osVersion: "18.5")
         XCTAssertNotNil(url)
         let s = url!.absoluteString
-        XCTAssertTrue(s.hasPrefix("https://github.com/NoopApp/noop/issues/new?"))
+        XCTAssertTrue(s.hasPrefix("https://github.com/ryanbr/noop/issues/new?"))
         XCTAssertTrue(s.contains("template=bug_report.yml"))
         // Label component: "bug,test:sleep" with the comma percent-encoded.
         XCTAssertTrue(s.contains("labels=bug%2Ctest:sleep"))

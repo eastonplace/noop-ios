@@ -52,6 +52,8 @@ public struct DailyMetric: Equatable, Codable {
     public let avgHrv: Double?
     public let recovery: Double?
     public let strain: Double?
+    /// NOOP scorer provenance. Imported scores remain nil.
+    public let strainVersion: Int?
     public let exerciseCount: Int?
     // In-sleep signal aggregates (v7 columns). All nullable; computed server-side.
     public let spo2Pct: Double?        // mean SpO2 (%) during sleep
@@ -73,11 +75,12 @@ public struct DailyMetric: Equatable, Codable {
                 avgHrv: Double?, recovery: Double?, strain: Double?, exerciseCount: Int?,
                 spo2Pct: Double? = nil, skinTempDevC: Double? = nil, respRateBpm: Double? = nil,
                 steps: Int? = nil, activeKcalEst: Double? = nil,
-                spo2Red: Int? = nil, spo2Ir: Int? = nil) {
+                spo2Red: Int? = nil, spo2Ir: Int? = nil, strainVersion: Int? = nil) {
         self.day = day; self.totalSleepMin = totalSleepMin; self.efficiency = efficiency
         self.deepMin = deepMin; self.remMin = remMin; self.lightMin = lightMin
         self.disturbances = disturbances; self.restingHr = restingHr; self.avgHrv = avgHrv
-        self.recovery = recovery; self.strain = strain; self.exerciseCount = exerciseCount
+        self.recovery = recovery; self.strain = strain; self.strainVersion = strainVersion
+        self.exerciseCount = exerciseCount
         self.spo2Pct = spo2Pct; self.skinTempDevC = skinTempDevC; self.respRateBpm = respRateBpm
         self.steps = steps; self.activeKcalEst = activeKcalEst
         self.spo2Red = spo2Red; self.spo2Ir = spo2Ir
@@ -381,8 +384,8 @@ extension WhoopStore {
                         (deviceId, day, totalSleepMin, efficiency, deepMin, remMin, lightMin,
                          disturbances, restingHr, avgHrv, recovery, strain, exerciseCount,
                          spo2Pct, skinTempDevC, respRateBpm, steps, activeKcalEst,
-                         spo2Red, spo2Ir)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         spo2Red, spo2Ir, strainVersion)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(deviceId, day) DO UPDATE SET
                         totalSleepMin = excluded.totalSleepMin,
                         efficiency = excluded.efficiency,
@@ -393,7 +396,11 @@ extension WhoopStore {
                         restingHr = excluded.restingHr,
                         avgHrv = excluded.avgHrv,
                         recovery = excluded.recovery,
-                        strain = excluded.strain,
+                        strain = CASE
+                            WHEN dailyMetric.strainVersion = 2 AND excluded.strainVersion IS NULL
+                            THEN dailyMetric.strain
+                            ELSE excluded.strain
+                        END,
                         exerciseCount = excluded.exerciseCount,
                         spo2Pct = excluded.spo2Pct,
                         skinTempDevC = excluded.skinTempDevC,
@@ -401,13 +408,18 @@ extension WhoopStore {
                         steps = excluded.steps,
                         activeKcalEst = excluded.activeKcalEst,
                         spo2Red = excluded.spo2Red,
-                        spo2Ir = excluded.spo2Ir
+                        spo2Ir = excluded.spo2Ir,
+                        strainVersion = CASE
+                            WHEN dailyMetric.strainVersion = 2 AND excluded.strainVersion IS NULL
+                            THEN dailyMetric.strainVersion
+                            ELSE excluded.strainVersion
+                        END
                     """, arguments: [deviceId, d.day, d.totalSleepMin, d.efficiency, d.deepMin,
                                      d.remMin, d.lightMin, d.disturbances, d.restingHr, d.avgHrv,
                                      d.recovery, d.strain, d.exerciseCount,
                                      d.spo2Pct, d.skinTempDevC, d.respRateBpm,
                                      d.steps, d.activeKcalEst,
-                                     d.spo2Red, d.spo2Ir])
+                                     d.spo2Red, d.spo2Ir, d.strainVersion])
                 n += db.changesCount
             }
             return n
@@ -458,7 +470,7 @@ extension WhoopStore {
                 SELECT day, totalSleepMin, efficiency, deepMin, remMin, lightMin, disturbances,
                        restingHr, avgHrv, recovery, strain, exerciseCount,
                        spo2Pct, skinTempDevC, respRateBpm, steps, activeKcalEst,
-                       spo2Red, spo2Ir FROM dailyMetric
+                       spo2Red, spo2Ir, strainVersion FROM dailyMetric
                 WHERE deviceId = ? AND day >= ? AND day <= ?
                 ORDER BY day ASC
                 """, arguments: [deviceId, from, to])
@@ -472,7 +484,8 @@ extension WhoopStore {
                                 spo2Pct: $0["spo2Pct"], skinTempDevC: $0["skinTempDevC"],
                                 respRateBpm: $0["respRateBpm"],
                                 steps: $0["steps"], activeKcalEst: $0["activeKcalEst"],
-                                spo2Red: $0["spo2Red"], spo2Ir: $0["spo2Ir"])
+                                spo2Red: $0["spo2Red"], spo2Ir: $0["spo2Ir"],
+                                strainVersion: $0["strainVersion"])
                 }
         }
     }

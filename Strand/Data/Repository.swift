@@ -542,6 +542,21 @@ final class Repository: ObservableObject {
     /// Expose the shared store handle (used by the importer to persist mapped rows).
     func storeHandle() async -> WhoopStore? { await ensureStore() }
 
+    func quiesceStoreForRestore() async throws {
+        if let storeOpenTask { _ = await storeOpenTask.value }
+        if let store { try await store.close() }
+        store = nil
+        storeOpenTask = nil
+    }
+
+    func reopenStoreAfterRestore() async throws {
+        guard await ensureStore() != nil else {
+            throw NSError(domain: "NOOP.Restore", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: "The repository database could not be reopened."])
+        }
+        await refresh()
+    }
+
     /// CAPTURE-D (#797): the on-device DATA VOLUME read FRESH from the STORE (never the `@Published`
     /// dashboard caches), for the Display & Performance test mode's `dataVolume` line. dbRows is the raw
     /// decoded-stream footprint; importedDays is the count of imported daily-metric rows under the active
@@ -2141,11 +2156,11 @@ final class Repository: ObservableObject {
                         // Sum + max over up to 8000 ints , off the @MainActor (the freeze fix).
                         let (avg, peak) = Repository.reduceWorkoutHr(samples)
                         // #961: recompute Effort from the SAME samples the graph/zones use, off-main. Uses the
-                        // app's StrainScorer with the injected HRmax + sex so it matches endWorkout's own score;
-                        // StrainScorer returns nil on a still-too-thin window (never a fabricated number).
+                        // app's V2 activity scorer with the injected HRmax so it matches endWorkout's own
+                        // score; it returns nil on a still-too-thin window (never a fabricated number).
                         let strain: Double?
                         if wantStrain, let p = strainProfile {
-                            strain = StrainScorer.strain(samples, maxHR: p.hrMax, sex: p.sex)
+                            strain = StrainScorerV2.strain(samples, maxHR: p.hrMax, mode: .activity)
                         } else {
                             strain = nil
                         }

@@ -176,6 +176,15 @@ public func extractHistoricalStreams(_ parsed: [ParsedFrame],
     var droppedOldest: Int? = nil
     var droppedNewest: Int? = nil
     var out = Streams()
+    var nextRrOrdinalByTs: [Int: Int] = [:]
+    func appendRR(_ values: [Int], at ts: Int) {
+        var ordinal = nextRrOrdinalByTs[ts, default: 0]
+        for value in values {
+            out.rr.append(RRInterval(ts: ts, rrMs: value, sourceOrdinal: ordinal))
+            ordinal += 1
+        }
+        nextRrOrdinalByTs[ts] = ordinal
+    }
     // v26 optical-PPG records (issue #156): no measured HR/motion, just the 24 Hz waveform. Collect
     // (corrected-wall ts, samples) here and derive a per-second HR after the loop (PpgHr.derivePpgHr),
     // so the timeline stays continuous through the v26-heavy stretches that have no v18 HR summary.
@@ -204,7 +213,7 @@ public func extractHistoricalStreams(_ parsed: [ParsedFrame],
                 out.hr.append(HRSample(ts: ts, bpm: bpm))
             }
             if let rrs = p["rr_intervals"]?.intArrayValue {
-                for rr in rrs { out.rr.append(RRInterval(ts: ts, rrMs: rr)) }
+                appendRR(rrs, at: ts)
             }
             if let red = p["spo2_red"]?.intValue {
                 out.spo2.append(SpO2Sample(ts: ts, red: red, ir: p["spo2_ir"]?.intValue ?? 0))
@@ -246,7 +255,7 @@ public func extractHistoricalStreams(_ parsed: [ParsedFrame],
                 out.hr.append(HRSample(ts: ts, bpm: bpm))
             }
             if let ts = rtTs, let rrs = p["rr_intervals"]?.intArrayValue {
-                for rr in rrs { out.rr.append(RRInterval(ts: ts, rrMs: rr)) }
+                appendRR(rrs, at: ts)
             }
         case "EVENT":
             // EVENT carries the strap RTC's real-unix seconds. Correct for a grossly-stale RTC

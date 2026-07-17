@@ -234,6 +234,76 @@ final class BackupSyncRoundTripTests: XCTestCase {
                        "The live DB must be unchanged after the integrity rejection")
     }
 
+    func testRollbackSnapshotIncludesCommittedRowsStillInWal() throws {
+        let liveDB = tmp.appendingPathComponent("live-wal.sqlite")
+        try makeNoopDatabase(at: liveDB, deviceRows: ["original"])
+
+        var connection: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(liveDB.path, &connection), SQLITE_OK)
+        defer { sqlite3_close(connection) }
+        try exec(connection, "PRAGMA journal_mode=WAL")
+        try exec(connection, "PRAGMA wal_autocheckpoint=0")
+        try exec(connection, "INSERT INTO device (id) VALUES ('committed-in-wal')")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: liveDB.path + "-wal"))
+
+        let replacement = tmp.appendingPathComponent("replacement.sqlite")
+        try makeNoopDatabase(at: replacement, deviceRows: ["replacement"])
+        let result = DataBackup.restore(from: replacement, toDatabaseAt: liveDB.path,
+                                        fault: .replacementCopy)
+        guard case .failure = result else { return XCTFail("Injected copy failure must fail") }
+        XCTAssertEqual(try deviceRows(in: liveDB), ["committed-in-wal", "original"],
+                       "Online safety snapshot must include committed WAL frames")
+    }
+
+    func testPostSwapFailureRollsBackExactRows() throws {
+        let liveDB = tmp.appendingPathComponent("live.sqlite")
+        try makeNoopDatabase(at: liveDB, deviceRows: ["original-a", "original-b"])
+        let replacement = tmp.appendingPathComponent("replacement.sqlite")
+        try makeNoopDatabase(at: replacement, deviceRows: ["replacement"])
+
+        let result = DataBackup.restore(from: replacement, toDatabaseAt: liveDB.path,
+                                        fault: .postSwapValidation)
+        guard case .failure = result else { return XCTFail("Injected validation failure must fail") }
+        XCTAssertEqual(try deviceRows(in: liveDB), ["original-a", "original-b"])
+    }
+
+    func testSuccessfulRestoreAcceptsImmediateWriteWithoutRelaunch() throws {
+        let liveDB = tmp.appendingPathComponent("live.sqlite")
+        try makeNoopDatabase(at: liveDB, deviceRows: ["old"])
+        let replacement = tmp.appendingPathComponent("replacement.sqlite")
+        try makeNoopDatabase(at: replacement, deviceRows: ["replacement"])
+
+        let result = DataBackup.restore(from: replacement, toDatabaseAt: liveDB.path)
+        guard case .imported = result else { return XCTFail("Restore should succeed") }
+
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(liveDB.path, &db), SQLITE_OK)
+        defer { sqlite3_close(db) }
+        try exec(db, "INSERT INTO device (id) VALUES ('immediate-write')")
+        XCTAssertEqual(try deviceRows(in: liveDB), ["immediate-write", "replacement"])
+    }
+
+    @MainActor
+    func testMigrationReopenFailureRollsBackAndReopensPreviousDatabase() async throws {
+        let liveDB = tmp.appendingPathComponent("live.sqlite")
+        try makeNoopDatabase(at: liveDB, deviceRows: ["original"])
+        let replacement = tmp.appendingPathComponent("replacement.sqlite")
+        try makeNoopDatabase(at: replacement, deviceRows: ["replacement"])
+        var reopenCount = 0
+        let lifecycle = DataBackup.RestoreLifecycle(
+            quiesce: {},
+            reopenAndMigrate: {
+                reopenCount += 1
+                if reopenCount == 1 { throw TestError("migration failed") }
+            })
+
+        let result = await DataBackup.restore(from: replacement, toDatabaseAt: liveDB.path,
+                                              lifecycle: lifecycle)
+        guard case .failure = result else { return XCTFail("Migration failure must report failure") }
+        XCTAssertEqual(reopenCount, 2, "Replacement open fails, rollback open succeeds")
+        XCTAssertEqual(try deviceRows(in: liveDB), ["original"])
+    }
+
     // MARK: - Prune deletes the oldest files past keep-N (real files)
 
     func testPruneDeletesOldestRealFilesPastKeepN() throws {

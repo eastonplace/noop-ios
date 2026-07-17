@@ -58,10 +58,10 @@ struct SettingsView: View {
     /// Stored inverted so an unset key means the recommended pause is enabled.
     @AppStorage(PuffinExperiment.pauseHrvDisabledKey) private var pauseHrvDisabled = false
 
-    /// Opt-in "Experimental sleep staging (V2)" (off by default). When on, detected nights are re-staged with
-    /// `SleepStagerV2` (the transparent cardiorespiratory recipe) instead of the default V1 stager. Read at
-    /// the staging call site in `Repository`. See [PuffinExperiment.experimentalSleepV2Key].
-    @AppStorage(PuffinExperiment.experimentalSleepV2Key) private var experimentalSleepV2Enabled = false
+    /// V2 is the promoted default; V1 remains available when the user turns this off. The fallback must
+    /// match `PuffinExperiment.experimentalSleepV2Enabled` so Settings never contradicts the engine.
+    @AppStorage(PuffinExperiment.experimentalSleepV2Key)
+    private var experimentalSleepV2Enabled = PuffinExperiment.experimentalSleepV2Default
 
     // Imperial/Metric display preference (D#103). Stored data is always SI; this only changes how
     // distances/weights/heights/temperatures are SHOWN — and lets the profile fields below take
@@ -1266,14 +1266,13 @@ struct SettingsView: View {
         }
     }
 
-    /// Opt-in experimental sleep staging (V2). Model-agnostic — the V2 recipe works on WHOOP 4 and 5 — so it
-    /// renders on every strap, separate from the 5/MG probe card. Default OFF; flipping it on re-stages
-    /// future (and re-derived) nights with `SleepStagerV2`. The default V1 stager is untouched.
+    /// V2 is the current default. It is model-agnostic and renders on every strap, separate from the
+    /// 5/MG probe card. Turning it off selects the older V1 fallback for future/re-derived nights.
     private var sleepStagingCard: some View {
         SettingsSection(
             icon: "bed.double.fill",
             title: "Experimental · Sleep staging",
-            blurb: "How NOOP splits a night into light / deep / REM. This is a separate, opt-in recipe. Your default staging is unchanged unless you turn it on."
+            blurb: "How NOOP splits a night into light / deep / REM. V2 is the current default; turn it off to use the older V1 fallback."
         ) {
             VStack(alignment: .leading, spacing: NoopMetrics.rowSpacing) {
                 Toggle(isOn: $experimentalSleepV2Enabled) {
@@ -1283,7 +1282,7 @@ struct SettingsView: View {
                 }
                 .toggleStyle(.switch)
                 .tint(StrandPalette.ink)
-                Text("A transparent cardiorespiratory recipe that recovers deep and REM better than the default staging. Opt-in and experimental: it only changes how already-detected nights are split into stages (detection and scores are unchanged), and the default staging stays in place if you leave this off. Takes effect on the next nights staged.")
+                Text("V2 is NOOP's current default staging recipe and improves deep and REM detection. Turn it off to use the older V1 fallback. This only changes how already-detected nights are split into stages; detection and scores are unchanged. Changes take effect on the next nights staged.")
                     .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1753,7 +1752,7 @@ struct SettingsView: View {
                         .foregroundStyle(StrandPalette.textTertiary)
                         .font(.system(size: 13))
                         .accessibilityHidden(true)
-                    Text("Importing overwrites everything currently on \(Platform.deviceNounPhrase). Your old data is kept in a side file just in case. NOOP needs a relaunch for an import to take effect. Export CSV writes a WHOOP-format zip of your days, sleeps, workouts and journal that re-imports into NOOP on Mac, iPhone, or Android. On-device computed rows are marked APPROXIMATE in its Source column; the full backup stays the lossless restore path.")
+                    Text("Importing overwrites everything currently on \(Platform.deviceNounPhrase). Your old data is kept in a side file just in case, and NOOP reopens the restored database automatically. Export CSV writes a WHOOP-format zip of your days, sleeps, workouts and journal that re-imports into NOOP on Mac, iPhone, or Android. On-device computed rows are marked APPROXIMATE in its Source column; the full backup stays the lossless restore path.")
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -1809,7 +1808,7 @@ struct SettingsView: View {
     private func runImport() {
         backupBusy = true
         Task {
-            let result = await DataBackup.runImport()
+            let result = await DataBackup.runImport(lifecycle: model.backupRestoreLifecycle)
             handleBackup(result)
         }
     }
@@ -1846,7 +1845,7 @@ struct SettingsView: View {
             showBackupAlert = true
         case .imported:
             backupAlertTitle = String(localized: "Backup imported")
-            backupAlertMessage = String(localized: "Your data has been restored. Quit and reopen NOOP for it to take effect.")
+            backupAlertMessage = String(localized: "Your data has been restored and is ready to use.")
             showBackupAlert = true
         case .failure(let message):
             backupAlertTitle = String(localized: "Backup problem")

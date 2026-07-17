@@ -82,6 +82,9 @@ public enum AnalyticsEngine {
         /// 0.20 + restorative share 0.20 + consistency 0.10). The downstream metric-series
         /// builder reads it from here; the Charge "Rest quality" term reads it ÷100.
         public let restScore: Double?
+        /// Shadow-mode Strain V2 value on the persisted 0...100 axis. The canonical
+        /// `daily.strain` remains V1 until the storage rollout promotes V2.
+        public let strainV2Shadow: Double?
         /// Per-score confidence tiers (Charge / Effort / Rest) for the small label under
         /// each score. Always present (worst case `.calibrating`).
         public let chargeConfidence: ScoreConfidence
@@ -109,6 +112,7 @@ public enum AnalyticsEngine {
         public init(daily: DailyMetric, sleepSessions: [SleepSession],
                     cachedSleep: [CachedSleepSession], workouts: [ExerciseSession],
                     recovery: Double?, strain: Double?, nightlySkinTempC: Double? = nil,
+                    strainV2Shadow: Double? = nil,
                     restScore: Double? = nil,
                     chargeConfidence: ScoreConfidence = .calibrating,
                     effortConfidence: ScoreConfidence = .calibrating,
@@ -120,6 +124,7 @@ public enum AnalyticsEngine {
             self.daily = daily; self.sleepSessions = sleepSessions
             self.cachedSleep = cachedSleep; self.workouts = workouts
             self.recovery = recovery; self.strain = strain
+            self.strainV2Shadow = strainV2Shadow
             self.chargeDrivers = chargeDrivers
             self.skinTempRelative = skinTempRelative
             self.nightlySkinTempC = nightlySkinTempC
@@ -705,6 +710,47 @@ public enum AnalyticsEngine {
             dayHrFiltered, profile: profile, hrmax: effMaxHR,
             restingHR: restingHRDaily.map(Double.init))
 
+        // ── Strain V2 shadow (sleep-to-sleep, continuous HRR load) ───────────────
+        // Keep V1 canonical during the comparison window. V2 reads the broad night window so the cycle
+        // begins at the main sleep onset rather than local midnight. When a later matched sleep begins at
+        // least four hours after the main group ends, it closes the cycle; otherwise the open cycle ends at
+        // the last available sample (`now` for today, the read bound for history). The wake-day key remains
+        // unchanged, so Repository/UI compatibility is preserved.
+        let mainSleepStart = mainGroup.map(\.start).min()
+        let mainSleepEnd = mainGroup.map(\.end).max()
+        let mergedCycleHr = (hr + (dayHr ?? [])).sorted { $0.ts < $1.ts }
+        let mergedCycleSteps = (steps + (daySteps ?? [])).sorted { $0.ts < $1.ts }
+        let nextSleepStart: Int? = mainSleepEnd.flatMap { end in
+            matched.map(\.start).filter { $0 >= end + 4 * 3_600 }.min()
+        }
+        let cycleEnd = nextSleepStart ?? (mergedCycleHr.last.map { $0.ts + 1 } ?? 0)
+        let cycleHr: [HRSample] = mainSleepStart.map { start in
+            mergedCycleHr.filter { $0.ts >= start && $0.ts < cycleEnd }
+        } ?? dayHrFiltered
+        let cycleStepRows: [StepSample] = mainSleepStart.map { start in
+            mergedCycleSteps.filter { $0.ts >= start && $0.ts < cycleEnd }
+        } ?? (daySteps ?? steps)
+        let cycleStepsTotal: Int? = {
+            guard cycleStepRows.count >= 2 else { return nil }
+            var total = 0
+            for pair in zip(cycleStepRows, cycleStepRows.dropFirst()) {
+                let delta = (pair.1.counter - pair.0.counter) & 0xFFFF
+                if delta >= 1 && delta < 512 { total += delta }
+            }
+            let scaled = Int((Double(total) / max(profile.stepTicksPerStep, 0.5)).rounded())
+            return scaled > 0 ? scaled : nil
+        }()
+        let cycleActiveKcal: Double? = cycleHr.isEmpty ? nil : Calories.estimateDayCalories(
+            cycleHr, profile: profile, hrmax: effMaxHR,
+            restingHR: restingHRDaily.map(Double.init))
+        let strainV2Shadow = StrainScorerV2.strain(
+            cycleHr, maxHR: effMaxHR, restingHR: restForStrain,
+            mode: .physiologicalDay(.init(
+                validWornSleepMinutes: matched.isEmpty ? nil : inBedS / 60.0,
+                steps: cycleStepsTotal ?? stepsTotal,
+                activeEnergyKcal: cycleActiveKcal ?? activeKcalEst,
+                hasWearCoverage: !matched.isEmpty || !cycleHr.isEmpty)))
+
         // ── Assemble DailyMetric ──────────────────────────────────────────────
         let daily = DailyMetric(
             day: day,
@@ -778,6 +824,7 @@ public enum AnalyticsEngine {
         return DayResult(daily: daily, sleepSessions: matched, cachedSleep: cachedSleep,
                          workouts: workouts, recovery: recovery, strain: strain,
                          nightlySkinTempC: nightlySkinTempC,
+                         strainV2Shadow: strainV2Shadow,
                          restScore: restScore,
                          chargeConfidence: chargeConfidence,
                          effortConfidence: effortConfidence,

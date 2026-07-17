@@ -421,10 +421,9 @@ enum DemoScreens {
         // + battery + local-state note), rendered with mock data, no ring required.
         case "ouradevice": return AnyView(OuraDeviceDemoScreen())
         case "onboarding": return AnyView(OnboardingWizard(onFinished: {}))
-        // #221: a WHOOP 5/MG whose encrypted bond was refused (#78) — the "Connected · not paired" pill
-        // + self-service pairing guidance, screenshot-able WITHOUT reproducing the bond refusal on real
-        // hardware.
-        case "bondrefused": return AnyView(BondRefusedDemoScreen())
+        // The retired standalone bond-refusal demo no longer exists; keep the debug route useful by
+        // landing on the canonical Devices surface where the live pairing guidance is rendered.
+        case "bondrefused": return AnyView(DevicesView())
         default:         return nil
         }
     }
