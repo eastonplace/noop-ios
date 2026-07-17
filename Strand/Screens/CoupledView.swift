@@ -690,6 +690,8 @@ struct PaperPillarDetailView: View {
     @EnvironmentObject private var repo: Repository
     @StateObject private var profile = ProfileStore()
     @State private var workouts: [WorkoutRow] = []
+    @State private var appleDays: [AppleDaily] = []
+    @State private var computedZoneMinutes: [Double]?
     @State private var storedStress: [(day: String, value: Double)] = []
     @State private var daytimeStress: DaytimeStress.Result?
     @State private var latestSleepStart: Date?
@@ -774,15 +776,18 @@ struct PaperPillarDetailView: View {
         }
         .task(id: repo.refreshSeq) {
             async let workoutRows = repo.workoutRows()
+            async let appleRows = repo.appleDailyRows()
             async let stressRows = repo.series(key: "stress", source: "my-whoop")
             async let sleepRows = repo.allSleepSessions(days: 14)
             workouts = await workoutRows
+            appleDays = await appleRows
             storedStress = await stressRows
             let sleeps = await sleepRows
             latestSleepStart = sleeps.last.map {
                 Date(timeIntervalSince1970: TimeInterval($0.effectiveStartTs))
             }
             await loadDaytimeStress()
+            await loadComputedWorkoutZones()
         }
     }
 
@@ -1057,6 +1062,10 @@ struct PaperPillarDetailView: View {
         let calories = sessions.compactMap(\.energyKcal).reduce(0, +)
         let maxHR = sessions.compactMap(\.maxHr).max()
         let duration = sessions.reduce(0.0) { $0 + ($1.durationS ?? Double($1.endTs - $1.startTs)) }
+        let daily = detailAppleDay
+        let resolvedAverageHR = averageHR.isEmpty ? daily?.avgHr : averageHR.reduce(0, +) / averageHR.count
+        let resolvedCalories = calories > 0 ? calories : (daily?.activeKcal ?? latestDay?.activeKcalEst ?? 0)
+        let resolvedMaxHR = maxHR ?? daily?.maxHr
 
         return PaperCard {
             VStack(alignment: .leading, spacing: 0) {
@@ -1066,16 +1075,16 @@ struct PaperPillarDetailView: View {
                     .foregroundStyle(StrandPalette.textSecondary)
                     .padding(.bottom, 8)
                 factorRow(icon: "heart", name: "Average HR",
-                          value: averageHR.isEmpty ? "—" : "\(averageHR.reduce(0, +) / averageHR.count) bpm",
+                          value: resolvedAverageHR.map { "\($0) bpm" } ?? "—",
                           status: FactorBands.heartRate(
-                            bpm: averageHR.isEmpty ? nil : Double(averageHR.reduce(0, +)) / Double(averageHR.count),
+                            bpm: resolvedAverageHR.map(Double.init),
                             maxHR: profile.hrMax > 0 ? Double(profile.hrMax) : nil))
                 factorRow(icon: "flame", name: "Calories",
-                          value: calories > 0 ? "\(Int(calories.rounded())) kcal" : "—")
+                          value: resolvedCalories > 0 ? "\(Int(resolvedCalories.rounded())) kcal" : "—")
                 factorRow(icon: "heart.circle.fill", name: "Max HR",
-                          value: maxHR.map { "\($0) bpm" } ?? "—",
+                          value: resolvedMaxHR.map { "\($0) bpm" } ?? "—",
                           status: FactorBands.heartRate(
-                            bpm: maxHR.map(Double.init),
+                            bpm: resolvedMaxHR.map(Double.init),
                             maxHR: profile.hrMax > 0 ? Double(profile.hrMax) : nil))
                 factorRow(icon: "clock.fill", name: "Duration",
                           value: duration > 0 ? durationText(duration) : "—",
@@ -1104,12 +1113,13 @@ struct PaperPillarDetailView: View {
                         .foregroundStyle(StrandPalette.link)
                 }
                 .foregroundStyle(StrandPalette.textSecondary)
-                if let summary = WorkoutZones.summary(from: detailWorkouts), summary.totalMinutes > 0 {
+                if let minutes = resolvedZoneMinutes, minutes.reduce(0, +) > 0 {
+                    let total = minutes.reduce(0, +)
                     ZoneBars((1...5).map { zone in
-                        let minutes = summary.minutes[zone - 1]
+                        let zoneMinutes = minutes[zone - 1]
                         return ZoneBarItem(zone: zone,
-                                           fraction: minutes / summary.totalMinutes,
-                                           duration: shortDuration(minutes),
+                                           fraction: zoneMinutes / total,
+                                           duration: shortDuration(zoneMinutes),
                                            bpmRange: zoneSet?.bpmRangeLabel(forZone: zone))
                     })
                 } else {
@@ -1314,10 +1324,45 @@ struct PaperPillarDetailView: View {
     }
 
     private var detailWorkouts: [WorkoutRow] {
-        guard let day = latestDay?.day else { return [] }
+        let day = detailDayKey
         return workouts.filter {
             Repository.localDayKey(Date(timeIntervalSince1970: TimeInterval($0.startTs))) == day
         }
+    }
+
+    private var detailDayKey: String {
+        repo.today?.day ?? latestDay?.day ?? Repository.logicalDayKey(Date())
+    }
+
+    private var detailAppleDay: AppleDaily? {
+        appleDays.last(where: { $0.day == detailDayKey })
+    }
+
+    private var resolvedZoneMinutes: [Double]? {
+        if let imported = WorkoutZones.summary(from: detailWorkouts), imported.totalMinutes > 0 {
+            return imported.minutes
+        }
+        return computedZoneMinutes
+    }
+
+    private func loadComputedWorkoutZones() async {
+        let rows = detailWorkouts
+        guard !rows.isEmpty else {
+            computedZoneMinutes = nil
+            return
+        }
+        var total = [Double](repeating: 0, count: 5)
+        var found = false
+        for row in rows where WorkoutZones.percents(row.zonesJSON) == nil {
+            guard let minutes = await repo.workoutZoneMinutes(
+                from: row.startTs,
+                to: row.endTs,
+                age: profile.age
+            ), minutes.count == 5 else { continue }
+            found = true
+            for index in total.indices { total[index] += minutes[index] }
+        }
+        computedZoneMinutes = found ? total : nil
     }
 
     /// D16's personal 7-day baseline. The engine helper applies its real metric

@@ -78,6 +78,58 @@ struct PaperTrendSeries {
     }
 }
 
+private enum ProductionTrendMetric: String, CaseIterable, Identifiable {
+    case recovery = "Recovery"
+    case strain = "Strain"
+    case sleepPerformance = "Sleep performance"
+    case sleepDuration = "Sleep duration"
+    case hrv = "HRV"
+    case restingHR = "Resting HR"
+    case respiratory = "Respiratory rate"
+    case spo2 = "SpO₂"
+    case skinTemp = "Skin temp"
+    case steps = "Steps"
+    case calories = "Calories"
+    case stress = "Stress"
+
+    var id: String { rawValue }
+    var tint: Color {
+        switch self {
+        case .recovery: StrandPalette.recoveryData
+        case .strain: StrandPalette.strainAccent
+        case .sleepPerformance, .sleepDuration: StrandPalette.sleepAccent
+        case .hrv: StrandPalette.metricPurple
+        case .restingHR: StrandPalette.metricRose
+        case .respiratory: StrandPalette.accent
+        case .spo2, .steps: StrandPalette.metricCyan
+        case .skinTemp, .calories: StrandPalette.metricAmber
+        case .stress: StrandPalette.stressAccent
+        }
+    }
+    var unit: String {
+        switch self {
+        case .recovery, .sleepPerformance, .spo2: "%"
+        case .sleepDuration: "h"
+        case .hrv: "ms"
+        case .restingHR: "bpm"
+        case .respiratory: "rpm"
+        case .skinTemp: "°C"
+        case .calories: "kcal"
+        case .strain, .steps, .stress: ""
+        }
+    }
+    func format(_ value: Double) -> String {
+        switch self {
+        case .strain, .sleepDuration, .respiratory, .skinTemp, .stress:
+            return String(format: "%.1f", value)
+        case .steps, .calories:
+            return Int(value.rounded()).formatted()
+        default:
+            return "\(Int(value.rounded()))"
+        }
+    }
+}
+
 struct TrendsView: View {
     @EnvironmentObject var repo: Repository
     // NOTE: deliberately does NOT observe LiveState — Trends shows historical data only, and
@@ -93,6 +145,10 @@ struct TrendsView: View {
     /// the Today Sleep score (#732). sleep_performance is a metricSeries, not a DailyMetric field, so load
     /// it once (mirroring TodayView's restScore source) and key by day for `resolve` below.
     @State private var sleepPerfByDay: [String: Double] = [:]
+    @State private var appleDays: [AppleDaily] = []
+    @State private var stressByDay: [String: Double] = [:]
+    @State private var selectedMetric: ProductionTrendMetric = .recovery
+    @State private var selectedRange: TrendRange = .month
     // Original #710 wiring restored by E6: the Paper review card browses the same engine-backed
     // Mon-Sun digests as the pre-reskin screen; 0 is the current week and negatives step backward.
     @State private var weekOffset: Int
@@ -163,8 +219,14 @@ struct TrendsView: View {
         // count so a newly-banked/-scored night refreshes Sleep reactively, like the other metrics that
         // read `repo.days` directly (and like the Android LaunchedEffect(days) twin).
         .task(id: repo.days.count) {
-            let s = await repo.exploreSeries(key: "sleep_performance", source: "my-whoop")
+            async let sleepSeries = repo.exploreSeries(key: "sleep_performance", source: "my-whoop")
+            async let stressSeries = repo.exploreSeries(key: "stress", source: "my-whoop")
+            async let appleRows = repo.appleDailyRows()
+            let s = await sleepSeries
             sleepPerfByDay = Dictionary(s.map { ($0.day, $0.value) }, uniquingKeysWith: { _, last in last })
+            let stress = await stressSeries
+            stressByDay = Dictionary(stress.map { ($0.day, $0.value) }, uniquingKeysWith: { _, last in last })
+            appleDays = await appleRows
         }
     }
 
@@ -234,22 +296,34 @@ struct TrendsView: View {
 
     private var paperScoresOverTime: some View {
         let series = paperTrendSeries
-        let recoveryValues = series.recovery.map(\.value)
-        let baseline = recoveryValues.dropLast().isEmpty
-            ? (recoveryValues.last ?? 0)
-            : recoveryValues.dropLast().reduce(0, +) / Double(recoveryValues.dropLast().count)
-        let typical = max(0, baseline - 12)...min(100, baseline + 12)
+        let selectedValues = selectedTrendPoints.map(\.value)
+        let baseline = selectedTrendBaseline
+        let spread = max(selectedTrendSpread, 0.5)
+        let typical = (baseline - spread)...(baseline + spread)
         return VStack(alignment: .leading, spacing: 14) {
-            Text("Scores Over Time").strandOverline()
-            if !recoveryValues.isEmpty {
+            HStack(spacing: 7) {
+                metricDropdown
+                Spacer(minLength: 8)
+                ForEach(TrendRange.allCases) { range in
+                    rangeChip(range)
+                }
+            }
+            if !selectedValues.isEmpty {
                 TrendPanelChart(
-                    values: recoveryValues,
+                    values: selectedValues,
                     baseline: baseline,
                     typical: typical,
-                    tint: StrandPalette.recoveryData,
-                    unit: "%",
-                    range: .week
+                    tint: selectedMetric.tint,
+                    unit: selectedMetric.unit,
+                    valueFormat: selectedMetric.format,
+                    range: selectedRange
                 )
+                .id("\(selectedMetric.rawValue)-\(selectedRange.rawValue)")
+                if selectedRange != .week {
+                    TrendMonthHeat(values: selectedValues, tint: selectedMetric.tint,
+                                   valueFormat: selectedMetric.format)
+                        .id("heat-\(selectedMetric.rawValue)-\(selectedRange.rawValue)")
+                }
             }
             trendV2Row("Recovery", points: series.recovery, tint: StrandPalette.recoveryData,
                        format: { "\(Int($0.rounded()))" })
@@ -259,12 +333,91 @@ struct TrendsView: View {
                        format: { "\(Int($0.rounded()))%" })
             trendV2Row("HRV", points: series.hrv, tint: StrandPalette.metricPurple,
                        format: { "\(Int($0.rounded())) ms" })
-            if series.recovery.count >= 7 {
-                TrendWeekdayBars(values: Array(recoveryValues.suffix(7)),
-                                 tint: StrandPalette.recoveryData)
+            if selectedValues.count >= 7 {
+                TrendWeekdayBars(values: Array(selectedValues.suffix(7)), tint: selectedMetric.tint)
                     .frame(height: 150)
             }
         }
+    }
+
+    private var selectedTrendPoints: [TrendPoint] {
+        let apple = Dictionary(appleDays.map { ($0.day, $0) }, uniquingKeysWith: { _, last in last })
+        return repo.days.suffix(selectedRange.days).compactMap { day in
+            guard let stamp = date(day.day) else { return nil }
+            let value: Double?
+            switch selectedMetric {
+            case .recovery: value = day.recovery
+            case .strain: value = day.strain.map(StrainScale.displayValue(fromStored:))
+            case .sleepPerformance: value = sleepPerfByDay[day.day]
+            case .sleepDuration: value = day.totalSleepMin.map { $0 / 60 }
+            case .hrv: value = day.avgHrv
+            case .restingHR: value = day.restingHr.map(Double.init)
+            case .respiratory: value = day.respRateBpm
+            case .spo2: value = day.spo2Pct
+            case .skinTemp: value = day.skinTempDevC
+            case .steps: value = day.steps.map(Double.init) ?? apple[day.day]?.steps.map(Double.init)
+            case .calories: value = day.activeKcalEst ?? apple[day.day]?.activeKcal
+            case .stress: value = stressByDay[day.day]
+            }
+            return value.map { TrendPoint(date: stamp, value: $0) }
+        }
+    }
+
+    private var selectedTrendBaseline: Double {
+        let values = selectedTrendPoints.map(\.value)
+        guard !values.isEmpty else { return 0 }
+        return values.reduce(0, +) / Double(values.count)
+    }
+
+    private var selectedTrendSpread: Double {
+        let values = selectedTrendPoints.map(\.value)
+        guard values.count > 1 else { return max(abs(selectedTrendBaseline) * 0.1, 1) }
+        let mean = selectedTrendBaseline
+        let variance = values.reduce(0) { $0 + pow($1 - mean, 2) } / Double(values.count)
+        return max(sqrt(variance), abs(mean) * 0.04)
+    }
+
+    private var metricDropdown: some View {
+        Menu {
+            ForEach(ProductionTrendMetric.allCases) { metric in
+                Button {
+                    selectedMetric = metric
+                } label: {
+                    if selectedMetric == metric {
+                        Label(metric.rawValue, systemImage: "checkmark")
+                    } else {
+                        Text(metric.rawValue)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Circle().fill(selectedMetric.tint).frame(width: 7, height: 7)
+                Text(selectedMetric.rawValue).font(StrandFont.caption.weight(.semibold)).lineLimit(1)
+                Image(systemName: "chevron.up.chevron.down").font(.system(size: 9, weight: .bold))
+            }
+            .foregroundStyle(StrandPalette.textPrimary)
+            .padding(.horizontal, 12).padding(.vertical, 9)
+            .background(StrandPalette.surfaceRaised, in: Capsule())
+            .overlay(Capsule().stroke(StrandPalette.hairlineStrong, lineWidth: 0.75))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Metric: \(selectedMetric.rawValue). Opens the metric list")
+    }
+
+    private func rangeChip(_ range: TrendRange) -> some View {
+        Button { selectedRange = range } label: {
+            Text(range.rawValue)
+                .font(StrandFont.micro.weight(.semibold)).fixedSize()
+                .foregroundStyle(selectedRange == range ? StrandPalette.appCanvas : StrandPalette.textSecondary)
+                .padding(.horizontal, 9).padding(.vertical, 8)
+                .background(selectedRange == range ? StrandPalette.textPrimary : StrandPalette.surfaceRaised,
+                            in: Capsule())
+                .overlay(Capsule().stroke(StrandPalette.hairlineStrong,
+                                          lineWidth: selectedRange == range ? 0 : 0.75))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(range.days) days")
     }
 
     private func trendV2Row(
