@@ -52,6 +52,12 @@ struct SettingsView: View {
     /// See [PuffinExperiment.continuousHrvOvernightOnlyKey].
     @AppStorage(PuffinExperiment.continuousHrvOvernightOnlyKey) private var continuousHrvOvernightOnly = false
 
+    /// Strap-battery-adaptive collection policy (#477). Default off.
+    @AppStorage(PuffinExperiment.powerSavingKey) private var powerSavingEnabled = false
+    @AppStorage(PuffinExperiment.powerSavingBatteryPctKey) private var powerSavingPct = 20
+    /// Stored inverted so an unset key means the recommended pause is enabled.
+    @AppStorage(PuffinExperiment.pauseHrvDisabledKey) private var pauseHrvDisabled = false
+
     /// Opt-in "Experimental sleep staging (V2)" (off by default). When on, detected nights are re-staged with
     /// `SleepStagerV2` (the transparent cardiorespiratory recipe) instead of the default V1 stager. Read at
     /// the staging call site in `Repository`. See [PuffinExperiment.experimentalSleepV2Key].
@@ -187,6 +193,7 @@ struct SettingsView: View {
                     unitsCard
                     appearanceCard
                     strapCard
+                    powerSavingCard
                     featuresCard
                     recoveryCard
                     testCentreCard
@@ -230,6 +237,77 @@ struct SettingsView: View {
             DiagnosticsSheet(onClose: { showDiagnostics = false })
         }
         #endif
+    }
+
+    // MARK: - Strap power saving (#477)
+
+    private var powerSavingCard: some View {
+        SettingsSection(
+            icon: "battery.25",
+            title: "Power saving",
+            blurb: "Ease the load on your strap when its battery is running low. The strap keeps banking data on its own, so nothing is lost — NOOP just talks to it less often to help it last until you can charge it."
+        ) {
+            VStack(alignment: .leading, spacing: 16) {
+                Toggle(isOn: $powerSavingEnabled) {
+                    Text("Power saving mode")
+                        .font(StrandFont.subhead)
+                        .foregroundStyle(StrandPalette.textPrimary)
+                }
+                .toggleStyle(.switch)
+                .tint(StrandPalette.accent)
+                .onChangeCompat(of: powerSavingEnabled) { _ in
+                    model.applyPowerSaving()
+                }
+
+                Text("Slows background strap-sync from every 15 minutes to every 45 minutes while your strap's battery is low. The strap keeps banking data, so the next sync simply retrieves a larger batch.")
+                    .font(StrandFont.caption)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if powerSavingEnabled {
+                    Divider().overlay(StrandPalette.hairline)
+                    HStack {
+                        Text("Kick in at (strap battery)")
+                            .font(StrandFont.subhead)
+                            .foregroundStyle(StrandPalette.textPrimary)
+                        Spacer()
+                        Text(verbatim: "\(powerSavingPct)%")
+                            .font(StrandFont.subhead)
+                            .foregroundStyle(StrandPalette.accent)
+                    }
+                    Slider(
+                        value: Binding(
+                            get: { Double(powerSavingPct) },
+                            set: { powerSavingPct = Int($0) }),
+                        in: 10...30,
+                        step: 5,
+                        onEditingChanged: { editing in
+                            if !editing { model.applyPowerSaving() }
+                        })
+                    .tint(StrandPalette.accent)
+
+                    Divider().overlay(StrandPalette.hairline)
+                    Toggle(
+                        isOn: Binding(
+                            get: { !pauseHrvDisabled },
+                            set: { pauseHrvDisabled = !$0 })) {
+                        Text("Pause HRV capture")
+                            .font(StrandFont.subhead)
+                            .foregroundStyle(StrandPalette.textPrimary)
+                    }
+                    .toggleStyle(.switch)
+                    .tint(StrandPalette.accent)
+                    .onChangeCompat(of: pauseHrvDisabled) { _ in
+                        model.applyPowerSaving()
+                    }
+
+                    Text("While the strap is low and discharging, release the always-on background HRV stream. Opening a Live screen can still request live heart rate, and background HRV re-arms after the strap is charged.")
+                        .font(StrandFont.caption)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
     }
 
     // MARK: - Paper overview
@@ -414,15 +492,16 @@ struct SettingsView: View {
             blurb: "These power your heart-rate zones, calorie estimates and recovery baselines. Keep them accurate."
         ) {
             VStack(spacing: 0) {
-                FormRow(label: "Age") {
+                FormRow(label: "Date of birth") {
                     HStack(spacing: 12) {
-                        Text("\(profile.age)")
-                            .font(StrandFont.bodyNumber)
-                            .foregroundStyle(StrandPalette.textPrimary)
-                            .frame(minWidth: 28, alignment: .trailing)
-                        Stepper("Age", value: $profile.age, in: 13...100)
-                            .labelsHidden()
-                            .accessibilityLabel("Age, \(profile.age) years")
+                        DatePicker(
+                            "Date of birth",
+                            selection: $profile.dateOfBirth,
+                            in: ProfileStore.dateOfBirthRange,
+                            displayedComponents: .date
+                        )
+                        .labelsHidden()
+                        .accessibilityLabel("Date of birth, age \(profile.age)")
                     }
                 }
                 rowDivider

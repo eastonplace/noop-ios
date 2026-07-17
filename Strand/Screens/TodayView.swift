@@ -908,6 +908,7 @@ struct TodayView: View {
     private func computeCalibration() -> Int? {
         guard selectedDayOffset == 0 else { return nil }
         return RecoveryScorer.calibrationNights(nightlyHrv: repo.days.map(\.avgHrv),
+                                                dayKeys: repo.days.map(\.day),
                                                 hasRecovery: repo.today?.recovery != nil)
     }
 
@@ -1439,7 +1440,10 @@ struct TodayView: View {
     }
 
     var body: some View {
-        ScreenScaffold(title: scaffoldTitle, onRefresh: { await repo.refresh() },
+        ScreenScaffold(title: scaffoldTitle, onRefresh: {
+                           model.ble.syncNow()
+                           await repo.refresh()
+                       },
                        // PERF (scroll): lazy column so the scaffold materialises Today's content on demand.
                        // Today supplies its own inner eager VStack (below), so the staggered section reveal is
                        // unchanged, this only defers building the single inner stack until it scrolls in.

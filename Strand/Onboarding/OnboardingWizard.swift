@@ -691,9 +691,13 @@ private struct ProfileStep: View {
             VStack(spacing: 16) {
                 StrandCard {
                     VStack(spacing: 18) {
-                        Stepper(value: $profile.age, in: 13...100) {
-                            FieldRow(label: String(localized: "Age"), value: String(localized: "\(profile.age) yrs"))
-                        }
+                        DatePicker(
+                            String(localized: "Date of birth"),
+                            selection: $profile.dateOfBirth,
+                            in: ProfileStore.dateOfBirthRange,
+                            displayedComponents: .date
+                        )
+                        .accessibilityLabel("Date of birth, age \(profile.age)")
 
                         Divider().overlay(StrandPalette.hairline)
 
