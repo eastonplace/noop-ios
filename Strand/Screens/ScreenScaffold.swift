@@ -1,6 +1,17 @@
 import SwiftUI
 import StrandDesign
 
+#if os(iOS)
+enum ScreenScaffoldNavigationRole: Sendable {
+    case root
+    case detail
+}
+
+extension EnvironmentValues {
+    @Entry var screenScaffoldNavigationRole: ScreenScaffoldNavigationRole = .root
+}
+#endif
+
 /// Standard scrollable screen container: title + dark surface + content column.
 struct ScreenScaffold<Content: View, Trailing: View>: View {
     /// Optional — when nil (and no subtitle) the header is omitted entirely, so a screen can supply its
@@ -20,6 +31,9 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
     /// Optional full-bleed view drawn behind the scroll content at the TOP of the screen (e.g. Today's
     /// day-cycle scene). Defaults to nil so other screens stay on the flat canvas; nil renders nothing.
     var topBackground: AnyView? = nil
+    /// Some screens have an interactive inline date navigator immediately below their page title.
+    /// Keep that date out of the expanded header, while still exposing it in the compact replacement.
+    var showsSubtitleInExpandedHeader: Bool = true
     /// Optional inline back action for pushed/sheet screens. When present, the shared Paper header
     /// owns the chevron so navigation never consumes a separate row above the wordmark.
     var backAction: (() -> Void)? = nil
@@ -34,6 +48,10 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
     // by `#if os(iOS)` — a runtime size-class check alone would also narrow the Mac detail pane.
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var hSizeClass
+    @Environment(\.screenScaffoldNavigationRole) private var navigationRole
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var showsCompactHeader = false
     #endif
 
     var body: some View {
@@ -60,12 +78,18 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
             #endif
         }
         #if os(iOS)
-        .safeAreaInset(edge: .top, spacing: 0) {
-            header
+        .coordinateSpace(.named("screen-scaffold-scroll"))
+        .overlay(alignment: .top) {
+            if showsCompactHeader, title != nil || subtitle != nil {
+                compactHeader
                 .padding(.horizontal, 16)
-                .padding(.bottom, 0)
+                .padding(.vertical, 6)
                 .background(StrandPalette.appCanvas)
+                .transition(reduceMotion ? .identity : .opacity)
+                .accessibilityHidden(false)
+            }
         }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: showsCompactHeader)
         // #697: stop a vertical scroll from drifting/bouncing the screen left-right. `.basedOnSize` only
         // permits horizontal bounce when content genuinely overflows the width (it does not here, the column
         // is width-capped), so the spurious horizontal rubber-band that caused the sideways drift is gone.
@@ -101,22 +125,67 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
     @ViewBuilder private var column: some View {
         if lazy {
             LazyVStack(alignment: .leading, spacing: 16) {
-                #if os(macOS)
-                header
-                #endif
+                headerForColumn
                 content()
             }
         } else {
             VStack(alignment: .leading, spacing: 16) {
-                #if os(macOS)
-                header
-                #endif
+                headerForColumn
                 content()
             }
         }
     }
 
-    private var header: some View {
+    @ViewBuilder private var headerForColumn: some View {
+        #if os(iOS)
+        if title != nil || subtitle != nil {
+            expandedHeader
+                .accessibilityHidden(showsCompactHeader)
+                .onGeometryChange(for: Bool.self) { proxy in
+                    proxy.frame(in: .named("screen-scaffold-scroll")).maxY <= 0
+                } action: { isPastTop in
+                    if showsCompactHeader != isPastTop {
+                        showsCompactHeader = isPastTop
+                    }
+                }
+        }
+        #else
+        legacyHeader
+        #endif
+    }
+
+    #if os(iOS)
+    private var resolvedBackAction: (() -> Void)? {
+        if let backAction { return backAction }
+        guard navigationRole == .detail else { return nil }
+        return { dismiss() }
+    }
+
+    private var expandedHeader: some View {
+        let overSky = topBackground != nil
+        return NoopScreenHeader(
+            title: title,
+            subtitle: showsSubtitleInExpandedHeader ? subtitle : nil,
+            backAction: resolvedBackAction,
+            onDark: overSky,
+            style: .expanded,
+            trailing: trailing
+        )
+    }
+
+    private var compactHeader: some View {
+        NoopScreenHeader(
+            title: title,
+            subtitle: subtitle,
+            backAction: resolvedBackAction,
+            onDark: false,
+            style: .compact,
+            trailing: trailing
+        )
+    }
+    #endif
+
+    private var legacyHeader: some View {
         // When a `topBackground` (the day-cycle liquid sky) sits behind the header, that band is dark in
         // BOTH themes — so the title/subtitle must use the scheme-invariant on-dark tokens. The regular
         // text tokens flip to dark ink in Light mode and went dark-on-dark over the sky, exactly the #1013
@@ -133,10 +202,13 @@ extension ScreenScaffold where Trailing == EmptyView {
     /// call site (which never passed `trailing`) source-compatible.
     init(title: LocalizedStringKey?, subtitle: LocalizedStringKey? = nil,
          onRefresh: (() async -> Void)? = nil, lazy: Bool = false, topBackground: AnyView? = nil,
+         showsSubtitleInExpandedHeader: Bool = true,
          backAction: (() -> Void)? = nil,
          @ViewBuilder content: @escaping () -> Content) {
         self.init(title: title, subtitle: subtitle, onRefresh: onRefresh, lazy: lazy,
-                  topBackground: topBackground, backAction: backAction,
+                  topBackground: topBackground,
+                  showsSubtitleInExpandedHeader: showsSubtitleInExpandedHeader,
+                  backAction: backAction,
                   trailing: { EmptyView() }, content: content)
     }
 }

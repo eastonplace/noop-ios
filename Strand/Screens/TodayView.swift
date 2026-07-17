@@ -375,6 +375,11 @@ struct TodayView: View {
     // .sheet(item:) drives both presentation and the deep-link target in one binding.
     @State private var guideSection: ScoreSection?
     @State private var paperPillarDetail: PaperPillarDetailKind?
+    /// Component-library modules own their press interaction, so their production
+    /// routes are driven by explicit navigation state rather than nesting a Button
+    /// inside a NavigationLink.
+    @State private var showingHeartRateTimeline = false
+    @State private var showingStressDetail = false
     /// `nil` means the user tapped the generic first-run card / a non-section entry: open at the top.
     @State private var showGuideTop = false
 
@@ -1294,57 +1299,25 @@ struct TodayView: View {
     }
 
     private var paperLiveHeartRateCard: some View {
-        let latest = hrPoints.last?.value
-        let values = Array(hrPoints.suffix(36)).map(\.value)
-        return NavigationLink { FullDayChartView() } label: {
-            PaperCard(padding: 12) {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 6) {
-                    Image(systemName: "heart.fill").font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(StrandPalette.liveRed)
-                    Text("Live Heart Rate").strandOverline()
-                }
-                HStack(alignment: .center, spacing: 10) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(alignment: .firstTextBaseline, spacing: 4) {
-                            Text(latest.map { "\(Int($0.rounded()))" } ?? "—")
-                                .font(StrandFont.number(34, weight: .bold)).foregroundStyle(StrandPalette.textPrimary)
-                            Text("BPM").font(StrandFont.micro).foregroundStyle(StrandPalette.textSecondary)
-                        }
-                        Text(latest == nil ? "Waiting for live signal" : "Latest")
-                            .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
-                    }
-                    Spacer(minLength: 8)
-                    if values.count <= 1 {
-                        // D5: empty state keeps the populated composition — a dimmed flat
-                        // trace across the same full-width slot instead of a bare gap.
-                        Capsule().fill(StrandPalette.hairlineStrong)
-                            .frame(height: 2).frame(maxWidth: .infinity)
-                            .frame(height: 42)
-                    } else {
-                        // T83 (spec 004): the trace spans the card like the reference, with a
-                        // soft gradient underfill and the 120/40 rails at the right edge.
-                        Sparkline(values: values,
-                                  gradient: Gradient(colors: [StrandPalette.statusPositive,
-                                                               StrandPalette.statusPositive]),
-                                  range: 40...120, lineWidth: NoopMetrics.chartLineWidth, showsArea: true,
-                                  showsHead: false, showsHover: false)
-                            .frame(maxWidth: .infinity).frame(height: 42)
-                            .overlay(alignment: .topTrailing) {
-                                Text("120").font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
-                                    .offset(y: -10)
-                            }
-                            .overlay(alignment: .bottomTrailing) {
-                                Text("40").font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
-                                    .offset(y: 10)
-                            }
-                    }
-                }
+        let midnight = Calendar.current.startOfDay(for: selectedLogicalDay)
+        let cutoff = (hrPoints.last?.date ?? selectedLogicalDay).addingTimeInterval(-2 * 60 * 60)
+        let samples = hrPoints
+            .filter { $0.date >= cutoff }
+            .suffix(240)
+            .enumerated()
+            .map { index, point in
+                HRTrackPoint(
+                    id: index,
+                    t: point.date.timeIntervalSince(midnight),
+                    bpm: point.value
+                )
             }
-            }
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Live Heart Rate, open Deep Timeline")
+        return HRLiveModuleCard(
+            samples: samples,
+            restingHR: displayDay?.restingHr.map(Double.init),
+            timeLabel: Self.paperClockLabel,
+            onOpen: { showingHeartRateTimeline = true }
+        )
     }
 
     private func loadDaytimeStressForRibbon() async {
@@ -1374,28 +1347,26 @@ struct TodayView: View {
     private var stressDetail: some View { StressView() }
 
     private var paperStressCard: some View {
-        let value = stressToday
-        let display = value.map { String(format: "%.1f", $0) } ?? "—"
-        let timeline = stressRibbonSlots
-        return NavigationLink { stressDetail } label: {
-            PaperCard(padding: 12) {
-                // D13 (spec 004): dot + overline + value badge on one quiet row, small state
-                // word, thin ribbon — the reference module, not a headline block.
-                VStack(alignment: .leading, spacing: 7) {
-                    HStack(spacing: 6) {
-                        MicroStatusDot(color: StrandPalette.stressAccent)
-                        Text("Today’s Stress").strandOverline()
-                        Spacer()
-                        TinyMetricBadge(display, tint: StrandPalette.stressAccent)
-                    }
-                    Text(paperStressState(value))
-                        .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
-                    StressTimelineBar(values: timeline)
-                }
-            }
-        }
-        .buttonStyle(.plain)
+        StressModuleCard(
+            hours: stressRibbonSlots,
+            value: stressToday,
+            nowHour: demoSceneHour,
+            onOpen: { showingStressDetail = true }
+        )
     }
+
+    private static func paperClockLabel(_ seconds: TimeInterval) -> String {
+        let normalized = min(max(seconds, 0), 86_400)
+        let date = Calendar.current.startOfDay(for: Date()).addingTimeInterval(normalized)
+        return paperClockFormatter.string(from: date)
+    }
+
+    private static let paperClockFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = .current
+        formatter.setLocalizedDateFormatFromTemplate("jmm")
+        return formatter
+    }()
 
     private func paperStressState(_ value: Double?) -> LocalizedStringKey {
         guard let value else { return "Calibrating" }
@@ -1550,6 +1521,12 @@ struct TodayView: View {
                 derivedKey = todayInputKey
             }
         }
+        .navigationDestination(isPresented: $showingHeartRateTimeline) {
+            FullDayChartView()
+        }
+        .navigationDestination(isPresented: $showingStressDetail) {
+            stressDetail
+        }
         #if os(macOS)
         // macOS hosts the Support affordance in the window toolbar (RootView's NavigationSplitView
         // supplies the toolbar) and presents it as the fixed-width SupportModalOverlay panel. On iOS
@@ -1598,18 +1575,27 @@ struct TodayView: View {
         .sheet(item: $guideSection) { section in
             ScoringGuideView(initialSection: section, onClose: { guideSection = nil })
         }
-        .sheet(item: $paperPillarDetail) { kind in
-            switch kind {
-            case .rest:
-                SleepView()
-            case .stress:
-                // Nothing sets .stress any more (paperStressCard pushes stressDetail directly);
-                // this case only keeps a future setter from resurrecting the retired
-                // PaperPillarDetailView stress surface instead of the canonical StressView.
-                stressDetail
-            case .charge, .effort:
-                PaperPillarDetailView(kind: kind)
+        // Pillar details are full-screen destinations, not draggable sheets. A sheet made the
+        // Recovery/Strain page rubber-band around under vertical gestures and, because it entered
+        // the shared scaffold as a root, omitted the only route back to Today. Mark the presented
+        // hierarchy as a detail so ScreenScaffold owns one consistent back button.
+        .fullScreenCover(item: $paperPillarDetail) { kind in
+            Group {
+                switch kind {
+                case .rest:
+                    SleepView()
+                case .stress:
+                    // Nothing sets .stress any more (paperStressCard pushes stressDetail directly);
+                    // this case only keeps a future setter from resurrecting the retired
+                    // PaperPillarDetailView stress surface instead of the canonical StressView.
+                    stressDetail
+                case .charge, .effort:
+                    PaperPillarDetailView(kind: kind)
+                }
             }
+            #if os(iOS)
+            .environment(\.screenScaffoldNavigationRole, .detail)
+            #endif
         }
         // The scoring guide opened at the top (the first-run card's primary action).
         .sheet(isPresented: $showGuideTop) {

@@ -53,6 +53,7 @@ struct PaperTrendSeries {
     let recovery: [TrendPoint]
     let strain: [TrendPoint]
     let sleep: [TrendPoint]
+    let hrv: [TrendPoint]
 
     static func build(days: [DailyMetric], sleepByDay: [String: Double],
                       date: (String) -> Date?) -> PaperTrendSeries {
@@ -67,6 +68,10 @@ struct PaperTrendSeries {
             },
             sleep: days.compactMap { day in
                 guard let value = sleepByDay[day.day], let date = date(day.day) else { return nil }
+                return TrendPoint(date: date, value: value)
+            },
+            hrv: days.compactMap { day in
+                guard let value = day.avgHrv, let date = date(day.day) else { return nil }
                 return TrendPoint(date: date, value: value)
             }
         )
@@ -229,113 +234,58 @@ struct TrendsView: View {
 
     private var paperScoresOverTime: some View {
         let series = paperTrendSeries
-        return PaperCard {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Scores Over Time").strandOverline()
-                HStack(spacing: 12) {
-                    paperLegend("Recovery", color: StrandPalette.recoveryData)
-                    paperLegend("Strain", color: StrandPalette.strainAccent)
-                    paperLegend("Sleep", color: StrandPalette.sleepAccent)
-                }
-                ZStack {
-                    Chart {
-                        ForEach(series.recovery) { point in
-                            LineMark(x: .value("Day", point.date), y: .value("Recovery", point.value))
-                                .lineStyle(StrokeStyle(lineWidth: NoopMetrics.chartLineWidth,
-                                                       lineCap: .round, lineJoin: .round))
-                                .foregroundStyle(by: .value("Series", "Recovery"))
-                            PointMark(x: .value("Day", point.date), y: .value("Recovery", point.value))
-                                .foregroundStyle(RecoveryBands.color(for: point.value)).symbolSize(12)
-                        }
-                        ForEach(series.sleep) { point in
-                            LineMark(x: .value("Day", point.date), y: .value("Sleep", point.value))
-                                .lineStyle(StrokeStyle(lineWidth: NoopMetrics.chartLineWidth,
-                                                       lineCap: .round, lineJoin: .round))
-                                .foregroundStyle(by: .value("Series", "Sleep"))
-                            PointMark(x: .value("Day", point.date), y: .value("Sleep", point.value))
-                                .foregroundStyle(StrandPalette.sleepAccent).symbolSize(12)
-                        }
-                    }
-                    .chartForegroundStyleScale(domain: ["Recovery", "Sleep"],
-                                               range: [StrandPalette.recoveryData,
-                                                       StrandPalette.sleepAccent])
-                    .chartLegend(.hidden)
-                    .chartYScale(domain: 0...100)
-                    .chartXAxis {
-                        AxisMarks(values: paperWeekDates) { _ in
-                            AxisValueLabel(format: .dateTime.weekday(.narrow).day())
-                                .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
-                        }
-                    }
-                    .chartYAxis {
-                        AxisMarks(position: .leading, values: [0, 50, 100]) { _ in
-                            AxisGridLine().foregroundStyle(StrandPalette.hairline)
-                            AxisValueLabel().font(StrandFont.micro)
-                                .foregroundStyle(StrandPalette.textTertiary)
-                        }
-                        AxisMarks(position: .trailing, values: [0, 7, 14, 21]) { value in
-                            AxisValueLabel {
-                                Text(value.as(Int.self).map(String.init) ?? "")
-                            }
-                            .font(StrandFont.micro).foregroundStyle(Color.clear)
-                        }
-                    }
-
-                    Chart {
-                        ForEach(series.strain) { point in
-                            LineMark(x: .value("Day", point.date), y: .value("Strain", point.value))
-                                .lineStyle(StrokeStyle(lineWidth: NoopMetrics.chartLineWidth,
-                                                       lineCap: .round, lineJoin: .round))
-                                .foregroundStyle(StrandPalette.strainAccent)
-                            PointMark(x: .value("Day", point.date), y: .value("Strain", point.value))
-                                .foregroundStyle(StrandPalette.strainAccent).symbolSize(12)
-                        }
-                    }
-                    .chartYScale(domain: StrainScale.displayRange)
-                    .chartXAxis(.hidden)
-                    .chartYAxis {
-                        AxisMarks(position: .leading, values: [0, 50, 100]) { value in
-                            AxisValueLabel {
-                                Text(value.as(Int.self).map(String.init) ?? "")
-                            }
-                            .font(StrandFont.micro).foregroundStyle(Color.clear)
-                        }
-                        AxisMarks(position: .trailing, values: [0, 7, 14, 21]) { _ in
-                            AxisValueLabel().font(StrandFont.micro)
-                                .foregroundStyle(StrandPalette.textTertiary)
-                        }
-                    }
-                }
-                .frame(height: NoopMetrics.chartHeight)
-                Divider().overlay(StrandPalette.hairline)
-                VStack(spacing: 4) {
-                    TrendSummaryRow(
-                        title: "Recovery",
-                        presentation: TrendSummaryPresentation(series: series.recovery, goodDirection: .higher),
-                        color: StrandPalette.recoveryData,
-                        gradient: StrandPalette.recoveryGradient,
-                        valueFormat: { "\(Int($0.rounded()))" },
-                        deltaFormat: { "\(Int(abs($0).rounded()))" }
-                    )
-                    TrendSummaryRow(
-                        title: "Strain",
-                        presentation: TrendSummaryPresentation(series: series.strain, goodDirection: .neutral),
-                        color: StrandPalette.strainAccent,
-                        gradient: StrandPalette.strainGradient,
-                        valueFormat: StrainScale.formatted,
-                        deltaFormat: { StrainScale.formattedDelta(abs($0)) }
-                    )
-                    TrendSummaryRow(
-                        title: "Sleep",
-                        presentation: TrendSummaryPresentation(series: series.sleep, goodDirection: .higher),
-                        color: StrandPalette.sleepAccent,
-                        gradient: StrandPalette.restGradient,
-                        valueFormat: { "\(Int($0.rounded()))" },
-                        deltaFormat: { "\(Int(abs($0).rounded()))" }
-                    )
-                }
+        let recoveryValues = series.recovery.map(\.value)
+        let baseline = recoveryValues.dropLast().isEmpty
+            ? (recoveryValues.last ?? 0)
+            : recoveryValues.dropLast().reduce(0, +) / Double(recoveryValues.dropLast().count)
+        let typical = max(0, baseline - 12)...min(100, baseline + 12)
+        return VStack(alignment: .leading, spacing: 14) {
+            Text("Scores Over Time").strandOverline()
+            if !recoveryValues.isEmpty {
+                TrendPanelChart(
+                    values: recoveryValues,
+                    baseline: baseline,
+                    typical: typical,
+                    tint: StrandPalette.recoveryData,
+                    unit: "%",
+                    range: .week
+                )
+            }
+            trendV2Row("Recovery", points: series.recovery, tint: StrandPalette.recoveryData,
+                       format: { "\(Int($0.rounded()))" })
+            trendV2Row("Strain", points: series.strain, tint: StrandPalette.strainAccent,
+                       format: StrainScale.formatted)
+            trendV2Row("Sleep", points: series.sleep, tint: StrandPalette.sleepAccent,
+                       format: { "\(Int($0.rounded()))%" })
+            trendV2Row("HRV", points: series.hrv, tint: StrandPalette.metricPurple,
+                       format: { "\(Int($0.rounded())) ms" })
+            if series.recovery.count >= 7 {
+                TrendWeekdayBars(values: Array(recoveryValues.suffix(7)),
+                                 tint: StrandPalette.recoveryData)
+                    .frame(height: 150)
             }
         }
+    }
+
+    private func trendV2Row(
+        _ label: String,
+        points: [TrendPoint],
+        tint: Color,
+        format: (Double) -> String
+    ) -> some View {
+        let values = points.map(\.value)
+        let latest = values.last
+        let prior = values.dropLast().last
+        let delta = latest.flatMap { current in prior.map { current - $0 } }
+        return TrendDeltaRow(
+            label: label,
+            subtitle: "This week",
+            values: values,
+            latest: latest.map(format) ?? "—",
+            delta: delta.map { "\($0 >= 0 ? "+" : "−")\(format(abs($0)))" } ?? "—",
+            positive: (delta ?? 0) >= 0,
+            tint: tint
+        )
     }
 
     private func paperLegend(_ title: LocalizedStringKey, color: Color) -> some View {

@@ -1,12 +1,22 @@
 import SwiftUI
 
-/// Canonical Paper screen chrome: one compact row with an optional inline back affordance,
-/// geometrically centered wordmark, and trailing controls. Screen context sits immediately below.
-public struct PaperHeaderBar<Trailing: View>: View {
+/// The two production presentations of NOOP's shared screen header.
+///
+/// Expanded headers live in the scroll content. Compact headers are used only by the pinned
+/// replacement after the expanded header has left the viewport.
+public enum NoopScreenHeaderStyle: Sendable {
+    case expanded
+    case compact
+}
+
+/// Canonical NOOP screen chrome shared by the component library and the production app.
+/// Navigation and trailing actions are injected so this presentation primitive never owns routing.
+public struct NoopScreenHeader<Trailing: View>: View {
     private let title: LocalizedStringKey?
     private let subtitle: LocalizedStringKey?
     private let backAction: (() -> Void)?
     private let onDark: Bool
+    private let style: NoopScreenHeaderStyle
     @ViewBuilder private let trailing: () -> Trailing
 
     public init(
@@ -14,19 +24,21 @@ public struct PaperHeaderBar<Trailing: View>: View {
         subtitle: LocalizedStringKey? = nil,
         backAction: (() -> Void)? = nil,
         onDark: Bool = false,
+        style: NoopScreenHeaderStyle = .expanded,
         @ViewBuilder trailing: @escaping () -> Trailing
     ) {
         self.title = title
         self.subtitle = subtitle
         self.backAction = backAction
         self.onDark = onDark
+        self.style = style
         self.trailing = trailing
     }
 
     public var body: some View {
         let primary = onDark ? StrandPalette.onDarkPrimary : StrandPalette.textPrimary
         let secondary = onDark ? StrandPalette.onDarkSecondary : StrandPalette.textSecondary
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: style == .expanded ? 14 : 6) {
             ZStack {
                 Text("N O O P")
                     .font(StrandFont.wordmark)
@@ -37,7 +49,12 @@ public struct PaperHeaderBar<Trailing: View>: View {
                         Button(action: backAction) {
                             Image(systemName: "chevron.left")
                                 .font(.system(size: 14, weight: .semibold))
-                                .frame(width: 32, height: 32)
+                                .frame(width: controlSize, height: controlSize)
+                                .background {
+                                    if style == .expanded {
+                                        Circle().fill(primary.opacity(0.07))
+                                    }
+                                }
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -48,27 +65,81 @@ public struct PaperHeaderBar<Trailing: View>: View {
                 }
                 .foregroundStyle(primary)
             }
-            .frame(maxWidth: .infinity, minHeight: 28)
+            .frame(maxWidth: .infinity, minHeight: style == .expanded ? 38 : 28)
 
             if title != nil || subtitle != nil {
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    if let title {
-                        Text(title)
-                            .font(StrandFont.screenOverline)
-                            .tracking(StrandFont.screenOverlineTracking)
-                            .textCase(.uppercase)
-                            .foregroundStyle(primary)
+                if style == .expanded {
+                    VStack(alignment: .leading, spacing: 4) {
+                        if let title {
+                            Text(title)
+                                .font(StrandFont.title1)
+                                .foregroundStyle(primary)
+                        }
+                        if let subtitle {
+                            Text(subtitle)
+                                .font(StrandFont.caption)
+                                .foregroundStyle(secondary)
+                                .lineLimit(1)
+                        }
                     }
-                    Spacer(minLength: 8)
-                    if let subtitle {
-                        Text(subtitle)
-                            .font(StrandFont.caption)
-                            .foregroundStyle(secondary)
-                            .lineLimit(1)
+                } else {
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        if let title {
+                            Text(title)
+                                .font(StrandFont.screenOverline)
+                                .tracking(StrandFont.screenOverlineTracking)
+                                .textCase(.uppercase)
+                                .foregroundStyle(primary)
+                        }
+                        Spacer(minLength: 8)
+                        if let subtitle {
+                            Text(subtitle)
+                                .font(StrandFont.caption)
+                                .foregroundStyle(secondary)
+                                .lineLimit(1)
+                        }
                     }
                 }
             }
         }
+    }
+
+    private var controlSize: CGFloat { style == .expanded ? 38 : 32 }
+}
+
+public extension NoopScreenHeader where Trailing == EmptyView {
+    init(title: LocalizedStringKey? = nil, subtitle: LocalizedStringKey? = nil,
+         backAction: (() -> Void)? = nil, onDark: Bool = false,
+         style: NoopScreenHeaderStyle = .expanded) {
+        self.init(title: title, subtitle: subtitle, backAction: backAction, onDark: onDark,
+                  style: style) {
+            EmptyView()
+        }
+    }
+}
+
+/// Compatibility wrapper for existing non-scaffold call sites. New screen chrome should use
+/// `NoopScreenHeader` and choose an explicit expanded or compact presentation.
+public struct PaperHeaderBar<Trailing: View>: View {
+    private let title: LocalizedStringKey?
+    private let subtitle: LocalizedStringKey?
+    private let backAction: (() -> Void)?
+    private let onDark: Bool
+    @ViewBuilder private let trailing: () -> Trailing
+
+    public init(title: LocalizedStringKey? = nil, subtitle: LocalizedStringKey? = nil,
+                backAction: (() -> Void)? = nil, onDark: Bool = false,
+                @ViewBuilder trailing: @escaping () -> Trailing) {
+        self.title = title
+        self.subtitle = subtitle
+        self.backAction = backAction
+        self.onDark = onDark
+        self.trailing = trailing
+    }
+
+    public var body: some View {
+        NoopScreenHeader(title: title, subtitle: subtitle, backAction: backAction,
+                         onDark: onDark, style: .compact, trailing: trailing)
     }
 }
 

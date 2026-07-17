@@ -747,20 +747,21 @@ struct PaperPillarDetailView: View {
                 }
             ) {
                 VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
-                    heroCard
                     if kind == .charge {
-                        overTimeCard
+                        recoveryLibraryOverview
                         chargeFactorsCard
                         recommendationCard
                     } else if kind == .effort {
-                        overTimeCard
+                        strainLibraryOverview
                         effortContributorsCard
                         heartRateZonesCard
                     } else if kind == .rest {
+                        heroCard
                         restStagesCard
                         restTimingCard
                         restInsightCard
                     } else {
+                        heroCard
                         overTimeCard
                         stressBreakdownCard
                         stressRecommendationCard
@@ -819,6 +820,104 @@ struct PaperPillarDetailView: View {
                 heroStats
             }
         }
+    }
+
+    /// The library recovery composition backed only by the canonical daily rows.
+    /// The existing factor/action sections remain below it so no unique production
+    /// metric (especially respiratory rate) disappears during the visual adoption.
+    private var recoveryLibraryOverview: some View {
+        let history = Array(rows.suffix(14).enumerated()).map {
+            RecoveryHistoryDay(id: $0.offset, score: $0.element.value)
+        }
+        let previous30 = Array(rows.dropLast().suffix(30).map(\.value))
+        let current = latest
+        let percentile: Double = {
+            guard let current, !previous30.isEmpty else { return 0 }
+            return Double(previous30.filter { $0 < current }.count) / Double(previous30.count)
+        }()
+        return VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+            RecoveryArcCard(
+                score: current,
+                yesterday: yesterday,
+                baseline: scoreText(baseline),
+                yesterdayLabel: scoreText(yesterday),
+                sevenDay: scoreText(sevenDayAverage)
+            )
+            if !previous30.isEmpty {
+                RecoveryStandingRow(
+                    percentile: percentile,
+                    highDays: previous30.filter { $0 >= RecoveryScorer.bandYellowMax }.count,
+                    mediumDays: previous30.filter {
+                        $0 >= RecoveryScorer.bandRedMax && $0 < RecoveryScorer.bandYellowMax
+                    }.count,
+                    lowDays: previous30.filter { $0 < RecoveryScorer.bandRedMax }.count
+                )
+            }
+            RecoveryDriverSplit(weights: [
+                RecoveryDriverWeight(id: "hrv", label: "HRV", weight: RecoveryScorer.wHRV,
+                                     color: StrandPalette.metricPurple),
+                RecoveryDriverWeight(id: "rhr", label: "RHR", weight: RecoveryScorer.wRHR,
+                                     color: StrandPalette.liveRed),
+                RecoveryDriverWeight(id: "sleep", label: "Sleep", weight: RecoveryScorer.wSleep,
+                                     color: StrandPalette.sleepAccent),
+                RecoveryDriverWeight(id: "resp", label: "Resp", weight: RecoveryScorer.wResp,
+                                     color: StrandPalette.accent),
+                RecoveryDriverWeight(id: "temp", label: "Temp", weight: RecoveryScorer.wSkinTemp,
+                                     color: StrandPalette.metricAmber),
+            ])
+            if !history.isEmpty { RecoveryHistoryStrip(days: history) }
+        }
+    }
+
+    /// Library strain gauge/history plus real workout rows. We intentionally omit
+    /// the specimen's active/passive split and synthetic buildup curve because the
+    /// repository does not store an authoritative passive-strain decomposition.
+    private var strainLibraryOverview: some View {
+        let displayed = latest ?? 0
+        let targetInts = CoupledView.optimalStrainRange(recovery: latestDay?.recovery) ?? 0...21
+        let target = Double(targetInts.lowerBound)...Double(targetInts.upperBound)
+        let history = Array(rows.suffix(7).enumerated()).map {
+            StrainWeekDay(id: $0.offset, strain: $0.element.value)
+        }
+        let scoredWorkouts = detailWorkouts.compactMap { workout -> (WorkoutRow, Double)? in
+            guard let stored = workout.strain else { return nil }
+            return (workout, StrainScale.displayValue(fromStored: stored))
+        }
+        return VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+            StrainGaugeCard(
+                strain: displayed,
+                target: target,
+                sevenDayAverage: sevenDayAverage ?? displayed
+            )
+            if !history.isEmpty { StrainWeekStrip(days: history, target: target) }
+            if !scoredWorkouts.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("ACTIVITIES").strandOverline()
+                    ForEach(Array(scoredWorkouts.enumerated()), id: \.offset) { _, entry in
+                        let workout = entry.0
+                        let workoutStrain = entry.1
+                        StrainActivityRow(
+                            symbol: sportSymbol(workout.sport),
+                            title: WorkoutSource.displaySport(workout.sport),
+                            subtitle: durationText(workout.durationS ?? Double(workout.endTs - workout.startTs)),
+                            context: workoutContext(workout),
+                            strain: workoutStrain,
+                            share: displayed > 0 ? min(max(workoutStrain / displayed, 0), 1) : 0
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private func workoutContext(_ workout: WorkoutRow) -> String {
+        var parts: [String] = []
+        if let average = workout.avgHr { parts.append("avg \(average) bpm") }
+        if let peak = workout.maxHr { parts.append("max \(peak) bpm") }
+        if let calories = workout.energyKcal, calories > 0 {
+            parts.append("\(Int(calories.rounded())) cal")
+        }
+        return parts.isEmpty ? "Recorded workout" : parts.joined(separator: " · ")
     }
 
     @ViewBuilder

@@ -99,7 +99,7 @@ struct FullDayChartView: View {
     private var taskKey: String {
         let lo = Int(visibleWindow.lowerBound.timeIntervalSince1970)
         let hi = Int(visibleWindow.upperBound.timeIntervalSince1970)
-        return "\(metric.rawValue)|\(Int(dayStart.timeIntervalSince1970))|\(ownedOnly)|\(lo)|\(hi)|\(repo.refreshSeq)"
+        return "\(metric.rawValue)|\(Int(dayStart.timeIntervalSince1970))|\(ownedOnly)|\(lo)|\(hi)|\(repo.refreshSeq)|\(reloadTick)"
     }
 
     // MARK: Controls
@@ -204,35 +204,55 @@ struct FullDayChartView: View {
     }
 
     private var chart: some View {
-        OverviewHRChart(
-            points: series.points,
-            // #979 spin-off — the same sleep-band + workout-glyph layers the classic Today feeds. Passed
-            // on EVERY metric track (they're time annotations, so "when was I asleep / training" reads
-            // against skin temp or HRV just as it does against HR); the glyph anchors at the shown
-            // metric's peak inside the workout window, and the chart clamps both into the zoom window.
-            sleep: sleepSpan,
-            workouts: workoutSpans,
-            gradient: gradientFor(metric),
-            valueRange: valueRange(series.points),
-            xRange: dayBounds,
-            height: 280,
-            // #979 spin-off — iPhone touch scrub: hold to pin the crosshair, drag to read values under
-            // the finger (the Mac pointer hover's readout, made reachable on touch). Opt-in here only.
-            touchScrub: true,
-            zoomDomain: $zoomDomain,
-            zoomBounds: panBounds,   // #986: pan/scroll clamp is the rolling 3-day window, not one day
+        HRTimelineChart(
+            points: series.points.enumerated().map { index, point in
+                HRTrackPoint(id: index, t: point.date.timeIntervalSince1970, bpm: point.value)
+            },
+            day: dayBounds.lowerBound.timeIntervalSince1970...dayBounds.upperBound.timeIntervalSince1970,
+            sleep: sleepSpan.map {
+                HRSleepBand(start: $0.start.timeIntervalSince1970,
+                            end: $0.end.timeIntervalSince1970,
+                            label: $0.label ?? "Sleep")
+            },
+            workouts: workoutSpans.enumerated().map { index, workout in
+                HRWorkoutMark(id: index,
+                              start: workout.start.timeIntervalSince1970,
+                              end: workout.end.timeIntervalSince1970,
+                              symbol: workout.symbol)
+            },
+            timeLabel: { Self.timeFmt.string(from: Date(timeIntervalSince1970: $0)) },
+            title: metric.title,
+            tint: timelineTint,
+            unit: unitSuffix.trimmingCharacters(in: .whitespaces),
             valueFormat: { format($0) },
-            dateFormat: { Self.timeFmt.string(from: $0) }
+            showsZoneLegend: metric == .hr,
+            zoomDomain: Binding(
+                get: {
+                    zoomDomain.map {
+                        $0.lowerBound.timeIntervalSince1970...$0.upperBound.timeIntervalSince1970
+                    }
+                },
+                set: { window in
+                    zoomDomain = window.map {
+                        Date(timeIntervalSince1970: $0.lowerBound)...Date(timeIntervalSince1970: $0.upperBound)
+                    }
+                }
+            ),
+            zoomBounds: panBounds.lowerBound.timeIntervalSince1970...panBounds.upperBound.timeIntervalSince1970,
+            onSettledWindow: { _ in reloadTick &+= 1 }
         )
-        #if os(macOS)
-        // macOS has no pinch here, so wheel/trackpad scroll zooms about the cursor-agnostic centre.
-        // (DeepTimeline owns the scroll handler; the chart's own gesture covers drag-pan.)
-        .modifier(ScrollToZoomModifier(
-            current: { visibleWindow },
-            bounds: panBounds,   // #986: match the widened pan clamp
-            apply: { zoomDomain = $0 }
-        ))
-        #endif
+    }
+
+    private var timelineTint: Color? {
+        switch metric {
+        case .hr: nil
+        case .hrv: StrandPalette.metricPurple
+        case .skinTemp: StrandPalette.metricAmber
+        case .respiration: StrandPalette.accent
+        case .spo2: StrandPalette.metricCyan
+        case .motion: StrandPalette.textSecondary
+        case .bandSleepState: StrandPalette.sleepDeep
+        }
     }
 
     // MARK: States

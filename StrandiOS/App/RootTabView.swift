@@ -398,13 +398,11 @@ private struct MoreRow<Destination: View>: View {
     var body: some View {
         NavigationLink {
             destination()
-                .background(StrandPalette.surfaceBase.ignoresSafeArea())
-                .navigationBarTitleDisplayMode(.inline)
-                // #1027: a pushed sky-scaffold screen (Live, Workouts, Health, …) draws a full-bleed liquid
-                // sky; an opaque surfaceBase nav-bar band sat over it and clipped the top on scroll. A hidden
-                // bar background keeps the sky edge-to-edge. On the flat (no-sky) screens this is visually
-                // identical at rest — the destination's own surfaceBase background shows through the bar.
-                .toolbarBackground(.hidden, for: .navigationBar)
+                .background(StrandPalette.appCanvas.ignoresSafeArea())
+                // Pushed app pages use ScreenScaffold's own expanded/compact header and back action.
+                // Quick-action, pillar and device sheets intentionally keep their native Done toolbars.
+                .environment(\.screenScaffoldNavigationRole, .detail)
+                .toolbar(.hidden, for: .navigationBar)
         } label: {
             SettingsRow(icon: icon, title: title, showsChevron: true)
             .padding(.horizontal, 16)

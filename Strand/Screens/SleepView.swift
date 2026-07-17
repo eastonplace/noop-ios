@@ -199,6 +199,7 @@ struct SleepView: View {
                        onRefresh: { await repo.refresh() },
                        lazy: true,
                        topBackground: nil,
+                       showsSubtitleInExpandedHeader: false,
                        trailing: {
                            HStack(spacing: 14) {
                                Image(systemName: "square.and.arrow.up")
