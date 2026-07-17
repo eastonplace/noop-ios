@@ -1,23 +1,41 @@
 # Verification Ledger
 
-Status: active
+Status: implementation complete; delivery/hardware gates active
 
 ## Automated
 
-Pending.
+- `Packages/WhoopProtocol`: 0 failures.
+- `Packages/WhoopStore`: 268 tests, 0 failures.
+- `Packages/StrandAnalytics`: 1,097 tests, 0 failures.
+- `Packages/StrandImport`: 189 tests, 0 failures, 1 environment-fixture skip.
+- `NOOPiOS` Release, generic physical iOS destination, signing disabled: build passed.
 
 ## Database and data integrity
 
-Pending.
+- Private coaching tables remain covered by migration-preservation tests.
+- Private migrations are ordered as `v25-daily-spo2-raw`, `v26-rr-seq`,
+  `v27-efficiency-heal`, and `v28-ppg-waveform`.
+- Equal same-second R-R values survive with deterministic `seq`; replay remains idempotent.
+- Gap-aware HRV fixtures pass.
+- Fixed an integration regression where Oura's readiness contributor score could overwrite measured RHR.
+- Removed an orphan `ouraRaw` deletion reference because this private fork does not ship that table.
 
 ## iPhone build/install
 
-Pending.
+- Unsigned Release compile passed for `generic/platform=iOS` from regenerated `project.yml`.
+- Signed build, in-place install, launch readback, and visual QA remain blocked: both paired iPhones are
+  currently reported by CoreDevice as `unavailable`.
+- No uninstall, container reset, demo seeding, or phone-data mutation was performed.
 
 ## Hardware
 
-Pending. Unavailable hardware rows remain `UNVERIFIED`.
+WHOOP 4.0/5.0/MG behavior remains `UNVERIFIED` on physical hardware in this run.
 
 ## Scope
 
-Pending final changed-file audit.
+- Pinned target `42b868f5d7c580d55848592a3aaacb2e0ea11963`.
+- Pinned upstream stable `25eb933a2563d490583ecd4c0051dff581874bb8` plus only
+  `f5f64977b9a83b2e74dccfee21daaeb5e7089a45` and
+  `6a285e258c2443a2be64cbcb5eda9796878670e4`.
+- No Android paths, Oura-cloud schema, upstream design system, or accidental iCloud ` 2.*` copies included.
+- Private team, app group, app/widget bundle identifiers, Paper UI, and coaching schema preserved.
