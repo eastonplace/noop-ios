@@ -69,7 +69,7 @@ final class MigrationTests: XCTestCase {
             let cols = try await store.columnNamesForTest(table: table)
             XCTAssertTrue(cols.contains("synced"), "\(table) missing synced column")
         }
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 18)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 30)
     }
 
     /// v13 adds the `userEdited` flag to sleepSession (user-corrected wake times survive re-sync).
@@ -148,5 +148,37 @@ final class MigrationTests: XCTestCase {
         XCTAssertTrue(tables.contains("ppgWaveformSample"))
         XCTAssertEqual(primaryKey, ["deviceId", "ts"])
         XCTAssertTrue(columns.contains("samples"))
+    }
+
+    /// A pre-release Strain V2 build added the provenance columns before the final migration
+    /// identifier landed. Reopening that real-world database must finish v29 instead of leaving
+    /// every app surface blank because the store cannot open.
+    func testV29RecoversPartiallyAppliedStrainProvenanceSchema() async throws {
+        let dbQueue = try DatabaseQueue()
+        try WhoopStore.makeMigrator().migrate(dbQueue, upTo: "v28-ppg-waveform")
+        try await dbQueue.write { db in
+            try db.alter(table: "dailyMetric") { table in
+                table.add(column: "strainVersion", .integer)
+            }
+            try db.alter(table: "workout") { table in
+                table.add(column: "strainVersion", .integer)
+            }
+        }
+
+        try WhoopStore.makeMigrator().migrate(dbQueue)
+
+        try await dbQueue.read { db in
+            XCTAssertTrue(try db.columns(in: "dailyMetric").map(\.name).contains("strainVersion"))
+            XCTAssertTrue(try db.columns(in: "workout").map(\.name).contains("strainVersion"))
+            XCTAssertTrue(try db.tableExists("strainV2Shadow"))
+            XCTAssertEqual(
+                try Int.fetchOne(
+                    db,
+                    sql: "SELECT COUNT(*) FROM grdb_migrations WHERE identifier = ?",
+                    arguments: ["v29-strain-v2-provenance"]
+                ),
+                1
+            )
+        }
     }
 }

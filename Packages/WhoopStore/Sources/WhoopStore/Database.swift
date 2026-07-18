@@ -564,17 +564,28 @@ extension WhoopStore {
             }
         }
         migrator.registerMigration("v29-strain-v2-provenance") { db in
-            try db.alter(table: "dailyMetric") { t in
-                t.add(column: "strainVersion", .integer)
+            // A pre-release build could add one or both provenance columns before GRDB recorded
+            // this migration identifier. Treat that partially-applied shape as recoverable instead
+            // of failing every subsequent store open with "duplicate column name".
+            let dailyColumns = try Set(db.columns(in: "dailyMetric").map(\.name))
+            if !dailyColumns.contains("strainVersion") {
+                try db.alter(table: "dailyMetric") { t in
+                    t.add(column: "strainVersion", .integer)
+                }
             }
-            try db.alter(table: "workout") { t in
-                t.add(column: "strainVersion", .integer)
+            let workoutColumns = try Set(db.columns(in: "workout").map(\.name))
+            if !workoutColumns.contains("strainVersion") {
+                try db.alter(table: "workout") { t in
+                    t.add(column: "strainVersion", .integer)
+                }
             }
-            try db.create(table: "strainV2Shadow") { t in
-                t.column("deviceId", .text).notNull()
-                t.column("day", .text).notNull()
-                t.column("strain", .double).notNull()
-                t.primaryKey(["deviceId", "day"])
+            if try !db.tableExists("strainV2Shadow") {
+                try db.create(table: "strainV2Shadow") { t in
+                    t.column("deviceId", .text).notNull()
+                    t.column("day", .text).notNull()
+                    t.column("strain", .double).notNull()
+                    t.primaryKey(["deviceId", "day"])
+                }
             }
         }
         // v26's table rebuild accidentally omitted `rrMs` from the declared key even though every
@@ -582,20 +593,27 @@ extension WhoopStore {
         // statement before ingesting any row. Rebuild once with the intended key; this is lossless for
         // existing databases because the old narrower (deviceId, ts, seq) key was already unique.
         migrator.registerMigration("v30-rr-conflict-key") { db in
-            try db.create(table: "rrInterval_v30") { t in
-                t.column("deviceId", .text).notNull()
-                t.column("ts", .integer).notNull()
-                t.column("rrMs", .integer).notNull()
-                t.column("seq", .integer).notNull().defaults(to: 0)
-                t.column("synced", .integer).notNull().defaults(to: 0)
-                t.primaryKey(["deviceId", "ts", "rrMs", "seq"])
+            let intendedKey = ["deviceId", "ts", "rrMs", "seq"]
+            if try db.primaryKey("rrInterval").columns != intendedKey {
+                // Recover safely if a pre-release/aborted migration left the staging table behind.
+                if try db.tableExists("rrInterval_v30") {
+                    try db.drop(table: "rrInterval_v30")
+                }
+                try db.create(table: "rrInterval_v30") { t in
+                    t.column("deviceId", .text).notNull()
+                    t.column("ts", .integer).notNull()
+                    t.column("rrMs", .integer).notNull()
+                    t.column("seq", .integer).notNull().defaults(to: 0)
+                    t.column("synced", .integer).notNull().defaults(to: 0)
+                    t.primaryKey(intendedKey)
+                }
+                try db.execute(sql: """
+                    INSERT INTO rrInterval_v30 (deviceId, ts, rrMs, seq, synced)
+                    SELECT deviceId, ts, rrMs, seq, synced FROM rrInterval
+                    """)
+                try db.execute(sql: "DROP TABLE rrInterval")
+                try db.execute(sql: "ALTER TABLE rrInterval_v30 RENAME TO rrInterval")
             }
-            try db.execute(sql: """
-                INSERT INTO rrInterval_v30 (deviceId, ts, rrMs, seq, synced)
-                SELECT deviceId, ts, rrMs, seq, synced FROM rrInterval
-                """)
-            try db.execute(sql: "DROP TABLE rrInterval")
-            try db.execute(sql: "ALTER TABLE rrInterval_v30 RENAME TO rrInterval")
         }
         return migrator
     }
