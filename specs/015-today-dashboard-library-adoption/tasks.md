@@ -21,6 +21,6 @@
 ## Verification and delivery
 
 - [ ] T010 Run package, app, store, and regression tests.
-- [ ] T011 Signed-build, install in place, launch, and verify preserved phone data.
+- [x] T011 Signed-build, install in place, launch, and verify preserved phone data.
 - [ ] T012 Visually QA on iPhone Mirroring and record evidence.
 - [ ] T013 Commit and push to PR #4 without merging.
