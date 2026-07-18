@@ -14,10 +14,10 @@ final class AppHeaderChromeStateTests: XCTestCase {
                                                     error: nil, transient: .idle).strap, .offline)
     }
 
-    func testBackfillOwnsBothStatusSlots() {
+    func testBackfillDoesNotReplaceConnectionStatus() {
         XCTAssertEqual(AppHeaderChromeMapper.state(connected: true, backfilling: true,
                                                     error: "old", transient: .done),
-                       AppHeaderChromeState(strap: .syncing, sync: .syncing))
+                       AppHeaderChromeState(strap: .live, sync: .syncing))
     }
 
     func testErrorOverridesTransientCompletion() {

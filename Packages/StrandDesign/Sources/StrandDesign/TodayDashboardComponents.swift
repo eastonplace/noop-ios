@@ -451,6 +451,7 @@ public struct HeaderChromeRow: View {
     public let strapState: AppStrapState
     public let battery: Int?
     public let syncState: AppSyncState
+    public let syncCompletedUnits: Int?
     public let unreadCount: Int
     public let initials: String
     public let profileImage: Image?
@@ -461,10 +462,12 @@ public struct HeaderChromeRow: View {
     public let onProfile: () -> Void
 
     public init(strapState: AppStrapState, battery: Int?, syncState: AppSyncState,
+                syncCompletedUnits: Int? = nil,
                 unreadCount: Int, initials: String, profileImage: Image? = nil, recovery: Double?,
                 onStrap: @escaping () -> Void, onSync: @escaping () -> Void,
                 onUpdates: @escaping () -> Void, onProfile: @escaping () -> Void) {
         self.strapState = strapState; self.battery = battery; self.syncState = syncState
+        self.syncCompletedUnits = syncCompletedUnits
         self.unreadCount = unreadCount; self.initials = initials; self.profileImage = profileImage
         self.recovery = recovery
         self.onStrap = onStrap; self.onSync = onSync; self.onUpdates = onUpdates; self.onProfile = onProfile
@@ -478,16 +481,35 @@ public struct HeaderChromeRow: View {
                 HStack(spacing: 5) {
                     Circle().fill(strapColor).frame(width: 6, height: 6)
                     Text(strapLabel).font(StrandFont.micro.weight(.semibold))
-                    if let battery { Text("\(battery)%").font(StrandFont.micro).monospacedDigit() }
                 }
                 .padding(.horizontal, 8).padding(.vertical, 6)
                 .background(StrandPalette.surfaceInset, in: Capsule())
             }
-            .buttonStyle(.plain).accessibilityLabel(strapAccessibility)
+            .buttonStyle(.plain).accessibilityLabel("Strap \(strapLabel)")
+            if let battery {
+                Button(action: onStrap) {
+                    HStack(spacing: 4) {
+                        Image(systemName: batterySymbol(for: battery))
+                            .font(.system(size: 12, weight: .semibold))
+                        Text("\(battery)%").font(StrandFont.micro).monospacedDigit()
+                    }
+                    .foregroundStyle(batteryColor(for: battery))
+                    .padding(.horizontal, 7).padding(.vertical, 6)
+                    .background(StrandPalette.surfaceInset, in: Capsule())
+                }
+                .buttonStyle(.plain).accessibilityLabel("Strap battery, \(battery) percent")
+            }
             Button(action: onSync) {
-                Image(systemName: syncSymbol).font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(syncState == .error ? StrandPalette.statusWarning : StrandPalette.textSecondary)
-                    .frame(width: 30, height: 30).background(StrandPalette.surfaceInset, in: Circle())
+                HStack(spacing: 4) {
+                    Image(systemName: syncSymbol).font(.system(size: 13, weight: .semibold))
+                    if syncState == .syncing, let units = syncCompletedUnits, units > 0 {
+                        Text("\(units)").font(StrandFont.micro).monospacedDigit()
+                    }
+                }
+                .foregroundStyle(syncState == .error ? StrandPalette.statusWarning : StrandPalette.textSecondary)
+                .frame(minWidth: 30, minHeight: 30)
+                .padding(.horizontal, syncState == .syncing && (syncCompletedUnits ?? 0) > 0 ? 5 : 0)
+                .background(StrandPalette.surfaceInset, in: Capsule())
             }
             .buttonStyle(.plain).accessibilityLabel(syncAccessibility)
             Button(action: onUpdates) {
@@ -525,11 +547,23 @@ public struct HeaderChromeRow: View {
     private var strapLabel: String {
         switch strapState { case .live: String(localized: "Live", bundle: .module); case .syncing: String(localized: "Syncing", bundle: .module); case .offline: String(localized: "Offline", bundle: .module) }
     }
-    private var strapAccessibility: String { battery.map { "Strap \(strapLabel), battery \($0) percent" } ?? "Strap \(strapLabel)" }
+    private func batterySymbol(for percentage: Int) -> String {
+        switch percentage { case ..<13: "battery.0"; case ..<38: "battery.25"; case ..<63: "battery.50"; case ..<88: "battery.75"; default: "battery.100" }
+    }
+    private func batteryColor(for percentage: Int) -> Color {
+        percentage < 15 ? StrandPalette.statusCritical : (percentage < 30 ? StrandPalette.statusWarning : StrandPalette.textSecondary)
+    }
     private var syncSymbol: String {
         switch syncState { case .idle: "arrow.triangle.2.circlepath"; case .syncing: "arrow.triangle.2.circlepath"; case .done: "checkmark"; case .error: "exclamationmark" }
     }
     private var syncAccessibility: String {
-        switch syncState { case .idle: "Sync now"; case .syncing: "Syncing"; case .done: "Sync complete"; case .error: "Sync failed, retry" }
+        switch syncState {
+        case .idle: "Sync now"
+        case .syncing:
+            if let units = syncCompletedUnits, units > 0 { "Syncing, \(units) history chunks transferred" }
+            else { "Syncing" }
+        case .done: "Sync complete"
+        case .error: "Sync failed, retry"
+        }
     }
 }

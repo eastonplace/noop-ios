@@ -16,7 +16,7 @@ struct AppHeaderChromeState: Equatable {
 enum AppHeaderChromeMapper {
     static func state(connected: Bool, backfilling: Bool, error: String?,
                       transient: AppSyncState) -> AppHeaderChromeState {
-        let strap: AppStrapState = backfilling ? .syncing : (connected ? .live : .offline)
+        let strap: AppStrapState = connected ? .live : .offline
         let sync: AppSyncState
         if backfilling { sync = .syncing }
         else if error != nil { sync = .error }
@@ -47,6 +47,7 @@ struct AppHeaderChrome: View {
             strapState: chromeState.strap,
             battery: live.batteryPct.map { Int($0.rounded()) },
             syncState: chromeState.sync,
+            syncCompletedUnits: live.backfilling ? live.syncChunksThisSession : nil,
             unreadCount: updateStore.unreadCount,
             initials: "",
             profileImage: profileImage,
