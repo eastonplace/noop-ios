@@ -44,7 +44,7 @@
 - [~] T025 Run every package suite, focused app tests, source audit, simulator build, signed device build, and database quick check
 - [ ] T026 Install in place and complete physical Home/detail, Building, finish/list/detail/relaunch, widget, Live Activity, and Watch QA
 - [x] T027 Record exact evidence in `specs/016-strain-v2-surface-consistency/qa/verification.md`
-- [~] T028 Commit and push `codex/strain-v2-surface-consistency`, open a child PR against `codex/noop-v2-trends-performance`, and leave both unmerged
+- [x] T028 Commit and push `codex/strain-v2-surface-consistency`, open a child PR against `codex/noop-v2-trends-performance`, and leave both unmerged
 - [ ] T029 Run the no-mistakes gate and resolve findings without merging
 
 ## Dependencies
