@@ -309,7 +309,13 @@ struct TodayView: View {
     // Resting HR). The "CUSTOMISE" link on the section header opens a local sheet (no new nav destination).
     // Persistence is display-only, these cards read the SAME values the rest of Today already loads.
     @AppStorage(DashboardCardPrefs.selectionKey) private var dashboardCardsRaw = ""
+    @AppStorage(DashboardCardPrefs.normalizedV2Key) private var dashboardCardsNormalizedV2 = false
     @State private var showingDashboardEditor = false
+    @State private var showingDashboardCatalog = false
+    @State private var showingTodayWorkouts = false
+    @State private var showingDashboardDestination = false
+    @State private var selectedDashboardDestination: DashboardCard?
+    @State private var showingDashboardDataSources = false
     // Hydration tracker (opt-in, default OFF). When off the hydration dashboard card is hidden even if a
     // user had it in their saved selection, the feature owns its own gate.
     @AppStorage(HydrationStore.enabledKey) private var hydrationEnabled = false
@@ -320,8 +326,7 @@ struct TodayView: View {
         // Opt-in gate (mirrors the Android TodayScreen filter `it != HYDRATION || hydrationEnabled`):
         // the hydration card only renders when the feature is on AND the user has added it via CUSTOMISE.
         // It's not in the default selection, so a fresh install never shows it until both are true.
-        DashboardCardPrefs.decodeEnabled(dashboardCardsRaw)
-            .filter { hydrationEnabled || $0 != .hydration }
+        DashboardCardPrefs.decodeEnabled(dashboardCardsRaw, hydrationEnabled: hydrationEnabled)
     }
 
     // #755: a mirror of `LiveState.backfilling` (strap mid history-offload). TodayView must NOT observe
@@ -1280,24 +1285,48 @@ struct TodayView: View {
 
     private var paperPillarCard: some View {
         let day = displayDay
-        let charge = day?.recovery ?? lastScoredCharge?.value
+        // Never carry a neighboring day's Recovery into this day. An unscored day is intentionally
+        // represented by the dashed gauge and "Not rated", matching the calendar's gray cell.
+        let charge = day?.recovery
         let effort = effortStrain(day)
         let strain = effort.map { StrainScale.displayValue(fromStored: $0) }
         let workoutIsActive = model.activeWorkout != nil
-        return TodayPillarSnapshotCard(
-            recovery: charge,
-            recoveryAccent: charge.map { RecoveryBands.color(for: $0) } ?? StrandPalette.recoveryData,
-            recoveryState: paperScoreState(charge, kind: .charge),
-            strain: strain,
-            strainState: paperScoreState(effort, kind: .effort),
-            sleep: restScore,
-            sleepState: paperScoreState(restScore, kind: .rest),
+        let pillars = [
+            TodayPillarModel(
+                id: "recovery", label: String(localized: "Recovery"), value: charge, maximum: 100,
+                valueText: charge.map { "\(Int($0.rounded()))" } ?? "—",
+                state: paperScoreState(charge, kind: .charge),
+                accent: charge.map { RecoveryBands.color(for: $0) } ?? StrandPalette.recoveryData,
+                bandTicks: [0.34, 0.67]
+            ),
+            TodayPillarModel(
+                id: "strain", label: String(localized: "Strain"), value: strain, maximum: 21,
+                valueText: strain.map { String(format: "%.1f", $0) } ?? "—",
+                state: paperScoreState(effort, kind: .effort),
+                accent: StrandPalette.strainAccent
+            ),
+            TodayPillarModel(
+                id: "sleep", label: String(localized: "Sleep"), value: restScore, maximum: 100,
+                valueText: restScore.map { "\(Int($0.rounded()))" } ?? "—",
+                state: paperScoreState(restScore, kind: .rest),
+                detail: day.map(sleepValue), accent: StrandPalette.sleepAccent
+            ),
+        ]
+        return TodayHeroCard(
+            pillars: pillars,
             glance: paperGlanceText,
             workoutIsActive: workoutIsActive,
-            onRecovery: { paperPillarDetail = .charge },
-            onStrain: { paperPillarDetail = .effort },
-            onSleep: { paperPillarDetail = .rest },
-            onWorkout: {
+            showsWorkoutAction: selectedDayOffset == 0,
+            onPillar: { id in
+                switch id {
+                case "recovery": paperPillarDetail = .charge
+                case "strain": paperPillarDetail = .effort
+                case "sleep": paperPillarDetail = .rest
+                default: break
+                }
+            },
+            onOpenWorkouts: { showingTodayWorkouts = true },
+            onWorkoutAction: {
                 if workoutIsActive { showLiveWorkout = true }
                 else { showStartSport = true }
             }
@@ -1305,7 +1334,9 @@ struct TodayView: View {
     }
 
     private func paperScoreState(_ value: Double?, kind: PaperPillarDetailKind) -> String {
-        guard let value else { return String(localized: "Calibrating") }
+        guard let value else {
+            return kind == .charge ? String(localized: "Not rated") : String(localized: "Not available")
+        }
         if kind == .effort {
             return StrainScale.band(StrainScale.displayValue(fromStored: value)).title
         }
@@ -1413,64 +1444,106 @@ struct TodayView: View {
     }
 
     private var paperHealthMonitorCard: some View {
+        HealthDashboardCard(
+            tiles: enabledDashboardCards.map(healthDashboardTile),
+            status: String(localized: "\(enabledDashboardCards.count) of 9 metrics selected"),
+            onTile: { id in
+                guard let card = DashboardCard(rawValue: id) else { return }
+                selectedDashboardDestination = card
+                showingDashboardDestination = true
+            },
+            onCustomize: { showingDashboardEditor = true },
+            onShowAll: { showingDashboardCatalog = true },
+            onDataSources: { showingDashboardDataSources = true }
+        )
+    }
+
+    private func healthDashboardTile(_ card: DashboardCard) -> HealthDashboardTileModel {
+        let fullValue = dashboardValue(card)
+        let unit = card.unit.isEmpty ? nil : card.unit
+        let value = unit.map { fullValue.replacingOccurrences(of: " \($0)", with: "") } ?? fullValue
+        return HealthDashboardTileModel(
+            id: card.id, icon: card.icon, label: card.title, value: value, unit: unit,
+            spark: dashboardSpark(card), rail: dashboardRail(card), accent: dashboardTint(card)
+        )
+    }
+
+    private var dashboardCatalogItems: [DashboardCatalogItem] {
+        DashboardCardPrefs.eligibleCards(hydrationEnabled: hydrationEnabled).map {
+            DashboardCatalogItem(card: $0, value: dashboardValue($0),
+                                 spark: dashboardSpark($0), tint: dashboardTint($0))
+        }
+    }
+
+    private func dashboardSpark(_ card: DashboardCard) -> [Double] {
+        switch card {
+        case .hrv: sparks["hrv"] ?? []
+        case .restingHr: sparks["rhr"] ?? []
+        case .respiratory: sparks["resp_rate"] ?? []
+        case .bloodOxygen: sparks["spo2"] ?? []
+        case .skinTemp: sparks["skin_temp"] ?? []
+        case .sleep: sparks["sleep_total_min"] ?? []
+        case .steps: sparks["steps"] ?? []
+        case .calories: sparks["active_kcal"] ?? []
+        default: []
+        }
+    }
+
+    private func dashboardRail(_ card: DashboardCard) -> HealthTileRail {
         let day = displayDay
-        let respiratory = day?.respRateBpm ?? sparks["resp_rate"]?.last
-        return PaperCard(padding: 12) {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(alignment: .firstTextBaseline) {
-                        NavigationLink { HealthView() } label: {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("Health Monitor").strandOverline()
-                                Text(model.healthAlert == nil ? "All metrics in range" : "Metrics outside your range")
-                                    .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        Spacer()
-                        NavigationLink { MetricExplorerView() } label: {
-                            Text("Show all").font(StrandFont.caption.weight(.semibold))
-                                .foregroundStyle(StrandPalette.link)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Show all metrics")
-                    }
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 3), spacing: 4) {
-                        MetricTile(icon: "waveform.path.ecg", label: "HRV",
-                                   value: day?.avgHrv.map { "\(Int($0.rounded()))" } ?? "—", unit: "ms",
-                                   spark: sparks["hrv"], accent: StrandPalette.recoveryData)
-                        MetricTile(icon: "heart", label: "RHR",
-                                   value: day?.restingHr.map(String.init) ?? "—", unit: "bpm",
-                                   spark: sparks["rhr"], accent: StrandPalette.liveRed)
-                        MetricTile(icon: "lungs", label: "Resp. rate",
-                                   value: respiratory.map { String(format: "%.1f", $0) } ?? "—", unit: "rpm",
-                                   spark: sparks["resp_rate"], accent: StrandPalette.recoveryData)
-                        MetricTile(icon: "drop", label: "SpO₂",
-                                   value: day?.spo2Pct.map { String(format: "%.0f", $0) } ?? "—", unit: "%",
-                                   spark: sparks["spo2"], accent: StrandPalette.link)
-                        MetricTile(icon: "thermometer.medium", label: "Skin temp",
-                                   value: day?.skinTempDevC.map { String(format: "%+.1f", $0) } ?? "—", unit: "°C",
-                                   spark: sparks["skin_temp"], accent: StrandPalette.stressAccent)
-                        // D17 (Easton): the hero trio already shows the Sleep score — this
-                        // tile shows HOURS SLEPT so it adds information instead of repeating it.
-                        MetricTile(icon: "moon", label: "Sleep",
-                                   value: sleepValue(day), unit: nil,
-                                   accent: StrandPalette.sleepAccent)
-                    }
-                    Divider().overlay(StrandPalette.hairline)
-                    NavigationLink { DataSourcesView() } label: {
-                        HStack {
-                            Text("Data Sources").font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
-                            Spacer()
-                            Text("View sources").font(StrandFont.caption.weight(.semibold))
-                                .foregroundStyle(StrandPalette.link)
-                            Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(StrandPalette.textTertiary)
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
+        switch card {
+        case .hrv:
+            return vitalRail(value: day?.avgHrv, history: sparks["hrv"] ?? [],
+                             population: 40...120, cfg: Baselines.hrvCfg)
+        case .restingHr:
+            return vitalRail(value: day?.restingHr.map(Double.init), history: sparks["rhr"] ?? [],
+                             population: 40...60, cfg: Baselines.restingHRCfg)
+        case .respiratory:
+            return vitalRail(value: day?.respRateBpm ?? sparks["resp_rate"]?.last,
+                             history: sparks["resp_rate"] ?? [], population: 12...20, cfg: Baselines.respCfg)
+        case .bloodOxygen:
+            return vitalRail(value: day?.spo2Pct, history: [], population: 95...100, cfg: nil)
+        case .skinTemp:
+            guard let value = day?.skinTempDevC else { return .none }
+            let absolute = VitalBands.isAbsoluteSkinTemp(value)
+            let population: ClosedRange<Double> = absolute ? (33.0...36.0) : (-0.6...0.6)
+            return vitalRail(value: value,
+                             history: VitalBands.skinTempHistory(matching: value,
+                                                                  in: (sparks["skin_temp"] ?? []).map(Optional.some)).compactMap { $0 },
+                             population: population,
+                             cfg: absolute ? Baselines.metricCfg["skin_temp"] : VitalBands.skinTempDeviationCfg)
+        case .hydration:
+            guard let goal = hydrationGoalML, goal > 0 else { return .none }
+            return .progress((hydrationTotalML ?? 0) / Double(goal))
+        default:
+            return .none
+        }
+    }
+
+    private func vitalRail(value: Double?, history: [Double], population: ClosedRange<Double>,
+                           cfg: MetricCfg?) -> HealthTileRail {
+        guard let value else { return .none }
+        let prior = history.last == value ? Array(history.dropLast()) : history
+        let baseline = cfg.map { Baselines.foldHistory(prior.map(Optional.some), cfg: $0) }
+        let typical: ClosedRange<Double>
+        if let baseline, baseline.trusted {
+            let lower = baseline.baseline - VitalBands.sigmaK * baseline.spread
+            let upper = baseline.baseline + VitalBands.sigmaK * baseline.spread
+            typical = lower...upper
+        } else {
+            typical = population
+        }
+        let result = VitalBands.band(value: value, history: prior.map(Optional.some),
+                                     populationRange: population, cfg: cfg)
+        let low = min(value, typical.lowerBound)
+        let high = max(value, typical.upperBound)
+        let padding = max((high - low) * 0.15, 0.1)
+        let domain = (low - padding)...(high + padding)
+        let span = max(domain.upperBound - domain.lowerBound, 0.001)
+        let normalize: (Double) -> Double = { ($0 - domain.lowerBound) / span }
+        return .typical(position: normalize(value),
+                        range: normalize(typical.lowerBound)...normalize(typical.upperBound),
+                        inRange: result.band != .outOfRange)
     }
 
     var body: some View {
@@ -1505,7 +1578,6 @@ struct TodayView: View {
                 // D17 (Easton, 2026-07-10): Key Metrics section removed — it duplicated the
                 // pillar trio + Health Monitor. The editor/prefs code stays; only the Today
                 // rendering is gone.
-                yourCardsSection
             }
             #if os(iOS)
             // #817 - horizontal swipe to change day. A right-swipe (positive X) steps to the NEWER day
@@ -1554,6 +1626,12 @@ struct TodayView: View {
             derivedKey = newKey
         }
         .onAppear {
+            if !dashboardCardsNormalizedV2 {
+                dashboardCardsRaw = DashboardCardPrefs.encode(
+                    DashboardCardPrefs.migratedSelection(dashboardCardsRaw,
+                                                         hydrationEnabled: hydrationEnabled))
+                dashboardCardsNormalizedV2 = true
+            }
             if derivedKey != todayInputKey {
                 derived = buildDerived()
                 derivedKey = todayInputKey
@@ -1564,6 +1642,25 @@ struct TodayView: View {
         }
         .navigationDestination(isPresented: $showingStressDetail) {
             stressDetail
+        }
+        .navigationDestination(isPresented: $showingTodayWorkouts) {
+            TodayWorkoutsView(day: selectedLogicalDay)
+                .environment(\.screenScaffoldNavigationRole, .detail)
+        }
+        .navigationDestination(isPresented: $showingDashboardCatalog) {
+            DashboardCatalogView(items: dashboardCatalogItems,
+                                 selectionRaw: $dashboardCardsRaw,
+                                 hydrationEnabled: hydrationEnabled)
+                .environment(\.screenScaffoldNavigationRole, .detail)
+        }
+        .navigationDestination(isPresented: $showingDashboardDestination) {
+            if let selectedDashboardDestination {
+                DashboardCardDestination(card: selectedDashboardDestination)
+                    .environment(\.screenScaffoldNavigationRole, .detail)
+            }
+        }
+        .navigationDestination(isPresented: $showingDashboardDataSources) {
+            DataSourcesView().environment(\.screenScaffoldNavigationRole, .detail)
         }
         #if os(macOS)
         // macOS hosts the Support affordance in the window toolbar (RootView's NavigationSplitView
@@ -1601,6 +1698,7 @@ struct TodayView: View {
         .sheet(isPresented: $showLiveWorkout) {
             LiveWorkoutView(onClose: { showLiveWorkout = false })
                 .environmentObject(model.live)
+                .environment(\.appHeaderChromeVisibility, .hidden)
         }
         .sheet(isPresented: $showStartSport) {
             StartWorkoutSheet { name in
@@ -1651,6 +1749,10 @@ struct TodayView: View {
         // The scoring guide opened at the top (the first-run card's primary action).
         .sheet(isPresented: $showGuideTop) {
             ScoringGuideView(onClose: { showGuideTop = false })
+        }
+        .sheet(isPresented: $showingDashboardEditor) {
+            DashboardCardsEditorSheet(selectionRaw: $dashboardCardsRaw, hydrationEnabled: hydrationEnabled)
+                .environment(\.appHeaderChromeVisibility, .hidden)
         }
         // The Updates inbox (the header bell). Both platforms.
         .sheet(isPresented: $showUpdatesInbox) {

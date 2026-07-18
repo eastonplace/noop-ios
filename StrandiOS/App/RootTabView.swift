@@ -118,7 +118,7 @@ struct RootTabView: View {
             case .devices:
                 showDevices = true
                 router.requestedDestination = nil
-            case .insightsHub, .labBook, .fusedRecord, .rhythm:
+            case .insightsHub, .labBook, .fusedRecord, .rhythm, .settings, .updates:
                 routedPillar = dest
                 router.requestedDestination = nil
             case .trends:
@@ -170,6 +170,8 @@ struct RootTabView: View {
                 // .liveSession routes to the Today tab (handled above — its Start entry owns the cover);
                 // this keeps the switch exhaustive and falls back to Today if it ever reaches the host.
                 case .liveSession: TodayView()
+                case .settings: SettingsView()
+                case .updates: UpdatesInboxView(onClose: { routedPillar = nil })
                 }
             }
             .background(StrandPalette.appCanvas.ignoresSafeArea())

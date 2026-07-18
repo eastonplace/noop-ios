@@ -17,6 +17,7 @@ struct DashboardCardsEditorSheet: View {
     /// The persisted selection string (JSON array of enabled `DashboardCard` ids, in order). Bound straight
     /// to the Today screen's @AppStorage so an edit takes effect live and survives relaunch.
     @Binding var selectionRaw: String
+    let hydrationEnabled: Bool
 
     @Environment(\.dismiss) private var dismiss
 
@@ -34,13 +35,15 @@ struct DashboardCardsEditorSheet: View {
         var id: String { card.rawValue }
     }
 
-    init(selectionRaw: Binding<String>) {
+    init(selectionRaw: Binding<String>, hydrationEnabled: Bool = false) {
         _selectionRaw = selectionRaw
-        let enabled = DashboardCardPrefs.decodeEnabled(selectionRaw.wrappedValue)
+        self.hydrationEnabled = hydrationEnabled
+        let enabled = DashboardCardPrefs.decodeEnabled(selectionRaw.wrappedValue,
+                                                       hydrationEnabled: hydrationEnabled)
         let enabledSet = Set(enabled)
         // Enabled cards first (saved order), then the rest in the canonical order.
         var working = enabled.map { Item(card: $0, enabled: true) }
-        for c in DashboardCard.canonicalOrder where !enabledSet.contains(c) {
+        for c in DashboardCardPrefs.eligibleCards(hydrationEnabled: hydrationEnabled) where !enabledSet.contains(c) {
             working.append(Item(card: c, enabled: false))
         }
         _items = State(initialValue: working)
@@ -82,7 +85,7 @@ struct DashboardCardsEditorSheet: View {
             #endif
             // Persist on EVERY change (toggle / reorder / reset), not only on Done — so closing the sheet by
             // swipe still keeps the edit, mirroring WHOOP's live "My Dashboard" customise. Done just dismisses.
-            .onChange(of: items) { _ in commit() }
+            .onChangeCompat(of: items) { _ in commit() }
         }
         .tint(StrandPalette.ink)
         #if os(macOS)
@@ -137,6 +140,8 @@ struct DashboardCardsEditorSheet: View {
             .toggleStyle(.switch)
             .tint(StrandPalette.ink)
             .accessibilityLabel("Show \(card.title)")
+            .disabled((enabled && enabledCount == 1)
+                      || (!enabled && enabledCount == DashboardCardPrefs.maximumCount))
         }
     }
 
@@ -150,9 +155,10 @@ struct DashboardCardsEditorSheet: View {
     }
 
     private func resetToDefault() {
-        let enabledSet = Set(DashboardCard.defaultSelection)
-        var working = DashboardCard.defaultSelection.map { Item(card: $0, enabled: true) }
-        for c in DashboardCard.canonicalOrder where !enabledSet.contains(c) {
+        let defaults = DashboardCard.defaultSelection(hydrationEnabled: hydrationEnabled)
+        let enabledSet = Set(defaults)
+        var working = defaults.map { Item(card: $0, enabled: true) }
+        for c in DashboardCardPrefs.eligibleCards(hydrationEnabled: hydrationEnabled) where !enabledSet.contains(c) {
             working.append(Item(card: c, enabled: false))
         }
         items = working
@@ -162,8 +168,10 @@ struct DashboardCardsEditorSheet: View {
     /// `DashboardCardPrefs.decodeEnabled` rebuilds the editor's disabled remainder from the canonical order
     /// on next open, so nothing is lost.
     private func commit() {
-        selectionRaw = DashboardCardPrefs.encode(items.filter { $0.enabled }.map(\.card))
+        selectionRaw = DashboardCardPrefs.encode(items.filter { $0.enabled }.prefix(DashboardCardPrefs.maximumCount).map(\.card))
     }
+
+    private var enabledCount: Int { items.lazy.filter(\.enabled).count }
 }
 
 #if DEBUG
