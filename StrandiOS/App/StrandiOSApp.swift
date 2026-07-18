@@ -185,6 +185,7 @@ struct StrandiOSApp: App {
         // HealthKitBridge.sync guards on `auth == .authorized`, so the scenePhase trigger stays a
         // safe no-op until the user opts in.
         .onChange(of: scenePhase) { _, phase in
+            model.setApplicationActive(phase == .active)
             if phase == .active {
                 model.drainPendingIntents()
                 // Re-arm the strap's smart alarm on foreground: the firmware alarm is a single instant
@@ -195,8 +196,10 @@ struct StrandiOSApp: App {
                 // (BackfillPolicy.shouldRun's .foreground case), so this is a safe no-op on rapid re-opens.
                 model.ble.requestSync(.foreground)
                 Task {
+                    let trace = PerformanceTrace.begin("foreground_refresh")
+                    defer { PerformanceTrace.end(trace) }
                     health.refreshAuthIfPreviouslyGranted()
-                    await health.sync()
+                    await health.foregroundCatchUp()
                     await WidgetSnapshot.publish(from: model)
                     // Push the wrist on the SAME refresh as the Home-screen widget so the watch, the
                     // widget and Today never disagree about which day they describe. Without this the
@@ -204,6 +207,7 @@ struct StrandiOSApp: App {
                     await watch.pushLatest(from: model)
                 }
             } else if phase == .background {
+                model.flushActiveWorkoutSnapshot()
                 // #114: capture the LAST in-app live state on the way out so the Home widget matches what
                 // the user just saw — its battery/HR/score otherwise lag to the last FOREGROUND refreshSeq
                 // bump. One reload per app-exit is low-frequency and well within WidgetKit's daily budget.
@@ -421,10 +425,9 @@ enum DemoScreens {
         // + battery + local-state note), rendered with mock data, no ring required.
         case "ouradevice": return AnyView(OuraDeviceDemoScreen())
         case "onboarding": return AnyView(OnboardingWizard(onFinished: {}))
-        // #221: a WHOOP 5/MG whose encrypted bond was refused (#78) — the "Connected · not paired" pill
-        // + self-service pairing guidance, screenshot-able WITHOUT reproducing the bond refusal on real
-        // hardware.
-        case "bondrefused": return AnyView(BondRefusedDemoScreen())
+        // The retired standalone bond-refusal demo no longer exists; keep the debug route useful by
+        // landing on the canonical Devices surface where the live pairing guidance is rendered.
+        case "bondrefused": return AnyView(DevicesView())
         default:         return nil
         }
     }
@@ -495,9 +498,15 @@ private struct LiveWorkoutDemoHost: View {
                     return HRSample(ts: Int(start.timeIntervalSince1970) + index * 11, bpm: bpm)
                 }
                 samples[samples.count - 1] = HRSample(ts: Int(Date().timeIntervalSince1970), bpm: 152)
-                model.activeWorkout = AppModel.ActiveWorkout(
-                    start: start, sport: "Running", samples: samples,
-                    liveStrain: 54.3, avgHr: 144, peakHr: 171)
+                var demoWorkout = AppModel.ActiveWorkout(
+                    start: start, sport: "Running", maxHR: Double(model.profile.hrMax))
+                demoWorkout.samples = samples
+                demoWorkout.strainAccumulator = .init(
+                    samples: samples, maxHR: Double(model.profile.hrMax))
+                demoWorkout.liveStrain = 54.3
+                demoWorkout.avgHr = 144
+                demoWorkout.peakHr = 171
+                model.activeWorkout = demoWorkout
                 model.bpm = 152
                 model.live.sensorCadence = 168
                 model.gpsRecorder.seedDemoRoute(points: PaperRunDemoRoute.liveRoute,

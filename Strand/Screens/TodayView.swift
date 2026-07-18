@@ -160,6 +160,101 @@ private struct ActiveWorkoutIndicatorSection: View {
     }
 }
 
+/// A value-fed leaf for Today's largest above-the-fold card. Repository/model observation stays in
+/// `TodayView`; a refresh now rebuilds this subtree only when these rendered values change, rather than
+/// giving the card direct access to either long-lived observable object.
+private struct TodayPillarSnapshotCard: View {
+    let recovery: Double?
+    let recoveryAccent: Color
+    let recoveryState: String
+    let strain: Double?
+    let strainState: String
+    let sleep: Double?
+    let sleepState: String
+    let glance: String
+    let workoutIsActive: Bool
+    let onRecovery: () -> Void
+    let onStrain: () -> Void
+    let onSleep: () -> Void
+    let onWorkout: () -> Void
+
+    var body: some View {
+        PaperCard(padding: 12) {
+            VStack(spacing: 8) {
+                HStack(alignment: .top, spacing: 6) {
+                    pillar("Recovery", value: recovery, accent: recoveryAccent,
+                           state: recoveryState, action: onRecovery)
+                    pillar("Strain", value: strain, accent: StrandPalette.strainAccent,
+                           range: 0...21, format: { String(format: "%.1f", $0) },
+                           state: strainState, action: onStrain)
+                    pillar("Sleep", value: sleep, accent: StrandPalette.sleepAccent,
+                           state: sleepState, action: onSleep)
+                }
+                Divider().overlay(StrandPalette.hairline)
+                HStack(spacing: 8) {
+                    NavigationLink { WorkoutsView() } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "figure.run")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(StrandPalette.textPrimary)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Today at a glance")
+                                    .font(StrandFont.micro.weight(.semibold))
+                                    .foregroundStyle(StrandPalette.textPrimary)
+                                Text(glance)
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(StrandPalette.textSecondary)
+                                    .lineLimit(1)
+                            }
+                            Spacer(minLength: 4)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(StrandPalette.textTertiary)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    Button(workoutIsActive ? "Open" : "Start", action: onWorkout)
+                        .font(StrandFont.caption.weight(.semibold))
+                        .foregroundStyle(StrandPalette.link)
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(workoutIsActive ? "Open active workout" : "Start workout")
+                }
+            }
+        }
+    }
+
+    private func pillar(_ label: LocalizedStringKey, value: Double?, accent: Color,
+                        range: ClosedRange<Double> = 0...100,
+                        format: @escaping (Double) -> String = { "\(Int($0.rounded()))" },
+                        state: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 5) {
+                if let value {
+                    ScoreRing(value: value, range: range, accent: accent,
+                              size: NoopMetrics.trioRingDiameter,
+                              lineWidth: NoopMetrics.trioRingLineWidth, format: format)
+                } else {
+                    ZStack {
+                        Circle().stroke(StrandPalette.inset, lineWidth: NoopMetrics.trioRingLineWidth)
+                        Text("—").font(StrandFont.ringScoreSmall).foregroundStyle(StrandPalette.textTertiary)
+                    }
+                    .frame(width: NoopMetrics.trioRingDiameter, height: NoopMetrics.trioRingDiameter)
+                }
+                Text(label)
+                    .font(StrandFont.caption.weight(.semibold))
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                Text(state).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary).lineLimit(1)
+            }
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 struct TodayView: View {
     @EnvironmentObject var repo: Repository
     // PERF (scroll stutter): TodayView deliberately does NOT observe `LiveState` directly. A connected
@@ -1188,86 +1283,25 @@ struct TodayView: View {
         let charge = day?.recovery ?? lastScoredCharge?.value
         let effort = effortStrain(day)
         let strain = effort.map { StrainScale.displayValue(fromStored: $0) }
-        return PaperCard(padding: 12) {
-            VStack(spacing: 8) {
-                HStack(alignment: .top, spacing: 6) {
-                    paperPillar("Recovery", value: charge,
-                                accent: charge.map { RecoveryBands.color(for: $0) } ?? StrandPalette.recoveryData,
-                                state: paperScoreState(charge, kind: .charge)) { paperPillarDetail = .charge }
-                    paperPillar("Strain", value: strain, accent: StrandPalette.strainAccent,
-                                range: 0...21, format: { String(format: "%.1f", $0) },
-                                state: paperScoreState(effort, kind: .effort)) { paperPillarDetail = .effort }
-                    paperPillar("Sleep", value: restScore, accent: StrandPalette.sleepAccent,
-                                state: paperScoreState(restScore, kind: .rest)) { paperPillarDetail = .rest }
-                }
-                Divider().overlay(StrandPalette.hairline)
-                HStack(spacing: 8) {
-                    NavigationLink { WorkoutsView() } label: {
-                        HStack(spacing: 8) {
-                        Image(systemName: "figure.run")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(StrandPalette.textPrimary)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Today at a glance")
-                                .font(StrandFont.micro.weight(.semibold))
-                                .foregroundStyle(StrandPalette.textPrimary)
-                            Text(paperGlanceText)
-                                .font(.system(size: 13))
-                                .foregroundStyle(StrandPalette.textSecondary)
-                                .lineLimit(1)
-                        }
-                        Spacer(minLength: 4)
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(StrandPalette.textTertiary)
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    Button(model.activeWorkout == nil ? "Start" : "Open") {
-                        if model.activeWorkout == nil { showStartSport = true }
-                        else { showLiveWorkout = true }
-                    }
-                    .font(StrandFont.caption.weight(.semibold))
-                    .foregroundStyle(StrandPalette.link)
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(model.activeWorkout == nil ? "Start workout" : "Open active workout")
-                }
+        let workoutIsActive = model.activeWorkout != nil
+        return TodayPillarSnapshotCard(
+            recovery: charge,
+            recoveryAccent: charge.map { RecoveryBands.color(for: $0) } ?? StrandPalette.recoveryData,
+            recoveryState: paperScoreState(charge, kind: .charge),
+            strain: strain,
+            strainState: paperScoreState(effort, kind: .effort),
+            sleep: restScore,
+            sleepState: paperScoreState(restScore, kind: .rest),
+            glance: paperGlanceText,
+            workoutIsActive: workoutIsActive,
+            onRecovery: { paperPillarDetail = .charge },
+            onStrain: { paperPillarDetail = .effort },
+            onSleep: { paperPillarDetail = .rest },
+            onWorkout: {
+                if workoutIsActive { showLiveWorkout = true }
+                else { showStartSport = true }
             }
-        }
-    }
-
-    @ViewBuilder
-    private func paperPillar(_ label: LocalizedStringKey, value: Double?, accent: Color,
-                             range: ClosedRange<Double> = 0...100,
-                             format: @escaping (Double) -> String = { "\(Int($0.rounded()))" },
-                             state: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            VStack(spacing: 5) {
-                if let value {
-                    ScoreRing(value: value, range: range, accent: accent,
-                              size: NoopMetrics.trioRingDiameter,
-                              lineWidth: NoopMetrics.trioRingLineWidth, format: format)
-                } else {
-                    ZStack {
-                        Circle().stroke(StrandPalette.inset,
-                                        lineWidth: NoopMetrics.trioRingLineWidth)
-                        Text("—").font(StrandFont.ringScoreSmall).foregroundStyle(StrandPalette.textTertiary)
-                    }
-                    .frame(width: NoopMetrics.trioRingDiameter,
-                           height: NoopMetrics.trioRingDiameter)
-                }
-                Text(label)
-                    .font(StrandFont.caption.weight(.semibold))
-                    .foregroundStyle(StrandPalette.textPrimary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-                Text(state).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary).lineLimit(1)
-            }
-            .frame(maxWidth: .infinity)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
+        )
     }
 
     private func paperScoreState(_ value: Double?, kind: PaperPillarDetailKind) -> String {
@@ -1583,6 +1617,7 @@ struct TodayView: View {
         // Recovery/Strain page rubber-band around under vertical gestures and, because it entered
         // the shared scaffold as a root, omitted the only route back to Today. Mark the presented
         // hierarchy as a detail so ScreenScaffold owns one consistent back button.
+        #if os(iOS)
         .fullScreenCover(item: $paperPillarDetail) { kind in
             Group {
                 switch kind {
@@ -1597,10 +1632,22 @@ struct TodayView: View {
                     PaperPillarDetailView(kind: kind)
                 }
             }
-            #if os(iOS)
             .environment(\.screenScaffoldNavigationRole, .detail)
-            #endif
         }
+        #else
+        .sheet(item: $paperPillarDetail) { kind in
+            Group {
+                switch kind {
+                case .rest:
+                    SleepView()
+                case .stress:
+                    stressDetail
+                case .charge, .effort:
+                    PaperPillarDetailView(kind: kind)
+                }
+            }
+        }
+        #endif
         // The scoring guide opened at the top (the first-run card's primary action).
         .sheet(isPresented: $showGuideTop) {
             ScoringGuideView(onClose: { showGuideTop = false })
@@ -2960,16 +3007,8 @@ struct TodayView: View {
         // `--demo-hour` frame is active. Charge/Sleep are intentionally left at their seeded values.
         if let f = DemoDayHarness.active { return f.effort }
         #endif
-        if selectedDayOffset == 0, let live = liveTodayStrain {
-            // Strain accrues over a day and must never visibly DROP. The in-progress recompute (raw day
-            // HR, midnight→now) can UNDER-read when today's HR is sparse or a logged workout's load isn't
-            // in the raw stream, e.g. a 5/MG user who trained this morning saw today's real 38.3 get
-            // replaced by a live 0 (#489/#506). Floor at the day's already-earned Strain. `d` (displayDay)
-            // for today is ALWAYS today's row or nil, never a prior day, so this can't resurrect a stale
-            // day; it only stops the gauge dropping below what's already been counted today.
-            if let stored = d?.strain { return Swift.max(live, stored) }
-            return live
-        }
+        if selectedDayOffset == 0, let live = liveTodayStrain { return live }
+        guard d?.strainVersion == 2 else { return nil }
         return d?.strain
     }
 
@@ -3226,7 +3265,7 @@ struct TodayView: View {
     /// preference (#268) and reads identically, the stored strain is on the 0–100 axis, so a morning
     /// "21.2" is 21.2-of-100, not WHOOP's near-max 21-of-21.
     private var effortMarker: OverviewHRChart.EdgeMarker? {
-        guard let strain = displayDay?.strain, let date = hrPoints.last?.date else { return nil }
+        guard let strain = effortStrain(displayDay), let date = hrPoints.last?.date else { return nil }
         return .init(date: date,
                      label: String(localized: "\(StrainScale.formatted(strain)) Strain"),
                      color: StrandPalette.strainAccent, alignment: .trailing)
@@ -3784,6 +3823,8 @@ struct TodayView: View {
     /// `refreshSeq`, which re-fires this task with `live.backfilling` false, and the deferred set runs then.
     /// Values + provenance are byte-identical to the old single-pass `loadAll` whenever each part runs.
     private func loadAll() async {
+        let trace = PerformanceTrace.begin("today_load")
+        defer { PerformanceTrace.end(trace) }
         // Always refresh the selected day (cheap, and it's what a day-switch / return-to-tab needs). Since
         // #860 retired the launch auto-land, this pass no longer changes `selectedDayOffset`, so there's no
         // re-fire to bail for: the history-wide set + the new-day announce run straight through below.
@@ -4126,6 +4167,13 @@ struct TodayView: View {
         let stepClassLocal = await repo.stepActivityClassLatest(from: windowStart, to: windowEnd)
         stepActivityClassToday = stepClassLocal
 
+        // Resolve the main sleep before live Strain so both Today's continuation and the historical
+        // engine start the physiological day at the same tracked-night boundary. This is also reused by
+        // the chart's sleep band below; one query, one canonical context.
+        let sleepTodayLocal = await repo.allSleepSessions(days: selectedDayOffset + 2)
+            .filter { $0.endTs > windowStart && $0.startTs < windowEnd }
+            .max(by: { ($0.endTs - $0.startTs) < ($1.endTs - $1.startTs) })
+
         // #860 item 1: the launch auto-land (#605/#739 "snap to the most recent data day when today is
         // empty") is RETIRED here. A fresh launch lands on today via `launchDayOffset` against the plain
         // `@State selectedDayOffset` (which re-inits to 0 every process), so a calibrating user whose newest
@@ -4140,10 +4188,17 @@ struct TodayView: View {
         // gauge falls back to the stored row (never a fabricated value); a navigated past day clears it.
         let liveStrainLocal: Double?
         if selectedDayOffset == 0 {
-            let todayHr = await repo.hrSamples(from: windowStart, to: windowEnd)
+            let physiologicalStart = sleepTodayLocal?.effectiveStartTs ?? windowStart
+            let todayHr = await repo.hrSamples(from: physiologicalStart, to: windowEnd)
             let maxHR = profile.age > 0 ? StrainScorer.tanakaHRmax(age: Double(profile.age)) : nil
             let restHR = displayDay?.restingHr.map(Double.init) ?? StrainScorer.defaultRestingHR
-            liveStrainLocal = StrainScorer.strain(todayHr, maxHR: maxHR, restingHR: restHR, sex: profile.sex)
+            liveStrainLocal = StrainScorerV2.strain(
+                todayHr, maxHR: maxHR, restingHR: restHR,
+                mode: .physiologicalDay(.init(
+                    validWornSleepMinutes: displayDay?.totalSleepMin,
+                    steps: displayDay?.steps,
+                    activeEnergyKcal: nil,
+                    hasWearCoverage: sleepTodayLocal != nil || !todayHr.isEmpty)))
         } else {
             liveStrainLocal = nil
         }
@@ -4165,9 +4220,6 @@ struct TodayView: View {
         // so the imported-only `sleepSessions` returns nothing. Keep blocks that actually overlap the
         // displayed window, then pick the LONGEST, the main night, not an afternoon nap. Drives the
         // HR sleep band + the recovery marker's wake anchor.
-        let sleepTodayLocal = await repo.allSleepSessions(days: selectedDayOffset + 2)
-            .filter { $0.endTs > windowStart && $0.startTs < windowEnd }
-            .max(by: { ($0.endTs - $0.startTs) < ($1.endTs - $1.startTs) })
         sleepToday = sleepTodayLocal
 
         // #932: snapshot everything just computed onto the long-lived `repo`, keyed by the (seq, day) this

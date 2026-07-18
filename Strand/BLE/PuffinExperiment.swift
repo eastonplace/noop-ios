@@ -78,12 +78,19 @@ enum PuffinExperiment {
     /// Read at the staging call site (Repository). Mirrors the Android `PuffinExperiment.KEY_EXPERIMENTAL_SLEEP_V2`.
     static let experimentalSleepV2Key = "noopExperimentalSleepV2"
 
+    /// Single source of truth shared by the analysis engine and Settings.
+    static let experimentalSleepV2Default = true
+
     /// Default ON when the key is unset (mirrors the Android `getBoolean(KEY, true)`): a `bool(forKey:)` alone
     /// reads a missing key as false, so an absent preference must resolve to the promoted V2 default explicitly.
     static var experimentalSleepV2Enabled: Bool {
-        UserDefaults.standard.object(forKey: experimentalSleepV2Key) == nil
-            ? true
-            : UserDefaults.standard.bool(forKey: experimentalSleepV2Key)
+        experimentalSleepV2Enabled(in: .standard)
+    }
+
+    static func experimentalSleepV2Enabled(in defaults: UserDefaults) -> Bool {
+        defaults.object(forKey: experimentalSleepV2Key) == nil
+            ? experimentalSleepV2Default
+            : defaults.bool(forKey: experimentalSleepV2Key)
     }
 
     /// Opt-in "HR-from-PPG sub-lag interpolation" (default off): the v26 optical-PPG gap-fill HR estimator

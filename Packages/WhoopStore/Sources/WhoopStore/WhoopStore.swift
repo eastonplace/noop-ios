@@ -6,7 +6,7 @@ import WhoopProtocol
 /// transient, compressed, prunable outbox. Built on GRDB/SQLite.
 public enum WhoopStoreInfo {
     /// Bumped whenever the migrator gains a new migration.
-    public static let schemaVersion = 18
+    public static let schemaVersion = 29
 }
 
 /// Serializes `DatabasePool` creation + migration so two concurrent opens of the SAME file can never
@@ -166,6 +166,11 @@ public actor WhoopStore {
     /// must. Best-effort: throws on a hard SQLite error so callers can fall back to a plain copy.
     public func checkpointWAL() async throws {
         try checkpointWALImpl()
+    }
+
+    /// Quiesce every GRDB connection owned by this handle before an atomic database replacement.
+    public func close() async throws {
+        try dbWriter.close()
     }
 
     /// Non-async so GRDB's synchronous `writeWithoutTransaction` overload is chosen (mirrors the

@@ -38,6 +38,7 @@ extension WhoopStore {
                     VALUES (?, ?, ?, ?)
                     ON CONFLICT(deviceId, day, key) DO UPDATE SET
                         value = excluded.value
+                    WHERE metricSeries.value IS NOT excluded.value
                     """, arguments: [deviceId, r.day, r.key, r.value])
                 n += db.changesCount
             }

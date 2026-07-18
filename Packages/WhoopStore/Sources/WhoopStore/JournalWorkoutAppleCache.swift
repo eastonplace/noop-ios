@@ -40,13 +40,16 @@ public struct WorkoutRow: Equatable, Codable {
     public let distanceM: Double?
     public let zonesJSON: String?
     public let notes: String?
+    /// Nil for imported/legacy scores; 2 for NOOP's canonical computed Strain V2.
+    public let strainVersion: Int?
     public init(startTs: Int, endTs: Int, sport: String, source: String, durationS: Double?,
                 energyKcal: Double?, avgHr: Int?, maxHr: Int?, strain: Double?, distanceM: Double?,
-                zonesJSON: String?, notes: String?) {
+                zonesJSON: String?, notes: String?, strainVersion: Int? = nil) {
         self.startTs = startTs; self.endTs = endTs; self.sport = sport; self.source = source
         self.durationS = durationS; self.energyKcal = energyKcal; self.avgHr = avgHr
         self.maxHr = maxHr; self.strain = strain; self.distanceM = distanceM
         self.zonesJSON = zonesJSON; self.notes = notes
+        self.strainVersion = strainVersion
     }
 }
 
@@ -146,8 +149,8 @@ extension WhoopStore {
                 try db.execute(sql: """
                     INSERT INTO workout
                         (deviceId, startTs, endTs, sport, source, durationS, energyKcal,
-                         avgHr, maxHr, strain, distanceM, zonesJSON, notes)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         avgHr, maxHr, strain, distanceM, zonesJSON, notes, strainVersion)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(deviceId, startTs, sport) DO UPDATE SET
                         endTs = excluded.endTs,
                         source = excluded.source,
@@ -155,13 +158,29 @@ extension WhoopStore {
                         energyKcal = excluded.energyKcal,
                         avgHr = excluded.avgHr,
                         maxHr = excluded.maxHr,
-                        strain = excluded.strain,
+                        strain = CASE
+                            WHEN workout.strainVersion = 2 AND COALESCE(excluded.strainVersion, 0) < 2
+                            THEN workout.strain ELSE excluded.strain END,
                         distanceM = excluded.distanceM,
                         zonesJSON = excluded.zonesJSON,
-                        notes = excluded.notes
+                        notes = excluded.notes,
+                        strainVersion = CASE
+                            WHEN workout.strainVersion = 2 AND COALESCE(excluded.strainVersion, 0) < 2
+                            THEN workout.strainVersion ELSE excluded.strainVersion END
+                    WHERE workout.endTs IS NOT excluded.endTs
+                       OR workout.source IS NOT excluded.source
+                       OR workout.durationS IS NOT excluded.durationS
+                       OR workout.energyKcal IS NOT excluded.energyKcal
+                       OR workout.avgHr IS NOT excluded.avgHr
+                       OR workout.maxHr IS NOT excluded.maxHr
+                       OR workout.strain IS NOT CASE WHEN workout.strainVersion = 2 AND COALESCE(excluded.strainVersion, 0) < 2 THEN workout.strain ELSE excluded.strain END
+                       OR workout.distanceM IS NOT excluded.distanceM
+                       OR workout.zonesJSON IS NOT excluded.zonesJSON
+                       OR workout.notes IS NOT excluded.notes
+                       OR workout.strainVersion IS NOT CASE WHEN workout.strainVersion = 2 AND COALESCE(excluded.strainVersion, 0) < 2 THEN workout.strainVersion ELSE excluded.strainVersion END
                     """, arguments: [deviceId, r.startTs, r.endTs, r.sport, r.source, r.durationS,
                                      r.energyKcal, r.avgHr, r.maxHr, r.strain, r.distanceM,
-                                     r.zonesJSON, r.notes])
+                                     r.zonesJSON, r.notes, r.strainVersion])
                 n += db.changesCount
             }
             return n
@@ -235,7 +254,7 @@ extension WhoopStore {
         try syncRead { db in
             try Row.fetchAll(db, sql: """
                 SELECT startTs, endTs, sport, source, durationS, energyKcal, avgHr, maxHr,
-                       strain, distanceM, zonesJSON, notes FROM workout
+                       strain, distanceM, zonesJSON, notes, strainVersion FROM workout
                 WHERE deviceId = ? AND startTs >= ? AND startTs <= ?
                 ORDER BY startTs ASC LIMIT ?
                 """, arguments: [deviceId, from, to, limit])
@@ -244,7 +263,8 @@ extension WhoopStore {
                                source: $0["source"], durationS: $0["durationS"],
                                energyKcal: $0["energyKcal"], avgHr: $0["avgHr"], maxHr: $0["maxHr"],
                                strain: $0["strain"], distanceM: $0["distanceM"],
-                               zonesJSON: $0["zonesJSON"], notes: $0["notes"])
+                               zonesJSON: $0["zonesJSON"], notes: $0["notes"],
+                               strainVersion: $0["strainVersion"])
                 }
         }
     }

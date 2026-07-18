@@ -305,11 +305,14 @@ public extension TrendPanelChart {
 }
 
 public extension TrendMonthHeat {
-    init(_publicAPI: Void = (), values: [Double], tint: Color,
+    init(_publicAPI: Void = (), days: [TrendCalendarDay], tint: Color,
+         referenceDate: Date = Date(), calendar: Calendar = .autoupdatingCurrent,
          valueFormat: @escaping (Double) -> String = { "\(Int($0.rounded()))" },
          colorScale: TrendHeatColorScale = .intensity) {
-        self.values = values
+        self.days = days
         self.tint = tint
+        self.referenceDate = referenceDate
+        self.calendar = calendar
         self.valueFormat = valueFormat
         self.colorScale = colorScale
     }
@@ -328,8 +331,8 @@ public extension TrendDeltaRow {
 }
 
 public extension TrendWeekdayBars {
-    init(_publicAPI: Void = (), values: [Double], tint: Color, valueFormat: @escaping (Double) -> String = { "\(Int($0.rounded()))" }) {
-        self.values = values
+    init(_publicAPI: Void = (), values: [Double?], tint: Color, valueFormat: @escaping (Double) -> String = { "\(Int($0.rounded()))" }) {
+        self.values = Array(values.prefix(7)) + Array(repeating: nil, count: max(0, 7 - values.count))
         self.tint = tint
         self.valueFormat = valueFormat
     }

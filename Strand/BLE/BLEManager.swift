@@ -474,6 +474,8 @@ public final class BLEManager: NSObject, ObservableObject {
 
     // MARK: Backfill
     private var backfiller: Backfiller?
+    private var dataStore: WhoopStore?
+    private var restoreInProgress = false
     /// True while a historical offload session is in progress (frames route to Backfiller).
     private var backfilling = false
     /// Wall time of the most recent offload frame OR HISTORY_COMPLETE — drives the #174 deep-packet
@@ -839,7 +841,7 @@ public final class BLEManager: NSObject, ObservableObject {
     /// Build the WhoopStore + Collector + Backfiller asynchronously. Safe to call multiple
     /// times — bails out early if the collector is already initialised.
     func bootstrapStore() async {
-        guard collector == nil else { return }
+        guard collector == nil, !restoreInProgress else { return }
         // Surface store-open failures instead of swallowing them with `try?` (#222): a silent failure
         // here left `backfiller` nil forever and the only visible symptom was the downstream
         // "store not ready" tick, with no clue why. On iOS a background reconnect that opens the
@@ -860,6 +862,7 @@ public final class BLEManager: NSObject, ObservableObject {
             log("Backfill: bootstrap FAILED opening store — \(ns.domain) code=\(ns.code): \(ns.localizedDescription)")
             return
         }
+        dataStore = store
         // Route deviceId through the device registry: use the active device's id (migration v15 seeds
         // a single 'my-whoop' row as active, so this is still "my-whoop" today — zero behaviour change).
         // Guarded + best-effort: if the registry is empty/unreadable, deviceId stays as it was, so no
@@ -2500,6 +2503,7 @@ public final class BLEManager: NSObject, ObservableObject {
     /// gate AND the BackfillPolicy rate-limiter for the trigger. On a go: records the attempt time
     /// (persisted) and starts the offload.
     func requestSync(_ trigger: BackfillTrigger) {
+        guard !restoreInProgress else { return }
         guard BLEManager.shouldRunPeriodicBackfill(
             connected: state.connected, bonded: state.bonded, backfilling: backfilling) else { return }
         let now = Date().timeIntervalSince1970
@@ -2518,6 +2522,31 @@ public final class BLEManager: NSObject, ObservableObject {
         if beginBackfill() {
             UserDefaults.standard.set(now, forKey: BLEManager.backfillLastAtKey)
         }
+    }
+
+    func quiesceStoreForRestore() async throws {
+        restoreInProgress = true
+        backfillTimeout?.cancel()
+        backfillTimeout = nil
+        uploadTimer?.cancel()
+        uploadTimer = nil
+        backfillTimer?.cancel()
+        backfillTimer = nil
+        await collector?.flushStandardHR()
+        collector = nil
+        backfiller = nil
+        if let dataStore { try await dataStore.close() }
+        dataStore = nil
+    }
+
+    func reopenStoreAfterRestore() async throws {
+        restoreInProgress = false
+        await bootstrapStore()
+        guard collector != nil, dataStore != nil else {
+            throw NSError(domain: "NOOP.Restore", code: 2,
+                          userInfo: [NSLocalizedDescriptionKey: "The Bluetooth database could not be reopened."])
+        }
+        if state.connected { startBackfillTimer() }
     }
 
     /// Periodic-timer callback: routes through the rate-limited requestSync entry point.

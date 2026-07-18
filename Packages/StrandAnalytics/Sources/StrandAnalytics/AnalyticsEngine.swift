@@ -638,16 +638,10 @@ public enum AnalyticsEngine {
         // when no deviation is available (no baseline yet / not worn) so the UI shows nothing.
         let skinTempRelative = RecoveryScorer.skinTempRelative(deviationC: skinTempDevC)
 
-        // ── Strain / "Effort" (cardiovascular load over the full CALENDAR day) ──
-        // Integrate dayHr ([localMidnight, localMidnight+24h), clamped to `now` for today) when the
-        // caller supplies it, so Effort covers the WHOLE day — an afternoon/evening workout lands in
-        // today's Effort same-day instead of being cut off at the night window's ≈ noon bound, and
-        // the prior evening's HR (the night window's −30h tail) no longer bleeds in. Falls back to the
-        // night `hr` for pure-function callers/tests.
+        // Strain V2 uses these same effective HR bounds below after the physiological-day inputs
+        // (sleep, steps and cycle window) have been assembled.
         let effMaxHR: Double? = maxHROverride ?? (profile.age > 0 ? StrainScorer.tanakaHRmax(age: profile.age) : nil)
         let restForStrain = restingHRDaily.map(Double.init) ?? StrainScorer.defaultRestingHR
-        let strain = StrainScorer.strain(dayHr ?? hr, maxHR: effMaxHR, restingHR: restForStrain,
-                                         sex: profile.sex)
 
         // ── Workouts ──────────────────────────────────────────────────────────
         // Detect over the full CALENDAR day (dayHr/dayGravity) when the caller supplies it, so a
@@ -705,6 +699,90 @@ public enum AnalyticsEngine {
             dayHrFiltered, profile: profile, hrmax: effMaxHR,
             restingHR: restingHRDaily.map(Double.init))
 
+        // ── Canonical Strain V2 (sleep-to-sleep physiological day) ───────────
+        // The HR-derived whole-day calorie estimate includes resting energy, so it is NOT a valid
+        // active-energy floor. Until a source supplies a genuine active-energy aggregate, V2 leaves
+        // that optional input absent. Sleep and step floors remain non-additive with cardio load.
+        let mainSleepStart = matched.map(\.start).min()
+        let mainSleepEnd = matched.map(\.end).max()
+        // Store reads are chronological. Merge the overlapping night/calendar arrays in O(n), retaining
+        // the maximum BPM for equal seconds (the defensive scorer's sorted duplicate semantics). Pure
+        // callers that provide unsorted fixtures fall back to the same defensive sort.
+        func mergedChronologicalHR(_ lhs: [HRSample], _ rhs: [HRSample]) -> [HRSample] {
+            let validL = lhs.filter { (30...240).contains($0.bpm) }
+            let validR = rhs.filter { (30...240).contains($0.bpm) }
+            let orderedL = zip(validL, validL.dropFirst()).allSatisfy { $0.ts <= $1.ts }
+            let orderedR = zip(validR, validR.dropFirst()).allSatisfy { $0.ts <= $1.ts }
+            guard orderedL, orderedR else {
+                return (validL + validR).sorted {
+                    $0.ts == $1.ts ? $0.bpm < $1.bpm : $0.ts < $1.ts
+                }
+            }
+            var result: [HRSample] = []
+            result.reserveCapacity(validL.count + validR.count)
+            var i = 0, j = 0
+            while i < validL.count || j < validR.count {
+                let next: HRSample
+                if j >= validR.count || (i < validL.count && validL[i].ts <= validR[j].ts) {
+                    next = validL[i]; i += 1
+                } else {
+                    next = validR[j]; j += 1
+                }
+                if let last = result.last, last.ts == next.ts {
+                    if next.bpm > last.bpm { result[result.count - 1] = next }
+                } else {
+                    result.append(next)
+                }
+            }
+            return result
+        }
+        let mergedCycleHr = mergedChronologicalHR(hr, dayHr ?? [])
+        func mergedChronologicalSteps(_ lhs: [StepSample], _ rhs: [StepSample]) -> [StepSample] {
+            let orderedL = zip(lhs, lhs.dropFirst()).allSatisfy { $0.ts <= $1.ts }
+            let orderedR = zip(rhs, rhs.dropFirst()).allSatisfy { $0.ts <= $1.ts }
+            guard orderedL, orderedR else { return (lhs + rhs).sorted { $0.ts < $1.ts } }
+            var result: [StepSample] = []
+            result.reserveCapacity(lhs.count + rhs.count)
+            var i = 0, j = 0
+            while i < lhs.count || j < rhs.count {
+                if j >= rhs.count || (i < lhs.count && lhs[i].ts <= rhs[j].ts) {
+                    result.append(lhs[i]); i += 1
+                } else {
+                    result.append(rhs[j]); j += 1
+                }
+            }
+            return result
+        }
+        let mergedCycleSteps = mergedChronologicalSteps(steps, daySteps ?? [])
+        let nextSleepStart: Int? = mainSleepEnd.flatMap { end in
+            matched
+                .filter { $0.end - $0.start >= 3 * 3_600 && $0.start >= end + 8 * 3_600 }
+                .map(\.start)
+                .min()
+        }
+        let cycleEnd = nextSleepStart ?? (mergedCycleHr.last.map { $0.ts + 1 } ?? 0)
+        let cycleHr = mainSleepStart.map { start in
+            mergedCycleHr.filter { $0.ts >= start && $0.ts < cycleEnd }
+        } ?? dayHrFiltered
+        let cycleStepRows = mainSleepStart.map { start in
+            mergedCycleSteps.filter { $0.ts >= start && $0.ts < cycleEnd }
+        } ?? (daySteps ?? steps).filter { tsInDay($0.ts) }
+        let cycleStepsTotal: Int? = {
+            guard let ticks = StepsCounter.stepsInWindow(cycleStepRows) else { return nil }
+            let scaled = Int((Double(ticks) / max(profile.stepTicksPerStep, 0.5)).rounded())
+            return scaled > 0 ? scaled : nil
+        }()
+        let strain = StrainScorerV2.strainSorted(
+            cycleHr, maxHR: effMaxHR, restingHR: restForStrain,
+            mode: .physiologicalDay(.init(
+                // Use scored sleep minutes, the value persisted on DailyMetric and therefore available
+                // to Today's live continuation. Using in-bed duration here made an otherwise-identical
+                // live and historical context diverge by awake-in-bed time.
+                validWornSleepMinutes: matched.isEmpty ? nil : tstS / 60.0,
+                steps: cycleStepsTotal ?? stepsTotal,
+                activeEnergyKcal: nil,
+                hasWearCoverage: !matched.isEmpty || !cycleHr.isEmpty)))
+
         // ── Assemble DailyMetric ──────────────────────────────────────────────
         let daily = DailyMetric(
             day: day,
@@ -725,7 +803,8 @@ public enum AnalyticsEngine {
             steps: stepsTotal,
             activeKcalEst: activeKcalEst,
             spo2Red: nightlySpo2Raw?.red,
-            spo2Ir: nightlySpo2Raw?.ir)
+            spo2Ir: nightlySpo2Raw?.ir,
+            strainVersion: strain == nil ? nil : 2)
         _ = sleepStart; _ = sleepEnd  // available for callers wiring sleep_start/end columns
 
         // ── Cache rows ────────────────────────────────────────────────────────

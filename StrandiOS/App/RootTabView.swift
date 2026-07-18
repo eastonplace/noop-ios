@@ -20,7 +20,7 @@ struct RootTabView: View {
     @State private var routedPillar: NavRouter.Destination?
     /// Selected tab — bound so tab switches can crossfade (README §Motion: ~240ms opacity swap
     /// between tab roots, calm easing). Defaults to Today.
-    @State private var selectedTab: Int = 0
+    @State private var selectedTab: Int
     /// Which More-tab groups are expanded (S2). Insights + Body stay open at rest; Data + App collapse to
     /// just their header until tapped. Persisted (#860 item 2): the user's open/closed choice must SURVIVE
     /// leaving and re-entering the More tab (and relaunch), not reset to the seed every visit. Backed by an
@@ -33,6 +33,19 @@ struct RootTabView: View {
     private var todayTabRoot: some View { TodayView() }
 
     init() {
+        var initialTab = 0
+        #if DEBUG
+        // Screenshot/QA harness: launch directly into a tab without UI automation permissions.
+        // Release builds always retain the normal Today default.
+        let arguments = ProcessInfo.processInfo.arguments
+        let argumentTab = arguments.firstIndex(of: "--demo-tab").flatMap { index in
+            arguments.indices.contains(index + 1) ? arguments[index + 1] : nil
+        }
+        if let requested = (ProcessInfo.processInfo.environment["NOOP_DEMO_TAB"] ?? argumentTab)?.lowercased() {
+            initialTab = requested == "trends" ? 1 : 0
+        }
+        #endif
+        _selectedTab = State(initialValue: initialTab)
         // The native bar stays hidden, but keep its appearance correct for transient UIKit hosts.
         let appearance = UITabBarAppearance()
         appearance.configureWithOpaqueBackground()

@@ -1,4 +1,5 @@
 import Foundation
+import os
 #if os(iOS)
 import UIKit
 #endif
@@ -7,6 +8,36 @@ import AppKit
 import IOKit.ps
 import Security
 #endif
+
+/// Privacy-safe intervals for Instruments and Console. Payloads are durations and row counts only—no
+/// dates, health values, device identifiers, or user-entered text.
+enum PerformanceTrace {
+    struct Token {
+        fileprivate let name: StaticString
+        fileprivate let label: String
+        fileprivate let id: OSSignpostID
+        fileprivate let startedAt: CFAbsoluteTime
+    }
+
+    private static let log = OSLog(subsystem: "com.eastonplace.noop", category: "Performance")
+
+    static func begin(_ name: StaticString) -> Token {
+        let token = Token(name: name, label: String(describing: name),
+                          id: OSSignpostID(log: log), startedAt: CFAbsoluteTimeGetCurrent())
+        os_signpost(.begin, log: log, name: name, signpostID: token.id)
+        return token
+    }
+
+    static func end(_ token: Token, changedRows: Int = -1) {
+        let milliseconds = (CFAbsoluteTimeGetCurrent() - token.startedAt) * 1_000
+        os_signpost(.end, log: log, name: token.name, signpostID: token.id,
+                    "duration_ms=%{public}.2f changed_rows=%{public}d", milliseconds, changedRows)
+        // Console twin makes the same privacy-safe evidence available when Instruments cannot finalize
+        // a trace (for example, a simulator service interruption). Never add dates or health values here.
+        os_log(.info, log: log, "interval=%{public}@ duration_ms=%{public}.2f changed_rows=%{public}d",
+               token.label, milliseconds, changedRows)
+    }
+}
 
 // MARK: - IOSDiagnostics
 //

@@ -531,7 +531,10 @@ extension WhoopStore {
             }
             try db.execute(sql: """
                 INSERT INTO rrInterval_new (deviceId, ts, rrMs, seq, synced)
-                SELECT deviceId, ts, rrMs, 0, synced FROM rrInterval
+                SELECT deviceId, ts, rrMs,
+                       ROW_NUMBER() OVER (PARTITION BY deviceId, ts ORDER BY rrMs) - 1,
+                       synced
+                FROM rrInterval
                 """)
             try db.execute(sql: "DROP TABLE rrInterval")
             try db.execute(sql: "ALTER TABLE rrInterval_new RENAME TO rrInterval")
@@ -559,6 +562,40 @@ extension WhoopStore {
                 t.column("samples", .blob).notNull()
                 t.primaryKey(["deviceId", "ts"])
             }
+        }
+        migrator.registerMigration("v29-strain-v2-provenance") { db in
+            try db.alter(table: "dailyMetric") { t in
+                t.add(column: "strainVersion", .integer)
+            }
+            try db.alter(table: "workout") { t in
+                t.add(column: "strainVersion", .integer)
+            }
+            try db.create(table: "strainV2Shadow") { t in
+                t.column("deviceId", .text).notNull()
+                t.column("day", .text).notNull()
+                t.column("strain", .double).notNull()
+                t.primaryKey(["deviceId", "day"])
+            }
+        }
+        // v26's table rebuild accidentally omitted `rrMs` from the declared key even though every
+        // insert has always used ON CONFLICT(deviceId, ts, rrMs, seq). SQLite therefore rejected the
+        // statement before ingesting any row. Rebuild once with the intended key; this is lossless for
+        // existing databases because the old narrower (deviceId, ts, seq) key was already unique.
+        migrator.registerMigration("v30-rr-conflict-key") { db in
+            try db.create(table: "rrInterval_v30") { t in
+                t.column("deviceId", .text).notNull()
+                t.column("ts", .integer).notNull()
+                t.column("rrMs", .integer).notNull()
+                t.column("seq", .integer).notNull().defaults(to: 0)
+                t.column("synced", .integer).notNull().defaults(to: 0)
+                t.primaryKey(["deviceId", "ts", "rrMs", "seq"])
+            }
+            try db.execute(sql: """
+                INSERT INTO rrInterval_v30 (deviceId, ts, rrMs, seq, synced)
+                SELECT deviceId, ts, rrMs, seq, synced FROM rrInterval
+                """)
+            try db.execute(sql: "DROP TABLE rrInterval")
+            try db.execute(sql: "ALTER TABLE rrInterval_v30 RENAME TO rrInterval")
         }
         return migrator
     }
