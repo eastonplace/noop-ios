@@ -19,14 +19,15 @@
 
 ## Physical evidence
 
-- Both paired iPhones were discovered on iOS 26.5.2, including Easton's expected UDID `2085999E-2F35-56BD-91BD-34E9F564B6F4`, but Xcode marked both unavailable.
-- In-place install was attempted with the same `com.eastonplace.noop` bundle and failed before mutation with CoreDevice error 1011: no live device matching the requested identifier.
-- The final rebuilt artifact was retried after commit and returned the same pre-install CoreDevice 1011 result.
+- Easton's iPhone became available on iOS 26.5.2 at UDID `2085999E-2F35-56BD-91BD-34E9F564B6F4`.
+- The signed Release artifact installed successfully in place with the existing `com.eastonplace.noop` bundle ID.
+- Device launch succeeded and returned process ID `39007`.
 - No uninstall, app-container deletion, database replacement, or demo seeding occurred.
+- Mirroring visual/data QA is not claimed: the Computer Use surface was not exposed in this runtime, and fallback macOS screenshot capture hung without producing evidence.
 
 ## Known limits
 
-- Do not claim install, launch, database preservation, the 5-minute mounted Home test, 12-minute workout, Watch/widget/Live Activity equality, or Mirroring visual QA until the physical phone is available and those steps are observed.
+- Do not claim database preservation, the 5-minute mounted Home test, 12-minute workout, Watch/widget/Live Activity equality, or Mirroring visual QA until those steps are observed.
 - The signed Release artifact must be rebuilt after any subsequent source change before an install is claimed.
 - `no-mistakes axi` was attempted after commit but the CLI is not installed in this runtime. Manual fallback checks (`git diff --check`, clean commit review, source audit, compile/build review) passed; the unavailable CLI is not represented as a green automated gate.
 - Implementation commit `7020e3e7` was pushed to `codex/strain-v2-surface-consistency`; draft child PR #5 targets `codex/noop-v2-trends-performance`. Parent PR #4 and child PR #5 remain unmerged.
