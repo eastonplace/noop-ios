@@ -107,3 +107,32 @@ final class StrainScorerV2ActivityAccumulatorTests: XCTestCase {
         XCTAssertNotNil(accumulator.strain)
     }
 }
+
+final class StrainScorerV2PhysiologicalAccumulatorTests: XCTestCase {
+    func testAccumulatorMatchesBatchWithDuplicateSecondsAndFloors() throws {
+        var samples = (0..<900).map { HRSample(ts: 20_000 + $0, bpm: 110 + $0 % 55) }
+        samples.insert(HRSample(ts: 20_100, bpm: 190), at: 101)
+        let context = StrainScorerV2.DayContext(validWornSleepMinutes: 430, steps: 8_200,
+                                                activeEnergyKcal: 350, hasWearCoverage: true)
+        let accumulator = StrainScorerV2.PhysiologicalDayAccumulator(
+            samples: samples, maxHR: 195, restingHR: 58, context: context)
+        let batch = try XCTUnwrap(StrainScorerV2.strain(
+            samples, maxHR: 195, restingHR: 58, mode: .physiologicalDay(context)))
+        XCTAssertEqual(try XCTUnwrap(accumulator.strain), batch, accuracy: 1e-10)
+        XCTAssertEqual(accumulator.rawFrontierTs, samples.map(\.ts).max())
+    }
+
+    func testContextUpdatesDoNotReplayCardio() throws {
+        let samples = (0..<900).map { HRSample(ts: 30_000 + $0, bpm: 145) }
+        var accumulator = StrainScorerV2.PhysiologicalDayAccumulator(
+            samples: samples, maxHR: 190, restingHR: 60,
+            context: .init(validWornSleepMinutes: 400, steps: 1_000))
+        let readingCount = accumulator.readingCount
+        accumulator.update(context: .init(validWornSleepMinutes: 400, steps: 12_000))
+        let batch = try XCTUnwrap(StrainScorerV2.strain(
+            samples, maxHR: 190, restingHR: 60,
+            mode: .physiologicalDay(.init(validWornSleepMinutes: 400, steps: 12_000))))
+        XCTAssertEqual(try XCTUnwrap(accumulator.strain), batch, accuracy: 1e-10)
+        XCTAssertEqual(accumulator.readingCount, readingCount)
+    }
+}

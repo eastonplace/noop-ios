@@ -171,6 +171,17 @@ final class Repository: ObservableObject {
     /// Daily metric rows with source provenance, used by vital-sign surfaces that need honest
     /// "WHOOP import / NOOP computed / Apple Health" captions instead of a silent merged row.
     @Published private(set) var vitalRows: [SourcedDailyMetric] = []
+    /// Canonical NOOP V2 headline series. Imported/legacy values live separately and
+    /// never enter this dictionary.
+    @Published private(set) var canonicalStrainByDay: [String: ResolvedStrain] = [:]
+    @Published private(set) var importedStrainByDay: [String: ResolvedStrain] = [:]
+    @Published private(set) var liveDayStrain: ResolvedStrain?
+    private var persistedStrainByDay: [String: ResolvedStrain] = [:]
+    private var liveStrainAccumulator: StrainScorerV2.PhysiologicalDayAccumulator?
+    private var liveStrainCycleStart: Int?
+    private var liveStrainDayKey: String?
+    private var liveStrainMaxHR: Double?
+    private var liveStrainRestingHR: Double?
     /// Monotonic counter bumped on every successful `refresh()`. Intraday-updating views key their
     /// data load on this so they reload when fresh strap data lands , `today?.day` alone is a stable
     /// date string within a day and would freeze e.g. the Today HR trend until the date rolls over.
@@ -452,6 +463,57 @@ final class Repository: ObservableObject {
         vitalRows.isEmpty ? days.map { SourcedDailyMetric(metric: $0, source: .localCache) } : vitalRows
     }
 
+    func canonicalStrain(for day: String) -> ResolvedStrain? { canonicalStrainByDay[day] }
+
+    /// Daily metrics projected through the canonical NOOP Strain chain. Consumers that
+    /// need a complete multi-metric row (reports, digests, charts) use this instead of
+    /// reading the merged row's imported or legacy strain field directly.
+    var canonicalDays: [DailyMetric] {
+        days.map { day in
+            let resolved = canonicalStrain(for: day.day)
+            return day.replacing(strain: .some(resolved?.storedValue),
+                                 strainVersion: .some(resolved?.version))
+        }
+    }
+
+    func canonicalStrainSeries(from: String, to: String) -> [ResolvedStrain] {
+        canonicalStrainByDay
+            .filter { $0.key >= from && $0.key <= to }
+            .sorted { $0.key < $1.key }
+            .map(\.value)
+    }
+
+    func importedStrain(for day: String) -> ResolvedStrain? { importedStrainByDay[day] }
+
+    private func setLiveDayStrain(_ value: ResolvedStrain?) {
+        // `asOf` is observational metadata, not new scoring input. Avoid publishing a
+        // different dictionary every refresh tick when the raw frontier and score did
+        // not move; doing so would waste widget/watch/live-activity refresh budgets.
+        if let current = liveDayStrain, let value,
+           current.day == value.day,
+           current.storedValue == value.storedValue,
+           current.version == value.version,
+           current.origin == value.origin,
+           current.sourceId == value.sourceId,
+           current.rawFrontierTs == value.rawFrontierTs {
+            return
+        }
+        guard liveDayStrain != nil || value != nil else { return }
+        liveDayStrain = value
+        rebuildCanonicalStrain()
+    }
+
+    private func rebuildCanonicalStrain() {
+        var resolved = persistedStrainByDay
+        if let liveDayStrain, let day = liveDayStrain.day {
+            if let value = StrainResolver.freshest(
+                persisted: persistedStrainByDay[day], live: liveDayStrain, day: day) {
+                resolved[day] = value
+            }
+        }
+        if canonicalStrainByDay != resolved { canonicalStrainByDay = resolved }
+    }
+
     /// Canonical source ids the resolver knows how to cross-reference. The strap's actual id is
     /// `deviceId` (and its computed sibling `deviceId + "-noop"`); these are the FIXED ids.
     static let whoopSource = "my-whoop"
@@ -609,6 +671,8 @@ final class Repository: ObservableObject {
         let sleeps: [CachedSleepSession]
         let vitalRows: [SourcedDailyMetric]
         let freshness: RepositoryFreshness
+        let persistedStrainByDay: [String: ResolvedStrain]
+        let importedStrainByDay: [String: ResolvedStrain]
     }
 
     /// Reload the dashboard caches over the last `nDays`, merging imported history with the
@@ -713,6 +777,8 @@ final class Repository: ObservableObject {
         let activityFile = (try? await store.dailyMetrics(deviceId: Self.activityFileSource, from: fromDay, to: toDay)) ?? []
         let impSleep = await unionSleepSessions(store: store, from: lo, to: hi)
         let compSleep = await unionComputedSleepSessions(store: store, from: lo, to: hi)
+        let computedSourceId = computedDeviceId
+        let importedSourceId = deviceId
 
         // Export-verbatim sleep figures (long-format metricSeries rows from WhoopImporter).
         // SleepView prefers these per day over its APPROXIMATE recomputations.
@@ -735,6 +801,25 @@ final class Repository: ObservableObject {
             // and IntelligenceEngine re-keys the computed DAILY row from it; collect those edited days so the
             // merge lets the computed row's SLEEP fields win there (imports still win on every un-edited day).
             let editedDays = Self.userEditedDays(compSleep)
+            var persistedStrain: [String: ResolvedStrain] = [:]
+            for row in computed where row.strainVersion == 2 && row.strain != nil {
+                let candidate = DailyStrainCandidate(
+                    metric: row, sourceId: computedSourceId,
+                    asOf: now,
+                    // The daily row does not persist the raw frontier it was scored
+                    // through. Claiming the latest repository frontier here can make a
+                    // stale persisted score outrank an actually-fresh live score.
+                    rawFrontierTs: nil
+                )
+                persistedStrain[row.day] = StrainResolver.canonicalDay(
+                    day: row.day, computedRows: [candidate], importedRows: [], live: nil)
+            }
+            var importedStrain: [String: ResolvedStrain] = [:]
+            for row in imported where row.strain != nil {
+                let candidate = DailyStrainCandidate(metric: row, sourceId: importedSourceId)
+                importedStrain[row.day] = StrainResolver.importedComparison(
+                    day: row.day, importedRows: [candidate])
+            }
             return MergedCaches(
                 importedSleep: fig,
                 days: Self.mergeActivityFileSteps(
@@ -744,7 +829,9 @@ final class Repository: ObservableObject {
                 sleeps: Self.mergeSleep(imported: impSleep, computed: compSleep),
                 vitalRows: Self.sourceRows(imported: imported, computed: computed, apple: apple),
                 freshness: Self.computeFreshness(imported: imported, computed: computed, apple: apple,
-                                                 importedSleeps: impSleep, computedSleeps: compSleep))
+                                                 importedSleeps: impSleep, computedSleeps: compSleep),
+                persistedStrainByDay: persistedStrain.compactMapValues { $0 },
+                importedStrainByDay: importedStrain.compactMapValues { $0 })
         }.value
 
         // Generation guard (#review): if a newer refresh() started while this one merged off-actor, drop
@@ -761,6 +848,8 @@ final class Repository: ObservableObject {
             && merged.importedSleep == importedSleep
             && merged.vitalRows == vitalRows
             && merged.freshness == freshness
+            && merged.persistedStrainByDay == persistedStrainByDay
+            && merged.importedStrainByDay == importedStrainByDay
         guard !unchanged else { return }
 
         // One consistent publish per refresh: assign every cache, flip `loaded`, then bump `refreshSeq` so
@@ -770,6 +859,9 @@ final class Repository: ObservableObject {
         self.sleeps = merged.sleeps
         self.vitalRows = merged.vitalRows
         self.freshness = merged.freshness
+        self.persistedStrainByDay = merged.persistedStrainByDay
+        self.importedStrainByDay = merged.importedStrainByDay
+        rebuildCanonicalStrain()
         self.loaded = true
         self.refreshSeq += 1
     }
@@ -825,27 +917,7 @@ final class Repository: ObservableObject {
             guard let steps = row.steps, steps > 0 else { continue }
             if let existing = byDay[row.day] {
                 if existing.steps == nil {
-                    byDay[row.day] = DailyMetric(
-                        day: existing.day,
-                        totalSleepMin: existing.totalSleepMin,
-                        efficiency: existing.efficiency,
-                        deepMin: existing.deepMin,
-                        remMin: existing.remMin,
-                        lightMin: existing.lightMin,
-                        disturbances: existing.disturbances,
-                        restingHr: existing.restingHr,
-                        avgHrv: existing.avgHrv,
-                        recovery: existing.recovery,
-                        strain: existing.strain,
-                        exerciseCount: existing.exerciseCount,
-                        spo2Pct: existing.spo2Pct,
-                        skinTempDevC: existing.skinTempDevC,
-                        respRateBpm: existing.respRateBpm,
-                        steps: steps,
-                        activeKcalEst: existing.activeKcalEst,
-                        spo2Red: existing.spo2Red,
-                        spo2Ir: existing.spo2Ir
-                    )
+                    byDay[row.day] = existing.replacing(steps: .some(steps))
                 }
             } else {
                 byDay[row.day] = row
@@ -922,6 +994,77 @@ final class Repository: ObservableObject {
             }
         }
         return byTs.values.sorted { $0.ts < $1.ts }
+    }
+
+    /// Incremental current physiological-day V2 update. The first pass hydrates the
+    /// accumulator from the cycle boundary; later passes fetch only timestamps beyond
+    /// its raw frontier. Context-only changes (sleep/steps/RHR) update without replaying HR.
+    func refreshLiveDayStrain(maxHR: Double, fallbackRestingHR: Double = StrainScorerV2.defaultRestingHR,
+                              now: Date = Date()) async {
+        guard let store = await ensureStore() else { return }
+        let dayKey = Self.logicalDayKey(now)
+        let logicalStart = Int(Self.logicalDayStart(now).timeIntervalSince1970)
+        let nowTs = Int(now.timeIntervalSince1970)
+        let day = days.last(where: { $0.day == dayKey })
+        let sleepCandidates = await sleepSessions(from: logicalStart - 12 * 3_600,
+                                                  to: nowTs + 60, limit: 50)
+            .filter { $0.endTs > logicalStart && $0.startTs <= nowTs }
+        let mainSleep = sleepCandidates.max { lhs, rhs in
+            (lhs.endTs - lhs.startTs) < (rhs.endTs - rhs.startTs)
+        }
+        let cycleStart = mainSleep?.effectiveStartTs ?? logicalStart
+        let restingHR = day?.restingHr.map(Double.init) ?? fallbackRestingHR
+        let context = StrainScorerV2.DayContext(
+            validWornSleepMinutes: day?.totalSleepMin,
+            steps: day?.steps,
+            activeEnergyKcal: nil,
+            hasWearCoverage: mainSleep != nil || (liveStrainAccumulator?.readingCount ?? 0) > 0
+        )
+
+        let mustRebuild = liveStrainAccumulator == nil
+            || liveStrainCycleStart != cycleStart
+            || liveStrainDayKey != dayKey
+            || liveStrainMaxHR != maxHR
+            || liveStrainRestingHR != restingHR
+        if mustRebuild {
+            let samples = await hrSamples(from: cycleStart, to: nowTs, limit: 200_000)
+            liveStrainAccumulator = StrainScorerV2.PhysiologicalDayAccumulator(
+                samples: samples, maxHR: maxHR, restingHR: restingHR,
+                context: .init(validWornSleepMinutes: day?.totalSleepMin,
+                               steps: day?.steps, activeEnergyKcal: nil,
+                               hasWearCoverage: mainSleep != nil || !samples.isEmpty))
+            liveStrainCycleStart = cycleStart
+            liveStrainDayKey = dayKey
+            liveStrainMaxHR = maxHR
+            liveStrainRestingHR = restingHR
+        } else {
+            liveStrainAccumulator?.update(context: context)
+            var latestFrontier: Int?
+            for id in importedReadIds {
+                if let frontier = (try? await store.latestHRSampleTs(deviceId: id)) ?? nil {
+                    latestFrontier = max(latestFrontier ?? frontier, frontier)
+                }
+            }
+            if let latestFrontier,
+               latestFrontier > (liveStrainAccumulator?.rawFrontierTs ?? cycleStart - 1) {
+                let from = max(cycleStart, (liveStrainAccumulator?.rawFrontierTs ?? cycleStart - 1) + 1)
+                for sample in await hrSamples(from: from, to: latestFrontier, limit: 200_000) {
+                    liveStrainAccumulator?.append(sample)
+                }
+            }
+        }
+
+        guard let accumulator = liveStrainAccumulator,
+              let stored = accumulator.strain,
+              let frontier = accumulator.rawFrontierTs else {
+            setLiveDayStrain(nil)
+            return
+        }
+        setLiveDayStrain(ResolvedStrain(
+            day: dayKey, storedValue: stored, version: StrainScorerV2.version,
+            origin: .liveDayV2, sourceId: deviceId, asOf: now,
+            rawFrontierTs: frontier
+        ))
     }
 
     /// Logical day-start of the most recent day the active device has HR data for, or nil when the store is
@@ -2275,10 +2418,7 @@ final class Repository: ObservableObject {
         guard let store = await ensureStore() else { return }
         let trimmed = sport.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
-        let manual = WorkoutRow(startTs: row.startTs, endTs: row.endTs, sport: trimmed, source: "manual",
-                                durationS: row.durationS, energyKcal: row.energyKcal,
-                                avgHr: row.avgHr, maxHr: row.maxHr, strain: row.strain,
-                                distanceM: row.distanceM, zonesJSON: row.zonesJSON, notes: row.notes)
+        let manual = row.replacing(sport: trimmed, source: "manual")
         _ = try? await store.upsertWorkouts([manual], deviceId: deviceId)
         _ = try? await store.deleteWorkouts(deviceId: computedDeviceId, sport: "detected",
                                             from: row.startTs, to: row.startTs)
@@ -2618,28 +2758,29 @@ private extension DailyMetric {
     /// daily merge so an imported export keeps its own values while a computed row fills the gaps it
     /// doesn't carry (e.g. on-device Charge / skin-temp deviation / activity totals).
     func fillingNilFields(from fallback: DailyMetric) -> DailyMetric {
-        DailyMetric(
-            day: day,
-            totalSleepMin: totalSleepMin ?? fallback.totalSleepMin,
-            efficiency: efficiency ?? fallback.efficiency,
-            deepMin: deepMin ?? fallback.deepMin,
-            remMin: remMin ?? fallback.remMin,
-            lightMin: lightMin ?? fallback.lightMin,
-            disturbances: disturbances ?? fallback.disturbances,
-            restingHr: restingHr ?? fallback.restingHr,
-            avgHrv: avgHrv ?? fallback.avgHrv,
-            recovery: recovery ?? fallback.recovery,
-            strain: strain ?? fallback.strain,
-            exerciseCount: exerciseCount ?? fallback.exerciseCount,
-            spo2Pct: spo2Pct ?? fallback.spo2Pct,
-            skinTempDevC: skinTempDevC ?? fallback.skinTempDevC,
-            respRateBpm: respRateBpm ?? fallback.respRateBpm,
-            steps: steps ?? fallback.steps,
-            activeKcalEst: activeKcalEst ?? fallback.activeKcalEst,
+        let resolvedStrain = strain ?? fallback.strain
+        let resolvedVersion = strain != nil ? strainVersion : fallback.strainVersion
+        return replacing(
+            totalSleepMin: .some(totalSleepMin ?? fallback.totalSleepMin),
+            efficiency: .some(efficiency ?? fallback.efficiency),
+            deepMin: .some(deepMin ?? fallback.deepMin),
+            remMin: .some(remMin ?? fallback.remMin),
+            lightMin: .some(lightMin ?? fallback.lightMin),
+            disturbances: .some(disturbances ?? fallback.disturbances),
+            restingHr: .some(restingHr ?? fallback.restingHr),
+            avgHrv: .some(avgHrv ?? fallback.avgHrv),
+            recovery: .some(recovery ?? fallback.recovery),
+            strain: .some(resolvedStrain), exerciseCount: .some(exerciseCount ?? fallback.exerciseCount),
+            spo2Pct: .some(spo2Pct ?? fallback.spo2Pct),
+            skinTempDevC: .some(skinTempDevC ?? fallback.skinTempDevC),
+            respRateBpm: .some(respRateBpm ?? fallback.respRateBpm),
+            steps: .some(steps ?? fallback.steps),
+            activeKcalEst: .some(activeKcalEst ?? fallback.activeKcalEst),
             // Raw SpO2 is on-device only (imports never carry it), so the imported row's nil is
             // backfilled from the computed fallback — otherwise the nightly means would be lost. (#93)
-            spo2Red: spo2Red ?? fallback.spo2Red,
-            spo2Ir: spo2Ir ?? fallback.spo2Ir
+            spo2Red: .some(spo2Red ?? fallback.spo2Red),
+            spo2Ir: .some(spo2Ir ?? fallback.spo2Ir),
+            strainVersion: .some(resolvedVersion)
         )
     }
 
@@ -2648,26 +2789,10 @@ private extension DailyMetric {
     /// columns move; every other field (recovery/strain/HRV/RHR/activity/in-sleep vitals) is left as-is, so
     /// the import still wins for non-sleep metrics on the edited day.
     func takingSleepFields(from source: DailyMetric) -> DailyMetric {
-        DailyMetric(
-            day: day,
-            totalSleepMin: source.totalSleepMin,
-            efficiency: source.efficiency,
-            deepMin: source.deepMin,
-            remMin: source.remMin,
-            lightMin: source.lightMin,
-            disturbances: source.disturbances,
-            restingHr: restingHr,
-            avgHrv: avgHrv,
-            recovery: recovery,
-            strain: strain,
-            exerciseCount: exerciseCount,
-            spo2Pct: spo2Pct,
-            skinTempDevC: skinTempDevC,
-            respRateBpm: respRateBpm,
-            steps: steps,
-            activeKcalEst: activeKcalEst,
-            spo2Red: spo2Red,   // non-sleep field: preserved as-is (#93)
-            spo2Ir: spo2Ir
+        replacing(
+            totalSleepMin: .some(source.totalSleepMin), efficiency: .some(source.efficiency),
+            deepMin: .some(source.deepMin), remMin: .some(source.remMin),
+            lightMin: .some(source.lightMin), disturbances: .some(source.disturbances)
         )
     }
 }

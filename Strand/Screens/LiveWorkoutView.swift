@@ -48,6 +48,12 @@ struct LiveWorkoutView: View {
                     .staggeredAppear(index: 3)
                 paperHeartRateCard.staggeredAppear(index: 4)
                 controlRow
+                if case .failed(let message) = model.workoutFinishState {
+                    Text(message)
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.statusWarning)
+                        .accessibilityLabel("Workout save failed. \(message)")
+                }
                 // Existing Strain and zone reads remain available below the S25 composition.
                 effortGauge
                 zoneRail
@@ -180,19 +186,35 @@ struct LiveWorkoutView: View {
     /// scale (#313): 0–100 native, or rescaled to WHOOP's 0–21, matching the rest of the app's
     /// read-outs (mirrors TodayView's effort hero). Display-only — the captured value stays 0–100.
     private var effortGauge: some View {
-        let strain = model.activeWorkout?.liveStrain ?? 0
         return NoopCard(padding: NoopMetrics.cardInnerPadding, tint: StrandPalette.effortColor) {
             VStack(spacing: NoopMetrics.rowSpacing) {
-                Text("STRAIN BUILDING")
-                    .font(StrandFont.overline).tracking(StrandFont.overlineTracking)
-                    .foregroundStyle(StrandPalette.effortColor)
-                StrainGauge(
-                    strain: UnitFormatter.effortValue(strain, scale: effortScale),
-                    outOf: 21,
-                    diameter: 150, lineWidth: 14, showsHover: false,
-                    valueFormat: { _ in UnitFormatter.effortDisplay(strain, scale: effortScale) }
-                )
-                .frame(maxWidth: .infinity)
+                switch model.activeWorkout?.liveStrainState
+                    ?? .building(readings: 0, coverageSeconds: 0) {
+                case .building(let readings, let coverageSeconds):
+                    Text("STRAIN BUILDING")
+                        .font(StrandFont.overline).tracking(StrandFont.overlineTracking)
+                        .foregroundStyle(StrandPalette.effortColor)
+                    Text("Building")
+                        .font(StrandFont.metricValue)
+                        .foregroundStyle(StrandPalette.textPrimary)
+                    ProgressView(value: min(1, Double(coverageSeconds) /
+                                            Double(StrainScorerV2.minCoverageSeconds)))
+                        .tint(StrandPalette.effortColor)
+                    Text("\(Self.elapsedCoverage(coverageSeconds)) of 10:00 coverage · \(readings) readings")
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                case .scored(let strain):
+                    Text("LIVE STRAIN")
+                        .font(StrandFont.overline).tracking(StrandFont.overlineTracking)
+                        .foregroundStyle(StrandPalette.effortColor)
+                    StrainGauge(
+                        strain: UnitFormatter.effortValue(strain, scale: effortScale),
+                        outOf: 21,
+                        diameter: 150, lineWidth: 14, showsHover: false,
+                        valueFormat: { _ in UnitFormatter.effortDisplay(strain, scale: effortScale) }
+                    )
+                    .frame(maxWidth: .infinity)
+                }
             }
             .frame(maxWidth: .infinity)
         }
@@ -234,10 +256,12 @@ struct LiveWorkoutView: View {
 
 
     private var endButton: some View {
-        NoopButton("Finish", systemImage: "flag.checkered", kind: .destructive) {
-            model.endWorkout()
-            onClose()
+        let saving = model.workoutFinishState == .saving
+        let title: LocalizedStringKey = saving ? "Saving…" : "Finish"
+        return NoopButton(title, systemImage: saving ? "hourglass" : "flag.checkered", kind: .destructive) {
+            Task { _ = await model.endWorkout() }
         }
+        .disabled(saving)
     }
 
     // MARK: - Helpers
@@ -245,6 +269,10 @@ struct LiveWorkoutView: View {
     private static func elapsed(since start: Date) -> String {
         let s = max(0, Int(Date().timeIntervalSince(start)))
         return String(format: "%d:%02d", s / 60, s % 60)
+    }
+
+    private static func elapsedCoverage(_ seconds: Int) -> String {
+        String(format: "%d:%02d", max(0, seconds) / 60, max(0, seconds) % 60)
     }
 
     private static func zoneName(_ zone: Int) -> String {

@@ -642,7 +642,7 @@ final class AICoachEngine: ObservableObject {
     /// recovery/strain/sleep-hours/HRV/restingHR where present, plus 30-day averages, plus a few
     /// recent workouts. Kept well under ~1500 tokens. If there's no data, it says so.
     func buildContext() -> String {
-        let days = repo.days // oldest → newest
+        let days = repo.canonicalDays // oldest → newest, canonical NOOP V2 strain
         var lines: [String] = ["USER BIOMETRIC SUMMARY (the user's own wearable data):"]
 
         guard !days.isEmpty else {
@@ -690,7 +690,9 @@ final class AICoachEngine: ObservableObject {
         for w in rows.prefix(limit) {
             var parts = ["  \(dateString(w.startTs)) \(w.sport)"]
             if let dur = w.durationS { parts.append("\(Int((dur / 60).rounded())) min") }
-            if let s = w.strain { parts.append("effort \(String(format: "%.1f", s))") }
+            if let s = StrainResolver.canonicalWorkout(w)?.storedValue {
+                parts.append("effort \(String(format: "%.1f", s))")
+            }
             if let hr = w.avgHr { parts.append("avg HR \(hr)") }
             if let kcal = w.energyKcal { parts.append("\(Int(kcal.rounded())) kcal") }
             if let dist = w.distanceM { parts.append("\(String(format: "%.1f", dist / 1000)) km") }

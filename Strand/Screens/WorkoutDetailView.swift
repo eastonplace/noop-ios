@@ -65,10 +65,15 @@ struct WorkoutDetailView: View {
     }
     @State private var detailTab: DetailTab = .overview
     @State private var usualEffort: Double?
+    @State private var refreshedRow: WorkoutRow?
+
+    /// The tap payload is only a routing key. Resolve it again after a durable workout
+    /// finish so detail never keeps presenting the pre-save or pre-rescore snapshot.
+    private var displayRow: WorkoutRow { refreshedRow ?? row }
 
     var body: some View {
-        ScreenScaffold(title: "\(WorkoutSource.displaySport(row.sport)) Summary",
-                       subtitle: "\(dateLabel(row.startTs))",
+        ScreenScaffold(title: "\(WorkoutSource.displaySport(displayRow.sport)) Summary",
+                       subtitle: "\(dateLabel(displayRow.startTs))",
                        // PERF: chart/map-heavy column (a MapKit route map, the session HR curve, the
                        // zone-split chart and the effort card). The LazyVStack path builds the off-screen
                        // ones on demand — byte-identical layout — so a tall detail doesn't materialise the
@@ -111,24 +116,28 @@ struct WorkoutDetailView: View {
     // MARK: - Load
 
     private func load() async {
+        let history = await repo.workoutRows(days: 4000)
+        let target = history.first {
+            $0.startTs == row.startTs && $0.sport == row.sport
+        } ?? row
+
         // #524: the GPS route, if this session recorded one on-device. A cheap UserDefaults read keyed
         // by the row's natural key (startTs + sport); decoded to points only when ≥2 were captured so the
         // map only ever draws a real route.
         let routePoints: [RouteMath.LatLng] = {
-            guard let r = RouteStore.load(startTs: row.startTs, sport: row.sport) else { return [] }
+            guard let r = RouteStore.load(startTs: target.startTs, sport: target.sport) else { return [] }
             let pts = RouteMath.decode(r.polyline)
             return pts.count >= 2 ? pts : []
         }()
 
         // HR curve over the exact session window — a finer bucket than the 24h chart so a short run
         // still reads as a curve, not a handful of points.
-        let buckets = await repo.workoutHrBuckets(from: row.startTs, to: row.endTs)
+        let buckets = await repo.workoutHrBuckets(from: target.startTs, to: target.endTs)
         let points = buckets.map { TrendPoint(date: Date(timeIntervalSince1970: TimeInterval($0.ts)), value: $0.bpm) }
-        let history = await repo.workoutRows(days: 4000)
         let comparison = history.filter {
-            !($0.startTs == row.startTs && $0.sport == row.sport)
-                && $0.sport.caseInsensitiveCompare(row.sport) == .orderedSame
-        }.compactMap(\.strain)
+            !($0.startTs == target.startTs && $0.sport == target.sport)
+                && $0.sport.caseInsensitiveCompare(target.sport) == .orderedSame
+        }.compactMap { StrainResolver.canonicalWorkout($0)?.storedValue }
         let typical = comparison.isEmpty ? nil : comparison.reduce(0, +) / Double(comparison.count)
 
         // Zones: prefer the imported per-workout percentages (a WHOOP-computed split), and only fall
@@ -136,19 +145,20 @@ struct WorkoutDetailView: View {
         // never overwrite a real imported split with an on-device approximation.
         var minutes: [Double]?
         var fromImport = false
-        if let pct = WorkoutZones.percents(row.zonesJSON) {
-            let durMin = (row.durationS ?? Double(row.endTs - row.startTs)) / 60.0
+        if let pct = WorkoutZones.percents(target.zonesJSON) {
+            let durMin = (target.durationS ?? Double(target.endTs - target.startTs)) / 60.0
             if durMin > 0 {
                 minutes = pct.map { durMin * $0 / 100.0 }
                 fromImport = true
             }
         }
         if minutes == nil {
-            minutes = await repo.workoutZoneMinutes(from: row.startTs, to: row.endTs, age: profile.age)
+            minutes = await repo.workoutZoneMinutes(from: target.startTs, to: target.endTs, age: profile.age)
         }
 
         await MainActor.run {
             self.route = routePoints
+            self.refreshedRow = target
             self.hrPoints = points
             self.zoneMinutes = minutes
             self.zonesFromImport = fromImport
@@ -160,7 +170,8 @@ struct WorkoutDetailView: View {
     // MARK: - Header
 
     private var paperEffortHero: some View {
-        let display = row.strain.map { UnitFormatter.effortValue($0, scale: effortScale) }
+        let storedStrain = StrainResolver.canonicalWorkout(displayRow)?.storedValue
+        let display = storedStrain.map { UnitFormatter.effortValue($0, scale: effortScale) }
         let maximum: Double = 21
         return PaperCard {
             VStack(alignment: .leading, spacing: 10) {
@@ -217,7 +228,8 @@ struct WorkoutDetailView: View {
     }
 
     private var effortDelta: Double? {
-        guard let strain = row.strain, let usualEffort else { return nil }
+        guard let strain = StrainResolver.canonicalWorkout(displayRow)?.storedValue,
+              let usualEffort else { return nil }
         return UnitFormatter.effortValue(strain, scale: effortScale)
             - UnitFormatter.effortValue(usualEffort, scale: effortScale)
     }
@@ -225,12 +237,12 @@ struct WorkoutDetailView: View {
     private var paperStatsGrid: some View {
         PaperCard(padding: 0) {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: 3), spacing: 0) {
-                paperStat("DISTANCE", distanceLabel(row.distanceM), nil)
-                paperStat("TIME", durationLabel(row.durationS), nil)
+                paperStat("DISTANCE", distanceLabel(displayRow.distanceM), nil)
+                paperStat("TIME", durationLabel(displayRow.durationS), nil)
                 paperStat("AVG PACE", paceLabel, nil)
-                paperStat("AVG HR", row.avgHr.map(String.init) ?? "—", "bpm")
-                paperStat("MAX HR", row.maxHr.map(String.init) ?? "—", "bpm")
-                paperStat("CALORIES", row.energyKcal.map { grouped($0) } ?? "—", "kcal")
+                paperStat("AVG HR", displayRow.avgHr.map(String.init) ?? "—", "bpm")
+                paperStat("MAX HR", displayRow.maxHr.map(String.init) ?? "—", "bpm")
+                paperStat("CALORIES", displayRow.energyKcal.map { grouped($0) } ?? "—", "kcal")
             }
         }
     }
@@ -286,7 +298,7 @@ struct WorkoutDetailView: View {
                             Text("ROUTE")
                                 .font(StrandFont.sectionOverline)
                                 .tracking(StrandFont.sectionOverlineTracking)
-                            Text("\(WorkoutSource.displaySport(row.sport)) · \(distanceLabel(row.distanceM))")
+                            Text("\(WorkoutSource.displaySport(displayRow.sport)) · \(distanceLabel(displayRow.distanceM))")
                                 .font(StrandFont.caption)
                                 .foregroundStyle(StrandPalette.textSecondary)
                         }
@@ -335,7 +347,7 @@ struct WorkoutDetailView: View {
     private var headerCard: some View {
         NoopCard(tint: StrandPalette.effortColor) {
             HStack(alignment: .center, spacing: 14) {
-                Image(systemName: sportSymbol(row.sport))
+                Image(systemName: sportSymbol(displayRow.sport))
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(StrandPalette.effortColor)
                     .frame(width: 44, height: 44)
@@ -343,16 +355,16 @@ struct WorkoutDetailView: View {
                                 in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(WorkoutSource.displaySport(row.sport))
+                    Text(WorkoutSource.displaySport(displayRow.sport))
                         .font(StrandFont.title2)
                         .foregroundStyle(StrandPalette.textPrimary)
                         .lineLimit(1)
-                    Text("\(dateLabel(row.startTs)) · \(timeRangeLabel(row.startTs, row.endTs))")
+                    Text("\(dateLabel(displayRow.startTs)) · \(timeRangeLabel(displayRow.startTs, displayRow.endTs))")
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textTertiary)
                 }
                 Spacer(minLength: 0)
-                sourceBadge(row.source)
+                sourceBadge(displayRow.source)
             }
         }
     }
@@ -363,24 +375,24 @@ struct WorkoutDetailView: View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: NoopMetrics.gap)],
                   alignment: .leading, spacing: NoopMetrics.gap) {
             StatTile(label: "Duration",
-                     value: durationLabel(row.durationS),
+                     value: durationLabel(displayRow.durationS),
                      caption: String(localized: "active"),
                      accent: StrandPalette.effortColor)
             StatTile(label: "Avg HR",
-                     value: row.avgHr.map { "\($0)" } ?? "–",
-                     caption: row.avgHr != nil ? "bpm" : nil,
-                     accent: row.avgHr != nil ? StrandPalette.metricRose : StrandPalette.textTertiary)
+                     value: displayRow.avgHr.map { "\($0)" } ?? "–",
+                     caption: displayRow.avgHr != nil ? "bpm" : nil,
+                     accent: displayRow.avgHr != nil ? StrandPalette.metricRose : StrandPalette.textTertiary)
             StatTile(label: "Max HR",
-                     value: row.maxHr.map { "\($0)" } ?? "–",
-                     caption: row.maxHr != nil ? "bpm" : nil,
-                     accent: row.maxHr != nil ? StrandPalette.metricRose : StrandPalette.textTertiary)
+                     value: displayRow.maxHr.map { "\($0)" } ?? "–",
+                     caption: displayRow.maxHr != nil ? "bpm" : nil,
+                     accent: displayRow.maxHr != nil ? StrandPalette.metricRose : StrandPalette.textTertiary)
             StatTile(label: "Calories",
-                     value: row.energyKcal.map { grouped($0) } ?? "–",
-                     caption: row.energyKcal != nil ? "kcal" : nil,
-                     accent: row.energyKcal != nil ? StrandPalette.metricAmber : StrandPalette.textTertiary)
-            if row.distanceM != nil {
+                     value: displayRow.energyKcal.map { grouped($0) } ?? "–",
+                     caption: displayRow.energyKcal != nil ? "kcal" : nil,
+                     accent: displayRow.energyKcal != nil ? StrandPalette.metricAmber : StrandPalette.textTertiary)
+            if displayRow.distanceM != nil {
                 StatTile(label: "Distance",
-                         value: distanceLabel(row.distanceM),
+                         value: distanceLabel(displayRow.distanceM),
                          caption: String(localized: "covered"),
                          accent: StrandPalette.metricCyan)
             }
@@ -396,7 +408,7 @@ struct WorkoutDetailView: View {
         if route.count >= 2 {
             VStack(alignment: .leading, spacing: NoopMetrics.gap) {
                 SectionHeader("Route", overline: "Recorded on device",
-                              trailing: distanceLabel(row.distanceM))
+                              trailing: distanceLabel(displayRow.distanceM))
                 NoopCard(padding: 0, tint: StrandPalette.effortColor) {
                     VStack(alignment: .leading, spacing: 0) {
                         WorkoutRouteMap(points: route)
@@ -405,7 +417,7 @@ struct WorkoutDetailView: View {
                                                         style: .continuous))
                             .accessibilityLabel(routeAccessibilityLabel)
                         HStack(spacing: 0) {
-                            routeStat(String(localized: "Distance"), distanceLabel(row.distanceM),
+                            routeStat(String(localized: "Distance"), distanceLabel(displayRow.distanceM),
                                       tint: StrandPalette.metricCyan)
                             routeStat(String(localized: "Avg pace"), paceLabel, tint: StrandPalette.effortBright)
                             routeStat(String(localized: "Points"), "\(route.count)", tint: StrandPalette.textSecondary)
@@ -429,8 +441,8 @@ struct WorkoutDetailView: View {
     /// Avg pace from the row's GPS distance + duration, in the user's unit system: "m:ss /km" (metric) or
     /// "m:ss /mi" (imperial). "–" when distance or duration is missing/zero (pace undefined — honest).
     private var paceLabel: String {
-        guard let m = row.distanceM, m > 0 else { return "–" }
-        let secs = row.durationS ?? Double(row.endTs - row.startTs)
+        guard let m = displayRow.distanceM, m > 0 else { return "–" }
+        let secs = displayRow.durationS ?? Double(displayRow.endTs - displayRow.startTs)
         guard secs > 0 else { return "–" }
         let km = m / 1000.0
         let (perUnit, label): (Double, String) = unitSystem == .imperial
@@ -442,8 +454,8 @@ struct WorkoutDetailView: View {
     }
 
     private var routeAccessibilityLabel: String {
-        let dist = distanceLabel(row.distanceM)
-        return String(localized: "Map of your \(WorkoutSource.displaySport(row.sport)) route, \(dist).")
+        let dist = distanceLabel(displayRow.distanceM)
+        return String(localized: "Map of your \(WorkoutSource.displaySport(displayRow.sport)) route, \(dist).")
     }
 
     // MARK: - HR curve
@@ -457,7 +469,7 @@ struct WorkoutDetailView: View {
                 ChartCard(
                     title: "HEART RATE",
                     subtitle: String(localized: "Beats per minute across the session"),
-                    trailing: row.avgHr.map { String(localized: "avg \($0)") },
+                    trailing: displayRow.avgHr.map { String(localized: "avg \($0)") },
                     tint: StrandPalette.effortColor
                 ) {
                     TrendChart(
@@ -467,12 +479,12 @@ struct WorkoutDetailView: View {
                         showsArea: true,
                         valueFormat: { String(localized: "\(Int($0.rounded())) bpm") },
                         dateFormat: { Self.tooltipTime.string(from: $0) },
-                        accessibilityLabel: String(localized: "Heart rate during \(WorkoutSource.displaySport(row.sport))")
+                        accessibilityLabel: String(localized: "Heart rate during \(WorkoutSource.displaySport(displayRow.sport))")
                     )
                 } footer: {
                     ChartFooter([
-                        ("Avg", row.avgHr.map { String(localized: "\($0) bpm") } ?? "–"),
-                        ("Peak", row.maxHr.map { String(localized: "\($0) bpm") } ?? String(localized: "\(Int((values.max() ?? 0).rounded())) bpm")),
+                        ("Avg", displayRow.avgHr.map { String(localized: "\($0) bpm") } ?? "–"),
+                        ("Peak", displayRow.maxHr.map { String(localized: "\($0) bpm") } ?? String(localized: "\(Int((values.max() ?? 0).rounded())) bpm")),
                         ("Low", String(localized: "\(Int((values.min() ?? 0).rounded())) bpm")),
                     ])
                 }
@@ -499,7 +511,9 @@ struct WorkoutDetailView: View {
     /// typed value) AND the row's avgHr differs from the trace mean by more than a small tolerance. The
     /// tolerance absorbs ordinary rounding/bucketing drift so an unedited session never trips the note.
     private func avgHrEditedDisclosure(traceMean: Double) -> Bool {
-        guard let avg = row.avgHr, row.strain != nil || row.zonesJSON != nil else { return false }
+        guard let avg = displayRow.avgHr,
+              StrainResolver.canonicalWorkout(displayRow) != nil || displayRow.zonesJSON != nil
+        else { return false }
         return abs(Double(avg) - traceMean) > 3
     }
 

@@ -48,7 +48,7 @@ extension WidgetSnapshot {
         }
         let snap = WidgetSnapshot.publishing(
             recovery: day?.recovery,
-            storedStrain: day?.strain,
+            storedStrain: day.flatMap { model.repo.canonicalStrain(for: $0.day)?.storedValue },
             sleepScore: restScore,
             bpm: model.bpm ?? model.live.heartRate,
             batteryPct: model.live.batteryPct,

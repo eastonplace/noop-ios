@@ -65,6 +65,39 @@ final class EditMergePrecedenceTests: XCTestCase {
         XCTAssertEqual(byDay["2026-06-12"]?.totalSleepMin, 300)
     }
 
+    func testImportedStrainKeepsImportedProvenance() {
+        let imported = full(day: "2026-06-12", totalSleepMin: 480, deepMin: 90, remMin: 110,
+                            lightMin: 280, efficiency: 0.92, recovery: 80, strain: 72)
+        let computed = full(day: "2026-06-12", totalSleepMin: 470, deepMin: 88, remMin: 108,
+                            lightMin: 274, efficiency: 0.9, recovery: 78, strain: 58)
+            .replacing(strainVersion: .some(2))
+        let merged = Repository.mergeDaily(imported: [imported], computed: [computed])
+        XCTAssertEqual(merged[0].strain, 72)
+        XCTAssertNil(merged[0].strainVersion)
+    }
+
+    func testComputedStrainFillCarriesVersionTwo() {
+        let imported = full(day: "2026-06-12", totalSleepMin: 480, deepMin: 90, remMin: 110,
+                            lightMin: 280, efficiency: 0.92, recovery: 80, strain: 72)
+            .replacing(strain: .some(nil), strainVersion: .some(nil))
+        let computed = full(day: "2026-06-12", totalSleepMin: 470, deepMin: 88, remMin: 108,
+                            lightMin: 274, efficiency: 0.9, recovery: 78, strain: 58)
+            .replacing(strainVersion: .some(2))
+        let merged = Repository.mergeDaily(imported: [imported], computed: [computed])
+        XCTAssertEqual(merged[0].strain, 58)
+        XCTAssertEqual(merged[0].strainVersion, 2)
+    }
+
+    func testActivityFileStepMergePreservesVersionTwo() {
+        let base = full(day: "2026-06-12", totalSleepMin: 470, deepMin: 88, remMin: 108,
+                        lightMin: 274, efficiency: 0.9, recovery: 78, strain: 58)
+            .replacing(strainVersion: .some(2))
+        let file = base.replacing(strain: .some(nil), steps: .some(9_000), strainVersion: .some(nil))
+        let merged = Repository.mergeActivityFileSteps(into: [base], [file])
+        XCTAssertEqual(merged[0].steps, 9_000)
+        XCTAssertEqual(merged[0].strainVersion, 2)
+    }
+
     /// `userEditedDays` is derived from the LOCAL wake-day of every `userEdited` computed session.
     func testUserEditedDaysKeyedByLocalWakeDay() {
         let offsetSec = TimeZone.current.secondsFromGMT(for: Date(timeIntervalSince1970: 1_780_000_000))

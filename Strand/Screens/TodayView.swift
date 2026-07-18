@@ -390,13 +390,6 @@ struct TodayView: View {
     // used to anchor the recovery marker at wake time (WHOOP-style Overview HR annotations).
     @State private var sleepToday: CachedSleepSession?
 
-    // TODAY's in-progress Strain (NOOP 0–100 axis), recomputed over the day's HR (local-midnight→now)
-    // each load so the gauge tracks today as it accumulates rather than waiting on the heavy daily pass
-    // to persist, which early in the day would otherwise surface yesterday's completed Strain or a stale
-    // 0.0 (#402). nil below StrainScorer.minReadings (we then fall back to the stored daily row) and on
-    // any navigated past day (those use the stored value).
-    @State private var liveTodayStrain: Double?
-
     // The HR chart's x-axis window. Today → midnight…now; a navigated PAST day → the full calendar
     // day (midnight…next midnight) so a morning with no banked data reads as empty space rather than
     // the axis silently starting at the first sample (#overview-hr gap clarity).
@@ -3096,12 +3089,8 @@ struct TodayView: View {
         .frame(width: diameter, height: diameter)
     }
 
-    /// The effective Strain strain (NOOP 0–100 axis) the gauge shows. For TODAY this prefers the live
-    /// in-progress value computed over the day's HR (midnight→now) in `loadAll`, so the gauge reflects
-    /// the accumulating day rather than the last persisted daily row, which only refreshes when the
-    /// heavy daily pass runs, so early in the day the stored row is yesterday's Strain or a stale 0.0
-    /// (#402). Falls back to the stored `strain` when there isn't yet enough of today's HR to score
-    /// (StrainScorer.minReadings). Navigated past days always use the stored row.
+    /// The effective canonical Strain (stored 0–100 axis). Today, detail, Trends and
+    /// external publishers all resolve through Repository's freshness-aware V2 source.
     private func effortStrain(_ d: DailyMetric?) -> Double? {
         #if DEBUG
         // DEBUG promo harness: pin Strain (NOOP 0–100 axis) to the active frame's value. This single
@@ -3109,9 +3098,7 @@ struct TodayView: View {
         // `--demo-hour` frame is active. Charge/Sleep are intentionally left at their seeded values.
         if let f = DemoDayHarness.active { return f.effort }
         #endif
-        if selectedDayOffset == 0, let live = liveTodayStrain { return live }
-        guard d?.strainVersion == 2 else { return nil }
-        return d?.strain
+        return repo.canonicalStrain(for: selectedDayKey)?.storedValue
     }
 
     /// When TODAY's Strain scores a genuine near-zero, there's enough HR to score, but it never
@@ -3516,13 +3503,14 @@ struct TodayView: View {
         case .effort:
             // Unscored TODAY → a short "building" hint instead of the "of N" axis caption, so a
             // fresh user reads "coming" not "broken" (#527); a scored day keeps "of N".
+            let storedStrain = effortStrain(d)
             StatTile(
                 label: "Strain",
-                value: d?.strain.map { UnitFormatter.effortDisplay($0, scale: effortScale) } ?? "—",
-                caption: d?.strain.map {
+                value: storedStrain.map { UnitFormatter.effortDisplay($0, scale: effortScale) } ?? "—",
+                caption: storedStrain.map {
                     StrainScale.band(StrainScale.displayValue(fromStored: $0)).title
                 } ?? (buildingHint(.effort) ?? String(localized: "Calibrating")),
-                accent: d?.strain.map { _ in StrandPalette.strainAccent } ?? StrandPalette.textPrimary,
+                accent: storedStrain.map { _ in StrandPalette.strainAccent } ?? StrandPalette.textPrimary,
                 sparkline: sparks["strain"],
                 sparkColor: StrandPalette.strain066,
                 // Inline ⓘ in the tile header (not a corner overlay) so it never sits over the value (#495).
@@ -3683,7 +3671,9 @@ struct TodayView: View {
                             label: "\(WorkoutSource.displaySport(w.sport))",
                             value: workoutDuration(w),
                             caption: workoutCaption(w),
-                            accent: StrandPalette.effortTint(fraction: (w.strain ?? 0) / StrainScorer.maxStrain),
+                            accent: StrandPalette.effortTint(
+                                fraction: (StrainResolver.canonicalWorkout(w)?.storedValue ?? 0)
+                                    / StrainScorer.maxStrain),
                             delta: w.energyKcal.map { "\(Int($0.rounded())) kcal" },
                             deltaColor: StrandPalette.metricAmber
                         )
@@ -4135,7 +4125,6 @@ struct TodayView: View {
         provenanceByMetric = c.provenanceByMetric
         hrPoints = c.hrPoints
         stepActivityClassToday = c.stepActivityClassToday
-        liveTodayStrain = c.liveTodayStrain
         hrZoomDomain = Self.reclampHrZoom(hrZoomDomain, oldAxis: hrAxis, newAxis: c.hrAxis)
         hrAxis = c.hrAxis
         sleepToday = c.sleepToday
@@ -4282,29 +4271,6 @@ struct TodayView: View {
         // banked day is days back opens on TODAY, not on that old day. In-session day memory (#739/#614) is
         // untouched: a tab-away + return keeps the navigated offset because this pass no longer rewrites it.
 
-        // In-progress Strain for TODAY (#402): score today's strain over the SAME window the HR curve
-        // above shows (logical-day midnight → now) so the gauge tracks the day live instead of lagging
-        // on the last persisted daily row. Uses the identical params the daily pass uses, Tanaka HRmax
-        // from age, today's resting HR (else the default), sex, so the live number matches what the
-        // engine will eventually persist. Below StrainScorer.minReadings the scorer returns nil and the
-        // gauge falls back to the stored row (never a fabricated value); a navigated past day clears it.
-        let liveStrainLocal: Double?
-        if selectedDayOffset == 0 {
-            let physiologicalStart = sleepTodayLocal?.effectiveStartTs ?? windowStart
-            let todayHr = await repo.hrSamples(from: physiologicalStart, to: windowEnd)
-            let maxHR = profile.age > 0 ? StrainScorer.tanakaHRmax(age: Double(profile.age)) : nil
-            let restHR = displayDay?.restingHr.map(Double.init) ?? StrainScorer.defaultRestingHR
-            liveStrainLocal = StrainScorerV2.strain(
-                todayHr, maxHR: maxHR, restingHR: restHR,
-                mode: .physiologicalDay(.init(
-                    validWornSleepMinutes: displayDay?.totalSleepMin,
-                    steps: displayDay?.steps,
-                    activeEnergyKcal: nil,
-                    hasWearCoverage: sleepTodayLocal != nil || !todayHr.isEmpty)))
-        } else {
-            liveStrainLocal = nil
-        }
-        liveTodayStrain = liveStrainLocal
         // Pin the chart axis to the loaded window, today midnight→now, a past day the full 24h, so
         // a gap (e.g. a morning the strap wasn't banking) shows as empty space, not a late start.
         let newAxis = Date(timeIntervalSince1970: TimeInterval(windowStart))
@@ -4340,7 +4306,6 @@ struct TodayView: View {
             provenanceByMetric: provenance,
             hrPoints: hrPointsLocal,
             stepActivityClassToday: stepClassLocal,
-            liveTodayStrain: liveStrainLocal,
             hrAxis: newAxis,
             sleepToday: sleepTodayLocal,
             bankedAt: Date())
@@ -4692,7 +4657,7 @@ struct TodayHistoryWideCache {
 
 /// #849/#932: an in-memory snapshot of everything `loadDayScoped()` computes for ONE viewed day: the Sleep
 /// score + its tile spark, the provenance winners, the selected day's 5-minute HR buckets, the day's step
-/// activity class, the live Strain, the pinned chart axis and the overlapping sleep band. Held on the
+/// activity class, the pinned chart axis and the overlapping sleep band. Held on the
 /// long-lived `Repository` (NOT TodayView's `@State`), keyed by the (`refreshSeq`, viewed-day key) it was
 /// built at, so a Today RE-MOUNT with unchanged data (macOS cold-mounts the screen on every sidebar switch)
 /// can RESTORE these values without re-running the heavy `hrBuckets`/`hrSamples` reads, 170k+ HR rows/day
@@ -4706,7 +4671,6 @@ struct TodayDayScopedCache {
     let provenanceByMetric: [String: String]
     let hrPoints: [TrendPoint]
     let stepActivityClassToday: Int?
-    let liveTodayStrain: Double?
     let hrAxis: ClosedRange<Date>
     let sleepToday: CachedSleepSession?
     /// When the snapshot was banked. TODAY hits are age-gated on this (`todayCacheMaxAge`): live banking

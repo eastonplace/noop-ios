@@ -326,11 +326,11 @@ enum WorkoutSource: Equatable {
     /// them on an edit. No-op for a fresh add (`old == nil`).
     static func preservingCaptured(_ row: WorkoutRow, from old: WorkoutRow?) -> WorkoutRow {
         guard let old else { return row }
-        return WorkoutRow(startTs: row.startTs, endTs: row.endTs, sport: row.sport,
-                          source: row.source, durationS: row.durationS,
-                          energyKcal: row.energyKcal, avgHr: row.avgHr,
-                          maxHr: old.maxHr, strain: old.strain, distanceM: old.distanceM,
-                          zonesJSON: old.zonesJSON, notes: old.notes)
+        return row.replacing(
+            maxHr: .some(old.maxHr), strain: .some(old.strain), distanceM: .some(old.distanceM),
+            zonesJSON: .some(old.zonesJSON), notes: .some(old.notes),
+            strainVersion: .some(old.strainVersion)
+        )
     }
 
     /// Build a retroactive manual workout (source "manual", persisted under the strap deviceId by the

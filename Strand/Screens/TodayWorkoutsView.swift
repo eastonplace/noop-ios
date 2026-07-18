@@ -82,7 +82,9 @@ struct TodayWorkoutsView: View {
         if let kcal = row.energyKcal, kcal > 0 { parts.append("\(Int(kcal.rounded())) kcal") }
         if let hr = row.avgHr { parts.append("\(hr) bpm") }
         parts.append(Self.sourceLabel(row.source))
-        let strain = row.strain.map { UnitFormatter.effortValue($0, scale: effortScale) }
+        let storedStrain = StrainResolver.canonicalWorkout(row)?.storedValue
+        let strain = storedStrain
+            .map { UnitFormatter.effortValue($0, scale: effortScale) }
             .map { String(format: "%.1f", $0) } ?? "—"
         return TodayWorkoutRowModel(
             id: row.naturalID, sport: WorkoutSource.displaySport(row.sport),

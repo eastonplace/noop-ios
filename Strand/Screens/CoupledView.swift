@@ -63,7 +63,9 @@ struct CoupledView: View {
 
     /// Strain strain on NOOP's 0–100 axis for the day (stored row; no live recompute here, this is a
     /// glance screen, not the primary Today hero). nil when the day has no scored Strain.
-    private var strain100: Double? { day?.strain }
+    private var strain100: Double? {
+        day.flatMap { repo.canonicalStrain(for: $0.day)?.storedValue }
+    }
 
     /// Day strain mapped onto the 0–21 coupled axis through the single display-boundary converter.
     private var dayStrain21: Double? {
@@ -712,7 +714,8 @@ struct PaperPillarDetailView: View {
             return repo.days.compactMap { day in day.recovery.map { (day.day, $0) } }
         case .effort:
             return repo.days.compactMap { day in
-                day.strain.map { (day.day, StrainScale.displayValue(fromStored: $0)) }
+                guard let stored = repo.canonicalStrain(for: day.day)?.storedValue else { return nil }
+                return (day.day, StrainScale.displayValue(fromStored: stored))
             }
         case .rest:
             return repo.days.compactMap { day in
@@ -886,7 +889,7 @@ struct PaperPillarDetailView: View {
             StrainWeekDay(id: $0.offset, strain: $0.element.value)
         }
         let scoredWorkouts = detailWorkouts.compactMap { workout -> (WorkoutRow, Double)? in
-            guard let stored = workout.strain else { return nil }
+            guard let stored = StrainResolver.canonicalWorkout(workout)?.storedValue else { return nil }
             return (workout, StrainScale.displayValue(fromStored: stored))
         }
         return VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {

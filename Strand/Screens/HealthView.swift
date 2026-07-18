@@ -678,7 +678,7 @@ private struct FitnessAgeSection: View {
     private var readiness: FitnessAgeReadiness {
         let last7 = repo.days.suffix(7)
         let rhrDays = last7.compactMap { $0.restingHr }.count
-        let activityDays = last7.compactMap { $0.strain }.count
+        let activityDays = last7.filter { repo.canonicalStrain(for: $0.day) != nil }.count
         return FitnessAgeEngine.assessReadiness(
             hasAge: profile.age > 0,
             hasSex: !profile.sex.isEmpty,

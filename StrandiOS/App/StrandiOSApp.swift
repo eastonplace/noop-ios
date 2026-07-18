@@ -97,7 +97,9 @@ struct StrandiOSApp: App {
                         bpm: model.live.connected ? (model.bpm ?? model.live.heartRate) : nil,
                         recovery: day?.recovery.map { Int($0.rounded()) },
                         connected: model.live.connected,
-                        effort: day?.strain.map { StrainScale.displayValue(fromStored: $0) }
+                        effort: day
+                            .flatMap { model.repo.canonicalStrain(for: $0.day)?.storedValue }
+                            .map { StrainScale.displayValue(fromStored: $0) }
                     )
                 }
                 // End the Live Activity the moment the link drops, even if no further HR tick arrives.
@@ -109,7 +111,9 @@ struct StrandiOSApp: App {
                         bpm: isConnected ? (model.bpm ?? model.live.heartRate) : nil,
                         recovery: day?.recovery.map { Int($0.rounded()) },
                         connected: isConnected,
-                        effort: day?.strain.map { StrainScale.displayValue(fromStored: $0) }
+                        effort: day
+                            .flatMap { model.repo.canonicalStrain(for: $0.day)?.storedValue }
+                            .map { StrainScale.displayValue(fromStored: $0) }
                     )
                 }
                 // #911/#759: republish the Home/Lock-Screen widget whenever the dashboard caches actually
@@ -131,6 +135,22 @@ struct StrandiOSApp: App {
                     // The watch rides the same active-only hook because the bridge now SELF-THROTTLES
                     // (30-minute spacing + headline-change dedup, both must pass, see WatchSessionBridge),
                     // so a refresh storm can't burn the ~50/day complication transfer budget.
+                    Task { await watch.pushLatest(from: model) }
+                }
+                // Live V2 can advance without a full repository refresh. Propagate the same
+                // canonical headline to every glance surface while the app is foregrounded.
+                .onReceive(model.repo.$canonicalStrainByDay.dropFirst()) { _ in
+                    guard scenePhase == .active else { return }
+                    let day = Repository.widgetAnchor(days: model.repo.days)
+                    liveActivity.update(
+                        bpm: model.live.connected ? (model.bpm ?? model.live.heartRate) : nil,
+                        recovery: day?.recovery.map { Int($0.rounded()) },
+                        connected: model.live.connected,
+                        effort: day
+                            .flatMap { model.repo.canonicalStrain(for: $0.day)?.storedValue }
+                            .map { StrainScale.displayValue(fromStored: $0) }
+                    )
+                    Task { await WidgetSnapshot.publish(from: model) }
                     Task { await watch.pushLatest(from: model) }
                 }
                 // #114: strap battery % and connection are LIVE (model.live), not repo-cache, so they never
@@ -503,7 +523,7 @@ private struct LiveWorkoutDemoHost: View {
                 demoWorkout.samples = samples
                 demoWorkout.strainAccumulator = .init(
                     samples: samples, maxHR: Double(model.profile.hrMax))
-                demoWorkout.liveStrain = 54.3
+                demoWorkout.liveStrainState = .scored(storedValue: 54.3)
                 demoWorkout.avgHr = 144
                 demoWorkout.peakHr = 171
                 model.activeWorkout = demoWorkout

@@ -220,7 +220,7 @@ struct TrendsView: View {
         }
         // #436 — present the offline trends-report exporter (range picker + PDF export).
         .sheet(isPresented: $showingReport) {
-            TrendsReportSheet(days: repo.days)
+            TrendsReportSheet(days: repo.canonicalDays)
         }
         // #732 — load the resolved sleep_performance series so Sleep plots the SAME composite the Today
         // Sleep score uses (not raw efficiency). Mirrors TodayView's restScore read. Keyed on the day
@@ -241,12 +241,12 @@ struct TrendsView: View {
     // MARK: - Paper Trends (S2)
 
     private var paperDigest: WeeklyDigest {
-        WeeklyDigestSource.digest(from: repo.days, anchorDay: weekAnchorDay)
+        WeeklyDigestSource.digest(from: repo.canonicalDays, anchorDay: weekAnchorDay)
     }
 
     private var paperWeekDays: [DailyMetric] {
         let digest = paperDigest
-        return repo.days.filter { $0.day >= digest.weekStart && $0.day <= digest.weekEnd }
+        return repo.canonicalDays.filter { $0.day >= digest.weekStart && $0.day <= digest.weekEnd }
     }
 
     private var paperWeekDates: [Date] { paperWeekDays.compactMap { date($0.day) } }
@@ -358,7 +358,7 @@ struct TrendsView: View {
 
     private var selectedTrendPoints: [TrendPoint] {
         let apple = Dictionary(appleDays.map { ($0.day, $0) }, uniquingKeysWith: { _, last in last })
-        return repo.days.suffix(selectedRange.days).compactMap { day in
+        return repo.canonicalDays.suffix(selectedRange.days).compactMap { day in
             guard let stamp = date(day.day) else { return nil }
             let value = selectedMetricValue(for: day, apple: apple)
             return value.map { TrendPoint(date: stamp, value: $0) }
@@ -367,7 +367,7 @@ struct TrendsView: View {
 
     private var selectedTrendCalendarObservations: [TrendCalendarDay] {
         let apple = Dictionary(appleDays.map { ($0.day, $0) }, uniquingKeysWith: { _, last in last })
-        return repo.days.compactMap { day in
+        return repo.canonicalDays.compactMap { day in
             guard let stamp = localDate(day.day) else { return nil }
             return TrendCalendarDay(date: stamp, value: selectedMetricValue(for: day, apple: apple))
         }
