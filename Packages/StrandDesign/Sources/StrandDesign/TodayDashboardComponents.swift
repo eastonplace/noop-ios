@@ -73,7 +73,6 @@ public struct TodayHeroCard: View {
                                 .font(.system(size: 13, weight: .semibold))
                                 .foregroundStyle(StrandPalette.strainAccent)
                                 .frame(width: 30, height: 30)
-                                .background(StrandPalette.strainAccent.opacity(0.12), in: .rect(cornerRadius: 8))
                             VStack(alignment: .leading, spacing: 2) {
                                 HStack(spacing: 5) {
                                     Text("Today at a glance", bundle: .module)
@@ -249,10 +248,16 @@ public struct HealthDashboardCard: View {
                     }
                     .buttonStyle(.plain).foregroundStyle(StrandPalette.accent)
                 }
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 5), count: 3), spacing: 5) {
-                    ForEach(tiles) { tile in
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: 3), spacing: 0) {
+                    ForEach(Array(tiles.enumerated()), id: \.element.id) { index, tile in
                         Button { onTile(tile.id) } label: { HealthDashboardTile(model: tile) }
                             .buttonStyle(.plain)
+                            .overlay(alignment: .trailing) {
+                                if index % 3 != 2 && index + 1 < tiles.count { verticalTileDivider }
+                            }
+                            .overlay(alignment: .bottom) {
+                                if index + 3 < tiles.count { horizontalTileDivider }
+                            }
                     }
                 }
                 HStack {
@@ -269,6 +274,21 @@ public struct HealthDashboardCard: View {
                 }
             }
         }
+    }
+
+    private var verticalTileDivider: some View {
+        Rectangle()
+            .fill(StrandPalette.hairline)
+            .frame(width: 1, height: 52)
+            .accessibilityHidden(true)
+    }
+
+    private var horizontalTileDivider: some View {
+        Rectangle()
+            .fill(StrandPalette.hairline)
+            .frame(height: 1)
+            .padding(.horizontal, 8)
+            .accessibilityHidden(true)
     }
 }
 
@@ -303,10 +323,10 @@ public struct HealthDashboardTile: View {
             }
             HealthTileRailView(rail: model.rail, accent: model.accent)
         }
-        .padding(8)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 10)
         .frame(maxWidth: .infinity, minHeight: 78, alignment: .leading)
-        .background(StrandPalette.surfaceInset, in: .rect(cornerRadius: 10))
-        .contentShape(.rect(cornerRadius: 10))
+        .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(model.label), \(model.value)\(model.unit.map { " \($0)" } ?? "")")
         .accessibilityHint("Opens details")
@@ -366,7 +386,7 @@ public struct MetricCatalogRow: View {
     public var body: some View {
         HStack(spacing: 12) {
             Image(systemName: model.icon).font(.system(size: 14, weight: .semibold)).foregroundStyle(model.accent)
-                .frame(width: 34, height: 34).background(model.accent.opacity(0.12), in: .rect(cornerRadius: 9))
+                .frame(width: 26, height: 34)
             VStack(alignment: .leading, spacing: 2) {
                 Text(verbatim: model.title).font(StrandFont.body.weight(.semibold))
                 Text(verbatim: model.subtitle).font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
@@ -381,8 +401,7 @@ public struct MetricCatalogRow: View {
             Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(StrandPalette.textTertiary)
         }
-        .padding(13)
-        .background(StrandPalette.surfaceRaised, in: .rect(cornerRadius: 12))
+        .contentRowSurface(boundedPadding: 13, flatVerticalPadding: 12, cornerRadius: 12)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(model.title), \(model.value), \(model.subtitle)")
@@ -417,7 +436,7 @@ public struct TodayWorkoutRow: View {
     public var body: some View {
         HStack(spacing: 12) {
             Image(systemName: "figure.run").font(.system(size: 15, weight: .semibold)).foregroundStyle(model.accent)
-                .frame(width: 38, height: 38).background(model.accent.opacity(0.12), in: .rect(cornerRadius: 10))
+                .frame(width: 28, height: 38)
             VStack(alignment: .leading, spacing: 3) {
                 Text(verbatim: model.sport).font(StrandFont.body.weight(.semibold))
                 Text(verbatim: model.subtitle).font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
@@ -435,7 +454,7 @@ public struct TodayWorkoutRow: View {
             Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(StrandPalette.textTertiary)
         }
-        .padding(13).background(StrandPalette.surfaceRaised, in: .rect(cornerRadius: 14))
+        .contentRowSurface(boundedPadding: 13, flatVerticalPadding: 12, cornerRadius: 14)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(model.sport), \(model.subtitle), strain \(model.strain)")
@@ -483,7 +502,6 @@ public struct HeaderChromeRow: View {
                     Text(strapLabel).font(StrandFont.micro.weight(.semibold))
                 }
                 .padding(.horizontal, 8).padding(.vertical, 6)
-                .background(StrandPalette.surfaceInset, in: Capsule())
             }
             .buttonStyle(.plain).accessibilityLabel("Strap \(strapLabel)")
             if let battery {
@@ -495,7 +513,6 @@ public struct HeaderChromeRow: View {
                     }
                     .foregroundStyle(batteryColor(for: battery))
                     .padding(.horizontal, 7).padding(.vertical, 6)
-                    .background(StrandPalette.surfaceInset, in: Capsule())
                 }
                 .buttonStyle(.plain).accessibilityLabel("Strap battery, \(battery) percent")
             }
@@ -509,12 +526,10 @@ public struct HeaderChromeRow: View {
                 .foregroundStyle(syncState == .error ? StrandPalette.statusWarning : StrandPalette.textSecondary)
                 .frame(minWidth: 30, minHeight: 30)
                 .padding(.horizontal, syncState == .syncing && (syncCompletedUnits ?? 0) > 0 ? 5 : 0)
-                .background(StrandPalette.surfaceInset, in: Capsule())
             }
             .buttonStyle(.plain).accessibilityLabel(syncAccessibility)
             Button(action: onUpdates) {
                 Image(systemName: "bell").font(.system(size: 13, weight: .semibold)).frame(width: 30, height: 30)
-                    .background(StrandPalette.surfaceInset, in: Circle())
                     .overlay(alignment: .topTrailing) {
                         if unreadCount > 0 {
                             Text("\(min(unreadCount, 9))").font(.system(size: 8, weight: .bold)).foregroundStyle(.white)

@@ -120,15 +120,10 @@ struct DashboardCardsEditorSheet: View {
         let card = item.wrappedValue.card
         let enabled = item.wrappedValue.enabled
         HStack(spacing: 12) {
-            // The card's own thin-line icon, flat WHOOP styling — accent when on, grey when off.
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill((enabled ? StrandPalette.accent : StrandPalette.textTertiary).opacity(0.14))
-                .frame(width: 30, height: 30)
-                .overlay(
-                    Image(systemName: card.icon)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(enabled ? StrandPalette.accent : StrandPalette.textTertiary)
-                )
+            Image(systemName: card.icon)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(enabled ? StrandPalette.accent : StrandPalette.textTertiary)
+                .frame(width: 22, height: 30)
                 .accessibilityHidden(true)
 
             Toggle(isOn: item.enabled) {

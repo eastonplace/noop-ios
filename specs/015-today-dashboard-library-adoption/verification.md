@@ -11,9 +11,12 @@
 - In-place install: succeeded on Easton's iPhone 17 Pro without uninstall/reset; CoreDevice reported the existing data-container database UUID `67D59099-275F-45F8-8ACD-71C36AA86ABB`.
 - Physical launch: verified in iPhone Mirroring after install. Production data remained populated (Recovery 76, Strain 4.0, Sleep 93, live HR/history, stress, workout summary).
 - Visual smoke check: Today hero and global chrome rendered; the chrome also rendered on the pushed Deep Timeline detail.
+- Flat-surface follow-up: removed decorative gray fills from the Today hero action icon, Health Monitor tiles, Show All/workout rows, header status actions, and dashboard customizer icons. The remaining bounded fills are functional controls, data rails/gauges, and unread badges.
+- Flat-surface regression: StrandDesign passed 61 tests with 0 failures, `git diff --check` passed, and a signed iPhone Release rebuild succeeded.
 
 ## Limited / not claimed
 
 - Focused iOS tests compiled but did not execute because Xcode requires the physical phone unlocked while iPhone Mirroring requires it locked; the run was canceled at destination preflight before tests started.
 - The legacy macOS-hosted `StrandTests` target is currently blocked by an unrelated pre-existing `SleepOnsetStubTests` / `SleepView` API mismatch. The macOS app itself builds.
 - Easton asked to prioritize install and then a Mirroring check, so the full manual matrix (all nine destinations, reordering/relaunch persistence, light/dark, VoiceOver, Reduce Motion, every historical/rest-day state) is not claimed as completed in this pass.
+- The final flat-surface build has not yet been installed or visually accepted; CoreDevice currently reports the iPhone as unavailable while waiting for an unlocked connection.
