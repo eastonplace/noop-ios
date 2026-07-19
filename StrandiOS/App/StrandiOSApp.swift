@@ -239,6 +239,11 @@ struct StrandiOSApp: App {
                 .task {
                     watch.activate()
                     await watch.pushLatest(from: model)
+                    #if DEBUG
+                    if CommandLine.arguments.contains("--component41-live-qa") {
+                        await liveActivity.startComponent41QA()
+                    }
+                    #endif
                 }
         }
         // HealthKit authorization is intentionally NOT requested on launch. The system permission
@@ -393,7 +398,7 @@ enum DemoScreens {
         "alarms", "testcentre", "rhythmconsent", "rhythm", "liveworkout",
         "preworkout", "recoverydetail", "straindetail", "sleepdetail", "devices",
         "devicescatalog", "fitnessage", "fitnessagedetail", "vitality", "addwizard", "ouraonboarding",
-        "ouradevice", "onboarding",
+        "ouradevice", "component41", "component41home", "component41large", "component41lock", "component41live", "onboarding",
     ]
 
     /// The screen named by `--demo-screen <name>`, or nil if the arg is absent/unknown.
@@ -425,6 +430,11 @@ enum DemoScreens {
         case "workoutdetail": return AnyView(WorkoutDetailDemoHost())
         case "health":   return AnyView(HealthView())
         case "atoms":    return AnyView(DesignLabAtomGallery())
+        case "component41": return AnyView(Component41QAGallery())
+        case "component41home": return AnyView(Component41QAShot(kind: .home))
+        case "component41large": return AnyView(Component41QAShot(kind: .large))
+        case "component41lock": return AnyView(Component41QAShot(kind: .lock))
+        case "component41live": return AnyView(Component41QAShot(kind: .live))
         case "insights": return AnyView(InsightsHubView())
         case "journal": return AnyView(CoachingRootView())
         case "checkin": return AnyView(NavigationStack { CoachingCheckInView() })

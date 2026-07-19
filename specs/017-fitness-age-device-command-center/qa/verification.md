@@ -10,6 +10,7 @@
 - `git diff --check`: passed.
 - Corrective generic iPhone Simulator Debug build after the component-fidelity and viewport changes: passed.
 - Signed iPhone Release build for `com.eastonplace.noop` with team `QDJ575GGH4`: passed.
+- Component 41 correction: `swift test` in StrandDesign passed 61/61; the focused `PaperIntegrationContractTests` simulator run passed 8/8; the embedded widget-extension Debug build passed; and the clean signed Release rebuild passed after removing only task-owned DerivedData that had filled `/tmp` on the first attempt.
 - Source audits passed: no production fixture data, sync percentage, invented Fitness Age driver impact, `bonded`-as-full-bond, battery-health wording, or unsupported R22 claim was added.
 
 ## Visual verification
@@ -18,6 +19,9 @@
 - Compared the real production Devices route directly with Design Lab component 40. The production screen now uses the same identity/bond chip, three-value vitals strip, status verdict card, twin sync/power cards, 2×2 custom action controls, and privacy footer.
 - `ScreenScaffold` now assigns the content column the measured viewport width, clips it at that boundary, uses a vertical-only scroll view, and disables horizontal bounce. The simulator captures show both production routes contained to the visible width with no cut-off edge.
 - Evidence: `fitness-age-component-39-reference.png`, `fitness-age-component-39-production.png`, `devices-component-40-reference.png`, and `devices-component-40-production.png` in this directory.
+- Component 41 was compared at true widget/accessory dimensions using the exact shared production views used by WidgetKit and ActivityKit. Small, medium, large, Recovery circular, Strain circular, rectangular, inline, workout Lock Screen, compact Island, and expanded Island all retained the Design Lab hierarchy, typography, palette, arcs, stress strip, traces, and zone split without clipping or horizontal overflow.
+- ActivityKit was exercised through the real extension, not only an app mock. iOS rendered the compact Island with HR leading and canonical Strain trailing, plus the Lock Screen workout presentation with sport, elapsed time, live HR, HR trace, Strain, calories, and the first-run system consent sheet.
+- Component 41 evidence is in `qa/component41-simulator/`: `component41home.png`, `component41large.png`, `component41lock.png`, `component41live.png`, `activitykit-home-dynamic-island.png`, and `activitykit-lock-screen.png`.
 
 ## Environment limitations
 

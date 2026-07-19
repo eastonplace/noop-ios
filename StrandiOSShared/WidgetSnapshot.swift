@@ -25,6 +25,9 @@ public struct WidgetSnapshot: Codable, Equatable {
     public var stressSummary: String?
     /// Recent HR points, bounded at the publication boundary so the App Group payload stays tiny.
     public var hrSparkline: [Int]?
+    /// Recent daily HRV values for the rectangular Lock Screen accessory. Optional so snapshots
+    /// written before component 41 continue decoding unchanged.
+    public var hrvSparkline: [Int]?
 
     /// New code speaks Strain while preserving the serialized `effort` key for older snapshots.
     public var strain: Double? {
@@ -36,7 +39,8 @@ public struct WidgetSnapshot: Codable, Equatable {
                 effort: Double? = nil, rest: Int? = nil, hrv: Int? = nil, restingHr: Int? = nil,
                 recoveryDelta: Int? = nil, sleepMinutes: Int? = nil, steps: Int? = nil,
                 calories: Int? = nil, hourlyStress: [Double?]? = nil,
-                stressSummary: String? = nil, hrSparkline: [Int]? = nil) {
+                stressSummary: String? = nil, hrSparkline: [Int]? = nil,
+                hrvSparkline: [Int]? = nil) {
         self.recovery = recovery
         self.bpm = bpm
         self.batteryPct = batteryPct
@@ -53,6 +57,7 @@ public struct WidgetSnapshot: Codable, Equatable {
         self.hourlyStress = hourlyStress
         self.stressSummary = stressSummary
         self.hrSparkline = hrSparkline.map { Array($0.filter { (30...240).contains($0) }.suffix(48)) }
+        self.hrvSparkline = hrvSparkline.map { Array($0.filter { (5...300).contains($0) }.suffix(12)) }
     }
 
     /// Canonical phone publication boundary for the three scores. Stored Strain is
@@ -73,6 +78,7 @@ public struct WidgetSnapshot: Codable, Equatable {
         hourlyStress: [Double?]? = nil,
         stressSummary: String? = nil,
         hrSparkline: [Int]? = nil,
+        hrvSparkline: [Int]? = nil,
         updated: Date = Date()
     ) -> WidgetSnapshot {
         WidgetSnapshot(
@@ -91,7 +97,8 @@ public struct WidgetSnapshot: Codable, Equatable {
             calories: calories,
             hourlyStress: hourlyStress,
             stressSummary: stressSummary,
-            hrSparkline: hrSparkline
+            hrSparkline: hrSparkline,
+            hrvSparkline: hrvSparkline
         )
     }
 
@@ -134,7 +141,13 @@ public struct WidgetSnapshot: Codable, Equatable {
 
     public static var placeholder: WidgetSnapshot {
         WidgetSnapshot(recovery: 72, bpm: 58, batteryPct: 84, bonded: true, updated: Date(),
-                       effort: 8, rest: 81, hrv: 64, restingHr: 52)
+                       effort: 8, rest: 81, hrv: 64, restingHr: 52,
+                       recoveryDelta: 6, sleepMinutes: 432, steps: 11_204, calories: 2_140,
+                       hourlyStress: [0.4, 0.5, 0.4, 0.3, 0.3, 0.4, 0.6, 0.8, 1.1, 1.4, 1.7, 1.2,
+                                      0.9, 1.1, 1.5, 1.8, 1.3, 0.8, 0.7, 0.9, 0.6, nil, nil, nil],
+                       stressSummary: "Moderate · easing",
+                       hrSparkline: [88, 94, 112, 125, 118, 139, 152, 145, 158, 149, 154],
+                       hrvSparkline: [55, 58, 54, 61, 63, 60, 66, 64])
     }
 
     public static var empty: WidgetSnapshot {

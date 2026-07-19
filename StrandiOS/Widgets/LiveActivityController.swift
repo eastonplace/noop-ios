@@ -29,6 +29,9 @@ final class LiveActivityController {
     private var isStarting = false
     private var isTransitioning = false
     private var lastModeWasWorkout: Bool?
+    #if DEBUG
+    private var component41QAMode = false
+    #endif
     /// How long after the last push iOS may keep showing the activity as fresh. The activity is
     /// refreshed every ~2 s while streaming, so this never bites a live session; it auto-greys a
     /// frozen activity if the app is suspended/killed without an explicit end (a missed-tick safety net
@@ -40,6 +43,9 @@ final class LiveActivityController {
     /// drops. Throttled to ~once every 2 s so we stay well under the Live Activity update budget.
     func update(bpm: Int?, recovery: Int?, connected: Bool, effort: Double? = nil,
                 workout: WorkoutLiveActivityState? = nil) {
+        #if DEBUG
+        guard !component41QAMode else { return }
+        #endif
         guard authInfo.areActivitiesEnabled else { return }
 
         // Re-adopt an activity that outlived a previous app session. ActivityKit keeps Live Activities
@@ -115,6 +121,12 @@ final class LiveActivityController {
     }
 
     func end() async {
+        #if DEBUG
+        // A disconnected-state end may already be queued when the simulator QA launch task starts.
+        // Keep that stale task from immediately dismissing the proof activity; production builds do
+        // not contain this mode or guard, so real disconnect/completion cleanup remains unchanged.
+        guard !component41QAMode else { return }
+        #endif
         // End every NOOP Live Activity, not just our cached handle — covers a straggler from a prior
         // session we never re-adopted (#341) and any rare duplicate. Iterating the live list is the
         // only way to reach activities this controller instance never started.
@@ -124,5 +136,32 @@ final class LiveActivityController {
         self.activity = nil
         self.lastModeWasWorkout = nil
     }
+
+    #if DEBUG
+    /// Simulator-only ActivityKit proof. It exercises the real extension and OS presentation while
+    /// remaining impossible to invoke in Release or on a user's normal launch path.
+    func startComponent41QA() async {
+        guard authInfo.areActivitiesEnabled else { return }
+        component41QAMode = true
+        for existing in Activity<NOOPActivityAttributes>.activities {
+            await existing.end(nil, dismissalPolicy: .immediate)
+        }
+        let state = NOOPActivityAttributes.ContentState(
+            bpm: 152, recovery: 78, bonded: true, effort: 6.8,
+            sport: "Outdoor Run", workoutStartedAt: Date().addingTimeInterval(-2_734),
+            strainBuilding: false, calories: 438,
+            hrTrace: [88, 96, 108, 121, 115, 132, 146, 139, 152, 144, 158, 152],
+            zoneSeconds: [180, 620, 1_180, 650, 104])
+        do {
+            activity = try Activity.request(
+                attributes: NOOPActivityAttributes(title: "Outdoor Run"),
+                content: ActivityContent(state: state, staleDate: Date().addingTimeInterval(7_200)),
+                pushType: nil)
+            lastModeWasWorkout = true
+        } catch {
+            activity = nil
+        }
+    }
+    #endif
 }
 #endif

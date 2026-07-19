@@ -54,6 +54,11 @@ extension WidgetSnapshot {
             guard let current = day?.recovery, let previousRecovery else { return nil }
             return Int((current - previousRecovery).rounded())
         }()
+        let hrvSeries = await model.repo.exploreSeries(key: "hrv", source: "my-whoop")
+        let hrvSparkline = hrvSeries
+            .filter { point in day.map { point.day <= $0.day } ?? true }
+            .suffix(12)
+            .map { Int($0.value.rounded()) }
         let stress = await dashboardStress(from: model)
         let sparkline = model.activeWorkout.map { Array($0.samples.suffix(48).map(\.bpm)) }
         let snap = WidgetSnapshot.publishing(
@@ -72,6 +77,7 @@ extension WidgetSnapshot {
             hourlyStress: stress.hours,
             stressSummary: stress.summary,
             hrSparkline: sparkline,
+            hrvSparkline: hrvSparkline,
             updated: Date()
         )
         snap.save()

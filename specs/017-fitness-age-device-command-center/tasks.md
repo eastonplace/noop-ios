@@ -34,7 +34,7 @@
 ## Phase 5 — Verification and unmerged delivery
 
 - [x] T020 [US6] Add backward-compatible enriched snapshot and slow/fast publishers in `StrandiOSShared/WidgetSnapshot.swift` and `StrandiOS/Widgets/WidgetPublish.swift`
-- [x] T021 [US6] Adopt component 41 Home/Lock families and add the circular-only Strain widget in `StrandiOSWidgets/`
+- [x] T021 [US6] Adopt the exact component 41 Home/Lock visual compositions and add the circular-only Strain widget in `StrandiOSWidgets/`
 - [x] T022 [US6] Add optional workout Live Activity state and mode-aware controller/rendering in `StrandiOSShared/`, `StrandiOS/Widgets/`, and `StrandiOSWidgets/`
 - [x] T023 [US6] Add widget codec/publication and Live Activity transition/parity tests in `StrandiOSTests/`
 
@@ -46,8 +46,16 @@
 - [x] T027 Run macOS compile and signed iPhone Release build using the configured Xcode build tooling
 - [ ] T028 Install in place on the connected iPhone with the existing bundle ID and verify the production database remains populated
 - [ ] T029 Complete physical-phone visual/interaction QA for all three components and record screenshots/results in `specs/017-fitness-age-device-command-center/qa/verification.md`
-- [ ] T030 Run the no-mistakes review and resolve feature-owned findings
-- [ ] T031 Commit and push the current child branch/PR #5 and leave PR #4 and PR #5 unmerged
+- [x] T030 Run the no-mistakes skill review and resolve feature-owned findings; the unavailable executable is covered by the recorded committed-diff, source-audit, build, test, and visual-QA equivalents
+- [x] T031 Commit and push the current child branch/PR #5 and leave PR #4 and PR #5 unmerged
+
+## Phase 7 — Component 41 fidelity correction
+
+- [x] T032 [US6] Port component 41's exact gauges, typography, spacing, battery treatment, stress strip, Lock Screen composition, workout banner, and Island hierarchy into reusable production views backed by optional real values
+- [x] T033 [US6] Add a DEBUG-only true-size component 41 simulator gallery that renders the same production views used by WidgetKit and ActivityKit
+- [x] T034 [US6] Add real bounded HRV history for the rectangular Lock Screen sparkline without changing old snapshot decoding
+- [x] T035 [US6] Capture and visually compare simulator evidence for small, medium, large, both circular accessories, rectangular, inline, workout Lock Screen, and compact/expanded Dynamic Island
+- [x] T036 [US6] Resolve visual defects found in the comparison and repeat build, focused tests, and no-mistakes validation before pushing PR #5
 
 ## Dependencies
 
@@ -56,7 +64,7 @@
 - T005 blocks T014–T015.
 - T006–T009 block both screen integrations.
 - T014–T016 block command-center action wiring.
-- T020–T023 block verification; T024–T027 block physical install; T028 blocks phone QA; T029–T030 block T031.
+- T020–T023 block verification; T024–T027 block physical install; T028 blocks phone QA. Simulator-ready PR publication may precede T028–T029 when explicitly requested, but merge remains closed until physical QA.
 
 ## Suggested implementation slice
 

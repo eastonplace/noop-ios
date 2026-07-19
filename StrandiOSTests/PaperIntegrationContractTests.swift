@@ -38,6 +38,7 @@ final class PaperIntegrationContractTests: XCTestCase {
         XCTAssertNil(decoded.steps)
         XCTAssertNil(decoded.hourlyStress)
         XCTAssertNil(decoded.hrSparkline)
+        XCTAssertNil(decoded.hrvSparkline)
     }
 
     func testFastWidgetMergePreservesSlowDashboardFieldsAndBoundsTrace() {
@@ -45,7 +46,8 @@ final class PaperIntegrationContractTests: XCTestCase {
             recovery: 70, bpm: 50, batteryPct: 80, bonded: true, updated: .distantPast,
             effort: 7, rest: 82, hrv: 60, restingHr: 51, recoveryDelta: 4,
             sleepMinutes: 470, steps: 9_123, calories: 640,
-            hourlyStress: [nil, 1.2], stressSummary: "Moderate")
+            hourlyStress: [nil, 1.2], stressSummary: "Moderate",
+            hrvSparkline: Array(40...60))
         let live = slow.mergingLive(
             bpm: 120, batteryPct: 63.6, bonded: false, storedStrain: 100,
             hrSparkline: Array(repeating: 90, count: 60) + [400])
@@ -55,6 +57,17 @@ final class PaperIntegrationContractTests: XCTestCase {
         XCTAssertEqual(live.strain ?? -1, 21, accuracy: 0.0001)
         XCTAssertEqual(live.hrSparkline?.count, 48)
         XCTAssertFalse(live.hrSparkline?.contains(400) ?? true)
+        XCTAssertEqual(live.hrvSparkline?.count, 12)
+        XCTAssertEqual(live.hrvSparkline?.last, 60)
+    }
+
+    func testWidgetSnapshotBoundsHRVHistoryWithoutFabricatingValues() {
+        let snapshot = WidgetSnapshot(
+            recovery: nil, bpm: nil, batteryPct: nil, bonded: false, updated: .distantPast,
+            hrvSparkline: [2, 41, 48, 55, 301] + Array(repeating: 60, count: 20))
+        XCTAssertEqual(snapshot.hrvSparkline?.count, 12)
+        XCTAssertFalse(snapshot.hrvSparkline?.contains(2) ?? true)
+        XCTAssertFalse(snapshot.hrvSparkline?.contains(301) ?? true)
     }
 
     func testLegacyLiveActivityDecodesAsSimpleLiveHR() throws {
