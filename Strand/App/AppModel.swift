@@ -959,6 +959,12 @@ final class AppModel: ObservableObject {
         ble.connect(model: chosen)
     }
     func disconnect() { ble.disconnect() }
+    /// Device Command Center entry points. Keep SwiftUI out of BLE internals so command policy stays
+    /// testable and every surface uses the same acknowledged production paths.
+    func syncActiveDevice() { ble.syncNow() }
+    func testDeviceVibration() { buzzStrapOnce() }
+    func refreshDeviceBattery() { getBattery() }
+    func refreshDeviceLink() { scan() }
     /// Restart the connected strap (user-initiated, confirmation-gated in DevicesView). Non-destructive —
     /// the strap keeps its data and re-advertises after boot; NOOP auto-reconnects. See BLEManager.rebootStrap().
     func rebootStrap() { ble.rebootStrap() }

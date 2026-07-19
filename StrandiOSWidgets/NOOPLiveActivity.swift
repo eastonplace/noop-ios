@@ -7,61 +7,129 @@ import StrandDesign
 struct NOOPLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: NOOPActivityAttributes.self) { context in
-            // Lock Screen / banner presentation.
-            HStack(spacing: 14) {
-                Image(systemName: "waveform.path.ecg")
-                    .font(.title2)
-                    .foregroundStyle(StrandPalette.statusCritical)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(context.attributes.title)
-                        .font(.caption).foregroundStyle(StrandPalette.textSecondary)
-                    Text("\(context.state.bpm.map(String.init) ?? "–") bpm")
-                        .font(.system(size: 26, weight: .bold, design: .rounded))
-                        .foregroundStyle(StrandPalette.textPrimary)
-                }
-                Spacer()
-                // Charge + Strain (#446) on the banner, mirroring the Dynamic Island expanded stats.
-                HStack(spacing: 12) {
-                    if let r = context.state.recovery {
-                        bannerStat(label: "Recovery", value: "\(r)%")
-                    }
-                    if let e = context.state.effort {
-                        bannerStat(label: "Strain", value: String(format: "%.1f", e))
-                    }
-                }
+            Group {
+                if context.state.isWorkout { workoutBanner(context: context) }
+                else { liveHRBanner(context: context) }
             }
-            .padding()
             .activityBackgroundTint(StrandPalette.surfaceBase)
             .activitySystemActionForegroundColor(StrandPalette.textPrimary)
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    Label("\(context.state.bpm.map(String.init) ?? "–")", systemImage: "heart.fill")
+                    Label("\(context.state.bpm.map(String.init) ?? "—")", systemImage: "heart.fill")
                         .foregroundStyle(StrandPalette.statusCritical)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    // Charge + Strain (#446) — one more stat alongside the leading live HR.
-                    HStack(spacing: 10) {
-                        if let r = context.state.recovery {
-                            statColumn(label: "Recovery", value: "\(r)%")
-                        }
-                        if let e = context.state.effort {
-                            statColumn(label: "Strain", value: String(format: "%.1f", e))
-                        }
-                    }
+                    statColumn(label: "Strain", value: strainLabel(context.state))
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    Text(context.attributes.title).font(.caption).foregroundStyle(.secondary)
+                    if context.state.isWorkout {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(context.state.sport ?? "Workout").font(.caption.weight(.semibold))
+                                if let start = context.state.workoutStartedAt {
+                                    Text(timerInterval: start...Date.distantFuture, countsDown: false)
+                                        .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                                }
+                            }
+                            Spacer()
+                            zoneSplit(context.state.zoneSeconds)
+                        }
+                    } else {
+                        Text(context.attributes.title).font(.caption).foregroundStyle(.secondary)
+                    }
                 }
             } compactLeading: {
-                Image(systemName: "heart.fill").foregroundStyle(StrandPalette.statusCritical)
+                HStack(spacing: 3) {
+                    Image(systemName: "heart.fill").foregroundStyle(StrandPalette.statusCritical)
+                    Text(context.state.bpm.map(String.init) ?? "—")
+                }
             } compactTrailing: {
-                Text("\(context.state.bpm.map(String.init) ?? "–")")
+                Text(context.state.isWorkout ? strainLabel(context.state)
+                                             : (context.state.bpm.map(String.init) ?? "—"))
             } minimal: {
                 Image(systemName: "heart.fill").foregroundStyle(StrandPalette.statusCritical)
             }
         }
     }
+}
+
+@ViewBuilder
+private func liveHRBanner(context: ActivityViewContext<NOOPActivityAttributes>) -> some View {
+    HStack(spacing: 14) {
+        Image(systemName: "waveform.path.ecg").font(.title2).foregroundStyle(StrandPalette.statusCritical)
+        VStack(alignment: .leading, spacing: 2) {
+            Text(context.attributes.title).font(.caption).foregroundStyle(StrandPalette.textSecondary)
+            Text("\(context.state.bpm.map(String.init) ?? "—") bpm")
+                .font(.system(size: 26, weight: .bold, design: .rounded))
+        }
+        Spacer()
+        if let recovery = context.state.recovery { bannerStat(label: "Recovery", value: "\(recovery)%") }
+        bannerStat(label: "Strain", value: strainLabel(context.state))
+    }
+    .padding()
+}
+
+@ViewBuilder
+private func workoutBanner(context: ActivityViewContext<NOOPActivityAttributes>) -> some View {
+    VStack(alignment: .leading, spacing: 10) {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(context.state.sport ?? "Workout").font(.headline)
+                if let start = context.state.workoutStartedAt {
+                    Text(timerInterval: start...Date.distantFuture, countsDown: false)
+                        .font(.caption.monospacedDigit()).foregroundStyle(StrandPalette.textSecondary)
+                }
+            }
+            Spacer()
+            bannerStat(label: "HR", value: "\(context.state.bpm.map(String.init) ?? "—")")
+            bannerStat(label: "Strain", value: strainLabel(context.state))
+            if let calories = context.state.calories { bannerStat(label: "kcal", value: "\(calories)") }
+        }
+        HStack(spacing: 8) {
+            miniTrace(context.state.hrTrace)
+            zoneSplit(context.state.zoneSeconds)
+        }
+    }
+    .padding()
+}
+
+private func strainLabel(_ state: NOOPActivityAttributes.ContentState) -> String {
+    if state.strainBuilding == true { return "Building" }
+    return state.effort.map { String(format: "%.1f", $0) } ?? "—"
+}
+
+@ViewBuilder
+private func zoneSplit(_ seconds: [Int]?) -> some View {
+    let values = seconds ?? []
+    let total = max(1, values.reduce(0, +))
+    HStack(spacing: 2) {
+        ForEach(Array(values.enumerated()), id: \.offset) { index, value in
+            Capsule()
+                .fill([Color.blue, .green, .yellow, .orange, .red][min(index, 4)])
+                .frame(width: max(3, CGFloat(value) / CGFloat(total) * 54), height: 5)
+        }
+    }
+    .accessibilityLabel("Workout heart rate zone distribution")
+}
+
+@ViewBuilder
+private func miniTrace(_ samples: [Int]?) -> some View {
+    GeometryReader { geometry in
+        let values = samples ?? []
+        if values.count > 1, let low = values.min(), let high = values.max() {
+            Path { path in
+                for (index, value) in values.enumerated() {
+                    let x = geometry.size.width * CGFloat(index) / CGFloat(values.count - 1)
+                    let y = geometry.size.height * (1 - CGFloat(value - low) / CGFloat(max(1, high - low)))
+                    if index == 0 { path.move(to: CGPoint(x: x, y: y)) }
+                    else { path.addLine(to: CGPoint(x: x, y: y)) }
+                }
+            }
+            .stroke(StrandPalette.statusCritical, style: .init(lineWidth: 2, lineCap: .round))
+        }
+    }
+    .frame(height: 20)
 }
 
 /// Lock-Screen banner stat column (label over value). File-scope because the `ActivityConfiguration`

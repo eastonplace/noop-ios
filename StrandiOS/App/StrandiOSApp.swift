@@ -62,6 +62,37 @@ struct StrandiOSApp: App {
         ))
     }
 
+    private var workoutActivityState: WorkoutLiveActivityState? {
+        guard let workout = model.activeWorkout else { return nil }
+        let strain: Double?
+        let building: Bool
+        switch workout.liveStrainState {
+        case .building:
+            strain = nil
+            building = true
+        case .scored(let storedValue):
+            strain = StrainScale.displayValue(fromStored: storedValue)
+            building = false
+        }
+        let samples = workout.samples
+        let calories: Int?
+        if samples.count >= 2 {
+            let profile = UserProfile(weightKg: model.profile.weightKg, heightCm: model.profile.heightCm,
+                                      age: Double(model.profile.age), sex: model.profile.sex)
+            let estimate = Calories.estimateBoutCalories(
+                samples, profile: profile, hrmax: Double(model.profile.hrMax), restingHR: nil).0
+            calories = estimate > 0 ? Int(estimate.rounded()) : nil
+        } else {
+            calories = nil
+        }
+        let zones = HRZones.timeInZone(
+            samples, zoneSet: HRZones.zones(maxHR: Double(model.profile.hrMax), source: "profile"))
+        return WorkoutLiveActivityState(
+            sport: workout.sport, startedAt: workout.start, strain: strain, strainBuilding: building,
+            calories: calories, hrTrace: Array(samples.suffix(48).map(\.bpm)),
+            zoneSeconds: zones.seconds.map { Int($0.rounded()) })
+    }
+
     var body: some Scene {
         WindowGroup {
             iOSRootView()
@@ -99,7 +130,8 @@ struct StrandiOSApp: App {
                         connected: model.live.connected,
                         effort: day
                             .flatMap { model.repo.canonicalStrain(for: $0.day)?.storedValue }
-                            .map { StrainScale.displayValue(fromStored: $0) }
+                            .map { StrainScale.displayValue(fromStored: $0) },
+                        workout: workoutActivityState
                     )
                 }
                 // End the Live Activity the moment the link drops, even if no further HR tick arrives.
@@ -113,8 +145,20 @@ struct StrandiOSApp: App {
                         connected: isConnected,
                         effort: day
                             .flatMap { model.repo.canonicalStrain(for: $0.day)?.storedValue }
-                            .map { StrainScale.displayValue(fromStored: $0) }
+                            .map { StrainScale.displayValue(fromStored: $0) },
+                        workout: workoutActivityState
                     )
+                }
+                .onReceive(model.$activeWorkout.dropFirst()) { _ in
+                    let day = Repository.widgetAnchor(days: model.repo.days)
+                    liveActivity.update(
+                        bpm: model.live.connected ? (model.bpm ?? model.live.heartRate) : nil,
+                        recovery: day?.recovery.map { Int($0.rounded()) },
+                        connected: model.live.connected,
+                        effort: day.flatMap { model.repo.canonicalStrain(for: $0.day)?.storedValue }
+                            .map { StrainScale.displayValue(fromStored: $0) },
+                        workout: workoutActivityState)
+                    WidgetSnapshot.publishLive(from: model)
                 }
                 // #911/#759: republish the Home/Lock-Screen widget whenever the dashboard caches actually
                 // change mid-session. The only other publish site is the scenePhase .active handler, so
@@ -148,9 +192,10 @@ struct StrandiOSApp: App {
                         connected: model.live.connected,
                         effort: day
                             .flatMap { model.repo.canonicalStrain(for: $0.day)?.storedValue }
-                            .map { StrainScale.displayValue(fromStored: $0) }
+                            .map { StrainScale.displayValue(fromStored: $0) },
+                        workout: workoutActivityState
                     )
-                    Task { await WidgetSnapshot.publish(from: model) }
+                    WidgetSnapshot.publishLive(from: model)
                     Task { await watch.pushLatest(from: model) }
                 }
                 // #114: strap battery % and connection are LIVE (model.live), not repo-cache, so they never
@@ -160,11 +205,11 @@ struct StrandiOSApp: App {
                 // and foreground-initiated reloads are budget-exempt. dropFirst() skips the attach replay.
                 .onReceive(model.live.$batteryPct.dropFirst()) { _ in
                     guard scenePhase == .active else { return }
-                    Task { await WidgetSnapshot.publish(from: model) }
+                    WidgetSnapshot.publishLive(from: model)
                 }
                 .onReceive(model.live.$connected.dropFirst()) { _ in
                     guard scenePhase == .active else { return }
-                    Task { await WidgetSnapshot.publish(from: model) }
+                    WidgetSnapshot.publishLive(from: model)
                 }
                 // #114 (follow-up): `WidgetSnapshot.bpm` reads `model.bpm` (WidgetPublish.swift), the
                 // smoothed live HR — same LIVE-not-repo-cache category as battery/connected above, so it
@@ -177,7 +222,7 @@ struct StrandiOSApp: App {
                 .onReceive(model.$bpm.dropFirst()) { _ in
                     guard scenePhase == .active else { return }
                     guard WidgetSnapshot.HRPublishThrottle.admit() else { return }
-                    Task { await WidgetSnapshot.publish(from: model) }
+                    WidgetSnapshot.publishLive(from: model)
                 }
                 // #581: the `noop://import-health` deep link the iOS Shortcut opens after building the
                 // HealthKit-free payload. Filter on the host so other future schemes don't trip the
@@ -347,7 +392,7 @@ enum DemoScreens {
         "keymetricseditor", "data", "backup", "support", "labbook", "automations",
         "alarms", "testcentre", "rhythmconsent", "rhythm", "liveworkout",
         "preworkout", "recoverydetail", "straindetail", "sleepdetail", "devices",
-        "devicescatalog", "fitnessage", "vitality", "addwizard", "ouraonboarding",
+        "devicescatalog", "fitnessage", "fitnessagedetail", "vitality", "addwizard", "ouraonboarding",
         "ouradevice", "onboarding",
     ]
 
@@ -435,6 +480,7 @@ enum DemoScreens {
         case "devices":  return AnyView(DevicesView())
         case "devicescatalog": return AnyView(DeviceCardCatalog())
         case "fitnessage": return AnyView(FitnessAgeDemoScreen())
+        case "fitnessagedetail": return AnyView(NavigationStack { FitnessAgeDetailView() })
         case "vitality": return AnyView(VitalityDemoScreen())
         case "addwizard": return AnyView(AddWizardDemoHost())
         // Oura onboarding: the Add-device wizard deep-linked straight to the Oura factory-reset-and-adopt

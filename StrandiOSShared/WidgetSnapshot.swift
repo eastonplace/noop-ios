@@ -16,9 +16,27 @@ public struct WidgetSnapshot: Codable, Equatable {
     public var rest: Int?        // Sleep (sleep_performance) score, 0–100
     public var hrv: Int?         // HRV (ms), whole-number for the glance
     public var restingHr: Int?   // Resting heart rate (bpm)
+    public var recoveryDelta: Int?
+    public var sleepMinutes: Int?
+    public var steps: Int?
+    public var calories: Int?
+    /// Twenty-four real hourly stress averages (0–3). nil elements are hours without evidence.
+    public var hourlyStress: [Double?]?
+    public var stressSummary: String?
+    /// Recent HR points, bounded at the publication boundary so the App Group payload stays tiny.
+    public var hrSparkline: [Int]?
+
+    /// New code speaks Strain while preserving the serialized `effort` key for older snapshots.
+    public var strain: Double? {
+        get { effort }
+        set { effort = newValue }
+    }
 
     public init(recovery: Int?, bpm: Int?, batteryPct: Int?, bonded: Bool, updated: Date,
-                effort: Double? = nil, rest: Int? = nil, hrv: Int? = nil, restingHr: Int? = nil) {
+                effort: Double? = nil, rest: Int? = nil, hrv: Int? = nil, restingHr: Int? = nil,
+                recoveryDelta: Int? = nil, sleepMinutes: Int? = nil, steps: Int? = nil,
+                calories: Int? = nil, hourlyStress: [Double?]? = nil,
+                stressSummary: String? = nil, hrSparkline: [Int]? = nil) {
         self.recovery = recovery
         self.bpm = bpm
         self.batteryPct = batteryPct
@@ -28,6 +46,13 @@ public struct WidgetSnapshot: Codable, Equatable {
         self.rest = rest
         self.hrv = hrv
         self.restingHr = restingHr
+        self.recoveryDelta = recoveryDelta
+        self.sleepMinutes = sleepMinutes
+        self.steps = steps
+        self.calories = calories
+        self.hourlyStress = hourlyStress
+        self.stressSummary = stressSummary
+        self.hrSparkline = hrSparkline.map { Array($0.filter { (30...240).contains($0) }.suffix(48)) }
     }
 
     /// Canonical phone publication boundary for the three scores. Stored Strain is
@@ -41,6 +66,13 @@ public struct WidgetSnapshot: Codable, Equatable {
         bonded: Bool,
         hrv: Double?,
         restingHr: Int?,
+        recoveryDelta: Int? = nil,
+        sleepMinutes: Int? = nil,
+        steps: Int? = nil,
+        calories: Int? = nil,
+        hourlyStress: [Double?]? = nil,
+        stressSummary: String? = nil,
+        hrSparkline: [Int]? = nil,
         updated: Date = Date()
     ) -> WidgetSnapshot {
         WidgetSnapshot(
@@ -52,8 +84,29 @@ public struct WidgetSnapshot: Codable, Equatable {
             effort: storedStrain.map { StrainScale.displayValue(fromStored: $0) },
             rest: sleepScore.map { Int($0.rounded()) },
             hrv: hrv.map { Int($0.rounded()) },
-            restingHr: restingHr
+            restingHr: restingHr,
+            recoveryDelta: recoveryDelta,
+            sleepMinutes: sleepMinutes,
+            steps: steps,
+            calories: calories,
+            hourlyStress: hourlyStress,
+            stressSummary: stressSummary,
+            hrSparkline: hrSparkline
         )
+    }
+
+    /// Fast-lane update. It intentionally preserves every dashboard field from the last slow publish.
+    public func mergingLive(bpm: Int?, batteryPct: Double?, bonded: Bool,
+                            storedStrain: Double?, hrSparkline: [Int]? = nil,
+                            updated: Date = Date()) -> WidgetSnapshot {
+        var copy = self
+        copy.bpm = bpm
+        copy.batteryPct = batteryPct.map { Int($0.rounded()) }
+        copy.bonded = bonded
+        copy.updated = updated
+        copy.strain = storedStrain.map { StrainScale.displayValue(fromStored: $0) }
+        if let hrSparkline { copy.hrSparkline = Array(hrSparkline.filter { (30...240).contains($0) }.suffix(48)) }
+        return copy
     }
 
     /// App Group suite the app and widget both use. Injected from the `APP_GROUP_ID` build setting
@@ -82,6 +135,10 @@ public struct WidgetSnapshot: Codable, Equatable {
     public static var placeholder: WidgetSnapshot {
         WidgetSnapshot(recovery: 72, bpm: 58, batteryPct: 84, bonded: true, updated: Date(),
                        effort: 8, rest: 81, hrv: 64, restingHr: 52)
+    }
+
+    public static var empty: WidgetSnapshot {
+        WidgetSnapshot(recovery: nil, bpm: nil, batteryPct: nil, bonded: false, updated: Date())
     }
 
     /// Read the last-published snapshot from the shared suite, if any.

@@ -2425,7 +2425,7 @@ struct TodayView: View {
                           value: dashboardValue(card)) { stressDetail }
         case .fitnessAge:
             pinnedCardRow(icon: card.icon, tint: tint, title: card.title, subtitle: card.subtitle,
-                          value: dashboardValue(card)) { HealthView() }
+                          value: dashboardValue(card)) { FitnessAgeDetailView() }
         case .vitality:
             pinnedCardRow(icon: card.icon, tint: tint, title: card.title, subtitle: card.subtitle,
                           value: dashboardValue(card)) { HealthView() }

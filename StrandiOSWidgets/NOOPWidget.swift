@@ -14,11 +14,11 @@ struct NOOPProvider: TimelineProvider {
     }
 
     func getSnapshot(in context: Context, completion: @escaping (NOOPEntry) -> Void) {
-        completion(NOOPEntry(date: Date(), snapshot: WidgetSnapshot.load() ?? .placeholder))
+        completion(NOOPEntry(date: Date(), snapshot: WidgetSnapshot.load() ?? (context.isPreview ? .placeholder : .empty)))
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<NOOPEntry>) -> Void) {
-        let snap = WidgetSnapshot.load() ?? .placeholder
+        let snap = WidgetSnapshot.load() ?? .empty
         // Refresh roughly every 15 minutes; the app also forces a reload when it publishes fresh data.
         let next = Calendar.current.date(byAdding: .minute, value: 15, to: Date()) ?? Date().addingTimeInterval(900)
         completion(Timeline(entries: [NOOPEntry(date: Date(), snapshot: snap)], policy: .after(next)))
@@ -43,8 +43,10 @@ struct NOOPWidgetView: View {
             rectangular
         case .systemLarge:
             large
+        case .systemMedium:
+            medium
         default:
-            home
+            small
         }
     }
 
@@ -54,11 +56,11 @@ struct NOOPWidgetView: View {
     }
 
     private var effortColor: Color {
-        snap.effort == nil ? StrandPalette.textTertiary : StrandPalette.strainAccent
+        snap.strain == nil ? StrandPalette.textTertiary : StrandPalette.strainAccent
     }
 
     private var strainText: String? {
-        snap.effort.map { String(format: "%.1f", $0) }
+        snap.strain.map { String(format: "%.1f", $0) }
     }
 
     private var restColor: Color {
@@ -66,10 +68,7 @@ struct NOOPWidgetView: View {
     }
 
     private var inlineText: String {
-        var parts: [String] = []
-        if let r = snap.recovery { parts.append("Recovery \(r)%") }
-        if let b = snap.bpm { parts.append("\(b) bpm") }
-        return parts.isEmpty ? "NOOP" : parts.joined(separator: " · ")
+        "Recovery \(snap.recovery.map(String.init) ?? "—") · Strain \(strainText ?? "—")"
     }
 
     private var recoveryGauge: some View {
@@ -88,14 +87,14 @@ struct NOOPWidgetView: View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 4) {
                 Image(systemName: "heart.fill").foregroundStyle(recoveryColor)
-                Text("Recovery \(snap.recovery.map(String.init) ?? "–")%").font(.headline)
+                Text(snap.recovery.map { "Recovery \($0)%" } ?? "Recovery —").font(.headline)
             }
-            Text("HR \(snap.bpm.map(String.init) ?? "–") · Strain \(strainText ?? "–")")
+            Text("Strain \(strainText ?? "—") · HRV \(snap.hrv.map(String.init) ?? "—") ms")
                 .font(.caption)
         }
     }
 
-    private var home: some View {
+    private var small: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("NOOP").font(.system(size: 13, weight: .bold))
@@ -112,20 +111,38 @@ struct NOOPWidgetView: View {
                 Text("%").font(.headline).foregroundStyle(StrandPalette.textTertiary)
             }
             Text("Recovery").font(.caption).foregroundStyle(StrandPalette.textTertiary)
+            if let delta = snap.recoveryDelta {
+                Text("\(delta >= 0 ? "+" : "")\(delta) vs yesterday")
+                    .font(.caption2).foregroundStyle(delta >= 0 ? StrandPalette.statusPositive : StrandPalette.statusCritical)
+            }
             Spacer(minLength: 0)
             HStack {
-                Label("\(snap.bpm.map(String.init) ?? "–")", systemImage: "waveform.path.ecg")
-                // Medium has room for one more stat (#446); small stays a clean Charge + HR + battery.
-                if family == .systemMedium {
-                    Spacer()
-                    Label("\(strainText ?? "–")", systemImage: "bolt.fill")
-                }
+                Label(sleepDuration, systemImage: "moon.fill")
                 Spacer()
-                Label("\(snap.batteryPct.map { "\($0)%" } ?? "–")", systemImage: "battery.50")
+                Label("\(snap.batteryPct.map { "\($0)%" } ?? "—")", systemImage: "battery.50")
             }
             .font(.caption2).foregroundStyle(StrandPalette.textSecondary)
         }
         .padding(12)
+    }
+
+    private var medium: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                pillar("Recovery", snap.recovery.map(String.init), recoveryColor)
+                pillar("Strain", strainText, effortColor)
+                pillar("Sleep", snap.rest.map(String.init), restColor)
+            }
+            stressStrip
+            HStack {
+                compactMetric("HRV", snap.hrv.map { "\($0) ms" })
+                Spacer()
+                compactMetric("RHR", snap.restingHr.map { "\($0) bpm" })
+                Spacer()
+                compactMetric("Steps", snap.steps.map(Self.compactNumber))
+            }
+        }
+        .padding(14)
     }
 
     /// The rich `systemLarge` layout (#446): the Charge headline plus a stat grid of Strain, Sleep, HRV,
@@ -139,14 +156,12 @@ struct NOOPWidgetView: View {
                 Circle().fill(snap.bonded ? StrandPalette.statusPositive : StrandPalette.statusCritical)
                     .frame(width: 8, height: 8)
             }
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(snap.recovery.map(String.init) ?? "–")
-                    .font(.system(size: 48, weight: .bold, design: .rounded))
-                    .foregroundStyle(recoveryColor)
-                Text("%").font(.title3).foregroundStyle(StrandPalette.textTertiary)
-                Text("Recovery").font(.subheadline).foregroundStyle(StrandPalette.textTertiary)
-                    .padding(.leading, 2)
+            HStack {
+                pillar("Recovery", snap.recovery.map(String.init), recoveryColor)
+                pillar("Strain", strainText, effortColor)
+                pillar("Sleep", snap.rest.map(String.init), restColor)
             }
+            sparkline
             Divider()
             // Two-by-three stat grid of the richer scores. Each cell is a value + label pairing, tinted to
             // match its Today tile where a token exists (Strain, Sleep); raw vitals stay neutral.
@@ -157,8 +172,13 @@ struct NOOPWidgetView: View {
             }
             HStack(alignment: .top, spacing: 0) {
                 statCell("Sleep HR", value: snap.restingHr.map { "\($0)" }, unit: "bpm")
-                statCell("HR", value: snap.bpm.map { "\($0)" }, unit: "bpm")
+                statCell("Steps", value: snap.steps.map(Self.compactNumber))
+                statCell("Calories", value: snap.calories.map { "\($0)" }, unit: "kcal")
                 statCell("Battery", value: snap.batteryPct.map { "\($0)%" })
+            }
+            stressStrip
+            if let summary = snap.stressSummary {
+                Text("Stress · \(summary)").font(.caption2).foregroundStyle(StrandPalette.textSecondary)
             }
             Spacer(minLength: 0)
         }
@@ -180,6 +200,68 @@ struct NOOPWidgetView: View {
             Text(label).font(.caption2).foregroundStyle(StrandPalette.textTertiary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var sleepDuration: String {
+        guard let minutes = snap.sleepMinutes else { return "—" }
+        return "\(minutes / 60)h \(minutes % 60)m"
+    }
+
+    private func pillar(_ label: String, _ value: String?, _ tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(value ?? "—").font(.system(size: 24, weight: .bold, design: .rounded))
+                .foregroundStyle(value == nil ? StrandPalette.textTertiary : tint)
+            Text(label).font(.caption2).foregroundStyle(StrandPalette.textTertiary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func compactMetric(_ label: String, _ value: String?) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(value ?? "—").font(.caption.weight(.semibold))
+            Text(label).font(.caption2).foregroundStyle(StrandPalette.textTertiary)
+        }
+    }
+
+    private var stressStrip: some View {
+        HStack(spacing: 2) {
+            ForEach(Array((snap.hourlyStress ?? []).enumerated()), id: \.offset) { _, value in
+                Capsule().fill(stressColor(value)).frame(maxWidth: .infinity, minHeight: 5, maxHeight: 5)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(snap.stressSummary.map { "Stress \($0)" } ?? "Stress unavailable")
+    }
+
+    private var sparkline: some View {
+        GeometryReader { geometry in
+            let values = snap.hrSparkline ?? []
+            if values.count > 1, let low = values.min(), let high = values.max() {
+                Path { path in
+                    for (index, value) in values.enumerated() {
+                        let x = geometry.size.width * CGFloat(index) / CGFloat(values.count - 1)
+                        let fraction = CGFloat(value - low) / CGFloat(max(1, high - low))
+                        let y = geometry.size.height * (1 - fraction)
+                        index == 0 ? path.move(to: CGPoint(x: x, y: y)) : path.addLine(to: CGPoint(x: x, y: y))
+                    }
+                }
+                .stroke(StrandPalette.statusCritical, style: .init(lineWidth: 2, lineCap: .round, lineJoin: .round))
+            } else {
+                Text("Heart-rate trace unavailable").font(.caption2).foregroundStyle(StrandPalette.textTertiary)
+            }
+        }
+        .frame(height: 34)
+    }
+
+    private func stressColor(_ value: Double?) -> Color {
+        guard let value else { return StrandPalette.hairline }
+        if value >= 2 { return StrandPalette.statusCritical }
+        if value >= 1 { return StrandPalette.statusWarning }
+        return StrandPalette.statusPositive
+    }
+
+    private static func compactNumber(_ value: Int) -> String {
+        value >= 1_000 ? String(format: "%.1fk", Double(value) / 1_000) : String(value)
     }
 }
 
@@ -203,5 +285,26 @@ struct NOOPWidget: Widget {
             .systemSmall, .systemMedium, .systemLarge,
             .accessoryCircular, .accessoryInline, .accessoryRectangular
         ])
+    }
+}
+
+/// Separate selectable Lock Screen circle. Recovery remains available in `NOOPWidget`.
+struct NOOPStrainAccessoryWidget: Widget {
+    let kind = "NOOPStrainAccessoryWidget"
+
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: NOOPProvider()) { entry in
+            Gauge(value: entry.snapshot.strain ?? 0, in: 0...21) {
+                Image(systemName: "bolt.fill")
+            } currentValueLabel: {
+                Text(entry.snapshot.strain.map { String(format: "%.1f", $0) } ?? "—")
+            }
+            .gaugeStyle(.accessoryCircular)
+            .tint(entry.snapshot.strain == nil ? StrandPalette.textTertiary : StrandPalette.strainAccent)
+            .containerBackground(.clear, for: .widget)
+        }
+        .configurationDisplayName("NOOP Strain")
+        .description("Current canonical Strain on the 0–21 scale.")
+        .supportedFamilies([.accessoryCircular])
     }
 }

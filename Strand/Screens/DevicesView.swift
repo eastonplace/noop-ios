@@ -2,6 +2,7 @@ import SwiftUI
 import StrandDesign
 import StrandAnalytics   // ConnectionReadout - the #987 clock-latch / RTC-epoch readout parsers
 import WhoopStore
+import WhoopProtocol
 import OuraProtocol
 
 // MARK: - Devices
@@ -13,6 +14,7 @@ import OuraProtocol
 // active-device change — so this view never touches BLEManager or the WHOOP path directly.
 struct DevicesView: View {
     @EnvironmentObject var model: AppModel
+    var onClose: (() -> Void)? = nil
     // PERF: this OUTER view does NOT observe `LiveState`. It only branches on `model.deviceRegistry`
     // becoming non-nil and hands off to `DevicesContent`, which owns its own `@EnvironmentObject live`
     // (the live battery / "Active · Live" badge live there). Observing `live` here would re-render the
@@ -26,9 +28,16 @@ struct DevicesView: View {
                        // full-bleed time-of-day sky behind the scroll content (it does not scroll).
                        topBackground: nil,
                        trailing: {
-                           Image(systemName: "plus")
-                               .font(.system(size: 16, weight: .semibold))
-                               .foregroundStyle(StrandPalette.textPrimary)
+                           if let onClose {
+                               Button("Done", action: onClose)
+                                   .buttonStyle(.plain)
+                                   .font(StrandFont.caption.weight(.semibold))
+                                   .foregroundStyle(StrandPalette.accent)
+                           } else {
+                               Image(systemName: "plus")
+                                   .font(.system(size: 16, weight: .semibold))
+                                   .foregroundStyle(StrandPalette.textPrimary)
+                           }
                        }) {
             if let registry = model.deviceRegistry {
                 DevicesContent(registry: registry)
@@ -53,6 +62,7 @@ private struct DevicesContent: View {
     @ObservedObject var registry: DeviceRegistry
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var live: LiveState
+    @AppStorage(PuffinExperiment.deepDataKey) private var deepDataEnabled = false
 
     // Sheets / alerts
     @State private var showAddWizard = false
@@ -63,9 +73,13 @@ private struct DevicesContent: View {
     @State private var deleteDataTarget: PairedDevice?
     /// After removing the ACTIVE device with other devices still paired, prompt to pick a new active one.
     @State private var pickNewActive = false
+    @State private var commandFeedback: String?
+    @State private var showingActiveDeviceActions = false
 
     private var activeDevices: [PairedDevice] { registry.devices.filter { $0.status != .archived } }
     private var removedDevices: [PairedDevice] { registry.devices.filter { $0.status == .archived } }
+    private var activeDevice: PairedDevice? { activeDevices.first(where: { $0.status == .active }) }
+    private var otherDevices: [PairedDevice] { activeDevices.filter { $0.status != .active } }
 
     /// #987: the active+connected strap's clock state, from the SAME pure ConnectionReadout parsers the
     /// Test Centre Connection panel binds (one source of truth). nil (no row at all) until the WHOOP path
@@ -86,28 +100,22 @@ private struct DevicesContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
-            if let message = live.bluetoothUnavailableMessage {
-                NoteCard(LocalizedStringKey(message), title: "Bluetooth unavailable", style: .warning)
+            if let device = activeDevice {
+                commandCenter(device)
+            } else {
+                DataPendingNote(title: "No active device",
+                                message: "Choose a paired device or add one to see connection and sync controls.",
+                                symbol: "applewatch.slash")
             }
-            // UPPERCASE overline section header, matching the liquid Today. Counts the paired bands so the
-            // multi-WHOOP reality reads at a glance.
-            sectionHead("YOUR BANDS", trailing: activeDevices.count == 1
-                        ? String(localized: "1 paired")
-                        : String(localized: "\(activeDevices.count) paired"))
-            ForEach(Array(activeDevices.enumerated()), id: \.element.id) { idx, device in
+
+            if !otherDevices.isEmpty {
+                sectionHead("OTHER DEVICES", trailing: String(localized: "\(otherDevices.count) paired"))
+            }
+            ForEach(Array(otherDevices.enumerated()), id: \.element.id) { idx, device in
                 DeviceCard(
                     device: device,
-                    isActive: device.status == .active,
-                    isLiveConnected: device.status == .active && live.connected,
-                    // The live battery belongs to whichever device is ACTIVE + connected (the WHOOP, a
-                    // generic strap, or an FTMS machine all funnel into live.batteryPct). nil otherwise.
-                    liveBatteryPct: (device.status == .active && live.connected) ? live.batteryPct.map { Int($0.rounded()) } : nil,
-                    // Firmware version belongs to the active + connected strap only; nil otherwise (and
-                    // for a non-WHOOP source that never reports one).
-                    liveFirmware: (device.status == .active && live.connected) ? live.strapFirmware : nil,
-                    // #987: clock latch + frame freshness + the 1970/71 RTC warning, active card only.
-                    liveClockLine: device.status == .active ? strapClockState?.line : nil,
-                    liveClockWarning: device.status == .active ? strapClockState?.warning : nil,
+                    isActive: false,
+                    isLiveConnected: false,
                     onMakeActive: { switchTarget = device },
                     onRename: { renameDraft = device.nickname ?? device.displayName; renameTarget = device },
                     onRemove: { removeTarget = device })
@@ -120,8 +128,7 @@ private struct DevicesContent: View {
             if !removedDevices.isEmpty { removedSection }
 
             whoopFirstFooter
-            NoteCard("All data is stored locally on this device. Private by design. You're in control.",
-                     style: .privacy)
+            privacyFooter
         }
         // Add a device — guided, branching wizard (asks the device TYPE first, then runs the right
         // scan/register path: WHOOP present-scan for WHOOP families, StandardHRSource for HR straps).
@@ -198,9 +205,251 @@ private struct DevicesContent: View {
         } message: {
             Text("You removed your active strap. Choose which paired band provides your live data, or leave none active and pair one later.")
         }
+        .confirmationDialog("Device actions",
+                            isPresented: $showingActiveDeviceActions,
+                            titleVisibility: .visible) {
+            if let device = activeDevice {
+                Button("Rename") {
+                    renameDraft = device.nickname ?? device.displayName
+                    renameTarget = device
+                }
+                Button("Remove", role: .destructive) { removeTarget = device }
+            }
+            Button("Cancel", role: .cancel) { }
+        }
     }
 
     // MARK: Pieces
+
+    private func commandCenter(_ device: PairedDevice) -> some View {
+        let isWhoop = SourceCoordinator.isWhoop(device)
+        let modelName = device.model.uppercased()
+        let supportsR22 = isWhoop && (modelName.contains("5") || modelName.contains("MG"))
+        let snapshot = DeviceCommandCenterStatusResolver.resolve(.init(
+            isWhoop: isWhoop, supportsR22: supportsR22,
+            connected: live.connected, encryptedBond: live.encryptedBond,
+            bluetoothUnavailableMessage: live.bluetoothUnavailableMessage,
+            reconnectGuide: live.reconnectGuide, pairingHint: live.pairingHint,
+            rtcWarning: strapClockState?.warning, lastSyncError: live.lastSyncError,
+            strapNeedsReboot: live.strapNeedsReboot, batteryPct: live.batteryPct,
+            historySyncExperimental: live.historySyncExperimental, standardHRMode: live.standardHRMode,
+            backfilling: live.backfilling, syncChunksThisSession: live.syncChunksThisSession,
+            lastSyncedAt: live.lastSyncedAt, deepDataEnabled: deepDataEnabled,
+            r22FlagsAccepted: live.r22FlagsAccepted, r22FlagCount: Whoop5Config.enableR22Sequence.count,
+            now: Date().timeIntervalSince1970))
+
+        return VStack(alignment: .leading, spacing: 18) {
+            componentLabel("Identity card · which strap, exactly")
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                DeviceCommandIdentityCard(
+                    name: device.displayName,
+                    firmware: live.strapFirmware.map { "Firmware \($0)" } ?? device.model,
+                    deviceID: compactDeviceID(device.id),
+                    bondLabel: identityBondLabel(snapshot),
+                    bondTone: bondTone(snapshot),
+                    batteryFraction: live.batteryPct.map { $0 / 100 },
+                    wristLabel: live.worn ? "On wrist" : "Off wrist",
+                    connectionLabel: connectionUptime(now: context.date),
+                    onMenu: { showingActiveDeviceActions = true })
+            }
+
+            Divider().overlay(StrandPalette.hairline)
+            componentLabel("Command centre · every check has a verdict")
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                DeviceCommandStatusOverview(
+                    items: statusItems(snapshot: snapshot, isWhoop: isWhoop, now: context.date))
+            }
+
+            Divider().overlay(StrandPalette.hairline)
+            componentLabel("Twin cards · one key-value grammar")
+            HStack(alignment: .top, spacing: 8) {
+                DeviceCommandInfoCard(icon: "arrow.triangle.2.circlepath",
+                                      title: "Sync status",
+                                      rows: syncRows(snapshot))
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    DeviceCommandInfoCard(icon: "battery.75percent",
+                                          title: "Power status",
+                                          rows: powerRows(now: context.date))
+                }
+            }
+
+            Divider().overlay(StrandPalette.hairline)
+            componentLabel("Actions · four common fixes")
+            VStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    DeviceCommandActionButton(icon: "arrow.triangle.2.circlepath", title: "Sync now",
+                                              enabled: snapshot.commands.syncEnabled) {
+                        model.syncActiveDevice(); showFeedback("Syncing")
+                    }
+                    DeviceCommandActionButton(icon: "iphone.radiowaves.left.and.right", title: "Test vibration",
+                                              enabled: snapshot.commands.vibrationEnabled) {
+                        model.testDeviceVibration(); showFeedback("Sent")
+                    }
+                }
+                HStack(spacing: 8) {
+                    DeviceCommandActionButton(icon: "battery.75percent", title: "Refresh battery",
+                                              enabled: snapshot.commands.batteryEnabled) {
+                        model.refreshDeviceBattery(); showFeedback("Refreshing")
+                    }
+                    DeviceCommandActionButton(icon: "link",
+                                              title: live.connected ? "Refresh link" : "Reconnect",
+                                              prominent: !live.connected,
+                                              enabled: snapshot.commands.linkEnabled) {
+                        model.refreshDeviceLink(); showFeedback("Refreshing")
+                    }
+                }
+            }
+            if let commandFeedback {
+                Text(commandFeedback).font(StrandFont.micro.weight(.bold))
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .transition(.opacity)
+            }
+        }
+    }
+
+    private func componentLabel(_ title: String) -> some View {
+        Text(title.uppercased())
+            .font(StrandFont.overline).tracking(1.35)
+            .foregroundStyle(StrandPalette.textTertiary)
+            .lineLimit(1).minimumScaleFactor(0.7)
+    }
+
+    private func identityBondLabel(_ snapshot: DeviceCommandCenterSnapshot) -> String {
+        guard live.connected else { return "Disconnected" }
+        if snapshot.bondLabel == "Full bond" { return "Active · Full Bond" }
+        if snapshot.bondLabel == "Live HR only" { return "Active · Live HR only" }
+        return "Active · Connected"
+    }
+
+    private func bondTone(_ snapshot: DeviceCommandCenterSnapshot) -> DeviceCommandTone {
+        guard live.connected else { return .neutral }
+        return snapshot.bondLabel == "Live HR only" ? .warning : .good
+    }
+
+    private func statusItems(snapshot: DeviceCommandCenterSnapshot, isWhoop: Bool, now: Date) -> [DeviceCommandStatusItem] {
+        var rows = [DeviceCommandStatusItem(id: "ble", label: "BLE connection", value: snapshot.connectionLabel,
+                                           tone: live.connected ? .good : .critical)]
+        if let bond = snapshot.bondLabel {
+            rows.append(.init(id: "bond", label: "Bond / encrypted link", value: bond,
+                              tone: bond == "Full bond" ? .good : .warning))
+        }
+        if strapClockState != nil {
+            let warning = strapClockState?.warning
+            rows.append(.init(id: "clock", label: "Clock latched", value: warning == nil ? "Latched" : "Needs attention",
+                              tone: warning == nil ? .good : .warning, subline: warning))
+        }
+        if isWhoop {
+            rows.append(.init(id: "sync", label: "Historical sync", value: snapshot.syncLabel,
+                              tone: live.lastSyncError == nil ? (live.backfilling ? .neutral : .good) : .warning))
+        }
+        if let r22 = snapshot.r22Label {
+            rows.append(.init(id: "r22", label: "R22 configuration", value: r22,
+                              tone: r22 == "Requires full bond" ? .warning : .neutral))
+        }
+        rows.append(.init(id: "packet", label: "Last packet", value: packetAge(now: now),
+                          tone: packetTone(now: now)))
+        let healthTone = deviceHealthTone(snapshot.health.level)
+        rows.append(.init(id: "health", label: "Device health", value: deviceHealthLabel(snapshot.health.level),
+                          tone: healthTone))
+        rows.append(.init(id: "issues", label: "Issues detected",
+                          value: snapshot.health.issueCount == 0 ? "None" : "\(snapshot.health.issueCount)",
+                          tone: healthTone, subline: snapshot.health.primaryIssue))
+        return rows
+    }
+
+    private func deviceHealthTone(_ level: DeviceHealthSummary.Level) -> DeviceCommandTone {
+        switch level {
+        case .healthy: .good
+        case .informational: .neutral
+        case .warning: .warning
+        case .critical: .critical
+        }
+    }
+
+    private func deviceHealthLabel(_ level: DeviceHealthSummary.Level) -> String {
+        switch level {
+        case .healthy: "Healthy"
+        case .informational: "Informational"
+        case .warning: "Needs attention"
+        case .critical: "Critical"
+        }
+    }
+
+    private func syncRows(_ snapshot: DeviceCommandCenterSnapshot) -> [DeviceCommandStatusItem] {
+        var rows = [DeviceCommandStatusItem(id: "status", label: "Status", value: snapshot.syncLabel,
+                                            tone: live.lastSyncError == nil ? .neutral : .warning),
+                    .init(id: "completed", label: "Last completed", value: relativeTime(live.lastSyncedAt)),
+                    .init(id: "window", label: "History window", value: live.strapRange.map(shortHistoryWindow) ?? "—"),
+                    .init(id: "chunks", label: "Chunks", value: "\(live.syncChunksThisSession) received")]
+        let rejected = live.rejectedFramesThisSession + live.rejectedFramesUnarchived
+        if rejected > 0 {
+            rows.append(.init(id: "rejected", label: "Rejected", value: "\(rejected)",
+                              tone: live.rejectedFramesUnarchived > 0 ? .warning : .neutral))
+        }
+        return rows
+    }
+
+    private func powerRows(now: Date) -> [DeviceCommandStatusItem] {
+        [.init(id: "battery", label: "Battery", value: live.batteryPct.map { "\(Int($0.rounded()))%" } ?? "—",
+               tone: (live.batteryPct ?? 100) <= DeviceCommandCenterStatusResolver.criticalBatteryThreshold ? .warning : .neutral),
+         .init(id: "runtime", label: "Estimated", value: live.batteryEstimate.map { BatteryEstimator.label(hours: $0.remainingHours) } ?? "—"),
+         .init(id: "charging", label: "Charging", value: live.charging == true ? "Yes" : live.charging == false ? "No" : "—"),
+         .init(id: "uptime", label: "Connection", value: connectionUptime(now: now))]
+    }
+
+    private func compactDeviceID(_ id: String) -> String {
+        id.count > 12 ? "…\(id.suffix(10))" : id
+    }
+
+    private func connectionUptime(now: Date) -> String {
+        guard let connectedAt = live.connectedAt else { return "—" }
+        return compactDuration(max(0, Int(now.timeIntervalSince1970 - connectedAt)))
+    }
+
+    private func packetAge(now: Date) -> String {
+        guard let timestamp = live.lastFrameAtUnix else { return "Waiting" }
+        let seconds = max(0, Int(now.timeIntervalSince1970) - timestamp)
+        return seconds < 2 ? "Now" : "\(compactDuration(seconds)) ago"
+    }
+
+    private func packetTone(now: Date) -> DeviceCommandTone {
+        guard let timestamp = live.lastFrameAtUnix else { return .neutral }
+        return Int(now.timeIntervalSince1970) - timestamp > 60 ? .warning : .good
+    }
+
+    private func compactDuration(_ seconds: Int) -> String {
+        if seconds < 60 { return "\(seconds)s" }
+        if seconds < 3_600 { return "\(seconds / 60)m" }
+        return "\(seconds / 3_600)h \((seconds % 3_600) / 60)m"
+    }
+
+    private func relativeTime(_ timestamp: TimeInterval?) -> String {
+        guard let timestamp else { return "Waiting" }
+        return packetAgeFrom(timestamp: timestamp, now: Date().timeIntervalSince1970)
+    }
+
+    private func packetAgeFrom(timestamp: TimeInterval, now: TimeInterval) -> String {
+        let seconds = max(0, Int(now - timestamp))
+        if seconds < 60 { return "just now" }
+        if seconds < 3_600 { return "\(seconds / 60)m ago" }
+        if seconds < 86_400 { return "\(seconds / 3_600)h ago" }
+        return "\(seconds / 86_400)d ago"
+    }
+
+    private func shortHistoryWindow(_ range: LiveState.StrapRange) -> String {
+        let newest = Date(timeIntervalSince1970: TimeInterval(range.newestUnix)).formatted(.dateTime.month(.abbreviated).day())
+        guard let oldest = range.oldestUnix else { return newest }
+        let oldestText = Date(timeIntervalSince1970: TimeInterval(oldest)).formatted(.dateTime.month(.abbreviated).day())
+        return "\(oldestText)–\(newest)"
+    }
+
+    private func showFeedback(_ value: String) {
+        commandFeedback = value
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            if commandFeedback == value { commandFeedback = nil }
+        }
+    }
 
     private var addButton: some View {
         NoopButton("Add a device", systemImage: "plus", kind: .primary, fullWidth: true) {
@@ -238,6 +487,8 @@ private struct DevicesContent: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
+
+    private var privacyFooter: some View { DeviceCommandPrivacyFooter() }
 
     /// UPPERCASE overline section header with tracking + a muted trailing note, matching the liquid Today's
     /// `sectionHead`. Keeps every page's section chrome identical.
@@ -310,15 +561,13 @@ private struct DeviceCard: View {
     /// The card's visible content. The required `body` wraps this in the whole-card liquid press button +
     /// the ⋮ menu overlay.
     private var cardContent: some View {
-        PaperCard(padding: 14) {
+        Group {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .center, spacing: NoopMetrics.space3) {
                     Image(systemName: icon)
                         .font(StrandFont.headline)
                         .foregroundStyle(isActive ? StrandPalette.accent : StrandPalette.textSecondary)
                         .frame(width: 42, height: 42)
-                        .background(StrandPalette.inset,
-                                    in: RoundedRectangle(cornerRadius: 11, style: .continuous))
                         .accessibilityHidden(true)
 
                     VStack(alignment: .leading, spacing: 3) {
@@ -409,6 +658,8 @@ private struct DeviceCard: View {
                 }
             }
         }
+        .padding(.vertical, 14)
+        .overlay(alignment: .bottom) { Divider().overlay(StrandPalette.hairline) }
         .opacity(dimmed ? 0.6 : 1)
         .accessibilityElement(children: .contain)
     }

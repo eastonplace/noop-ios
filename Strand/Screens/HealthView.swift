@@ -665,13 +665,12 @@ private struct FitnessAgeSection: View {
     ///   screens aren't hosted in a per-screen NavigationStack, so a sheet is the in-app drill-down.
     /// - `.settings`: Settings (the profile card) so a required-missing input can be filled in place.
     private enum FitnessSheet: String, Identifiable {
-        case trend, settings
+        case settings
         var id: String { rawValue }
     }
     @State private var fitnessSheet: FitnessSheet?
 
     /// The catalog descriptor backing the trend sheet + accent.
-    private var fitnessAgeMetric: MetricDescriptor? { MetricCatalog.all.first { $0.key == "fitness_age" } }
 
     /// Build the readiness verdict from the same signals IntelligenceEngine feeds the engine: the last 7
     /// computed/imported days give the resting-HR + activity coverage counts; the profile gives the rest.
@@ -697,8 +696,6 @@ private struct FitnessAgeSection: View {
         .sheet(item: $fitnessSheet) { which in
             NavigationStack {
                 switch which {
-                case .trend:
-                    if let m = fitnessAgeMetric { MetricDetailView(metric: m) }
                 case .settings:
                     SettingsView()
                 }
@@ -763,7 +760,7 @@ private struct FitnessAgeSection: View {
         let younger = delta >= 0
         return VStack(alignment: .leading, spacing: NoopMetrics.space4) {
             // Tap the hero body to open the full "fitness_age" trend.
-            Button { fitnessSheet = .trend } label: {
+            NavigationLink { FitnessAgeDetailView() } label: {
                 HStack(alignment: .center, spacing: NoopMetrics.space5) {
                     // The signature liquid gauge anchors the hero: a vessel tinted to the Charge world,
                     // filled by how young the fitness age reads (younger = fuller), with the age counting
@@ -802,7 +799,7 @@ private struct FitnessAgeSection: View {
             }
             .buttonStyle(PaperPressStyle())
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Fitness Age \(shown), \(ageDeltaLine(years: years, younger: younger)). Tap to see the trend.")
+            .accessibilityLabel("Fitness Age \(shown), \(ageDeltaLine(years: years, younger: younger)). Tap for details.")
 
             Text("± \(Int(FitnessAgeEngine.displayBandYears)) yr · a fitness comparison, not a biological age")
                 .font(StrandFont.footnote)

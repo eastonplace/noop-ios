@@ -2,6 +2,16 @@
 import Foundation
 import ActivityKit
 
+struct WorkoutLiveActivityState {
+    let sport: String
+    let startedAt: Date
+    let strain: Double?
+    let strainBuilding: Bool
+    let calories: Int?
+    let hrTrace: [Int]
+    let zoneSeconds: [Int]
+}
+
 /// Starts, updates, and ends the live-HR Live Activity. The activity appears on the Lock Screen and
 /// in the Dynamic Island while the strap is bonded and streaming heart rate.
 @MainActor
@@ -17,6 +27,8 @@ final class LiveActivityController {
     /// yet), so without this guard two close-together HR samples could both fire `Activity.request`
     /// and create duplicate Live Activities.
     private var isStarting = false
+    private var isTransitioning = false
+    private var lastModeWasWorkout: Bool?
     /// How long after the last push iOS may keep showing the activity as fresh. The activity is
     /// refreshed every ~2 s while streaming, so this never bites a live session; it auto-greys a
     /// frozen activity if the app is suspended/killed without an explicit end (a missed-tick safety net
@@ -26,7 +38,8 @@ final class LiveActivityController {
     /// Drive the activity from the latest live values. Lazily starts when the strap is CONNECTED (the
     /// live link, not the sticky "paired" flag) and a heart rate is present; ends the moment the link
     /// drops. Throttled to ~once every 2 s so we stay well under the Live Activity update budget.
-    func update(bpm: Int?, recovery: Int?, connected: Bool, effort: Double? = nil) {
+    func update(bpm: Int?, recovery: Int?, connected: Bool, effort: Double? = nil,
+                workout: WorkoutLiveActivityState? = nil) {
         guard authInfo.areActivitiesEnabled else { return }
 
         // Re-adopt an activity that outlived a previous app session. ActivityKit keeps Live Activities
@@ -53,8 +66,27 @@ final class LiveActivityController {
         }
         guard bpm != nil else { return }
 
-        let state = NOOPActivityAttributes.ContentState(bpm: bpm, recovery: recovery, bonded: connected,
-                                                        effort: effort)
+        let desiredMode = workout != nil
+        if activity != nil, lastModeWasWorkout == nil { lastModeWasWorkout = desiredMode }
+        if activity != nil, let lastModeWasWorkout, lastModeWasWorkout != desiredMode {
+            guard !isTransitioning else { return }
+            isTransitioning = true
+            Task {
+                await end()
+                self.lastModeWasWorkout = desiredMode
+                self.isTransitioning = false
+                update(bpm: bpm, recovery: recovery, connected: connected,
+                       effort: effort, workout: workout)
+            }
+            return
+        }
+
+        let state = NOOPActivityAttributes.ContentState(
+            bpm: bpm, recovery: recovery, bonded: connected,
+            effort: workout?.strain ?? effort,
+            sport: workout?.sport, workoutStartedAt: workout?.startedAt,
+            strainBuilding: workout?.strainBuilding, calories: workout?.calories,
+            hrTrace: workout?.hrTrace, zoneSeconds: workout?.zoneSeconds)
         let staleDate = Date().addingTimeInterval(Self.staleAfter)
 
         if let activity {
@@ -69,11 +101,12 @@ final class LiveActivityController {
             isStarting = true
             do {
                 activity = try Activity.request(
-                    attributes: NOOPActivityAttributes(title: String(localized: "Live HR")),
+                    attributes: NOOPActivityAttributes(title: workout?.sport ?? String(localized: "Live HR")),
                     content: ActivityContent(state: state, staleDate: staleDate),
                     pushType: nil
                 )
                 lastPush = Date()
+                lastModeWasWorkout = desiredMode
             } catch {
                 activity = nil
             }
@@ -89,6 +122,7 @@ final class LiveActivityController {
             await act.end(nil, dismissalPolicy: .immediate)
         }
         self.activity = nil
+        self.lastModeWasWorkout = nil
     }
 }
 #endif
