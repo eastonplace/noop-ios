@@ -185,15 +185,13 @@ public extension RecoveryFactorRow {
     }
 }
 
-public extension RecoveryHistoryDay {
-    init(_publicAPI: Void = (), id: Int, score: Double) {
-        self.id = id
-        self.score = score
-    }
-}
-
 public extension RecoveryHistoryStrip {
-    init(_publicAPI: Void = (), days: [RecoveryHistoryDay]) { self.days = days }
+    init(_publicAPI: Void = (), days: [CalendarMetricDay], anchorDate: Date,
+         calendar: Calendar = .autoupdatingCurrent) {
+        self.days = days
+        self.anchorDate = anchorDate
+        self.calendar = calendar
+    }
 }
 
 public extension StrainGaugeCard {
@@ -269,24 +267,24 @@ public extension StrainZoneBar {
     init(_publicAPI: Void = (), slices: [StrainZoneSlice]) { self.slices = slices }
 }
 
-public extension StrainWeekDay {
-    init(_publicAPI: Void = (), id: Int, strain: Double) {
-        self.id = id
-        self.strain = strain
-    }
-}
-
 public extension StrainWeekStrip {
-    init(_publicAPI: Void = (), days: [StrainWeekDay], target: ClosedRange<Double>) {
+    init(_publicAPI: Void = (), days: [CalendarMetricDay], target: ClosedRange<Double>,
+         anchorDate: Date, referenceDate: Date = Date(), calendar: Calendar = .autoupdatingCurrent) {
         self.days = days
         self.target = target
+        self.anchorDate = anchorDate
+        self.referenceDate = referenceDate
+        self.calendar = calendar
     }
 }
 
 public extension TrendPanelChart {
     init(
         _publicAPI: Void = (),
-        values: [Double],
+        points: [TrendPoint],
+        dateDomain: ClosedRange<Date>,
+        referenceDate: Date,
+        calendar: Calendar = .autoupdatingCurrent,
         baseline: Double,
         typical: ClosedRange<Double>,
         tint: Color,
@@ -294,7 +292,10 @@ public extension TrendPanelChart {
         valueFormat: @escaping (Double) -> String = { "\(Int($0.rounded()))" },
         range: TrendRange
     ) {
-        self.values = values
+        self.points = points.sorted { $0.date < $1.date }
+        self.dateDomain = dateDomain
+        self.referenceDate = referenceDate
+        self.calendar = calendar
         self.baseline = baseline
         self.typical = typical
         self.tint = tint

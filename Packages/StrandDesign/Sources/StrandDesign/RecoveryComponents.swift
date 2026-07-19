@@ -403,22 +403,20 @@ public struct RecoveryFactorRow: View {
 
 // MARK: - RecoveryHistoryStrip
 
-public struct RecoveryHistoryDay: Identifiable, Equatable {
-    public let id: Int
-    public let score: Double
-}
-
 /// 14 days of recovery: band-tinted zone backgrounds, a dashed personal average,
-/// band-coloured bars with the staggered reveal, today ringed.
+/// band-coloured bars with the staggered reveal, anchor day ringed.
 public struct RecoveryHistoryStrip: View {
-    let days: [RecoveryHistoryDay]
+    let days: [CalendarMetricDay]
+    let anchorDate: Date
+    let calendar: Calendar
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var revealed = false
 
     private var average: Double {
-        guard !days.isEmpty else { return 0 }
-        return days.map(\.score).reduce(0, +) / Double(days.count)
+        let values = days.compactMap(\.value)
+        guard !values.isEmpty else { return 0 }
+        return values.reduce(0, +) / Double(values.count)
     }
 
     public var body: some View {
@@ -453,13 +451,15 @@ public struct RecoveryHistoryStrip: View {
                         .position(x: 20, y: max(7, avgY - 8))
 
                     ForEach(Array(days.enumerated()), id: \.element.id) { index, day in
-                        let barHeight = max(4, CGFloat(day.score / 100) * height)
-                        let isToday = index == days.count - 1
+                        let score = day.value
+                        let barHeight = score.map { max(4, CGFloat($0 / 100) * height) } ?? 4
+                        let isAnchor = calendar.isDate(day.date, inSameDayAs: anchorDate)
                         Capsule(style: .continuous)
-                            .fill(RecoveryBands.color(for: day.score).opacity(isToday ? 1 : 0.72))
+                            .fill(score.map { RecoveryBands.color(for: $0).opacity(isAnchor ? 1 : 0.72) }
+                                ?? StrandPalette.surfaceInset)
                             .frame(width: barWidth, height: revealed ? barHeight : 4)
                             .overlay {
-                                if isToday {
+                                if isAnchor {
                                     Capsule(style: .continuous)
                                         .stroke(StrandPalette.textPrimary.opacity(0.55), lineWidth: 1)
                                 }
@@ -477,8 +477,10 @@ public struct RecoveryHistoryStrip: View {
             }
             .frame(height: 64)
             HStack {
-                Text("2 weeks ago").frame(maxWidth: .infinity, alignment: .leading)
-                Text("Today").frame(maxWidth: .infinity, alignment: .trailing)
+                Text(days.first.map { Self.dateFormatter.string(from: $0.date) } ?? "")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text(days.last.map { Self.dateFormatter.string(from: $0.date) } ?? "")
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
             .font(StrandFont.micro)
             .foregroundStyle(StrandPalette.textTertiary)
@@ -500,7 +502,16 @@ public struct RecoveryHistoryStrip: View {
     }
 
     private var accessibilitySummary: String {
-        guard let today = days.last else { return "No recovery history yet." }
-        return "Fourteen day recovery history, today \(Int(today.score.rounded())), average \(Int(average.rounded()))."
+        let scored = days.compactMap(\.value)
+        let anchor = TrendCalendar.value(on: anchorDate, in: days, calendar: calendar)
+        let anchorRead = anchor.map { "\(Int($0.rounded()))" } ?? "missing"
+        return "Fourteen calendar day recovery history, selected day \(anchorRead), \(scored.count) scored days, average \(Int(average.rounded()))."
     }
+
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = .current
+        formatter.setLocalizedDateFormatFromTemplate("MMM d")
+        return formatter
+    }()
 }

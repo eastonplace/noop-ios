@@ -555,15 +555,14 @@ public struct StrainZoneBar: View {
 
 // MARK: - StrainWeekStrip
 
-public struct StrainWeekDay: Identifiable, Equatable {
-    public let id: Int
-    public let strain: Double
-}
-
-/// The week against the same target band: zone shading behind, bars in front, today ringed.
+/// The calendar week against the same target band: zone shading behind, bars in front,
+/// and the selected anchor day ringed.
 public struct StrainWeekStrip: View {
-    let days: [StrainWeekDay]
+    let days: [CalendarMetricDay]
     let target: ClosedRange<Double>
+    let anchorDate: Date
+    let referenceDate: Date
+    let calendar: Calendar
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var revealed = false
@@ -599,13 +598,16 @@ public struct StrainWeekStrip: View {
                         )
                     }
                     ForEach(Array(days.enumerated()), id: \.element.id) { index, day in
-                        let barHeight = max(4, height - yOf(day.strain))
-                        let isToday = index == days.count - 1
+                        let strain = day.value
+                        let barHeight = strain.map { max(4, height - yOf($0)) } ?? 4
+                        let isAnchor = calendar.isDate(day.date, inSameDayAs: anchorDate)
+                        let isFuture = calendar.startOfDay(for: day.date) > calendar.startOfDay(for: referenceDate)
                         Capsule(style: .continuous)
-                            .fill(StrandPalette.strainAccent.opacity(isToday ? 1 : 0.6))
+                            .fill(strain == nil ? StrandPalette.surfaceInset.opacity(isFuture ? 0.35 : 1)
+                                : StrandPalette.strainAccent.opacity(isAnchor ? 1 : 0.6))
                             .frame(width: barWidth, height: revealed ? barHeight : 4)
                             .overlay {
-                                if isToday {
+                                if isAnchor {
                                     Capsule(style: .continuous)
                                         .stroke(StrandPalette.textPrimary.opacity(0.5), lineWidth: 1)
                                 }
@@ -626,7 +628,9 @@ public struct StrainWeekStrip: View {
                 ForEach(Array(Self.labels.enumerated()), id: \.offset) { index, label in
                     Text(label)
                         .font(StrandFont.micro)
-                        .foregroundStyle(index == days.count - 1 ? StrandPalette.textPrimary : StrandPalette.textTertiary)
+                        .foregroundStyle(days.indices.contains(index)
+                            && calendar.isDate(days[index].date, inSameDayAs: anchorDate)
+                            ? StrandPalette.textPrimary : StrandPalette.textTertiary)
                         .frame(maxWidth: .infinity)
                 }
             }
@@ -637,8 +641,11 @@ public struct StrainWeekStrip: View {
     }
 
     private var accessibilitySummary: String {
-        guard let today = days.last else { return "No strain history yet." }
-        let inBand = days.filter { target.contains($0.strain) }.count
-        return "Seven day strain, today \(String(format: "%.1f", today.strain)), \(inBand) days inside the optimal band."
+        guard !days.isEmpty else { return "No strain history yet." }
+        let anchor = TrendCalendar.value(on: anchorDate, in: days, calendar: calendar)
+        let anchorRead = anchor.map { String(format: "%.1f", $0) } ?? "missing"
+        let inBand = days.compactMap(\.value).filter(target.contains).count
+        let missing = days.filter { $0.value == nil }.count
+        return "Monday through Sunday strain, selected day \(anchorRead), \(inBand) days inside the optimal band, \(missing) days missing."
     }
 }

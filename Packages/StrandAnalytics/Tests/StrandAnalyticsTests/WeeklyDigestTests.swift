@@ -12,6 +12,10 @@ final class WeeklyDigestTests: XCTestCase {
         XCTAssertEqual(WeeklyDigestEngine.mondayOfWeek(containing: "2026-06-08"), "2026-06-08")
         // 2026-06-14 is a Sunday → still the same Monday.
         XCTAssertEqual(WeeklyDigestEngine.mondayOfWeek(containing: "2026-06-14"), "2026-06-08")
+        // Regression: the Trends header for Sunday, July 19 must read July 13–19.
+        let julyMonday = WeeklyDigestEngine.mondayOfWeek(containing: "2026-07-19")
+        XCTAssertEqual(julyMonday, "2026-07-13")
+        XCTAssertEqual(julyMonday.flatMap { WeeklyDigestEngine.addDays($0, 6) }, "2026-07-19")
     }
 
     func testWeekdaySakamoto() {

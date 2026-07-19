@@ -1720,7 +1720,7 @@ struct TodayView: View {
                     // PaperPillarDetailView stress surface instead of the canonical StressView.
                     stressDetail
                 case .charge, .effort:
-                    PaperPillarDetailView(kind: kind)
+                    PaperPillarDetailView(kind: kind, anchorDayKey: selectedDayKey)
                 }
             }
             .environment(\.screenScaffoldNavigationRole, .detail)
@@ -1734,7 +1734,7 @@ struct TodayView: View {
                 case .stress:
                     stressDetail
                 case .charge, .effort:
-                    PaperPillarDetailView(kind: kind)
+                    PaperPillarDetailView(kind: kind, anchorDayKey: selectedDayKey)
                 }
             }
         }

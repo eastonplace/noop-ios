@@ -101,6 +101,81 @@ final class TrendCalendarTests: XCTestCase {
         XCTAssertEqual(averages[2], 90)
     }
 
+    func testCalendarWeekPlacesSundayInSeventhSlotAndKeepsTuesdayGap() throws {
+        let sunday = try date(2026, 7, 19)
+        let monday = try date(2026, 7, 13)
+        let wednesday = try date(2026, 7, 15)
+        let days = TrendCalendar.buildWeekWindow(
+            observations: [
+                TrendCalendarDay(date: monday, value: 4),
+                TrendCalendarDay(date: wednesday, value: 8),
+                TrendCalendarDay(date: sunday, value: 12),
+            ],
+            containing: sunday,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(days.count, 7)
+        XCTAssertEqual(days[0].value, 4)
+        XCTAssertNil(days[1].value)
+        XCTAssertEqual(days[2].value, 8)
+        XCTAssertEqual(days[6].value, 12)
+    }
+
+    func testRollingWindowKeepsMissingTodayAndExactYesterday() throws {
+        let today = try date(2026, 7, 19)
+        let yesterday = try date(2026, 7, 18)
+        let older = try date(2026, 7, 15)
+        let days = TrendCalendar.buildRollingWindow(
+            observations: [
+                TrendCalendarDay(date: older, value: 50),
+                TrendCalendarDay(date: yesterday, value: 70),
+            ],
+            through: today,
+            count: 7,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(days.count, 7)
+        XCTAssertNil(days.last?.value)
+        XCTAssertEqual(TrendCalendar.value(on: yesterday, in: days, calendar: calendar), 70)
+        XCTAssertNil(TrendCalendar.value(on: today, in: days, calendar: calendar))
+        XCTAssertEqual(TrendCalendar.mean(of: days), 60)
+    }
+
+    func testRollingWindowAdvancesAcrossDSTAndMonthBoundary() throws {
+        let today = try date(2026, 3, 10)
+        let days = TrendCalendar.buildRollingWindow(
+            observations: [], through: today, count: 14, calendar: calendar)
+
+        XCTAssertEqual(days.count, 14)
+        for pair in zip(days, days.dropFirst()) {
+            XCTAssertEqual(calendar.dateComponents([.day], from: pair.0.date, to: pair.1.date).day, 1)
+        }
+        XCTAssertEqual(calendar.component(.month, from: try XCTUnwrap(days.first).date), 2)
+        XCTAssertEqual(calendar.component(.day, from: try XCTUnwrap(days.first).date), 25)
+    }
+
+    func testRangeDomainAndRelativeLabelsUseCalendarDates() throws {
+        let today = try date(2026, 7, 19)
+        let domain = try XCTUnwrap(TrendCalendar.dateDomain(through: today, count: 30, calendar: calendar))
+        XCTAssertEqual(calendar.dateComponents([.day], from: domain.lowerBound, to: domain.upperBound).day, 29)
+        XCTAssertEqual(TrendCalendar.relativeLabel(for: today, relativeTo: today, calendar: calendar), "Today")
+        XCTAssertEqual(TrendCalendar.relativeLabel(for: try date(2026, 7, 18), relativeTo: today, calendar: calendar), "Yesterday")
+        XCTAssertEqual(TrendCalendar.relativeLabel(for: try date(2026, 7, 15), relativeTo: today, calendar: calendar), "Wed, Jul 15")
+    }
+
+    func testDatePositionPreservesCalendarGap() throws {
+        let start = try date(2026, 7, 13)
+        let end = try date(2026, 7, 19)
+        let wednesday = try date(2026, 7, 15)
+        let sunday = try date(2026, 7, 19)
+        let domain = start...end
+
+        XCTAssertEqual(TrendCalendar.unitPosition(of: wednesday, in: domain), 2.0 / 6.0, accuracy: 0.0001)
+        XCTAssertEqual(TrendCalendar.unitPosition(of: sunday, in: domain), 1, accuracy: 0.0001)
+    }
+
     private func date(_ year: Int, _ month: Int, _ day: Int) throws -> Date {
         try XCTUnwrap(calendar.date(from: DateComponents(year: year, month: month, day: day)))
     }
