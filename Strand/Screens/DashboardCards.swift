@@ -17,7 +17,7 @@ import SwiftUI
 /// One available card in the "Your cards" dashboard. The `rawValue` is the stable persisted identifier,
 /// keep it byte-identical to the Android `DashboardCard` ids so a backup/restore reads the same dashboard
 /// on either OS.
-enum DashboardCard: String, CaseIterable, Identifiable {
+enum DashboardCard: String, CaseIterable, Identifiable, Hashable {
     case hrv
     case restingHr
     case respiratory
@@ -121,8 +121,13 @@ enum DashboardCard: String, CaseIterable, Identifiable {
     /// Vitality trio plus HRV + Resting HR (per the task's "sensible default"). Cards with no value yet
     /// simply render "—", so the default set is safe on a fresh install.
     static let defaultSelection: [DashboardCard] = [
-        .stress, .fitnessAge, .vitality, .hrv, .restingHr,
+        .hrv, .restingHr, .respiratory, .bloodOxygen, .skinTemp,
+        .sleep, .stress, .steps, .calories,
     ]
+
+    static func defaultSelection(hydrationEnabled: Bool) -> [DashboardCard] {
+        hydrationEnabled ? Array(defaultSelection.dropLast()) + [.hydration] : defaultSelection
+    }
 
     /// Canonical order used to list the disabled remainder in the editor.
     static let canonicalOrder: [DashboardCard] = allCases
@@ -134,11 +139,13 @@ enum DashboardCard: String, CaseIterable, Identifiable {
 enum DashboardCardPrefs {
     /// UserDefaults key, a JSON array of `DashboardCard` ids in display order.
     static let selectionKey = "today.dashboardCards"
+    static let normalizedV2Key = "today.dashboardCards.v2Normalized"
+    static let maximumCount = 9
 
     /// Encode an ordered list of enabled cards into the stored JSON string. Falls back to a comma-joined
     /// string if JSON encoding ever fails (it won't for [String]), so the value is always decodable.
     static func encode(_ cards: [DashboardCard]) -> String {
-        let ids = cards.map(\.rawValue)
+        let ids = Array(cards.prefix(maximumCount)).map(\.rawValue)
         if let data = try? JSONEncoder().encode(ids), let json = String(data: data, encoding: .utf8) {
             return json
         }
@@ -149,9 +156,9 @@ enum DashboardCardPrefs {
     /// default selection (so a fresh install shows the sensible default). Accepts both the JSON-array form
     /// and a legacy comma-joined form. Unknown ids are dropped; duplicates are de-duped; this returns ONLY
     /// the enabled cards in their saved order, the editor pairs it with the disabled remainder.
-    static func decodeEnabled(_ raw: String) -> [DashboardCard] {
+    static func decodeEnabled(_ raw: String, hydrationEnabled: Bool = false) -> [DashboardCard] {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return DashboardCard.defaultSelection }
+        guard !trimmed.isEmpty else { return DashboardCard.defaultSelection(hydrationEnabled: hydrationEnabled) }
 
         let ids: [String]
         if let data = trimmed.data(using: .utf8), let decoded = try? JSONDecoder().decode([String].self, from: data) {
@@ -163,11 +170,30 @@ enum DashboardCardPrefs {
         var seen = Set<DashboardCard>()
         var result: [DashboardCard] = []
         for token in ids {
-            if let c = DashboardCard(rawValue: token), seen.insert(c).inserted {
+            if let c = DashboardCard(rawValue: token),
+               (hydrationEnabled || c != .hydration), seen.insert(c).inserted {
                 result.append(c)
+                if result.count == maximumCount { break }
             }
         }
         // An all-unknown / empty decode shouldn't blank the dashboard, fall back to the default set.
-        return result.isEmpty ? DashboardCard.defaultSelection : result
+        return result.isEmpty ? [DashboardCard.defaultSelection(hydrationEnabled: hydrationEnabled)[0]] : result
+    }
+
+    /// One-time migration from the old unbounded Your Cards list to the nine-slot Health Monitor.
+    /// Existing order wins; defaults only fill unused slots during migration. Later user edits may
+    /// intentionally keep any 1...9 cards and are never auto-filled again.
+    static func migratedSelection(_ raw: String, hydrationEnabled: Bool) -> [DashboardCard] {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        var result = trimmed.isEmpty ? [] : decodeEnabled(raw, hydrationEnabled: hydrationEnabled)
+        let defaults = DashboardCard.defaultSelection(hydrationEnabled: hydrationEnabled)
+        for card in defaults where !result.contains(card) && result.count < maximumCount {
+            result.append(card)
+        }
+        return result.isEmpty ? defaults : Array(result.prefix(maximumCount))
+    }
+
+    static func eligibleCards(hydrationEnabled: Bool) -> [DashboardCard] {
+        DashboardCard.canonicalOrder.filter { hydrationEnabled || $0 != .hydration }
     }
 }

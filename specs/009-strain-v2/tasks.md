@@ -1,12 +1,8 @@
 # Tasks
 
-- [x] T001 Add V2 scorer contract and acceptance tests.
-- [x] T002 Implement continuous HRR integration, saturation, sleep seed, and movement floors.
-- [x] T003 Adopt activity mode in detected/manual/live workout scoring.
-- [x] T004 Adopt physiological-day inputs and cycle ownership in daily analytics.
-- [x] T005 Add nullable strain-version provenance and shadow-series persistence.
-- [x] T006 Add resumable, imported-score-safe V2 cutover support and comparison report.
-- [x] T007 Update scoring and analytics documentation.
-- [x] T008 Run package/app tests, iPhone build, and independent QA. WhoopStore (273),
-  StrandAnalytics (1,108), and NOOPiOS simulator (12) pass; the signed iPhone build succeeds.
-  In-place installation and launch succeeded on Easton’s iPhone 17 Pro without uninstalling the app.
+- [x] S009-T001 Restore V2 scorer/provenance foundation and add red tests.
+- [x] S009-T002 Introduce shared physiological-day context and live/history parity tests.
+- [x] S009-T003 Persist canonical daily/workout V2 with source guards.
+- [x] S009-T004 Remove mixed Home fallback and audit all score surfaces.
+- [x] S009-T005 Add resumable NOOP-only historical recompute and cleanup.
+- [x] S009-T006 Run package/app/device verification and record evidence.

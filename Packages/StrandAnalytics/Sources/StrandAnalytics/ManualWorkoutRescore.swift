@@ -13,8 +13,7 @@ import WhoopProtocol
 /// Pure + deterministic (no store, no I/O) so it's unit-tested directly. The caller (the post-sync
 /// scoring pass) decides which workouts to feed it — under-scored `manual` ones — reads the window's
 /// HR, and only persists when the result is a genuine improvement. The scoring formulas mirror the
-/// app's `endWorkout` exactly (same `StrainScorerV2` activity mode +
-/// `Calories.estimateBoutCalories`).
+/// app's `endWorkout` exactly (same canonical `StrainScorerV2` + calorie model).
 public enum ManualWorkoutRescore {
 
     public struct Scored: Equatable {

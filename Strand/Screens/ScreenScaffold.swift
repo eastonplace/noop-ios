@@ -1,7 +1,6 @@
 import SwiftUI
 import StrandDesign
 
-#if os(iOS)
 enum ScreenScaffoldNavigationRole: Sendable {
     case root
     case detail
@@ -10,7 +9,6 @@ enum ScreenScaffoldNavigationRole: Sendable {
 extension EnvironmentValues {
     @Entry var screenScaffoldNavigationRole: ScreenScaffoldNavigationRole = .root
 }
-#endif
 
 /// Standard scrollable screen container: title + dark surface + content column.
 struct ScreenScaffold<Content: View, Trailing: View>: View {
@@ -51,6 +49,7 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
     @Environment(\.screenScaffoldNavigationRole) private var navigationRole
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.appHeaderChromeVisibility) private var appHeaderChromeVisibility
     @State private var showsCompactHeader = false
     #endif
 
@@ -90,6 +89,9 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
             }
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: showsCompactHeader)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if appHeaderChromeVisibility == .visible { AppHeaderChrome() }
+        }
         // #697: stop a vertical scroll from drifting/bouncing the screen left-right. `.basedOnSize` only
         // permits horizontal bounce when content genuinely overflows the width (it does not here, the column
         // is width-capped), so the spurious horizontal rubber-band that caused the sideways drift is gone.

@@ -359,8 +359,8 @@ public enum WorkoutDetector {
             guard !bpms.isEmpty else { continue }   // skip a degenerate bout with no HR samples
             let avg = bpms.reduce(0, +) / Double(bpms.count)
             let peak = Int(bpms.max()!.rounded())
-            let strain = StrainScorerV2.strain(hrSamples, maxHR: effMaxHR,
-                                               restingHR: restHR, mode: .activity)
+            let strain = StrainScorerV2.strain(
+                hrSamples, maxHR: effMaxHR, restingHR: restHR, mode: .activity)
 
             sessions.append(ExerciseSession(
                 start: effStart, end: end, avgHR: avg, peakHR: peak, strain: strain,

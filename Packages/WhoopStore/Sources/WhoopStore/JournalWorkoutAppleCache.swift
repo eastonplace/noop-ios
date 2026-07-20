@@ -42,6 +42,8 @@ public struct WorkoutRow: Equatable, Codable {
     public let distanceM: Double?
     public let zonesJSON: String?
     public let notes: String?
+    /// Nil for imported/legacy scores; 2 for NOOP's canonical computed Strain V2.
+    public let strainVersion: Int?
     public init(startTs: Int, endTs: Int, sport: String, source: String, durationS: Double?,
                 energyKcal: Double?, avgHr: Int?, maxHr: Int?, strain: Double?, distanceM: Double?,
                 zonesJSON: String?, notes: String?, strainVersion: Int? = nil) {
@@ -50,6 +52,7 @@ public struct WorkoutRow: Equatable, Codable {
         self.maxHr = maxHr; self.strain = strain; self.strainVersion = strainVersion
         self.distanceM = distanceM
         self.zonesJSON = zonesJSON; self.notes = notes
+        self.strainVersion = strainVersion
     }
 }
 
@@ -159,18 +162,25 @@ extension WhoopStore {
                         avgHr = excluded.avgHr,
                         maxHr = excluded.maxHr,
                         strain = CASE
-                            WHEN workout.strainVersion = 2 AND excluded.strainVersion IS NULL
-                            THEN workout.strain
-                            ELSE excluded.strain
-                        END,
+                            WHEN workout.strainVersion = 2 AND COALESCE(excluded.strainVersion, 0) < 2
+                            THEN workout.strain ELSE excluded.strain END,
                         distanceM = excluded.distanceM,
                         zonesJSON = excluded.zonesJSON,
                         notes = excluded.notes,
                         strainVersion = CASE
-                            WHEN workout.strainVersion = 2 AND excluded.strainVersion IS NULL
-                            THEN workout.strainVersion
-                            ELSE excluded.strainVersion
-                        END
+                            WHEN workout.strainVersion = 2 AND COALESCE(excluded.strainVersion, 0) < 2
+                            THEN workout.strainVersion ELSE excluded.strainVersion END
+                    WHERE workout.endTs IS NOT excluded.endTs
+                       OR workout.source IS NOT excluded.source
+                       OR workout.durationS IS NOT excluded.durationS
+                       OR workout.energyKcal IS NOT excluded.energyKcal
+                       OR workout.avgHr IS NOT excluded.avgHr
+                       OR workout.maxHr IS NOT excluded.maxHr
+                       OR workout.strain IS NOT CASE WHEN workout.strainVersion = 2 AND COALESCE(excluded.strainVersion, 0) < 2 THEN workout.strain ELSE excluded.strain END
+                       OR workout.distanceM IS NOT excluded.distanceM
+                       OR workout.zonesJSON IS NOT excluded.zonesJSON
+                       OR workout.notes IS NOT excluded.notes
+                       OR workout.strainVersion IS NOT CASE WHEN workout.strainVersion = 2 AND COALESCE(excluded.strainVersion, 0) < 2 THEN workout.strainVersion ELSE excluded.strainVersion END
                     """, arguments: [deviceId, r.startTs, r.endTs, r.sport, r.source, r.durationS,
                                      r.energyKcal, r.avgHr, r.maxHr, r.strain, r.distanceM,
                                      r.zonesJSON, r.notes, r.strainVersion])

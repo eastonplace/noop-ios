@@ -125,9 +125,11 @@ final class AppModel: ObservableObject {
     /// True while the active workout is a GPS-type session (drives the End-time route persist). Mirrors
     /// Android's `ActiveWorkout.gpsEnabled`.
     private var activeWorkoutIsGps = false
+    private var lastWorkoutSnapshotAt: Date = .distantPast
+    private var applicationIsActive = true
 
     /// A manual workout in progress. `samples` accumulate from the smoothed live `bpm`; `liveStrain`
-    /// is recomputed as the window grows so the active card can show strain building in real time.
+    /// is updated by an O(1) accumulator so the active card can show strain building in real time.
     struct ActiveWorkout: Equatable {
         let start: Date
         /// The named sport chosen at start (e.g. "Tennis", "Padel") , persisted as the saved row's
@@ -138,6 +140,13 @@ final class AppModel: ObservableObject {
         var liveStrain: Double = 0
         var avgHr: Int = 0
         var peakHr: Int = 0
+        var strainAccumulator: StrainScorerV2.ActivityAccumulator
+
+        init(start: Date, sport: String, maxHR: Double) {
+            self.start = start
+            self.sport = sport
+            self.strainAccumulator = .init(maxHR: maxHR)
+        }
     }
     /// Illness/strain early-warning (recent RHR up + HRV down + skin-temp up vs baseline). nil = clear.
     @Published var healthAlert: String?
@@ -255,8 +264,8 @@ final class AppModel: ObservableObject {
             }
         }.store(in: &hrCancellables)
         // Smooth HR centrally so it's solid everywhere it's shown.
-        live.$heartRate.sink { [weak self] _ in self?.ingestHR() }.store(in: &hrCancellables)
-        live.$rr.sink { [weak self] _ in self?.ingestHR() }.store(in: &hrCancellables)
+        live.$heartRate.sink { [weak self] _ in self?.ingestDirectHR() }.store(in: &hrCancellables)
+        live.$rr.sink { [weak self] rr in self?.ingestRRPacket(rr) }.store(in: &hrCancellables)
 
         // Physical-input + wear hooks (fired live by FrameRouter).
         live.onDoubleTap = { [weak self] in self?.handleDoubleTap() }
@@ -379,6 +388,7 @@ final class AppModel: ObservableObject {
         // main thread free for SwiftUI during the deep-history pass right after an import / first launch.
         Task(priority: .utility) { [weak self] in
             guard let self else { return }
+            let launchTrace = PerformanceTrace.begin("launch_ready")
             #if DEBUG
             // DEBUG-only: when launched with `--demo-seed`, populate a deterministic synthetic
             // dataset so an empty simulator/dev build can walk every screen (verification + marketing
@@ -417,13 +427,21 @@ final class AppModel: ObservableObject {
             // One-shot on-upgrade Effort rescore (#313): recompute strain from source across the FULL
             // history once, so any deep-history rows an older build left on the 0–21 axis regenerate on
             // the 0–100 axis. Guarded by a persisted flag, so this is a no-op on every subsequent launch.
-            await self.intelligence.runEffortRescoreIfNeeded()
+            await self.intelligence.runEffortRescoreIfNeeded {
+                !self.applicationIsActive || self.hasActiveImport
+                    || self.live.backfilling || self.activeWorkout != nil
+            }
+            PerformanceTrace.end(launchTrace)
             while !Task.isCancelled {
                 // #547 RE-POLLUTION: a sync since the last tick may have armed a re-heal (its ingest gate
                 // dropped bad-clock records). `runTimestampHealIfNeeded` honours the pending flag even after
                 // the one-shot done flag is set, purges any pollution, and rescores the affected days , so a
                 // wandering-clock strap can't keep re-polluting. A no-op when nothing's pending.
                 await self.intelligence.runTimestampHealIfNeeded()
+                await self.intelligence.runEffortRescoreIfNeeded {
+                    !self.applicationIsActive || self.hasActiveImport
+                        || self.live.backfilling || self.activeWorkout != nil
+                }
                 // #836: the steady-state tick is a BACKSTOP, not a data-driven refresh — every real update
                 // (sync backfill, import, edit, recalibrate, heal) already rescores via its own forced call.
                 // `force: false` skips the heavy 21-day rescore when the raw HR stream is unchanged since the
@@ -522,13 +540,17 @@ final class AppModel: ObservableObject {
     }
 
     private func refreshAfterCompletedBackfill() async {
+        let trace = PerformanceTrace.begin("backfill_finalize")
+        defer { PerformanceTrace.end(trace) }
         live.append(log: "Backfill: refreshing dashboard cache from completed sync")
-        await repo.refresh(days: 120)
         // Score the freshly-offloaded raw data RIGHT NOW rather than waiting for the next 15-minute
         // analyzeRecent tick , otherwise a just-synced night's Charge / Effort / Rest can take up to
         // 15 minutes to appear on a strap-only (no-import) dashboard. analyzeRecent no-ops if a tick is
         // already running and refreshes the dashboard itself once the new scores persist. (PR #218)
-        await intelligence.analyzeRecent()
+        await intelligence.analyzeRecent(refreshRepository: false)
+        // One post-analysis refresh publishes both the newly offloaded raw history and any computed
+        // mutations. Refreshing before analysis made the same cache tree rebuild twice per backfill.
+        await repo.refresh(days: 120)
         await refreshV5Signals()
         #if os(iOS)
         // #980: a strap backfill routinely completes while the app is BACKGROUNDED (it runs as a
@@ -541,18 +563,11 @@ final class AppModel: ObservableObject {
         #endif
     }
 
-    /// Fold a fresh reading into the smoothing window and republish a stable bpm.
-    /// Prefers the strap's reported HR; falls back to 60000/R-R. Clamps to a plausible
-    /// 30–220 range (rejects 0 / garbage spikes) and publishes the window MEDIAN.
-    private func ingestHR() {
-        var inst: Double?
-        if let hr = live.heartRate, hr >= 30, hr <= 220 {
-            inst = Double(hr)
-        } else if let rr = live.rr.last, rr > 0 {
-            let v = 60_000.0 / Double(rr)
-            if v >= 30, v <= 220 { inst = v }
-        }
-        guard let inst else {
+    /// Direct HR and R-R are independent live streams. Keeping their sinks separate prevents one R-R
+    /// packet from re-running HR smoothing/workout capture and prevents a direct-HR tick from appending
+    /// the same R-R packet to the stress window a second time.
+    private func ingestDirectHR() {
+        guard let hr = live.heartRate, hr >= 30, hr <= 220 else {
             // #39: when the live source is gone (disconnect blanks heartRate AND rr), drop the stale
             // median so screens that now prefer `bpm` fall through to "," instead of freezing on the
             // last value. Mirrors Android (_bpm = null on disconnect). A transient out-of-range sample
@@ -560,6 +575,22 @@ final class AppModel: ObservableObject {
             if live.heartRate == nil && live.rr.isEmpty { resetSmoothing() }
             return
         }
+        ingestInstantaneousHR(Double(hr))
+    }
+
+    private func ingestRRPacket(_ packet: [Int]) {
+        evaluateStress(packet)
+        // R-R is only an HR fallback. When a valid direct-HR stream exists, its publisher owns
+        // smoothing and workout capture, so the higher-frequency R-R publisher cannot duplicate work.
+        guard !(live.heartRate.map { (30...220).contains($0) } ?? false),
+              let rr = packet.last, rr > 0 else { return }
+        let fallback = 60_000.0 / Double(rr)
+        guard fallback >= 30, fallback <= 220 else { return }
+        ingestInstantaneousHR(fallback)
+    }
+
+    /// Fold one fresh instantaneous HR into the 10-second median window.
+    private func ingestInstantaneousHR(_ inst: Double) {
         let now = Date()
         hrWindow.append((now, inst))
         hrWindow.removeAll { now.timeIntervalSince($0.t) > 10 }   // ~10s window
@@ -571,7 +602,6 @@ final class AppModel: ObservableObject {
         let smoothed = vals.isEmpty ? nil : Int(vals[vals.count / 2].rounded())
         if bpm != smoothed { bpm = smoothed }
         captureWorkoutSample()
-        evaluateStress()
     }
 
     // MARK: - Manual workout tracking
@@ -586,7 +616,8 @@ final class AppModel: ObservableObject {
         let name = sport.trimmingCharacters(in: .whitespaces)
         let resolved = name.isEmpty ? WorkoutCatalog.defaultSportName : name
         let started = Date()
-        activeWorkout = ActiveWorkout(start: started, sport: resolved)
+        activeWorkout = ActiveWorkout(start: started, sport: resolved,
+                                      maxHR: Double(profile.hrMax))
         // #524: arm GPS route recording for a distance-type sport (run / ride / walk / hike), mirroring
         // Android, which defaults GPS on for `isDistanceSport`. Manual-first / opt-in: only these sports
         // record a route, and the recorder still captures nothing unless the user grants When-In-Use
@@ -598,7 +629,7 @@ final class AppModel: ObservableObject {
         }
         // Make the session durable from the first instant (#529): persist it now so an OS kill right
         // after Start , before any HR sample lands , can still be rehydrated + ended on relaunch.
-        persistActiveWorkout()
+        persistActiveWorkout(force: true)
         // Workouts & GPS test mode (Test Centre): one session-start line tagged `.workouts`. Zero-cost when
         // off (the gate is one UserDefaults bool read), so the lifecycle of a missing workout is visible.
         emitWorkoutsTrace(WorkoutsTrace.sessionLine(
@@ -645,8 +676,11 @@ final class AppModel: ObservableObject {
     /// session (#529). Called on start + each captured sample. A no-op when nothing is running. Apple has
     /// no GPS-route session, so every manual workout is the "non-GPS" case and gets this durability ,
     /// the Apple analogue of Android's `persistNonGpsWorkout`.
-    private func persistActiveWorkout() {
+    private func persistActiveWorkout(force: Bool = false) {
         guard let w = activeWorkout else { return }
+        let now = Date()
+        guard force || now.timeIntervalSince(lastWorkoutSnapshotAt) >= 5 else { return }
+        lastWorkoutSnapshotAt = now
         ActiveWorkoutPersistence.store(
             ActiveWorkoutPersistence.Snapshot(
                 startSec: Int(w.start.timeIntervalSince1970),
@@ -664,12 +698,33 @@ final class AppModel: ObservableObject {
     private func rehydrateActiveWorkout() {
         guard activeWorkout == nil, let snap = ActiveWorkoutPersistence.load() else { return }
         var w = ActiveWorkout(start: Date(timeIntervalSince1970: TimeInterval(snap.startSec)),
-                              sport: snap.sport)
+                              sport: snap.sport, maxHR: Double(profile.hrMax))
         w.samples = snap.samples
+        w.strainAccumulator = .init(samples: snap.samples, maxHR: Double(profile.hrMax))
         w.avgHr = snap.avgHr
         w.peakHr = snap.peakHr
         w.liveStrain = snap.liveStrain
         activeWorkout = w
+    }
+
+    /// Flushes the in-flight workout before iOS suspends the process.
+    func flushActiveWorkoutSnapshot() {
+        persistActiveWorkout(force: true)
+    }
+
+    func setApplicationActive(_ active: Bool) {
+        applicationIsActive = active
+        if !active {
+            flushActiveWorkoutSnapshot()
+        } else {
+            Task { [weak self] in
+                guard let self else { return }
+                await self.intelligence.runEffortRescoreIfNeeded {
+                    !self.applicationIsActive || self.hasActiveImport
+                        || self.live.backfilling || self.activeWorkout != nil
+                }
+            }
+        }
     }
 
     /// Finish the active workout: finalize the GPS route (#524), score the captured HR window, and save it
@@ -677,6 +732,8 @@ final class AppModel: ObservableObject {
     /// with Android) , but a GPS-only walk with HR not streaming still saves. Double-buzz confirms.
     func endWorkout() {
         guard let w = activeWorkout else { return }
+        let trace = PerformanceTrace.begin("workout_end")
+        defer { PerformanceTrace.end(trace, changedRows: lastWorkout == nil ? 0 : 1) }
         activeWorkout = nil
         let wasGps = activeWorkoutIsGps
         activeWorkoutIsGps = false
@@ -724,7 +781,8 @@ final class AppModel: ObservableObject {
             // GPS distance rides the shared row so the Workouts list / detail show it like any other
             // distance workout; the polyline itself is persisted alongside in RouteStore (the shared
             // WorkoutRow has no route column on Apple). Only a real route sets distance , honest ",".
-            distanceM: route?.distanceM, zonesJSON: nil, notes: nil)
+            distanceM: route?.distanceM, zonesJSON: nil, notes: nil,
+            strainVersion: strain == nil ? nil : 2)
         // Persist the route polyline under the row's natural key so WorkoutDetailView can draw it. On
         // device only; mirrors the moments / sleepMarks UserDefaults persistence. (#524)
         if let route { RouteStore.store(route, startTs: startTs, sport: w.sport) }
@@ -747,16 +805,17 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Append the current smoothed `bpm` to the active workout and recompute its running strain. Called
-    /// from `ingestHR` on every fresh sample; a no-op when no workout is running. Recomputing strain
-    /// over the growing window each sample is cheap at the ~1 Hz live-HR cadence.
+    /// Append the current smoothed `bpm` to the active workout and advance its O(1) running strain
+    /// accumulator. Called from the direct-HR path (or the R-R fallback when direct HR is absent); a
+    /// no-op when no workout is running. No growing-window rescan occurs at the ~1 Hz live cadence.
     private func captureWorkoutSample() {
         guard var w = activeWorkout, let hr = bpm else { return }
-        w.samples.append(HRSample(ts: Int(Date().timeIntervalSince1970), bpm: hr))
-        w.peakHr = max(w.peakHr, hr)
-        w.avgHr = Int((Double(w.samples.map(\.bpm).reduce(0, +)) / Double(w.samples.count)).rounded())
-        w.liveStrain = StrainScorerV2.strain(
-            w.samples, maxHR: Double(profile.hrMax), mode: .activity) ?? 0
+        let sample = HRSample(ts: Int(Date().timeIntervalSince1970), bpm: hr)
+        w.samples.append(sample)
+        w.strainAccumulator.append(sample)
+        w.peakHr = w.strainAccumulator.peakHR ?? hr
+        w.avgHr = w.strainAccumulator.averageHR ?? hr
+        w.liveStrain = w.strainAccumulator.strain ?? 0
         activeWorkout = w
         // Re-snapshot the durable session so a kill keeps the latest accumulated HR window (#529).
         persistActiveWorkout()
@@ -777,8 +836,8 @@ final class AppModel: ObservableObject {
     /// passive nudge to `stressNudgeCenter`. The detector carries replay-safe state (de-dup + slow
     /// baseline + rate limit), persisted via `BiofeedbackPrefs` so a relaunch can't re-fire. Honest /
     /// non-clinical: "stress" is an autonomic proxy vs the user's own baseline, never a diagnosis.
-    private func evaluateStress() {
-        let fresh = live.rr.filter { $0 > 300 && $0 < 2000 }   // plausible R-R (30–200 bpm)
+    private func evaluateStress(_ packet: [Int]) {
+        let fresh = packet.filter { $0 > 300 && $0 < 2000 }   // plausible R-R (30–200 bpm)
         guard !fresh.isEmpty else { return }
         rrBuf.append(contentsOf: fresh)
         if rrBuf.count > 120 { rrBuf.removeFirst(rrBuf.count - 120) }

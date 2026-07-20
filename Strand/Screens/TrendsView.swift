@@ -167,6 +167,14 @@ struct TrendsView: View {
     }()
     private func date(_ day: String) -> Date? { Self.dayParser.date(from: day) }
 
+    /// Calendar heatmaps use local civil dates. The UTC parser above remains correct for line-chart
+    /// timestamps, but normalizing UTC midnight in a western timezone would shift every cell back a day.
+    private func localDate(_ day: String, calendar: Calendar = .autoupdatingCurrent) -> Date? {
+        let pieces = day.split(separator: "-").compactMap { Int($0) }
+        guard pieces.count == 3 else { return nil }
+        return calendar.date(from: DateComponents(year: pieces[0], month: pieces[1], day: pieces[2]))
+    }
+
     var body: some View {
         // The liquid metric cards now tap through to their MetricDetailView (matching Today's card
         // taps + Explore's rows). On iOS each tab already supplies a NavigationStack, so those pushes
@@ -297,6 +305,12 @@ struct TrendsView: View {
     private var paperScoresOverTime: some View {
         let series = paperTrendSeries
         let selectedValues = selectedTrendPoints.map(\.value)
+        let referenceDate = Date()
+        let calendarDays = TrendCalendar.buildFiveWeekWindow(
+            observations: selectedTrendCalendarObservations,
+            through: referenceDate
+        )
+        let weekdayAverages = TrendCalendar.weekdayAverages(calendarDays)
         let baseline = selectedTrendBaseline
         let spread = max(selectedTrendSpread, 0.5)
         let typical = (baseline - spread)...(baseline + spread)
@@ -320,7 +334,8 @@ struct TrendsView: View {
                 )
                 .id("\(selectedMetric.rawValue)-\(selectedRange.rawValue)")
                 if selectedRange != .week {
-                    TrendMonthHeat(values: selectedValues, tint: selectedMetric.tint,
+                    TrendMonthHeat(days: calendarDays, tint: selectedMetric.tint,
+                                   referenceDate: referenceDate,
                                    valueFormat: selectedMetric.format,
                                    colorScale: selectedMetric == .recovery ? .recoveryBands : .intensity)
                         .id("heat-\(selectedMetric.rawValue)-\(selectedRange.rawValue)")
@@ -334,8 +349,8 @@ struct TrendsView: View {
                        format: { "\(Int($0.rounded()))%" })
             trendV2Row("HRV", points: series.hrv, tint: StrandPalette.metricPurple,
                        format: { "\(Int($0.rounded())) ms" })
-            if selectedValues.count >= 7 {
-                TrendWeekdayBars(values: Array(selectedValues.suffix(7)), tint: selectedMetric.tint)
+            if !weekdayAverages.compactMap({ $0 }).isEmpty {
+                TrendWeekdayBars(values: weekdayAverages, tint: selectedMetric.tint)
                     .frame(height: 150)
             }
         }
@@ -345,22 +360,33 @@ struct TrendsView: View {
         let apple = Dictionary(appleDays.map { ($0.day, $0) }, uniquingKeysWith: { _, last in last })
         return repo.days.suffix(selectedRange.days).compactMap { day in
             guard let stamp = date(day.day) else { return nil }
-            let value: Double?
-            switch selectedMetric {
-            case .recovery: value = day.recovery
-            case .strain: value = day.strain.map(StrainScale.displayValue(fromStored:))
-            case .sleepPerformance: value = sleepPerfByDay[day.day]
-            case .sleepDuration: value = day.totalSleepMin.map { $0 / 60 }
-            case .hrv: value = day.avgHrv
-            case .restingHR: value = day.restingHr.map(Double.init)
-            case .respiratory: value = day.respRateBpm
-            case .spo2: value = day.spo2Pct
-            case .skinTemp: value = day.skinTempDevC
-            case .steps: value = day.steps.map(Double.init) ?? apple[day.day]?.steps.map(Double.init)
-            case .calories: value = day.activeKcalEst ?? apple[day.day]?.activeKcal
-            case .stress: value = stressByDay[day.day]
-            }
+            let value = selectedMetricValue(for: day, apple: apple)
             return value.map { TrendPoint(date: stamp, value: $0) }
+        }
+    }
+
+    private var selectedTrendCalendarObservations: [TrendCalendarDay] {
+        let apple = Dictionary(appleDays.map { ($0.day, $0) }, uniquingKeysWith: { _, last in last })
+        return repo.days.compactMap { day in
+            guard let stamp = localDate(day.day) else { return nil }
+            return TrendCalendarDay(date: stamp, value: selectedMetricValue(for: day, apple: apple))
+        }
+    }
+
+    private func selectedMetricValue(for day: DailyMetric, apple: [String: AppleDaily]) -> Double? {
+        switch selectedMetric {
+        case .recovery: day.recovery
+        case .strain: day.strain.map(StrainScale.displayValue(fromStored:))
+        case .sleepPerformance: sleepPerfByDay[day.day]
+        case .sleepDuration: day.totalSleepMin.map { $0 / 60 }
+        case .hrv: day.avgHrv
+        case .restingHR: day.restingHr.map(Double.init)
+        case .respiratory: day.respRateBpm
+        case .spo2: day.spo2Pct
+        case .skinTemp: day.skinTempDevC
+        case .steps: day.steps.map(Double.init) ?? apple[day.day]?.steps.map(Double.init)
+        case .calories: day.activeKcalEst ?? apple[day.day]?.activeKcal
+        case .stress: stressByDay[day.day]
         }
     }
 

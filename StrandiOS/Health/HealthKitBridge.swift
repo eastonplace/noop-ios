@@ -5,6 +5,131 @@ import WhoopStore
 import StrandAnalytics
 import StrandImport
 
+enum HealthKitWritebackComponent: String, CaseIterable {
+    case vitals, sleep, heartRate, workouts
+}
+
+/// Deterministic, per-component six-hour success gate for NOOP → HealthKit write plans.
+/// Failed/unmarked plans retry immediately; authorization changes and repair reset all keys.
+enum HealthKitWritebackFingerprint {
+    static let successTTL: TimeInterval = 6 * 3_600
+    private static let keyPrefix = "noop.healthKitWriteback.v1"
+
+    static func fingerprint<S: Sequence>(_ fields: S) -> String where S.Element == String {
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for field in fields {
+            for byte in field.utf8 { hash ^= UInt64(byte); hash &*= 1_099_511_628_211 }
+            hash ^= 0xff
+            hash &*= 1_099_511_628_211
+        }
+        return String(hash, radix: 16)
+    }
+
+    static func shouldWrite(_ component: HealthKitWritebackComponent, fingerprint: String,
+                            now: Date = Date(), defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.string(forKey: fingerprintKey(component)) == fingerprint else { return true }
+        let completedAt = defaults.double(forKey: completedAtKey(component))
+        return completedAt <= 0 || now.timeIntervalSince1970 - completedAt >= successTTL
+    }
+
+    static func markSuccess(_ component: HealthKitWritebackComponent, fingerprint: String,
+                            at date: Date = Date(), defaults: UserDefaults = .standard) {
+        defaults.set(fingerprint, forKey: fingerprintKey(component))
+        defaults.set(date.timeIntervalSince1970, forKey: completedAtKey(component))
+    }
+
+    static func reset(defaults: UserDefaults = .standard) {
+        for component in HealthKitWritebackComponent.allCases {
+            defaults.removeObject(forKey: fingerprintKey(component))
+            defaults.removeObject(forKey: completedAtKey(component))
+        }
+    }
+
+    private static func fingerprintKey(_ component: HealthKitWritebackComponent) -> String {
+        "\(keyPrefix).\(component.rawValue).fingerprint"
+    }
+
+    private static func completedAtKey(_ component: HealthKitWritebackComponent) -> String {
+        "\(keyPrefix).\(component.rawValue).completedAt"
+    }
+}
+
+/// Pure, throwing read planner for NOOP → HealthKit writeback. It mirrors Repository's active-first
+/// identity union so a re-paired strap is never hidden behind the canonical namespace.
+enum HealthKitWritebackPlanner {
+    struct SourcedHRBucket: Equatable {
+        let sourceId: String
+        let bucket: HRBucket
+    }
+
+    static func sleepSessions(store: WhoopStore, importedIds: [String], computedIds: [String],
+                              from: Int, to: Int, limit: Int = 200) async throws
+        -> [CachedSleepSession] {
+        var merged: [Int: CachedSleepSession] = [:]
+        for id in computedIds {
+            for row in try await store.sleepSessions(deviceId: id, from: from, to: to, limit: limit)
+            where merged[row.startTs] == nil { merged[row.startTs] = row }
+        }
+        var imported: [Int: CachedSleepSession] = [:]
+        for id in importedIds {
+            for row in try await store.sleepSessions(deviceId: id, from: from, to: to, limit: limit)
+            where imported[row.startTs] == nil { imported[row.startTs] = row }
+        }
+        for (key, row) in imported { merged[key] = row }
+        return merged.keys.sorted().compactMap { merged[$0] }
+    }
+
+    static func dailyMetrics(store: WhoopStore, importedIds: [String], computedIds: [String],
+                             from: String, to: String) async throws -> [DailyMetric] {
+        var merged: [String: DailyMetric] = [:]
+        for id in computedIds {
+            for row in try await store.dailyMetrics(deviceId: id, from: from, to: to)
+            where merged[row.day] == nil { merged[row.day] = row }
+        }
+        var imported: [String: DailyMetric] = [:]
+        for id in importedIds {
+            for row in try await store.dailyMetrics(deviceId: id, from: from, to: to)
+            where imported[row.day] == nil { imported[row.day] = row }
+        }
+        for (key, row) in imported { merged[key] = row }
+        return merged.keys.sorted().compactMap { merged[$0] }
+    }
+
+    static func heartRateBuckets(store: WhoopStore, importedIds: [String],
+                                 fromById: [String: Int], to: Int, bucketSeconds: Int = 60)
+        async throws -> [SourcedHRBucket] {
+        var byTimestamp: [Int: SourcedHRBucket] = [:]
+        for id in importedIds {
+            for bucket in try await store.hrBuckets(deviceId: id, from: fromById[id] ?? 0,
+                                                     to: to, bucketSeconds: bucketSeconds)
+            where byTimestamp[bucket.ts] == nil {
+                byTimestamp[bucket.ts] = SourcedHRBucket(sourceId: id, bucket: bucket)
+            }
+        }
+        return byTimestamp.keys.sorted().compactMap { byTimestamp[$0] }
+    }
+
+    static func workouts(store: WhoopStore, importedIds: [String], computedIds: [String],
+                         from: Int, to: Int, limit: Int = 500, excludingSource: String)
+        async throws -> [WorkoutRow] {
+        func key(_ row: WorkoutRow) -> String { "\(row.startTs):\(row.sport)" }
+        var merged: [String: WorkoutRow] = [:]
+        for id in computedIds {
+            for row in try await store.workouts(deviceId: id, from: from, to: to, limit: limit)
+            where row.source != excludingSource && merged[key(row)] == nil { merged[key(row)] = row }
+        }
+        var imported: [String: WorkoutRow] = [:]
+        for id in importedIds {
+            for row in try await store.workouts(deviceId: id, from: from, to: to, limit: limit)
+            where row.source != excludingSource && imported[key(row)] == nil { imported[key(row)] = row }
+        }
+        for (key, row) in imported { merged[key] = row }
+        return merged.values.sorted {
+            $0.startTs == $1.startTs ? $0.sport < $1.sport : $0.startTs < $1.startTs
+        }
+    }
+}
+
 /// Two-way Apple Health bridge for the iOS app.
 ///
 /// iOS has HealthKit (macOS does not), so the iOS target can do far more than parse a static export:
@@ -142,6 +267,7 @@ final class HealthKitBridge: ObservableObject {
         guard HealthKitBridge.hasHealthKitEntitlement else { auth = .entitlementMissing; return }
         do {
             try await store.requestAuthorization(toShare: writeTypes, read: readTypes)
+            HealthKitWritebackFingerprint.reset()
             // The entitlement is present (the guard above proved it via the embedded profile, or there's
             // no profile = App Store build), so a successful request means the bridge is usable. We do
             // NOT reclassify to `.entitlementMissing` off the post-request `.notDetermined` heuristic
@@ -187,7 +313,11 @@ final class HealthKitBridge: ObservableObject {
             // `.denied`, which must never demote a bridge that just resumed a valid legacy grant.
             let newTypesPending = writeTypes.contains { store.authorizationStatus(for: $0) == .notDetermined }
             if newTypesPending {
-                Task { try? await store.requestAuthorization(toShare: writeTypes, read: readTypes) }
+                Task {
+                    if (try? await store.requestAuthorization(toShare: writeTypes, read: readTypes)) != nil {
+                        HealthKitWritebackFingerprint.reset()
+                    }
+                }
             }
         }
     }
@@ -257,6 +387,12 @@ final class HealthKitBridge: ObservableObject {
     /// hook in `StrandiOSApp` to call — no other file is edited.
     func foregroundCatchUp() async {
         await sync(days: 7)
+    }
+
+    /// Clears only NOOP's write-plan success gates. The next sync repairs every authorized HealthKit
+    /// component without deleting local history or changing Health authorization.
+    func resetWritebackFingerprints() {
+        HealthKitWritebackFingerprint.reset()
     }
 
     /// Drive an incremental sync off an observer wake. We use an `HKAnchoredObjectQuery` per type to
@@ -531,7 +667,13 @@ final class HealthKitBridge: ObservableObject {
             store: whoopStore, importedIds: importedIds, computedIds: computedIds,
             from: from, to: to)
 
-        struct Candidate { let type: HKQuantityType; let key: String; let sample: HKQuantitySample }
+        struct Candidate {
+            let type: HKQuantityType
+            let key: String
+            let value: Double
+            let at: Date
+            let sample: HKQuantitySample
+        }
         var candidates: [Candidate] = []
         func add(_ id: HKQuantityTypeIdentifier, _ unit: HKUnit, _ value: Double, _ day: String, _ at: Date) {
             guard let type = HKQuantityType.quantityType(forIdentifier: id),
@@ -543,7 +685,7 @@ final class HealthKitBridge: ObservableObject {
                 start: at, end: at,
                 metadata: [HKMetadataKeyExternalUUID: key]
             )
-            candidates.append(Candidate(type: type, key: key, sample: sample))
+            candidates.append(Candidate(type: type, key: key, value: value, at: at, sample: sample))
         }
 
         for row in rows {
@@ -564,6 +706,11 @@ final class HealthKitBridge: ObservableObject {
             }
         }
         guard !candidates.isEmpty else { return }
+        let fingerprint = HealthKitWritebackFingerprint.fingerprint(
+            candidates.sorted { $0.key < $1.key }.map {
+                "\($0.key)|\($0.value)|\(Int($0.at.timeIntervalSince1970))"
+            })
+        guard HealthKitWritebackFingerprint.shouldWrite(.vitals, fingerprint: fingerprint) else { return }
 
         // Delete any of OUR prior samples that carry the same metadata keys, then write the fresh
         // batch. Scoped to HKSource.default() so we never touch a sample written by another app
@@ -579,6 +726,7 @@ final class HealthKitBridge: ObservableObject {
             _ = try await self.store.deleteObjects(of: type, predicate: pred)
         }
         try await self.store.save(candidates.map { $0.sample })
+        HealthKitWritebackFingerprint.markSuccess(.vitals, fingerprint: fingerprint)
     }
 
     /// Write each BRIDGED NIGHT (#364) as one `.inBed` sample plus one category sample per stage
@@ -607,9 +755,15 @@ final class HealthKitBridge: ObservableObject {
                                  endTs: s.endTs, stagesJSON: s.stagesJSON)
                 }
             }
+        let plan = HealthWriteback.mergedSleepPlan(groups: groups)
+        let fingerprint = HealthKitWritebackFingerprint.fingerprint(plan.flatMap { entry in
+            ["night|\(entry.keyStartTs)|\(entry.spanStart)|\(entry.spanEnd)"]
+                + entry.intervals.map { "stage|\($0.kind)|\($0.start)|\($0.end)" }
+        })
+        guard HealthKitWritebackFingerprint.shouldWrite(.sleep, fingerprint: fingerprint) else { return }
         var samples: [HKCategorySample] = []
         var keys: [String] = []
-        for entry in HealthWriteback.mergedSleepPlan(groups: groups) {
+        for entry in plan {
             let key = "noop:\(noopDeviceId):sleep:\(entry.keyStartTs)"
             let meta = [HKMetadataKeyExternalUUID: key]
             keys.append(contentsOf: entry.allKeyStartTs.map { "noop:\(noopDeviceId):sleep:\($0)" })
@@ -640,6 +794,7 @@ final class HealthKitBridge: ObservableObject {
         ])
         _ = try await store.deleteObjects(of: type, predicate: pred)
         try await store.save(samples)
+        HealthKitWritebackFingerprint.markSuccess(.sleep, fingerprint: fingerprint)
     }
 
     /// Per-real-source cursor. A newly active/re-paired strap has a fresh key and therefore backfills
@@ -672,6 +827,10 @@ final class HealthKitBridge: ObservableObject {
         let sourced = try await HealthKitWritebackPlanner.heartRateBuckets(
             store: whoopStore, importedIds: importedIds, fromById: fromById, to: nowTs)
         guard !sourced.isEmpty else { return }
+        let fingerprint = HealthKitWritebackFingerprint.fingerprint(sourced.map {
+            "\($0.sourceId)|\($0.bucket.ts)|\($0.bucket.bpm)"
+        })
+        guard HealthKitWritebackFingerprint.shouldWrite(.heartRate, fingerprint: fingerprint) else { return }
         let windowStart = fromById.values.min() ?? fromTs
 
         let pred = NSCompoundPredicate(andPredicateWithSubpredicates: [
@@ -713,6 +872,7 @@ final class HealthKitBridge: ObservableObject {
                 UserDefaults.standard.set(cursor, forKey: hrWriteCursorKey(for: id))
             }
         }
+        HealthKitWritebackFingerprint.markSuccess(.heartRate, fingerprint: fingerprint)
     }
 
     /// Write strap-detected and manual workouts into Health via `HKWorkoutBuilder`, with an
@@ -729,6 +889,10 @@ final class HealthKitBridge: ObservableObject {
             store: whoopStore, importedIds: importedIds, computedIds: computedIds,
             from: fromTs, to: toTs, excludingSource: HealthKitBridge.appleWorkoutSource)
         guard !rows.isEmpty else { return }
+        let fingerprint = HealthKitWritebackFingerprint.fingerprint(rows.map {
+            "\($0.startTs)|\($0.endTs)|\($0.sport)|\($0.energyKcal ?? -1)|\($0.distanceM ?? -1)"
+        })
+        guard HealthKitWritebackFingerprint.shouldWrite(.workouts, fingerprint: fingerprint) else { return }
 
         func key(_ row: WorkoutRow) -> String { "noop:\(noopDeviceId):workout:\(row.startTs)" }
         let pred = NSCompoundPredicate(andPredicateWithSubpredicates: [
@@ -770,6 +934,7 @@ final class HealthKitBridge: ObservableObject {
                 throw error
             }
         }
+        HealthKitWritebackFingerprint.markSuccess(.workouts, fingerprint: fingerprint)
     }
 
     /// Reverse of `sportName`: NOOP's sport label → the `HKWorkoutActivityType` written to Health.

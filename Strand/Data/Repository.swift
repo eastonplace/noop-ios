@@ -2115,7 +2115,7 @@ final class Repository: ObservableObject {
             // already present, so a session that ended with an HR but no strain (sparse live HR at save)
             // still gets its Effort backfilled once the strap trace covers the window. Needs the injected
             // profile; without it the strain fill is skipped and eligibility is unchanged from before.
-            let needsStrainFill = strapNative && row.strain == nil && strainProfile != nil
+            let needsStrainFill = strapNative && row.strainVersion != 2 && strainProfile != nil
             guard row.endTs > row.startTs, budget > 0,
                   strapNative || row.avgHr == nil || needsStrainFill else { continue }
             budget -= 1
@@ -2142,7 +2142,8 @@ final class Repository: ObservableObject {
                     // own. Resolve this on the main actor (WorkoutSource.classify) and capture the plain Bool,
                     // so the child task crosses only Sendable scalars.
                     let cls = WorkoutSource.classify(rows[idx].source)
-                    let wantStrain = (cls == .manual || cls == .detected) && rows[idx].strain == nil
+                    let wantStrain = (cls == .manual || cls == .detected)
+                        && rows[idx].strainVersion != 2
                     // #510: read HR under the workout's OWN recording strap, not a single active id. A detected
                     // row's `source` IS its computed strap id ("<base>-noop"), so a bout auto-detected on a 2nd
                     // WHOOP reads "<base>" instead of the active strap's empty window. Resolved on the main actor;
@@ -2184,11 +2185,13 @@ final class Repository: ObservableObject {
             // #961: FILL a nil Effort from the recomputed strain (never override a stored one). Display-only,
             // like the avg/max reconcile , the workout-PK upsert would wipe it, and the backend rescore
             // persists the durable value on the next analyze tick.
-            let newStrain = row.strain ?? r.strain
+            let replacingLegacyStrain = strapNative && row.strainVersion != 2 && r.strain != nil
+            let newStrain = replacingLegacyStrain ? r.strain : row.strain
             return WorkoutRow(startTs: row.startTs, endTs: row.endTs, sport: row.sport,
                               source: row.source, durationS: row.durationS, energyKcal: row.energyKcal,
                               avgHr: r.avg, maxHr: newMax, strain: newStrain, distanceM: row.distanceM,
-                              zonesJSON: row.zonesJSON, notes: row.notes)
+                              zonesJSON: row.zonesJSON, notes: row.notes,
+                              strainVersion: replacingLegacyStrain ? 2 : row.strainVersion)
         }
     }
 

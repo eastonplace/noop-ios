@@ -70,6 +70,8 @@ public struct DailyMetric: Equatable, Codable {
     // call site is unaffected.
     public let spo2Red: Int?           // mean raw red PPG ADC during detected sleep
     public let spo2Ir: Int?            // mean raw IR PPG ADC during detected sleep
+    /// Nil for imported/legacy scores; 2 for NOOP's canonical computed Strain V2.
+    public let strainVersion: Int?
     public init(day: String, totalSleepMin: Double?, efficiency: Double?, deepMin: Double?,
                 remMin: Double?, lightMin: Double?, disturbances: Int?, restingHr: Int?,
                 avgHrv: Double?, recovery: Double?, strain: Double?, exerciseCount: Int?,
@@ -84,6 +86,7 @@ public struct DailyMetric: Equatable, Codable {
         self.spo2Pct = spo2Pct; self.skinTempDevC = skinTempDevC; self.respRateBpm = respRateBpm
         self.steps = steps; self.activeKcalEst = activeKcalEst
         self.spo2Red = spo2Red; self.spo2Ir = spo2Ir
+        self.strainVersion = strainVersion
     }
 
     /// The freshest STRICTLY-PRIOR day that carries at least one overnight vital (HRV / resting HR /
@@ -145,6 +148,12 @@ extension WhoopStore {
                         stagesJSON = CASE WHEN sleepSession.userEdited THEN sleepSession.stagesJSON ELSE excluded.stagesJSON END,
                         startTsAdjusted = CASE WHEN sleepSession.userEdited THEN sleepSession.startTsAdjusted ELSE excluded.startTsAdjusted END,
                         userEdited = sleepSession.userEdited
+                    WHERE sleepSession.endTs IS NOT CASE WHEN sleepSession.userEdited THEN sleepSession.endTs ELSE excluded.endTs END
+                       OR sleepSession.efficiency IS NOT excluded.efficiency
+                       OR sleepSession.restingHr IS NOT excluded.restingHr
+                       OR sleepSession.avgHrv IS NOT excluded.avgHrv
+                       OR sleepSession.stagesJSON IS NOT CASE WHEN sleepSession.userEdited THEN sleepSession.stagesJSON ELSE excluded.stagesJSON END
+                       OR sleepSession.startTsAdjusted IS NOT CASE WHEN sleepSession.userEdited THEN sleepSession.startTsAdjusted ELSE excluded.startTsAdjusted END
                     """, arguments: [deviceId, s.startTs, s.endTs, s.efficiency,
                                      s.restingHr, s.avgHrv, s.stagesJSON, s.userEdited, s.startTsAdjusted])
                 n += db.changesCount
@@ -397,23 +406,38 @@ extension WhoopStore {
                         avgHrv = excluded.avgHrv,
                         recovery = excluded.recovery,
                         strain = CASE
-                            WHEN dailyMetric.strainVersion = 2 AND excluded.strainVersion IS NULL
-                            THEN dailyMetric.strain
-                            ELSE excluded.strain
-                        END,
+                            WHEN dailyMetric.strainVersion = 2 AND COALESCE(excluded.strainVersion, 0) < 2
+                            THEN dailyMetric.strain ELSE excluded.strain END,
                         exerciseCount = excluded.exerciseCount,
                         spo2Pct = excluded.spo2Pct,
                         skinTempDevC = excluded.skinTempDevC,
                         respRateBpm = excluded.respRateBpm,
                         steps = excluded.steps,
                         activeKcalEst = excluded.activeKcalEst,
-                        spo2Red = excluded.spo2Red,
-                        spo2Ir = excluded.spo2Ir,
+                        spo2Red = COALESCE(excluded.spo2Red, dailyMetric.spo2Red),
+                        spo2Ir = COALESCE(excluded.spo2Ir, dailyMetric.spo2Ir),
                         strainVersion = CASE
-                            WHEN dailyMetric.strainVersion = 2 AND excluded.strainVersion IS NULL
-                            THEN dailyMetric.strainVersion
-                            ELSE excluded.strainVersion
-                        END
+                            WHEN dailyMetric.strainVersion = 2 AND COALESCE(excluded.strainVersion, 0) < 2
+                            THEN dailyMetric.strainVersion ELSE excluded.strainVersion END
+                    WHERE dailyMetric.totalSleepMin IS NOT excluded.totalSleepMin
+                       OR dailyMetric.efficiency IS NOT excluded.efficiency
+                       OR dailyMetric.deepMin IS NOT excluded.deepMin
+                       OR dailyMetric.remMin IS NOT excluded.remMin
+                       OR dailyMetric.lightMin IS NOT excluded.lightMin
+                       OR dailyMetric.disturbances IS NOT excluded.disturbances
+                       OR dailyMetric.restingHr IS NOT excluded.restingHr
+                       OR dailyMetric.avgHrv IS NOT excluded.avgHrv
+                       OR dailyMetric.recovery IS NOT excluded.recovery
+                       OR dailyMetric.strain IS NOT CASE WHEN dailyMetric.strainVersion = 2 AND COALESCE(excluded.strainVersion, 0) < 2 THEN dailyMetric.strain ELSE excluded.strain END
+                       OR dailyMetric.exerciseCount IS NOT excluded.exerciseCount
+                       OR dailyMetric.spo2Pct IS NOT excluded.spo2Pct
+                       OR dailyMetric.skinTempDevC IS NOT excluded.skinTempDevC
+                       OR dailyMetric.respRateBpm IS NOT excluded.respRateBpm
+                       OR dailyMetric.steps IS NOT excluded.steps
+                       OR dailyMetric.activeKcalEst IS NOT excluded.activeKcalEst
+                       OR dailyMetric.spo2Red IS NOT COALESCE(excluded.spo2Red, dailyMetric.spo2Red)
+                       OR dailyMetric.spo2Ir IS NOT COALESCE(excluded.spo2Ir, dailyMetric.spo2Ir)
+                       OR dailyMetric.strainVersion IS NOT CASE WHEN dailyMetric.strainVersion = 2 AND COALESCE(excluded.strainVersion, 0) < 2 THEN dailyMetric.strainVersion ELSE excluded.strainVersion END
                     """, arguments: [deviceId, d.day, d.totalSleepMin, d.efficiency, d.deepMin,
                                      d.remMin, d.lightMin, d.disturbances, d.restingHr, d.avgHrv,
                                      d.recovery, d.strain, d.exerciseCount,
