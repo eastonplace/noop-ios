@@ -37,15 +37,18 @@ public struct WorkoutRow: Equatable, Codable {
     public let avgHr: Int?
     public let maxHr: Int?
     public let strain: Double?
+    /// NOOP scorer provenance. Imported scores remain nil.
+    public let strainVersion: Int?
     public let distanceM: Double?
     public let zonesJSON: String?
     public let notes: String?
     public init(startTs: Int, endTs: Int, sport: String, source: String, durationS: Double?,
                 energyKcal: Double?, avgHr: Int?, maxHr: Int?, strain: Double?, distanceM: Double?,
-                zonesJSON: String?, notes: String?) {
+                zonesJSON: String?, notes: String?, strainVersion: Int? = nil) {
         self.startTs = startTs; self.endTs = endTs; self.sport = sport; self.source = source
         self.durationS = durationS; self.energyKcal = energyKcal; self.avgHr = avgHr
-        self.maxHr = maxHr; self.strain = strain; self.distanceM = distanceM
+        self.maxHr = maxHr; self.strain = strain; self.strainVersion = strainVersion
+        self.distanceM = distanceM
         self.zonesJSON = zonesJSON; self.notes = notes
     }
 }
@@ -108,6 +111,35 @@ extension WhoopStore {
         }
     }
 
+    /// Atomically replace a device's journal within a day range (#136): clear [from, to] then upsert
+    /// `rows`, all in ONE transaction, so the wake-day keying fix leaves no pre-fix onset-keyed duplicates
+    /// AND a crash mid-import can't leave the range deleted-but-not-repopulated. Bounded to [from, to] —
+    /// journal outside the imported range is never touched. deviceId-scoped (native log untouched).
+    @discardableResult
+    public func replaceJournalRange(_ rows: [JournalEntry], deviceId: String,
+                                    from: String, to: String) async throws -> Int {
+        try syncWrite { db in
+            try db.execute(sql: """
+                DELETE FROM journal WHERE deviceId = ? AND day >= ? AND day <= ?
+                """, arguments: [deviceId, from, to])
+            var n = 0
+            for r in rows {
+                try db.execute(sql: """
+                    INSERT INTO journal
+                        (deviceId, day, question, answeredYes, notes, numericValue)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(deviceId, day, question) DO UPDATE SET
+                        answeredYes = excluded.answeredYes,
+                        notes = excluded.notes,
+                        numericValue = excluded.numericValue
+                    """, arguments: [deviceId, r.day, r.question, r.answeredYes ? 1 : 0, r.notes,
+                                     r.numericValue])
+                n += db.changesCount
+            }
+            return n
+        }
+    }
+
     /// Upsert workouts. Natural key (deviceId, startTs, sport). Returns rows changed.
     @discardableResult
     public func upsertWorkouts(_ rows: [WorkoutRow], deviceId: String) async throws -> Int {
@@ -117,8 +149,8 @@ extension WhoopStore {
                 try db.execute(sql: """
                     INSERT INTO workout
                         (deviceId, startTs, endTs, sport, source, durationS, energyKcal,
-                         avgHr, maxHr, strain, distanceM, zonesJSON, notes)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         avgHr, maxHr, strain, distanceM, zonesJSON, notes, strainVersion)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(deviceId, startTs, sport) DO UPDATE SET
                         endTs = excluded.endTs,
                         source = excluded.source,
@@ -126,13 +158,22 @@ extension WhoopStore {
                         energyKcal = excluded.energyKcal,
                         avgHr = excluded.avgHr,
                         maxHr = excluded.maxHr,
-                        strain = excluded.strain,
+                        strain = CASE
+                            WHEN workout.strainVersion = 2 AND excluded.strainVersion IS NULL
+                            THEN workout.strain
+                            ELSE excluded.strain
+                        END,
                         distanceM = excluded.distanceM,
                         zonesJSON = excluded.zonesJSON,
-                        notes = excluded.notes
+                        notes = excluded.notes,
+                        strainVersion = CASE
+                            WHEN workout.strainVersion = 2 AND excluded.strainVersion IS NULL
+                            THEN workout.strainVersion
+                            ELSE excluded.strainVersion
+                        END
                     """, arguments: [deviceId, r.startTs, r.endTs, r.sport, r.source, r.durationS,
                                      r.energyKcal, r.avgHr, r.maxHr, r.strain, r.distanceM,
-                                     r.zonesJSON, r.notes])
+                                     r.zonesJSON, r.notes, r.strainVersion])
                 n += db.changesCount
             }
             return n
@@ -206,7 +247,7 @@ extension WhoopStore {
         try syncRead { db in
             try Row.fetchAll(db, sql: """
                 SELECT startTs, endTs, sport, source, durationS, energyKcal, avgHr, maxHr,
-                       strain, distanceM, zonesJSON, notes FROM workout
+                       strain, distanceM, zonesJSON, notes, strainVersion FROM workout
                 WHERE deviceId = ? AND startTs >= ? AND startTs <= ?
                 ORDER BY startTs ASC LIMIT ?
                 """, arguments: [deviceId, from, to, limit])
@@ -215,7 +256,8 @@ extension WhoopStore {
                                source: $0["source"], durationS: $0["durationS"],
                                energyKcal: $0["energyKcal"], avgHr: $0["avgHr"], maxHr: $0["maxHr"],
                                strain: $0["strain"], distanceM: $0["distanceM"],
-                               zonesJSON: $0["zonesJSON"], notes: $0["notes"])
+                               zonesJSON: $0["zonesJSON"], notes: $0["notes"],
+                               strainVersion: $0["strainVersion"])
                 }
         }
     }

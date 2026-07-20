@@ -76,9 +76,9 @@ enum OuraExportParser {
             for r in categoryArray(root, "daily_readiness") ?? categoryArray(root, "readiness") ?? [] {
                 guard let key = WearableJSON.str(r, "day") else { continue }
                 var row = day(key)
-                if let contrib = r["contributors"] as? [String: Any] {
-                    row.restingHr = WearableJSON.posInt(contrib, "resting_heart_rate") ?? row.restingHr
-                }
+                // Oura readiness contributors are 0...100 scores, not physiological measurements.
+                // In particular `contributors.resting_heart_rate` must never replace the night's
+                // measured lowest heart rate folded above.
                 row.restingHr = WearableJSON.posInt(r, "resting_heart_rate") ?? row.restingHr
                 row.skinTempDevC = WearableJSON.dbl(r, "temperature_deviation") ?? row.skinTempDevC
                 row.readinessScore = WearableJSON.posInt(r, "score") ?? row.readinessScore

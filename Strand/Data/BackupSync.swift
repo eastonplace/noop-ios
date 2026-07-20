@@ -60,6 +60,20 @@ enum BackupSync {
         name.lowercased().hasSuffix(suffix)
     }
 
+    /// A `.noopbak` sitting in an iCloud Drive folder that hasn't been downloaded to THIS Mac/iPhone
+    /// yet is listed by the filesystem under a placeholder name - a leading dot plus an `.icloud`
+    /// suffix, e.g. `noop-backup-....noopbak` becomes `.noop-backup-....noopbak.icloud` - instead of
+    /// its real name. Unresolved, that placeholder silently fails `isBackupFile` and the restore list
+    /// shows nothing even though Finder shows the file (#278: cross-device restore via iCloud Drive,
+    /// the workflow the folder-picker screen itself recommends). Returns the real name, or nil if
+    /// `name` isn't a placeholder.
+    static func iCloudPlaceholderRealName(_ name: String) -> String? {
+        let iCloudSuffix = ".icloud"
+        guard name.hasPrefix("."), name.hasSuffix(iCloudSuffix),
+              name.count > 1 + iCloudSuffix.count else { return nil }
+        return String(name.dropFirst().dropLast(iCloudSuffix.count))
+    }
+
     /// Newest snapshot by encoded time (non-snapshots ignored), or nil.
     static func latestSnapshot(_ names: [String]) -> String? {
         names.filter(isSnapshot).max { (snapshotTimeMs($0) ?? 0) < (snapshotTimeMs($1) ?? 0) }
@@ -112,9 +126,25 @@ enum FolderBackup {
     private static let bookmarkKey = "backupSync.folderBookmark"
     private static let autoKey = "backupSync.auto"
     private static let lastKey = "backupSync.lastMs"
+    private static let keepKey = "backupSync.keepCount"
+    private static let internalKey = "backupSync.useInternalFolder"   // #52 picker-free fallback
 
-    /// Keep the latest N snapshots in the folder; older ones are pruned. Matches the Android default.
-    static let keepCount = 10
+    /// Default snapshots kept by prune: 7, i.e. a week of daily rollback points. (Mirrors the Android
+    /// DEFAULT_KEEP; the Android keep-count is likewise user-adjustable.)
+    static let defaultKeep = 7
+
+    /// Retention choices offered by the Backup & Sync keep-count picker (mirrors Android KEEP_OPTIONS).
+    static let keepOptions = [1, 3, 5, 7, 10, 14]
+
+    /// How many latest snapshots to keep; older ones are pruned (oldest-first). User-adjustable via the
+    /// picker; unset reads back as [defaultKeep]. Clamped to a sane 1...100.
+    static var keepCount: Int {
+        get {
+            let v = UserDefaults.standard.integer(forKey: keepKey)   // 0 when never set
+            return v == 0 ? defaultKeep : min(max(v, 1), 100)
+        }
+        set { UserDefaults.standard.set(min(max(newValue, 1), 100), forKey: keepKey) }
+    }
     private static let dayMs = 24 * 60 * 60 * 1000
 
     // MARK: - Persisted state
@@ -126,10 +156,44 @@ enum FolderBackup {
     }
 
     static var lastBackupMs: Int { UserDefaults.standard.integer(forKey: lastKey) }
-    static var hasFolder: Bool { UserDefaults.standard.data(forKey: bookmarkKey) != nil }
+    static var hasFolder: Bool { useInternalFolder || UserDefaults.standard.data(forKey: bookmarkKey) != nil }
 
-    /// A short, human label for the chosen folder (its last path component), or nil if none chosen.
-    static func folderLabel() -> String? { resolveFolder()?.lastPathComponent }
+    /// #52: on some iOS 26 builds the system folder picker's "Open" button never enables/fires, so users
+    /// can't choose an external folder at all (three reports, works for one). This opt-in falls back to
+    /// NOOP's OWN Documents/Backups folder — already exposed in Files (UIFileSharingEnabled +
+    /// LSSupportsOpeningDocumentsInPlace) under "On My iPhone → NOOP" — so Backup & Sync works with zero
+    /// dependence on the picker. No security-scoped bookmark is involved (the folder is inside our own
+    /// sandbox), so `resolveFolder`/`saveFolder`'s scoped-access brackets simply no-op for it. The user
+    /// can drag that folder into iCloud Drive to read backups on the Mac; a first-class iCloud container
+    /// is a separate, larger change. An explicit external pick (`saveFolder`) turns this back off.
+    static var useInternalFolder: Bool {
+        get { UserDefaults.standard.bool(forKey: internalKey) }
+        set { UserDefaults.standard.set(newValue, forKey: internalKey) }
+    }
+
+    /// Opt into backing up inside NOOP's own Files-visible folder (see `useInternalFolder`). Returns the
+    /// folder URL so the caller can refresh its label. iOS-only in practice; harmless elsewhere.
+    @discardableResult
+    static func useNoopFolder() -> URL? {
+        useInternalFolder = true
+        return internalFolderURL()
+    }
+
+    /// NOOP's own Files-visible backup folder: `<sandbox>/Documents/Backups`, created on first use.
+    /// Returns nil only if Documents can't be located (never in practice).
+    private static func internalFolderURL() -> URL? {
+        guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return nil }
+        let dir = docs.appendingPathComponent("Backups", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    /// A short, human label for the chosen folder, or nil if none chosen. The internal fallback gets a
+    /// friendly name instead of the raw "Backups" path component.
+    static func folderLabel() -> String? {
+        if useInternalFolder { return String(localized: "NOOP (in Files)") }
+        return resolveFolder()?.lastPathComponent
+    }
 
     // MARK: - Security-scoped bookmark
 
@@ -142,6 +206,7 @@ enum FolderBackup {
     }
 
     private static func resolveFolder() -> URL? {
+        if useInternalFolder { return internalFolderURL() }   // #52: no bookmark — our own sandbox folder
         guard let data = UserDefaults.standard.data(forKey: bookmarkKey) else { return nil }
         var stale = false
         #if os(macOS)
@@ -160,10 +225,18 @@ enum FolderBackup {
     static func saveFolder(_ url: URL) {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        if let data = try? url.bookmarkData(options: bookmarkCreationOptions(),
-                                            includingResourceValuesForKeys: nil, relativeTo: nil) {
+        let data = try? url.bookmarkData(options: bookmarkCreationOptions(),
+                                         includingResourceValuesForKeys: nil, relativeTo: nil)
+        if let data {
             UserDefaults.standard.set(data, forKey: bookmarkKey)
+            useInternalFolder = false   // #52: an explicit external pick overrides the internal fallback
         }
+        // #52 instrumentation: record whether scoped access opened and whether the bookmark actually
+        // minted, so a debug export can tell a folder that failed to persist HERE apart from a picker
+        // that never returned a URL at all. Cheap UserDefaults writes; see DebugDataDiagnostics.
+        let d = UserDefaults.standard
+        d.set(scoped, forKey: "backupPicker.lastScopedOpen")
+        d.set(data != nil, forKey: "backupPicker.lastBookmarkOk")
     }
 
     // MARK: - Backup / prune
@@ -224,9 +297,15 @@ enum FolderBackup {
         guard let folder = resolveFolder() else { return [] }
         let scoped = folder.startAccessingSecurityScopedResource()
         defer { if scoped { folder.stopAccessingSecurityScopedResource() } }
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+        let rawNames = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+        // #278: a `.noopbak` iCloud hasn't downloaded to this Mac/iPhone yet is listed under a
+        // placeholder name; resolve it back to its real name so it still shows in the restore list
+        // (see `BackupSync.iCloudPlaceholderRealName`). `restore(snapshotNamed:)` resolves the same
+        // way and kicks off the download if the user picks one that's still a placeholder on disk.
+        let names = rawNames.map { BackupSync.iCloudPlaceholderRealName($0) ?? $0 }
         let fileDateMs: (String) -> Int = { name in
-            let url = folder.appendingPathComponent(name)
+            let onDisk = rawNames.contains(name) ? name : ("." + name + ".icloud")
+            let url = folder.appendingPathComponent(onDisk)
             let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
             guard let modified else { return 0 }
             return Int((modified.timeIntervalSince1970 * 1000.0).rounded())
@@ -240,17 +319,56 @@ enum FolderBackup {
     /// hardened safety (magic-byte + GRDB-origin validation, sidecar snapshot, rollback) still applies.
     /// The destructive confirmation is the screen's responsibility (must-fix #2); this is the final
     /// step it calls only AFTER the user confirms.
-    static func restore(snapshotNamed name: String) -> DataBackup.BackupResult {
+    private enum StagedSnapshot { case ready(URL), failure(String) }
+
+    @MainActor
+    static func restore(snapshotNamed name: String,
+                        lifecycle: DataBackup.RestoreLifecycle) async -> DataBackup.BackupResult {
+        let staged = await Task.detached(priority: .userInitiated) { stageSnapshot(named: name) }.value
+        switch staged {
+        case .failure(let message): return .failure(message)
+        case .ready(let localCopy):
+            defer { try? FileManager.default.removeItem(at: localCopy) }
+            return await DataBackup.restore(from: localCopy, lifecycle: lifecycle)
+        }
+    }
+
+    private static func stageSnapshot(named name: String) -> StagedSnapshot {
         guard let folder = resolveFolder() else {
             return .failure("Couldn't open your backup folder - re-pick it and try again.")
         }
         let scoped = folder.startAccessingSecurityScopedResource()
         defer { if scoped { folder.stopAccessingSecurityScopedResource() } }
         let source = folder.appendingPathComponent(name)
-        guard FileManager.default.fileExists(atPath: source.path) else {
-            return .failure("That backup is no longer in your folder.")
+        var wasPlaceholder = false
+        if !FileManager.default.fileExists(atPath: source.path) {
+            // #278: `name` came from the (already de-placeholdered) restore list, so if it's not on
+            // disk under its real name it may still be an undownloaded iCloud placeholder. Kick off
+            // the download and give it a short window to land - this runs off the main thread (the
+            // screen calls `restore` from a detached Task), so blocking here doesn't freeze the UI.
+            let placeholder = folder.appendingPathComponent("." + name + ".icloud")
+            if FileManager.default.fileExists(atPath: placeholder.path) {
+                wasPlaceholder = true
+                try? FileManager.default.startDownloadingUbiquitousItem(at: placeholder)
+                let deadline = Date().addingTimeInterval(15)
+                while !FileManager.default.fileExists(atPath: source.path), Date() < deadline {
+                    Thread.sleep(forTimeInterval: 0.5)
+                }
+            }
         }
-        return DataBackup.restore(from: source)
+        guard FileManager.default.fileExists(atPath: source.path) else {
+            return .failure(wasPlaceholder
+                ? "That backup is still downloading from iCloud - wait a moment and try again."
+                : "That backup is no longer in your folder.")
+        }
+        let localCopy = FileManager.default.temporaryDirectory
+            .appendingPathComponent("noop-folder-restore-\(UUID().uuidString).noopbak")
+        do {
+            try FileManager.default.copyItem(at: source, to: localCopy)
+            return .ready(localCopy)
+        } catch {
+            return .failure("Couldn't stage that backup for restore: \(error.localizedDescription)")
+        }
     }
 
     // MARK: - Folder picker

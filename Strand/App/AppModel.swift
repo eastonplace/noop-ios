@@ -56,6 +56,31 @@ final class AppModel: ObservableObject {
     /// On-device WHOOP-style recovery/strain/sleep computation from raw strap streams.
     let intelligence: IntelligenceEngine
 
+    var backupRestoreLifecycle: DataBackup.RestoreLifecycle {
+        DataBackup.RestoreLifecycle(
+            quiesce: { [weak self] in
+                guard let self else { return }
+                try await self.ble.quiesceStoreForRestore()
+                do {
+                    try await self.repo.quiesceStoreForRestore()
+                } catch {
+                    try? await self.ble.reopenStoreAfterRestore()
+                    throw error
+                }
+            },
+            reopenAndMigrate: { [weak self] in
+                guard let self else { return }
+                try await self.repo.reopenStoreAfterRestore()
+                do {
+                    try await self.ble.reopenStoreAfterRestore()
+                } catch {
+                    try? await self.repo.quiesceStoreForRestore()
+                    throw error
+                }
+            }
+        )
+    }
+
     /// Opt-in AI coach (bring-your-own-key) , the one networked feature, off until the user enables it.
     let coach: AICoachEngine
 
@@ -147,10 +172,6 @@ final class AppModel: ObservableObject {
     // via BiofeedbackPrefs so a relaunch can't re-fire), carried verbatim between evaluations.
     private var rrBuf: [Int] = []
     private var stressState = BiofeedbackPrefs.loadStressState()
-    // Legacy experimental stress-nudge state (the older `behavior.stressNudge` buzz path) , a slow HRV
-    // baseline + a rate limiter, kept so that toggle still works independently of the L3 check-in.
-    private var hrvBaseline: Double = 0
-    private var lastStressBuzzAt: Date = .distantPast
 
     /// Import source currently writing to the local store, if any.
     @Published private var activeImportSource: DataSourceImportKind?
@@ -257,17 +278,36 @@ final class AppModel: ObservableObject {
             BatteryNotifier.onBatteryUpdate(pct: Int(pct.rounded()),
                                             charging: self.live.charging,
                                             enabled: self.behavior.batteryAlerts)
+            // Predictive runtime alert: the same reading just banked into the SoC buffer, so
+            // batteryEstimate is fresh here. Nil estimate (no readings yet) is a no-op — the 15%
+            // alert above remains the safety net.
+            BatteryNotifier.onRuntimeEstimate(remainingHours: self.live.batteryEstimate?.remainingHours,
+                                              charging: self.live.charging,
+                                              enabled: self.behavior.batteryAlerts
+                                                    && self.behavior.batteryPredictiveAlerts)
         }
         // HR-zone haptic coaching watches the smoothed bpm.
         $bpm.sink { [weak self] hr in self?.coachZone(hr) }.store(in: &hrCancellables)
         // Illness/strain early-warning recomputes when the daily history changes.
         repo.$days.sink { [weak self] days in self?.evaluateIllness(days) }.store(in: &hrCancellables)
-        // Re-arm the strap's firmware alarm whenever it (re)bonds. A smart-alarm time changed while the
-        // strap was away never reached it , the send is gated on bond , so the strap kept the OLD time
-        // and fired at it (#59). removeDuplicates() fires once per bond; gated on enabled so a disabled
-        // alarm doesn't disarm on every reconnect.
-        live.$bonded.removeDuplicates().sink { [weak self] bonded in
-            guard let self, bonded, self.behavior.smartAlarmEnabled else { return }
+        // Re-arm the strap's firmware alarm once the connection has SETTLED — not the instant it (re)bonds.
+        // A smart-alarm time changed while the strap was away never reached it , the send is gated on bond
+        // , so the strap kept the OLD time and fired at it (#59).
+        //
+        // #34: keyed off `connectSettled` (a monotonic counter BLEManager bumps once the connect handshake
+        // has both run AND the cmd-notify characteristic has confirmed subscribed — see LiveState.swift /
+        // BLEManager.maybeSignalConnectSettled), NOT off raw `bonded`. `state.bonded` publishes from
+        // INSIDE BLEManager's connect-handshake continuation (the bonding-confirm write's
+        // didWriteValueFor), and Combine delivered to a `$bonded` sink SYNCHRONOUSLY on that same call
+        // stack — arming there nested the alarm's SET_CLOCK/SET_ALARM_TIME/GET_ALARM_TIME burst in the
+        // MIDDLE of the handshake, ahead of its own clock-set and before the cmd-notify channel was
+        // confirmed subscribed. A strap log (#34 v8.6.2) confirmed the result: the alarm's GET_ALARM_TIME
+        // readback got no reply at all — the strap's answer had nowhere confirmed-subscribed to land.
+        // `connectSettled` only bumps once that channel is confirmed live, so the readback (and the arm
+        // itself) always goes out on a link that's actually ready. `dropFirst()` skips the initial
+        // published value (0) at subscribe time, so this doesn't fire on app launch before any connection.
+        live.$connectSettled.dropFirst().sink { [weak self] _ in
+            guard let self, self.behavior.smartAlarmEnabled else { return }
             self.applySmartAlarm()
         }.store(in: &hrCancellables)
         // The firmware alarm is a single absolute instant with no recurrence, and was re-armed ONLY on
@@ -282,6 +322,7 @@ final class AppModel: ObservableObject {
         live.$bonded.removeDuplicates().sink { [weak self] _ in
             guard let self else { return }
             self.ble.setKeepRealtimeForData(PuffinExperiment.keepRealtimeForDataEnabled)
+            self.applyPowerSaving()
         }.store(in: &hrCancellables)
         // A completed backfill has just written strap history. Refresh the dashboard cache,
         // but leave heavyweight analysis to its own guarded/background-friendly path.
@@ -321,6 +362,7 @@ final class AppModel: ObservableObject {
         // reflects it from launch , the reconciler then arms the dense stream as soon as the strap bonds
         // (and the bond sink above re-applies it on every reconnect).
         ble.setKeepRealtimeForData(PuffinExperiment.keepRealtimeForDataEnabled)
+        applyPowerSaving()
 
         // Turn the strap's offloaded raw data into dashboard scores on launch and every 15
         // minutes, so recovery / strain / sleep populate from the strap itself with no import.
@@ -397,6 +439,18 @@ final class AppModel: ObservableObject {
     }
 
     /// Build the device registry + source coordinator once the store is open, then start observing.
+    /// #477: push the persisted Power-saving prefs to the BLE manager (parity with Android
+    /// `AppViewModel.applyPowerSaving`). Offload-cadence stretch uses the battery-% threshold (0 = off
+    /// when the master is off); the HRV pause is a sub-option, only effective while the master is on.
+    /// The riskier connection-priority idle throttle is intentionally not wired (Android-only, and dormant).
+    func applyPowerSaving() {
+        let on = PuffinExperiment.powerSavingEnabled
+        ble.setLowBatteryOffloadThrottle(on ? PuffinExperiment.powerSavingBatteryPct : 0)
+        // HRV pause is battery-%-aware like the offload lever — pass the same threshold.
+        ble.setPauseCaptureOnPowerSave(on && PuffinExperiment.pauseHrvOnPowerSaveEnabled,
+                                       thresholdPct: PuffinExperiment.powerSavingBatteryPct)
+    }
+
     /// Tiny and guarded: with no generic strap paired the active id is "my-whoop", so the coordinator
     /// observes WHOOP-active and stays a NO-OP , the existing `scan()`/`disconnect()` WHOOP flow is
     /// untouched. The coordinator only acts if/when a non-WHOOP strap becomes the active device.
@@ -654,7 +708,7 @@ final class AppModel: ObservableObject {
             : Int((Double(samples.map(\.bpm).reduce(0, +)) / Double(samples.count)).rounded())
         let peak = samples.map(\.bpm).max()
         let strain = samples.count >= 2
-            ? StrainScorer.strain(samples, maxHR: Double(profile.hrMax), sex: profile.sex) : nil
+            ? StrainScorerV2.strain(samples, maxHR: Double(profile.hrMax), mode: .activity) : nil
         // Estimate calories from the captured HR window (same Keytel/Harris–Benedict model the
         // auto-detector uses) so a manual session shows energy too, not just duration/strain. (#117)
         let up = UserProfile(weightKg: profile.weightKg, heightCm: profile.heightCm,
@@ -701,7 +755,8 @@ final class AppModel: ObservableObject {
         w.samples.append(HRSample(ts: Int(Date().timeIntervalSince1970), bpm: hr))
         w.peakHr = max(w.peakHr, hr)
         w.avgHr = Int((Double(w.samples.map(\.bpm).reduce(0, +)) / Double(w.samples.count)).rounded())
-        w.liveStrain = StrainScorer.strain(w.samples, maxHR: Double(profile.hrMax), sex: profile.sex) ?? 0
+        w.liveStrain = StrainScorerV2.strain(
+            w.samples, maxHR: Double(profile.hrMax), mode: .activity) ?? 0
         activeWorkout = w
         // Re-snapshot the durable session so a kill keeps the latest accumulated HR window (#529).
         persistActiveWorkout()
@@ -717,39 +772,19 @@ final class AppModel: ObservableObject {
         bpm = nil
     }
 
-    /// Stress evaluation, two independent layers (each opt-in, each off by default):
-    ///   • the legacy experimental `behavior.stressNudge` buzz (a fresh HRV dip → one confirming buzz);
-    ///   • the v5 L3 closed-loop check-in , the unit-tested `StressOnsetDetector` decides, at the moment
-    ///     it matters, whether to offer a 60-s guided breath. On a fresh, non-metabolic HRV dip while the
-    ///     user is still it fires a single confirming buzz AND posts a passive nudge to `stressNudgeCenter`
-    ///     (the dismissible Stress check-in card surfaces it). The detector carries its own replay-safe
-    ///     state (de-dup + slow baseline + rate limit), persisted via `BiofeedbackPrefs` so a relaunch
-    ///     can't re-fire. Honest / non-clinical: "stress" is an autonomic proxy vs the user's own
-    ///     baseline, never a diagnosis.
+    /// The unit-tested `StressOnsetDetector` decides whether to offer a 60-s guided breath. On a fresh,
+    /// non-metabolic HRV dip while the user is still, it fires a single confirming buzz and posts a
+    /// passive nudge to `stressNudgeCenter`. The detector carries replay-safe state (de-dup + slow
+    /// baseline + rate limit), persisted via `BiofeedbackPrefs` so a relaunch can't re-fire. Honest /
+    /// non-clinical: "stress" is an autonomic proxy vs the user's own baseline, never a diagnosis.
     private func evaluateStress() {
         let fresh = live.rr.filter { $0 > 300 && $0 < 2000 }   // plausible R-R (30–200 bpm)
         guard !fresh.isEmpty else { return }
         rrBuf.append(contentsOf: fresh)
         if rrBuf.count > 120 { rrBuf.removeFirst(rrBuf.count - 120) }
 
-        // ── Legacy experimental nudge (behavior.stressNudge) , unchanged behaviour, kept separate.
-        if behavior.stressNudge, live.bonded, live.worn, rrBuf.count >= 20 {
-            let rmssd = AppModel.rmssd(Array(rrBuf.suffix(60)))
-            if rmssd > 0 {
-                hrvBaseline = hrvBaseline == 0 ? rmssd : hrvBaseline * 0.98 + rmssd * 0.02   // slow EMA
-                if let hr = bpm, hr >= 55, hr <= 100 {            // resting band , not a workout
-                    let now = Date()
-                    if rmssd < hrvBaseline * 0.6, now.timeIntervalSince(lastStressBuzzAt) > 900 {
-                        lastStressBuzzAt = now
-                        buzz(loops: 1)
-                        live.append(log: "Stress nudge , take a paced breath")
-                    }
-                }
-            }
-        }
-
-        // ── v5 L3 closed-loop check-in (StressOnsetDetector). Inert unless the master toggle is on; the
-        // engine itself owns every gate (auto-nudge, exercise gate, quiet hours, rate limit, edge).
+        // Inert unless the master toggle is on; the engine owns every gate (auto-nudge, exercise gate,
+        // quiet hours, rate limit, edge).
         let cfg = BiofeedbackPrefs.stressConfig()
         guard cfg.enabled, live.bonded, live.worn else { return }
         let decision = StressOnsetDetector.evaluate(
@@ -773,13 +808,6 @@ final class AppModel: ObservableObject {
     /// characteristic is gated on bond; an un-encrypted live-HR-only link can't buzz).
     private var canBuzz: Bool { live.bonded && live.encryptedBond }
 
-    static func rmssd(_ rr: [Int]) -> Double {
-        guard rr.count >= 2 else { return 0 }
-        var sum = 0.0, n = 0
-        for i in 1..<rr.count { let d = Double(rr[i] - rr[i - 1]); sum += d * d; n += 1 }
-        return n > 0 ? (sum / Double(n)).squareRoot() : 0
-    }
-
     /// Start scanning for the strap. When no model is given, use the one the user
     /// picked (persisted under "selectedWhoopModel"), so every scan entry point ,
     /// Live, onboarding, the menu bar, Settings , honours the same choice.
@@ -790,6 +818,12 @@ final class AppModel: ObservableObject {
         ble.connect(model: chosen)
     }
     func disconnect() { ble.disconnect() }
+    /// Restart the connected strap (user-initiated, confirmation-gated in DevicesView). Non-destructive —
+    /// the strap keeps its data and re-advertises after boot; NOOP auto-reconnects. See BLEManager.rebootStrap().
+    func rebootStrap() { ble.rebootStrap() }
+    /// Send one WHOOP 4.0 reboot-probe candidate (Test Centre → Connection, 4.0 only). Confirmation-gated
+    /// in DevicesView; finds the real 4.0 reboot frame when the production one is ignored (#235).
+    func rebootProbe(_ variant: RebootProbeVariant) { ble.rebootProbe(variant) }
 
     /// Drop the current strap and clear bond state so a newly-picked strap model connects fresh
     /// (lets a user with both a WHOOP 4 and a 5/MG switch between them).
@@ -1052,15 +1086,15 @@ final class AppModel: ObservableObject {
     /// HONEST: this is NOT a guaranteed loud alarm. A sideloaded build has no critical-alert entitlement,
     /// so iOS Focus / silent mode can still suppress the sound. The UI copy says to keep a real backup.
     ///
-    /// Gated on the wrist-alerts master (the same switch `postWristAlert` honours) and on the OS already
-    /// having authorized notifications (no second prompt). Always removes the prior set first, so a re-arm
-    /// replaces rather than stacks. `weekdays` empty = every day (single daily trigger); a non-empty set
-    /// fans out to one weekday-pinned trigger per selected day. No-op on macOS.
-    /// `log` (optional): strap-log sink for the two guard bails below (#401 close-out). The bails were
-    /// silent no-ops, so a user whose backup never fired (wrist-alerts master off, or notification
-    /// permission revoked after arming) had NOTHING in the log to explain the missed backup. The caller
-    /// wraps the sink in a main-actor hop (the auth check completes off-main). Diagnostic only - both
-    /// guards bail exactly as before.
+    /// Gated on the ALARM being enabled (its sole caller `applySmartAlarm()` already enforces that) plus
+    /// notification permission — NOT the wrist-alerts master (#34): a wake backup must not depend on the
+    /// unrelated HR/strain-alerts switch. When permission is undetermined the user is prompted here (they
+    /// just enabled the alarm) and scheduled on grant, so the FIRST night is covered. Always removes the
+    /// prior set first, so a re-arm replaces rather than stacks. `weekdays` empty = every day (single daily
+    /// trigger); a non-empty set fans out to one weekday-pinned trigger per selected day. No-op on macOS.
+    /// `log` (optional): strap-log sink for the not-authorized bail (#401 close-out) — a silent no-op left a
+    /// user whose backup never fired with nothing in the log. The caller wraps the sink in a main-actor hop
+    /// (the auth check completes off-main). Diagnostic only.
     static func scheduleSmartAlarmBackupNotification(minutes: Int, weekdays: Set<Int>,
                                                      log: ((String) -> Void)? = nil) {
         #if os(iOS)
@@ -1068,18 +1102,18 @@ final class AppModel: ObservableObject {
         // Always clear BOTH the single and the per-day ids so switching modes (or editing the weekday set)
         // never leaves an orphaned trigger or double-fires.
         center.removePendingNotificationRequests(withIdentifiers: smartAlarmBackupIds)
-        guard UserDefaults.standard.bool(forKey: wristAlertsMasterKey) else {
-            log?("Smart alarm: backup notification NOT scheduled (wrist-alerts master is off)")
-            return
-        }
+        // #34: the backup follows THE ALARM, not the wrist-alerts master. This is only reached from
+        // applySmartAlarm() with the alarm enabled, so the alarm being on IS the correct gate — a user who
+        // sets a smart alarm but never turned on the separate wrist HR/strain alerts must still get a backup
+        // wake. The old `notif.masterEnabled` guard suppressed it for exactly those users, so a strap that
+        // couldn't arm left them with nothing.
         let valid = weekdays.filter { (1...7).contains($0) }
         // A non-empty selection that filters to nothing (only out-of-range numbers) has no day to fire on.
         if !weekdays.isEmpty && valid.isEmpty { return }
-        center.getNotificationSettings { settings in
-            guard settings.authorizationStatus == .authorized else {
-                log?("Smart alarm: backup notification NOT scheduled (notifications not authorized)")
-                return
-            }
+
+        // Build + add the repeating trigger(s). Factored so the already-authorized and the just-granted
+        // paths schedule identically.
+        func addRequests() {
             let content = UNMutableNotificationContent()
             content.title = String(localized: "Smart alarm")
             content.body = String(localized: "Backup wake: your smart alarm time is here.")
@@ -1102,6 +1136,23 @@ final class AppModel: ObservableObject {
                     center.add(UNNotificationRequest(identifier: "\(smartAlarmBackupId)-d\(weekday)",
                                                      content: content, trigger: trigger))
                 }
+            }
+        }
+
+        center.getNotificationSettings { settings in
+            switch settings.authorizationStatus {
+            case .authorized:
+                addRequests()
+            case .notDetermined:
+                // The user just enabled the alarm but was never asked for notification permission (nothing
+                // else prompted — wrist alerts, which used to, may be off). Ask now, then schedule on grant
+                // so the FIRST night is covered rather than only after some later re-arm.
+                center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
+                    if granted { addRequests() }
+                    else { log?("Smart alarm: backup notification NOT scheduled (notification permission denied)") }
+                }
+            default:
+                log?("Smart alarm: backup notification NOT scheduled (notifications not authorized)")
             }
         }
         #endif

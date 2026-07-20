@@ -908,6 +908,7 @@ struct TodayView: View {
     private func computeCalibration() -> Int? {
         guard selectedDayOffset == 0 else { return nil }
         return RecoveryScorer.calibrationNights(nightlyHrv: repo.days.map(\.avgHrv),
+                                                dayKeys: repo.days.map(\.day),
                                                 hasRecovery: repo.today?.recovery != nil)
     }
 
@@ -1439,7 +1440,10 @@ struct TodayView: View {
     }
 
     var body: some View {
-        ScreenScaffold(title: scaffoldTitle, onRefresh: { await repo.refresh() },
+        ScreenScaffold(title: scaffoldTitle, onRefresh: {
+                           model.ble.syncNow()
+                           await repo.refresh()
+                       },
                        // PERF (scroll): lazy column so the scaffold materialises Today's content on demand.
                        // Today supplies its own inner eager VStack (below), so the staggered section reveal is
                        // unchanged, this only defers building the single inner stack until it scrolls in.
@@ -1579,6 +1583,7 @@ struct TodayView: View {
         // Recovery/Strain page rubber-band around under vertical gestures and, because it entered
         // the shared scaffold as a root, omitted the only route back to Today. Mark the presented
         // hierarchy as a detail so ScreenScaffold owns one consistent back button.
+        #if os(iOS)
         .fullScreenCover(item: $paperPillarDetail) { kind in
             Group {
                 switch kind {
@@ -1593,10 +1598,22 @@ struct TodayView: View {
                     PaperPillarDetailView(kind: kind)
                 }
             }
-            #if os(iOS)
             .environment(\.screenScaffoldNavigationRole, .detail)
-            #endif
         }
+        #else
+        .sheet(item: $paperPillarDetail) { kind in
+            Group {
+                switch kind {
+                case .rest:
+                    SleepView()
+                case .stress:
+                    stressDetail
+                case .charge, .effort:
+                    PaperPillarDetailView(kind: kind)
+                }
+            }
+        }
+        #endif
         // The scoring guide opened at the top (the first-run card's primary action).
         .sheet(isPresented: $showGuideTop) {
             ScoringGuideView(onClose: { showGuideTop = false })
@@ -4139,7 +4156,15 @@ struct TodayView: View {
             let todayHr = await repo.hrSamples(from: windowStart, to: windowEnd)
             let maxHR = profile.age > 0 ? StrainScorer.tanakaHRmax(age: Double(profile.age)) : nil
             let restHR = displayDay?.restingHr.map(Double.init) ?? StrainScorer.defaultRestingHR
-            liveStrainLocal = StrainScorer.strain(todayHr, maxHR: maxHR, restingHR: restHR, sex: profile.sex)
+            liveStrainLocal = StrainScorerV2.strain(
+                todayHr, maxHR: maxHR, restingHR: restHR,
+                mode: .physiologicalDay(.init(
+                    validWornSleepMinutes: displayDay?.totalSleepMin,
+                    steps: displayDay?.steps,
+                    // The cached estimate includes resting expenditure, so it is not a valid
+                    // source for V2's active-energy-only floor.
+                    activeEnergyKcal: nil,
+                    hasWearCoverage: !todayHr.isEmpty)))
         } else {
             liveStrainLocal = nil
         }

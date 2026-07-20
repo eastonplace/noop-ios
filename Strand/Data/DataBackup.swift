@@ -28,13 +28,23 @@ import ZIPFoundation
 /// as a `.failure` result and never crash.
 enum DataBackup {
 
+    struct RestoreLifecycle {
+        let quiesce: @MainActor () async throws -> Void
+        let reopenAndMigrate: @MainActor () async throws -> Void
+    }
+
+    enum RestoreFault: Equatable {
+        case replacementCopy
+        case postSwapValidation
+    }
+
     // MARK: - Result
 
     enum BackupResult {
         /// Export wrote the backup to `url`.
         case exported(URL)
-        /// Import succeeded; a relaunch is required for it to take effect. `sidecar` is where the
-        /// previous database was preserved, in case the user wants to roll back.
+        /// Import succeeded and the live stores reopened it. `sidecar` is the SQLite online-backup
+        /// snapshot of the previous logical database, in case the user wants to roll back.
         case imported(sidecar: URL)
         /// The user dismissed the save/open panel — nothing happened, show nothing loud.
         case cancelled
@@ -214,10 +224,10 @@ enum DataBackup {
 
     /// Pick a `.noopbak` (ZIP) or legacy `.sqlite` backup, validate it, snapshot the current DB
     /// to a side file, then copy the backup over the live database path (removing the `-wal`/`-shm`
-    /// siblings). The store stays open, so the swapped-in file only takes effect after a relaunch —
-    /// the caller informs the user.
+    /// siblings). RestoreLifecycle closes all live pools before the swap and reopens/migrates the
+    /// replacement before success is reported.
     @MainActor
-    static func runImport() async -> BackupResult {
+    static func runImport(lifecycle: RestoreLifecycle) async -> BackupResult {
         let dbPath: String
         do { dbPath = try StorePaths.defaultDatabasePath() }
         catch { return .failure(String(localized: "Couldn't locate the NOOP database. \(error.localizedDescription)")) }
@@ -248,9 +258,68 @@ enum DataBackup {
         // actor so the picker's UI thread stays live; the security-scoped access opened above (macOS)
         // stays valid because the surrounding function is still awaiting here. Only Sendable value
         // types (URL, String) cross the hop; the result hops back to main for handleBackup.
-        return await Task.detached(priority: .utility) {
+        do {
+            try await lifecycle.quiesce()
+        } catch {
+            return .failure(String(localized: "Couldn't pause the local database safely. Nothing was replaced. \(error.localizedDescription)"))
+        }
+
+        let result = await Task.detached(priority: .utility) {
             restore(from: pickedSource, toDatabaseAt: dbPath)
         }.value
+        return await finishRestore(result, databasePath: dbPath, lifecycle: lifecycle)
+    }
+
+    @MainActor
+    static func restore(from pickedSource: URL, lifecycle: RestoreLifecycle) async -> BackupResult {
+        let dbPath: String
+        do { dbPath = try StorePaths.defaultDatabasePath() }
+        catch { return .failure(String(localized: "Couldn't locate the NOOP database. \(error.localizedDescription)")) }
+        return await restore(from: pickedSource, toDatabaseAt: dbPath, lifecycle: lifecycle)
+    }
+
+    @MainActor
+    static func restore(from pickedSource: URL, toDatabaseAt dbPath: String,
+                        lifecycle: RestoreLifecycle) async -> BackupResult {
+        do {
+            try await lifecycle.quiesce()
+        } catch {
+            return .failure(String(localized: "Couldn't pause the local database safely. Nothing was replaced. \(error.localizedDescription)"))
+        }
+        let result = await Task.detached(priority: .utility) {
+            restore(from: pickedSource, toDatabaseAt: dbPath)
+        }.value
+        return await finishRestore(result, databasePath: dbPath, lifecycle: lifecycle)
+    }
+
+    @MainActor
+    private static func finishRestore(_ result: BackupResult, databasePath: String,
+                                      lifecycle: RestoreLifecycle) async -> BackupResult {
+        switch result {
+        case .imported(let safetyCopy):
+            do {
+                try await lifecycle.reopenAndMigrate()
+                return result
+            } catch {
+                do {
+                    try await lifecycle.quiesce()
+                    try await Task.detached(priority: .utility) {
+                        try rollback(from: safetyCopy, toDatabaseAt: databasePath)
+                    }.value
+                    try await lifecycle.reopenAndMigrate()
+                    return .failure(String(localized: "The replacement database could not be opened or migrated, so NOOP restored your previous data automatically. \(error.localizedDescription)"))
+                } catch {
+                    return .failure(String(localized: "The replacement failed and automatic rollback could not reopen the previous database. The safety copy is at \(safetyCopy.path). \(error.localizedDescription)"))
+                }
+            }
+        case .failure, .cancelled, .exported:
+            do {
+                try await lifecycle.reopenAndMigrate()
+                return result
+            } catch {
+                return .failure(String(localized: "The restore did not complete, and NOOP could not reopen the existing database. \(error.localizedDescription)"))
+            }
+        }
     }
 
     /// Restore a chosen backup file directly, with NO picker. The Backup & Sync folder flow calls this
@@ -274,7 +343,8 @@ enum DataBackup {
     /// `settingsDefaults` is where a `settings.json` entry (#1000) is re-applied — injected for the
     /// same reason as `dbPath` (tests use a suite-scoped UserDefaults, never the runner's real domain).
     static func restore(from pickedSource: URL, toDatabaseAt dbPath: String,
-                        settingsDefaults: UserDefaults = .standard) -> BackupResult {
+                        settingsDefaults: UserDefaults = .standard,
+                        fault: RestoreFault? = nil) -> BackupResult {
         // If the picked file is a .noopbak ZIP, extract the SQLite entry to a temp dir first.
         // Legacy plain-SQLite files fall straight through. The extracted dir is cleaned up below.
         let fm = FileManager.default
@@ -344,36 +414,32 @@ enum DataBackup {
         let dbURL = URL(fileURLWithPath: dbPath)
 
         do {
-            // Snapshot the current DB (+ sidecars) to a timestamped side file so the user can roll back.
+            // Snapshot the current LOGICAL database through SQLite's online backup API. Unlike a plain
+            // main-file copy, this includes committed frames still resident in the live WAL.
             var sidecar = dbURL.deletingLastPathComponent()
                 .appendingPathComponent("whoop-replaced-\(timestamp()).sqlite")
             if fm.fileExists(atPath: dbURL.path) {
                 if fm.fileExists(atPath: sidecar.path) { try fm.removeItem(at: sidecar) }
-                try fm.copyItem(at: dbURL, to: sidecar)
+                try onlineBackup(fromDatabaseAt: dbURL.path, to: sidecar.path)
             } else {
                 // Nothing to preserve (fresh install); report a placeholder so the message reads sensibly.
                 sidecar = dbURL
             }
 
-            // Remove the live DB and its WAL/SHM siblings, then drop the backup in.
-            removeIfPresent(dbURL)
+            let incoming = dbURL.deletingLastPathComponent()
+                .appendingPathComponent(".noop-restore-\(UUID().uuidString).sqlite")
+            defer { removeIfPresent(incoming) }
+            if fault == .replacementCopy { throw RestoreFailure.simulatedReplacementCopy }
+            try fm.copyItem(at: source, to: incoming)
+            if let complaint = DatabaseIntegrity.quickCheckFailure(atPath: incoming.path), !legacySidecarsPresent {
+                throw RestoreFailure.invalidReplacement(complaint)
+            }
+
+            // Every pool is closed by RestoreLifecycle before this point. Remove stale sidecars, then
+            // atomically replace the main inode from a sibling staging file on the same volume.
             removeIfPresent(URL(fileURLWithPath: dbPath + "-wal"))
             removeIfPresent(URL(fileURLWithPath: dbPath + "-shm"))
-
-            do {
-                try fm.copyItem(at: source, to: dbURL)
-            } catch {
-                // The live DB was just removed and the replacement didn't land. Roll back to the
-                // snapshot so a failed import leaves the user's data exactly as it was, instead of a
-                // fresh-empty DB on relaunch (mirrors the Android rollback). Clear any partial-copy
-                // leftover first — copyItem fails if the destination exists, which would otherwise
-                // block the restore.
-                if sidecar != dbURL, fm.fileExists(atPath: sidecar.path) {
-                    removeIfPresent(dbURL)
-                    try? fm.copyItem(at: sidecar, to: dbURL)
-                }
-                return .failure(String(localized: "Import failed. Your existing data was kept. \(error.localizedDescription)"))
-            }
+            try atomicInstall(incoming, at: dbURL)
 
             // #1014 defence-in-depth, post-swap: re-verify the file that actually LANDED at the
             // live path with a second read-only quick_check. The staged file was verified above,
@@ -384,10 +450,10 @@ enum DataBackup {
             // the sidecars don't need this gate. On failure, roll back to the snapshot
             // AUTOMATICALLY and say so; the snapshot file is kept either way (same policy as a
             // successful import: the user can always reach the pre-import bytes).
-            if let complaint = DatabaseIntegrity.quickCheckFailure(atPath: dbURL.path) {
-                removeIfPresent(dbURL)
+            let forcedComplaint = fault == .postSwapValidation ? "simulated post-swap failure" : nil
+            if let complaint = forcedComplaint ?? DatabaseIntegrity.quickCheckFailure(atPath: dbURL.path) {
                 if sidecar != dbURL, fm.fileExists(atPath: sidecar.path) {
-                    try? fm.copyItem(at: sidecar, to: dbURL)
+                    try? rollback(from: sidecar, toDatabaseAt: dbPath)
                     return .failure(String(localized: "Import failed its post-restore integrity check (SQLite reports: \(complaint)). Your previous data was rolled back automatically and is unchanged."))
                 }
                 // Fresh install: there was no previous store to preserve, so removing the damaged
@@ -416,13 +482,82 @@ enum DataBackup {
                     BackupSettings.apply(BackupSettings.decode(data), to: settingsDefaults)
                 }
             }
+            // The lifecycle reopens/migrates this replacement before the UI reports success.
+            UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "backup.lastRestoreAt")
             return .imported(sidecar: sidecar)
         } catch {
-            return .failure(String(localized: "Import failed: \(error.localizedDescription)"))
+            // All throwing preparation occurs before the atomic install, so the live database is
+            // still untouched here. Post-install validation has its own explicit rollback above.
+            return .failure(String(localized: "Import failed. Your existing data was kept. \(error.localizedDescription)"))
         }
     }
 
     // MARK: - Helpers
+
+    private enum RestoreFailure: LocalizedError {
+        case simulatedReplacementCopy
+        case invalidReplacement(String)
+        case sqliteBackup(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .simulatedReplacementCopy:
+                return "Simulated replacement-copy failure."
+            case .invalidReplacement(let complaint):
+                return "The staged replacement failed its integrity check: \(complaint)"
+            case .sqliteBackup(let complaint):
+                return "The pre-restore safety snapshot failed: \(complaint)"
+            }
+        }
+    }
+
+    /// SQLite online backup captures one committed logical snapshot, including frames still in WAL.
+    private static func onlineBackup(fromDatabaseAt sourcePath: String, to destinationPath: String) throws {
+        removeIfPresent(URL(fileURLWithPath: destinationPath))
+        var source: OpaquePointer?
+        var destination: OpaquePointer?
+        guard sqlite3_open_v2(sourcePath, &source, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
+            let message = source.map { String(cString: sqlite3_errmsg($0)) } ?? "could not open source"
+            sqlite3_close(source)
+            throw RestoreFailure.sqliteBackup(message)
+        }
+        defer { sqlite3_close(source) }
+        guard sqlite3_open(destinationPath, &destination) == SQLITE_OK else {
+            let message = destination.map { String(cString: sqlite3_errmsg($0)) } ?? "could not create destination"
+            sqlite3_close(destination)
+            throw RestoreFailure.sqliteBackup(message)
+        }
+        defer { sqlite3_close(destination) }
+        guard let backup = sqlite3_backup_init(destination, "main", source, "main") else {
+            throw RestoreFailure.sqliteBackup(String(cString: sqlite3_errmsg(destination)))
+        }
+        let step = sqlite3_backup_step(backup, -1)
+        let finish = sqlite3_backup_finish(backup)
+        guard step == SQLITE_DONE, finish == SQLITE_OK else {
+            throw RestoreFailure.sqliteBackup(String(cString: sqlite3_errmsg(destination)))
+        }
+    }
+
+    private static func atomicInstall(_ staged: URL, at destination: URL) throws {
+        let fm = FileManager.default
+        if fm.fileExists(atPath: destination.path) {
+            _ = try fm.replaceItemAt(destination, withItemAt: staged,
+                                     backupItemName: nil, options: [])
+        } else {
+            try fm.moveItem(at: staged, to: destination)
+        }
+    }
+
+    private static func rollback(from safetyCopy: URL, toDatabaseAt dbPath: String) throws {
+        let destination = URL(fileURLWithPath: dbPath)
+        let staged = destination.deletingLastPathComponent()
+            .appendingPathComponent(".noop-rollback-\(UUID().uuidString).sqlite")
+        defer { removeIfPresent(staged) }
+        try FileManager.default.copyItem(at: safetyCopy, to: staged)
+        removeIfPresent(URL(fileURLWithPath: dbPath + "-wal"))
+        removeIfPresent(URL(fileURLWithPath: dbPath + "-shm"))
+        try atomicInstall(staged, at: destination)
+    }
 
     /// Canonical entry name for the SQLite inside a `.noopbak` ZIP. Matches the Android exporter so
     /// a backup produced on either platform restores on the other.

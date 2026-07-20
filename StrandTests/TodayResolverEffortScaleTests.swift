@@ -71,9 +71,10 @@ final class TodayResolverEffortScaleTests: XCTestCase {
     // MARK: - #313 Effort-gauge scale
 
     /// On the native 0–100 scale the gauge shows the stored value out of 100.
-    func testEffortGaugeValueHundredScale() {
-        XCTAssertEqual(UnitFormatter.effortValue(63.0, scale: .hundred), 63.0, accuracy: 1e-9)
-        XCTAssertEqual(UnitFormatter.effortScaleMax(.hundred), "100")
+    func testLegacyHundredPreferenceStillUsesCanonicalTwentyOneScale() {
+        XCTAssertEqual(UnitFormatter.effortValue(100.0, scale: .hundred), 21.0, accuracy: 1e-9)
+        XCTAssertEqual(UnitFormatter.effortValue(50.0, scale: .hundred), 10.5, accuracy: 1e-9)
+        XCTAssertEqual(UnitFormatter.effortScaleMax(.hundred), "21")
     }
 
     /// On the WHOOP 0–21 scale the gauge rescales the SAME stored value down by 21/100.
@@ -83,10 +84,9 @@ final class TodayResolverEffortScaleTests: XCTestCase {
         XCTAssertEqual(UnitFormatter.effortScaleMax(.whoop), "21")
     }
 
-    /// The displayed value and the scale max are consistent — a value at the scale max fills the gauge.
-    func testEffortGaugeFractionConsistentAcrossScales() {
-        // A full-effort day (stored 100) is at the top of BOTH scales: 100/100 and 21/21.
-        let hundred = UnitFormatter.effortValue(100.0, scale: .hundred) / 100.0
+    /// Legacy preferences cannot reintroduce the retired 0–100 presentation.
+    func testEffortGaugeFractionConsistentAcrossLegacyPreferences() {
+        let hundred = UnitFormatter.effortValue(100.0, scale: .hundred) / 21.0
         let whoop = UnitFormatter.effortValue(100.0, scale: .whoop) / 21.0
         XCTAssertEqual(hundred, whoop, accuracy: 1e-9, "the gauge fraction must be scale-independent")
     }

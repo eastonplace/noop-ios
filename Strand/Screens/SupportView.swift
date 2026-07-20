@@ -1,27 +1,19 @@
 import SwiftUI
 import StrandDesign
 
-/// Support — attribution + optional crypto donations. Never a paywall; the whole app works without it.
+/// Support and project attribution.
 struct SupportView: View {
-    @State private var copied: String?
-    @State private var selected = "BTC"
-
     var body: some View {
         ScreenScaffold(title: "Support",
                        subtitle: "We're here to help.") {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
                 VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
-                    SectionHeader("Support the build")
-                    donateCard
-                }
-                .staggeredAppear(index: 0)
-                VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
                     SectionHeader("Help & Contact")
                     contactCard
                 }
-                .staggeredAppear(index: 1)
+                .staggeredAppear(index: 0)
                 disclaimerCard
-                    .staggeredAppear(index: 2)
+                    .staggeredAppear(index: 1)
             }
         }
     }
@@ -103,67 +95,6 @@ struct SupportView: View {
                 }
             }
         }
-    }
-
-    private var donateCard: some View {
-        PaperCard {
-            VStack(alignment: .center, spacing: 14) {
-                Text("NOOP is independent.\nYour support keeps it going.")
-                    .font(StrandFont.caption)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
-                HStack(spacing: NoopMetrics.space2) {
-                    ForEach(ProjectInfo.donations) { coin in
-                        let on = selected == coin.symbol
-                        Button { withAnimation(.easeOut(duration: 0.15)) { selected = coin.symbol } } label: {
-                            Text(coin.symbol).font(StrandFont.rounded(12, weight: .bold))
-                                .padding(.horizontal, 14).padding(.vertical, 7)
-                                .background(Capsule().fill(on ? StrandPalette.textPrimary : StrandPalette.surfaceInset))
-                                .foregroundStyle(on ? StrandPalette.surfaceBase : StrandPalette.textSecondary)
-                                .overlay(Capsule().strokeBorder(on ? Color.clear : StrandPalette.hairline, lineWidth: 1))
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Show \(coin.name) donation address")
-                    }
-                    Spacer(minLength: 0)
-                }
-
-                if let coin = ProjectInfo.donations.first(where: { $0.symbol == selected }) {
-                    PrimaryButton("Support NOOP") {
-                        PlatformPasteboard.copy(coin.address)
-                        withAnimation { copied = coin.symbol }
-                    }
-                    .accessibilityHint("Copies the selected donation address")
-                    qrView(coin.address)
-                    Text(copied == coin.symbol ? "Address copied · Thank you! ♥" : "Thank you! ♥")
-                        .font(StrandFont.micro)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                        .multilineTextAlignment(.center)
-                    Text(coin.address)
-                        .font(StrandFont.mono(10))
-                        .foregroundStyle(StrandPalette.textTertiary)
-                        .textSelection(.enabled)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.75)
-                        }
-            }
-        }
-    }
-
-    /// Black-on-white QR so wallet cameras read it cleanly against the dark UI.
-    private func qrView(_ address: String) -> some View {
-        Group {
-            if let img = QRCode.image(for: address) {
-                Image(platformImage: img).resizable().interpolation(.none)
-            } else {
-                RoundedRectangle(cornerRadius: 8, style: .continuous).fill(StrandPalette.surfaceInset)
-            }
-        }
-        .frame(width: 150, height: 150)
-        .padding(10)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .accessibilityLabel("Donation QR code")
     }
 
     private var disclaimerCard: some View {

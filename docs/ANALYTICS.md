@@ -2,23 +2,23 @@
 
 On-device analytics for **NOOP** — a standalone, fully offline companion app for WHOOP straps (4.0 and 5.0/MG). NOOP talks to *your own* strap over Bluetooth, stores everything locally in SQLite, and computes its three daily scores plus HRV and sleep staging on-device. There is no cloud and no account involved in any of the math described here.
 
-## NOOP's three daily scores — Charge / Effort / Rest
+## NOOP's three daily scores — Charge / Strain / Rest
 
-NOOP gives you **three daily scores, each on a 0–100 scale**:
+NOOP gives you Charge and Rest on 0–100 plus Strain on the canonical 0–21 display scale. Strain remains stored on a 0–100 compatibility axis internally.
 
 | Score | Answers | Engine | Internal key | Was called |
 |---|---|---|---|---|
 | **Charge** | How recovered are you? | `RecoveryScorer` | `recovery` | Recovery |
-| **Effort** | How hard did your heart work? | `StrainScorer` | `strain` | Strain (0–21) |
+| **Strain** | How hard did your body work? | `StrainScorerV2` | `strain` | — |
 | **Rest** | How restorative was your sleep? | Rest composite (`AnalyticsEngine`) | `sleep_performance` | Sleep Performance |
 
-Each score is built from your strap's raw signals using **published, peer-reviewed sport science** (Task Force 1996 HRV, Karvonen %HRR, Edwards/Banister TRIMP, Tanaka HRmax — all cited in full below) and computed **entirely on your device**.
+Each score is built from your strap's raw signals using published sport science and computed entirely on your device. Strain V2 uses continuous HRR load rather than Edwards/Banister zones.
 
 They are **NOT WHOOP's scores.** We don't have WHOOP's private algorithms and don't pretend to. NOOP's scores aim at the same three questions using open science, so they'll usually track WHOOP's *in direction*, but won't match number-for-number — and that's the point.
 
 Every score also carries a small **confidence tier — Solid / Building / Calibrating** (`ScoreConfidence`) so a sparse day reads truthfully instead of faking a number. When NOOP can't compute a score honestly, it shows nothing rather than a fabricated value.
 
-> **Naming & continuity.** The *display* names changed (Recovery→Charge, Strain→Effort, Sleep Performance→Rest) and Effort was **rescaled from 0–21 to 0–100**, but the **internal data keys are unchanged** (`recovery`, `strain`, `sleep_performance`) so years of stored history, imports, and the metric-series substrate keep working. You'll still see the old engine names (`RecoveryScorer`, `StrainScorer`) and internal keys throughout the source and in this document — they back the new scores.
+> **Naming & continuity.** Display Strain is always 0–21. The internal `strain` key and 0–100 persistence boundary remain unchanged so existing history and imports keep working. `StrainScorer` remains only as the V1 rollback/shadow comparator while `StrainScorerV2` produces new candidates.
 
 > **Not affiliated with WHOOP.** NOOP interoperates with hardware and data you already own. The scores and metrics below are **independent approximations** of common exercise-physiology and HRV methods, derived from published literature — they are **not** reproductions of any proprietary scoring model, and they are **not a medical device**. Nothing here is medical advice.
 
@@ -38,7 +38,7 @@ The package contains more analytics than the app currently surfaces. This sectio
 |---|---|---|
 | `HRVAnalyzer` | `HRVAnalyzer.swift` | **Library-only** as a type. The app computes RMSSD inline via `AppModel.rmssd(_:)` (same Task-Force formula) for the live stress nudge. |
 | `RecoveryScorer` | `RecoveryScorer.swift` | **Live.** Computes the **Charge** score. Runs inside `AnalyticsEngine.analyzeDay` via `Strand/Data/IntelligenceEngine.swift`; computed values are persisted under the `"<deviceId>-noop"` source and merged **under** any imported `recovery_score_pct` (imports always win). APPROXIMATE. |
-| `StrainScorer` | `StrainScorer.swift` | **Live.** Computes the **Effort** score (0–100). Day load is computed on-device for nights the strap offloaded; the imported `day_strain` column still wins for imported days. APPROXIMATE. |
+| `StrainScorerV2` | `StrainScorerV2.swift` | **Live in shadow mode.** Computes sleep-to-sleep Strain candidates and activity-only workout Strain. Imported WHOOP values remain untouched; canonical day promotion is gated on the comparison report. APPROXIMATE. |
 | `SleepStager` | `SleepStager.swift` | **Live.** Stages each offloaded night inside `analyzeDay`; the per-night stages feed the **Rest** composite. Computed sessions are persisted under the `"-noop"` source, with imported sleeps taking precedence. APPROXIMATE. |
 | `Baselines` | `Baselines.swift` | **Live.** Seeds the recovery baseline in `IntelligenceEngine.analyzeRecent` (two-pass cold-start). The illness early-warning in `AppModel` still uses its own trailing-window baseline math inline (see below). |
 | `WorkoutDetector` / `Calories` | `WorkoutDetector.swift` | **Live.** Runs inside `AnalyticsEngine.analyzeDay`; detected bouts are persisted as `workout` rows under the computed `"<deviceId>-noop"` source (sport `"detected"`), de-duplicated against imported WHOOP workouts. All intensity/calorie fields are APPROXIMATE. Not yet surfaced in the Workouts screen. |
@@ -217,30 +217,35 @@ HRV is the dominant driver, and NOOP needs a few nights to learn your personal b
 
 ---
 
-## `StrainScorer` — the **Effort** score (0–100 logarithmic cardiovascular load)
+## `StrainScorerV2` — Strain (0–21 display; 0–100 storage)
 
-Source: `StrainScorer.swift`. Produces **Effort** — *"how hard did your heart work?"* Your day's cardiovascular load: an **independent** implementation of published exercise-physiology methods (WHOOP-*like*, not a reproduction). NOOP turns every second of heart rate into a training-impulse using heart-rate-reserve zones (Karvonen), weights time in harder zones more heavily (Edwards / Banister), and places it on a logarithmic 0–100 scale — so easy days sit low and an all-out day approaches 100, which stays genuinely rare.
+Source: `StrainScorerV2.swift`. Produces NOOP's transparent cardiovascular-and-movement load score. It is WHOOP-informed, not a reproduction of WHOOP's proprietary algorithm. Public APIs return the existing stored 0–100 value; every user-facing surface converts that value to the canonical 0–21 scale through `StrainScale`.
 
-> **Scale change (0–21 → 0–100).** Effort is the same cardiovascular-load idea as WHOOP's Day Strain (0–21). We rescaled the **top of the ladder** from 21 to 100 (`maxStrain 21.0 → 100.0`) so all three NOOP scores share one 0–100 scale. The denominator `D = 7201` is **unchanged**, so the log curve and its saturation point are preserved — the rungs didn't move, a 100 is as rare as a 21.0 was.
+> **Versioning.** Legacy `StrainScorer` remains for rollback and shadow comparison during the V2 release window. Imported WHOOP strain is never recomputed.
 
 ### Pipeline
 
-1. **Heart-Rate Reserve (Karvonen 1957):** `HRR = HRmax − RHR`.
-2. **Per-sample intensity** as `%HRR = (HR − RHR) / HRR × 100`, clamped `[0, 100]`.
-3. **TRIMP accumulation** over the window, by one of two methods:
-   - **Edwards (1993) 5-zone summation (default):** each sample contributes its zone weight (`1…5` at the `50 / 60 / 70 / 80 / 90 %HRR` cut-offs) × duration.
-   - **Banister (1991) exponential:** each sample contributes `duration × x × 0.64 × e^(b·x)`, where `x = %HRR/100` and `b = 1.92` (men) / `1.67` (women).
-4. **Logarithmic compression** onto `[0, 100]`:
+1. **Heart-rate reserve:** `HRR = HRmax − RHR`; manual HRmax wins, then Tanaka, while the cycle's nightly RHR wins over the fallback.
+2. **Continuous intensity:** interpolate equivalent load/minute through `%HRR` anchors `30→0`, `40→0.05`, `60→0.20`, `70→0.45`, `80→0.70`, `90+→1.0`. There are no Edwards stair-step discontinuities.
+3. **Timestamp integration:** integrate each adjacent real interval independently. Intervals over 90 seconds are missing coverage, not sustained exertion. A score needs at least 20 samples and ten valid minutes.
+4. **Saturating display map:**
 
 ```
-Effort = 100 · ln(TRIMP + 1) / ln(D),    D = strainDenominator = 7201
+displayStrain = 21 · (1 − exp(−effectiveLoad / 32))
 ```
 
-`D = 7201` is calibrated so the Edwards daily ceiling — top zone weight 5 sustained for 24 h = `5 × 1440 = 7200` — maps to exactly the maximum (`ln(7201)/ln(7201) = 1`, so `Effort = 100`). The old 0–21 scale used the identical denominator and curve; only the `maxStrain` multiplier changed from `21.0` to `100.0`.
+The curve approaches rather than targets 21. One hour at genuine Zone 5 with a normal sleep seed is about 18–19; multiple hours approach 21. Activity mode starts at zero. Physiological-day mode uses the main-sleep cycle and the non-additive background floors below.
 
 ### Steps / active-energy floor
 
-A long walk with little cardio still counts: when cardio TRIMP is low but step / active-kcal load is high, Effort is raised to a movement-derived floor so non-cardio activity still registers. (5/MG continuity: Effort already reads `COALESCE(measured HR, ppg_hr)` via hrBuckets, so 5-series users get Effort from live + PPG HR.)
+A long walk with little cardio counts without double-counting its heart-rate response:
+
+- Worn sleep contributes `0.014` effective minutes per valid sleep minute, capped at display Strain 4.0.
+- Step floor: `7 × (1 − exp(−steps / 6000))`.
+- Active-energy floor: `7 × (1 − exp(−activeKcal / 500))` when a true active-energy source is available. The current HR calorie estimate includes resting expenditure and is intentionally not used for this floor.
+- Final physiological-day Strain is the maximum of the sleep-seeded cardiovascular score and available movement floors; floors are never added to cardio load.
+
+Raw sleep-to-sleep step deltas are preferred. Wake-day steps are the lower-confidence fallback. Muscular load is not part of V2.
 
 ### HRmax estimation (`estimateHRmax`)
 
@@ -248,10 +253,11 @@ A long walk with little cardio still counts: when cardio TRIMP is low but step /
 - **Tanaka (2001):** `HRmax = 208 − 0.7 × age` (gender-independent), used as the floor / fallback (`"tanaka"`).
 - No data and no age → `(0, "unknown")`.
 
-### Guards & gates
+### Cycle and guards
 
-- Returns `nil` with fewer than `minReadings = 600` samples (≈ 10 min at 1 Hz) or when `HRmax ≤ RHR` (invalid HRR).
-- Per-sample duration is inferred from the first two timestamps, falling back to `1 s`.
+- Physiological days run main-sleep onset to next main-sleep onset; an open cycle ends at `now` and is stored on its wake-day key.
+- Missing trustworthy sleep falls back to local midnight and building confidence.
+- Invalid HRR, fewer than 20 samples, or under ten integrated minutes returns `nil` for cardiovascular load; valid sleep or movement evidence can still establish a background day score.
 
 ### Denominator calibration (`fitStrainDenominator`)
 
@@ -450,7 +456,7 @@ Source: `AnalyticsEngine.swift`. A pure function that ties the recompute engines
 3. Daily resting HR = lowest per-session resting HR; daily avg HRV = in-bed-weighted mean of per-session HRV.
 4. **Rest** — the four-component sleep composite (duration vs need / efficiency / restorative share / consistency), stored under `sleep_performance`.
 5. **Charge** — `RecoveryScorer.recovery(...)` with the personal HRV/RHR/resp/skin-temp baselines and the Rest score as the sleep input, stored under `recovery`.
-6. **Effort** — `StrainScorer.strain(...)` over the full day's HR window (Tanaka HRmax from age unless overridden), on the 0–100 scale, stored under `strain`.
+6. **Strain** — `StrainScorerV2.strain(...)` over the sleep-to-sleep cycle with timestamp-aware HRR integration plus non-additive sleep/step floors. The 0–21 result is converted at the storage boundary and written to `strain_v2_shadow` until promotion gates pass.
 7. `WorkoutDetector.detect(...)`.
 
 Each score is also tagged with its **confidence tier** (`ScoreConfidence`: Solid / Building / Calibrating — see below). It assembles a `DailyMetric` (the `WhoopStore` cache shape) plus rich `SleepSession`s and `CachedSleepSession` cache rows. Every derived value is **approximate** by construction.

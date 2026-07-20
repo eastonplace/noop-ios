@@ -23,6 +23,18 @@ public final class LiveState: ObservableObject {
     /// connect/disconnect. Drives the Live pill's two-state distinction; the encrypted channel (buzz,
     /// alarm, double-tap, history offload) only works when this is true.
     @Published public var encryptedBond: Bool = false
+    /// #34: bumped by BLEManager once a WHOOP 4.0 connection has BOTH run its connect handshake (hello +
+    /// SET_CLOCK, exactly once — `connectHandshakeDone`) AND had the cmd-notify characteristic confirm
+    /// subscribed (`didUpdateNotificationStateFor` for it fired with `isNotifying == true`) — whichever of
+    /// the two lands second. `bonded` alone fires the instant the confirmed-write bond ack lands, which is
+    /// BEFORE either of those — arming the firmware alarm off `bonded` sent SET_ALARM_TIME/GET_ALARM_TIME
+    /// while the cmd-notify channel wasn't confirmed active yet, so the strap's GET_ALARM_TIME readback
+    /// was silently dropped (evidenced in a v8.6.2 strap log, issue #34). A monotonic counter (not a Bool)
+    /// so a re-arm-eligible sink can `.dropFirst()` the initial published value and fire on every bump,
+    /// exactly once per settled connection. Reset to a fresh (un-bumped) state is implicit: BLEManager's
+    /// per-connection guards (`connectHandshakeDone`, the cmd-notify-confirmed flag) reset on disconnect,
+    /// so the next connection can bump this again.
+    @Published public var connectSettled: Int = 0
     /// True ONLY when a non-WHOOP live source (currently the Oura ring) is actively streaming live HR.
     /// This is the green "STREAMING" signal for sources that have no WHOOP-style encrypted bond: it is
     /// DELIBERATELY separate from `bonded`, which carries WHOOP encrypted-bond + buzz semantics (it gates
@@ -165,6 +177,8 @@ public final class LiveState: ObservableObject {
         let firmware = strapRange?.firmwareLayout
         let oldest = oldestUnix ?? strapRange?.oldestUnix
         strapRange = StrapRange(newestUnix: newestUnix, oldestUnix: oldest, firmwareLayout: firmware)
+        // #34: persist the strap's newest banked record so the debug export can flag a reset/stale clock.
+        UserDefaults.standard.set(newestUnix, forKey: "strap.newestRecordTs")
     }
 
     /// Bank the historical record-layout version (hist_version: 18/24/25/26) the strap emits, so the
@@ -204,6 +218,11 @@ public final class LiveState: ObservableObject {
     /// cleared on disconnect so a stale version can't outlive the link. Twin of the Android
     /// LiveState.strapFirmware.
     @Published public var strapFirmware: String? = nil
+    /// True while a user-initiated reboot (#166) is in flight — from sending REBOOT_STRAP until the strap
+    /// reconnects (or the settle timeout gives up). Combined with `!connected` it drives the Devices
+    /// card's transient "Reconnecting…" pill so the restart reads as intentional. Twin of the Android
+    /// LiveState.rebootInProgress.
+    @Published public var rebootInProgress: Bool = false
     /// Transient, human-readable result of the most recent strap-rename attempt — the
     /// SET_ADVERTISING_NAME_HARVARD ack, or a local validation message from BLEManager.renameStrap.
     /// Surfaced under the rename field; overwritten by the next attempt.
@@ -530,7 +549,7 @@ public final class LiveState: ObservableObject {
     /// runs with no live `LiveState` instance. Mirrors `exportableLogText()`'s header so a scheduled drop
     /// reads the same as a manual share; falls back to the live `log` is not available here by design
     /// (this is a `static` so a background task needs no main-actor instance).
-    nonisolated public static func scheduledExportText() -> String {
+    nonisolated public static func scheduledExportText(extraHeaderLines: [String] = []) -> String {
         let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         #if os(iOS)
         let osName = "iOS"
@@ -539,6 +558,7 @@ public final class LiveState: ObservableObject {
         #endif
         var header = "NOOP strap log (scheduled export) — \(osName)\nApp: \(v)\n\(osName): "
             + ProcessInfo.processInfo.operatingSystemVersionString + "\n"
+        if !extraHeaderLines.isEmpty { header += extraHeaderLines.joined(separator: "\n") + "\n" }
         header += String(repeating: "-", count: 40) + "\n"
         return header + persistedLogTail().joined(separator: "\n")
     }
@@ -572,7 +592,7 @@ public final class LiveState: ObservableObject {
     /// OS, and — on iOS — the environment diagnostics that actually cause issues, followed by the live
     /// session log. Shared so BOTH the Live screen's log card AND a macOS Settings shortcut (#507 — a 4.0
     /// owner couldn't find the log on Mac) build the SAME text. Call on the main thread (button taps).
-    func exportableLogText() -> String {
+    func exportableLogText(extraHeaderLines: [String] = []) -> String {
         let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         #if os(iOS)
         let osName = "iOS"
@@ -585,6 +605,7 @@ public final class LiveState: ObservableObject {
         let diagLines = IOSDiagnostics.capture().summaryLines()
         if !diagLines.isEmpty { header += diagLines.joined(separator: "\n") + "\n" }
         #endif
+        if !extraHeaderLines.isEmpty { header += extraHeaderLines.joined(separator: "\n") + "\n" }
         header += String(repeating: "-", count: 40) + "\n"
         return header + log.joined(separator: "\n")
     }

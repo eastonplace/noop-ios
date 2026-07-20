@@ -11,11 +11,11 @@ options:
   developmentLanguage: en
 settings:
   base:
-    MARKETING_VERSION: "8.2.2"
+    MARKETING_VERSION: "9.0.1"
     # iOS build number (CFBundleVersion). GLOBAL so the iOS app AND its widget extension inherit the
     # SAME value — they must match or iOS warns "extension version must match parent app" (#416).
     # macOS sets its own CFBundleVersion on the Strand target and is unaffected by this.
-    CURRENT_PROJECT_VERSION: "172"
+    CURRENT_PROJECT_VERSION: "204"
     SWIFT_VERSION: "5.0"
     # Emit localizable strings so Xcode auto-extracts every LocalizedStringKey into the
     # String Catalog on build (the English (US) base entries).
@@ -119,12 +119,12 @@ targets:
     dependencies:
       - package: WhoopProtocol
       - package: WhoopStore
+      - package: OuraProtocol
       - package: StrandAnalytics
       - package: StrandImport
       - package: StrandDesign
       - package: MarkdownUI
       - package: ZIPFoundation
-      - package: OuraProtocol
   StrandTests:
     type: bundle.unit-test
     platform: macOS
@@ -153,6 +153,8 @@ targets:
     dependencies:
       - target: NOOPiOS
       - package: StrandDesign
+      - package: WhoopProtocol
+      - package: WhoopStore
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
@@ -278,6 +280,7 @@ targets:
     dependencies:
       - package: WhoopProtocol
       - package: WhoopStore
+      - package: OuraProtocol
       - package: StrandAnalytics
       - package: StrandImport
       - package: StrandDesign

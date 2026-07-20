@@ -27,9 +27,9 @@ import Foundation
 
 // MARK: - Normalized model
 
-/// One imported activity (the shape the app layer maps 1:1 onto a `WorkoutRow`). Distances are
-/// metres, HR is bpm, energy is kcal. Times are UTC `Date`s. A field is `nil` when the file didn't
-/// carry it — never fabricated.
+/// One imported activity (the shape the app layer maps onto a `WorkoutRow`, plus optional
+/// activity-file daily metrics when present). Distances are metres, HR is bpm, energy is kcal.
+/// Times are UTC `Date`s. A field is `nil` when the file didn't carry it — never fabricated.
 public struct ActivityFile: Sendable, Equatable {
     /// Which interchange format the file was.
     public enum Kind: String, Sendable, Equatable { case gpx, tcx, fit }
@@ -46,6 +46,8 @@ public struct ActivityFile: Sendable, Equatable {
     public var distanceM: Double?
     /// Total active energy in kilocalories, when present.
     public var energyKcal: Double?
+    /// Activity step count when the file carries one.
+    public var steps: Int?
     /// Average heart rate (bpm), when present (a summary value, else the mean of sampled HR).
     public var avgHr: Int?
     /// Maximum heart rate (bpm), when present.
@@ -59,6 +61,17 @@ public struct ActivityFile: Sendable, Equatable {
     /// The route as (lat, lon) pairs in order, for the platforms that store a polyline (Android's
     /// `routePolyline`). macOS's shared WorkoutRow has no route column, so it keeps only the summary.
     public var route: [RoutePoint]
+    /// #137: the REAL per-sample HR time series — the (unix-second, bpm) pairs the file actually
+    /// carried. Historically the importer folded these into `avgHr`/`maxHr`/`hrSampleCount` and then
+    /// THREW THE SAMPLES AWAY (deliberately: an imported file never fed the HR-based Effort). We now
+    /// keep them so the app layer can persist them under the `activity-file` source; on a strap-less
+    /// day that lets the imported ride's measured HR light the day Effort ring (the day-owner resolver
+    /// picks `activity-file` as the sole source with HR that day — see IntelligenceEngine.resolveDayOwner).
+    /// This is measured data, not a fabricated strain, so it does not reintroduce the "fabricated
+    /// cardiovascular strain" the WorkoutRow `strain = nil` guard exists to avoid. Only samples that
+    /// carried BOTH a timestamp and a valid HR appear here (a sample with no time can't key into the
+    /// (deviceId, ts) HR store), so `hrSamples.count <= hrSampleCount` in general.
+    public var hrSamples: [ActivityHRSample]
 
     public init(
         kind: Kind,
@@ -67,12 +80,14 @@ public struct ActivityFile: Sendable, Equatable {
         sport: String? = nil,
         distanceM: Double? = nil,
         energyKcal: Double? = nil,
+        steps: Int? = nil,
         avgHr: Int? = nil,
         maxHr: Int? = nil,
         ascentM: Double? = nil,
         gpsPointCount: Int = 0,
         hrSampleCount: Int = 0,
-        route: [RoutePoint] = []
+        route: [RoutePoint] = [],
+        hrSamples: [ActivityHRSample] = []
     ) {
         self.kind = kind
         self.start = start
@@ -80,12 +95,14 @@ public struct ActivityFile: Sendable, Equatable {
         self.sport = sport
         self.distanceM = distanceM
         self.energyKcal = energyKcal
+        self.steps = steps
         self.avgHr = avgHr
         self.maxHr = maxHr
         self.ascentM = ascentM
         self.gpsPointCount = gpsPointCount
         self.hrSampleCount = hrSampleCount
         self.route = route
+        self.hrSamples = hrSamples
     }
 
     /// Duration in seconds, or nil when start == end (no real interval to claim).
@@ -104,6 +121,7 @@ public struct ActivityFile: Sendable, Equatable {
         }
         if gpsPointCount > 0 { parts.append("\(gpsPointCount) GPS points") }
         if hrSampleCount > 0 { parts.append("\(hrSampleCount) HR samples") }
+        if let steps, steps > 0 { parts.append("\(steps) steps") }
         return parts.joined(separator: " · ")
     }
 }
@@ -115,6 +133,21 @@ public struct RoutePoint: Sendable, Equatable {
     public init(lat: Double, lon: Double) {
         self.lat = lat
         self.lon = lon
+    }
+}
+
+/// #137: one persisted HR sample — unix-second timestamp + bpm. Deliberately a LOCAL type (not
+/// WhoopProtocol's `HRSample`) so the pure StrandImport package stays dependency-free; the app layer
+/// maps this 1:1 onto `HRSample` when writing to the HR store. Keep the (ts, bpm) shape in parity with
+/// the Kotlin `ActivityFileImporter.HrSample` twin.
+public struct ActivityHRSample: Sendable, Equatable {
+    /// Wall-clock unix seconds (the sample's own time, from the file).
+    public var ts: Int
+    /// Heart rate in bpm (already range-validated by `validHr` upstream).
+    public var bpm: Int
+    public init(ts: Int, bpm: Int) {
+        self.ts = ts
+        self.bpm = bpm
     }
 }
 
@@ -248,7 +281,7 @@ public enum ActivityFileImporter {
             let a = ActivityFile(
                 kind: kind, start: now, end: now, sport: sportHint,
                 distanceM: dist, energyKcal: summaryEnergyKcal,
-                avgHr: summaryAvgHr, maxHr: summaryMaxHr,
+                steps: nil, avgHr: summaryAvgHr, maxHr: summaryMaxHr,
                 ascentM: summaryAscentM, gpsPointCount: route.count,
                 hrSampleCount: 0, route: cappedRoute(route)
             )
@@ -270,12 +303,17 @@ public enum ActivityFileImporter {
             sport: sportHint,
             distanceM: distance,
             energyKcal: summaryEnergyKcal,
+            steps: nil,
             avgHr: avg,
             maxHr: mx,
             ascentM: ascent,
             gpsPointCount: route.count,
             hrSampleCount: hrs.count,
-            route: cappedRoute(route)
+            route: cappedRoute(route),
+            // #137: carry the real per-sample HR through (only timestamped+HR samples survive). The
+            // no-timestamp fallback path above intentionally leaves this empty — those samples have no
+            // epoch to key into the HR store.
+            hrSamples: hrSamples(from: samples)
         )
         return ActivityFileImportResult(activity: a, kind: kind, skipped: skipped)
     }
@@ -286,6 +324,32 @@ public enum ActivityFileImporter {
         var point: RoutePoint?
         var elevationM: Double?
         var hr: Int?
+    }
+
+    /// #137: fold the parsed track samples into the persisted HR series. SHARED by every format path
+    /// (GPX/TCX via `build`, FIT via `FitParser.buildResult`) so the three decode to a byte-identical
+    /// HR stream and stay in parity with the Kotlin twin. A sample is kept only when it carried BOTH a
+    /// timestamp and a valid HR: without a time it can't key into the (deviceId, ts) HR store, and
+    /// without HR there's nothing to store. The epoch is finite/range-checked BEFORE the `Int(Double)`
+    /// conversion (never a trapping cast — mirrors the importer's other numeric guards); the upper
+    /// bound is the same 2100-01-01 sanity ceiling `FitParser`/`fitDate` uses, so a crafted file with
+    /// an absurd timestamp is dropped, not stored.
+    ///
+    /// `ts` is `Int(secs)` — a TRUNCATION toward the whole second, not `.rounded()`. This is a
+    /// byte-parity requirement, not a stylistic choice: `ts` is the `(deviceId, ts)` store key, and the
+    /// Kotlin twin derives its timestamp from `OffsetDateTime.toEpochSecond()`, which floors a
+    /// fractional-second timestamp. A GPX/TCX trackpoint like `…T08:00:00.500Z` keeps its fraction in the
+    /// Swift `Date` (parsed via `WhoopTime`'s fractional formatter); rounding it here would store `ts+1`
+    /// on Apple while Android stored `ts` — a 1-second divergence in a stored key. The guard above
+    /// pins `secs > 0`, so truncation-toward-zero equals the floor Kotlin uses. (FIT epochs are already
+    /// whole seconds, so this is a no-op there and only the sub-second XML formats were ever at risk.)
+    static func hrSamples(from samples: [TrackSample]) -> [ActivityHRSample] {
+        samples.compactMap { s in
+            guard let time = s.time, let hr = s.hr else { return nil }
+            let secs = time.timeIntervalSince1970
+            guard secs.isFinite, secs > 0, secs < 4_102_444_800 else { return nil }
+            return ActivityHRSample(ts: Int(secs), bpm: hr)
+        }
     }
 
     // MARK: - Geo / summary math
