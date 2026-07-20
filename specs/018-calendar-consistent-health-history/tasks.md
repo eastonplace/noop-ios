@@ -22,9 +22,9 @@
 ## Phase 4 — Verification and delivery
 
 - [x] T011 Run focused and full StrandDesign/StrandAnalytics tests from local scratch.
-- [ ] T012 Run relevant app tests and a clean signed iPhone Release build.
+- [x] T012 Run relevant app tests and a clean signed iPhone Release build.
 - [ ] T013 Install in place without reset/seed and visually QA Strain, Recovery, and Trends on iPhone.
-- [ ] T014 Record exact results and remaining gates in `qa/verification.md` and `TASKS.md`.
+- [x] T014 Record exact results and remaining gates in `qa/verification.md` and `TASKS.md`.
 
 ## Phase 5 — July 20 alignment follow-up
 
