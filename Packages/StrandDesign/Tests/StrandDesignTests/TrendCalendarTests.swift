@@ -176,6 +176,24 @@ final class TrendCalendarTests: XCTestCase {
         XCTAssertEqual(TrendCalendar.unitPosition(of: sunday, in: domain), 1, accuracy: 0.0001)
     }
 
+    func testCurrentWeekdayIndexIsMondayFirstAndPlacesSundayLast() throws {
+        XCTAssertEqual(
+            TrendCalendar.mondayFirstWeekdayIndex(for: try date(2026, 7, 13), calendar: calendar),
+            0
+        )
+        XCTAssertEqual(
+            TrendCalendar.mondayFirstWeekdayIndex(for: try date(2026, 7, 19), calendar: calendar),
+            6
+        )
+    }
+
+    func testRangeAverageHeadingsAreExactAndRangeAware() {
+        XCTAssertEqual(TrendRange.week.averageHeading, "AVERAGE · LAST 7 DAYS")
+        XCTAssertEqual(TrendRange.month.averageHeading, "AVERAGE · LAST 30 DAYS")
+        XCTAssertEqual(TrendRange.quarter.averageHeading, "AVERAGE · LAST 90 DAYS")
+        XCTAssertEqual(TrendRange.half.averageHeading, "AVERAGE · LAST 180 DAYS")
+    }
+
     private func date(_ year: Int, _ month: Int, _ day: Int) throws -> Date {
         try XCTUnwrap(calendar.date(from: DateComponents(year: year, month: month, day: day)))
     }

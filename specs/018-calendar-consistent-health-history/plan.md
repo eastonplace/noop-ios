@@ -6,9 +6,15 @@
 4. Move the Trends range chart to dated points/domains and calculate weekday averages from the selected range.
 5. Run package/app tests from local scratch, build a clean signed Release, install in place, and visually QA on iPhone.
 
+## July 20 alignment follow-up
+
+1. Union persisted canonical V2 Strain days with merged daily rows so every surface receives the same complete dated series.
+2. Re-run a versioned, resumable source-backed history pass to fill canonical V2 days where raw HR exists; leave unsupported days empty.
+3. Make Trends emphasize only the real current weekday/current heatmap date and remove maximum-average styling.
+4. Make the average heading reflect the exact 7/30/90/180-day range, then repeat signed in-place iPhone QA.
+
 ## Gates
 
 - Work from isolated branch head `33502829d9a82163a353da2efe4d802aef510077`.
 - Preserve Spec 014's five-week heatmap behavior.
 - No merge without exact-source build evidence and physical-iPhone screenshots.
-

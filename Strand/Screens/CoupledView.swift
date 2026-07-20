@@ -714,8 +714,8 @@ struct PaperPillarDetailView: View {
         case .charge:
             return repo.days.compactMap { day in day.recovery.map { (day.day, $0) } }
         case .effort:
-            return repo.days.compactMap { day in
-                guard let stored = repo.canonicalStrain(for: day.day)?.storedValue else { return nil }
+            return repo.canonicalDays.compactMap { day in
+                guard let stored = day.strain else { return nil }
                 return (day.day, StrainScale.displayValue(fromStored: stored))
             }
         case .rest:

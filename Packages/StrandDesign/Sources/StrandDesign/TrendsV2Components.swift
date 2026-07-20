@@ -5,8 +5,8 @@ import SwiftUI
 // The Trends tab, re-spoken in the Sleep/Stress paper dialect. Detail in every layer:
 // the hero panel shades your typical zone behind the line, rules the dashed baseline,
 // and scrubs under a finger with the shared crosshair/tooltip grammar; a month reads as
-// a heat grid with the best day ringed; delta rows ride the production Sparkline; and
-// the weekday read carries its own average rule and names the strongest day. Replaces
+// a heat grid with today ringed; delta rows ride the production Sparkline; and
+// the weekday read carries its own average rule and marks the current weekday. Replaces
 // the older lab Trends grammar (ordinal 4) rather than editing it, so both generations
 // stay reviewable side by side. Fixture-only.
 
@@ -27,6 +27,10 @@ public enum TrendRange: String, CaseIterable, Identifiable {
         case .quarter: 90
         case .half: 180
         }
+    }
+
+    public var averageHeading: String {
+        "AVERAGE · LAST \(days) DAYS"
     }
 
     public var startLabel: String {
@@ -375,6 +379,13 @@ public struct TrendCalendarBest: Equatable, Sendable {
 /// Pure calendar layout and aggregation used by Trends. Calendar arithmetic is
 /// intentionally centralized here so chart views never compact away missing dates.
 public enum TrendCalendar {
+    public static func mondayFirstWeekdayIndex(
+        for date: Date,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> Int {
+        (calendar.component(.weekday, from: date) + 5) % 7
+    }
+
     public static func buildRollingWindow(
         observations: [CalendarMetricDay],
         through referenceDate: Date,
@@ -510,8 +521,7 @@ public enum TrendCalendar {
         var values = Array(repeating: [Double](), count: 7)
         for day in days {
             guard let value = day.value else { continue }
-            let weekday = calendar.component(.weekday, from: day.date)
-            let mondayFirstIndex = (weekday + 5) % 7
+            let mondayFirstIndex = mondayFirstWeekdayIndex(for: day.date, calendar: calendar)
             values[mondayFirstIndex].append(value)
         }
         return values.map { bucket in
@@ -536,8 +546,7 @@ public enum TrendCalendar {
     }
 }
 
-/// The last 35 days as a heat grid, Monday columns, best day ringed. Colour carries
-/// intensity; the ring and the caption carry meaning without colour (a11y rule).
+/// The last 35 days as a heat grid with Monday columns and the real current day ringed.
 public struct TrendMonthHeat: View {
     /// Exactly five Monday-first calendar weeks. Missing dates remain present with nil values.
     let days: [TrendCalendarDay]
@@ -580,7 +589,7 @@ public struct TrendMonthHeat: View {
         let lo = values.min() ?? 0
         let hi = values.max() ?? 1
         let span = max(hi - lo, 0.0001)
-        let bestDate = TrendCalendar.best(in: days, relativeTo: referenceDate, calendar: calendar)?.date
+        let today = calendar.startOfDay(for: referenceDate)
 
         return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 7), spacing: 4) {
             ForEach(days) { day in
@@ -589,7 +598,7 @@ public struct TrendMonthHeat: View {
                     .fill(cellColor(for: day, low: lo, span: span))
                     .frame(height: 22)
                     .overlay {
-                        if bestDate.map({ calendar.isDate($0, inSameDayAs: day.date) }) == true {
+                        if calendar.isDate(today, inSameDayAs: day.date) {
                             RoundedRectangle(cornerRadius: 4, style: .continuous)
                                 .stroke(StrandPalette.textPrimary.opacity(0.6), lineWidth: 1.2)
                         }
@@ -687,6 +696,8 @@ public struct TrendWeekdayBars: View {
     /// Seven optional averages, Monday-first, on the metric's own scale.
     let values: [Double?]
     let tint: Color
+    let referenceDate: Date
+    let calendar: Calendar
     var valueFormat: (Double) -> String
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -704,7 +715,9 @@ public struct TrendWeekdayBars: View {
             let bottom = scored.min() ?? 0
             let span = max(top - bottom, 0.0001)
             let average = scored.isEmpty ? 0 : scored.reduce(0, +) / Double(scored.count)
-            let best = values.firstIndex(where: { $0 == top })
+            let currentWeekday = TrendCalendar.mondayFirstWeekdayIndex(
+                for: referenceDate, calendar: calendar
+            )
             let plotHeight = proxy.size.height - 30
             let heightOf: (Double) -> CGFloat = { value in
                 max(6, CGFloat(0.25 + 0.75 * (value - bottom) / span) * plotHeight)
@@ -731,15 +744,8 @@ public struct TrendWeekdayBars: View {
                     let value = values[index]
                     let height = value.map(heightOf) ?? 6
                     let x = slot * CGFloat(index) + slot / 2
-                    if index == best, let value {
-                        Text(valueFormat(value))
-                            .font(StrandFont.micro.weight(.bold))
-                            .monospacedDigit()
-                            .foregroundStyle(StrandPalette.textPrimary)
-                            .position(x: x, y: 12 + plotHeight - height - 8)
-                    }
                     Capsule(style: .continuous)
-                        .fill(value == nil ? StrandPalette.surfaceInset : tint.opacity(index == best ? 1 : 0.5))
+                        .fill(barColor(value: value, isCurrent: index == currentWeekday))
                         .frame(width: barWidth, height: revealed ? height : 6)
                         .position(x: x, y: 12 + plotHeight - (revealed ? height : 6) / 2)
                         .animation(
@@ -748,7 +754,8 @@ public struct TrendWeekdayBars: View {
                         )
                     Text(Self.labels[index % 7])
                         .font(StrandFont.micro)
-                        .foregroundStyle(index == best ? StrandPalette.textPrimary : StrandPalette.textTertiary)
+                        .foregroundStyle(index == currentWeekday
+                            ? StrandPalette.textPrimary : StrandPalette.textTertiary)
                         .position(x: x, y: 12 + plotHeight + 10)
                 }
             }
@@ -759,10 +766,19 @@ public struct TrendWeekdayBars: View {
         .accessibilityLabel(accessibilitySummary)
     }
 
+    private func barColor(value: Double?, isCurrent: Bool) -> Color {
+        guard value != nil else {
+            return isCurrent ? StrandPalette.textPrimary.opacity(0.16) : StrandPalette.surfaceInset
+        }
+        return tint.opacity(isCurrent ? 1 : 0.5)
+    }
+
     private var accessibilitySummary: String {
-        let scored = values.compactMap { $0 }
-        guard let top = scored.max(), let index = values.firstIndex(where: { $0 == top }) else { return "No weekday data." }
         let names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-        return "By weekday, strongest \(names[index % 7]) at \(valueFormat(top))."
+        let current = TrendCalendar.mondayFirstWeekdayIndex(for: referenceDate, calendar: calendar)
+        let summary = zip(names, values).map { name, value in
+            "\(name) \(value.map(valueFormat) ?? "missing")"
+        }.joined(separator: ", ")
+        return "Average by weekday. Today is \(names[current]). \(summary)."
     }
 }

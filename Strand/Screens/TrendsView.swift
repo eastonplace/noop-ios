@@ -157,6 +157,8 @@ struct TrendsView: View {
         _weekOffset = State(initialValue: min(0, initialWeekOffset))
     }
 
+    private var trendReferenceDate: Date { Calendar.current.startOfDay(for: Date()) }
+
     private func date(_ day: String) -> Date? { localDate(day) }
 
     /// All calendar-shaped presentation uses one local civil-date conversion. A repository key is a
@@ -296,7 +298,7 @@ struct TrendsView: View {
 
     private var paperScoresOverTime: some View {
         let series = paperTrendSeries
-        let referenceDate = Calendar.current.startOfDay(for: Date())
+        let referenceDate = trendReferenceDate
         let selectedPoints = selectedTrendPoints
         let selectedDateDomain = TrendCalendar.dateDomain(
             through: referenceDate, count: selectedRange.days, calendar: .current
@@ -349,12 +351,17 @@ struct TrendsView: View {
                        format: { "\(Int($0.rounded())) ms" })
             if !weekdayAverages.compactMap({ $0 }).isEmpty {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("AVERAGE BY WEEKDAY").strandOverline()
-                    Text("Last \(selectedRange.days) calendar days")
+                    Text(selectedRange.averageHeading).strandOverline()
+                    Text("By weekday · \(selectedRange.days) calendar days")
                         .font(StrandFont.micro)
                         .foregroundStyle(StrandPalette.textSecondary)
                 }
-                TrendWeekdayBars(values: weekdayAverages, tint: selectedMetric.tint)
+                TrendWeekdayBars(
+                    values: weekdayAverages,
+                    tint: selectedMetric.tint,
+                    referenceDate: referenceDate,
+                    calendar: .current
+                )
                     .frame(height: 150)
             }
         }
@@ -571,7 +578,7 @@ struct TrendsView: View {
     }
 
     private var weekAnchorDay: String {
-        WeeklyDigestEngine.addDays(Repository.localDayKey(Date()), weekOffset * 7)
+        WeeklyDigestEngine.addDays(Repository.localDayKey(trendReferenceDate), weekOffset * 7)
     }
 
     private func stepWeek(_ delta: Int) {

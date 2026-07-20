@@ -469,11 +469,7 @@ final class Repository: ObservableObject {
     /// need a complete multi-metric row (reports, digests, charts) use this instead of
     /// reading the merged row's imported or legacy strain field directly.
     var canonicalDays: [DailyMetric] {
-        days.map { day in
-            let resolved = canonicalStrain(for: day.day)
-            return day.replacing(strain: .some(resolved?.storedValue),
-                                 strainVersion: .some(resolved?.version))
-        }
+        DailyMetric.projectingCanonicalStrain(days, resolvedByDay: canonicalStrainByDay)
     }
 
     func canonicalStrainSeries(from: String, to: String) -> [ResolvedStrain] {

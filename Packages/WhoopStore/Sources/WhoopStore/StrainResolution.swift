@@ -106,6 +106,32 @@ public enum StrainResolver {
 }
 
 public extension DailyMetric {
+    /// Projects the complete canonical Strain map onto the merged daily rows.
+    /// A persisted V2 score may outlive or precede a merged dashboard row, so the
+    /// union must be keyed by civil day rather than limited to the dashboard array.
+    static func projectingCanonicalStrain(
+        _ days: [DailyMetric],
+        resolvedByDay: [String: ResolvedStrain]
+    ) -> [DailyMetric] {
+        var rowsByDay = Dictionary(days.map { ($0.day, $0) }, uniquingKeysWith: { _, last in last })
+        for key in resolvedByDay.keys where rowsByDay[key] == nil {
+            rowsByDay[key] = DailyMetric(
+                day: key, totalSleepMin: nil, efficiency: nil, deepMin: nil,
+                remMin: nil, lightMin: nil, disturbances: nil, restingHr: nil,
+                avgHrv: nil, recovery: nil, strain: nil, exerciseCount: nil
+            )
+        }
+        return rowsByDay.values
+            .map { day in
+                let resolved = resolvedByDay[day.day]
+                return day.replacing(
+                    strain: .some(resolved?.storedValue),
+                    strainVersion: .some(resolved?.version)
+                )
+            }
+            .sorted { $0.day < $1.day }
+    }
+
     /// Copy with explicit tri-state optionals: omitted preserves, `.some(nil)` clears,
     /// and `.some(value)` replaces. This prevents new fields from silently falling back
     /// to memberwise-initializer defaults in merge/edit paths.

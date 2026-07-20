@@ -60,4 +60,35 @@ final class StrainResolutionTests: XCTestCase {
         XCTAssertEqual(StrainResolver.canonicalDay(day: "2026-07-18", computedRows: [persisted],
                                                    importedRows: [], live: fresh)?.storedValue, 64)
     }
+
+    func testCanonicalProjectionIncludesResolvedDaysMissingFromMergedRows() throws {
+        let merged = [day("2026-07-19", strain: 12, version: nil, sleep: 420)]
+        let resolved = [
+            "2026-07-18": ResolvedStrain(
+                day: "2026-07-18", storedValue: 42, version: 2,
+                origin: .computedDailyV2, sourceId: "strap-noop"),
+            "2026-07-19": ResolvedStrain(
+                day: "2026-07-19", storedValue: 62, version: 2,
+                origin: .liveDayV2, sourceId: "live")
+        ]
+
+        let projected = DailyMetric.projectingCanonicalStrain(merged, resolvedByDay: resolved)
+
+        XCTAssertEqual(projected.map(\.day), ["2026-07-18", "2026-07-19"])
+        XCTAssertEqual(projected.map(\.strain), [42, 62])
+        XCTAssertEqual(projected.map(\.strainVersion), [2, 2])
+        XCTAssertNil(projected.first?.totalSleepMin)
+        XCTAssertEqual(projected.last?.totalSleepMin, 420)
+    }
+
+    func testCanonicalProjectionClearsLegacyStrainWithoutCanonicalV2() {
+        let projected = DailyMetric.projectingCanonicalStrain(
+            [day("2026-07-17", strain: 88, version: nil)],
+            resolvedByDay: [:]
+        )
+
+        XCTAssertEqual(projected.count, 1)
+        XCTAssertNil(projected[0].strain)
+        XCTAssertNil(projected[0].strainVersion)
+    }
 }
