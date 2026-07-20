@@ -157,18 +157,12 @@ struct TrendsView: View {
         _weekOffset = State(initialValue: min(0, initialWeekOffset))
     }
 
-    // yyyy-MM-dd → Date (en_US_POSIX, UTC), per task spec.
-    private static let dayParser: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = TimeZone(identifier: "UTC")
-        f.dateFormat = "yyyy-MM-dd"
-        return f
-    }()
-    private func date(_ day: String) -> Date? { Self.dayParser.date(from: day) }
+    private var trendReferenceDate: Date { Calendar.current.startOfDay(for: Date()) }
 
-    /// Calendar heatmaps use local civil dates. The UTC parser above remains correct for line-chart
-    /// timestamps, but normalizing UTC midnight in a western timezone would shift every cell back a day.
+    private func date(_ day: String) -> Date? { localDate(day) }
+
+    /// All calendar-shaped presentation uses one local civil-date conversion. A repository key is a
+    /// civil day, not an instant; parsing it at UTC midnight shifts the apparent weekday in western zones.
     private func localDate(_ day: String, calendar: Calendar = .autoupdatingCurrent) -> Date? {
         let pieces = day.split(separator: "-").compactMap { Int($0) }
         guard pieces.count == 3 else { return nil }
@@ -220,7 +214,7 @@ struct TrendsView: View {
         }
         // #436 — present the offline trends-report exporter (range picker + PDF export).
         .sheet(isPresented: $showingReport) {
-            TrendsReportSheet(days: repo.days)
+            TrendsReportSheet(days: repo.canonicalDays)
         }
         // #732 — load the resolved sleep_performance series so Sleep plots the SAME composite the Today
         // Sleep score uses (not raw efficiency). Mirrors TodayView's restScore read. Keyed on the day
@@ -241,12 +235,12 @@ struct TrendsView: View {
     // MARK: - Paper Trends (S2)
 
     private var paperDigest: WeeklyDigest {
-        WeeklyDigestSource.digest(from: repo.days, anchorDay: weekAnchorDay)
+        WeeklyDigestSource.digest(from: repo.canonicalDays, anchorDay: weekAnchorDay)
     }
 
     private var paperWeekDays: [DailyMetric] {
         let digest = paperDigest
-        return repo.days.filter { $0.day >= digest.weekStart && $0.day <= digest.weekEnd }
+        return repo.canonicalDays.filter { $0.day >= digest.weekStart && $0.day <= digest.weekEnd }
     }
 
     private var paperWeekDates: [Date] { paperWeekDays.compactMap { date($0.day) } }
@@ -304,13 +298,16 @@ struct TrendsView: View {
 
     private var paperScoresOverTime: some View {
         let series = paperTrendSeries
-        let selectedValues = selectedTrendPoints.map(\.value)
-        let referenceDate = Date()
+        let referenceDate = trendReferenceDate
+        let selectedPoints = selectedTrendPoints
+        let selectedDateDomain = TrendCalendar.dateDomain(
+            through: referenceDate, count: selectedRange.days, calendar: .current
+        ) ?? referenceDate...referenceDate
         let calendarDays = TrendCalendar.buildFiveWeekWindow(
             observations: selectedTrendCalendarObservations,
             through: referenceDate
         )
-        let weekdayAverages = TrendCalendar.weekdayAverages(calendarDays)
+        let weekdayAverages = TrendCalendar.weekdayAverages(selectedTrendCalendarDays)
         let baseline = selectedTrendBaseline
         let spread = max(selectedTrendSpread, 0.5)
         let typical = (baseline - spread)...(baseline + spread)
@@ -322,9 +319,12 @@ struct TrendsView: View {
                     rangeChip(range)
                 }
             }
-            if !selectedValues.isEmpty {
+            if !selectedPoints.isEmpty {
                 TrendPanelChart(
-                    values: selectedValues,
+                    days: selectedTrendCalendarDays,
+                    dateDomain: selectedDateDomain,
+                    referenceDate: referenceDate,
+                    calendar: .current,
                     baseline: baseline,
                     typical: typical,
                     tint: selectedMetric.tint,
@@ -350,26 +350,43 @@ struct TrendsView: View {
             trendV2Row("HRV", points: series.hrv, tint: StrandPalette.metricPurple,
                        format: { "\(Int($0.rounded())) ms" })
             if !weekdayAverages.compactMap({ $0 }).isEmpty {
-                TrendWeekdayBars(values: weekdayAverages, tint: selectedMetric.tint)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(selectedRange.averageHeading).strandOverline()
+                    Text("By weekday · \(selectedRange.days) calendar days")
+                        .font(StrandFont.micro)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                }
+                TrendWeekdayBars(
+                    values: weekdayAverages,
+                    tint: selectedMetric.tint,
+                    referenceDate: referenceDate,
+                    calendar: .current
+                )
                     .frame(height: 150)
             }
         }
     }
 
     private var selectedTrendPoints: [TrendPoint] {
-        let apple = Dictionary(appleDays.map { ($0.day, $0) }, uniquingKeysWith: { _, last in last })
-        return repo.days.suffix(selectedRange.days).compactMap { day in
-            guard let stamp = date(day.day) else { return nil }
-            let value = selectedMetricValue(for: day, apple: apple)
-            return value.map { TrendPoint(date: stamp, value: $0) }
+        selectedTrendCalendarDays.compactMap { day in
+            day.value.map { TrendPoint(date: day.date, value: $0) }
         }
     }
 
-    private var selectedTrendCalendarObservations: [TrendCalendarDay] {
+    private var selectedTrendCalendarDays: [CalendarMetricDay] {
+        TrendCalendar.buildRollingWindow(
+            observations: selectedTrendCalendarObservations,
+            through: trendReferenceDate,
+            count: selectedRange.days,
+            calendar: .current
+        )
+    }
+
+    private var selectedTrendCalendarObservations: [CalendarMetricDay] {
         let apple = Dictionary(appleDays.map { ($0.day, $0) }, uniquingKeysWith: { _, last in last })
-        return repo.days.compactMap { day in
+        return repo.canonicalDays.compactMap { day in
             guard let stamp = localDate(day.day) else { return nil }
-            return TrendCalendarDay(date: stamp, value: selectedMetricValue(for: day, apple: apple))
+            return CalendarMetricDay(date: stamp, value: selectedMetricValue(for: day, apple: apple))
         }
     }
 
@@ -561,7 +578,7 @@ struct TrendsView: View {
     }
 
     private var weekAnchorDay: String {
-        WeeklyDigestEngine.addDays(Repository.localDayKey(Date()), weekOffset * 7)
+        WeeklyDigestEngine.addDays(Repository.localDayKey(trendReferenceDate), weekOffset * 7)
     }
 
     private func stepWeek(_ delta: Int) {

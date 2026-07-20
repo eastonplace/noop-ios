@@ -469,7 +469,7 @@ struct StartWorkoutSheet: View {
                         SectionHeader("Last workout")
                         PaperCard {
                             HStack(spacing: 12) {
-                                if let effort = last.strain {
+                                if let effort = StrainResolver.canonicalWorkout(last)?.storedValue {
                                     ScoreRing(value: StrainScale.displayValue(fromStored: effort), range: 0...21,
                                               accent: StrandPalette.effortAccent,
                                               size: 56, lineWidth: 4,

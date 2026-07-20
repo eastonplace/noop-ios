@@ -63,7 +63,9 @@ struct CoupledView: View {
 
     /// Strain strain on NOOP's 0–100 axis for the day (stored row; no live recompute here, this is a
     /// glance screen, not the primary Today hero). nil when the day has no scored Strain.
-    private var strain100: Double? { day?.strain }
+    private var strain100: Double? {
+        day.flatMap { repo.canonicalStrain(for: $0.day)?.storedValue }
+    }
 
     /// Day strain mapped onto the 0–21 coupled axis through the single display-boundary converter.
     private var dayStrain21: Double? {
@@ -687,6 +689,7 @@ enum PaperPillarDetailKind: String, Identifiable {
 /// daily/workout rows for display; scoring, storage, and workout routing remain unchanged.
 struct PaperPillarDetailView: View {
     let kind: PaperPillarDetailKind
+    let anchorDayKey: String
 
     @EnvironmentObject private var repo: Repository
     @StateObject private var profile = ProfileStore()
@@ -711,8 +714,9 @@ struct PaperPillarDetailView: View {
         case .charge:
             return repo.days.compactMap { day in day.recovery.map { (day.day, $0) } }
         case .effort:
-            return repo.days.compactMap { day in
-                day.strain.map { (day.day, StrainScale.displayValue(fromStored: $0)) }
+            return repo.canonicalDays.compactMap { day in
+                guard let stored = day.strain else { return nil }
+                return (day.day, StrainScale.displayValue(fromStored: stored))
             }
         case .rest:
             return repo.days.compactMap { day in
@@ -727,11 +731,32 @@ struct PaperPillarDetailView: View {
         }
     }
 
-    private var latest: Double? { rows.last?.value }
-    private var yesterday: Double? { rows.dropLast().last?.value }
-    private var baseline: Double? { mean(rows.dropLast().suffix(28).map(\.value)) }
-    private var sevenDayAverage: Double? { mean(rows.suffix(7).map(\.value)) }
-    private var latestDay: DailyMetric? { repo.days.last }
+    private var calendar: Calendar { Calendar.current }
+    private var anchorDate: Date {
+        Self.dayFormatter.date(from: anchorDayKey) ?? calendar.startOfDay(for: Date())
+    }
+    private var metricDays: [CalendarMetricDay] {
+        rows.compactMap { row in
+            Self.dayFormatter.date(from: row.day).map { CalendarMetricDay(date: $0, value: row.value) }
+        }
+    }
+    private var latest: Double? { TrendCalendar.value(on: anchorDate, in: metricDays, calendar: calendar) }
+    private var yesterday: Double? {
+        guard let date = calendar.date(byAdding: .day, value: -1, to: anchorDate) else { return nil }
+        return TrendCalendar.value(on: date, in: metricDays, calendar: calendar)
+    }
+    private var sevenDayWindow: [CalendarMetricDay] {
+        TrendCalendar.buildRollingWindow(observations: metricDays, through: anchorDate, count: 7,
+                                         calendar: calendar)
+    }
+    private var baselineWindow: [CalendarMetricDay] {
+        guard let dayBefore = calendar.date(byAdding: .day, value: -1, to: anchorDate) else { return [] }
+        return TrendCalendar.buildRollingWindow(observations: metricDays, through: dayBefore, count: 28,
+                                                calendar: calendar)
+    }
+    private var baseline: Double? { TrendCalendar.mean(of: baselineWindow) }
+    private var sevenDayAverage: Double? { TrendCalendar.mean(of: sevenDayWindow) }
+    private var latestDay: DailyMetric? { repo.days.last(where: { $0.day == anchorDayKey }) }
     private var stressModel: StressModel? { StressModel(days: repo.days, stored: storedStress) }
 
     var body: some View {
@@ -832,10 +857,10 @@ struct PaperPillarDetailView: View {
     /// The existing factor/action sections remain below it so no unique production
     /// metric (especially respiratory rate) disappears during the visual adoption.
     private var recoveryLibraryOverview: some View {
-        let history = Array(rows.suffix(14).enumerated()).map {
-            RecoveryHistoryDay(id: $0.offset, score: $0.element.value)
-        }
-        let previous30 = Array(rows.dropLast().suffix(30).map(\.value))
+        let history = TrendCalendar.buildRollingWindow(
+            observations: metricDays, through: anchorDate, count: 14, calendar: calendar
+        )
+        let previous30 = baselineWindow.compactMap(\.value)
         let current = latest
         let percentile: Double = {
             guard let current, !previous30.isEmpty else { return 0 }
@@ -871,7 +896,7 @@ struct PaperPillarDetailView: View {
                 RecoveryDriverWeight(id: "temp", label: "Temp", weight: RecoveryScorer.wSkinTemp,
                                      color: StrandPalette.metricAmber),
             ])
-            if !history.isEmpty { RecoveryHistoryStrip(days: history) }
+            RecoveryHistoryStrip(days: history, anchorDate: anchorDate, calendar: calendar)
         }
     }
 
@@ -882,11 +907,11 @@ struct PaperPillarDetailView: View {
         let displayed = latest ?? 0
         let targetInts = CoupledView.optimalStrainRange(recovery: latestDay?.recovery) ?? 0...21
         let target = Double(targetInts.lowerBound)...Double(targetInts.upperBound)
-        let history = Array(rows.suffix(7).enumerated()).map {
-            StrainWeekDay(id: $0.offset, strain: $0.element.value)
-        }
+        let history = TrendCalendar.buildWeekWindow(
+            observations: metricDays, containing: anchorDate, calendar: calendar
+        )
         let scoredWorkouts = detailWorkouts.compactMap { workout -> (WorkoutRow, Double)? in
-            guard let stored = workout.strain else { return nil }
+            guard let stored = StrainResolver.canonicalWorkout(workout)?.storedValue else { return nil }
             return (workout, StrainScale.displayValue(fromStored: stored))
         }
         return VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
@@ -895,7 +920,8 @@ struct PaperPillarDetailView: View {
                 target: target,
                 sevenDayAverage: sevenDayAverage ?? displayed
             )
-            if !history.isEmpty { StrainWeekStrip(days: history, target: target) }
+            StrainWeekStrip(days: history, target: target, anchorDate: anchorDate,
+                            referenceDate: calendar.startOfDay(for: Date()), calendar: calendar)
             if !scoredWorkouts.isEmpty {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("ACTIVITIES").strandOverline()
@@ -951,15 +977,17 @@ struct PaperPillarDetailView: View {
                     .tracking(StrandFont.sectionOverlineTracking)
                     .foregroundStyle(StrandPalette.textSecondary)
                 Chart {
-                    ForEach(Array(rows.suffix(14).enumerated()), id: \.offset) { _, item in
-                        if let date = Self.dayFormatter.date(from: item.day) {
-                            LineMark(x: .value("Day", date), y: .value("Score", item.value))
+                    ForEach(TrendCalendar.buildRollingWindow(
+                        observations: metricDays, through: anchorDate, count: 14, calendar: calendar
+                    )) { item in
+                        if let value = item.value {
+                            LineMark(x: .value("Day", item.date), y: .value("Score", value))
                                 .foregroundStyle(kind == .charge ? StrandPalette.recoveryData : accent)
                                 .lineStyle(StrokeStyle(lineWidth: NoopMetrics.chartLineWidth,
                                                        lineCap: .round, lineJoin: .round))
-                            PointMark(x: .value("Day", date), y: .value("Score", item.value))
+                            PointMark(x: .value("Day", item.date), y: .value("Score", value))
                                 .foregroundStyle(kind == .charge
-                                    ? RecoveryBands.color(for: item.value) : accent)
+                                    ? RecoveryBands.color(for: value) : accent)
                                 .symbolSize(12)
                         }
                     }
@@ -1332,7 +1360,7 @@ struct PaperPillarDetailView: View {
     }
 
     private var detailDayKey: String {
-        repo.today?.day ?? latestDay?.day ?? Repository.logicalDayKey(Date())
+        anchorDayKey
     }
 
     private var detailAppleDay: AppleDaily? {
@@ -1541,15 +1569,14 @@ struct PaperPillarDetailView: View {
     }
 
     private var detailDateLabel: String {
-        guard let key = latestDay?.day, let date = Self.dayFormatter.date(from: key) else {
-            return Self.headerDateFormatter.string(from: Date())
-        }
-        return Self.headerDateFormatter.string(from: date)
+        Self.headerDateFormatter.string(from: anchorDate)
     }
 
     private static let dayFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = .current
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter
     }()

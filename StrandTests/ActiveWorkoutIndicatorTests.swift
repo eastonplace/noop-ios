@@ -10,7 +10,8 @@ final class ActiveWorkoutIndicatorTests: XCTestCase {
         // No workout -> no indicator (the card renders nothing).
         XCTAssertNil(ActiveWorkoutIndicatorModel.make(from: nil))
 
-        var workout = AppModel.ActiveWorkout(start: Date(timeIntervalSince1970: 100))
+        var workout = AppModel.ActiveWorkout(start: Date(timeIntervalSince1970: 100),
+                                              sport: "Cycling", maxHR: 190)
         workout.sport = "Cycling"
         let model = ActiveWorkoutIndicatorModel.make(from: workout)
 
@@ -30,7 +31,8 @@ final class ActiveWorkoutIndicatorTests: XCTestCase {
 
     func testClearingRouteAndWorkoutStateLeavesNoStaleRequest() {
         let router = NavRouter()
-        var workout = AppModel.ActiveWorkout(start: Date(timeIntervalSince1970: 200))
+        var workout = AppModel.ActiveWorkout(start: Date(timeIntervalSince1970: 200),
+                                              sport: "Rowing", maxHR: 190)
         workout.sport = "Rowing"
 
         XCTAssertNil(router.requestedDestination)

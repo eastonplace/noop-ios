@@ -5,8 +5,8 @@ import SwiftUI
 // The Trends tab, re-spoken in the Sleep/Stress paper dialect. Detail in every layer:
 // the hero panel shades your typical zone behind the line, rules the dashed baseline,
 // and scrubs under a finger with the shared crosshair/tooltip grammar; a month reads as
-// a heat grid with the best day ringed; delta rows ride the production Sparkline; and
-// the weekday read carries its own average rule and names the strongest day. Replaces
+// a heat grid with today ringed; delta rows ride the production Sparkline; and
+// the weekday read carries its own average rule and marks the current weekday. Replaces
 // the older lab Trends grammar (ordinal 4) rather than editing it, so both generations
 // stay reviewable side by side. Fixture-only.
 
@@ -29,6 +29,10 @@ public enum TrendRange: String, CaseIterable, Identifiable {
         }
     }
 
+    public var averageHeading: String {
+        "AVERAGE · LAST \(days) DAYS"
+    }
+
     public var startLabel: String {
         switch self {
         case .week: "7d ago"
@@ -49,7 +53,11 @@ public enum TrendRange: String, CaseIterable, Identifiable {
 // MARK: - TrendPanelChart
 
 public struct TrendPanelChart: View {
-    let values: [Double]
+    /// One fixed slot per calendar day. Nil values stay selectable as honest gaps.
+    let days: [CalendarMetricDay]
+    let dateDomain: ClosedRange<Date>
+    let referenceDate: Date
+    let calendar: Calendar
     /// The long-run baseline the dashed rule sits on (e.g. the prior period's mean).
     let baseline: Double
     /// Your typical zone, shaded behind the line so deviation reads instantly.
@@ -61,8 +69,8 @@ public struct TrendPanelChart: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var revealed = false
-    /// Index under the finger while scrubbing, nil when idle.
-    @State private var scrubIndex: Int? = nil
+    /// Exact calendar slot under the finger while scrubbing, nil when idle.
+    @State private var scrubDay: CalendarMetricDay? = nil
     @State private var plotWidth: CGFloat = 1
 
     public var body: some View {
@@ -84,7 +92,11 @@ public struct TrendPanelChart: View {
         return unit == "%" ? "%" : " \(unit)"
     }
 
-    private var last: Double { values.last ?? 0 }
+    private var points: [TrendPoint] {
+        days.compactMap { day in day.value.map { TrendPoint(date: day.date, value: $0) } }
+    }
+    private var values: [Double] { points.map(\.value) }
+    private var last: Double { points.last?.value ?? 0 }
     private var delta: Double { last - baseline }
 
     private var deltaText: String {
@@ -99,12 +111,16 @@ public struct TrendPanelChart: View {
 
     private var header: some View {
         HStack {
-            if let scrubIndex, values.indices.contains(scrubIndex) {
-                Text("\(valueFormat(values[scrubIndex]))\(unitSuffix)")
+            if let scrubDay {
+                Text(scrubDay.value.map { "\(valueFormat($0))\(unitSuffix)" } ?? "No data")
                     .font(StrandFont.captionNumber)
                     .monospacedDigit()
-                    .foregroundStyle(tint)
-                Text(range.dayLabel(scrubIndex, of: values.count))
+                    .foregroundStyle(scrubDay.value == nil ? StrandPalette.textTertiary : tint)
+                Text(TrendCalendar.relativeLabel(
+                    for: scrubDay.date,
+                    relativeTo: referenceDate,
+                    calendar: calendar
+                ))
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textTertiary)
             } else {
@@ -121,7 +137,7 @@ public struct TrendPanelChart: View {
                 .font(StrandFont.captionNumber)
                 .foregroundStyle(deltaColor)
         }
-        .animation(StrandMotion.fade, value: scrubIndex)
+        .animation(StrandMotion.fade, value: scrubDay)
     }
 
     private var yRange: ClosedRange<Double> {
@@ -148,10 +164,11 @@ public struct TrendPanelChart: View {
     private func plotLayers(size: CGSize) -> some View {
         let yr = yRange
         let ySpan = max(yr.upperBound - yr.lowerBound, 0.0001)
-        let count = max(values.count, 1)
-        let xOf: (Int) -> CGFloat = { count <= 1 ? size.width / 2 : size.width * CGFloat($0) / CGFloat(count - 1) }
+        let xOf: (Date) -> CGFloat = {
+            size.width * CGFloat(TrendCalendar.unitPosition(of: $0, in: dateDomain))
+        }
         let yOf: (Double) -> CGFloat = { size.height - size.height * CGFloat(($0 - yr.lowerBound) / ySpan) }
-        let rendered = values.enumerated().map { (xOf($0.offset), yOf($0.element)) }
+        let rendered = points.map { (xOf($0.date), yOf($0.value)) }
 
         ZStack {
             // Typical zone, shaded behind everything with a quiet name at the top edge.
@@ -200,7 +217,7 @@ public struct TrendPanelChart: View {
                     )
             }
 
-            if revealed, scrubIndex == nil, let lastPoint = rendered.last {
+            if revealed, scrubDay == nil, let lastPoint = rendered.last {
                 Circle()
                     .fill(tint)
                     .frame(width: 8, height: 8)
@@ -210,25 +227,32 @@ public struct TrendPanelChart: View {
             }
 
             // Scrub crosshair + dot + tooltip — the shared readout grammar.
-            if let scrubIndex, rendered.indices.contains(scrubIndex) {
-                let point = rendered[scrubIndex]
+            if let scrubDay {
+                let scrubX = xOf(scrubDay.date)
+                let scrubY = scrubDay.value.map(yOf) ?? baselineY
                 RoundedRectangle(cornerRadius: 0.5)
                     .fill(StrandPalette.hairlineStrong)
                     .frame(width: 1, height: size.height)
-                    .position(x: point.0, y: size.height / 2)
-                Circle()
-                    .fill(tint)
-                    .frame(width: 9, height: 9)
-                    .overlay(Circle().stroke(StrandPalette.surfaceRaised, lineWidth: 1.5))
-                    .position(x: point.0, y: point.1)
+                    .position(x: scrubX, y: size.height / 2)
+                if scrubDay.value != nil {
+                    Circle()
+                        .fill(tint)
+                        .frame(width: 9, height: 9)
+                        .overlay(Circle().stroke(StrandPalette.surfaceRaised, lineWidth: 1.5))
+                        .position(x: scrubX, y: scrubY)
+                }
                 ChartTooltip(
-                    value: "\(valueFormat(values[scrubIndex]))\(unitSuffix)",
-                    label: range.dayLabel(scrubIndex, of: values.count),
-                    accent: tint
+                    value: scrubDay.value.map { "\(valueFormat($0))\(unitSuffix)" } ?? "No data",
+                    label: TrendCalendar.relativeLabel(
+                        for: scrubDay.date,
+                        relativeTo: referenceDate,
+                        calendar: calendar
+                    ),
+                    accent: scrubDay.value == nil ? nil : tint
                 )
                 .position(
                     ChartTooltipPlacement.position(
-                        anchor: CGPoint(x: point.0, y: point.1),
+                        anchor: CGPoint(x: scrubX, y: scrubY),
                         tooltipSize: CGSize(width: 104, height: 40),
                         in: size
                     )
@@ -240,26 +264,30 @@ public struct TrendPanelChart: View {
     private var scrubGesture: some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { drag in
-                guard plotWidth > 0, values.count > 1 else { return }
+                guard plotWidth > 0, !days.isEmpty else { return }
                 let fraction = min(max(Double(drag.location.x / plotWidth), 0), 1)
-                let index = Int((fraction * Double(values.count - 1)).rounded())
-                if index != scrubIndex {
+                guard let day = TrendCalendar.day(atUnitPosition: fraction, in: days) else { return }
+                if day != scrubDay {
                     var transaction = Transaction()
                     transaction.disablesAnimations = true
-                    withTransaction(transaction) { scrubIndex = index }
+                    withTransaction(transaction) { scrubDay = day }
                     StrandHaptic.selection.play()
                 }
             }
             .onEnded { _ in
-                withAnimation(StrandMotion.interactive) { scrubIndex = nil }
+                withAnimation(StrandMotion.interactive) { scrubDay = nil }
             }
     }
 
     private var axis: some View {
         HStack {
-            Text(range.startLabel)
+            Text(Self.axisFormatter.string(from: dateDomain.lowerBound))
             Spacer()
-            Text("Today")
+            Text(TrendCalendar.relativeLabel(
+                for: dateDomain.upperBound,
+                relativeTo: referenceDate,
+                calendar: calendar
+            ))
         }
         .font(StrandFont.micro)
         .foregroundStyle(StrandPalette.textTertiary)
@@ -305,8 +333,15 @@ public struct TrendPanelChart: View {
     }
 
     private var accessibilitySummary: String {
-        "Trend, latest \(valueFormat(last))\(unitSuffix), baseline \(valueFormat(baseline)), typical \(valueFormat(typical.lowerBound)) to \(valueFormat(typical.upperBound)), \(values.count) days shown."
+        "Trend, latest \(valueFormat(last))\(unitSuffix), baseline \(valueFormat(baseline)), typical \(valueFormat(typical.lowerBound)) to \(valueFormat(typical.upperBound)), \(points.count) scored days and \(days.filter { $0.value == nil }.count) missing days shown from \(Self.axisFormatter.string(from: dateDomain.lowerBound)) to \(Self.axisFormatter.string(from: dateDomain.upperBound))."
     }
+
+    private static let axisFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = .current
+        formatter.setLocalizedDateFormatFromTemplate("MMM d")
+        return formatter
+    }()
 }
 
 // MARK: - TrendMonthHeat
@@ -318,7 +353,7 @@ public enum TrendHeatColorScale: Sendable {
 
 /// One real calendar date in a trend heatmap. A nil value means the metric was not
 /// calculated for that date; the date itself is never removed from the sequence.
-public struct TrendCalendarDay: Identifiable, Equatable, Sendable {
+public struct CalendarMetricDay: Identifiable, Equatable, Sendable {
     public let date: Date
     public let value: Double?
 
@@ -329,6 +364,9 @@ public struct TrendCalendarDay: Identifiable, Equatable, Sendable {
         self.value = value
     }
 }
+
+/// Source-compatible name retained for the completed Spec 014 Trends API.
+public typealias TrendCalendarDay = CalendarMetricDay
 
 public enum TrendCalendarCellState: Equatable, Sendable {
     case value(Double)
@@ -345,6 +383,115 @@ public struct TrendCalendarBest: Equatable, Sendable {
 /// Pure calendar layout and aggregation used by Trends. Calendar arithmetic is
 /// intentionally centralized here so chart views never compact away missing dates.
 public enum TrendCalendar {
+    public static func mondayFirstWeekdayIndex(
+        for date: Date,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> Int {
+        (calendar.component(.weekday, from: date) + 5) % 7
+    }
+
+    public static func buildRollingWindow(
+        observations: [CalendarMetricDay],
+        through referenceDate: Date,
+        count: Int,
+        calendar sourceCalendar: Calendar = .autoupdatingCurrent
+    ) -> [CalendarMetricDay] {
+        guard count > 0 else { return [] }
+        var calendar = sourceCalendar
+        calendar.firstWeekday = 2
+        let end = calendar.startOfDay(for: referenceDate)
+        guard let start = calendar.date(byAdding: .day, value: -(count - 1), to: end) else { return [] }
+        return slots(observations: observations, start: start, count: count, calendar: calendar)
+    }
+
+    public static func buildWeekWindow(
+        observations: [CalendarMetricDay],
+        containing referenceDate: Date,
+        calendar sourceCalendar: Calendar = .autoupdatingCurrent
+    ) -> [CalendarMetricDay] {
+        var calendar = sourceCalendar
+        calendar.firstWeekday = 2
+        let anchor = calendar.startOfDay(for: referenceDate)
+        guard let monday = calendar.dateInterval(of: .weekOfYear, for: anchor)?.start else { return [] }
+        return slots(observations: observations, start: monday, count: 7, calendar: calendar)
+    }
+
+    public static func value(
+        on date: Date,
+        in days: [CalendarMetricDay],
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> Double? {
+        days.first(where: { calendar.isDate($0.date, inSameDayAs: date) })?.value
+    }
+
+    public static func mean(of days: [CalendarMetricDay]) -> Double? {
+        let values = days.compactMap(\.value)
+        return values.isEmpty ? nil : values.reduce(0, +) / Double(values.count)
+    }
+
+    public static func dateDomain(
+        through referenceDate: Date,
+        count: Int,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> ClosedRange<Date>? {
+        guard count > 0 else { return nil }
+        let end = calendar.startOfDay(for: referenceDate)
+        guard let start = calendar.date(byAdding: .day, value: -(count - 1), to: end) else { return nil }
+        return start...end
+    }
+
+    public static func relativeLabel(
+        for date: Date,
+        relativeTo referenceDate: Date,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> String {
+        let target = calendar.startOfDay(for: date)
+        let reference = calendar.startOfDay(for: referenceDate)
+        let difference = calendar.dateComponents([.day], from: target, to: reference).day ?? 0
+        if difference == 0 { return String(localized: "Today", bundle: .module) }
+        if difference == 1 { return String(localized: "Yesterday", bundle: .module) }
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.locale = .current
+        formatter.timeZone = calendar.timeZone
+        formatter.setLocalizedDateFormatFromTemplate("EEE MMM d")
+        return formatter.string(from: target)
+    }
+
+    public static func unitPosition(of date: Date, in domain: ClosedRange<Date>) -> Double {
+        let span = domain.upperBound.timeIntervalSince(domain.lowerBound)
+        guard span > 0 else { return 0.5 }
+        return min(max(date.timeIntervalSince(domain.lowerBound) / span, 0), 1)
+    }
+
+    /// Maps a horizontal scrub position to a fixed calendar slot, including nil gaps.
+    public static func day(
+        atUnitPosition position: Double,
+        in days: [CalendarMetricDay]
+    ) -> CalendarMetricDay? {
+        guard !days.isEmpty else { return nil }
+        let fraction = min(max(position, 0), 1)
+        let index = Int((fraction * Double(days.count - 1)).rounded())
+        return days[index]
+    }
+
+    /// Maps a normalized grid touch to its exact row-major calendar cell.
+    public static func gridIndex(
+        xFraction: Double,
+        yFraction: Double,
+        columns: Int,
+        count: Int
+    ) -> Int? {
+        guard columns > 0, count > 0 else { return nil }
+        let rows = Int(ceil(Double(count) / Double(columns)))
+        let x = min(max(xFraction, 0), 1)
+        let y = min(max(yFraction, 0), 1)
+        let column = min(Int(x * Double(columns)), columns - 1)
+        let row = min(Int(y * Double(rows)), rows - 1)
+        let index = row * columns + column
+        return index < count ? index : nil
+    }
+
     public static func buildFiveWeekWindow(
         observations: [TrendCalendarDay],
         through referenceDate: Date,
@@ -406,18 +553,32 @@ public enum TrendCalendar {
         var values = Array(repeating: [Double](), count: 7)
         for day in days {
             guard let value = day.value else { continue }
-            let weekday = calendar.component(.weekday, from: day.date)
-            let mondayFirstIndex = (weekday + 5) % 7
+            let mondayFirstIndex = mondayFirstWeekdayIndex(for: day.date, calendar: calendar)
             values[mondayFirstIndex].append(value)
         }
         return values.map { bucket in
             bucket.isEmpty ? nil : bucket.reduce(0, +) / Double(bucket.count)
         }
     }
+
+    private static func slots(
+        observations: [CalendarMetricDay],
+        start: Date,
+        count: Int,
+        calendar: Calendar
+    ) -> [CalendarMetricDay] {
+        var valuesByDate: [Date: Double?] = [:]
+        for observation in observations {
+            valuesByDate[calendar.startOfDay(for: observation.date)] = observation.value
+        }
+        return (0..<count).compactMap { offset in
+            guard let date = calendar.date(byAdding: .day, value: offset, to: start) else { return nil }
+            return CalendarMetricDay(date: date, value: valuesByDate[date] ?? nil)
+        }
+    }
 }
 
-/// The last 35 days as a heat grid, Monday columns, best day ringed. Colour carries
-/// intensity; the ring and the caption carry meaning without colour (a11y rule).
+/// The last 35 days as a heat grid with Monday columns and the real current day ringed.
 public struct TrendMonthHeat: View {
     /// Exactly five Monday-first calendar weeks. Missing dates remain present with nil values.
     let days: [TrendCalendarDay]
@@ -429,6 +590,7 @@ public struct TrendMonthHeat: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var revealed = false
+    @State private var scrubIndex: Int? = nil
 
     private static let labels = ["M", "T", "W", "T", "F", "S", "S"]
 
@@ -443,7 +605,13 @@ public struct TrendMonthHeat: View {
                 }
             }
             grid
-            if let best = TrendCalendar.best(in: days, relativeTo: referenceDate, calendar: calendar) {
+            if let scrubIndex, days.indices.contains(scrubIndex) {
+                let day = days[scrubIndex]
+                Text("\(TrendCalendar.relativeLabel(for: day.date, relativeTo: referenceDate, calendar: calendar)) · \(day.value.map(valueFormat) ?? "No data")")
+                    .font(StrandFont.micro)
+                    .monospacedDigit()
+                    .foregroundStyle(day.value == nil ? StrandPalette.textTertiary : tint)
+            } else if let best = TrendCalendar.best(in: days, relativeTo: referenceDate, calendar: calendar) {
                 Text("Best \(valueFormat(best.value)) · \(best.daysAgo) days ago")
                     .font(StrandFont.micro)
                     .monospacedDigit()
@@ -460,27 +628,84 @@ public struct TrendMonthHeat: View {
         let lo = values.min() ?? 0
         let hi = values.max() ?? 1
         let span = max(hi - lo, 0.0001)
-        let bestDate = TrendCalendar.best(in: days, relativeTo: referenceDate, calendar: calendar)?.date
+        let today = calendar.startOfDay(for: referenceDate)
 
-        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 7), spacing: 4) {
-            ForEach(days) { day in
-                let index = days.firstIndex(where: { $0.id == day.id }) ?? 0
-                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .fill(cellColor(for: day, low: lo, span: span))
-                    .frame(height: 22)
-                    .overlay {
-                        if bestDate.map({ calendar.isDate($0, inSameDayAs: day.date) }) == true {
-                            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                .stroke(StrandPalette.textPrimary.opacity(0.6), lineWidth: 1.2)
+        return GeometryReader { proxy in
+            ZStack {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 7), spacing: 4) {
+                    ForEach(days) { day in
+                        let index = days.firstIndex(where: { $0.id == day.id }) ?? 0
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .fill(cellColor(for: day, low: lo, span: span))
+                            .frame(height: 22)
+                            .overlay {
+                                if calendar.isDate(today, inSameDayAs: day.date) || scrubIndex == index {
+                                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                        .stroke(
+                                            StrandPalette.textPrimary.opacity(scrubIndex == index ? 0.95 : 0.6),
+                                            lineWidth: scrubIndex == index ? 1.8 : 1.2
+                                        )
+                                }
+                            }
+                            .opacity(revealed ? 1 : 0)
+                            .animation(
+                                reduceMotion ? nil : StrandMotion.fade.delay(Double(index) * 0.008),
+                                value: revealed
+                            )
+                    }
+                }
+                if let scrubIndex, days.indices.contains(scrubIndex) {
+                    let columns = 7
+                    let rows = max(Int(ceil(Double(days.count) / Double(columns))), 1)
+                    let column = scrubIndex % columns
+                    let row = scrubIndex / columns
+                    let anchor = CGPoint(
+                        x: (CGFloat(column) + 0.5) * proxy.size.width / CGFloat(columns),
+                        y: (CGFloat(row) + 0.5) * proxy.size.height / CGFloat(rows)
+                    )
+                    let day = days[scrubIndex]
+                    ChartTooltip(
+                        value: day.value.map(valueFormat) ?? "No data",
+                        label: TrendCalendar.relativeLabel(
+                            for: day.date,
+                            relativeTo: referenceDate,
+                            calendar: calendar
+                        ),
+                        accent: day.value == nil ? nil : tint
+                    )
+                    .position(
+                        ChartTooltipPlacement.position(
+                            anchor: anchor,
+                            tooltipSize: CGSize(width: 104, height: 40),
+                            in: proxy.size
+                        )
+                    )
+                }
+            }
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { drag in
+                        guard proxy.size.width > 0, proxy.size.height > 0 else { return }
+                        let index = TrendCalendar.gridIndex(
+                            xFraction: Double(drag.location.x / proxy.size.width),
+                            yFraction: Double(drag.location.y / proxy.size.height),
+                            columns: 7,
+                            count: days.count
+                        )
+                        if index != scrubIndex {
+                            var transaction = Transaction()
+                            transaction.disablesAnimations = true
+                            withTransaction(transaction) { scrubIndex = index }
+                            StrandHaptic.selection.play()
                         }
                     }
-                    .opacity(revealed ? 1 : 0)
-                    .animation(
-                        reduceMotion ? nil : StrandMotion.fade.delay(Double(index) * 0.008),
-                        value: revealed
-                    )
-            }
+                    .onEnded { _ in
+                        withAnimation(StrandMotion.interactive) { scrubIndex = nil }
+                    }
+            )
         }
+        .frame(height: 126)
     }
 
     private func cellColor(for day: TrendCalendarDay, low: Double, span: Double) -> Color {
@@ -567,6 +792,8 @@ public struct TrendWeekdayBars: View {
     /// Seven optional averages, Monday-first, on the metric's own scale.
     let values: [Double?]
     let tint: Color
+    let referenceDate: Date
+    let calendar: Calendar
     var valueFormat: (Double) -> String
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -584,7 +811,9 @@ public struct TrendWeekdayBars: View {
             let bottom = scored.min() ?? 0
             let span = max(top - bottom, 0.0001)
             let average = scored.isEmpty ? 0 : scored.reduce(0, +) / Double(scored.count)
-            let best = values.firstIndex(where: { $0 == top })
+            let currentWeekday = TrendCalendar.mondayFirstWeekdayIndex(
+                for: referenceDate, calendar: calendar
+            )
             let plotHeight = proxy.size.height - 30
             let heightOf: (Double) -> CGFloat = { value in
                 max(6, CGFloat(0.25 + 0.75 * (value - bottom) / span) * plotHeight)
@@ -611,15 +840,8 @@ public struct TrendWeekdayBars: View {
                     let value = values[index]
                     let height = value.map(heightOf) ?? 6
                     let x = slot * CGFloat(index) + slot / 2
-                    if index == best, let value {
-                        Text(valueFormat(value))
-                            .font(StrandFont.micro.weight(.bold))
-                            .monospacedDigit()
-                            .foregroundStyle(StrandPalette.textPrimary)
-                            .position(x: x, y: 12 + plotHeight - height - 8)
-                    }
                     Capsule(style: .continuous)
-                        .fill(value == nil ? StrandPalette.surfaceInset : tint.opacity(index == best ? 1 : 0.5))
+                        .fill(barColor(value: value, isCurrent: index == currentWeekday))
                         .frame(width: barWidth, height: revealed ? height : 6)
                         .position(x: x, y: 12 + plotHeight - (revealed ? height : 6) / 2)
                         .animation(
@@ -628,7 +850,8 @@ public struct TrendWeekdayBars: View {
                         )
                     Text(Self.labels[index % 7])
                         .font(StrandFont.micro)
-                        .foregroundStyle(index == best ? StrandPalette.textPrimary : StrandPalette.textTertiary)
+                        .foregroundStyle(index == currentWeekday
+                            ? StrandPalette.textPrimary : StrandPalette.textTertiary)
                         .position(x: x, y: 12 + plotHeight + 10)
                 }
             }
@@ -639,10 +862,19 @@ public struct TrendWeekdayBars: View {
         .accessibilityLabel(accessibilitySummary)
     }
 
+    private func barColor(value: Double?, isCurrent: Bool) -> Color {
+        guard value != nil else {
+            return isCurrent ? StrandPalette.textPrimary.opacity(0.16) : StrandPalette.surfaceInset
+        }
+        return tint.opacity(isCurrent ? 1 : 0.5)
+    }
+
     private var accessibilitySummary: String {
-        let scored = values.compactMap { $0 }
-        guard let top = scored.max(), let index = values.firstIndex(where: { $0 == top }) else { return "No weekday data." }
         let names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-        return "By weekday, strongest \(names[index % 7]) at \(valueFormat(top))."
+        let current = TrendCalendar.mondayFirstWeekdayIndex(for: referenceDate, calendar: calendar)
+        let summary = zip(names, values).map { name, value in
+            "\(name) \(value.map(valueFormat) ?? "missing")"
+        }.joined(separator: ", ")
+        return "Average by weekday. Today is \(names[current]). \(summary)."
     }
 }

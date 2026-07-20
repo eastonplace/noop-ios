@@ -1,6 +1,7 @@
 #if os(iOS)
 import Foundation
 import StrandDesign
+import StrandAnalytics
 import WidgetKit
 
 extension WidgetSnapshot {
@@ -46,19 +47,80 @@ extension WidgetSnapshot {
             let anchorIsToday = day.day == Repository.localDayKey(now)
             restScore = restByDay[day.day] ?? (anchorIsToday ? restSeries.last?.value : nil)
         }
+        let previousRecovery = day.flatMap { anchor in
+            days.last(where: { $0.day < anchor.day && $0.recovery != nil })?.recovery
+        }
+        let recoveryDelta: Int? = {
+            guard let current = day?.recovery, let previousRecovery else { return nil }
+            return Int((current - previousRecovery).rounded())
+        }()
+        let hrvSeries = await model.repo.exploreSeries(key: "hrv", source: "my-whoop")
+        let hrvSparkline = hrvSeries
+            .filter { point in day.map { point.day <= $0.day } ?? true }
+            .suffix(12)
+            .map { Int($0.value.rounded()) }
+        let stress = await dashboardStress(from: model)
+        let sparkline = model.activeWorkout.map { Array($0.samples.suffix(48).map(\.bpm)) }
         let snap = WidgetSnapshot.publishing(
             recovery: day?.recovery,
-            storedStrain: day?.strain,
+            storedStrain: day.flatMap { model.repo.canonicalStrain(for: $0.day)?.storedValue },
             sleepScore: restScore,
             bpm: model.bpm ?? model.live.heartRate,
             batteryPct: model.live.batteryPct,
             bonded: model.live.bonded,
             hrv: day?.avgHrv,
             restingHr: day?.restingHr,
+            recoveryDelta: recoveryDelta,
+            sleepMinutes: day?.totalSleepMin.map { Int($0.rounded()) },
+            steps: day?.steps,
+            calories: day?.activeKcalEst.map { Int($0.rounded()) },
+            hourlyStress: stress.hours,
+            stressSummary: stress.summary,
+            hrSparkline: sparkline,
+            hrvSparkline: hrvSparkline,
             updated: Date()
         )
         snap.save()
         WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    /// Fast publication lane for live fields. No history query and no sleep/stress recomputation.
+    @MainActor
+    static func publishLive(from model: AppModel) {
+        let day = Repository.widgetAnchor(days: model.repo.days)
+        let storedStrain = day.flatMap { model.repo.canonicalStrain(for: $0.day)?.storedValue }
+        let base = WidgetSnapshot.load() ?? WidgetSnapshot(
+            recovery: day?.recovery.map { Int($0.rounded()) }, bpm: nil, batteryPct: nil,
+            bonded: model.live.bonded, updated: Date())
+        let sparkline = model.activeWorkout.map { Array($0.samples.suffix(48).map(\.bpm)) }
+        base.mergingLive(
+            bpm: model.bpm ?? model.live.heartRate,
+            batteryPct: model.live.batteryPct,
+            bonded: model.live.connected,
+            storedStrain: storedStrain,
+            hrSparkline: sparkline
+        ).save()
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    @MainActor
+    private static func dashboardStress(from model: AppModel) async -> (hours: [Double?]?, summary: String?) {
+        let now = Date()
+        let start = Int(Calendar.current.startOfDay(for: now).timeIntervalSince1970)
+        let end = Int(now.timeIntervalSince1970)
+        let hr = await model.repo.hrSamples(from: start, to: end, limit: 200_000)
+        guard hr.count >= DaytimeStress.minHourHRSamples else { return (nil, nil) }
+        let rr = (try? await model.repo.storeHandle()?.rrIntervals(
+            deviceId: model.repo.deviceId, from: start, to: end, limit: 200_000)) ?? []
+        let result = DaytimeStress.analyze(
+            hr: hr, rr: rr, tzOffsetSeconds: TimeZone.current.secondsFromGMT(for: now))
+        var hours = [Double?](repeating: nil, count: 24)
+        for point in result.hours where (0..<24).contains(point.hour) { hours[point.hour] = point.level }
+        let summary: String?
+        if result.sustainedHigh { summary = "Sustained high" }
+        else if let mean = result.dayMean { summary = mean >= 2 ? "High" : mean >= 1 ? "Moderate" : "Low" }
+        else { summary = nil }
+        return (hours, summary)
     }
 
     /// #114/#169: HR is the ONE high-frequency widget-publish trigger — `model.bpm` moves every few

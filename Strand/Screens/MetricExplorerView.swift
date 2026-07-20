@@ -330,7 +330,11 @@ struct MetricExplorerView: View {
         probing = true
         for metric in MetricCatalog.all {
             guard !Task.isCancelled else { return }
-            let s = await repo.exploreSeries(key: metric.key, source: metric.source)
+            let s = metric.key == "strain"
+                ? repo.canonicalDays.compactMap { day in
+                    repo.canonicalStrain(for: day.day).map { (day: day.day, value: $0.storedValue) }
+                }
+                : await repo.exploreSeries(key: metric.key, source: metric.source)
             guard !Task.isCancelled else { return }
             emptyByID[metric.id] = s.isEmpty
             await Task.yield()
@@ -600,10 +604,18 @@ struct MetricDetailView: View {
     }
 
     private func load() async {
-        series = await repo.exploreSeries(key: metric.key, source: metric.source)
+        series = metric.key == "strain"
+            ? repo.canonicalDays.compactMap { day in
+                repo.canonicalStrain(for: day.day).map { (day: day.day, value: $0.storedValue) }
+            }
+            : await repo.exploreSeries(key: metric.key, source: metric.source)
         var loadedOthers: [(metric: MetricDescriptor, series: [(day: String, value: Double)])] = []
         for other in MetricCatalog.all where other.id != metric.id {
-            let s = await repo.exploreSeries(key: other.key, source: other.source)
+            let s = other.key == "strain"
+                ? repo.canonicalDays.compactMap { day in
+                    repo.canonicalStrain(for: day.day).map { (day: day.day, value: $0.storedValue) }
+                }
+                : await repo.exploreSeries(key: other.key, source: other.source)
             if !s.isEmpty { loadedOthers.append((other, s)) }
         }
         others = loadedOthers

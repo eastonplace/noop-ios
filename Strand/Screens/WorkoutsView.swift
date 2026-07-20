@@ -4,6 +4,10 @@ import StrandAnalytics
 import WhoopStore
 import Foundation
 
+private func canonicalWorkoutStrain(_ row: WorkoutRow) -> Double? {
+    StrainResolver.canonicalWorkout(row)?.storedValue
+}
+
 // MARK: - Workouts
 //
 // The activity log, instrument-grade and uniform. Built ONLY from the locked Noop
@@ -572,10 +576,10 @@ struct WorkoutsView: View {
     // MARK: - Strain hero (typical effort on a flat Reset card)
 
     private func paperWorkoutScore(rows: [WorkoutRow]) -> some View {
-        let strains = rows.compactMap(\.strain)
+        let strains = rows.compactMap(canonicalWorkoutStrain)
         let average = strains.isEmpty ? nil : strains.reduce(0, +) / Double(strains.count)
         let display = average.map { UnitFormatter.effortValue($0, scale: effortScale) }
-        let spark = rows.reversed().compactMap(\.strain)
+        let spark = rows.reversed().compactMap(canonicalWorkoutStrain)
         return PaperCard {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 5) {
@@ -645,8 +649,8 @@ struct WorkoutsView: View {
                                     .foregroundStyle(StrandPalette.textTertiary)
                             }
                             MicroBadge(
-                                LocalizedStringKey(StrainScale.badgeText(fromStored: row.strain)),
-                                tint: row.strain == nil
+                                LocalizedStringKey(StrainScale.badgeText(fromStored: canonicalWorkoutStrain(row))),
+                                tint: canonicalWorkoutStrain(row) == nil
                                     ? StrandPalette.textTertiary
                                     : StrandPalette.strainAccent
                             )
@@ -750,9 +754,9 @@ struct WorkoutsView: View {
     private var workoutScoreDelta: String {
         guard let anchor = latestTs else { return String(localized: "No weekly comparison") }
         let day = 86_400
-        let current = allRows.filter { $0.startTs >= anchor - 7 * day }.compactMap(\.strain)
+        let current = allRows.filter { $0.startTs >= anchor - 7 * day }.compactMap(canonicalWorkoutStrain)
         let previous = allRows.filter { $0.startTs < anchor - 7 * day && $0.startTs >= anchor - 14 * day }
-            .compactMap(\.strain)
+            .compactMap(canonicalWorkoutStrain)
         guard !current.isEmpty, !previous.isEmpty else { return String(localized: "Building your weekly comparison") }
         let currentMean = current.reduce(0, +) / Double(current.count)
         let previousMean = previous.reduce(0, +) / Double(previous.count)
@@ -777,7 +781,7 @@ struct WorkoutsView: View {
     /// Strain axis, mirroring the Today effort ring); the headline number is shown on the user's scale.
     @ViewBuilder
     private func effortHero(rows: [WorkoutRow], effectiveRange: Range, groups: [SportGroup]) -> some View {
-        let strains = rows.compactMap(\.strain)
+        let strains = rows.compactMap(canonicalWorkoutStrain)
         let avgStrain = strains.isEmpty ? 0 : strains.reduce(0, +) / Double(strains.count)
         let totalTimeH = rows.compactMap(\.durationS).reduce(0, +) / 3600.0
         NoopCard(padding: 20, tint: StrandPalette.effortColor) {
@@ -1332,8 +1336,8 @@ struct WorkoutsView: View {
                  color: row.energyKcal != nil ? StrandPalette.metricAmber : nil)
             cell(distanceLabel(row.distanceM), width: ColWidth.dist)
             // #796 - per-session Strain, on the user's scale, tinted the Strain colour when present.
-            cell(Self.effortCellLabel(strain: row.strain, scale: effortScale), width: ColWidth.effort,
-                 color: row.strain != nil ? StrandPalette.effortColor : nil)
+            cell(Self.effortCellLabel(strain: canonicalWorkoutStrain(row), scale: effortScale), width: ColWidth.effort,
+                 color: canonicalWorkoutStrain(row) != nil ? StrandPalette.effortColor : nil)
 
             Spacer(minLength: 0)
 
@@ -1406,8 +1410,8 @@ struct WorkoutsView: View {
                             .lineLimit(1)
                         Spacer(minLength: 0)
                         MicroBadge(
-                            LocalizedStringKey(Self.effortCellLabel(strain: row.strain, scale: effortScale)),
-                            tint: row.strain == nil
+                            LocalizedStringKey(Self.effortCellLabel(strain: canonicalWorkoutStrain(row), scale: effortScale)),
+                            tint: canonicalWorkoutStrain(row) == nil
                                 ? StrandPalette.textTertiary
                                 : StrandPalette.strainAccent
                         )
@@ -1496,8 +1500,8 @@ struct WorkoutsView: View {
 
     /// A full-sentence a11y label for a compact row.
     private func compactRowAccessibilityLabel(_ row: WorkoutRow, selectable: Bool, isSelected: Bool) -> String {
-        let effort = row.strain != nil
-            ? String(localized: "Strain \(Self.effortCellLabel(strain: row.strain, scale: effortScale))")
+        let effort = canonicalWorkoutStrain(row) != nil
+            ? String(localized: "Strain \(Self.effortCellLabel(strain: canonicalWorkoutStrain(row), scale: effortScale))")
             : String(localized: "no Strain recorded")
         let base = String(localized: "\(WorkoutSource.displaySport(row.sport)), \(compactRowSubtitle(row)), \(effort)")
         guard selectionMode else { return base }
@@ -1551,10 +1555,7 @@ struct WorkoutsView: View {
     /// A manual-source copy of an imported row, so "Duplicate as manual" opens the add sheet pre-filled
     /// without ever mutating the imported original (the sheet saves under the strap source).
     private func asManualCopy(_ row: WorkoutRow) -> WorkoutRow {
-        WorkoutRow(startTs: row.startTs, endTs: row.endTs, sport: WorkoutSource.displaySport(row.sport),
-                   source: "manual", durationS: row.durationS, energyKcal: row.energyKcal,
-                   avgHr: row.avgHr, maxHr: row.maxHr, strain: row.strain, distanceM: row.distanceM,
-                   zonesJSON: row.zonesJSON, notes: row.notes)
+        row.replacing(sport: WorkoutSource.displaySport(row.sport), source: "manual")
     }
 
     /// #796 - the per-session Strain cell label: the stored 0-100 strain mapped to the user's Strain scale

@@ -66,7 +66,8 @@ struct WeeklyDigestCard: View {
     @EnvironmentObject var repo: Repository
 
     var body: some View {
-        let digest = WeeklyDigestSource.digest(from: repo.days, anchorDay: Repository.localDayKey(Date()))
+        let digest = WeeklyDigestSource.digest(from: repo.canonicalDays,
+                                               anchorDay: Repository.localDayKey(Date()))
         if digest.isEmpty {
             EmptyView()
         } else {
@@ -98,7 +99,8 @@ struct WeeklyDigestView: View {
                     ? "A weekly digest needs a few days of history. Wear your strap or import your WHOOP export in Data Sources."
                     : "Loading your history…")
             } else {
-                let digest = WeeklyDigestSource.digest(from: repo.days, anchorDay: Repository.localDayKey(Date()))
+                let digest = WeeklyDigestSource.digest(from: repo.canonicalDays,
+                                                       anchorDay: Repository.localDayKey(Date()))
                 if digest.isEmpty {
                     DataPendingNote(
                         title: "No readings this week yet",

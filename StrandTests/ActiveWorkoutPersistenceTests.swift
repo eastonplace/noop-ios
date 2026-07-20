@@ -16,10 +16,11 @@ final class ActiveWorkoutPersistenceTests: XCTestCase {
         samples: [HRSample] = [HRSample(ts: 1_700_000_001, bpm: 120), HRSample(ts: 1_700_000_061, bpm: 145)],
         avgHr: Int = 133,
         peakHr: Int = 145,
-        liveStrain: Double = 8.4
+        liveStrainState: LiveStrainState = .scored(storedValue: 8.4)
     ) -> ActiveWorkoutPersistence.Snapshot {
         ActiveWorkoutPersistence.Snapshot(startSec: startSec, sport: sport, samples: samples,
-                                          avgHr: avgHr, peakHr: peakHr, liveStrain: liveStrain)
+                                          avgHr: avgHr, peakHr: peakHr,
+                                          liveStrainState: liveStrainState)
     }
 
     /// A throwaway, isolated defaults suite so the test never touches the real store.
@@ -42,7 +43,8 @@ final class ActiveWorkoutPersistenceTests: XCTestCase {
         // A session that started but hasn't captured a sample yet (strap not streaming) must still
         // persist + rehydrate — otherwise a kill right after Start loses the start time.
         let decoded = ActiveWorkoutPersistence.decode(
-            ActiveWorkoutPersistence.encode(snapshot(samples: [], avgHr: 0, peakHr: 0, liveStrain: 0)))
+            ActiveWorkoutPersistence.encode(snapshot(samples: [], avgHr: 0, peakHr: 0,
+                                                      liveStrainState: .building(readings: 0, coverageSeconds: 0))))
         XCTAssertNotNil(decoded)
         XCTAssertTrue(decoded!.samples.isEmpty)
         XCTAssertEqual(decoded!.startSec, 1_700_000_000)
@@ -74,7 +76,7 @@ final class ActiveWorkoutPersistenceTests: XCTestCase {
         ActiveWorkoutPersistence.store(snapshot(samples: [sample(1_700_000_001, 120)], avgHr: 120, peakHr: 120),
                                        into: defaults)
         let later = snapshot(samples: [sample(1_700_000_001, 120), sample(1_700_000_061, 150)],
-                             avgHr: 135, peakHr: 150, liveStrain: 9.1)
+                             avgHr: 135, peakHr: 150, liveStrainState: .scored(storedValue: 9.1))
         ActiveWorkoutPersistence.store(later, into: defaults)
         XCTAssertEqual(ActiveWorkoutPersistence.load(from: defaults), later)
     }
@@ -111,11 +113,12 @@ final class ActiveWorkoutPersistenceTests: XCTestCase {
     }
 
     func testDecodeClampsNegativeDerivedStats() {
-        let dirty = snapshot(samples: [], avgHr: -5, peakHr: -9, liveStrain: -3)
+        let dirty = snapshot(samples: [], avgHr: -5, peakHr: -9,
+                             liveStrainState: .scored(storedValue: -3))
         let decoded = ActiveWorkoutPersistence.decode(ActiveWorkoutPersistence.encode(dirty))
         XCTAssertNotNil(decoded)
         XCTAssertEqual(decoded!.avgHr, 0)
         XCTAssertEqual(decoded!.peakHr, 0)
-        XCTAssertEqual(decoded!.liveStrain, 0, accuracy: 1e-9)
+        XCTAssertEqual(decoded!.liveStrainState, .scored(storedValue: 0))
     }
 }

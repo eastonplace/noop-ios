@@ -269,8 +269,10 @@ final class IntelligenceEngine: ObservableObject {
 
     /// UserDefaults flag guarding the one-shot #313 full-history Effort rescore (below). Set once the
     /// pass completes so it never re-runs.
-    static let effortRescoreFlagKey = "intelligence.strainV2Cutover.done"
-    static let effortRescoreOffsetKey = "intelligence.strainV2Cutover.offset"
+    // Versioned for Spec 018: devices that completed the original axis cutover run one
+    // additional source-backed pass so newly available historical HR receives V2 rows.
+    static let effortRescoreFlagKey = "intelligence.strainV2CalendarHistory.v2.done"
+    static let effortRescoreOffsetKey = "intelligence.strainV2CalendarHistory.v2.offset"
     static let effortRescoreChunkDays = 30
     private var effortRescoreRunning = false
 

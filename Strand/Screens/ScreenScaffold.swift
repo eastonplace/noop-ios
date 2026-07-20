@@ -51,10 +51,14 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.appHeaderChromeVisibility) private var appHeaderChromeVisibility
     @State private var showsCompactHeader = false
+    /// The actual visible scroll viewport. The content column is assigned this exact width (including
+    /// its 16pt side insets) so no child with a long intrinsic label can enlarge UIScrollView's content
+    /// width and make the entire page draggable left/right.
+    @State private var viewportWidth: CGFloat = 0
     #endif
 
     var body: some View {
-        ScrollView {
+        ScrollView(.vertical) {
             column
             #if os(iOS)
             // Unified side margins matching the liquid home (16pt) so every page's cards + header line up
@@ -68,8 +72,9 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
             .padding(.bottom, NoopMetrics.tabBarClearance)
             // iPad: cap the readable column, then centre it in the full-width scroll viewport.
             // iPhone (.compact): the inner frame is .infinity/.leading, identical to before.
-            .frame(maxWidth: hSizeClass == .regular ? 700 : .infinity,
+            .frame(width: constrainedColumnWidth,
                    alignment: hSizeClass == .regular ? .center : .leading)
+            .clipped()
             .frame(maxWidth: .infinity, alignment: .center)
             #else
             .padding(28)
@@ -77,6 +82,11 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
             #endif
         }
         #if os(iOS)
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.width
+        } action: { width in
+            if abs(viewportWidth - width) > 0.5 { viewportWidth = width }
+        }
         .coordinateSpace(.named("screen-scaffold-scroll"))
         .overlay(alignment: .top) {
             if showsCompactHeader, title != nil || subtitle != nil {
@@ -92,9 +102,8 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             if appHeaderChromeVisibility == .visible { AppHeaderChrome() }
         }
-        // #697: stop a vertical scroll from drifting/bouncing the screen left-right. `.basedOnSize` only
-        // permits horizontal bounce when content genuinely overflows the width (it does not here, the column
-        // is width-capped), so the spurious horizontal rubber-band that caused the sideways drift is gone.
+        // This is a vertical screen contract. Because the exact-width column cannot overflow, size-based
+        // horizontal bounce resolves to disabled and the page cannot expose an off-canvas edge.
         .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
         #endif
         // The flat canvas, plus an optional full-bleed TOP backdrop (Today's day-cycle scene) drawn behind
@@ -119,6 +128,13 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
         .toolbarBackground(.hidden, for: .windowToolbar)
         #endif
     }
+
+    #if os(iOS)
+    private var constrainedColumnWidth: CGFloat? {
+        guard viewportWidth > 0 else { return nil }
+        return hSizeClass == .regular ? min(700, viewportWidth) : viewportWidth
+    }
+    #endif
 
     /// The header + content column. `lazy` swaps the eager `VStack` for a `LazyVStack` so a long
     /// trailing `ForEach` (Intelligence "ALL") builds cards on demand instead of all at once. The

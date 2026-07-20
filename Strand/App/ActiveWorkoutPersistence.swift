@@ -1,6 +1,11 @@
 import Foundation
 import WhoopProtocol
 
+enum LiveStrainState: Codable, Equatable {
+    case building(readings: Int, coverageSeconds: Int)
+    case scored(storedValue: Double)
+}
+
 /// Durable persistence for an in-flight, manually-started workout (#529).
 ///
 /// A manual workout used to live ONLY in `AppModel.activeWorkout` (in memory), so if iOS killed the app
@@ -25,7 +30,43 @@ enum ActiveWorkoutPersistence {
         var samples: [HRSample]
         var avgHr: Int
         var peakHr: Int
-        var liveStrain: Double
+        var liveStrainState: LiveStrainState
+
+        private enum CodingKeys: String, CodingKey {
+            case startSec, sport, samples, avgHr, peakHr, liveStrainState, liveStrain
+        }
+
+        init(startSec: Int, sport: String, samples: [HRSample], avgHr: Int, peakHr: Int,
+             liveStrainState: LiveStrainState) {
+            self.startSec = startSec; self.sport = sport; self.samples = samples
+            self.avgHr = avgHr; self.peakHr = peakHr; self.liveStrainState = liveStrainState
+        }
+
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            startSec = try values.decode(Int.self, forKey: .startSec)
+            sport = try values.decode(String.self, forKey: .sport)
+            samples = try values.decode([HRSample].self, forKey: .samples)
+            avgHr = try values.decode(Int.self, forKey: .avgHr)
+            peakHr = try values.decode(Int.self, forKey: .peakHr)
+            if let state = try values.decodeIfPresent(LiveStrainState.self, forKey: .liveStrainState) {
+                liveStrainState = state
+            } else if let legacy = try values.decodeIfPresent(Double.self, forKey: .liveStrain), legacy > 0 {
+                liveStrainState = .scored(storedValue: legacy)
+            } else {
+                liveStrainState = .building(readings: samples.count, coverageSeconds: 0)
+            }
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var values = encoder.container(keyedBy: CodingKeys.self)
+            try values.encode(startSec, forKey: .startSec)
+            try values.encode(sport, forKey: .sport)
+            try values.encode(samples, forKey: .samples)
+            try values.encode(avgHr, forKey: .avgHr)
+            try values.encode(peakHr, forKey: .peakHr)
+            try values.encode(liveStrainState, forKey: .liveStrainState)
+        }
     }
 
     /// The single `UserDefaults` key (JSON-encoded `Snapshot`). Namespaced like `moments`/`sleepMarks`.
@@ -47,13 +88,22 @@ enum ActiveWorkoutPersistence {
         // Drop any out-of-range persisted HR samples (a real bpm + a positive ts only) — never trust the
         // blob to be clean. Parity with the Android decoder's 1...300 bpm / ts > 0 gate.
         let samples = raw.samples.filter { $0.ts > 0 && (1...300).contains($0.bpm) }
+        let state: LiveStrainState
+        switch raw.liveStrainState {
+        case .building(let readings, let coverage):
+            state = .building(readings: max(0, readings), coverageSeconds: max(0, coverage))
+        case .scored(let stored) where stored.isFinite:
+            state = .scored(storedValue: min(100, max(0, stored)))
+        case .scored:
+            state = .building(readings: samples.count, coverageSeconds: 0)
+        }
         return Snapshot(
             startSec: raw.startSec,
             sport: raw.sport,
             samples: samples,
             avgHr: max(0, raw.avgHr),
             peakHr: max(0, raw.peakHr),
-            liveStrain: raw.liveStrain.isFinite ? max(0, raw.liveStrain) : 0,
+            liveStrainState: state
         )
     }
 
@@ -68,7 +118,8 @@ enum ActiveWorkoutPersistence {
         decode(defaults.data(forKey: defaultsKey))
     }
 
-    /// Clear the snapshot — called the instant a session ends (saved or discarded).
+    /// Clear the snapshot only after the finished row has been written and read back.
+    /// Failed/insufficient finishes retain the durable session so the user can retry.
     static func clear(from defaults: UserDefaults = .standard) {
         defaults.removeObject(forKey: defaultsKey)
     }

@@ -292,6 +292,17 @@ final class WorkoutSourceTests: XCTestCase {
         XCTAssertEqual(merged.strain, 13.5)      // carried over from old
     }
 
+    func testPreservingCapturedCarriesStrainVersionOnEdit() {
+        let old = WorkoutRow(startTs: 100, endTs: 3700, sport: "Workout", source: "manual",
+                             durationS: 3600, energyKcal: 400, avgHr: 130, maxHr: 175,
+                             strain: 55, distanceM: nil, zonesJSON: nil, notes: nil,
+                             strainVersion: 2)
+        let rebuilt = row(start: 100, end: 3700, sport: "Running", source: "manual", avgHr: 140)
+        let merged = WorkoutSource.preservingCaptured(rebuilt, from: old)
+        XCTAssertEqual(merged.strain, 55)
+        XCTAssertEqual(merged.strainVersion, 2)
+    }
+
     func testPreservingCapturedIsNoOpForFreshAdd() {
         let rebuilt = row(start: 100, end: 3700, sport: "Running", source: "manual", avgHr: 140)
         XCTAssertEqual(WorkoutSource.preservingCaptured(rebuilt, from: nil), rebuilt)

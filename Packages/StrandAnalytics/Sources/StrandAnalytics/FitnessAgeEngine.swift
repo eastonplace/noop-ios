@@ -72,6 +72,22 @@ public enum FitnessAgeEngine {
         return min(maxAge, max(minAge, fa))
     }
 
+    /// Exact signed year contributions in NOOP's current Fitness Age equation. These are the only two
+    /// variable drivers in the model; exposing them here prevents presentation code from inventing
+    /// causal impacts for adjacent health metrics. Their sum is the unclamped `fitnessAge - age` delta.
+    public static func driverImpacts(age: Double, sex: String,
+                                     restingHR: Double, paIndex: Double) -> FitnessAgeDriverImpacts {
+        let (_, ageC, _, rhrC, paiC) = coeffs(sex)
+        let restingHRYears = rhrC * (restingHR - restingHRReference) / ageC
+        let activityYears = -paiC * (paIndex - paiReference) / ageC
+        let unclamped = age + restingHRYears + activityYears
+        return FitnessAgeDriverImpacts(
+            restingHRYears: restingHRYears,
+            activityYears: activityYears,
+            unclampedFitnessAge: unclamped,
+            displayedFitnessAge: min(maxAge, max(minAge, unclamped)))
+    }
+
     /// Reconstruct the HUNT PA-index (0–15 = frequency×intensity×duration) from measured weekly
     /// aggregates. Bucket edges mirror the HUNT1 PA-Q response options (Kurtze 2008):
     ///   frequency ∈ {0.0, 0.5, 1.0, 2.5, 5.0}  ← active days in the last 7
@@ -144,6 +160,21 @@ public enum FitnessAgeEngine {
         return FitnessAgeResult(
             vo2max: vo2, fitnessAge: fa, chronoAge: age, deltaYears: age - fa,
             bandYears: displayBandYears, lowerConfidence: lowerConfidence || nb)
+    }
+}
+
+public struct FitnessAgeDriverImpacts: Equatable, Sendable {
+    public let restingHRYears: Double
+    public let activityYears: Double
+    public let unclampedFitnessAge: Double
+    public let displayedFitnessAge: Double
+
+    public init(restingHRYears: Double, activityYears: Double,
+                unclampedFitnessAge: Double, displayedFitnessAge: Double) {
+        self.restingHRYears = restingHRYears
+        self.activityYears = activityYears
+        self.unclampedFitnessAge = unclampedFitnessAge
+        self.displayedFitnessAge = displayedFitnessAge
     }
 }
 

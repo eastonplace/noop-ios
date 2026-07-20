@@ -9,6 +9,19 @@ import WhoopProtocol
 @MainActor
 public final class LiveState: ObservableObject {
     @Published public var connected: Bool = false
+    /// Start of the current uninterrupted BLE connection. Kept separate from packet freshness:
+    /// a quiet but healthy strap can remain connected without emitting a frame every second.
+    @Published public private(set) var connectedAt: TimeInterval?
+
+    public func markConnected(at timestamp: TimeInterval = Date().timeIntervalSince1970) {
+        if !connected || connectedAt == nil { connectedAt = timestamp }
+        connected = true
+    }
+
+    public func markDisconnected() {
+        connected = false
+        connectedAt = nil
+    }
     // NOTE: do NOT auto-clear `pairingHint` when `bonded` flips true. On a 5/MG, `bonded` is also set by
     // the live-HR shortcut (BLEManager — HR over the unbonded standard profile), so clearing the hint
     // there hides the still-accurate "free the strap" guidance from users who are streaming HR but never

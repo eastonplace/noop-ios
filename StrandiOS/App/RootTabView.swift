@@ -245,18 +245,9 @@ struct RootTabView: View {
     /// dismisses the dedicated `showDevices` sheet rather than the quick-action item).
     private var devicesScreen: some View {
         NavigationStack {
-            DevicesView()
+            DevicesView(onClose: { showDevices = false })
                 .background(StrandPalette.appCanvas.ignoresSafeArea())
-                .navigationBarTitleDisplayMode(.inline)
-                // #1027: same fix as quickScreen — Devices draws the full-bleed liquid sky, so a transparent
-                // nav bar keeps it edge-to-edge instead of an opaque band clipping the top on scroll.
-                .toolbarBackground(.hidden, for: .navigationBar)
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button("Done") { showDevices = false }
-                            .foregroundStyle(StrandPalette.accent)
-                    }
-                }
+                .toolbar(.hidden, for: .navigationBar)
         }
     }
 

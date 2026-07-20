@@ -3,92 +3,114 @@ import SwiftUI
 import ActivityKit
 import StrandDesign
 
-/// Live Activity for an active live-HR session — shown on the Lock Screen and in the Dynamic Island.
+/// ActivityKit host for Design Lab component 41. Workout mode uses the same shared visual
+/// leaves as the simulator QA gallery; passive live HR intentionally remains the simpler mode.
 struct NOOPLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: NOOPActivityAttributes.self) { context in
-            // Lock Screen / banner presentation.
-            HStack(spacing: 14) {
-                Image(systemName: "waveform.path.ecg")
-                    .font(.title2)
-                    .foregroundStyle(StrandPalette.statusCritical)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(context.attributes.title)
-                        .font(.caption).foregroundStyle(StrandPalette.textSecondary)
-                    Text("\(context.state.bpm.map(String.init) ?? "–") bpm")
-                        .font(.system(size: 26, weight: .bold, design: .rounded))
-                        .foregroundStyle(StrandPalette.textPrimary)
-                }
-                Spacer()
-                // Charge + Strain (#446) on the banner, mirroring the Dynamic Island expanded stats.
-                HStack(spacing: 12) {
-                    if let r = context.state.recovery {
-                        bannerStat(label: "Recovery", value: "\(r)%")
-                    }
-                    if let e = context.state.effort {
-                        bannerStat(label: "Strain", value: String(format: "%.1f", e))
-                    }
+            Group {
+                if context.state.isWorkout {
+                    NOOPWorkoutLiveActivityView(
+                        title: context.state.sport ?? "Workout",
+                        startedAt: context.state.workoutStartedAt,
+                        bpm: context.state.bpm,
+                        strain: context.state.effort,
+                        strainBuilding: context.state.strainBuilding == true,
+                        calories: context.state.calories,
+                        hrSpark: context.state.hrTrace)
+                } else {
+                    liveHRBanner(context: context)
                 }
             }
-            .padding()
-            .activityBackgroundTint(StrandPalette.surfaceBase)
-            .activitySystemActionForegroundColor(StrandPalette.textPrimary)
+            .activityBackgroundTint(.black)
+            .activitySystemActionForegroundColor(.white)
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    Label("\(context.state.bpm.map(String.init) ?? "–")", systemImage: "heart.fill")
-                        .foregroundStyle(StrandPalette.statusCritical)
+                    if context.state.isWorkout {
+                        NOOPDynamicIslandIdentityView(
+                            sport: context.state.sport ?? "Workout",
+                            startedAt: context.state.workoutStartedAt)
+                    } else {
+                        NOOPDynamicIslandHeartRateView(bpm: context.state.bpm)
+                    }
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    // Charge + Strain (#446) — one more stat alongside the leading live HR.
-                    HStack(spacing: 10) {
-                        if let r = context.state.recovery {
-                            statColumn(label: "Recovery", value: "\(r)%")
-                        }
-                        if let e = context.state.effort {
-                            statColumn(label: "Strain", value: String(format: "%.1f", e))
-                        }
+                    if context.state.isWorkout {
+                        NOOPDynamicIslandVitalsView(
+                            bpm: context.state.bpm, strain: context.state.effort,
+                            building: context.state.strainBuilding == true)
+                    } else if let recovery = context.state.recovery {
+                        Text("Recovery \(recovery)")
+                            .font(.caption.weight(.semibold)).foregroundStyle(.white)
                     }
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    Text(context.attributes.title).font(.caption).foregroundStyle(.secondary)
+                    if context.state.isWorkout {
+                        NOOPZoneSplitView(seconds: context.state.zoneSeconds)
+                            .padding(.top, 6)
+                    } else {
+                        Text(context.attributes.title)
+                            .font(.caption).foregroundStyle(.white.opacity(0.6))
+                    }
                 }
             } compactLeading: {
-                Image(systemName: "heart.fill").foregroundStyle(StrandPalette.statusCritical)
+                NOOPDynamicIslandHeartRateView(bpm: context.state.bpm)
             } compactTrailing: {
-                Text("\(context.state.bpm.map(String.init) ?? "–")")
+                if context.state.isWorkout {
+                    NOOPDynamicIslandStrainView(
+                        strain: context.state.effort,
+                        building: context.state.strainBuilding == true)
+                } else {
+                    Text(context.state.bpm.map(String.init) ?? "—")
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .monospacedDigit().foregroundStyle(.white)
+                }
             } minimal: {
-                Image(systemName: "heart.fill").foregroundStyle(StrandPalette.statusCritical)
+                Image(systemName: "heart.fill")
+                    .foregroundStyle(context.state.bpm.map { HRZoneStyle.color(for: Double($0)) }
+                                     ?? Color.white.opacity(0.5))
             }
         }
     }
 }
 
-/// Lock-Screen banner stat column (label over value). File-scope because the `ActivityConfiguration`
-/// content closure isn't a method of `NOOPLiveActivity`.
-///
-/// #759 - the label and value are CENTRE-aligned so each value sits directly under its own label. The
-/// old `.trailing` alignment right-pinned both to the column's edge: when the value was narrower than
-/// the label (e.g. "12" under "Strain") it drifted to the label's right edge instead of under it, which
-/// read as "the number doesn't line up with its label". `fixedSize` stops either line truncating so the
-/// pairing is never clipped at narrow widths.
 @ViewBuilder
-private func bannerStat(label: String, value: String) -> some View {
-    VStack(alignment: .center, spacing: 2) {
-        Text(label).font(.caption2).foregroundStyle(StrandPalette.textSecondary)
-        Text(value).font(.headline).foregroundStyle(StrandPalette.textPrimary)
+private func liveHRBanner(context: ActivityViewContext<NOOPActivityAttributes>) -> some View {
+    HStack(spacing: 14) {
+        Image(systemName: "waveform.path.ecg")
+            .font(.title2).foregroundStyle(StrandPalette.metricRose)
+        VStack(alignment: .leading, spacing: 2) {
+            Text("LIVE · NOOP")
+                .font(.system(size: 8, weight: .bold, design: .rounded))
+                .tracking(0.8).foregroundStyle(.white.opacity(0.5))
+            Text("\(context.state.bpm.map(String.init) ?? "—") BPM")
+                .font(.system(size: 26, weight: .bold, design: .rounded))
+                .monospacedDigit().foregroundStyle(.white)
+        }
+        Spacer()
+        if let recovery = context.state.recovery {
+            liveStat(label: "Recovery", value: "\(recovery)%")
+        }
+        liveStat(label: "Strain", value: strainLabel(context.state))
     }
-    .multilineTextAlignment(.center)
-    .fixedSize()
+    .padding(14)
+    .background(Color.black)
 }
 
-/// Dynamic Island expanded-region stat column (label over value). File-scope for the same reason as
-/// `bannerStat`. #759 - centre-aligned + `fixedSize` for the same value-under-its-label fix as the banner.
+private func strainLabel(_ state: NOOPActivityAttributes.ContentState) -> String {
+    if state.strainBuilding == true { return "Building" }
+    return state.effort.map { String(format: "%.1f", $0) } ?? "—"
+}
+
 @ViewBuilder
-private func statColumn(label: String, value: String) -> some View {
-    VStack(alignment: .center, spacing: 1) {
-        Text(label).font(.caption2).foregroundStyle(.secondary)
-        Text(value).font(.headline)
+private func liveStat(label: String, value: String) -> some View {
+    VStack(alignment: .center, spacing: 2) {
+        Text(label.uppercased())
+            .font(.system(size: 8, weight: .bold, design: .rounded))
+            .foregroundStyle(.white.opacity(0.5))
+        Text(value).font(.system(size: 15, weight: .bold, design: .rounded))
+            .monospacedDigit().foregroundStyle(.white)
     }
     .multilineTextAlignment(.center)
     .fixedSize()

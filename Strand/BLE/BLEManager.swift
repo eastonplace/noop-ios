@@ -1024,7 +1024,7 @@ public final class BLEManager: NSObject, ObservableObject {
         // multi-WHOOP switch attached straight back to the previously-held strap, ignoring the new active
         // device (registry said B, radio stayed on A). No pin (single-WHOOP) → always true, unchanged.
         if let p = peripheral, p.state == .connected, isPreferredPeripheral(p) {
-            state.connected = true
+            state.markConnected()
             p.delegate = self
             log("Already connected to \(model.displayName) — refreshing services and notifications")
             discoverPrimaryServices(on: p)
@@ -1116,7 +1116,7 @@ public final class BLEManager: NSObject, ObservableObject {
             central.cancelPeripheralConnection(p)
             peripheral = nil
             resetCharacteristics()
-            state.connected = false
+            state.markDisconnected()
             state.bonded = false
             state.encryptedBond = false
             state.pairingHint = nil
@@ -1138,7 +1138,7 @@ public final class BLEManager: NSObject, ObservableObject {
     /// the old family's service. Call this when the user changes the strap selection.
     public func prepareForModelSwitch() {
         disconnect()
-        state.connected = false
+        state.markDisconnected()
         state.bonded = false
         state.encryptedBond = false
     }
@@ -3137,7 +3137,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         // registry device (it observes this and calls registry.setPeripheralId). Additive observation
         // only — BLEManager stays decoupled from the store and the connect flow below is unchanged.
         connectedPeripheralUUID = peripheral.identifier.uuidString
-        state.connected = true
+        state.markConnected()
         // A connect succeeded → clear the stale-bond re-pair guide UNLESS we are in a known bond-loop
         // (#617). In that loop the strap "connects" every ~3 s before timing out again, so clearing here
         // wiped the guide on EVERY cycle: it flashed for ~1 s and vanished, so the user could never read it
@@ -3252,7 +3252,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
             }
         }
         bondedAt = nil   // cleared after the bond-loop detector above read it (#617)
-        state.connected = false
+        state.markDisconnected()
         state.encryptedBond = false   // cleared with didBond; next session must re-prove the bond (#69)
         state.charging = nil          // a stale charging flag must not outlive the link
         state.strapFirmware = nil     // a stale firmware version must not outlive the link
@@ -3432,11 +3432,11 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         // Ensure the store is ready before restored BLE data arrives (idempotent; no-op if already built).
         Task { @MainActor in await bootstrapStore() }
         if p.state == .connected {
-            state.connected = true
+            state.markConnected()
             log("Restored CONNECTED peripheral \(p.identifier) — re-discovering services")
             discoverPrimaryServices(on: p)
         } else {
-            state.connected = false
+            state.markDisconnected()
             log("Restored DISCONNECTED peripheral \(p.identifier) — reconnect on poweredOn")
             if central.state == .poweredOn { central.connect(p, options: nil) }
         }

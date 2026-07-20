@@ -112,6 +112,78 @@ public enum StrainScorerV2 {
         }
     }
 
+    /// Constant-time physiological-day twin of `ActivityAccumulator`. The cardio
+    /// kernel is identical; sleep/steps/energy remain non-additive floors exactly as
+    /// in the authoritative batch scorer.
+    public struct PhysiologicalDayAccumulator: Equatable, Sendable {
+        private let effectiveMaxHR: Double
+        private let restingHR: Double
+        private var currentSecond: Int?
+        private var currentSecondMaxBPM = 0
+        private var cardiovascularLoad = 0.0
+        public private(set) var readingCount = 0
+        public private(set) var coverageSeconds = 0
+        public private(set) var rawFrontierTs: Int?
+        public private(set) var context: DayContext
+
+        public init(maxHR: Double? = nil, restingHR: Double = StrainScorerV2.defaultRestingHR,
+                    context: DayContext = .init()) {
+            self.effectiveMaxHR = maxHR
+                ?? StrainScorer.tanakaHRmax(age: Double(StrainScorer.defaultAge))
+            self.restingHR = restingHR
+            self.context = context
+        }
+
+        public init<S: Sequence>(samples: S, maxHR: Double? = nil,
+                                 restingHR: Double = StrainScorerV2.defaultRestingHR,
+                                 context: DayContext = .init()) where S.Element == HRSample {
+            self.init(maxHR: maxHR, restingHR: restingHR, context: context)
+            for sample in samples { append(sample) }
+        }
+
+        public var strain: Double? {
+            guard effectiveMaxHR.isFinite, restingHR.isFinite, effectiveMaxHR > restingHR else { return nil }
+            return StrainScorerV2.physiologicalStoredValue(
+                cardiovascularLoad: cardiovascularLoad,
+                coverageSeconds: coverageSeconds,
+                context: context
+            )
+        }
+
+        public mutating func update(context: DayContext) { self.context = context }
+
+        public mutating func append(_ sample: HRSample) {
+            guard sample.ts > 0, (30...240).contains(sample.bpm),
+                  effectiveMaxHR.isFinite, restingHR.isFinite,
+                  effectiveMaxHR > restingHR else { return }
+
+            if let second = currentSecond {
+                guard sample.ts >= second else { return }
+                if sample.ts == second {
+                    currentSecondMaxBPM = max(currentSecondMaxBPM, sample.bpm)
+                } else {
+                    let delta = sample.ts - second
+                    if delta <= StrainScorerV2.maxIntervalSeconds {
+                        coverageSeconds += delta
+                        let reserve = effectiveMaxHR - restingHR
+                        let hrr = min(100, max(0,
+                            (Double(currentSecondMaxBPM) - restingHR) / reserve * 100))
+                        cardiovascularLoad += StrainScorerV2.loadPerMinute(atHRR: hrr)
+                            * Double(delta) / 60.0
+                    }
+                    currentSecond = sample.ts
+                    currentSecondMaxBPM = sample.bpm
+                }
+            } else {
+                currentSecond = sample.ts
+                currentSecondMaxBPM = sample.bpm
+            }
+
+            readingCount += 1
+            rawFrontierTs = max(rawFrontierTs ?? sample.ts, sample.ts)
+        }
+    }
+
     private static let loadAnchors: [(hrr: Double, load: Double)] = [
         (30, 0), (40, 0.05), (60, 0.20), (70, 0.45), (80, 0.70), (90, 1.0),
     ]
@@ -164,19 +236,27 @@ public enum StrainScorerV2 {
             guard hasCardiovascularCoverage else { return nil }
             return storedValue(fromDisplay: displayStrain(forEffectiveLoad: cardiovascularLoad))
         case .physiologicalDay(let context):
-            guard context.hasWearCoverage else { return nil }
-            let hasBackgroundEvidence = context.validWornSleepMinutes != nil
-                || context.steps != nil
-                || context.activeEnergyKcal != nil
-            guard hasCardiovascularCoverage || hasBackgroundEvidence else { return nil }
-            let sleepLoad = min(sleepSeedCapLoad,
-                                max(0, context.validWornSleepMinutes ?? 0) * 0.014)
-            let cardioDisplay = displayStrain(
-                forEffectiveLoad: (hasCardiovascularCoverage ? cardiovascularLoad : 0) + sleepLoad)
-            let stepDisplay = context.steps.map(stepFloor) ?? 0
-            let energyDisplay = context.activeEnergyKcal.map(activeEnergyFloor) ?? 0
-            return storedValue(fromDisplay: max(cardioDisplay, stepDisplay, energyDisplay))
+            return physiologicalStoredValue(cardiovascularLoad: cardiovascularLoad,
+                                             coverageSeconds: coverageSeconds,
+                                             context: context)
         }
+    }
+
+    static func physiologicalStoredValue(cardiovascularLoad: Double, coverageSeconds: Int,
+                                         context: DayContext) -> Double? {
+        guard context.hasWearCoverage else { return nil }
+        let hasCardiovascularCoverage = coverageSeconds >= minCoverageSeconds
+        let hasBackgroundEvidence = context.validWornSleepMinutes != nil
+            || context.steps != nil
+            || context.activeEnergyKcal != nil
+        guard hasCardiovascularCoverage || hasBackgroundEvidence else { return nil }
+        let sleepLoad = min(sleepSeedCapLoad,
+                            max(0, context.validWornSleepMinutes ?? 0) * 0.014)
+        let cardioDisplay = displayStrain(
+            forEffectiveLoad: (hasCardiovascularCoverage ? cardiovascularLoad : 0) + sleepLoad)
+        let stepDisplay = context.steps.map(stepFloor) ?? 0
+        let energyDisplay = context.activeEnergyKcal.map(activeEnergyFloor) ?? 0
+        return storedValue(fromDisplay: max(cardioDisplay, stepDisplay, energyDisplay))
     }
 
     public static func loadPerMinute(atHRR hrr: Double) -> Double {
