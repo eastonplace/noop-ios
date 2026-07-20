@@ -48,17 +48,19 @@ final class StrainV2StoreTests: XCTestCase {
         let store = try await WhoopStore.inMemory()
         try await store.upsertDailyMetrics([day("2026-07-17", strain: 42)],
                                            deviceId: "my-whoop-noop")
-        try await store.upsertStrainV2Shadow([
+        let inserted = try await store.upsertStrainV2Shadow([
             DailyStrainV2Update(day: "2026-07-17", strain: 61)
         ], deviceId: "my-whoop-noop")
-        try await store.upsertStrainV2Shadow([
+        let updated = try await store.upsertStrainV2Shadow([
+            DailyStrainV2Update(day: "2026-07-17", strain: 63)
+        ], deviceId: "my-whoop-noop")
+        let unchanged = try await store.upsertStrainV2Shadow([
             DailyStrainV2Update(day: "2026-07-17", strain: 63)
         ], deviceId: "my-whoop-noop")
 
-        let shadow = try await store.metricSeries(deviceId: "my-whoop-noop",
-                                                  key: WhoopStore.strainV2ShadowKey,
-                                                  from: "2026-07-17", to: "2026-07-17")
-        XCTAssertEqual(shadow, [MetricPoint(day: "2026-07-17", key: "strain_v2_shadow", value: 63)])
+        XCTAssertEqual(inserted, 1)
+        XCTAssertEqual(updated, 1)
+        XCTAssertEqual(unchanged, 0)
         let canonicalDays = try await store.dailyMetrics(
             deviceId: "my-whoop-noop", from: "2026-07-17", to: "2026-07-17")
         let canonical = try XCTUnwrap(canonicalDays.first)
@@ -78,10 +80,10 @@ final class StrainV2StoreTests: XCTestCase {
 
         let daily = [DailyStrainV2Update(day: "2026-07-17", strain: 63)]
         let workouts = [WorkoutStrainV2Update(startTs: 1_000, sport: "run", strain: 14)]
-        _ = try await store.cutoverStrainV2(deviceId: "my-whoop-noop",
-                                            daily: daily, workouts: workouts)
-        _ = try await store.cutoverStrainV2(deviceId: "my-whoop-noop",
-                                            daily: daily, workouts: workouts)
+        let first = try await store.cutoverStrainV2(deviceId: "my-whoop-noop",
+                                                    daily: daily, workouts: workouts)
+        let second = try await store.cutoverStrainV2(deviceId: "my-whoop-noop",
+                                                     daily: daily, workouts: workouts)
 
         let promotedDays = try await store.dailyMetrics(
             deviceId: "my-whoop-noop", from: "2026-07-17", to: "2026-07-17")
@@ -94,10 +96,13 @@ final class StrainV2StoreTests: XCTestCase {
         XCTAssertEqual(promotedWorkout.strain, 14)
         XCTAssertEqual(promotedWorkout.strainVersion, 2)
 
-        let shadows = try await store.metricSeries(deviceId: "my-whoop-noop",
-                                                   key: WhoopStore.strainV2ShadowKey,
-                                                   from: "2026-07-17", to: "2026-07-18")
-        XCTAssertEqual(shadows.map(\.day), ["2026-07-18"])
+        XCTAssertEqual(first.shadowRowsRemoved, 1)
+        XCTAssertEqual(second.shadowRowsRemoved, 0)
+        let remaining = try await store.cutoverStrainV2(
+            deviceId: "my-whoop-noop",
+            daily: [DailyStrainV2Update(day: "2026-07-18", strain: 55)], workouts: [])
+        XCTAssertEqual(remaining.dailyRows, 0)
+        XCTAssertEqual(remaining.shadowRowsRemoved, 1)
     }
 
     func testLegacyRecomputeCannotUndoPromotedV2Rows() async throws {

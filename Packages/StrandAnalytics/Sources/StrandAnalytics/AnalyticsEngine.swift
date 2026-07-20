@@ -82,9 +82,6 @@ public enum AnalyticsEngine {
         /// 0.20 + restorative share 0.20 + consistency 0.10). The downstream metric-series
         /// builder reads it from here; the Charge "Rest quality" term reads it ÷100.
         public let restScore: Double?
-        /// Shadow-mode Strain V2 value on the persisted 0...100 axis. The canonical
-        /// `daily.strain` remains V1 until the storage rollout promotes V2.
-        public let strainV2Shadow: Double?
         /// Per-score confidence tiers (Charge / Effort / Rest) for the small label under
         /// each score. Always present (worst case `.calibrating`).
         public let chargeConfidence: ScoreConfidence
@@ -112,7 +109,6 @@ public enum AnalyticsEngine {
         public init(daily: DailyMetric, sleepSessions: [SleepSession],
                     cachedSleep: [CachedSleepSession], workouts: [ExerciseSession],
                     recovery: Double?, strain: Double?, nightlySkinTempC: Double? = nil,
-                    strainV2Shadow: Double? = nil,
                     restScore: Double? = nil,
                     chargeConfidence: ScoreConfidence = .calibrating,
                     effortConfidence: ScoreConfidence = .calibrating,
@@ -124,7 +120,6 @@ public enum AnalyticsEngine {
             self.daily = daily; self.sleepSessions = sleepSessions
             self.cachedSleep = cachedSleep; self.workouts = workouts
             self.recovery = recovery; self.strain = strain
-            self.strainV2Shadow = strainV2Shadow
             self.chargeDrivers = chargeDrivers
             self.skinTempRelative = skinTempRelative
             self.nightlySkinTempC = nightlySkinTempC
@@ -862,7 +857,6 @@ public enum AnalyticsEngine {
         return DayResult(daily: daily, sleepSessions: matched, cachedSleep: cachedSleep,
                          workouts: workouts, recovery: recovery, strain: strain,
                          nightlySkinTempC: nightlySkinTempC,
-                         strainV2Shadow: strainV2Shadow,
                          restScore: restScore,
                          chargeConfidence: chargeConfidence,
                          effortConfidence: effortConfidence,

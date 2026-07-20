@@ -37,8 +37,6 @@ public struct WorkoutRow: Equatable, Codable {
     public let avgHr: Int?
     public let maxHr: Int?
     public let strain: Double?
-    /// NOOP scorer provenance. Imported scores remain nil.
-    public let strainVersion: Int?
     public let distanceM: Double?
     public let zonesJSON: String?
     public let notes: String?
@@ -49,7 +47,7 @@ public struct WorkoutRow: Equatable, Codable {
                 zonesJSON: String?, notes: String?, strainVersion: Int? = nil) {
         self.startTs = startTs; self.endTs = endTs; self.sport = sport; self.source = source
         self.durationS = durationS; self.energyKcal = energyKcal; self.avgHr = avgHr
-        self.maxHr = maxHr; self.strain = strain; self.strainVersion = strainVersion
+        self.maxHr = maxHr; self.strain = strain
         self.distanceM = distanceM
         self.zonesJSON = zonesJSON; self.notes = notes
         self.strainVersion = strainVersion

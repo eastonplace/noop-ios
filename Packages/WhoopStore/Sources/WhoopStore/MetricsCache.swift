@@ -52,8 +52,6 @@ public struct DailyMetric: Equatable, Codable {
     public let avgHrv: Double?
     public let recovery: Double?
     public let strain: Double?
-    /// NOOP scorer provenance. Imported scores remain nil.
-    public let strainVersion: Int?
     public let exerciseCount: Int?
     // In-sleep signal aggregates (v7 columns). All nullable; computed server-side.
     public let spo2Pct: Double?        // mean SpO2 (%) during sleep
@@ -81,7 +79,7 @@ public struct DailyMetric: Equatable, Codable {
         self.day = day; self.totalSleepMin = totalSleepMin; self.efficiency = efficiency
         self.deepMin = deepMin; self.remMin = remMin; self.lightMin = lightMin
         self.disturbances = disturbances; self.restingHr = restingHr; self.avgHrv = avgHrv
-        self.recovery = recovery; self.strain = strain; self.strainVersion = strainVersion
+        self.recovery = recovery; self.strain = strain
         self.exerciseCount = exerciseCount
         self.spo2Pct = spo2Pct; self.skinTempDevC = skinTempDevC; self.respRateBpm = respRateBpm
         self.steps = steps; self.activeKcalEst = activeKcalEst

@@ -461,7 +461,7 @@ final class IntelligenceEngine: ObservableObject {
         // Keep each night's small result (daily metrics + sessions), NOT the raw streams , every field
         // except recovery is baseline-independent, so pass 2 only re-scores the cheap recovery
         // composite. The hr/rr/resp/gravity arrays go out of scope each iteration (memory stays bounded).
-        var scoredNights: [(daily: DailyMetric, strain: Double?, strainV2Shadow: Double?, cachedSleep: [CachedSleepSession],
+        var scoredNights: [(daily: DailyMetric, strain: Double?, cachedSleep: [CachedSleepSession],
                             workouts: [ExerciseSession], nightlySkin: Double?,
                             sessionMotion: [Int: [Double]],
                             sessionSleepState: [Int: [Int]],
@@ -829,7 +829,7 @@ final class IntelligenceEngine: ObservableObject {
             // Steps test mode: replay this day's 5/MG raw-counter trace tagged `.steps`. Empty unless the
             // mode is active, so the default path emits zero `.steps` lines here.
             for line in scan.stepsTrace { diagnosticSink?(line, .steps) }
-            scoredNights.append((daily: res.daily, strain: res.strain, strainV2Shadow: res.strainV2Shadow,
+            scoredNights.append((daily: res.daily, strain: res.strain,
                                  cachedSleep: res.cachedSleep,
                                  workouts: res.workouts, nightlySkin: res.nightlySkinTempC,
                                  sessionMotion: res.sessionMotionByStart,
