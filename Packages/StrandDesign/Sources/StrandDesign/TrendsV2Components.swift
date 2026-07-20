@@ -53,7 +53,8 @@ public enum TrendRange: String, CaseIterable, Identifiable {
 // MARK: - TrendPanelChart
 
 public struct TrendPanelChart: View {
-    let points: [TrendPoint]
+    /// One fixed slot per calendar day. Nil values stay selectable as honest gaps.
+    let days: [CalendarMetricDay]
     let dateDomain: ClosedRange<Date>
     let referenceDate: Date
     let calendar: Calendar
@@ -68,8 +69,8 @@ public struct TrendPanelChart: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var revealed = false
-    /// Index under the finger while scrubbing, nil when idle.
-    @State private var scrubIndex: Int? = nil
+    /// Exact calendar slot under the finger while scrubbing, nil when idle.
+    @State private var scrubDay: CalendarMetricDay? = nil
     @State private var plotWidth: CGFloat = 1
 
     public var body: some View {
@@ -91,6 +92,9 @@ public struct TrendPanelChart: View {
         return unit == "%" ? "%" : " \(unit)"
     }
 
+    private var points: [TrendPoint] {
+        days.compactMap { day in day.value.map { TrendPoint(date: day.date, value: $0) } }
+    }
     private var values: [Double] { points.map(\.value) }
     private var last: Double { points.last?.value ?? 0 }
     private var delta: Double { last - baseline }
@@ -107,13 +111,13 @@ public struct TrendPanelChart: View {
 
     private var header: some View {
         HStack {
-            if let scrubIndex, points.indices.contains(scrubIndex) {
-                Text("\(valueFormat(points[scrubIndex].value))\(unitSuffix)")
+            if let scrubDay {
+                Text(scrubDay.value.map { "\(valueFormat($0))\(unitSuffix)" } ?? "No data")
                     .font(StrandFont.captionNumber)
                     .monospacedDigit()
-                    .foregroundStyle(tint)
+                    .foregroundStyle(scrubDay.value == nil ? StrandPalette.textTertiary : tint)
                 Text(TrendCalendar.relativeLabel(
-                    for: points[scrubIndex].date,
+                    for: scrubDay.date,
                     relativeTo: referenceDate,
                     calendar: calendar
                 ))
@@ -133,7 +137,7 @@ public struct TrendPanelChart: View {
                 .font(StrandFont.captionNumber)
                 .foregroundStyle(deltaColor)
         }
-        .animation(StrandMotion.fade, value: scrubIndex)
+        .animation(StrandMotion.fade, value: scrubDay)
     }
 
     private var yRange: ClosedRange<Double> {
@@ -213,7 +217,7 @@ public struct TrendPanelChart: View {
                     )
             }
 
-            if revealed, scrubIndex == nil, let lastPoint = rendered.last {
+            if revealed, scrubDay == nil, let lastPoint = rendered.last {
                 Circle()
                     .fill(tint)
                     .frame(width: 8, height: 8)
@@ -223,29 +227,32 @@ public struct TrendPanelChart: View {
             }
 
             // Scrub crosshair + dot + tooltip — the shared readout grammar.
-            if let scrubIndex, rendered.indices.contains(scrubIndex) {
-                let point = rendered[scrubIndex]
+            if let scrubDay {
+                let scrubX = xOf(scrubDay.date)
+                let scrubY = scrubDay.value.map(yOf) ?? baselineY
                 RoundedRectangle(cornerRadius: 0.5)
                     .fill(StrandPalette.hairlineStrong)
                     .frame(width: 1, height: size.height)
-                    .position(x: point.0, y: size.height / 2)
-                Circle()
-                    .fill(tint)
-                    .frame(width: 9, height: 9)
-                    .overlay(Circle().stroke(StrandPalette.surfaceRaised, lineWidth: 1.5))
-                    .position(x: point.0, y: point.1)
+                    .position(x: scrubX, y: size.height / 2)
+                if scrubDay.value != nil {
+                    Circle()
+                        .fill(tint)
+                        .frame(width: 9, height: 9)
+                        .overlay(Circle().stroke(StrandPalette.surfaceRaised, lineWidth: 1.5))
+                        .position(x: scrubX, y: scrubY)
+                }
                 ChartTooltip(
-                    value: "\(valueFormat(points[scrubIndex].value))\(unitSuffix)",
+                    value: scrubDay.value.map { "\(valueFormat($0))\(unitSuffix)" } ?? "No data",
                     label: TrendCalendar.relativeLabel(
-                        for: points[scrubIndex].date,
+                        for: scrubDay.date,
                         relativeTo: referenceDate,
                         calendar: calendar
                     ),
-                    accent: tint
+                    accent: scrubDay.value == nil ? nil : tint
                 )
                 .position(
                     ChartTooltipPlacement.position(
-                        anchor: CGPoint(x: point.0, y: point.1),
+                        anchor: CGPoint(x: scrubX, y: scrubY),
                         tooltipSize: CGSize(width: 104, height: 40),
                         in: size
                     )
@@ -257,21 +264,18 @@ public struct TrendPanelChart: View {
     private var scrubGesture: some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { drag in
-                guard plotWidth > 0, !points.isEmpty else { return }
+                guard plotWidth > 0, !days.isEmpty else { return }
                 let fraction = min(max(Double(drag.location.x / plotWidth), 0), 1)
-                let index = points.indices.min(by: {
-                    abs(TrendCalendar.unitPosition(of: points[$0].date, in: dateDomain) - fraction)
-                        < abs(TrendCalendar.unitPosition(of: points[$1].date, in: dateDomain) - fraction)
-                }) ?? 0
-                if index != scrubIndex {
+                guard let day = TrendCalendar.day(atUnitPosition: fraction, in: days) else { return }
+                if day != scrubDay {
                     var transaction = Transaction()
                     transaction.disablesAnimations = true
-                    withTransaction(transaction) { scrubIndex = index }
+                    withTransaction(transaction) { scrubDay = day }
                     StrandHaptic.selection.play()
                 }
             }
             .onEnded { _ in
-                withAnimation(StrandMotion.interactive) { scrubIndex = nil }
+                withAnimation(StrandMotion.interactive) { scrubDay = nil }
             }
     }
 
@@ -329,7 +333,7 @@ public struct TrendPanelChart: View {
     }
 
     private var accessibilitySummary: String {
-        "Trend, latest \(valueFormat(last))\(unitSuffix), baseline \(valueFormat(baseline)), typical \(valueFormat(typical.lowerBound)) to \(valueFormat(typical.upperBound)), \(points.count) scored days shown from \(Self.axisFormatter.string(from: dateDomain.lowerBound)) to \(Self.axisFormatter.string(from: dateDomain.upperBound))."
+        "Trend, latest \(valueFormat(last))\(unitSuffix), baseline \(valueFormat(baseline)), typical \(valueFormat(typical.lowerBound)) to \(valueFormat(typical.upperBound)), \(points.count) scored days and \(days.filter { $0.value == nil }.count) missing days shown from \(Self.axisFormatter.string(from: dateDomain.lowerBound)) to \(Self.axisFormatter.string(from: dateDomain.upperBound))."
     }
 
     private static let axisFormatter: DateFormatter = {
@@ -460,6 +464,34 @@ public enum TrendCalendar {
         return min(max(date.timeIntervalSince(domain.lowerBound) / span, 0), 1)
     }
 
+    /// Maps a horizontal scrub position to a fixed calendar slot, including nil gaps.
+    public static func day(
+        atUnitPosition position: Double,
+        in days: [CalendarMetricDay]
+    ) -> CalendarMetricDay? {
+        guard !days.isEmpty else { return nil }
+        let fraction = min(max(position, 0), 1)
+        let index = Int((fraction * Double(days.count - 1)).rounded())
+        return days[index]
+    }
+
+    /// Maps a normalized grid touch to its exact row-major calendar cell.
+    public static func gridIndex(
+        xFraction: Double,
+        yFraction: Double,
+        columns: Int,
+        count: Int
+    ) -> Int? {
+        guard columns > 0, count > 0 else { return nil }
+        let rows = Int(ceil(Double(count) / Double(columns)))
+        let x = min(max(xFraction, 0), 1)
+        let y = min(max(yFraction, 0), 1)
+        let column = min(Int(x * Double(columns)), columns - 1)
+        let row = min(Int(y * Double(rows)), rows - 1)
+        let index = row * columns + column
+        return index < count ? index : nil
+    }
+
     public static func buildFiveWeekWindow(
         observations: [TrendCalendarDay],
         through referenceDate: Date,
@@ -558,6 +590,7 @@ public struct TrendMonthHeat: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var revealed = false
+    @State private var scrubIndex: Int? = nil
 
     private static let labels = ["M", "T", "W", "T", "F", "S", "S"]
 
@@ -572,7 +605,13 @@ public struct TrendMonthHeat: View {
                 }
             }
             grid
-            if let best = TrendCalendar.best(in: days, relativeTo: referenceDate, calendar: calendar) {
+            if let scrubIndex, days.indices.contains(scrubIndex) {
+                let day = days[scrubIndex]
+                Text("\(TrendCalendar.relativeLabel(for: day.date, relativeTo: referenceDate, calendar: calendar)) · \(day.value.map(valueFormat) ?? "No data")")
+                    .font(StrandFont.micro)
+                    .monospacedDigit()
+                    .foregroundStyle(day.value == nil ? StrandPalette.textTertiary : tint)
+            } else if let best = TrendCalendar.best(in: days, relativeTo: referenceDate, calendar: calendar) {
                 Text("Best \(valueFormat(best.value)) · \(best.daysAgo) days ago")
                     .font(StrandFont.micro)
                     .monospacedDigit()
@@ -591,25 +630,82 @@ public struct TrendMonthHeat: View {
         let span = max(hi - lo, 0.0001)
         let today = calendar.startOfDay(for: referenceDate)
 
-        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 7), spacing: 4) {
-            ForEach(days) { day in
-                let index = days.firstIndex(where: { $0.id == day.id }) ?? 0
-                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .fill(cellColor(for: day, low: lo, span: span))
-                    .frame(height: 22)
-                    .overlay {
-                        if calendar.isDate(today, inSameDayAs: day.date) {
-                            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                .stroke(StrandPalette.textPrimary.opacity(0.6), lineWidth: 1.2)
+        return GeometryReader { proxy in
+            ZStack {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 7), spacing: 4) {
+                    ForEach(days) { day in
+                        let index = days.firstIndex(where: { $0.id == day.id }) ?? 0
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .fill(cellColor(for: day, low: lo, span: span))
+                            .frame(height: 22)
+                            .overlay {
+                                if calendar.isDate(today, inSameDayAs: day.date) || scrubIndex == index {
+                                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                        .stroke(
+                                            StrandPalette.textPrimary.opacity(scrubIndex == index ? 0.95 : 0.6),
+                                            lineWidth: scrubIndex == index ? 1.8 : 1.2
+                                        )
+                                }
+                            }
+                            .opacity(revealed ? 1 : 0)
+                            .animation(
+                                reduceMotion ? nil : StrandMotion.fade.delay(Double(index) * 0.008),
+                                value: revealed
+                            )
+                    }
+                }
+                if let scrubIndex, days.indices.contains(scrubIndex) {
+                    let columns = 7
+                    let rows = max(Int(ceil(Double(days.count) / Double(columns))), 1)
+                    let column = scrubIndex % columns
+                    let row = scrubIndex / columns
+                    let anchor = CGPoint(
+                        x: (CGFloat(column) + 0.5) * proxy.size.width / CGFloat(columns),
+                        y: (CGFloat(row) + 0.5) * proxy.size.height / CGFloat(rows)
+                    )
+                    let day = days[scrubIndex]
+                    ChartTooltip(
+                        value: day.value.map(valueFormat) ?? "No data",
+                        label: TrendCalendar.relativeLabel(
+                            for: day.date,
+                            relativeTo: referenceDate,
+                            calendar: calendar
+                        ),
+                        accent: day.value == nil ? nil : tint
+                    )
+                    .position(
+                        ChartTooltipPlacement.position(
+                            anchor: anchor,
+                            tooltipSize: CGSize(width: 104, height: 40),
+                            in: proxy.size
+                        )
+                    )
+                }
+            }
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { drag in
+                        guard proxy.size.width > 0, proxy.size.height > 0 else { return }
+                        let index = TrendCalendar.gridIndex(
+                            xFraction: Double(drag.location.x / proxy.size.width),
+                            yFraction: Double(drag.location.y / proxy.size.height),
+                            columns: 7,
+                            count: days.count
+                        )
+                        if index != scrubIndex {
+                            var transaction = Transaction()
+                            transaction.disablesAnimations = true
+                            withTransaction(transaction) { scrubIndex = index }
+                            StrandHaptic.selection.play()
                         }
                     }
-                    .opacity(revealed ? 1 : 0)
-                    .animation(
-                        reduceMotion ? nil : StrandMotion.fade.delay(Double(index) * 0.008),
-                        value: revealed
-                    )
-            }
+                    .onEnded { _ in
+                        withAnimation(StrandMotion.interactive) { scrubIndex = nil }
+                    }
+            )
         }
+        .frame(height: 126)
     }
 
     private func cellColor(for day: TrendCalendarDay, low: Double, span: Double) -> Color {

@@ -321,7 +321,7 @@ struct TrendsView: View {
             }
             if !selectedPoints.isEmpty {
                 TrendPanelChart(
-                    points: selectedPoints,
+                    days: selectedTrendCalendarDays,
                     dateDomain: selectedDateDomain,
                     referenceDate: referenceDate,
                     calendar: .current,
@@ -376,7 +376,7 @@ struct TrendsView: View {
     private var selectedTrendCalendarDays: [CalendarMetricDay] {
         TrendCalendar.buildRollingWindow(
             observations: selectedTrendCalendarObservations,
-            through: Calendar.current.startOfDay(for: Date()),
+            through: trendReferenceDate,
             count: selectedRange.days,
             calendar: .current
         )

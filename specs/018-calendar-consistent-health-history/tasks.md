@@ -34,3 +34,4 @@
 - [x] T018 Remove strongest-weekday emphasis; style only the actual current weekday and current heatmap date.
 - [x] T019 Add exact 7/30/90/180-day average headings and one shared Trends reference date.
 - [ ] T020 Commit, build a provenance-clean signed Release, install in place, and capture physical-iPhone QA.
+- [x] T021 Make the Trends chart and five-week heatmap press-and-drag inspectors resolve exact calendar slots, including explicit `No data` gaps.

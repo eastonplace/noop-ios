@@ -12,6 +12,7 @@
 2. Re-run a versioned, resumable source-backed history pass to fill canonical V2 days where raw HR exists; leave unsupported days empty.
 3. Make Trends emphasize only the real current weekday/current heatmap date and remove maximum-average styling.
 4. Make the average heading reflect the exact 7/30/90/180-day range, then repeat signed in-place iPhone QA.
+5. Make the range chart and five-week heatmap inspect the exact pressed calendar slot; show `No data` for a gap instead of snapping to a nearby observation.
 
 ## Gates
 

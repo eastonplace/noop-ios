@@ -176,6 +176,32 @@ final class TrendCalendarTests: XCTestCase {
         XCTAssertEqual(TrendCalendar.unitPosition(of: sunday, in: domain), 1, accuracy: 0.0001)
     }
 
+    func testScrubSelectsExactCalendarSlotWithoutSnappingAcrossGap() throws {
+        let days = TrendCalendar.buildRollingWindow(
+            observations: [
+                TrendCalendarDay(date: try date(2026, 7, 13), value: 40),
+                TrendCalendarDay(date: try date(2026, 7, 15), value: 80),
+            ],
+            through: try date(2026, 7, 19),
+            count: 7,
+            calendar: calendar
+        )
+
+        let tuesday = try XCTUnwrap(TrendCalendar.day(atUnitPosition: 1.0 / 6.0, in: days))
+        XCTAssertEqual(try components(of: tuesday), DateComponents(year: 2026, month: 7, day: 14))
+        XCTAssertNil(tuesday.value)
+
+        let sunday = try XCTUnwrap(TrendCalendar.day(atUnitPosition: 1, in: days))
+        XCTAssertEqual(try components(of: sunday), DateComponents(year: 2026, month: 7, day: 19))
+    }
+
+    func testHeatmapScrubMapsTouchToExactMondayFirstCell() {
+        XCTAssertEqual(TrendCalendar.gridIndex(xFraction: 0, yFraction: 0, columns: 7, count: 35), 0)
+        XCTAssertEqual(TrendCalendar.gridIndex(xFraction: 0.99, yFraction: 0, columns: 7, count: 35), 6)
+        XCTAssertEqual(TrendCalendar.gridIndex(xFraction: 0.5, yFraction: 0.5, columns: 7, count: 35), 17)
+        XCTAssertEqual(TrendCalendar.gridIndex(xFraction: 1, yFraction: 1, columns: 7, count: 35), 34)
+    }
+
     func testCurrentWeekdayIndexIsMondayFirstAndPlacesSundayLast() throws {
         XCTAssertEqual(
             TrendCalendar.mondayFirstWeekdayIndex(for: try date(2026, 7, 13), calendar: calendar),

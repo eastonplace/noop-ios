@@ -281,7 +281,7 @@ public extension StrainWeekStrip {
 public extension TrendPanelChart {
     init(
         _publicAPI: Void = (),
-        points: [TrendPoint],
+        days: [CalendarMetricDay],
         dateDomain: ClosedRange<Date>,
         referenceDate: Date,
         calendar: Calendar = .autoupdatingCurrent,
@@ -292,7 +292,7 @@ public extension TrendPanelChart {
         valueFormat: @escaping (Double) -> String = { "\(Int($0.rounded()))" },
         range: TrendRange
     ) {
-        self.points = points.sorted { $0.date < $1.date }
+        self.days = days.sorted { $0.date < $1.date }
         self.dateDomain = dateDomain
         self.referenceDate = referenceDate
         self.calendar = calendar
