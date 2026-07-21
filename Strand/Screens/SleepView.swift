@@ -240,11 +240,18 @@ struct SleepView: View {
                         .staggeredAppear(index: 4)
                         metricGrid(resolved).staggeredAppear(index: 5)
                         sleepDebtLedger(resolved).staggeredAppear(index: 6)
+                        // T702 / plan doc G2: the real V2 need breakdown for the DISPLAYED wake day.
+                        // Its own leaf (own EnvironmentObject + async fetch) so it never blocks this
+                        // screen's memoized model on a store round trip; shows nothing extra when V2
+                        // is off, an honest Building/Calibrating card when V2 hasn't scored this
+                        // exact night yet.
+                        SleepNeedBreakdownSection(wakeDay: SleepView.wakeDayKey(for: displayedNight.night))
+                            .staggeredAppear(index: 7)
                         if displayedNight.hasStageData {
                             stagesVsTypical(resolved, night: displayedNight.night)
-                                .staggeredAppear(index: 7)
+                                .staggeredAppear(index: 8)
                         }
-                        durationTrend(resolved).staggeredAppear(index: 8)
+                        durationTrend(resolved).staggeredAppear(index: 9)
                     }
                 } else {
                     emptyState
@@ -2020,6 +2027,14 @@ struct SleepView: View {
     /// the duplicated, DST-fragile gate the audit flagged. (#547)
     static var tzOffsetSec: Int { TimeZone.current.secondsFromGMT() }
 
+    /// The wake-day key for a displayed night — the SAME `Repository.localDayKey(night.session.endTs)`
+    /// resolution `paperSleepHero` uses to look up `model.performanceByDay`, factored out so the T702
+    /// need-breakdown leaf resolves to the identical day. `fileprivate` because `Night` itself is (the
+    /// other call site, `SleepNeedBreakdownSection`, lives in this same file).
+    fileprivate static func wakeDayKey(for night: Night) -> String {
+        Repository.localDayKey(Date(timeIntervalSince1970: TimeInterval(night.session.endTs)))
+    }
+
     /// The day's single WINNING main block — the durable-edit anchor (`editTarget`) and the one block whose
     /// learned-timing score won. Scores by learned timing on each block's EFFECTIVE onset (what the user
     /// sees) and returns the owning session. This is the BARE single-block pick (no gap-bridge), because the
@@ -2852,6 +2867,77 @@ private struct SleepSyncingNote: View {
     @EnvironmentObject private var live: LiveState
     var body: some View {
         if live.backfilling { SyncingHistoryNote(chunks: live.syncChunksThisSession) }
+    }
+}
+
+/// T702 / plan doc G2: the real V2 Sleep Need breakdown for one exact wake day — baseline + yesterday's
+/// Effort + debt repayment − nap credit. Owns its own `Repository` fetch (mirrors the `SleepMarkCard` /
+/// `SleepSyncingNote` leaf idiom above) so the async store round trip never blocks SleepView's own
+/// memoized model. Renders nothing while `SleepPerformanceV2Prefs` is off (legacy stays authoritative
+/// with no V2 UI at all); an honest Building/Calibrating card when V2 is shadow/on but hasn't scored
+/// this exact night; the real `SleepNeedBreakdownCard` once it has. Never fabricates a component.
+private struct SleepNeedBreakdownSection: View {
+    let wakeDay: String
+    @EnvironmentObject private var repo: Repository
+    @State private var breakdown: SleepNeedBreakdown?
+    @State private var loaded = false
+
+    var body: some View {
+        Group {
+            if SleepPerformanceV2Prefs.mode == .off {
+                EmptyView()
+            } else if let breakdown {
+                SleepNeedBreakdownCard(lines: Self.lines(for: breakdown),
+                                       totalLabel: String(localized: "Sleep need"),
+                                       totalValue: SleepAlarmTime.hoursMinutes(breakdown.totalMinutes),
+                                       accessibilitySummary: Self.accessibilitySummary(breakdown))
+            } else if loaded {
+                calibratingCard
+            }
+        }
+        .task(id: wakeDay) {
+            loaded = false
+            breakdown = await repo.noopSleepNeedBreakdownV2(day: wakeDay)
+            loaded = true
+        }
+    }
+
+    private var calibratingCard: some View {
+        PaperCard {
+            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                Text("Tonight's need".uppercased())
+                    .font(StrandFont.overline)
+                    .tracking(StrandFont.overlineTracking)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                Text("Calibrating")
+                    .font(StrandFont.headline)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                Text("NOOP hasn't computed this night's dynamic Sleep Need breakdown yet — it needs enough scored history first.")
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// Baseline unsigned; Effort/debt-repayment/nap-credit signed, matching the promoted card's lab
+    /// design exactly. Nap credit SUBTRACTS from the need, so its stored positive minutes negate before
+    /// formatting so it reads "−0:20" rather than a misleadingly positive "+0:20".
+    private static func lines(for b: SleepNeedBreakdown) -> [SleepNeedBreakdownCard.Line] {
+        [
+            .init(id: "baseline", title: String(localized: "Baseline need"),
+                 value: SleepAlarmTime.hoursMinutes(b.baselineMinutes), tone: StrandPalette.textSecondary),
+            .init(id: "effort", title: String(localized: "Yesterday's Effort"),
+                 value: SleepAlarmTime.hoursMinutes(b.strainAdjustmentMinutes, signed: true), tone: StrandPalette.strainAccent),
+            .init(id: "debt", title: String(localized: "Sleep debt repayment"),
+                 value: SleepAlarmTime.hoursMinutes(b.debtRepaymentMinutes, signed: true), tone: StrandPalette.stressAccent),
+            .init(id: "nap", title: String(localized: "Nap credit"),
+                 value: SleepAlarmTime.hoursMinutes(-b.napCreditMinutes, signed: true), tone: StrandPalette.textTertiary),
+        ]
+    }
+
+    private static func accessibilitySummary(_ b: SleepNeedBreakdown) -> String {
+        String(localized: "Tonight's sleep need \(SleepAlarmTime.duration(Int(b.totalMinutes.rounded()))): baseline \(SleepAlarmTime.hoursMinutes(b.baselineMinutes)), yesterday's Effort \(SleepAlarmTime.hoursMinutes(b.strainAdjustmentMinutes, signed: true)), sleep debt repayment \(SleepAlarmTime.hoursMinutes(b.debtRepaymentMinutes, signed: true)), nap credit \(SleepAlarmTime.hoursMinutes(-b.napCreditMinutes, signed: true))")
     }
 }
 

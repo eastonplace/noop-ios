@@ -154,6 +154,19 @@ enum MetricCatalog {
         d("sleep_need_min", String(localized: "Sleep Need"), "Rest", "min", "my-whoop", "gauge", 0, nil),
         d("sleep_debt_min", String(localized: "Sleep Debt"), "Rest", "min", "my-whoop", "exclamationmark.circle", 0, false),
 
+        // ── Rest V2 (plan doc G5 / spec 012 T702): the on-device Sleep Performance V2 series, written
+        // under the computed "-noop" source and readable through the same "my-whoop" exploreSeries /
+        // resolvedSeries computed-layer fallback every other computed metric already uses. The
+        // "sleep_performance" HEADLINE description above is deliberately left unchanged: while
+        // `SleepPerformanceV2Prefs` is off/shadow the legacy V1 formula (duration/efficiency/
+        // deep+REM/timing) remains the Sleep tab's authoritative number (no authority flip), so
+        // rewriting that description to the V2 methodology would describe a number the app isn't
+        // actually showing yet. These are the V2 series themselves — Explore/Compare/Trends only.
+        d("noop_sleep_performance_v2", String(localized: "Sleep Performance (V2 preview)"), "Rest", "%", "my-whoop", "moon.stars.fill", 0, true,
+          String(localized: "How completely and efficiently you met your dynamic Sleep Need, led by sleep sufficiency. On-device preview series; not yet the Sleep tab's headline score.")),
+        d("noop_sleep_need_v2_min", String(localized: "Dynamic Sleep Need"), "Rest", "min", "my-whoop", "gauge", 0, nil,
+          String(localized: "Tonight's computed need: baseline, plus yesterday's Effort and sleep-debt repayment, minus nap credit.")),
+
         // ── Effort (was Strain)
         d("strain", String(localized: "Strain"), "Effort", "/21", "my-whoop", "flame", 1, nil,
           String(localized: "Cardiovascular load for the day, on a 0-21 scale.")),

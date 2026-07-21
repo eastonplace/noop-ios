@@ -194,6 +194,17 @@ struct ChargeBreakdownSection: View {
                 SkinTempDeviationRow(rel: rel)
                     .padding(.top, NoopMetrics.space1)
             }
+            // Plan doc G4 (spec 012 T702): the approved Sleep-in-Charge note, shown only when a real
+            // "Sleep quality" driver row is present above (never claim the integration when the term
+            // didn't actually feed the score). Not flag-gated — it states an integration fact true
+            // under both legacy and V2 authority, not a V2 methodology claim.
+            if drivers.contains(where: { $0.label == "Sleep quality" }) {
+                Text("Last night's Sleep Performance contributes to Charge alongside HRV, resting heart rate, respiration, and skin-temperature deviation. The exact Sleep Performance shown on the Sleep screen is the value used here.")
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, NoopMetrics.space1)
+            }
         }
     }
 }

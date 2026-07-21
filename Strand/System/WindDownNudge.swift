@@ -18,7 +18,14 @@ enum WindDownNudge {
 
     private enum K {
         static let enabled = "windDown.enabled"
-        static let sleepNeed = "windDown.sleepNeedMinutes"   // default 8h
+        // Cached CANONICAL dynamic Sleep Need (spec 012 T702 / plan doc G6). No longer an independent
+        // 8h default: `updateCanonicalNeedMinutes` below is fed the SAME resolved need
+        // (repo.latestNoopSleepNeedV2 -> the Sleep page's personal-mean fallback -> the SleepNeedV2
+        // default) the alarm module's "be asleep by" uses, so wind-down and the alarm never plan off
+        // two different numbers. Until a real value has been pushed in, the getter falls back to
+        // exactly the same default this key always defaulted to (8h == SleepNeedV2's 480-min default),
+        // so a cold install schedules identically to before this change.
+        static let sleepNeed = "windDown.sleepNeedMinutes"
         static let lead = "windDown.leadMinutes"             // default 30m
         static let wake = "windDown.wakeMinutes"             // earliest wake, minutes since midnight
         // PR#554 (MumiZed) — per-day wake overrides. A JSON map of {weekday(1=Sun…7=Sat): wakeMinutes}.
@@ -29,9 +36,24 @@ enum WindDownNudge {
 
     static var isEnabled: Bool { UserDefaults.standard.bool(forKey: K.enabled) }
 
+    /// Tonight's planning need, minutes — the cached canonical dynamic Sleep Need when one has been
+    /// pushed via `updateCanonicalNeedMinutes`, else the same 8h starting estimate this always
+    /// defaulted to (SleepNeedV2's own default baseline, 480 min).
     static var sleepNeedMinutes: Int {
         let v = UserDefaults.standard.object(forKey: K.sleepNeed) as? Int ?? 8 * 60
         return min(max(v, 5 * 60), 11 * 60)
+    }
+
+    /// Push a freshly-resolved canonical Sleep Need in, rescheduling if the nudge is enabled. The
+    /// caller (SmartAlarmView) resolves the SAME three-tier fallback the alarm module's "be asleep by"
+    /// uses, so this never drifts from the alarm's own number. A non-finite value is ignored — the
+    /// cached estimate (or the default) is left in place rather than corrupted.
+    static func updateCanonicalNeedMinutes(_ minutes: Double) {
+        guard minutes.isFinite else { return }
+        let clamped = min(max(Int(minutes.rounded()), 5 * 60), 11 * 60)
+        guard clamped != sleepNeedMinutes else { return }
+        UserDefaults.standard.set(clamped, forKey: K.sleepNeed)
+        if isEnabled { schedule() }
     }
 
     static var leadMinutes: Int {

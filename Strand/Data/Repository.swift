@@ -24,6 +24,19 @@ struct SleepScorePoint: Equatable, Sendable {
     let modelVersion: String?
 }
 
+/// The canonical dynamic Sleep Need's real components for one exact wake day (spec 012 T702 / plan
+/// doc G2): baseline + Effort addition + debt repayment − nap credit == total. Every field is read
+/// verbatim from `IntelligenceEngine.sleepV2MetricPoints`'s persisted series — never re-derived or
+/// approximated — so `SleepNeedBreakdownCard` can never show a fabricated component.
+struct SleepNeedBreakdown: Equatable, Sendable {
+    let day: String
+    let baselineMinutes: Double
+    let strainAdjustmentMinutes: Double
+    let debtRepaymentMinutes: Double
+    let napCreditMinutes: Double
+    let totalMinutes: Double
+}
+
 // MARK: - Cross-source resolver model (PR#196 , fresher live charts/metrics)
 //
 // Product surfaces (Compare, Insights, Stress, Explore, Today) historically read rows under the EXACT
@@ -348,6 +361,31 @@ final class Repository: ObservableObject {
         guard let point = candidates.max(by: { $0.day < $1.day }) else { return nil }
         return SleepScorePoint(day: point.day, value: point.value, source: .noopMeasured,
                                modelVersion: SleepNeedV2.modelVersion)
+    }
+
+    /// Exact-day (no carry) real V2 need breakdown — the same "displayed night == score day" rule
+    /// `noopSleepNeedV2(day:)` uses. nil when V2 hasn't scored this exact wake day yet (flag off,
+    /// cold start, or a night still inside the warm-up window); the caller shows the honest
+    /// Building/Calibrating state rather than approximate the parts from a carried total.
+    func noopSleepNeedBreakdownV2(day: String) async -> SleepNeedBreakdown? {
+        guard let store = await ensureStore() else { return nil }
+        func value(_ key: String) async -> Double? {
+            for id in computedReadIds {
+                if let point = (try? await store.metricSeries(deviceId: id, key: key,
+                                                               from: day, to: day))?.first {
+                    return point.value
+                }
+            }
+            return nil
+        }
+        guard let total = await value(Self.sleepNeedV2Key),
+              let baseline = await value("noop_sleep_baseline_need_v2_min"),
+              let strain = await value("noop_sleep_strain_need_v2_min"),
+              let debtRepayment = await value("noop_sleep_debt_need_v2_min"),
+              let nap = await value("noop_sleep_nap_credit_v2_min") else { return nil }
+        return SleepNeedBreakdown(day: day, baselineMinutes: baseline, strainAdjustmentMinutes: strain,
+                                  debtRepaymentMinutes: debtRepayment, napCreditMinutes: nap,
+                                  totalMinutes: total)
     }
 
     /// Sleep sessions across the imported union for a ts range, keeping ALL sessions per day (a nap + a main

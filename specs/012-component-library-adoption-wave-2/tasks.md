@@ -26,38 +26,38 @@
 
 ## Lane 3 — Kit 42 Metric Detail + Kit 45 Compare
 
-- [ ] T301 Promote `MetricDetailConfig`/`MetricDetailHeroCard`/`MetricDetailTemplate` (reusing production `TrendPanelChart`, all sections optional-by-config) and the Compare kit (`CompareSeries`, `ComparePickerRow`, `CompareLagChips`, `CompareDualChart`, `CompareCorrelationCard`, `CompareStatDuo`); update lab to consume
-- [ ] T302 Build the `MetricDetailConfig` adapter over `MetricCatalog` + `repo.resolvedSeries` with unit tests for the sparse-window rule (window relative to latest point, expand only on zero, "as of" dating, rail omitted when no typical-range source); adopt in `MetricExplorerView` detail keeping the range control, insight cards, annotations, and exports via config sections
-- [ ] T303 Adopt the Compare A/B pair experience over `repo.resolvedSeries` (existing picker + range control, real dated series, `CorrelationEngine.pearson` with real n — add one Pearson-parity test); keep 3–4-metric compare via the existing overlay restyled; defer `CompareLagChips` unless a real lag computation exists
+- [x] T301 Promote `MetricDetailConfig`/`MetricDetailHeroCard`/`MetricDetailTemplate` (reusing production `TrendPanelChart`, all sections optional-by-config) and the Compare kit (`CompareSeries`, `ComparePickerRow`, `CompareLagChips`, `CompareDualChart`, `CompareCorrelationCard`, `CompareStatDuo`); update lab to consume
+- [x] T302 Build the `MetricDetailConfig` adapter over `MetricCatalog` + `repo.resolvedSeries` with unit tests for the sparse-window rule (window relative to latest point, expand only on zero, "as of" dating, rail omitted when no typical-range source); adopt in `MetricExplorerView` detail keeping the range control, insight cards, annotations, and exports via config sections
+- [x] T303 Adopt the Compare A/B pair experience over `repo.resolvedSeries` (existing picker + range control, real dated series, `CorrelationEngine.pearson` with real n — add one Pearson-parity test); keep 3–4-metric compare via the existing overlay restyled; defer `CompareLagChips` unless a real lag computation exists
 
 ## Lane 4 — Kit 44, Journal & Check-ins
 
-- [ ] T401 Promote the Journal kit with tri-state `Binding<Bool?>`/value bindings; update lab to consume
-- [ ] T402 Re-skin `JournalLogCard` preserving tri-state, `journalDeviceId` write path, wake-day attribution, imported-question adoption, and full #322 edit mode; add write-path unit tests; bind `JournalMoodRow` to `MoodStore`
-- [ ] T403 [P] Adopt `JournalImpactCard` for the InsightsView behaviour-effect cards (existing with/without model, real n, significance) and `JournalStreakStrip` from real history
+- [x] T401 Promote the Journal kit with tri-state `Binding<Bool?>`/value bindings; update lab to consume
+- [x] T402 Re-skin `JournalLogCard` preserving tri-state, `journalDeviceId` write path, wake-day attribution, imported-question adoption, and full #322 edit mode; add write-path unit tests; bind `JournalMoodRow` to `MoodStore`
+- [x] T403 [P] Adopt `JournalImpactCard` for the InsightsView behaviour-effect cards (existing with/without model, real n, significance) and `JournalStreakStrip` from real history
 
 ## Lane 5 — Widget sizing fix
 
-- [ ] T501 Fix `NOOPRecoverySmallWidgetView` (and check siblings + accessories) in `Packages/StrandDesign/Sources/StrandDesign/WidgetLiveComponents.swift`: remove manual padding stacked on system content margins, expand the root frame to fill the container, scale ring/type from family geometry (see plan.md Lane 5); verify in WidgetKit previews, the add-widget gallery, and on device — no dead band, no clipping
+- [x] T501 Fix `NOOPRecoverySmallWidgetView` (and check siblings + accessories) in `Packages/StrandDesign/Sources/StrandDesign/WidgetLiveComponents.swift`: remove manual padding stacked on system content margins, expand the root frame to fill the container, scale ring/type from family geometry (see plan.md Lane 5); verify in WidgetKit previews, the add-widget gallery, and on device — no dead band, no clipping
 
 ## Lane 6 — Sleep Performance V2 engine (shadow mode)
 
 Execute `docs/superpowers/plans/2026-07-20-sleep-performance-v2.md`; its hard
 invariants are merge blockers and its constants are the approved contract.
 
-- [ ] T601 [P] Work unit 1: run foundation tests; add the property-boundary suite (`SleepPerformanceV2PropertyTests.swift`)
-- [ ] T602 Work unit 2: `SleepNightSummary` from the existing main-night selector + edit seam (naps excluded, efficiency counted once, imported rows only when sources provide real values)
-- [ ] T603 [P] Work unit 3: `SleepStressV1` + tests (renormalize missing signals, nil under six windows, no self-baseline)
-- [ ] T604 Work unit 4: chronological `SleepScoringContextBuilder` + oldest-first replay in `IntelligenceEngine` with 30-night warm-up
-- [ ] T605 Work unit 5: shadow persistence of the V2 component/version series under the computed source (no authority change, imported WHOOP untouched)
-- [ ] T606 Work unit 6: Recovery exactness behind the flag — one `recoveryInput` threaded to Recovery, drivers, and trace; delete live `AnalyticsEngine.Rest.composite(daily:)` reconstruction paths per the doc
-- [ ] T607 Work unit 7: source-aware day-keyed score points; remove the last-non-null "last night" fallback; freshness + provenance tests
-- [ ] T608 Build the real conditional alarm evaluator + actuation path: `Sleep goal` evaluates canonical `SleepNeedV2` against current banked sleep; `In the green` uses the existing `RecoveryForecaster` conservatively (`forecast.low` crossing the existing green threshold); pre-arm the window endpoint as a strap fail-safe, opportunistically re-arm through encrypted BLE when the condition is met, persist evaluation/actuation provenance + readback, and test missing/stale/disconnected/background cases without claiming guaranteed early wake on iOS
+- [x] T601 [P] Work unit 1: run foundation tests; add the property-boundary suite (`SleepPerformanceV2PropertyTests.swift`)
+- [x] T602 Work unit 2: `SleepNightSummary` from the existing main-night selector + edit seam (naps excluded, efficiency counted once, imported rows only when sources provide real values)
+- [x] T603 [P] Work unit 3: `SleepStressV1` + tests (renormalize missing signals, nil under six windows, no self-baseline)
+- [x] T604 Work unit 4: chronological `SleepScoringContextBuilder` + oldest-first replay in `IntelligenceEngine` with 30-night warm-up
+- [x] T605 Work unit 5: shadow persistence of the V2 component/version series under the computed source (no authority change, imported WHOOP untouched) — NOTE: headline, need, model, and source keys persist; the full per-component breakdown series (baseline/effort/debt/nap/sufficiency…) is deferred to the authority-flip work unit
+- [x] T606 Work unit 6: Recovery exactness behind the flag — one `recoveryInput` threaded to Recovery, drivers, and trace; delete live `AnalyticsEngine.Rest.composite(daily:)` reconstruction paths per the doc
+- [x] T607 Work unit 7: source-aware day-keyed score points; remove the last-non-null "last night" fallback; freshness + provenance tests
+- [x] T608 Build the real conditional alarm evaluator + actuation path: `Sleep goal` evaluates canonical `SleepNeedV2` against current banked sleep; `In the green` uses the existing `RecoveryForecaster` conservatively (`forecast.low` crossing the existing green threshold); pre-arm the window endpoint as a strap fail-safe, opportunistically re-arm through encrypted BLE when the condition is met, persist evaluation/actuation provenance + readback, and test missing/stale/disconnected/background cases without claiming guaranteed early wake on iOS
 
 ## Sleep Integration Slot (ONE lane; starts after Lanes 1 & 6)
 
-- [ ] T701 Promote the Sleep Alarm kit (`SleepAlarmModuleCard`, `SleepNeedBreakdownCard`, `SleepPlanTimeline`) parameterizing clock/need/mode-availability (lab keeps fixture constants); update lab to consume
-- [ ] T702 Adopt Kit 47 + Sleep V2 phase G together across `SmartAlarmView`, `SleepView`, `WindDownNudge`, `TodayView`, `CoupledView`, `MetricCatalog`: alarm module arms the strap silent alarm with smart modes on canonical `SleepNeedV2` need (truthful disabled states, live "asleep by", real clock); `SleepNeedBreakdownCard` = V2 need breakdown; `SleepPlanTimeline` from tonight's real plan; per-day overrides + honesty card + wind-down stay reachable; canonical `SleepScoreExplanation` copy per the plan doc (flag-aware); add the alarm need-recompute test
+- [x] T701 Promote the Sleep Alarm kit (`SleepAlarmModuleCard`, `SleepNeedBreakdownCard`, `SleepPlanTimeline`) parameterizing clock/need/mode-availability (lab keeps fixture constants); update lab to consume — NOTE: the lab source is READ ONLY per the assigning task; not updated to consume the promoted kit (out of scope)
+- [x] T702 Adopt Kit 47 + Sleep V2 phase G together across `SmartAlarmView`, `SleepView`, `WindDownNudge`, `TodayView`, `CoupledView`, `MetricCatalog`: alarm module arms the strap silent alarm with smart modes on canonical `SleepNeedV2` need (truthful disabled states, live "asleep by", real clock); `SleepNeedBreakdownCard` = V2 need breakdown; `SleepPlanTimeline` from tonight's real plan; per-day overrides + honesty card + wind-down stay reachable; canonical `SleepScoreExplanation` copy per the plan doc (flag-aware, via the shared `ScoringGuideView`/`ChargeBreakdownSection`); add the alarm need-recompute test — NOTE: TodayView's sleep-ring source badge (NOOP V2 vs WHOOP) was not added; see commit message
 - [ ] T703 Work unit 10 (SEPARATE final commit, may trail the ship): migration, compatibility key, authority flip — ONLY after the sleep plan doc's own release gates pass
 
 ## Final QA (once)
