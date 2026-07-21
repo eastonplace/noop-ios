@@ -44,6 +44,7 @@ struct SmartAlarmView: View {
     @State private var needMinutes: Double = SleepNeedV2.Config.production.defaultBaselineMinutes
     @State private var needIsStartingEstimate = true
     @State private var evidence: SmartAlarmEvidence?
+    @State private var scheduleToolsExpanded = false
 
     var body: some View {
         // #766: retitled to "Alarms" because it now holds BOTH the strap's silent wake-alarm and the
@@ -52,10 +53,9 @@ struct SmartAlarmView: View {
                        subtitle: "Wake and wind-down controls.") {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
                 alarmHeroSection
-                paperAlarmSummary
-                honestyCard
-                strapAlarmCard
+                scheduleAndStrapTools
                 windDownCard
+                honestyCard
             }
         }
         .task {
@@ -65,8 +65,11 @@ struct SmartAlarmView: View {
         }
         // Wiring for the NEW mode picker (T702): the other three properties the hero also edits
         // (enabled / minutes / weekdays) already re-arm via the identical `.onChangeCompat` on
-        // `strapAlarmCard` below — mode had no editor before this kit, so it gets its own.
+        // the screen below — mode had no editor before this kit, so it gets its own.
         .onChangeCompat(of: behavior.smartAlarmMode) { _ in model.applySmartAlarm() }
+        .onChangeCompat(of: behavior.smartAlarmEnabled) { _ in model.applySmartAlarm() }
+        .onChangeCompat(of: behavior.smartAlarmMinutes) { _ in model.applySmartAlarm() }
+        .onChangeCompat(of: behavior.smartAlarmWeekdays) { _ in model.applySmartAlarm() }
     }
 
     // MARK: - T702 hero: real clock, real modes, real canonical need
@@ -143,22 +146,9 @@ struct SmartAlarmView: View {
     /// number the alarm module's "be asleep by" does.
     private func resolveCanonicalNeed() async {
         let today = Repository.localDayKey(Date())
-        if let point = await repo.latestNoopSleepNeedV2(onOrBefore: today) {
-            needMinutes = point.value
-            needIsStartingEstimate = false
-            WindDownNudge.updateCanonicalNeedMinutes(point.value)
-            return
-        }
-        let recentTotals = repo.days.compactMap { $0.totalSleepMin }.filter { $0 > 0 }
-        if !recentTotals.isEmpty {
-            let personalMean = Swift.max(450, recentTotals.reduce(0, +) / Double(recentTotals.count))
-            needMinutes = personalMean
-            needIsStartingEstimate = false
-            WindDownNudge.updateCanonicalNeedMinutes(personalMean)
-            return
-        }
-        needMinutes = SleepNeedV2.Config.production.defaultBaselineMinutes
-        needIsStartingEstimate = true
+        let plan = await repo.canonicalSleepNeedPlan(onOrBefore: today)
+        needMinutes = plan.minutes
+        needIsStartingEstimate = plan.isStartingEstimate
         WindDownNudge.updateCanonicalNeedMinutes(needMinutes)
     }
 
@@ -241,6 +231,85 @@ struct SmartAlarmView: View {
         case .wakeNow:      return String(localized: "Woke early")
         case .endpoint:     return String(localized: "Endpoint reached")
         case .unavailable:  return String(localized: "Unavailable")
+        }
+    }
+
+    /// Kit 47 is the only primary alarm editor. The former production screen repeated enable/time
+    /// controls in two more legacy cards underneath it, which made the adoption visually false and
+    /// created competing bindings for the same store. The tools that are not part of the promoted
+    /// module remain reachable here: the exact time picker, weekday schedule, test buzz, and backup
+    /// status. Collapsing them keeps the accepted lab module intact above the fold without dropping a
+    /// production capability.
+    private var scheduleAndStrapTools: some View {
+        PaperCard(padding: 14) {
+            VStack(alignment: .leading, spacing: 0) {
+                Button {
+                    withAnimation(StrandMotion.interactive) {
+                        scheduleToolsExpanded.toggle()
+                    }
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(StrandPalette.sleepAccent)
+                            .frame(width: 28, height: 28)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .fill(StrandPalette.surfaceInset)
+                            )
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Schedule & strap tools")
+                                .font(StrandFont.caption.weight(.semibold))
+                                .foregroundStyle(StrandPalette.textPrimary)
+                            Text("Exact-time picker, weekdays, test buzz, and backup status")
+                                .font(StrandFont.micro)
+                                .foregroundStyle(StrandPalette.textTertiary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 8)
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(StrandPalette.textTertiary)
+                            .rotationEffect(.degrees(scheduleToolsExpanded ? 180 : 0))
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Schedule and strap tools")
+                .accessibilityValue(scheduleToolsExpanded ? "Expanded" : "Collapsed")
+
+                if scheduleToolsExpanded {
+                    Divider().overlay(StrandPalette.hairline)
+                        .padding(.vertical, 12)
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text("Exact wake time")
+                                .font(StrandFont.body)
+                                .foregroundStyle(StrandPalette.textPrimary)
+                            Spacer(minLength: 12)
+                            DatePicker("", selection: alarmTimeBinding, displayedComponents: .hourAndMinute)
+                                .labelsHidden()
+                                .datePickerStyle(.compact)
+                                .accessibilityLabel("Exact wake time")
+                        }
+
+                        Divider().overlay(StrandPalette.hairline)
+                        alarmWeekdayPicker
+                        Divider().overlay(StrandPalette.hairline)
+
+                        SettingsRow(icon: "iphone", title: "Backup notification",
+                                    subtitle: "Phone fallback when the strap alarm is armed",
+                                    showsChevron: false) {
+                            Text(behavior.smartAlarmEnabled ? "On" : "Off")
+                        }
+
+                        NoteCard("Alarms use your strap's vibration. Keep it charged and within range.",
+                                 style: .warning)
+                        PrimaryButton("Test alarm") { model.buzz(loops: 2) }
+                    }
+                }
+            }
         }
     }
 

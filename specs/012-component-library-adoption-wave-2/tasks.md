@@ -38,7 +38,7 @@
 
 ## Lane 5 — Widget sizing fix
 
-- [x] T501 Fix `NOOPRecoverySmallWidgetView` (and check siblings + accessories) in `Packages/StrandDesign/Sources/StrandDesign/WidgetLiveComponents.swift`: remove manual padding stacked on system content margins, expand the root frame to fill the container, scale ring/type from family geometry (see plan.md Lane 5); verify in WidgetKit previews, the add-widget gallery, and on device — no dead band, no clipping
+- [ ] T501 Fix `NOOPRecoverySmallWidgetView` (and check siblings + accessories) in `Packages/StrandDesign/Sources/StrandDesign/WidgetLiveComponents.swift`: remove manual padding stacked on system content margins, expand the root frame to fill the container, scale ring/type from family geometry (see plan.md Lane 5); verify in WidgetKit previews, the add-widget gallery, and on device — no dead band, no clipping — CODE + SIMULATOR VERIFIED; PHYSICAL DEVICE CHECK PENDING
 
 ## Lane 6 — Sleep Performance V2 engine (shadow mode)
 
@@ -49,21 +49,21 @@ invariants are merge blockers and its constants are the approved contract.
 - [x] T602 Work unit 2: `SleepNightSummary` from the existing main-night selector + edit seam (naps excluded, efficiency counted once, imported rows only when sources provide real values)
 - [x] T603 [P] Work unit 3: `SleepStressV1` + tests (renormalize missing signals, nil under six windows, no self-baseline)
 - [x] T604 Work unit 4: chronological `SleepScoringContextBuilder` + oldest-first replay in `IntelligenceEngine` with 30-night warm-up
-- [x] T605 Work unit 5: shadow persistence of the V2 component/version series under the computed source (no authority change, imported WHOOP untouched) — NOTE: headline, need, model, and source keys persist; the full per-component breakdown series (baseline/effort/debt/nap/sufficiency…) is deferred to the authority-flip work unit
+- [x] T605 Work unit 5: shadow persistence of the V2 component/version series under the computed source (no authority change, imported WHOOP untouched), including baseline need, strain adjustment, debt repayment, nap credit, debt balance, sufficiency, efficiency, input coverage, consistency, and low-stress component series
 - [x] T606 Work unit 6: Recovery exactness behind the flag — one `recoveryInput` threaded to Recovery, drivers, and trace; delete live `AnalyticsEngine.Rest.composite(daily:)` reconstruction paths per the doc
 - [x] T607 Work unit 7: source-aware day-keyed score points; remove the last-non-null "last night" fallback; freshness + provenance tests
 - [x] T608 Build the real conditional alarm evaluator + actuation path: `Sleep goal` evaluates canonical `SleepNeedV2` against current banked sleep; `In the green` uses the existing `RecoveryForecaster` conservatively (`forecast.low` crossing the existing green threshold); pre-arm the window endpoint as a strap fail-safe, opportunistically re-arm through encrypted BLE when the condition is met, persist evaluation/actuation provenance + readback, and test missing/stale/disconnected/background cases without claiming guaranteed early wake on iOS
 
 ## Sleep Integration Slot (ONE lane; starts after Lanes 1 & 6)
 
-- [x] T701 Promote the Sleep Alarm kit (`SleepAlarmModuleCard`, `SleepNeedBreakdownCard`, `SleepPlanTimeline`) parameterizing clock/need/mode-availability (lab keeps fixture constants); update lab to consume — NOTE: the lab source is READ ONLY per the assigning task; not updated to consume the promoted kit (out of scope)
-- [x] T702 Adopt Kit 47 + Sleep V2 phase G together across `SmartAlarmView`, `SleepView`, `WindDownNudge`, `TodayView`, `CoupledView`, `MetricCatalog`: alarm module arms the strap silent alarm with smart modes on canonical `SleepNeedV2` need (truthful disabled states, live "asleep by", real clock); `SleepNeedBreakdownCard` = V2 need breakdown; `SleepPlanTimeline` from tonight's real plan; per-day overrides + honesty card + wind-down stay reachable; canonical `SleepScoreExplanation` copy per the plan doc (flag-aware, via the shared `ScoringGuideView`/`ChargeBreakdownSection`); add the alarm need-recompute test — NOTE: TodayView's sleep-ring source badge (NOOP V2 vs WHOOP) was not added; see commit message
+- [x] T701 Promote the Sleep Alarm kit (`SleepAlarmModuleCard`, `SleepNeedBreakdownCard`, `SleepPlanTimeline`) parameterizing clock/need/mode-availability (lab keeps fixture constants); update lab to consume the production components
+- [x] T702 Adopt Kit 47 + Sleep V2 phase G together across `SmartAlarmView`, `SleepView`, `WindDownNudge`, `TodayView`, `CoupledView`, `MetricCatalog`: alarm module arms the strap silent alarm with smart modes on canonical `SleepNeedV2` need (truthful disabled states, live "asleep by", real clock); `SleepNeedBreakdownCard` = V2 need breakdown; `SleepPlanTimeline` from tonight's real plan on both Alarms and Sleep when armed; per-day overrides + honesty card + wind-down stay reachable; canonical `SleepScoreExplanation` copy per the plan doc (flag-aware, via the shared `ScoringGuideView`/`ChargeBreakdownSection`); Today names the exact displayed WHOOP/NOOP V2 source; add the alarm need-recompute test
 - [ ] T703 Work unit 10 (SEPARATE final commit, may trail the ship): migration, compatibility key, authority flip — ONLY after the sleep plan doc's own release gates pass
 
 ## Final QA (once)
 
-- [x] T801 Full build matrix (package tests, xcodegen, iOS/widgets/watch/macOS) + confirm non-iPhone targets inherited no unintended redesign
-- [x] T802 One consolidated visual pass: six surfaces + widget families on iPhone, light/dark + Dynamic Type XL + Reduce Motion, screenshots to `outputs/<date>/qa/012-adoption/`; install in place on device; spot-check routes; commit and merge
+- [ ] T801 Full build matrix (package tests, xcodegen, iOS/widgets/watch/macOS) + confirm non-iPhone targets inherited no unintended redesign — ALL AVAILABLE TARGETS PASS; WATCH BUILD BLOCKED BY MISSING WATCHOS 26.5 PLATFORM
+- [ ] T802 One consolidated visual pass: six surfaces + widget families on iPhone, light/dark + Dynamic Type XL + Reduce Motion, screenshots to `outputs/<date>/qa/012-adoption/`; install in place on device; spot-check routes; commit and merge — SIMULATOR PASS COMPLETE; PHYSICAL INSTALL/LAUNCH PENDING
 
 ## Final QA notes (2026-07-20)
 
@@ -79,3 +79,24 @@ invariants are merge blockers and its constants are the approved contract.
   pending: the phone was unavailable to devicectl during the run.
 - T703 (authority flip) intentionally NOT executed — Sleep V2 ships in shadow
   mode; the flip waits on the sleep plan doc's own release gates.
+
+## Closeout correction notes (2026-07-21)
+
+- Settings inventory remains 89 controls before / 89 after: zero losses.
+- All seven package suites pass: WhoopProtocol 285, OuraProtocol 78, WhoopStore
+  281, StrandAnalytics 1,138, StrandImport 189, StrandDesign 85, and
+  NoopLocalAccess 9 tests (2,065 total; two environment-fixture skips).
+- `xcodegen generate` passes. The merged NOOPiOS build (including widgets)
+  builds, installs, and launches on an iPhone 17 Pro / iOS 26.5 simulator.
+  Unsigned macOS Strand builds. NOOPWatch remains unverified because this Mac
+  does not have the watchOS 26.5 platform/runtime installed.
+- Kit 47 parity correction: Alarms now uses the promoted module as its sole
+  primary alarm editor. Exact-time picker, weekdays, test buzz, backup status,
+  wind-down/per-day overrides, honesty, and evaluator evidence remain reachable.
+  When armed, the identical stored plan path also appears on Sleep through the
+  shared canonical-need resolver.
+- Consolidated simulator QA is in
+  `outputs/2026-07-21/qa/012-closeout-simulator/`: six production routes, Kit 47
+  armed/disarmed and support-tool states, Alarms-to-Sleep plan continuity,
+  light/dark, XXXL Dynamic Type, and Reduce Motion. Physical iPhone install and
+  launch remain the only device gate.

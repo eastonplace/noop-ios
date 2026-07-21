@@ -44,6 +44,11 @@ enum WindDownNudge {
         return min(max(v, 5 * 60), 11 * 60)
     }
 
+    /// Distinguishes a persisted canonical planning value from the declared cold-start default.
+    static var hasCachedCanonicalNeed: Bool {
+        UserDefaults.standard.object(forKey: K.sleepNeed) != nil
+    }
+
     /// Push a freshly-resolved canonical Sleep Need in, rescheduling if the nudge is enabled. The
     /// caller (SmartAlarmView) resolves the SAME three-tier fallback the alarm module's "be asleep by"
     /// uses, so this never drifts from the alarm's own number. A non-finite value is ignored — the

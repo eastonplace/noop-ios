@@ -37,6 +37,14 @@ struct SleepNeedBreakdown: Equatable, Sendable {
     let totalMinutes: Double
 }
 
+/// One shared planning value for every tonight-facing Sleep surface. The value is canonical V2 when
+/// available, otherwise the existing personal-history fallback, otherwise the model's declared cold-
+/// start default. Keeping this resolver in Repository prevents Alarms and Sleep from drifting.
+struct CanonicalSleepNeedPlan: Equatable, Sendable {
+    let minutes: Double
+    let isStartingEstimate: Bool
+}
+
 // MARK: - Cross-source resolver model (PR#196 , fresher live charts/metrics)
 //
 // Product surfaces (Compare, Insights, Stress, Explore, Today) historically read rows under the EXACT
@@ -361,6 +369,21 @@ final class Repository: ObservableObject {
         guard let point = candidates.max(by: { $0.day < $1.day }) else { return nil }
         return SleepScorePoint(day: point.day, value: point.value, source: .noopMeasured,
                                modelVersion: SleepNeedV2.modelVersion)
+    }
+
+    func canonicalSleepNeedPlan(onOrBefore day: String) async -> CanonicalSleepNeedPlan {
+        if let point = await latestNoopSleepNeedV2(onOrBefore: day) {
+            return CanonicalSleepNeedPlan(minutes: point.value, isStartingEstimate: false)
+        }
+        let recentTotals = days.compactMap(\.totalSleepMin).filter { $0 > 0 }
+        if !recentTotals.isEmpty {
+            let personalMean = Swift.max(450, recentTotals.reduce(0, +) / Double(recentTotals.count))
+            return CanonicalSleepNeedPlan(minutes: personalMean, isStartingEstimate: false)
+        }
+        return CanonicalSleepNeedPlan(
+            minutes: SleepNeedV2.Config.production.defaultBaselineMinutes,
+            isStartingEstimate: true
+        )
     }
 
     /// Exact-day (no carry) real V2 need breakdown — the same "displayed night == score day" rule
