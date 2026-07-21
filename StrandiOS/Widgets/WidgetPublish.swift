@@ -131,13 +131,17 @@ extension WidgetSnapshot {
             recovery: day?.recovery.map { Int($0.rounded()) }, bpm: nil, batteryPct: nil,
             bonded: model.live.bonded, updated: now))
         let sparkline = model.activeWorkout.map { Array($0.samples.suffix(48).map(\.bpm)) }
-        let next = base.mergingLive(
+        var next = base.mergingLive(
             bpm: model.bpm ?? model.live.heartRate,
             batteryPct: model.live.batteryPct,
             bonded: model.live.connected,
             storedStrain: storedStrain,
             hrSparkline: sparkline,
             updated: now)
+        // `mergingLive` preserves a nil optional by design, but here nil specifically means the workout
+        // ended. Clear the old trace so the widget exits workout mode immediately instead of retaining the
+        // last session's graph forever.
+        if model.activeWorkout == nil { next.hrSparkline = nil }
         guard WidgetLivePublishGate.shouldPublish(previous: base, next: next, now: now) else { return }
         next.save()
         WidgetLivePublishGate.notePublished(next, at: now)
