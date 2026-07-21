@@ -29,6 +29,14 @@ final class LiveActivityController {
     private var isStarting = false
     private var isTransitioning = false
     private var lastModeWasWorkout: Bool?
+    /// The expensive workout projection (calories + time-in-zone rescan over the growing sample array)
+    /// is supplied as an autoclosure and cached here. A long workout used to rebuild it before the existing
+    /// ActivityKit throttle on every ~1 Hz HR emission, turning an otherwise O(1) live path back into O(n).
+    private var cachedWorkoutState: WorkoutLiveActivityState?
+    private var lastWorkoutProjectionAt: Date = .distantPast
+    /// Last payload handed to ActivityKit. Equal payloads do not need another async bridge call every 2 s;
+    /// a periodic heartbeat still refreshes the stale date for a quiet-but-healthy stream.
+    private var lastContentState: NOOPActivityAttributes.ContentState?
     #if DEBUG
     private var component41QAMode = false
     #endif
@@ -37,12 +45,15 @@ final class LiveActivityController {
     /// frozen activity if the app is suspended/killed without an explicit end (a missed-tick safety net
     /// on top of the connected-driven end below).
     private static let staleAfter: TimeInterval = 120
+    private static let pushInterval: TimeInterval = 2
+    private static let unchangedHeartbeatInterval: TimeInterval = 30
 
     /// Drive the activity from the latest live values. Lazily starts when the strap is CONNECTED (the
     /// live link, not the sticky "paired" flag) and a heart rate is present; ends the moment the link
-    /// drops. Throttled to ~once every 2 s so we stay well under the Live Activity update budget.
+    /// drops. ActivityKit pushes stay at ~once every 2 s, while the heavier workout projection is rebuilt
+    /// at a slower bounded cadence by `LiveActivityWorkoutProjectionPolicy`.
     func update(bpm: Int?, recovery: Int?, connected: Bool, effort: Double? = nil,
-                workout: WorkoutLiveActivityState? = nil) {
+                workout: @autoclosure () -> WorkoutLiveActivityState? = nil) {
         #if DEBUG
         guard !component41QAMode else { return }
         #endif
@@ -72,7 +83,22 @@ final class LiveActivityController {
         }
         guard bpm != nil else { return }
 
-        let desiredMode = workout != nil
+        let now = Date()
+        // IMPORTANT: gate BEFORE evaluating the workout autoclosure. The prior code built calories and all
+        // zone totals over the full growing sample array, then discovered ActivityKit was still inside its
+        // 2-second throttle and threw the work away.
+        if activity != nil, now.timeIntervalSince(lastPush) <= Self.pushInterval { return }
+
+        if LiveActivityWorkoutProjectionPolicy.shouldRebuild(
+            lastModeWasWorkout: lastModeWasWorkout,
+            hasCachedWorkout: cachedWorkoutState != nil,
+            lastBuiltAt: lastWorkoutProjectionAt,
+            now: now) {
+            cachedWorkoutState = workout()
+            lastWorkoutProjectionAt = now
+        }
+        let workoutState = cachedWorkoutState
+        let desiredMode = workoutState != nil
         if activity != nil, lastModeWasWorkout == nil { lastModeWasWorkout = desiredMode }
         if activity != nil, let lastModeWasWorkout, lastModeWasWorkout != desiredMode {
             guard !isTransitioning else { return }
@@ -82,22 +108,26 @@ final class LiveActivityController {
                 self.lastModeWasWorkout = desiredMode
                 self.isTransitioning = false
                 update(bpm: bpm, recovery: recovery, connected: connected,
-                       effort: effort, workout: workout)
+                       effort: effort, workout: workoutState)
             }
             return
         }
 
         let state = NOOPActivityAttributes.ContentState(
             bpm: bpm, recovery: recovery, bonded: connected,
-            effort: workout?.strain ?? effort,
-            sport: workout?.sport, workoutStartedAt: workout?.startedAt,
-            strainBuilding: workout?.strainBuilding, calories: workout?.calories,
-            hrTrace: workout?.hrTrace, zoneSeconds: workout?.zoneSeconds)
-        let staleDate = Date().addingTimeInterval(Self.staleAfter)
+            effort: workoutState?.strain ?? effort,
+            sport: workoutState?.sport, workoutStartedAt: workoutState?.startedAt,
+            strainBuilding: workoutState?.strainBuilding, calories: workoutState?.calories,
+            hrTrace: workoutState?.hrTrace, zoneSeconds: workoutState?.zoneSeconds)
+        let staleDate = now.addingTimeInterval(Self.staleAfter)
 
         if let activity {
-            guard Date().timeIntervalSince(lastPush) > 2 else { return }
-            lastPush = Date()
+            if state == lastContentState,
+               now.timeIntervalSince(lastPush) < Self.unchangedHeartbeatInterval {
+                return
+            }
+            lastPush = now
+            lastContentState = state
             Task { await activity.update(ActivityContent(state: state, staleDate: staleDate)) }
         } else {
             // Set the start gate SYNCHRONOUSLY before any await so a second `update` arriving on the
@@ -107,11 +137,12 @@ final class LiveActivityController {
             isStarting = true
             do {
                 activity = try Activity.request(
-                    attributes: NOOPActivityAttributes(title: workout?.sport ?? String(localized: "Live HR")),
+                    attributes: NOOPActivityAttributes(title: workoutState?.sport ?? String(localized: "Live HR")),
                     content: ActivityContent(state: state, staleDate: staleDate),
                     pushType: nil
                 )
-                lastPush = Date()
+                lastPush = now
+                lastContentState = state
                 lastModeWasWorkout = desiredMode
             } catch {
                 activity = nil
@@ -135,6 +166,10 @@ final class LiveActivityController {
         }
         self.activity = nil
         self.lastModeWasWorkout = nil
+        self.cachedWorkoutState = nil
+        self.lastWorkoutProjectionAt = .distantPast
+        self.lastContentState = nil
+        self.lastPush = .distantPast
     }
 
     #if DEBUG
@@ -151,12 +186,15 @@ final class LiveActivityController {
             sport: "Outdoor Run", workoutStartedAt: Date().addingTimeInterval(-2_734),
             strainBuilding: false, calories: 438,
             hrTrace: [88, 96, 108, 121, 115, 132, 146, 139, 152, 144, 158, 152],
-            zoneSeconds: [180, 620, 1_180, 650, 104])
+            zoneSeconds: [180, 620, 1_180, 650, 104]
+        )
         do {
             activity = try Activity.request(
                 attributes: NOOPActivityAttributes(title: "Outdoor Run"),
                 content: ActivityContent(state: state, staleDate: Date().addingTimeInterval(7_200)),
                 pushType: nil)
+            lastContentState = state
+            lastPush = Date()
             lastModeWasWorkout = true
         } catch {
             activity = nil
