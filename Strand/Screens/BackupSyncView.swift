@@ -48,31 +48,7 @@ struct BackupSyncView: View {
             title: "Backup & Sync",
             subtitle: "Keep your local data safe."
         ) {
-            VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
-                SectionHeader("Backup location")
-                folderCard
-                SectionHeader("Auto backup")
-                autoCard
-                SectionHeader("Restore")
-                restoreCard
-                if let runningOperation {
-                    PaperOperationFeedback(
-                        title: runningOperation.runningTitle,
-                        message: runningOperation.runningMessage,
-                        phase: .running
-                    )
-                } else if let operationFailure {
-                    PaperOperationFeedback(
-                        title: operationFailure.title,
-                        message: operationFailure.message,
-                        phase: .failed,
-                        actionTitle: operationFailure.actionTitle,
-                        retry: { retry(operationFailure.retry) }
-                    )
-                }
-                NoteCard("Backups are saved to your chosen local or cloud-synced folder. You're in control.",
-                         style: .privacy)
-            }
+            SettingsScreenTemplate(sections: backupSections)
         }
         .paperToast(
             isPresented: Binding(
@@ -103,6 +79,46 @@ struct BackupSyncView: View {
                 ? "Replace all current data with the backup from \(absoluteTime(snap.timeMs))? This cannot be undone."
                 : "Replace all current data with the backup \(snap.name)? This cannot be undone.")
         }
+    }
+
+    private var backupSections: [SettingsSectionModel] {
+        var sections = [
+            SettingsSectionModel(id: "location", header: "Backup Location", rows: [
+                .custom(id: "folder") { folderCard.padding(13) }
+            ]),
+            SettingsSectionModel(id: "automatic", header: "Auto Backup", rows: [
+                .custom(id: "auto") { autoCard.padding(13) }
+            ]),
+            SettingsSectionModel(id: "restore", header: "Restore", rows: [
+                .custom(id: "restore-picker") { restoreCard.padding(13) }
+            ])
+        ]
+        if let runningOperation {
+            sections.append(.init(id: "operation", header: "Current Operation", rows: [
+                .custom(id: "running") {
+                    PaperOperationFeedback(title: runningOperation.runningTitle,
+                                           message: runningOperation.runningMessage,
+                                           phase: .running).padding(13)
+                }
+            ]))
+        } else if let operationFailure {
+            sections.append(.init(id: "operation", header: "Current Operation", rows: [
+                .custom(id: "failure") {
+                    PaperOperationFeedback(title: operationFailure.title,
+                                           message: operationFailure.message,
+                                           phase: .failed,
+                                           actionTitle: operationFailure.actionTitle,
+                                           retry: { retry(operationFailure.retry) }).padding(13)
+                }
+            ]))
+        }
+        sections.append(.init(id: "privacy", header: "Privacy", rows: [
+            .custom(id: "privacy-note") {
+                NoteCard("Backups are saved to your chosen local or cloud-synced folder. You're in control.",
+                         style: .privacy).padding(13)
+            }
+        ]))
+        return sections
     }
 
     // MARK: - Cards

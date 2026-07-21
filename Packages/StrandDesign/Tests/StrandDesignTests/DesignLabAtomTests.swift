@@ -2,6 +2,25 @@ import XCTest
 @testable import StrandDesign
 
 final class DesignLabAtomTests: XCTestCase {
+    func testHoldGateRequiresOneUninterruptedHoldAndCompletesOnce() {
+        var gate = HoldToConfirmContract()
+
+        XCTAssertTrue(gate.begin())
+        gate.cancel()
+        XCTAssertFalse(gate.complete())
+
+        XCTAssertTrue(gate.begin())
+        XCTAssertTrue(gate.complete())
+        XCTAssertFalse(gate.complete())
+        XCTAssertFalse(gate.begin())
+    }
+
+    func testHoldGateKeepsLabTimingAndClampsUnsafeDurations() {
+        XCTAssertEqual(HoldToConfirmContract.defaultHoldSeconds, 1.2)
+        XCTAssertEqual(HoldToConfirmContract.normalized(seconds: 1.2), 1.2)
+        XCTAssertEqual(HoldToConfirmContract.normalized(seconds: 0), 0.1)
+    }
+
     func testPaperToastUsesTwoPointFourSecondDefaultDwell() {
         XCTAssertEqual(PaperToastDwellState.defaultDwellNanoseconds, 2_400_000_000)
     }

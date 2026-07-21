@@ -15,6 +15,28 @@ struct ImportedSleepFigures: Equatable {
     var debtMin: Double?          // "sleep_debt_min", minutes
 }
 
+/// Day-exact sleep score with explicit provenance. Callers choose computed V2 or imported WHOOP;
+/// this type never silently carries a value across days or mixes the two historical series.
+struct SleepScorePoint: Equatable, Sendable {
+    let day: String
+    let value: Double
+    let source: SleepScoreSource
+    let modelVersion: String?
+}
+
+/// The canonical dynamic Sleep Need's real components for one exact wake day (spec 012 T702 / plan
+/// doc G2): baseline + Effort addition + debt repayment − nap credit == total. Every field is read
+/// verbatim from `IntelligenceEngine.sleepV2MetricPoints`'s persisted series — never re-derived or
+/// approximated — so `SleepNeedBreakdownCard` can never show a fabricated component.
+struct SleepNeedBreakdown: Equatable, Sendable {
+    let day: String
+    let baselineMinutes: Double
+    let strainAdjustmentMinutes: Double
+    let debtRepaymentMinutes: Double
+    let napCreditMinutes: Double
+    let totalMinutes: Double
+}
+
 // MARK: - Cross-source resolver model (PR#196 , fresher live charts/metrics)
 //
 // Product surfaces (Compare, Insights, Stress, Explore, Today) historically read rows under the EXACT
@@ -122,6 +144,10 @@ struct SleepDeletionSnapshot: Equatable {
 /// two-handle BLEManager+Repository pattern safe) and publishes the dashboard caches the screens bind to.
 @MainActor
 final class Repository: ObservableObject {
+    static let sleepPerformanceV2Key = "noop_sleep_performance_v2"
+    static let sleepNeedV2Key = "noop_sleep_need_v2_min"
+    static let sleepPerformanceV2ModelKey = "noop_sleep_performance_v2_model"
+    static let sleepPerformanceV2SourceKey = "noop_sleep_performance_v2_source"
     /// The id of the strap whose recordings this read model surfaces. SEEDED at construction with the
     /// legacy "my-whoop", then RE-POINTED to the device registry's `activeDeviceId` once the store opens
     /// (see `adoptActiveDeviceId`), exactly as `BLEManager.bootstrapStore` re-points the WRITE side.
@@ -277,6 +303,89 @@ final class Repository: ObservableObject {
             }
         }
         return byDay.values.sorted { $0.day < $1.day }
+    }
+
+    /// Computed V2 only, keyed to the requested day range. Missing day means missing data.
+    func noopSleepV2Series(from: String, to: String) async -> [SleepScorePoint] {
+        guard let store = await ensureStore() else { return [] }
+        var byDay: [String: MetricPoint] = [:]
+        for id in computedReadIds {
+            for point in (try? await store.metricSeries(deviceId: id, key: Self.sleepPerformanceV2Key,
+                                                        from: from, to: to)) ?? [] where byDay[point.day] == nil {
+                byDay[point.day] = point
+            }
+        }
+        var sourceByDay: [String: Double] = [:]
+        for id in computedReadIds {
+            for point in (try? await store.metricSeries(deviceId: id,
+                key: Self.sleepPerformanceV2SourceKey, from: from, to: to)) ?? []
+                where sourceByDay[point.day] == nil { sourceByDay[point.day] = point.value }
+        }
+        return byDay.values.sorted { $0.day < $1.day }.map {
+            let source: SleepScoreSource = sourceByDay[$0.day] == 2 ? .noopEdited : .noopMeasured
+            return SleepScorePoint(day: $0.day, value: $0.value, source: source,
+                                   modelVersion: SleepPerformanceV2.modelVersion)
+        }
+    }
+
+    /// Imported WHOOP sleep performance only; never filled by local computed points.
+    func importedWhoopSleepSeries(from: String, to: String) async -> [SleepScorePoint] {
+        guard let store = await ensureStore() else { return [] }
+        return await unionMetricSeries(store: store, key: "sleep_performance", from: from, to: to).map {
+            SleepScorePoint(day: $0.day, value: $0.value, source: .whoopImport, modelVersion: nil)
+        }
+    }
+
+    /// Exact-day canonical dynamic need for conditional alarm evaluation. No latest-value carry.
+    func noopSleepNeedV2(day: String) async -> SleepScorePoint? {
+        guard let store = await ensureStore() else { return nil }
+        for id in computedReadIds {
+            if let point = (try? await store.metricSeries(deviceId: id, key: Self.sleepNeedV2Key,
+                                                          from: day, to: day))?.first {
+                return SleepScorePoint(day: day, value: point.value, source: .noopMeasured,
+                                       modelVersion: SleepNeedV2.modelVersion)
+            }
+        }
+        return nil
+    }
+
+    /// Most recent canonical need at/before a planning day. Unlike score reads, tonight's planner is
+    /// explicitly allowed to use the latest canonical dynamic need; the returned point keeps its real day.
+    func latestNoopSleepNeedV2(onOrBefore day: String) async -> SleepScorePoint? {
+        guard let store = await ensureStore() else { return nil }
+        var candidates: [MetricPoint] = []
+        for id in computedReadIds {
+            candidates += (try? await store.metricSeries(deviceId: id, key: Self.sleepNeedV2Key,
+                                                         from: "0000-01-01", to: day)) ?? []
+        }
+        guard let point = candidates.max(by: { $0.day < $1.day }) else { return nil }
+        return SleepScorePoint(day: point.day, value: point.value, source: .noopMeasured,
+                               modelVersion: SleepNeedV2.modelVersion)
+    }
+
+    /// Exact-day (no carry) real V2 need breakdown — the same "displayed night == score day" rule
+    /// `noopSleepNeedV2(day:)` uses. nil when V2 hasn't scored this exact wake day yet (flag off,
+    /// cold start, or a night still inside the warm-up window); the caller shows the honest
+    /// Building/Calibrating state rather than approximate the parts from a carried total.
+    func noopSleepNeedBreakdownV2(day: String) async -> SleepNeedBreakdown? {
+        guard let store = await ensureStore() else { return nil }
+        func value(_ key: String) async -> Double? {
+            for id in computedReadIds {
+                if let point = (try? await store.metricSeries(deviceId: id, key: key,
+                                                               from: day, to: day))?.first {
+                    return point.value
+                }
+            }
+            return nil
+        }
+        guard let total = await value(Self.sleepNeedV2Key),
+              let baseline = await value("noop_sleep_baseline_need_v2_min"),
+              let strain = await value("noop_sleep_strain_need_v2_min"),
+              let debtRepayment = await value("noop_sleep_debt_need_v2_min"),
+              let nap = await value("noop_sleep_nap_credit_v2_min") else { return nil }
+        return SleepNeedBreakdown(day: day, baselineMinutes: baseline, strainAdjustmentMinutes: strain,
+                                  debtRepaymentMinutes: debtRepayment, napCreditMinutes: nap,
+                                  totalMinutes: total)
     }
 
     /// Sleep sessions across the imported union for a ts range, keeping ALL sessions per day (a nap + a main

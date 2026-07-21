@@ -17,6 +17,9 @@ public struct PaperToast: View {
     private let action: (() -> Void)?
     private let dismissesOnAction: Bool
     private let dismiss: (() -> Void)?
+    private let dwellDuration: TimeInterval?
+
+    @State private var remaining = 1.0
 
     public init(
         _ message: LocalizedStringKey,
@@ -35,7 +38,8 @@ public struct PaperToast: View {
             announcement: announcement,
             dismissesOnAction: dismissesOnAction,
             action: action,
-            dismiss: nil
+            dismiss: nil,
+            dwellDuration: nil
         )
     }
 
@@ -47,7 +51,8 @@ public struct PaperToast: View {
         announcement: String?,
         dismissesOnAction: Bool,
         action: (() -> Void)?,
-        dismiss: (() -> Void)?
+        dismiss: (() -> Void)?,
+        dwellDuration: TimeInterval?
     ) {
         self.message = message
         self.systemImage = systemImage
@@ -57,50 +62,67 @@ public struct PaperToast: View {
         self.dismissesOnAction = dismissesOnAction
         self.action = action
         self.dismiss = dismiss
+        self.dwellDuration = dwellDuration
     }
 
     public var body: some View {
-        HStack(spacing: 9) {
-            Image(systemName: systemImage)
-                .foregroundStyle(tint)
-                .accessibilityHidden(true)
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(tint)
+                    .frame(width: 26, height: 26)
+                    .background(Circle().fill(tint.opacity(0.12)))
+                    .accessibilityHidden(true)
 
-            Text(message)
-                .font(StrandFont.caption.weight(.semibold))
-                .foregroundStyle(StrandPalette.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
+                Text(message)
+                    .font(StrandFont.caption.weight(.medium))
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
 
-            Spacer(minLength: 8)
+                Spacer(minLength: 8)
 
-            if let actionTitle, let action {
-                Button {
-                    action()
-                    if dismissesOnAction { dismiss?() }
-                } label: {
-                    Text(actionTitle)
-                        .font(StrandFont.caption.weight(.bold))
-                        .foregroundStyle(StrandPalette.link)
-                        .frame(minWidth: 44, minHeight: 44)
-                        .contentShape(Rectangle())
+                if let actionTitle, let action {
+                    Button {
+                        action()
+                        if dismissesOnAction { dismiss?() }
+                    } label: {
+                        Text(actionTitle)
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .foregroundStyle(StrandPalette.accent)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .frame(minWidth: 44, minHeight: 44)
+                            .background(Capsule(style: .continuous).fill(StrandPalette.accent.opacity(0.1)))
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
+            .padding(.horizontal, 13)
+            .padding(.vertical, 7)
+
+            GeometryReader { proxy in
+                Rectangle()
+                    .fill(tint.opacity(0.5))
+                    .frame(width: proxy.size.width * remaining, height: 2)
+            }
+            .frame(height: 2)
         }
-        .padding(.leading, 14)
-        .padding(.trailing, actionTitle == nil ? 14 : 10)
-        .frame(minHeight: 46)
-        .background(
-            StrandPalette.card,
-            in: RoundedRectangle(cornerRadius: 13, style: .continuous)
-        )
+        .background(StrandPalette.surfaceRaised)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .strokeBorder(StrandPalette.cardBorder, lineWidth: 0.75)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(StrandPalette.hairlineStrong, lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.08), radius: 10, y: 4)
-        .accessibilityElement(children: .combine)
+        .shadow(color: .black.opacity(0.10), radius: 14, y: 6)
+        .accessibilityElement(children: action == nil ? .combine : .contain)
         .accessibilityAddTraits(.updatesFrequently)
-        .onAppear { announceMessage() }
+        .onAppear {
+            announceMessage()
+            startLifetimeDrain()
+        }
     }
 
     fileprivate func dismissingAction(_ dismiss: @escaping () -> Void) -> PaperToast {
@@ -112,8 +134,29 @@ public struct PaperToast: View {
             announcement: announcement,
             dismissesOnAction: dismissesOnAction,
             action: action,
-            dismiss: dismiss
+            dismiss: dismiss,
+            dwellDuration: dwellDuration
         )
+    }
+
+    fileprivate func timed(dwellNanoseconds: UInt64?) -> PaperToast {
+        PaperToast(
+            message: message,
+            systemImage: systemImage,
+            tint: tint,
+            actionTitle: actionTitle,
+            announcement: announcement,
+            dismissesOnAction: dismissesOnAction,
+            action: action,
+            dismiss: dismiss,
+            dwellDuration: dwellNanoseconds.map { TimeInterval($0) / 1_000_000_000 }
+        )
+    }
+
+    private func startLifetimeDrain() {
+        remaining = 1
+        guard let dwellDuration else { return }
+        withAnimation(.linear(duration: dwellDuration)) { remaining = 0 }
     }
 
     private func announceMessage() {
@@ -188,6 +231,7 @@ private struct PaperToastPresenter: ViewModifier {
                 if isPresented {
                     toast()
                         .dismissingAction(dismiss)
+                        .timed(dwellNanoseconds: dwellNanoseconds)
                         .padding(.horizontal, 20)
                         .padding(.bottom, 18)
                         .transition(

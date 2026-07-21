@@ -164,35 +164,31 @@ private struct DevicesContent: View {
         } message: { device in
             Text("Give \(device.brand) \(device.model) a name you'll recognise.")
         }
-        // Remove confirm
-        .alert("Remove this device?",
-               isPresented: Binding(get: { removeTarget != nil },
-                                    set: { if !$0 { removeTarget = nil } }),
-               presenting: removeTarget) { device in
-            Button("Cancel", role: .cancel) { removeTarget = nil }
-            Button("Remove", role: .destructive) { confirmRemove(device) }
-        } message: { device in
-            Text("Remove \(device.displayName)? NOOP will stop connecting to it. Its recorded data is kept and you can re-add it any time.")
+        // Removal changes presentation only; confirmRemove still owns the BLE forget, archive, and
+        // replacement-active prompt effects.
+        .sheet(item: $removeTarget) { device in
+            destructiveSheet {
+                DestructiveGateCard(
+                    title: String(localized: "Remove this device?"),
+                    message: String(localized: "Remove \(device.displayName)? NOOP will stop connecting to it. Its recorded data is kept and you can re-add it any time."),
+                    confirmTitle: String(localized: "Hold to remove"),
+                    cancel: { removeTarget = nil },
+                    confirm: { confirmRemove(device) }
+                )
+            }
         }
         // Second, strongly-worded delete-data confirm (reached from the Remove card's secondary control)
-        .alert("Delete all of this device's data?",
-               isPresented: Binding(get: { deleteDataTarget != nil },
-                                    set: { if !$0 { deleteDataTarget = nil } }),
-               presenting: deleteDataTarget) { device in
-            Button("Cancel", role: .cancel) { deleteDataTarget = nil }
-            Button("Delete data", role: .destructive) {
-                // Route the heavy 16+-table delete through the WhoopStore actor (off the main thread) so a
-                // large device dataset can't freeze the UI. Resolve the store handle inside the Task, then
-                // await the delete; the registry reloads the (now-emptied) list on completion.
-                let deviceId = device.id
-                Task {
-                    guard let store = await model.repo.storeHandle() else { return }
-                    await registry.deleteDeviceData(deviceId, store: store)
-                }
-                deleteDataTarget = nil
+        .sheet(item: $deleteDataTarget) { device in
+            destructiveSheet {
+                DestructiveGateCard(
+                    title: String(localized: "Delete all of this device's data?"),
+                    message: String(localized: "This permanently deletes all data recorded from \(device.displayName). This can't be undone."),
+                    confirmTitle: String(localized: "Hold to delete data"),
+                    completedTitle: String(localized: "Deleted"),
+                    cancel: { deleteDataTarget = nil },
+                    confirm: { confirmDeleteData(device) }
+                )
             }
-        } message: { device in
-            Text("This permanently deletes all data recorded from \(device.displayName). This can't be undone.")
         }
         // After removing the active device, offer to pick a new active one (if any remain).
         .confirmationDialog("Pick a new active strap",
@@ -524,6 +520,25 @@ private struct DevicesContent: View {
                 pickNewActive = true
             }
         }
+    }
+
+    /// Keep the original actor-routed 16+-table purge intact behind the shared hold gate.
+    private func confirmDeleteData(_ device: PairedDevice) {
+        let deviceId = device.id
+        Task {
+            guard let store = await model.repo.storeHandle() else { return }
+            await registry.deleteDeviceData(deviceId, store: store)
+        }
+        deleteDataTarget = nil
+    }
+
+    private func destructiveSheet<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        ZStack {
+            StrandPalette.canvas.ignoresSafeArea()
+            content().padding(20)
+        }
+        .presentationDetents([.height(330)])
+        .presentationDragIndicator(.hidden)
     }
 }
 

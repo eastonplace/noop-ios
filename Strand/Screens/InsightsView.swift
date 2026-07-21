@@ -1017,101 +1017,37 @@ struct InsightsView: View {
         }
     }
 
-    /// One behaviour-effect card: sentence + with/without StatTiles + significance pill.
+    /// One behaviour-effect card using Kit 44's shared with/without grammar. All
+    /// labels, sample sizes, significance, means, and magnitudes come directly
+    /// from the existing BehaviorInsights result.
     private func effectCard(_ e: BehaviorEffect) -> some View {
-        // Sign-aware tint: did this behaviour move the outcome the GOOD way?
-        // good move = (delta > 0 when higherIsBetter) OR (delta < 0 when lower is better).
         let movedGood: Bool? = {
             if e.delta == 0 { return nil }
             let up = e.delta > 0
             return up == outcome.higherIsBetter
         }()
-        let tint: StrandTone = {
-            guard let good = movedGood else { return .neutral }
-            // Only let strong-tint shine when significant; weak effects read muted.
-            if e.significant { return good ? .positive : .critical }
-            return good ? .positive : .warning
-        }()
-        let tintColor = toneColor(tint)
         let deltaText: String = {
             let arrow = e.delta > 0 ? "↑" : (e.delta < 0 ? "↓" : "→")
             if let pct = e.pctChange { return "\(arrow) \(Int(abs(pct).rounded()))%" }
             return "\(arrow) \(String(format: "%.1f", abs(e.delta)))"
         }()
-        // Build the plain-English sentence ONCE and reuse it for both the visible
-        // copy and the accessibility label (was computed twice per card).
-        let sentence = BehaviorInsights.sentence(e)
+        let sharedScale = max(abs(e.meanWith), abs(e.meanWithout), 1)
+        let significance = e.significant
+            ? String(localized: "statistically significant")
+            : String(localized: "exploratory, not yet significant")
+        let evidence = String(localized: "n = \(e.nWith) with · \(e.nWithout) without · \(significance) · d = \(String(format: "%.2f", e.cohensD)) \(effectMagnitudeWord(e.cohensD))")
 
-        // The card wash reads as the OUTCOME's colour world (so the whole Behaviour
-        // Effects section sits in one world), while the dot / StatTile accents stay
-        // sign-aware to flag the good/bad direction.
-        return PaperCard {
-            VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-
-                // Header: behaviour name + significance pill. The old direction dot becomes a small liquid
-                // vessel filled to the effect magnitude (|Cohen's d|, capped where large is about 0.8+) in
-                // the sign-aware tint, the leading-gauge idiom Today uses, so the strength reads at a glance.
-                HStack(alignment: .center) {
-                    HStack(spacing: 10) {
-                        PaperGauge(value: min(1, abs(e.cohensD) / 0.8), tint: tintColor, animated: false)
-                            .frame(width: 26, height: 26)
-                            .accessibilityHidden(true)
-                        Text(e.behavior)
-                            .font(StrandFont.headline)
-                            .foregroundStyle(StrandPalette.textPrimary)
-                    }
-                    Spacer()
-                    StatePill(e.significant ? "SIGNIFICANT" : "EXPLORATORY",
-                              tone: e.significant ? .positive : .neutral,
-                              showsDot: false)
-                }
-
-                // Plain-English sentence.
-                Text(sentence)
-                    .font(StrandFont.body)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                // With / without means as uniform StatTiles.
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 168), spacing: NoopMetrics.gap)],
-                    alignment: .leading,
-                    spacing: NoopMetrics.gap
-                ) {
-                    StatTile(label: "With",
-                             value: formatOutcome(e.meanWith),
-                             caption: "n = \(e.nWith)",
-                             accent: tintColor,
-                             delta: deltaText,
-                             deltaColor: tintColor)
-                    StatTile(label: "Without",
-                             value: formatOutcome(e.meanWithout),
-                             caption: "n = \(e.nWithout)",
-                             accent: StrandPalette.textPrimary)
-                }
-
-                Divider().overlay(StrandPalette.hairline)
-
-                // Effect-size footer: Cohen's d + interpretation.
-                HStack {
-                    Text("Effect size").strandOverline()
-                    Spacer()
-                    HStack(spacing: 6) {
-                        Text(String(format: "d = %.2f", e.cohensD))
-                            .font(StrandFont.captionNumber)
-                            .foregroundStyle(StrandPalette.textPrimary)
-                        Text(effectMagnitudeWord(e.cohensD))
-                            .font(StrandFont.caption)
-                            .foregroundStyle(StrandPalette.textTertiary)
-                    }
-                }
-            }
-        }
-        .accessibilityElement(children: .combine)
-        // Whole-string key per variant (never a concatenated localized tail on an a11y label).
-        .accessibilityLabel(e.significant
-            ? String(localized: "\(sentence) Cohen's d \(String(format: "%.2f", e.cohensD)). Statistically significant.")
-            : String(localized: "\(sentence) Cohen's d \(String(format: "%.2f", e.cohensD)). Exploratory, not yet significant."))
+        return JournalImpactCard(
+            icon: "chart.xyaxis.line",
+            behavior: e.behavior,
+            impact: "\(outcome.outcomeName) \(deltaText)",
+            positive: movedGood == true,
+            withValue: JournalImpactValue(label: formatOutcome(e.meanWith),
+                                          magnitude: abs(e.meanWith) / sharedScale),
+            withoutValue: JournalImpactValue(label: formatOutcome(e.meanWithout),
+                                             magnitude: abs(e.meanWithout) / sharedScale),
+            evidence: evidence
+        )
     }
 
     // MARK: - Metric relationships section

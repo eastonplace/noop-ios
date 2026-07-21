@@ -82,6 +82,8 @@ public struct RecoveryForecast: Equatable, Sendable {
 
 public enum RecoveryForecaster {
 
+    public static let modelVersion = "recovery-forecast-v1"
+
     // MARK: Tunables (documented, deterministic — NOT learned)
 
     /// Trailing Charge nights used for the baseline mean / SD / slope.

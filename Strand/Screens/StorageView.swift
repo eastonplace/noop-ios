@@ -20,23 +20,29 @@ struct StorageView: View {
     var body: some View {
         ScreenScaffold(title: "Storage",
                        subtitle: "Where NOOP's on-device space is going, and a one-tap clean-up.") {
-            VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
-                if loading && report == nil {
-                    StatePill("Measuring…", tone: .accent, pulsing: true)
-                        .staggeredAppear(index: 0)
-                } else if let report {
-                    breakdownCard(report).staggeredAppear(index: 0)
-                    cleanUpCard(report).staggeredAppear(index: 1)
-                } else {
-                    DataPendingNote(title: "Storage unavailable",
-                                    message: "Couldn't read the local store right now. Try again in a moment.",
-                                    symbol: "internaldrive")
-                        .staggeredAppear(index: 0)
-                }
-                explainerCard.staggeredAppear(index: 2)
-            }
+            SettingsScreenTemplate(sections: storageSections)
         }
         .task { await load() }
+    }
+
+    private var storageSections: [SettingsSectionModel] {
+        var rows: [SettingsRowModel] = []
+        if loading && report == nil {
+            rows.append(.custom(id: "measuring") {
+                StatePill("Measuring…", tone: .accent, pulsing: true).padding(13)
+            })
+        } else if let report {
+            rows.append(.custom(id: "breakdown") { breakdownCard(report).padding(13) })
+            rows.append(.custom(id: "cleanup") { cleanUpCard(report).padding(13) })
+        } else {
+            rows.append(.custom(id: "unavailable") {
+                DataPendingNote(title: "Storage unavailable",
+                                message: "Couldn't read the local store right now. Try again in a moment.",
+                                symbol: "internaldrive").padding(13)
+            })
+        }
+        rows.append(.custom(id: "explanation") { explainerCard.padding(13) })
+        return [.init(id: "storage", header: "On-device Storage", rows: rows)]
     }
 
     // MARK: - Cards

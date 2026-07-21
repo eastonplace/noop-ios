@@ -101,7 +101,7 @@ struct ScoringGuideView: View {
                                   vsWhoop: String(localized: "The display uses WHOOP's familiar 0–21 Day Strain scale. NOOP's underlying training-load recipe remains its own and is documented here."))
                         scoreCard(.sleep,
                                   headline: String(localized: "Sleep: how restorative was your sleep?"),
-                                  body: String(localized: "A blend of how long you slept versus your personal need (the biggest factor), how efficiently (asleep versus in bed), how much was restorative (deep + REM sleep), and how consistent your sleep and wake timing is."),
+                                  body: Self.sleepBody,
                                   vsWhoop: String(localized: "Similar in spirit to WHOOP's Sleep Performance %; our composite is our own."))
                         confidenceCard
                         footerNote
@@ -199,6 +199,23 @@ struct ScoringGuideView: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(label)
+    }
+
+    /// Sleep card body — flag-aware per spec 012 T702 / plan doc G2/G3/G4 ("apply verbatim, but
+    /// flag-aware"): legacy V1 wording (duration/efficiency/deep+REM/timing) stays truthful and shown
+    /// while `SleepPerformanceV2Prefs` is `.off`, since the legacy score remains the Sleep tab's
+    /// authoritative headline number there. The approved V2 explanation copy shows only in
+    /// shadow/on, as explanatory context alongside the real V2 series now visible elsewhere (the
+    /// Sleep page's need-breakdown card) — this alone does NOT flip which score is authoritative.
+    /// This card is shared verbatim by TodayView, CoupledView and Settings (all open this same
+    /// sheet), so updating it once satisfies G2/G3 together.
+    private static var sleepBody: String {
+        switch SleepPerformanceV2Prefs.mode {
+        case .off:
+            return String(localized: "A blend of how long you slept versus your personal need (the biggest factor), how efficiently (asleep versus in bed), how much was restorative (deep + REM sleep), and how consistent your sleep and wake timing is.")
+        case .shadow, .on:
+            return String(localized: "Sleep Performance measures how completely and efficiently you met your dynamic Sleep Need. Sleep Need starts with your baseline, then accounts for yesterday's Effort, recent sleep debt, and naps. The score weighs sufficiency most heavily, with efficiency, timing consistency, and low overnight stress as supporting signals. Sleep stages are estimates shown for context; Deep and REM do not change this score.")
+        }
     }
 
     /// One colour-accented score section: a FLAT WHOOP-grey card (faintly washed with the section's Reset

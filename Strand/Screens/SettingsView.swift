@@ -174,35 +174,17 @@ struct SettingsView: View {
     var body: some View {
         ScreenScaffold(title: "Settings",
                        subtitle: "Customize NOOP to your preferences.") {
-            VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
-                paperProfileSummary.staggeredAppear(index: 0)
-                paperPreferencesSummary.staggeredAppear(index: 1)
-                paperPrivacySummary.staggeredAppear(index: 2)
-                paperSupportSummary.staggeredAppear(index: 3)
-
-                // The Paper overview above is deliberately compact. Every pre-reskin control remains
-                // below, unchanged in behaviour, so this stays a visual reorganisation rather than a
-                // settings migration or a silent feature removal.
-                SettingsDisclosureGroup(
-                    title: "Detailed settings",
-                    subtitle: "Profile, device, scoring, experiments, backup, and app information.",
-                    isExpanded: $advancedOpen
-                ) {
-                    profilePhotoCard
-                    profileCard
-                    unitsCard
-                    appearanceCard
-                    strapCard
-                    powerSavingCard
-                    featuresCard
-                    recoveryCard
-                    testCentreCard
-                    experimentalCard
-                    backupCard
-                    aboutCard
-                }
-                .staggeredAppear(index: 4)
-            }
+            SettingsScreenTemplate(
+                profile: SettingsProfileHeader(
+                    initials: profileInitials,
+                    name: profileDisplayName,
+                    subtitle: memberSinceLine,
+                    recovery: model.repo.today?.recovery,
+                    action: { advancedOpen = true }
+                ),
+                sections: settingsSections,
+                versionLine: "NOOP \(bundleVersionString) · build \(bundleBuildString) · local & private"
+            )
         }
         .alert(backupAlertTitle, isPresented: $showBackupAlert) {
             Button("OK", role: .cancel) { }
@@ -237,6 +219,87 @@ struct SettingsView: View {
             DiagnosticsSheet(onClose: { showDiagnostics = false })
         }
         #endif
+    }
+
+    private var profileInitials: String {
+        let words = profileDisplayName.split(separator: " ")
+        return words.prefix(2).compactMap(\.first).map(String.init).joined()
+    }
+
+    private var bundleBuildString: String {
+        (Bundle.main.infoDictionary?["CFBundleVersion"] as? String) ?? "—"
+    }
+
+    /// Standard rows use the promoted binding grammar. Large, specialised tools stay byte-for-byte
+    /// intact in a custom row until they have a truthful standard representation.
+    private var settingsSections: [SettingsSectionModel] {
+        let unitSelection = Binding<String>(
+            get: { unitSystem == .imperial ? "US" : "Metric" },
+            set: { unitSystemRaw = $0 == "US" ? UnitSystem.imperial.rawValue : UnitSystem.metric.rawValue }
+        )
+        let appearanceSelection = Binding<String>(
+            get: { (AppearanceMode(rawValue: appearanceRaw) ?? .system).label },
+            set: { label in
+                appearanceRaw = AppearanceMode.allCases.first(where: { $0.label == label })?.rawValue
+                    ?? AppearanceMode.system.rawValue
+            }
+        )
+        return [
+            SettingsSectionModel(
+                id: "preferences",
+                header: "Preferences",
+                rows: [
+                    .segmented(id: "units", icon: "ruler", tint: StrandPalette.accent,
+                               title: "Units", options: ["US", "Metric"], selection: unitSelection),
+                    .segmented(id: "appearance", icon: "circle.lefthalf.filled",
+                               tint: StrandPalette.textSecondary, title: "Appearance",
+                               options: AppearanceMode.allCases.map(\.label), selection: appearanceSelection),
+                    .info(id: "notifications", icon: "bell", tint: StrandPalette.metricAmber,
+                          title: "Notifications", value: "System")
+                ]
+            ),
+            SettingsSectionModel(
+                id: "data-and-support",
+                header: "Data & Support",
+                footer: "Everything stays on this device. Exports are files you hold.",
+                rows: [
+                    .nav(id: "data-sources", icon: "externaldrive.fill", tint: StrandPalette.metricCyan,
+                         title: "Data Management") { DataSourcesView() },
+                    .nav(id: "backup-sync", icon: "externaldrive.fill.badge.icloud", tint: StrandPalette.sleepAccent,
+                         title: "Export Your Data") { BackupSyncView() },
+                    .nav(id: "support", icon: "heart.fill", tint: StrandPalette.metricRose,
+                         title: "Support & Donation") { SupportView() }
+                ]
+            ),
+            SettingsSectionModel(
+                id: "all-settings",
+                header: "All Settings",
+                footer: "Every production tool remains available here.",
+                rows: [
+                    .custom(id: "detailed-settings") {
+                        SettingsDisclosureGroup(
+                            title: "Detailed settings",
+                            subtitle: "Profile, device, scoring, experiments, backup, and app information.",
+                            isExpanded: $advancedOpen
+                        ) {
+                            profilePhotoCard
+                            profileCard
+                            unitsCard
+                            appearanceCard
+                            strapCard
+                            powerSavingCard
+                            featuresCard
+                            recoveryCard
+                            testCentreCard
+                            experimentalCard
+                            backupCard
+                            aboutCard
+                        }
+                        .padding(13)
+                    }
+                ]
+            )
+        ]
     }
 
     // MARK: - Strap power saving (#477)

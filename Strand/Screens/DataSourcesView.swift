@@ -85,30 +85,7 @@ struct DataSourcesView: View {
                        // lifecycle binding in onAppear/onDisappear, so a ~1 Hz tick still re-evaluates the
                        // built cards — that observation can't be removed here (see the lane-B2 note).
                        lazy: true) {
-            VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
-                if let pickerError {
-                    PaperOperationFeedback(
-                        title: String(localized: "Import failed"),
-                        message: pickerError,
-                        phase: .failed,
-                        retry: { presentImporter(importTarget) }
-                    )
-                }
-                SectionHeader("Import from file or app")
-                whoopCard.staggeredAppear(index: 0)
-                appleHealthCard.staggeredAppear(index: 1)
-                xiaomiCard.staggeredAppear(index: 2)
-                SectionHeader("More imports")
-                nutritionCard.staggeredAppear(index: 3)
-                liftingCard.staggeredAppear(index: 4)
-                activityFileCard.staggeredAppear(index: 5)
-                wearableCard.staggeredAppear(index: 6)
-                SectionHeader("Manage connections")
-                broadcastHrCard.staggeredAppear(index: 7)
-                liveCard.staggeredAppear(index: 8)
-                NoteCard("All imports stay on this device. Your data is never uploaded. You decide what to import.",
-                         style: .privacy)
-            }
+            SettingsScreenTemplate(sections: dataSourceSections)
         }
         .onAppear {
             // Point the broadcaster's diagnostic sink at this screen's `live` so its broadcast-out
@@ -150,12 +127,21 @@ struct DataSourcesView: View {
                       allowsMultipleSelection: false) { result in
             handleImportResult(result, for: importTarget)
         }
-        // ah-delete (#616): strongly-worded confirm before purging the Apple Health source.
-        .alert("Remove Apple Health imported data?", isPresented: $confirmDeleteAppleHealth) {
-            Button("Cancel", role: .cancel) { }
-            Button("Remove", role: .destructive) { deleteAppleHealthData() }
-        } message: {
-            Text("This permanently deletes everything imported from Apple Health: heart rate, HRV, sleep, steps, workouts and more. Your live strap data is untouched. This can't be undone.")
+        // ah-delete (#616): the shared hold gate changes presentation only. The destructive closure
+        // remains the exact existing deleteAppleHealthData() path and never invents a row count.
+        .sheet(isPresented: $confirmDeleteAppleHealth) {
+            destructiveSheet {
+                DestructiveGateCard(
+                    title: String(localized: "Remove Apple Health imported data?"),
+                    message: String(localized: "This permanently deletes everything imported from Apple Health: heart rate, HRV, sleep, steps, workouts and more. Your live strap data is untouched. This can't be undone."),
+                    confirmTitle: String(localized: "Hold to remove"),
+                    cancel: { confirmDeleteAppleHealth = false },
+                    confirm: {
+                        confirmDeleteAppleHealth = false
+                        deleteAppleHealthData()
+                    }
+                )
+            }
         }
         .paperToast(
             isPresented: Binding(
@@ -168,6 +154,52 @@ struct DataSourcesView: View {
                 announcement: importSuccessToast
             )
         }
+    }
+
+    private func destructiveSheet<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        ZStack {
+            StrandPalette.canvas.ignoresSafeArea()
+            content().padding(20)
+        }
+        .presentationDetents([.height(330)])
+        .presentationDragIndicator(.hidden)
+    }
+
+    private var dataSourceSections: [SettingsSectionModel] {
+        var sections: [SettingsSectionModel] = []
+        if let pickerError {
+            sections.append(.init(id: "import-error", header: "Import Status", rows: [
+                .custom(id: "feedback") {
+                    PaperOperationFeedback(title: String(localized: "Import failed"),
+                                           message: pickerError, phase: .failed,
+                                           retry: { presentImporter(importTarget) }).padding(13)
+                }
+            ]))
+        }
+        sections.append(contentsOf: [
+            .init(id: "primary-imports", header: "Import from File or App", rows: [
+                .custom(id: "whoop") { whoopCard.padding(13) },
+                .custom(id: "apple-health") { appleHealthCard.padding(13) },
+                .custom(id: "xiaomi") { xiaomiCard.padding(13) }
+            ]),
+            .init(id: "more-imports", header: "More Imports", rows: [
+                .custom(id: "nutrition") { nutritionCard.padding(13) },
+                .custom(id: "lifting") { liftingCard.padding(13) },
+                .custom(id: "activity-file") { activityFileCard.padding(13) },
+                .custom(id: "wearables") { wearableCard.padding(13) }
+            ]),
+            .init(id: "connections", header: "Manage Connections", rows: [
+                .custom(id: "broadcast-heart-rate") { broadcastHrCard.padding(13) },
+                .custom(id: "live-strap") { liveCard.padding(13) }
+            ]),
+            .init(id: "privacy", header: "Privacy", rows: [
+                .custom(id: "privacy-note") {
+                    NoteCard("All imports stay on this device. Your data is never uploaded. You decide what to import.",
+                             style: .privacy).padding(13)
+                }
+            ])
+        ])
+        return sections
     }
 
     private var whoopCard: some View {

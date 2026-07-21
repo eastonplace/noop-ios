@@ -1,5 +1,6 @@
 import SwiftUI
 import StrandDesign
+import StrandAnalytics
 
 /// Smart alarm (#207) — the iOS/macOS surface.
 ///
@@ -16,6 +17,10 @@ struct SmartAlarmView: View {
     // alarm over BLE) and the behavior store (the alarm's persisted on/time/weekdays).
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var behavior: BehaviorStore
+    // T702: the promoted hero needs the canonical dynamic Sleep Need (repo) and enough Recovery
+    // history to say honestly whether "In the green" can forecast tonight (intelligence).
+    @EnvironmentObject private var repo: Repository
+    @EnvironmentObject private var intelligence: IntelligenceEngine
 
     @State private var windDownOn = WindDownNudge.isEnabled
     /// Earliest wake time the nudge is derived from (minutes since midnight). Seeded from the store.
@@ -29,17 +34,213 @@ struct SmartAlarmView: View {
     /// Calendar weekday numbers laid out Monday-first (Mon…Sun → 2,3,4,5,6,7,1), matching AutomationsView.
     private static let weekdayOrder = [2, 3, 4, 5, 6, 7, 1]
 
+    // MARK: - T702: promoted SleepAlarmModuleCard hero
+    //
+    // The canonical dynamic Sleep Need, resolved once per appearance: repo.latestNoopSleepNeedV2 →
+    // the Sleep page's own personal-mean fallback (byte-for-byte the same rule SleepView.sleepNeedMin
+    // and CoupledView.sleepNeedMin already use) → the SleepNeedV2 default. WindDownNudge is pushed
+    // the SAME resolved value (plan doc G6) so the wind-down nudge and the alarm's "be asleep by"
+    // never plan off two different numbers.
+    @State private var needMinutes: Double = SleepNeedV2.Config.production.defaultBaselineMinutes
+    @State private var needIsStartingEstimate = true
+    @State private var evidence: SmartAlarmEvidence?
+
     var body: some View {
         // #766: retitled to "Alarms" because it now holds BOTH the strap's silent wake-alarm and the
         // evening wind-down reminder, so naming it "Wind-Down" undersold it. One surface, clearly labelled.
         ScreenScaffold(title: "Alarms",
                        subtitle: "Wake and wind-down controls.") {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
+                alarmHeroSection
                 paperAlarmSummary
                 honestyCard
                 strapAlarmCard
                 windDownCard
             }
+        }
+        .task {
+            await resolveCanonicalNeed()
+            SmartAlarmEvidenceStore.refreshCorrelation()
+            evidence = SmartAlarmEvidenceStore.latest
+        }
+        // Wiring for the NEW mode picker (T702): the other three properties the hero also edits
+        // (enabled / minutes / weekdays) already re-arm via the identical `.onChangeCompat` on
+        // `strapAlarmCard` below — mode had no editor before this kit, so it gets its own.
+        .onChangeCompat(of: behavior.smartAlarmMode) { _ in model.applySmartAlarm() }
+    }
+
+    // MARK: - T702 hero: real clock, real modes, real canonical need
+
+    /// The Sleep goal / In the green / Exact time modes, mapped to the REAL conditional-alarm system
+    /// (`SmartAlarmEvaluator.Mode`, already implemented and hardened in `AppModel`). "Exact time" arms
+    /// the strap firmware alarm at the set endpoint; the two smart modes are best-effort early wake —
+    /// the endpoint stays armed as the fail-safe, and early wake needs a live, connected phone, so it
+    /// is never promised as guaranteed on iOS.
+    private var wakeModes: [SleepAlarmWakeMode] {
+        [
+            SleepAlarmWakeMode(
+                id: SmartAlarmEvaluator.Mode.exactTime.rawValue,
+                title: String(localized: "Exact time"),
+                explanation: String(localized: "Wakes you with the strap's firmware alarm at exactly the time you set — no window."),
+                windowMinutes: 0
+            ),
+            SleepAlarmWakeMode(
+                id: SmartAlarmEvaluator.Mode.sleepGoal.rawValue,
+                title: String(localized: "Sleep goal"),
+                explanation: String(localized: "Best-effort early wake once tonight's Sleep Need is banked, inside a \(SmartAlarmEvaluator.adaptiveWindowMinutes)-minute window. The strap's exact-time alarm stays armed as the fail-safe; early wake is best-effort on iOS, never guaranteed."),
+                windowMinutes: SmartAlarmEvaluator.adaptiveWindowMinutes
+            ),
+            SleepAlarmWakeMode(
+                id: SmartAlarmEvaluator.Mode.inTheGreen.rawValue,
+                title: String(localized: "In the green"),
+                explanation: String(localized: "Best-effort early wake once tomorrow's Recovery is projected to land in the green, inside a \(SmartAlarmEvaluator.adaptiveWindowMinutes)-minute window. Same fail-safe endpoint and same iOS best-effort caveat as Sleep goal."),
+                windowMinutes: SmartAlarmEvaluator.adaptiveWindowMinutes,
+                availability: inTheGreenAvailability
+            )
+        ]
+    }
+
+    /// Scored Recovery nights on hand — the same `RecoveryForecaster.minBaselineNights` gate the
+    /// forecast itself enforces, so "In the green" never claims availability the forecast would
+    /// immediately refuse.
+    private var recoveryHistoryCount: Int { intelligence.results.compactMap(\.recovery).count }
+
+    private var inTheGreenAvailability: SleepAlarmWakeMode.Availability {
+        recoveryHistoryCount >= RecoveryForecaster.minBaselineNights
+            ? .available
+            : .unavailable(reason: String(localized: "Needs a few more scored nights of Recovery to forecast tonight (\(recoveryHistoryCount) of \(RecoveryForecaster.minBaselineNights) so far)."))
+    }
+
+    private var smartAlarmModeBinding: Binding<String> {
+        Binding(
+            get: { behavior.smartAlarmMode.rawValue },
+            set: { raw in
+                guard let mode = SmartAlarmEvaluator.Mode(rawValue: raw) else { return }
+                behavior.smartAlarmMode = mode
+            }
+        )
+    }
+
+    /// Bridges the real time-of-day store (`behavior.smartAlarmMinutes`, 0..<1440) onto the module's
+    /// continuous wake axis for a given "now" — resolves to later today or tomorrow, whichever is the
+    /// actual next occurrence, and writes any nudge straight back to the same store the DatePicker
+    /// below edits (one binding, two controls).
+    private func wakeContinuousBinding(nowMinutes: Int) -> Binding<Int> {
+        Binding(
+            get: { SleepAlarmTime.nextOccurrence(now: nowMinutes, timeOfDay: behavior.smartAlarmMinutes) },
+            set: { newContinuous in
+                behavior.smartAlarmMinutes = ((newContinuous % 1_440) + 1_440) % 1_440
+            }
+        )
+    }
+
+    /// Resolve tonight's canonical dynamic Sleep Need, three tiers, honest about which one landed:
+    /// 1) the real V2 point at/before today (`repo.latestNoopSleepNeedV2`);
+    /// 2) else the Sleep page's own personal-mean fallback — byte-for-byte `SleepView.sleepNeedMin`
+    ///    (CoupledView.sleepNeedMin already mirrors the same rule, so all three screens agree);
+    /// 3) else the SleepNeedV2 default (480 min), labelled a starting estimate, never silently.
+    /// Pushes the resolved value into `WindDownNudge` (plan doc G6) so wind-down times off the same
+    /// number the alarm module's "be asleep by" does.
+    private func resolveCanonicalNeed() async {
+        let today = Repository.localDayKey(Date())
+        if let point = await repo.latestNoopSleepNeedV2(onOrBefore: today) {
+            needMinutes = point.value
+            needIsStartingEstimate = false
+            WindDownNudge.updateCanonicalNeedMinutes(point.value)
+            return
+        }
+        let recentTotals = repo.days.compactMap { $0.totalSleepMin }.filter { $0 > 0 }
+        if !recentTotals.isEmpty {
+            let personalMean = Swift.max(450, recentTotals.reduce(0, +) / Double(recentTotals.count))
+            needMinutes = personalMean
+            needIsStartingEstimate = false
+            WindDownNudge.updateCanonicalNeedMinutes(personalMean)
+            return
+        }
+        needMinutes = SleepNeedV2.Config.production.defaultBaselineMinutes
+        needIsStartingEstimate = true
+        WindDownNudge.updateCanonicalNeedMinutes(needMinutes)
+    }
+
+    /// The hero: the promoted module (real clock via `TimelineView`, real modes, real need) plus the
+    /// quiet last-evaluation evidence row and tonight's real plan timeline. A 60 s tick is plenty for
+    /// a "be asleep by" countdown; the module itself still recomputes instantly on every user edit.
+    private var alarmHeroSection: some View {
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            let comps = Calendar.current.dateComponents([.hour, .minute], from: context.date)
+            let nowMinutes = (comps.hour ?? 0) * 60 + (comps.minute ?? 0)
+            let modes = wakeModes
+            let selected = modes.first { $0.id == behavior.smartAlarmMode.rawValue }
+            let windowMinutes = selected?.windowMinutes ?? 0
+            let wake = SleepAlarmTime.nextOccurrence(now: nowMinutes, timeOfDay: behavior.smartAlarmMinutes)
+            let windowStart = wake - windowMinutes
+            let asleepBy = SleepAlarmTime.asleepByMinutes(wakeMinutes: wake, windowMinutes: windowMinutes,
+                                                           needMinutes: needMinutes)
+
+            VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
+                SleepAlarmModuleCard(
+                    armed: $behavior.smartAlarmEnabled,
+                    modes: modes,
+                    selectedModeId: smartAlarmModeBinding,
+                    wakeMinutes: wakeContinuousBinding(nowMinutes: nowMinutes),
+                    nowMinutes: nowMinutes,
+                    needMinutes: needMinutes
+                )
+                if needIsStartingEstimate {
+                    Text("Starting estimate — NOOP hasn't computed your personal Sleep Need yet.")
+                        .font(StrandFont.micro)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .padding(.horizontal, 4)
+                }
+                if let evidence {
+                    evaluationEvidenceRow(evidence)
+                }
+                if behavior.smartAlarmEnabled {
+                    SleepPlanTimeline(now: nowMinutes, asleepBy: asleepBy, windowStart: windowStart, alarm: wake)
+                }
+            }
+        }
+    }
+
+    /// Quiet "last evaluation" evidence row (T702): decision, reason, and the correlated strap
+    /// armed/fired times when the strap has confirmed them. Read-only, no controls — a diagnostic
+    /// trace of the SAME hardened evaluator/actuation path in `AppModel`, never re-derived here.
+    private func evaluationEvidenceRow(_ e: SmartAlarmEvidence) -> some View {
+        PaperCard(padding: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Text("Last evaluation".uppercased())
+                        .font(StrandFont.overline)
+                        .tracking(StrandFont.overlineTracking)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                    Spacer(minLength: 8)
+                    Text(e.evaluatedAt, format: .relative(presentation: .named))
+                        .font(StrandFont.micro)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                }
+                Text("\(Self.decisionWord(e.decision)) · \(e.reason)")
+                    .font(StrandFont.caption)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                if let armed = e.strapReportedArmedAt {
+                    Text("Strap confirmed armed at \(armed.formatted(date: .omitted, time: .shortened))")
+                        .font(StrandFont.micro)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                }
+                if let fired = e.observedStrapWakeAt {
+                    Text("Strap fired at \(fired.formatted(date: .omitted, time: .shortened))")
+                        .font(StrandFont.micro)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                }
+            }
+        }
+    }
+
+    private static func decisionWord(_ d: SmartAlarmEvaluator.Decision) -> String {
+        switch d {
+        case .wait:        return String(localized: "Waiting")
+        case .wakeNow:      return String(localized: "Woke early")
+        case .endpoint:     return String(localized: "Endpoint reached")
+        case .unavailable:  return String(localized: "Unavailable")
         }
     }
 

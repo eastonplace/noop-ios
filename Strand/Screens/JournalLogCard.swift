@@ -50,6 +50,12 @@ struct JournalLogCard: View {
     /// The item being renamed (drives the rename sheet).
     @State private var renaming: JournalCatalogItem?
     @State private var renameDraft = ""
+    /// The edit-mode item awaiting the shared consequence-first hold gate.
+    @State private var removing: JournalCatalogItem?
+    /// Kit 44 adapters. Both are loaded from production persistence; no fixture
+    /// answers or synthetic streak days enter the component layer.
+    @State private var selectedMood: Int?
+    @State private var loggedWindow: [Bool] = []
 
     private var dayKey: String {
         Repository.localDayKey(
@@ -107,12 +113,50 @@ struct JournalLogCard: View {
                         groupBlock(group)
                     }
 
+                    if !editing {
+                        Divider().overlay(StrandPalette.hairline).padding(.leading, 54)
+                        JournalMoodRow(mood: moodBinding)
+                        if !loggedWindow.isEmpty {
+                            JournalStreakStrip(logged: loggedWindow)
+                        }
+                    }
+
                     Divider().overlay(StrandPalette.hairline)
                     addRow
                 }
             }
         }
         .sheet(item: $renaming) { item in renameSheet(item) }
+        .sheet(item: $removing) { item in
+            ZStack {
+                StrandPalette.canvas.ignoresSafeArea()
+                DestructiveGateCard(
+                    title: item.custom
+                        ? String(localized: "Delete this journal item?")
+                        : String(localized: "Hide this journal item?"),
+                    message: item.custom
+                        ? String(localized: "Delete \(item.display)? Its existing logged history is kept under the original question, but the custom item will be removed from your journal.")
+                        : String(localized: "Hide \(item.display)? Its history is kept, and you can restore the item from journal edit mode."),
+                    confirmTitle: item.custom
+                        ? String(localized: "Hold to delete")
+                        : String(localized: "Hold to hide"),
+                    completedTitle: item.custom
+                        ? String(localized: "Deleted")
+                        : String(localized: "Hidden"),
+                    cancelTitle: String(localized: "Keep item"),
+                    cancel: { removing = nil },
+                    confirm: {
+                        // Preserve the catalog's exact existing custom-delete / built-in-hide behavior.
+                        catalog.remove(item.canonical)
+                        removing = nil
+                    }
+                )
+                .padding(20)
+            }
+            .presentationDetents([.height(350)])
+            .presentationDragIndicator(.hidden)
+        }
+        .task(id: dayKey) { await loadJournalKitState() }
     }
 
     // MARK: - Group block
@@ -151,20 +195,109 @@ struct JournalLogCard: View {
     // MARK: - Item row
 
     @ViewBuilder private func itemRow(_ item: JournalCatalogItem) -> some View {
-        HStack {
-            Text(verbatim: item.display)   // display = rename ?? canonical; data, not a UI literal
-                .font(StrandFont.body)
-                .foregroundStyle(item.hidden ? StrandPalette.textTertiary : StrandPalette.textPrimary)
-            Spacer()
-            if editing {
+        if editing {
+            HStack {
+                Text(verbatim: item.display)
+                    .font(StrandFont.body)
+                    .foregroundStyle(item.hidden ? StrandPalette.textTertiary : StrandPalette.textPrimary)
+                Spacer()
                 editControls(item)
-            } else if item.kind.isNumeric {
-                numericField(item)
-            } else {
-                answerPill("Yes", q: item.canonical, value: true)
-                answerPill("No", q: item.canonical, value: false)
             }
+        } else if item.kind.isNumeric {
+            VStack(alignment: .trailing, spacing: 4) {
+                JournalQuantityRow(
+                    icon: journalIcon(for: item),
+                    tint: journalTint(for: item),
+                    title: item.display,
+                    unit: item.kind.unitLabel ?? "",
+                    value: numericBinding(for: item)
+                )
+                // Preserve #322's exact decimal-entry and clear tools. The kit's
+                // stepper is primary; this compact editor keeps arbitrary doses reachable.
+                numericField(item)
+            }
+        } else {
+            JournalHabitToggle(
+                icon: journalIcon(for: item),
+                tint: journalTint(for: item),
+                question: item.display,
+                answer: answerBinding(for: item)
+            )
         }
+    }
+
+    private func answerBinding(for item: JournalCatalogItem) -> Binding<Bool?> {
+        Binding(
+            get: { answers[item.canonical] },
+            set: { next in
+                Task {
+                    if let next {
+                        await repo.saveJournalAnswer(day: dayKey, question: item.canonical, answeredYes: next)
+                    } else {
+                        await repo.clearJournalAnswer(day: dayKey, question: item.canonical)
+                    }
+                    onChanged()
+                    await loadJournalKitState()
+                }
+            }
+        )
+    }
+
+    private func numericBinding(for item: JournalCatalogItem) -> Binding<Double?> {
+        Binding(
+            get: { numericAnswers[item.canonical] },
+            set: { next in
+                Task {
+                    if let next {
+                        await repo.saveJournalNumeric(day: dayKey, question: item.canonical, value: next)
+                    } else {
+                        await repo.clearJournalAnswer(day: dayKey, question: item.canonical)
+                    }
+                    onChanged()
+                    await loadJournalKitState()
+                }
+            }
+        )
+    }
+
+    private var moodBinding: Binding<Int?> {
+        Binding(
+            get: { selectedMood },
+            set: { next in
+                selectedMood = next
+                guard let next else { return }
+                Task { await repo.saveMood(day: dayKey, value: next) }
+            }
+        )
+    }
+
+    private func journalIcon(for item: JournalCatalogItem) -> String {
+        switch item.group {
+        case .nutrition: return item.kind.isNumeric ? "wineglass" : "fork.knife"
+        case .supplements: return "pills.fill"
+        case .health: return "heart.text.square.fill"
+        case .behaviour: return "checkmark.circle.fill"
+        case .lifestyle: return "moon.stars.fill"
+        case .other: return "square.and.pencil"
+        }
+    }
+
+    private func journalTint(for item: JournalCatalogItem) -> Color {
+        switch item.group {
+        case .nutrition: return StrandPalette.metricAmber
+        case .supplements: return StrandPalette.metricCyan
+        case .health: return StrandPalette.metricRose
+        case .behaviour: return StrandPalette.journalAccent
+        case .lifestyle: return StrandPalette.sleepAccent
+        case .other: return StrandPalette.metricPurple
+        }
+    }
+
+    @MainActor private func loadJournalKitState() async {
+        selectedMood = await repo.mood(day: dayKey)
+        let entries = await repo.journalEntries()
+        let loggedDays = Set(entries.map(\.day))
+        loggedWindow = JournalStreakSummary.window(loggedDays: loggedDays, endingOn: dayKey, days: 14)
     }
 
     // MARK: - Numeric field
@@ -172,7 +305,7 @@ struct JournalLogCard: View {
     private func numericField(_ item: JournalCatalogItem) -> some View {
         let current = numericAnswers[item.canonical]
         return HStack(spacing: 6) {
-            stepperButton("minus", q: item.canonical, current: current)
+            Spacer(minLength: 54)
             NumericLogField(
                 value: current,
                 placeholder: "—",
@@ -183,7 +316,6 @@ struct JournalLogCard: View {
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textTertiary)
             }
-            stepperButton("plus", q: item.canonical, current: current)
             if current != nil {
                 Button {
                     Task { await repo.clearJournalAnswer(day: dayKey, question: item.canonical); onChanged() }
@@ -196,20 +328,6 @@ struct JournalLogCard: View {
                 .accessibilityLabel("Clear \(item.display)")
             }
         }
-    }
-
-    private func stepperButton(_ symbol: String, q: String, current: Double?) -> some View {
-        Button {
-            let base = current ?? 0
-            let next = max(0, symbol == "plus" ? base + 1 : base - 1)
-            commitNumeric(q, value: next)
-        } label: {
-            Image(systemName: "\(symbol).circle")
-                .font(StrandFont.body)
-                .foregroundStyle(StrandPalette.textSecondary)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(symbol == "plus" ? "Increase" : "Decrease")
     }
 
     private func commitNumeric(_ q: String, value: Double) {
@@ -254,7 +372,7 @@ struct JournalLogCard: View {
 
     /// Edit-mode control: delete a custom question / hide a built-in one. Tinted red to read as removal.
     private func removeButton(_ item: JournalCatalogItem) -> some View {
-        Button { catalog.remove(item.canonical) } label: {
+        Button { removing = item } label: {
             Image(systemName: "minus.circle.fill")
                 .font(StrandFont.body)
                 .foregroundStyle(StrandPalette.statusCritical)

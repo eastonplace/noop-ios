@@ -42,21 +42,28 @@ struct AutomationsView: View {
                        // path (byte-identical layout) genuinely builds the off-screen cards on demand
                        // instead of constructing all eight/nine + their toggle subtrees up-front.
                        lazy: true) {
-            paperAutomationSummary
-            #if os(iOS)
-            wristAlertsCard
-            #endif
-            doubleTapCard
-            wearCard
-            coachingCard
-            // #766: the strap's silent wake-alarm card used to sit here, which let users conflate it with
-            // the wind-down reminder. It's moved to the dedicated Alarms screen (SmartAlarmView) so every
-            // wake/wind-down control lives in one place. Automations is just inputs-to-actions now.
-            inactivityCard
-            illnessCard
-            healthInsightsCard
-            batteryCard
+            SettingsScreenTemplate(sections: automationSections)
         }
+    }
+
+    private var automationSections: [SettingsSectionModel] {
+        var rows: [SettingsRowModel] = [
+            .custom(id: "summary") { paperAutomationSummary.padding(13) }
+        ]
+        #if os(iOS)
+        rows.append(.custom(id: "wrist-alerts") { wristAlertsCard.padding(13) })
+        #endif
+        rows.append(contentsOf: [
+            .custom(id: "double-tap") { doubleTapCard.padding(13) },
+            .custom(id: "wear") { wearCard.padding(13) },
+            .custom(id: "coaching") { coachingCard.padding(13) },
+            .custom(id: "inactivity") { inactivityCard.padding(13) },
+            .custom(id: "illness") { illnessCard.padding(13) },
+            .custom(id: "health-insights") { healthInsightsCard.padding(13) },
+            .custom(id: "battery") { batteryCard.padding(13) }
+        ])
+        return [.init(id: "automations", header: "On-device Automations",
+                      footer: "Every action and reminder uses the existing production stores.", rows: rows)]
     }
 
     private var paperAutomationSummary: some View {
