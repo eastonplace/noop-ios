@@ -66,29 +66,36 @@ public struct NOOPRecoverySmallWidgetView: View {
                 Spacer()
                 Circle().fill(accent).frame(width: 6, height: 6)
             }
-            ZStack {
-                Circle()
-                    .trim(from: 0, to: Self.sweep)
-                    .stroke(StrandPalette.surfaceInset,
-                            style: StrokeStyle(lineWidth: 8, lineCap: .round))
-                    .rotationEffect(.degrees(150))
-                if let recovery {
+            GeometryReader { proxy in
+                let diameter = min(proxy.size.width, proxy.size.height)
+                let stroke = min(max(diameter * 0.075, 6), 9)
+                let scoreSize = min(max(diameter * 0.28, 25), 34)
+
+                ZStack {
                     Circle()
-                        .trim(from: 0, to: Self.sweep * min(max(Double(recovery) / 100, 0), 1))
-                        .stroke(accent, style: StrokeStyle(lineWidth: 8, lineCap: .round))
+                        .trim(from: 0, to: Self.sweep)
+                        .stroke(StrandPalette.surfaceInset,
+                                style: StrokeStyle(lineWidth: stroke, lineCap: .round))
                         .rotationEffect(.degrees(150))
+                    if let recovery {
+                        Circle()
+                            .trim(from: 0, to: Self.sweep * min(max(Double(recovery) / 100, 0), 1))
+                            .stroke(accent, style: StrokeStyle(lineWidth: stroke, lineCap: .round))
+                            .rotationEffect(.degrees(150))
+                    }
+                    VStack(spacing: 1) {
+                        Text(recovery.map(String.init) ?? "—")
+                            .font(StrandFont.number(scoreSize, weight: .bold))
+                            .monospacedDigit()
+                            .foregroundStyle(recovery == nil ? StrandPalette.textTertiary : StrandPalette.textPrimary)
+                        Text(deltaLine)
+                            .font(.system(size: max(8, diameter * 0.075), weight: .semibold, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundStyle(deltaTint)
+                    }
                 }
-                VStack(spacing: 1) {
-                    Text(recovery.map(String.init) ?? "—")
-                        .font(StrandFont.number(30, weight: .bold))
-                        .monospacedDigit()
-                        .foregroundStyle(recovery == nil ? StrandPalette.textTertiary : StrandPalette.textPrimary)
-                    Text(deltaLine)
-                        .font(.system(size: 8, weight: .semibold, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundStyle(deltaTint)
-                }
-                .offset(y: 4)
+                .frame(width: diameter, height: diameter)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .frame(maxHeight: .infinity)
             HStack {
@@ -100,7 +107,10 @@ public struct NOOPRecoverySmallWidgetView: View {
                 NOOPWidgetBatteryChip(percentage: batteryPercentage)
             }
         }
-        .padding(13)
+        // WidgetKit already applies family-aware content margins. A second 13 pt
+        // inset made the small widget look like a tiny card floating inside the
+        // container. Fill the system-provided content rect instead.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilitySummary)
     }
@@ -186,7 +196,7 @@ public struct NOOPPillarsMediumWidgetView: View {
                 .minimumScaleFactor(0.72)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(13)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Today, \(statsLine)")
     }
@@ -326,7 +336,7 @@ public struct NOOPTodayLargeWidgetView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(14)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Today widget. Recovery \(recovery.map(String.init) ?? "unavailable"), strain \(strain.map { String(format: "%.1f", $0) } ?? "unavailable"), sleep \(sleep.map(String.init) ?? "unavailable")")
     }
