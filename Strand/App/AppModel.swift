@@ -304,6 +304,8 @@ final class AppModel: ObservableObject {
         // firmware pushes STRAP_DRIVEN_ALARM_EXECUTED). Gated on enabled inside applySmartAlarm.
         live.onSmartAlarmFired = { [weak self] in
             guard let self, self.behavior.smartAlarmEnabled else { return }
+            // Correlate the fired instant into the evidence record BEFORE re-arming rewrites state.
+            SmartAlarmEvidenceStore.refreshCorrelation()
             // PR #577 (iOS): mirror the strap's wake buzz to a local notification so a phone-in-pocket
             // user still gets woken; no-op on macOS / when wrist alerts are off.
             AppModel.postSmartAlarm()
@@ -1403,35 +1405,62 @@ final class AppModel: ObservableObject {
             recoveryForecastLow: forecast?.low, inputObservedAt: observedAt))
 
         var actuation: SmartAlarmEvidence.Actuation = .notRequested
+        var requestedWake = endpoint
         if evaluation.decision == .wakeNow {
             let previous = SmartAlarmEvidenceStore.latest
-            let alreadyActuated = previous?.requestedWakeAt == endpoint &&
-                previous?.actuation == .sentToConnectedStrap
-            if !alreadyActuated {
-                switch ble.buzzStrapOnce() {
-                case .sentAwaitingReadback: actuation = .sentToConnectedStrap
-                case .queuedForReconnect: actuation = .queuedForReconnect
-                case .experimentalDisabled: actuation = .experimentalDisabled
-                }
-            } else {
+            if previous?.windowEndpoint == endpoint, previous?.actuation == .sentToConnectedStrap {
+                // One early actuation per window: the strap already carries the earlier arm.
                 actuation = .sentToConnectedStrap
+                requestedWake = previous?.requestedWakeAt ?? endpoint
+            } else {
+                let context: SmartAlarmEvaluator.ExecutionContext =
+                    trigger == .backgroundRefresh ? .backgroundBestEffort : .foreground
+                switch SmartAlarmEvaluator.actuationPlan(for: evaluation, linkReady: live.connected,
+                                                         context: context) {
+                case .rearmEarlier:
+                    // The REAL early wake: re-arm the firmware alarm to fire now. The firmware
+                    // alarm's graduated buzz is the confirmed wake mechanism; a one-shot buzz
+                    // rides along so a light sleeper wakes even if the re-arm is rejected.
+                    let earlier = now.addingTimeInterval(SmartAlarmEvaluator.actuationLeadSeconds)
+                    switch ble.armStrapAlarm(at: earlier) {
+                    case .sentAwaitingReadback:
+                        actuation = .sentToConnectedStrap
+                        requestedWake = earlier
+                        ble.buzzStrapOnce()
+                    case .queuedForReconnect: actuation = .queuedForReconnect
+                    case .experimentalDisabled: actuation = .experimentalDisabled
+                    }
+                case .queueForReconnect:
+                    // No link: don't queue an instant that will be stale by reconnect. The
+                    // connect-settled hook re-evaluates with fresh data; the endpoint fail-safe
+                    // stays armed on the strap.
+                    actuation = .queuedForReconnect
+                case .none: break
+                }
             }
         }
-        let reportedEpoch = UserDefaults.standard.object(forKey: "alarm.lastReportedEpoch") as? Int
         SmartAlarmEvidenceStore.save(.init(
             mode: behavior.smartAlarmMode, trigger: trigger, decision: evaluation.decision,
             reason: evaluation.reason, evaluatedAt: evaluation.evaluatedAt,
             inputObservedAt: observedAt, sleepSource: "noop-live-stager",
             sleepModelVersion: SleepPerformanceV2.modelVersion,
             forecastSource: forecast == nil ? nil : "noop-recovery-forecast",
-            forecastModelVersion: forecast == nil ? nil : "recovery-forecast-v1",
-            requestedWakeAt: endpoint,
-            observedStrapWakeAt: reportedEpoch.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            forecastModelVersion: forecast == nil ? nil : RecoveryForecaster.modelVersion,
+            requestedWakeAt: requestedWake, windowEndpoint: endpoint,
+            strapReportedArmedAt: nil, observedStrapWakeAt: nil,
             actuation: actuation, evaluatorModelVersion: evaluation.modelVersion))
+        SmartAlarmEvidenceStore.refreshCorrelation(now: now)
         live.append(log: "Smart alarm: mode=\(behavior.smartAlarmMode.rawValue) decision=\(evaluation.decision.rawValue) reason=\(evaluation.reason) actuation=\(actuation.rawValue)")
     }
 
     private func persistSmartAlarmEndpointEvidence(endpoint: Date, arm: BLEManager.AlarmCommandResult) {
+        // Don't clobber an already-actuated record for the SAME window: a mid-window re-apply
+        // (connect settled, daily re-arm) would erase the dedupe key and re-fire the early wake.
+        if let previous = SmartAlarmEvidenceStore.latest,
+           previous.windowEndpoint == endpoint, previous.actuation == .sentToConnectedStrap {
+            SmartAlarmEvidenceStore.refreshCorrelation()
+            return
+        }
         let actuation: SmartAlarmEvidence.Actuation
         switch arm {
         case .sentAwaitingReadback: actuation = .endpointArmed
@@ -1442,7 +1471,8 @@ final class AppModel: ObservableObject {
             mode: behavior.smartAlarmMode, trigger: .configured, decision: .wait,
             reason: "latestEndpointFailSafe", evaluatedAt: Date(), inputObservedAt: nil,
             sleepSource: nil, sleepModelVersion: nil, forecastSource: nil,
-            forecastModelVersion: nil, requestedWakeAt: endpoint, observedStrapWakeAt: nil,
+            forecastModelVersion: nil, requestedWakeAt: endpoint, windowEndpoint: endpoint,
+            strapReportedArmedAt: nil, observedStrapWakeAt: nil,
             actuation: actuation, evaluatorModelVersion: SmartAlarmEvaluator.modelVersion))
     }
 
@@ -1452,7 +1482,8 @@ final class AppModel: ObservableObject {
             mode: behavior.smartAlarmMode, trigger: trigger, decision: .unavailable, reason: reason,
             evaluatedAt: evaluatedAt, inputObservedAt: nil, sleepSource: nil,
             sleepModelVersion: nil, forecastSource: nil, forecastModelVersion: nil,
-            requestedWakeAt: endpoint, observedStrapWakeAt: nil, actuation: .notRequested,
+            requestedWakeAt: endpoint, windowEndpoint: endpoint,
+            strapReportedArmedAt: nil, observedStrapWakeAt: nil, actuation: .notRequested,
             evaluatorModelVersion: SmartAlarmEvaluator.modelVersion))
     }
 

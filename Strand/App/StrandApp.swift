@@ -4,9 +4,6 @@ import StrandDesign
 @main
 struct StrandApp: App {
     init() {
-        #if os(iOS)
-        SmartAlarmScheduler.register()
-        #endif
         #if DEBUG
         // DEBUG-only promo-screenshot harness: when launched with `--demo-hour <Int>`, pin the Today
         // screen to that hour's day-cycle scene + a plausible per-hour stat frame. Runs synchronously

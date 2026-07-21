@@ -5,7 +5,9 @@ import Foundation
 public enum SmartAlarmEvaluator {
     public static let modelVersion = "smart-alarm-evaluator-v1.0"
     public static let adaptiveWindowMinutes = 30
-    public static let greenRecoveryFloor = 67.0
+    public static let maximumInputAgeSeconds: TimeInterval = 15 * 60
+    public static let actuationLeadSeconds: TimeInterval = 5
+    public static let greenRecoveryFloor = RecoveryScorer.bandYellowMax
 
     public enum Mode: String, Codable, CaseIterable, Sendable {
         case exactTime
@@ -22,6 +24,17 @@ public enum SmartAlarmEvaluator {
         case wakeNow
         case endpoint
         case unavailable
+    }
+
+    public enum ExecutionContext: String, Codable, Sendable {
+        case foreground
+        case backgroundBestEffort
+    }
+
+    public enum ActuationPlan: String, Codable, Sendable {
+        case none
+        case queueForReconnect
+        case rearmEarlier
     }
 
     public struct Input: Equatable, Sendable {
@@ -61,6 +74,12 @@ public enum SmartAlarmEvaluator {
         if input.now >= input.windowEnd { return result(.endpoint, "latestEndpointReached") }
         if input.now < input.windowStart { return result(.wait, "beforeAdaptiveWindow") }
 
+        if input.mode != .exactTime {
+            guard let age, age <= maximumInputAgeSeconds else {
+                return result(.unavailable, input.inputObservedAt == nil ? "missingLiveObservation" : "staleLiveObservation")
+            }
+        }
+
         switch input.mode {
         case .exactTime:
             return result(.wait, "exactTimeUsesEndpoint")
@@ -77,5 +96,13 @@ public enum SmartAlarmEvaluator {
             return low >= greenRecoveryFloor ? result(.wakeNow, "forecastBandIsGreen")
                                              : result(.wait, "forecastBandBelowGreen")
         }
+    }
+
+    /// A background invocation is an opportunity, never a promise. If it actually runs, it follows
+    /// the same encrypted-link gate as foreground execution; a missing link queues a reconnect retry.
+    public static func actuationPlan(for evaluation: Evaluation, linkReady: Bool,
+                                     context: ExecutionContext) -> ActuationPlan {
+        guard evaluation.decision == .wakeNow else { return .none }
+        return linkReady ? .rearmEarlier : .queueForReconnect
     }
 }
