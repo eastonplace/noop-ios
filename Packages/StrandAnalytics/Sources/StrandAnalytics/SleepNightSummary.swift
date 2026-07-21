@@ -1,4 +1,5 @@
 import Foundation
+import WhoopStore
 
 public enum SleepScoreSource: Codable, Equatable, Sendable {
     case noopMeasured
@@ -66,5 +67,37 @@ public struct SleepNightSummary: Codable, Equatable, Sendable {
             onsetMinuteLocal: localMinute(start), wakeMinuteLocal: localMinute(end),
             recentNapMinutes: napSeconds / 60, lowStressQuality: lowStressQuality,
             source: source, sourceRowId: sourceRowId)
+    }
+
+    /// Store-backed variant used after edit substitution. The already-final daily aggregate supplies
+    /// main sleep and efficiency; effective session bounds preserve the user's corrected onset.
+    public static func select(from sessions: [CachedSleepSession], wakeDay: String,
+                              totalSleepMinutes: Double?, efficiency: Double?, offsetSeconds: Int,
+                              habitualMidsleepSec: Int? = nil,
+                              lowStressQuality: Double? = nil) -> SleepNightSummary? {
+        let blocks = sessions.map { SleepStageTotals.NightBlock(start: $0.effectiveStartTs, end: $0.endTs) }
+        guard let indices = SleepStageTotals.mainNightGroupIndices(
+            blocks, offsetSec: offsetSeconds, habitualMidsleepSec: habitualMidsleepSec),
+              let start = indices.compactMap({ blocks.indices.contains($0) ? blocks[$0].start : nil }).min(),
+              let end = indices.compactMap({ blocks.indices.contains($0) ? blocks[$0].end : nil }).max(),
+              end > start, let asleep = totalSleepMinutes, asleep > 0,
+              let efficiency, efficiency > 0 else { return nil }
+        let chosen = Set(indices)
+        let nap = sessions.enumerated().reduce(0.0) { total, pair in
+            guard !chosen.contains(pair.offset), pair.element.endTs <= start else { return total }
+            return total + (SleepStageTotals.minutes(fromStagesJSON: pair.element.stagesJSON)?.asleep ?? 0)
+        }
+        func localMinute(_ epoch: Int) -> Int {
+            (((epoch + offsetSeconds) % 86_400 + 86_400) % 86_400) / 60
+        }
+        let edited = sessions.contains(where: \.userEdited)
+        return SleepNightSummary(
+            wakeDay: wakeDay, mainSleepStart: start, mainSleepEnd: end,
+            mainSleepMinutes: asleep, inBedMinutes: asleep / efficiency,
+            efficiency: min(1, efficiency), onsetMinuteLocal: localMinute(start),
+            wakeMinuteLocal: localMinute(end), recentNapMinutes: nap,
+            lowStressQuality: lowStressQuality, source: edited ? .noopEdited : .noopMeasured,
+            sourceRowId: indices.compactMap { sessions.indices.contains($0) ? String(sessions[$0].startTs) : nil }
+                .joined(separator: ","))
     }
 }

@@ -2712,7 +2712,14 @@ public final class BLEManager: NSObject, ObservableObject {
     /// Android rev-4 frame has been ACKed by a real 5/MG when arming, but a strap-driven wake fire
     /// has NOT been captured on our side (no STRAP_DRIVEN_ALARM_EXECUTED event observed yet) — do
     /// not present the 5/MG alarm as guaranteed until one is.
-    func armStrapAlarm(at date: Date) {
+    enum AlarmCommandResult: Equatable, Sendable {
+        case sentAwaitingReadback
+        case queuedForReconnect
+        case experimentalDisabled
+    }
+
+    @discardableResult
+    func armStrapAlarm(at date: Date) -> AlarmCommandResult {
         // Log the wake time in the user's LOCAL zone. `Date` prints in UTC by default, so an alarm
         // for (say) 07:00 in New York logged as "11:00:00 +0000" reads like a timezone bug — but it
         // isn't: SET_ALARM_TIME carries the absolute instant of the chosen local time, and the strap
@@ -2726,7 +2733,7 @@ public final class BLEManager: NSObject, ObservableObject {
             // armed onto an alarm that may never fire.
             guard PuffinExperiment.isEnabled else {
                 log("Alarm: 5/MG firmware alarm needs the Experimental toggle (unconfirmed) — not armed")
-                return
+                return .experimentalDisabled
             }
             // 5/MG SET_ALARM_TIME is REVISION_4: [04][id][u32 sec][u16 subsec][12-byte 47/152
             // pattern, overallLoop 7, 30 s]. No SET_CLOCK preamble (see doc comment above).
@@ -2738,7 +2745,7 @@ public final class BLEManager: NSObject, ObservableObject {
             log(connectedPeripheralUUID != nil
                 ? "Alarm: armed 5/MG rev4 for \(localFmt.string(from: date)) — your local wake time"
                 : "Alarm: queued 5/MG rev4 for \(localFmt.string(from: date)) — strap not connected; will send on next connect")
-            return
+            return connectedPeripheralUUID == nil ? .queuedForReconnect : .sentAwaitingReadback
         }
         // Clamp rather than trap: an out-of-range alarm date (pre-1970 / post-2106) must not crash.
         let epochSec = UInt32(clamping: Int64(date.timeIntervalSince1970))
@@ -2759,6 +2766,7 @@ public final class BLEManager: NSObject, ObservableObject {
         // Log-only: FrameRouter parses the cmd-67 COMMAND_RESPONSE defensively and NEVER gates behaviour
         // on it (the 4.0 response layout is undocumented; unparseable replies log raw hex).
         send(.getAlarmTime, payload: [0x01])
+        return connectedPeripheralUUID == nil ? .queuedForReconnect : .sentAwaitingReadback
     }
 
     /// #34: persist the last alarm arm for the debug export's Alarm block (sent epoch + when + whether the
@@ -2816,15 +2824,21 @@ public final class BLEManager: NSObject, ObservableObject {
     /// is a note for future refinement; the preset id=2 form is simpler and confirmed to buzz on-device.
     ///
     /// Haptic firing cannot be verified in the simulator (no strap motor). Test on-device only.
-    func buzzStrapOnce() {
+    @discardableResult
+    func buzzStrapOnce() -> AlarmCommandResult {
+        guard connectedPeripheralUUID != nil else {
+            log("Buzz: not sent — strap is not connected")
+            return .queuedForReconnect
+        }
         send(.runHapticsPattern, payload: [2, 3, 0, 0, 0], writeType: .withResponse)  // patternId=2, 3 loops (5/MG: send() remaps to the maverick notify buzz)
         if selectedModel.deviceFamily == .whoop5 {
             send(.runAlarm, payload: AlarmPayload.runAlarmRev2(), writeType: .withResponse)   // REVISION_2 [0x02, alarmId]
             log("Buzz: one-shot fired (5/MG maverick buzz + runAlarm rev2, acked)")
-            return
+            return .sentAwaitingReadback
         }
         send(.runAlarm, payload: [0x01], writeType: .withResponse)
         log("Buzz: one-shot fired (patternId=2 loops=3 + runAlarm, acked)")
+        return .sentAwaitingReadback
     }
 
     /// Haptic Clock (#460): buzz the current wall-clock time out on the strap so the user can read it

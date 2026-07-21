@@ -957,6 +957,32 @@ final class IntelligenceEngine: ObservableObject {
         // the auto path produced NO trace at all (the "mode was on but produced NO trace" report), so an
         // "auto workout appeared then vanished" could not be explained from an export. Diagnostic only.
         let workoutsTraceActive = TestCentre.active(.workouts)
+        let sleepV2Mode = SleepPerformanceV2Prefs.mode
+        var finalDailyByDay: [String: DailyMetric] = [:]
+        var summaries: [SleepNightSummary] = []
+        if sleepV2Mode != .off {
+            for night in scoredNights {
+                let rows = Self.editedRowsForDay(editedRows, day: night.daily.day,
+                                                 tzOffsetSeconds: tzOffset)
+                let edits = Dictionary(rows.map { ($0.startTs, $0) }, uniquingKeysWith: { a, _ in a })
+                let final = sleepEditedDaily(night.daily, detected: night.cachedSleep, editsByStart: edits,
+                                             habitualMidsleepSec: habitualMidsleepSec)
+                finalDailyByDay[final.day] = final
+                let effective = Self.effectiveSleepSessions(detected: night.cachedSleep, edits: rows)
+                if let summary = SleepNightSummary.select(
+                    from: effective, wakeDay: final.day, totalSleepMinutes: final.totalSleepMin,
+                    efficiency: final.efficiency, offsetSeconds: tzOffset,
+                    habitualMidsleepSec: habitualMidsleepSec) {
+                    summaries.append(summary)
+                }
+            }
+        }
+        let scoredSleepV2 = Dictionary(uniqueKeysWithValues: SleepScoringContextBuilder.replay(
+            summaries: summaries,
+            efforts: scoredNights.compactMap { n in n.strain.map {
+                SleepScoringContextBuilder.DailyEffort(day: n.daily.day, value: $0)
+            }}).map { ($0.day, $0) })
+        var sleepV2Points: [MetricPoint] = []
         for night in scoredNights {
             // #299: scope the edits to THIS day before folding. A userEdited row / hand-logged nap belongs
             // to exactly ONE day — the day its night ENDS on, matching the daily's end-day bucket. `endTs`
@@ -965,14 +991,21 @@ final class IntelligenceEngine: ObservableObject {
             // every night. `effectiveStartTs` (the #318 user-corrected onset) is preserved on the row.
             let dayEditedRows = Self.editedRowsForDay(editedRows, day: night.daily.day, tzOffsetSeconds: tzOffset)
             let editsByStart = Dictionary(dayEditedRows.map { ($0.startTs, $0) }, uniquingKeysWith: { a, _ in a })
-            let daily = sleepEditedDaily(night.daily, detected: night.cachedSleep, editsByStart: editsByStart,
-                                         habitualMidsleepSec: habitualMidsleepSec)
-            let recovery = recomputeRecovery(daily, baselines2)
+            let daily = finalDailyByDay[night.daily.day] ?? sleepEditedDaily(
+                night.daily, detected: night.cachedSleep, editsByStart: editsByStart,
+                habitualMidsleepSec: habitualMidsleepSec)
+            let legacySleepQuality = AnalyticsEngine.Rest.composite(daily: daily).map { $0 / 100.0 }
+                ?? daily.efficiency
+            let v2 = scoredSleepV2[daily.day]
+            let recoverySleepQuality = sleepV2Mode == .on ? v2?.performance?.recoveryInput : legacySleepQuality
+            let recovery = recomputeRecovery(daily, baselines2, sleepQuality: recoverySleepQuality)
             // Charge term-breakdown trace (Group G): only when the Recovery test mode is on. Emits which
             // term moved Charge and which was nil and forced the renorm, tagged `.recovery`. The trace's
             // score is RecoveryScorer.recovery verbatim, so the `recovery` written above is unchanged.
             if recoveryTraceActive {
-                for line in recoveryTraceLines(daily, baselines2) { diagnosticSink?(line, .recovery) }
+                for line in recoveryTraceLines(daily, baselines2, sleepQuality: recoverySleepQuality) {
+                    diagnosticSink?(line, .recovery)
+                }
             }
             let skinDev = recomputeSkinTempDev(night.nightlySkin, baselines2.skinTemp)
             let source = DaySource.classify(day: daily.day, importedWhoopDays: importedWhoopDays,
@@ -980,7 +1013,7 @@ final class IntelligenceEngine: ObservableObject {
             // SHARED CONTRACT enrichment: the ordered Charge driver list + the relative skin-temp marker,
             // built from the SAME inputs `recomputeRecovery` reads so the rows can never disagree with the
             // headline. Both are empty/nil pre-baseline (cold-start), matching the score's own null-honesty.
-            let drivers = recomputeChargeDrivers(daily, baselines2)
+            let drivers = recomputeChargeDrivers(daily, baselines2, sleepQuality: recoverySleepQuality)
             let skinRel = RecoveryScorer.skinTempRelative(deviationC: skinDev)
             // Honest per-day Charge confidence (A3): the strap night reads `.solid`/`.building`/`.calibrating`
             // off the HRV baseline state rather than a blanket `.solid`, so a thin/provisional baseline shows
@@ -1037,7 +1070,14 @@ final class IntelligenceEngine: ObservableObject {
                     importedApple: appleHealthDays.contains(daily.day)), .universal)
             }
             dailies.append(daily.with(recovery: recovery, skinTempDevC: skinDev))
-            if let rest = AnalyticsEngine.Rest.composite(daily: daily) {
+            if let scored = v2 {
+                sleepV2Points.append(contentsOf: Self.sleepV2MetricPoints(scored))
+                let scoreLog = scored.performance.map { String(format: "%.1f", $0.score) } ?? "nil"
+                diagnosticSink?("sleepV2 day=\(daily.day) score=\(scoreLog) source=\(scored.summary.source) model=\(scored.modelVersion)", .sleep)
+            }
+            if sleepV2Mode == .on, let rest = v2?.performance?.score {
+                restPoints.append(MetricPoint(day: daily.day, key: "sleep_performance", value: rest))
+            } else if let rest = AnalyticsEngine.Rest.composite(daily: daily) {
                 restPoints.append(MetricPoint(day: daily.day, key: "sleep_performance", value: rest))
             }
             cachedSleep.append(contentsOf: night.cachedSleep)
@@ -1184,6 +1224,10 @@ final class IntelligenceEngine: ObservableObject {
         if !restPoints.isEmpty {
             persistedMutationCount += (try? await store.upsertMetricSeries(
                 restPoints, deviceId: computedId)) ?? 0
+        }
+        if !sleepV2Points.isEmpty {
+            persistedMutationCount += (try? await store.upsertMetricSeries(
+                sleepV2Points, deviceId: computedId)) ?? 0
         }
 
         // ── Fitness Age (Phase 2) , weekly, keyed to the week's Saturday ────────────────────────────
@@ -1605,15 +1649,15 @@ final class IntelligenceEngine: ObservableObject {
     /// baseline is usable (RecoveryScorer gates on `hrvBaseline.usable`, i.e. ≥ minNightsSeed valid
     /// nights) , so the honest null-until-4-nights cold-start is free. Mirrors AnalyticsEngine's own
     /// recovery call + Android IntelligenceEngine.recomputeRecovery. (#78)
-    private func recomputeRecovery(_ daily: DailyMetric, _ baselines: AnalyticsEngine.ProfileBaselines) -> Double? {
+    private func recomputeRecovery(_ daily: DailyMetric, _ baselines: AnalyticsEngine.ProfileBaselines,
+                                   sleepQuality: Double?) -> Double? {
         guard let hrvVal = daily.avgHrv, let rhrVal = daily.restingHr, let hrvBase = baselines.hrv else { return nil }
         // Charge enrichment: feed the Rest COMPOSITE (÷100) as the sleep-quality term instead of raw
         // efficiency, and fold in the night's skin-temp deviation. Both come from the persisted daily
         // fields (the raw streams are gone in pass 2). (Charge/Effort/Rest scoring redesign.)
-        let restQuality = AnalyticsEngine.Rest.composite(daily: daily).map { $0 / 100.0 } ?? daily.efficiency
         return RecoveryScorer.recovery(hrv: hrvVal, rhr: Double(rhrVal), resp: daily.respRateBpm,
                                        hrvBaseline: hrvBase, rhrBaseline: baselines.restingHR,
-                                       respBaseline: baselines.resp, sleepPerf: restQuality,
+                                       respBaseline: baselines.resp, sleepPerf: sleepQuality,
                                        skinTempDev: daily.skinTempDevC)
     }
 
@@ -1624,14 +1668,14 @@ final class IntelligenceEngine: ObservableObject {
     /// (HRV / RHR / HRV-baseline) is missing or the baseline isn't usable yet, mirroring `recomputeRecovery`'s
     /// own early-nil so a cold-start night shows the calibrating state rather than fabricated rows.
     private func recomputeChargeDrivers(_ daily: DailyMetric,
-                                        _ baselines: AnalyticsEngine.ProfileBaselines) -> [ChargeDriver] {
+                                        _ baselines: AnalyticsEngine.ProfileBaselines,
+                                        sleepQuality: Double?) -> [ChargeDriver] {
         guard let hrvVal = daily.avgHrv, let rhrVal = daily.restingHr, let hrvBase = baselines.hrv else {
             return []
         }
-        let restQuality = AnalyticsEngine.Rest.composite(daily: daily).map { $0 / 100.0 } ?? daily.efficiency
         return RecoveryScorer.chargeDrivers(hrv: hrvVal, rhr: Double(rhrVal), resp: daily.respRateBpm,
                                             hrvBaseline: hrvBase, rhrBaseline: baselines.restingHR,
-                                            respBaseline: baselines.resp, sleepPerf: restQuality,
+                                            respBaseline: baselines.resp, sleepPerf: sleepQuality,
                                             skinTempDev: daily.skinTempDevC)
     }
 
@@ -1641,16 +1685,16 @@ final class IntelligenceEngine: ObservableObject {
     /// trace can never diverge from the Charge number written for the day. Empty when a hard input
     /// (HRV / RHR / HRV-baseline) is missing, mirroring `recomputeRecovery`'s own early-nil. Only CALLED
     /// when `TestCentre.active(.recovery)` is true, so it costs nothing when the mode is off.
-    private func recoveryTraceLines(_ daily: DailyMetric, _ baselines: AnalyticsEngine.ProfileBaselines) -> [String] {
+    private func recoveryTraceLines(_ daily: DailyMetric, _ baselines: AnalyticsEngine.ProfileBaselines,
+                                    sleepQuality: Double?) -> [String] {
         guard let hrvVal = daily.avgHrv, let rhrVal = daily.restingHr, let hrvBase = baselines.hrv else {
             return ["charge day=\(daily.day) nilScore reason=missingInput "
                 + "(hrv/rhr/hrvBaseline required)"]
         }
-        let restQuality = AnalyticsEngine.Rest.composite(daily: daily).map { $0 / 100.0 } ?? daily.efficiency
         let (_, trace) = RecoveryScorer.recoveryTrace(
             hrv: hrvVal, rhr: Double(rhrVal), resp: daily.respRateBpm,
             hrvBaseline: hrvBase, rhrBaseline: baselines.restingHR,
-            respBaseline: baselines.resp, sleepPerf: restQuality,
+            respBaseline: baselines.resp, sleepPerf: sleepQuality,
             skinTempDev: daily.skinTempDevC)
         // Prefix each line with the day key so a multi-night export stays parseable, matching the sleep
         // trace's per-day shape. Strip ONLY the leading "charge " token the trace builder writes (every
@@ -1756,6 +1800,48 @@ final class IntelligenceEngine: ObservableObject {
         let agg = r.sleep
         return daily.with(totalSleepMin: agg.totalSleepMin, efficiency: agg.efficiency,
                           deepMin: agg.deepMin, remMin: agg.remMin, lightMin: agg.lightMin)
+    }
+
+    private nonisolated static func effectiveSleepSessions(
+        detected: [CachedSleepSession], edits: [CachedSleepSession]) -> [CachedSleepSession] {
+        let editsByStart = Dictionary(edits.map { ($0.startTs, $0) }, uniquingKeysWith: { a, _ in a })
+        let detectedStarts = Set(detected.map(\.startTs))
+        return detected.map { editsByStart[$0.startTs] ?? $0 }
+            + edits.filter { !detectedStarts.contains($0.startTs) }
+    }
+
+    private nonisolated static func sleepV2MetricPoints(_ scored: ScoredSleepDay) -> [MetricPoint] {
+        var points = [
+            MetricPoint(day: scored.day, key: Repository.sleepNeedV2Key, value: scored.need.totalMinutes),
+            MetricPoint(day: scored.day, key: "noop_sleep_baseline_need_v2_min", value: scored.need.baselineMinutes),
+            MetricPoint(day: scored.day, key: "noop_sleep_strain_need_v2_min", value: scored.need.strainAdjustmentMinutes),
+            MetricPoint(day: scored.day, key: "noop_sleep_debt_need_v2_min", value: scored.need.debtRepaymentMinutes),
+            MetricPoint(day: scored.day, key: "noop_sleep_nap_credit_v2_min", value: scored.need.napCreditMinutes),
+            MetricPoint(day: scored.day, key: "noop_sleep_debt_balance_v2_min",
+                        value: scored.debtAfterNight.newBalanceMinutes),
+            MetricPoint(day: scored.day, key: Repository.sleepPerformanceV2ModelKey, value: 2),
+            MetricPoint(day: scored.day, key: Repository.sleepPerformanceV2SourceKey,
+                        value: scored.summary.source == .noopEdited ? 2 : 1),
+        ]
+        if let performance = scored.performance {
+            points += [
+                MetricPoint(day: scored.day, key: Repository.sleepPerformanceV2Key,
+                            value: performance.score),
+                MetricPoint(day: scored.day, key: "noop_sleep_sufficiency_v2",
+                            value: performance.components.sufficiency),
+                MetricPoint(day: scored.day, key: "noop_sleep_efficiency_v2",
+                            value: performance.components.efficiency),
+                MetricPoint(day: scored.day, key: "noop_sleep_input_coverage_v2",
+                            value: performance.inputCoverage),
+            ]
+            if let value = performance.components.consistency {
+                points.append(MetricPoint(day: scored.day, key: "noop_sleep_consistency_v2", value: value))
+            }
+            if let value = performance.components.lowStressQuality {
+                points.append(MetricPoint(day: scored.day, key: "noop_sleep_low_stress_v2", value: value))
+            }
+        }
+        return points
     }
 
     /// Re-derive the skin-temperature deviation (°C) for a night against the freshly-seeded personal
