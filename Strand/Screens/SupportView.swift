@@ -6,15 +6,26 @@ struct SupportView: View {
     var body: some View {
         ScreenScaffold(title: "Support",
                        subtitle: "We're here to help.") {
-            VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
-                VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
-                    SectionHeader("Help & Contact")
-                    contactCard
-                }
-                .staggeredAppear(index: 0)
-                disclaimerCard
-                    .staggeredAppear(index: 1)
-            }
+            SettingsScreenTemplate(sections: [
+                .init(id: "contact", header: "Help & Contact", rows: [
+                    .link(id: "help", icon: "questionmark.circle", tint: StrandPalette.accent,
+                          title: "Help Center", action: { openSupportMail(subject: "NOOP help") }),
+                    .link(id: "issue", icon: "envelope", tint: StrandPalette.metricAmber,
+                          title: "Report an Issue", action: { openSupportMail(subject: "NOOP issue") }),
+                    .link(id: "feature", icon: "lightbulb", tint: StrandPalette.strainAccent,
+                          title: "Request a Feature", action: { openSupportMail(subject: "NOOP feature request") })
+                ]),
+                .init(id: "privacy", header: "Privacy", rows: [
+                    .custom(id: "privacy-note") { disclaimerCard.padding(13) }
+                ])
+            ])
+        }
+    }
+
+    private func openSupportMail(subject: String) {
+        let encoded = subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? subject
+        if let url = URL(string: "mailto:\(ProjectInfo.contactEmail)?subject=\(encoded)") {
+            PlatformOpen.url(url)
         }
     }
 
@@ -59,10 +70,7 @@ struct SupportView: View {
 
     private func supportMailRow(icon: String, title: LocalizedStringKey, subject: String) -> some View {
         Button {
-            let encoded = subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? subject
-            if let url = URL(string: "mailto:\(ProjectInfo.contactEmail)?subject=\(encoded)") {
-                PlatformOpen.url(url)
-            }
+            openSupportMail(subject: subject)
         } label: {
             SettingsRow(icon: icon, title: title)
         }

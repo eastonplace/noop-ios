@@ -14,15 +14,15 @@
 
 ## Lane 1 — Kit 46, Sheets & Alerts
 
-- [ ] T101 Promote `PaperSheetCard`, `ConfirmGateCard`, `HoldToConfirmButton`, `DestructiveGateCard`, `SuccessFlashCard` to StrandDesign with action-closure APIs; merge `PaperToastCard` into the existing `PaperToast.swift` (one toast, no visual regression at existing call sites); update lab to consume
-- [ ] T102 Wire `DestructiveGateCard` into the real destructive flows (clear data, delete imports, remove device, delete journal item) preserving each exact effect; migrate toast call sites (`WorkoutsView`, `SleepView`, `BackupSyncView`, `DataSourcesView`); Undo only where genuinely reversible
+- [x] T101 Promote `PaperSheetCard`, `ConfirmGateCard`, `HoldToConfirmButton`, `DestructiveGateCard`, `SuccessFlashCard` to StrandDesign with action-closure APIs; merge `PaperToastCard` into the existing `PaperToast.swift` (one toast, no visual regression at existing call sites); update lab to consume
+- [x] T102 Wire `DestructiveGateCard` into the real destructive flows (clear data, delete imports, remove device, delete journal item) preserving each exact effect; migrate toast call sites (`WorkoutsView`, `SleepView`, `BackupSyncView`, `DataSourcesView`); Undo only where genuinely reversible
 
 ## Lane 2 — Kit 43, Settings
 
-- [ ] T201 Inventory every interactive control in `SettingsView.swift` + all settings sub-screens into `tool-inventory.md` (row, type, store/binding, destination) — the spec's one formal parity artifact
-- [ ] T202 Promote the Settings Kit (`SettingsRowModel` + `custom(id:view:)` case, `SettingsSectionModel`, `SettingsProfileHeader`, `SettingsSectionCard`, `SettingsRowView`, `SettingsScreenTemplate`) with Binding-based APIs; update lab to consume
-- [ ] T203 [P] Rebuild settings sub-screens on `SettingsScreenTemplate` bound to real stores per the inventory (parallelize sub-screens across subagents; non-fitting rows use the `custom` case, never get cut)
-- [ ] T204 Rebuild the Settings root (real profile header, quarantined destructive section using Lane 1 gates, real version footer); then diff `tool-inventory.md` — zero lost controls, fix any gap immediately
+- [x] T201 Inventory every interactive control in `SettingsView.swift` + all settings sub-screens into `tool-inventory.md` (row, type, store/binding, destination) — the spec's one formal parity artifact
+- [x] T202 Promote the Settings Kit (`SettingsRowModel` + `custom(id:view:)` case, `SettingsSectionModel`, `SettingsProfileHeader`, `SettingsSectionCard`, `SettingsRowView`, `SettingsScreenTemplate`) with Binding-based APIs; update lab to consume
+- [x] T203 [P] Rebuild settings sub-screens on `SettingsScreenTemplate` bound to real stores per the inventory (parallelize sub-screens across subagents; non-fitting rows use the `custom` case, never get cut)
+- [x] T204 Rebuild the Settings root (real profile header, quarantined destructive section using Lane 1 gates, real version footer); then diff `tool-inventory.md` — zero lost controls, fix any gap immediately
 
 ## Lane 3 — Kit 42 Metric Detail + Kit 45 Compare
 

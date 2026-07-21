@@ -12,22 +12,33 @@ struct NotificationSettingsView: View {
     var body: some View {
         ScreenScaffold(title: "Notifications",
                        subtitle: "Buzz your strap when these apps notify you. Everything runs on \(Platform.deviceNounPhrase).") {
-            VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
-                masterCard
-                    .staggeredAppear(index: 0)
-                if store.activeCategories.isEmpty {
-                    emptyAppsCard
-                        .staggeredAppear(index: 1)
-                } else {
-                    ForEach(Array(store.activeCategories.enumerated()), id: \.element.id) { idx, cat in
-                        categoryCard(cat, apps: store.apps(in: cat))
-                            .staggeredAppear(index: idx + 1)
-                    }
-                }
-                behaviourCard
-                    .staggeredAppear(index: store.activeCategories.count + 1)
-            }
+            SettingsScreenTemplate(sections: settingsSections)
         }
+    }
+
+    private var settingsSections: [SettingsSectionModel] {
+        var sections = [
+            SettingsSectionModel(id: "wrist-alerts", header: "Wrist Alerts", rows: [
+                .custom(id: "master") { masterCard.padding(13) }
+            ])
+        ]
+        if store.activeCategories.isEmpty {
+            sections.append(.init(id: "apps-empty", header: "Apps", rows: [
+                .custom(id: "empty") { emptyAppsCard.padding(13) }
+            ]))
+        } else {
+            sections.append(contentsOf: store.activeCategories.map { category in
+                SettingsSectionModel(id: "apps-\(category.id)", header: category.rawValue, rows: [
+                    .custom(id: "category-\(category.id)") {
+                        categoryCard(category, apps: store.apps(in: category)).padding(13)
+                    }
+                ])
+            })
+        }
+        sections.append(.init(id: "behaviour", header: "Behaviour", rows: [
+            .custom(id: "behaviour-controls") { behaviourCard.padding(13) }
+        ]))
+        return sections
     }
 
     // MARK: - Master
