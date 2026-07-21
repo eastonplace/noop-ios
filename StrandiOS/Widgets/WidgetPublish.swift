@@ -4,6 +4,35 @@ import StrandDesign
 import StrandAnalytics
 import WidgetKit
 
+@MainActor
+private enum WidgetLivePublishGate {
+    private(set) static var cachedSnapshot: WidgetSnapshot?
+    private(set) static var lastPublishedAt: Date = .distantPast
+
+    static func currentSnapshot(or fallback: @autoclosure () -> WidgetSnapshot) -> WidgetSnapshot {
+        if let cachedSnapshot { return cachedSnapshot }
+        if let loaded = WidgetSnapshot.load() {
+            cachedSnapshot = loaded
+            lastPublishedAt = loaded.updated
+            return loaded
+        }
+        return fallback()
+    }
+
+    static func shouldPublish(previous: WidgetSnapshot, next: WidgetSnapshot, now: Date) -> Bool {
+        WidgetLivePublishPolicy.shouldPublish(
+            previous: previous,
+            next: next,
+            lastPublishedAt: lastPublishedAt,
+            now: now)
+    }
+
+    static func notePublished(_ snapshot: WidgetSnapshot, at date: Date) {
+        cachedSnapshot = snapshot
+        lastPublishedAt = date
+    }
+}
+
 extension WidgetSnapshot {
     /// Build a glance snapshot from the live app state and publish it to the shared App Group, then
     /// ask WidgetKit to refresh. Called when the app becomes active and after a Health sync.
@@ -78,28 +107,40 @@ extension WidgetSnapshot {
             stressSummary: stress.summary,
             hrSparkline: sparkline,
             hrvSparkline: hrvSparkline,
-            updated: Date()
+            updated: now
         )
         snap.save()
+        WidgetLivePublishGate.notePublished(snap, at: now)
         WidgetCenter.shared.reloadAllTimelines()
     }
 
     /// Fast publication lane for live fields. No history query and no sleep/stress recomputation.
+    ///
+    /// A manual workout republishes `AppModel.activeWorkout` about once per sample. Before the gate below,
+    /// every one of those ~1 Hz emissions decoded the App Group snapshot, encoded it again, and called
+    /// `WidgetCenter.reloadAllTimelines()`. That made the supposedly-fast lane a synchronous disk/WidgetKit
+    /// hot loop on the main actor. We now keep the last snapshot in memory, skip byte-equivalent payloads,
+    /// publish connection/battery/Strain/workout-mode edges immediately, and coalesce HR/sparkline churn to
+    /// the same one-minute cadence used by the explicit HR publisher.
     @MainActor
     static func publishLive(from model: AppModel) {
         let day = Repository.widgetAnchor(days: model.repo.days)
         let storedStrain = day.flatMap { model.repo.canonicalStrain(for: $0.day)?.storedValue }
-        let base = WidgetSnapshot.load() ?? WidgetSnapshot(
+        let now = Date()
+        let base = WidgetLivePublishGate.currentSnapshot(or: WidgetSnapshot(
             recovery: day?.recovery.map { Int($0.rounded()) }, bpm: nil, batteryPct: nil,
-            bonded: model.live.bonded, updated: Date())
+            bonded: model.live.bonded, updated: now))
         let sparkline = model.activeWorkout.map { Array($0.samples.suffix(48).map(\.bpm)) }
-        base.mergingLive(
+        let next = base.mergingLive(
             bpm: model.bpm ?? model.live.heartRate,
             batteryPct: model.live.batteryPct,
             bonded: model.live.connected,
             storedStrain: storedStrain,
-            hrSparkline: sparkline
-        ).save()
+            hrSparkline: sparkline,
+            updated: now)
+        guard WidgetLivePublishGate.shouldPublish(previous: base, next: next, now: now) else { return }
+        next.save()
+        WidgetLivePublishGate.notePublished(next, at: now)
         WidgetCenter.shared.reloadAllTimelines()
     }
 
