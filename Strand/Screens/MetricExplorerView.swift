@@ -493,8 +493,12 @@ struct MetricDetailView: View {
 
     private var effectiveRange: ExploreRange {
         guard !series.isEmpty else { return coercedSelection }
-        for r in coercedSelection.widening where !slice(for: r).isEmpty { return r }
-        return .all
+        return MetricDetailWindowResolver.resolve(
+            selection: coercedSelection,
+            widening: coercedSelection.widening,
+            rows: series,
+            slice: { candidate, _ in slice(for: candidate) }
+        ).range
     }
 
     /// Whole days between the first and last reading (0 for a single point). The
@@ -585,13 +589,18 @@ struct MetricDetailView: View {
                     rangeBar(effectiveRange: effRange, windowed: win, windowFellBack: fellBack)
                     ComingSoon(what: "Reading your \(metric.title.lowercased())…")
                 } else {
-                    // Scenic hero: the metric's current value as a layered ring gauge (0–100
-                    // scores) or a big SF-Rounded headline, floated over the domain's starfield,
-                    // with the range pill. Then the frosted chart / stat tiles / correlations.
-                    heroHeader(effectiveRange: effRange, windowed: win, windowFellBack: fellBack)
-                    heroChart(effectiveRange: effRange, windowed: win, windowFellBack: fellBack)
-                    statRow(effectiveRange: effRange, windowed: win)
-                    correlationCard
+                    let config = metricDetailConfig(windowed: win, effectiveRange: effRange)
+                    MetricDetailTemplate(config: config) {
+                        rangeBar(effectiveRange: effRange, windowed: win, windowFellBack: fellBack)
+                    } extensions: {
+                        // TrendPanelChart needs a real typical-range source. Metrics without
+                        // one keep their existing dated TrendChart rather than a fake rail.
+                        if config.typical == nil {
+                            heroChart(effectiveRange: effRange, windowed: win, windowFellBack: fellBack)
+                            statRow(effectiveRange: effRange, windowed: win)
+                        }
+                        correlationCard
+                    }
                 }
         }
         #if os(iOS)
@@ -601,6 +610,85 @@ struct MetricDetailView: View {
         // Range changes the window, hence the correlation inputs — recompute the
         // cached scan rather than letting `correlationCard` run it inside body.
         .onChangeCompat(of: range) { _ in recomputeCorrelations() }
+    }
+
+    /// Production adapter: catalog metadata + repository-resolved dated rows become
+    /// the immutable promoted display model. Only metrics backed by the canonical
+    /// Baselines configuration receive a typical rail.
+    private func metricDetailConfig(
+        windowed: [(day: String, value: Double)],
+        effectiveRange: ExploreRange
+    ) -> MetricDetailConfig {
+        let values = windowed.map(\.value)
+        let stats = ComparisonEngine.stat(values)
+        let prior = previousWindow(effectiveRange: effectiveRange, windowed: windowed).map(\.value)
+        let comparison = ComparisonEngine.compare(current: values, previous: prior)
+        let samples = windowed.compactMap { row -> MetricDetailSample? in
+            parseDay(row.day).map { MetricDetailSample(date: $0, value: row.value) }
+        }
+        let latestDate = latest.flatMap { parseDay($0.day) } ?? Date()
+        let baseline = baselineDisplay(values: values)
+        let delta: String? = comparison.current.n > 0 && comparison.previous.n > 0
+            ? signed(comparison.delta)
+            : nil
+        let deltaPositive: Bool? = comparison.direction == 0 || metric.higherIsBetter == nil
+            ? nil
+            : ((comparison.direction > 0) == metric.higherIsBetter)
+
+        return MetricDetailConfig(
+            id: metric.id,
+            title: metric.title,
+            subtitle: metric.description ?? metric.sourceLabel,
+            icon: metric.icon,
+            tint: metricAccent(metric),
+            // `fmt` already applies the user's unit/temperature/effort preference.
+            unit: "",
+            currentValue: latest?.value ?? 0,
+            asOf: latestDate,
+            delta: delta,
+            deltaPositive: deltaPositive,
+            stateWord: baseline.map {
+                $0.inRange ? String(localized: "In range") : String(localized: "Outside range")
+            },
+            stateGood: baseline?.inRange,
+            typical: baseline.map { MetricDetailTypicalRange(range: $0.range, label: $0.label) },
+            samples: samples,
+            baseline: baseline?.center,
+            stats: (
+                low: MetricDetailStat(value: fmt(stats.min), detail: String(localized: "window low")),
+                average: MetricDetailStat(value: fmt(stats.mean), detail: String(localized: "\(stats.n) readings")),
+                high: MetricDetailStat(value: fmt(stats.max), detail: String(localized: "window high"))
+            ),
+            about: metric.description,
+            format: fmt
+        )
+    }
+
+    private struct BaselineDisplay {
+        let center: Double
+        let range: ClosedRange<Double>
+        let label: String
+        let inRange: Bool
+    }
+
+    private func baselineDisplay(values: [Double]) -> BaselineDisplay? {
+        let key: String
+        switch metric.key {
+        case "rhr": key = "resting_hr"
+        case "resp_rate": key = "resp"
+        default: key = metric.key
+        }
+        guard let cfg = Baselines.metricCfg[key] else { return nil }
+        let state = Baselines.rollingMeanSD(values.map(Optional.some), cfg: cfg)
+        guard state.usable, let current = latest?.value else { return nil }
+        let sigma = state.spread * 1.253
+        let range = (state.baseline - sigma)...(state.baseline + sigma)
+        return BaselineDisplay(
+            center: state.baseline,
+            range: range,
+            label: String(localized: "\(fmt(range.lowerBound))-\(fmt(range.upperBound)) typical"),
+            inRange: Baselines.deviation(current, state: state).inNormalRange
+        )
     }
 
     private func load() async {
