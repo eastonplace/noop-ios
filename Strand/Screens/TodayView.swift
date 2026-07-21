@@ -363,6 +363,11 @@ struct TodayView: View {
     // tile previously showed hours where the score belonged (#248). nil until loaded / no night yet.
     @State private var restScore: Double?
 
+    /// The provenance-bearing point that backs `restScore`, when it is one of the two source-aware
+    /// Sleep Performance series. Kept separate from the generic resolver source so shadow-mode legacy
+    /// scores can never be mislabeled "NOOP V2" merely because they share the computed namespace.
+    @State private var displayedSleepScorePoint: SleepScorePoint?
+
     // Component 4, the REAL per-day merge winner (provenance) for the selected day's derived scores,
     // keyed by metric key ("recovery" / "sleep_performance"); the value is the raw source id the resolver
     // returned (e.g. "my-whoop", "my-whoop-noop", "apple-health"). Resolved once per load via
@@ -883,6 +888,33 @@ struct TodayView: View {
     static func todayProvenanceChipLabel(rawSource: String, deviceId: String, appleHealthSource: String) -> String {
         if rawSource == appleHealthSource { return "Apple Watch" }
         return provenanceDisplayLabel(rawSource: rawSource, deviceId: deviceId)
+    }
+
+    /// Resolves the badge from the exact point that supplied the displayed Sleep number. Imported WHOOP
+    /// is eligible in every mode because it is already an authoritative dashboard source. NOOP V2 is
+    /// eligible only after the authority flag is on; in shadow/off, a computed `sleep_performance` winner
+    /// is legacy V1 and deliberately returns nil instead of receiving a false V2 label.
+    static func displayedSleepSourcePoint(
+        day: String,
+        value: Double?,
+        resolvedSource: String?,
+        deviceId: String,
+        v2IsAuthoritative: Bool,
+        noopV2: [SleepScorePoint],
+        whoop: [SleepScorePoint]
+    ) -> SleepScorePoint? {
+        guard let value, let resolvedSource else { return nil }
+        let matching: ([SleepScorePoint]) -> SleepScorePoint? = { points in
+            points.last { $0.day == day && $0.value == value }
+        }
+        if resolvedSource == deviceId || resolvedSource == Repository.whoopSource {
+            return matching(whoop)
+        }
+        if v2IsAuthoritative,
+           resolvedSource == deviceId + "-noop" || resolvedSource == Repository.whoopSource + "-noop" {
+            return matching(noopV2)
+        }
+        return nil
     }
 
     /// True for a watch-context user with no strap supplying scores (Apple-Health days present and no WHOOP
@@ -2997,9 +3029,18 @@ struct TodayView: View {
             .buttonStyle(.plain)
             .accessibilityLabel(onRingTap == nil ? Self.domainGuideAccessibilityLabel(domain)
                                                   : "See what shaped your Recovery")
-            // C7: source attribution does not live inside a score hero. The existing provenance
-            // resolution remains available to detail footnotes and Data Sources; the trio stays a
-            // clean score/status read regardless of which source won.
+            if domain == .rest, let source = displayedSleepScorePoint?.source {
+                switch source {
+                case .whoopImport:
+                    SourceBadge("WHOOP import", tint: StrandPalette.accent)
+                        .accessibilityLabel("Sleep score source: WHOOP import")
+                case .noopMeasured, .noopEdited:
+                    SourceBadge("NOOP V2", tint: StrandPalette.statusPositive)
+                        .accessibilityLabel("Sleep score source: NOOP V2")
+                case .appleHealthImport, .otherImport:
+                    EmptyView()
+                }
+            }
         }
     }
 
@@ -4122,6 +4163,7 @@ struct TodayView: View {
     private func restoreDayScoped(_ c: TodayDayScopedCache) {
         sparks["sleep_performance"] = c.restSpark
         restScore = c.restScore
+        displayedSleepScorePoint = c.displayedSleepScorePoint
         provenanceByMetric = c.provenanceByMetric
         hrPoints = c.hrPoints
         stepActivityClassToday = c.stepActivityClassToday
@@ -4196,6 +4238,8 @@ struct TodayView: View {
         async let restSeriesA       = repo.exploreSeries(key: "sleep_performance", source: "my-whoop")
         async let recoveryResolvedA = repo.resolvedSeries(key: "recovery", source: Repository.whoopSource)
         async let restResolvedA     = repo.resolvedSeries(key: "sleep_performance", source: Repository.whoopSource)
+        async let noopSleepV2A      = repo.noopSleepV2Series(from: loadDayKey, to: loadDayKey)
+        async let whoopSleepA       = repo.importedWhoopSleepSeries(from: loadDayKey, to: loadDayKey)
 
         // Sleep SCORE for the logical day. `exploreSeries` already merges imported + computed
         // `sleep_performance` (imported-wins), so a Bluetooth-only user sees the on-device Sleep
@@ -4234,6 +4278,15 @@ struct TodayView: View {
             provenance["sleep_performance"] = win
         }
         provenanceByMetric = provenance
+        let sleepSourcePointLocal = Self.displayedSleepSourcePoint(
+            day: loadDayKey,
+            value: restScoreLocal,
+            resolvedSource: provenance["sleep_performance"],
+            deviceId: repo.deviceId,
+            v2IsAuthoritative: SleepPerformanceV2Prefs.mode == .on,
+            noopV2: await noopSleepV2A,
+            whoop: await whoopSleepA)
+        displayedSleepScorePoint = sleepSourcePointLocal
 
         // HR trend for the SELECTED day, 5-minute bucket means from that logical day's local midnight.
         // For today the window runs to now (an in-progress curve); for a navigated past day it runs the
@@ -4303,6 +4356,7 @@ struct TodayView: View {
         repo.todayDayScopedCache = TodayDayScopedCache(
             restSpark: restSparkLocal,
             restScore: restScoreLocal,
+            displayedSleepScorePoint: sleepSourcePointLocal,
             provenanceByMetric: provenance,
             hrPoints: hrPointsLocal,
             stepActivityClassToday: stepClassLocal,
@@ -4668,6 +4722,7 @@ struct TodayHistoryWideCache {
 struct TodayDayScopedCache {
     let restSpark: [Double]
     let restScore: Double?
+    let displayedSleepScorePoint: SleepScorePoint?
     let provenanceByMetric: [String: String]
     let hrPoints: [TrendPoint]
     let stepActivityClassToday: Int?
