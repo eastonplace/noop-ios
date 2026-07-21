@@ -45,6 +45,12 @@ final class LiveUpdatePoliciesTests: XCTestCase {
         XCTAssertTrue(WidgetLivePublishPolicy.shouldPublish(
             previous: previous, next: workoutStart, lastPublishedAt: t0,
             now: t0.addingTimeInterval(1)))
+
+        var workoutEnd = workoutStart
+        workoutEnd.hrSparkline = nil
+        XCTAssertTrue(WidgetLivePublishPolicy.shouldPublish(
+            previous: workoutStart, next: workoutEnd, lastPublishedAt: t0,
+            now: t0.addingTimeInterval(1)))
     }
 
     func testLiveActivityProjectionPolicyCachesOnlyActiveWorkoutProjection() {
