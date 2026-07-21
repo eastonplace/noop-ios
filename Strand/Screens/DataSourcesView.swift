@@ -150,12 +150,21 @@ struct DataSourcesView: View {
                       allowsMultipleSelection: false) { result in
             handleImportResult(result, for: importTarget)
         }
-        // ah-delete (#616): strongly-worded confirm before purging the Apple Health source.
-        .alert("Remove Apple Health imported data?", isPresented: $confirmDeleteAppleHealth) {
-            Button("Cancel", role: .cancel) { }
-            Button("Remove", role: .destructive) { deleteAppleHealthData() }
-        } message: {
-            Text("This permanently deletes everything imported from Apple Health: heart rate, HRV, sleep, steps, workouts and more. Your live strap data is untouched. This can't be undone.")
+        // ah-delete (#616): the shared hold gate changes presentation only. The destructive closure
+        // remains the exact existing deleteAppleHealthData() path and never invents a row count.
+        .sheet(isPresented: $confirmDeleteAppleHealth) {
+            destructiveSheet {
+                DestructiveGateCard(
+                    title: String(localized: "Remove Apple Health imported data?"),
+                    message: String(localized: "This permanently deletes everything imported from Apple Health: heart rate, HRV, sleep, steps, workouts and more. Your live strap data is untouched. This can't be undone."),
+                    confirmTitle: String(localized: "Hold to remove"),
+                    cancel: { confirmDeleteAppleHealth = false },
+                    confirm: {
+                        confirmDeleteAppleHealth = false
+                        deleteAppleHealthData()
+                    }
+                )
+            }
         }
         .paperToast(
             isPresented: Binding(
@@ -168,6 +177,15 @@ struct DataSourcesView: View {
                 announcement: importSuccessToast
             )
         }
+    }
+
+    private func destructiveSheet<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        ZStack {
+            StrandPalette.canvas.ignoresSafeArea()
+            content().padding(20)
+        }
+        .presentationDetents([.height(330)])
+        .presentationDragIndicator(.hidden)
     }
 
     private var whoopCard: some View {

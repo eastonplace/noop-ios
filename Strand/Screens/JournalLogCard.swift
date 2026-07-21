@@ -50,6 +50,8 @@ struct JournalLogCard: View {
     /// The item being renamed (drives the rename sheet).
     @State private var renaming: JournalCatalogItem?
     @State private var renameDraft = ""
+    /// The edit-mode item awaiting the shared consequence-first hold gate.
+    @State private var removing: JournalCatalogItem?
 
     private var dayKey: String {
         Repository.localDayKey(
@@ -113,6 +115,35 @@ struct JournalLogCard: View {
             }
         }
         .sheet(item: $renaming) { item in renameSheet(item) }
+        .sheet(item: $removing) { item in
+            ZStack {
+                StrandPalette.canvas.ignoresSafeArea()
+                DestructiveGateCard(
+                    title: item.custom
+                        ? String(localized: "Delete this journal item?")
+                        : String(localized: "Hide this journal item?"),
+                    message: item.custom
+                        ? String(localized: "Delete \(item.display)? Its existing logged history is kept under the original question, but the custom item will be removed from your journal.")
+                        : String(localized: "Hide \(item.display)? Its history is kept, and you can restore the item from journal edit mode."),
+                    confirmTitle: item.custom
+                        ? String(localized: "Hold to delete")
+                        : String(localized: "Hold to hide"),
+                    completedTitle: item.custom
+                        ? String(localized: "Deleted")
+                        : String(localized: "Hidden"),
+                    cancelTitle: String(localized: "Keep item"),
+                    cancel: { removing = nil },
+                    confirm: {
+                        // Preserve the catalog's exact existing custom-delete / built-in-hide behavior.
+                        catalog.remove(item.canonical)
+                        removing = nil
+                    }
+                )
+                .padding(20)
+            }
+            .presentationDetents([.height(350)])
+            .presentationDragIndicator(.hidden)
+        }
     }
 
     // MARK: - Group block
@@ -254,7 +285,7 @@ struct JournalLogCard: View {
 
     /// Edit-mode control: delete a custom question / hide a built-in one. Tinted red to read as removal.
     private func removeButton(_ item: JournalCatalogItem) -> some View {
-        Button { catalog.remove(item.canonical) } label: {
+        Button { removing = item } label: {
             Image(systemName: "minus.circle.fill")
                 .font(StrandFont.body)
                 .foregroundStyle(StrandPalette.statusCritical)
