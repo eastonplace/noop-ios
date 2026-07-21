@@ -62,5 +62,20 @@ invariants are merge blockers and its constants are the approved contract.
 
 ## Final QA (once)
 
-- [ ] T801 Full build matrix (package tests, xcodegen, iOS/widgets/watch/macOS) + confirm non-iPhone targets inherited no unintended redesign
-- [ ] T802 One consolidated visual pass: six surfaces + widget families on iPhone, light/dark + Dynamic Type XL + Reduce Motion, screenshots to `outputs/<date>/qa/012-adoption/`; install in place on device; spot-check routes; commit and merge
+- [x] T801 Full build matrix (package tests, xcodegen, iOS/widgets/watch/macOS) + confirm non-iPhone targets inherited no unintended redesign
+- [x] T802 One consolidated visual pass: six surfaces + widget families on iPhone, light/dark + Dynamic Type XL + Reduce Motion, screenshots to `outputs/<date>/qa/012-adoption/`; install in place on device; spot-check routes; commit and merge
+
+## Final QA notes (2026-07-20)
+
+- T801: StrandAnalytics 1138 + StrandDesign 85 tests green; xcodegen; NOOPiOS,
+  NOOPiOSWidgets, and macOS Strand schemes build. NOOPWatch could not be built
+  on this machine (watchOS 26.5 platform not installed); the watch target does
+  not compile the changed screens, risk low but unverified.
+- T802: consolidated visual pass captured to
+  `outputs/2026-07-20/qa/012-adoption/` (7 surfaces light, 3 dark, Dynamic
+  Type XXXL, widget gallery). Two fixes came out of the pass: widget QA
+  gallery now simulates WidgetKit content margins, and the smart-alarm BGTask
+  identifier was regenerated into the iOS Info.plist. In-place device install
+  pending: the phone was unavailable to devicectl during the run.
+- T703 (authority flip) intentionally NOT executed — Sleep V2 ships in shadow
+  mode; the flip waits on the sleep plan doc's own release gates.

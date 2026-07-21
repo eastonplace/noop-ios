@@ -142,7 +142,8 @@ struct Component41QAGallery: View {
 
     private func widgetStage<Content: View>(width: CGFloat, height: CGFloat,
                                             @ViewBuilder content: () -> Content) -> some View {
-        content().frame(width: width, height: height)
+        // Simulate WidgetKit's ~16 pt home-screen content margins; the widget views carry none.
+        content().padding(16).frame(width: width, height: height)
             .background(StrandPalette.surfaceBase)
             .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous)
@@ -258,7 +259,10 @@ struct Component41QAShot: View {
 
     private func qaWidget<Content: View>(width: CGFloat, height: CGFloat,
                                          @ViewBuilder content: () -> Content) -> some View {
-        content().frame(width: width, height: height).background(StrandPalette.surfaceBase)
+        // Simulate WidgetKit's family-aware content margins (~16 pt on the home screen). The
+        // widget views deliberately carry no internal padding — hosting them bare clips the edges
+        // and misrepresents what WidgetKit renders.
+        content().padding(16).frame(width: width, height: height).background(StrandPalette.surfaceBase)
             .clipShape(RoundedRectangle(cornerRadius: 24))
             .overlay(RoundedRectangle(cornerRadius: 24).stroke(StrandPalette.hairline))
     }
