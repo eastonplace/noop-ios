@@ -1,0 +1,69 @@
+import XCTest
+@testable import NOOP
+
+#if os(iOS)
+final class LiveUpdatePoliciesTests: XCTestCase {
+    private let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+
+    func testWidgetPolicySkipsByteEquivalentLivePayload() {
+        let previous = snapshot(bpm: 80, sparkline: [78, 79, 80])
+        let next = previous.mergingLive(
+            bpm: 80, batteryPct: 80, bonded: true, storedStrain: 50,
+            hrSparkline: [78, 79, 80], updated: t0.addingTimeInterval(120))
+
+        XCTAssertFalse(WidgetLivePublishPolicy.shouldPublish(
+            previous: previous, next: next, lastPublishedAt: t0,
+            now: t0.addingTimeInterval(120)))
+    }
+
+    func testWidgetPolicyCoalescesHighFrequencyWorkoutChurn() {
+        let previous = snapshot(bpm: 120, sparkline: [116, 118, 120])
+        let next = previous.mergingLive(
+            bpm: 123, batteryPct: 80, bonded: true, storedStrain: 50,
+            hrSparkline: [118, 120, 123], updated: t0.addingTimeInterval(2))
+
+        XCTAssertFalse(WidgetLivePublishPolicy.shouldPublish(
+            previous: previous, next: next, lastPublishedAt: t0,
+            now: t0.addingTimeInterval(2), highFrequencyInterval: 60))
+        XCTAssertTrue(WidgetLivePublishPolicy.shouldPublish(
+            previous: previous, next: next, lastPublishedAt: t0,
+            now: t0.addingTimeInterval(60), highFrequencyInterval: 60))
+    }
+
+    func testWidgetPolicyPublishesUrgentAndWorkoutModeChangesImmediately() {
+        let previous = snapshot(bpm: 80, sparkline: nil)
+        let connectedChange = previous.mergingLive(
+            bpm: 80, batteryPct: 80, bonded: false, storedStrain: 50,
+            updated: t0.addingTimeInterval(1))
+        XCTAssertTrue(WidgetLivePublishPolicy.shouldPublish(
+            previous: previous, next: connectedChange, lastPublishedAt: t0,
+            now: t0.addingTimeInterval(1)))
+
+        let workoutStart = previous.mergingLive(
+            bpm: 100, batteryPct: 80, bonded: true, storedStrain: 50,
+            hrSparkline: [95, 100], updated: t0.addingTimeInterval(1))
+        XCTAssertTrue(WidgetLivePublishPolicy.shouldPublish(
+            previous: previous, next: workoutStart, lastPublishedAt: t0,
+            now: t0.addingTimeInterval(1)))
+    }
+
+    func testLiveActivityProjectionPolicyCachesOnlyActiveWorkoutProjection() {
+        XCTAssertTrue(LiveActivityWorkoutProjectionPolicy.shouldRebuild(
+            lastModeWasWorkout: false, hasCachedWorkout: false,
+            lastBuiltAt: t0, now: t0.addingTimeInterval(1)))
+        XCTAssertFalse(LiveActivityWorkoutProjectionPolicy.shouldRebuild(
+            lastModeWasWorkout: true, hasCachedWorkout: true,
+            lastBuiltAt: t0, now: t0.addingTimeInterval(9), rebuildInterval: 10))
+        XCTAssertTrue(LiveActivityWorkoutProjectionPolicy.shouldRebuild(
+            lastModeWasWorkout: true, hasCachedWorkout: true,
+            lastBuiltAt: t0, now: t0.addingTimeInterval(10), rebuildInterval: 10))
+    }
+
+    private func snapshot(bpm: Int?, sparkline: [Int]?) -> WidgetSnapshot {
+        WidgetSnapshot(
+            recovery: 70, bpm: bpm, batteryPct: 80, bonded: true, updated: t0,
+            effort: 10.5, rest: 82, hrv: 60, restingHr: 51,
+            hrSparkline: sparkline)
+    }
+}
+#endif
