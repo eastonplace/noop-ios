@@ -1,0 +1,59 @@
+#!/usr/bin/env python3
+"""Source-level guardrails for active-workout recovery persistence."""
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def text(path: str) -> str:
+    file = ROOT / path
+    if not file.exists():
+        raise AssertionError(f"missing required file: {path}")
+    return file.read_text(encoding="utf-8")
+
+
+def require(path: str, *markers: str) -> None:
+    source = text(path)
+    for marker in markers:
+        if marker not in source:
+            raise AssertionError(f"{path}: missing contract marker {marker!r}")
+
+
+def forbid(path: str, *markers: str) -> None:
+    source = text(path)
+    for marker in markers:
+        if marker in source:
+            raise AssertionError(f"{path}: forbidden stale marker {marker!r}")
+
+
+try:
+    require(
+        "Strand/App/ActiveWorkoutPersistence.swift",
+        "ActiveWorkoutSampleJournalCodec",
+        "bytesPerSample = MemoryLayout<Int64>.size + MemoryLayout<Int32>.size",
+        "ActiveWorkoutJournalPlanner",
+        "active-workout-samples-v2.bin",
+        "ProductionJournalWriter",
+        "case append(expectedCount: Int, expectedLast: HRSample?, suffix: [HRSample])",
+        "let candidate = snapshot.samples[fromIndex...]",
+        "suffix: suffix",
+        "completeFileProtectionUntilFirstUserAuthentication",
+        "productionWriter.store(",
+        "epoch &+= 1",
+    )
+    forbid(
+        "Strand/App/ActiveWorkoutPersistence.swift",
+        "private static let writer = SnapshotWriter()",
+    )
+    require(
+        "StrandiOSTests/ActiveWorkoutPersistenceTests.swift",
+        "testBinaryJournalRoundTripsLargeSampleSetAtFixedWidth",
+        "testJournalPlannerAppendsOnlyNewSuffixForCompatibleSession",
+        "testJournalPlannerRewritesOnReplacementShrinkOrPrefixCorrection",
+    )
+except AssertionError as error:
+    print(f"Workout persistence contract audit: FAIL\n{error}", file=sys.stderr)
+    raise SystemExit(1)
+
+print("Workout persistence contract audit: PASS")
