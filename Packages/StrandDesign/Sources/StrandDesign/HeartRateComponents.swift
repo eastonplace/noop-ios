@@ -291,7 +291,7 @@ public struct HRTimelineChart: View {
                 // drag fails the hold and falls through to the pan/pinch below (OverviewHRChart #979).
                 .gesture(scrubGesture)
                 .onAppear { plotWidth = size.width }
-                .onChange(of: size.width) { width in plotWidth = width }
+                .onChangeCompat(of: size.width) { plotWidth = $0 }
         }
         .frame(maxWidth: .infinity)
         .gesture(magnifyGesture)

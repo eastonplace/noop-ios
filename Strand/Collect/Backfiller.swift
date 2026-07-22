@@ -7,7 +7,7 @@ import StrandAnalytics
 
 /// The async subset the Backfiller needs. Plain async protocol (not @MainActor) so both the
 /// real WhoopStore actor and a @MainActor SpyBackfillStore in tests can satisfy it.
-protocol BackfillStoreWriting: AnyObject {
+protocol BackfillStoreWriting: AnyObject, Sendable {
     @discardableResult
     func insert(_ streams: Streams, deviceId: String) async throws
         -> (hr: Int, rr: Int, events: Int, battery: Int,
@@ -36,7 +36,7 @@ final class Backfiller {
     /// (parsed frames, deviceClockRef, wallClockRef, sessionOldestUnix?, sessionNewestUnix?) → Streams.
     /// The trailing session-range markers are the strap's GET_DATA_RANGE oldest/newest for THIS sync
     /// (#547 session-relative gate); nil when the range isn't known yet (the absolute-only floor applies).
-    typealias Extractor = ([ParsedFrame], Int, Int, Int?, Int?) -> Streams
+    typealias Extractor = @Sendable ([ParsedFrame], Int, Int, Int?, Int?) -> Streams
 
     private let store: BackfillStoreWriting
     /// Device id offloaded chunks persist under. MUTABLE so a WHOOP↔WHOOP switch
@@ -371,7 +371,7 @@ final class Backfiller {
     /// records is still acked (it advances the strap's trim) — that's how the offload progresses.
     /// `endFrame` carries the 8-byte `end_data` the ack requires.
     /// The pure decode result of one offload chunk, produced OFF the main actor (see finishChunk).
-    private struct DecodedChunk {
+    private struct DecodedChunk: Sendable {
         let parsed: [ParsedFrame]
         let decoded: Streams
         let rejected: [[UInt8]]

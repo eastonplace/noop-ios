@@ -130,6 +130,26 @@ enum HealthKitWritebackPlanner {
     }
 }
 
+/// HealthKit's observer acknowledgement is documented as an escaping callback but is not annotated
+/// `Sendable` in the iOS 17 SDK. This one-shot box is the narrow bridge into NOOP's MainActor sync task;
+/// the lock guarantees the system callback can never be acknowledged twice.
+private final class HealthKitObserverAcknowledgement: @unchecked Sendable {
+    private let lock = NSLock()
+    private var completion: (() -> Void)?
+
+    init(_ completion: @escaping () -> Void) {
+        self.completion = completion
+    }
+
+    func callOnce() {
+        let callback = lock.withLock {
+            defer { completion = nil }
+            return completion
+        }
+        callback?()
+    }
+}
+
 /// Two-way Apple Health bridge for the iOS app.
 ///
 /// iOS has HealthKit (macOS does not), so the iOS target can do far more than parse a static export:
@@ -366,10 +386,11 @@ final class HealthKitBridge: ObservableObject {
                 // ALWAYS call completion so HealthKit keeps delivering. We don't tie completion to sync
                 // success: a transient store error shouldn't make HealthKit think we never handled the
                 // update and back off — the next foreground catch-up will reconcile.
-                guard let self else { completion(); return }
+                let acknowledgement = HealthKitObserverAcknowledgement(completion)
+                guard let self else { acknowledgement.callOnce(); return }
                 Task { @MainActor in
                     await self.syncFromObserver(type: type)
-                    completion()
+                    acknowledgement.callOnce()
                 }
             }
             store.execute(observer)
@@ -469,61 +490,42 @@ final class HealthKitBridge: ObservableObject {
 
         do {
         var byDay: [String: DayAgg] = [:]
-        func agg(_ day: String) -> DayAgg { byDay[day] ?? DayAgg() }
+        func merge(_ values: [String: Double], update: (inout DayAgg, Double) -> Void) {
+            for (day, value) in values {
+                var aggregate = byDay[day] ?? DayAgg()
+                update(&aggregate, value)
+                byDay[day] = aggregate
+            }
+        }
 
         // Quantity aggregates per day.
-        try await collect(.restingHeartRate, unit: HKUnit.count().unitDivided(by: .minute()), start: start, end: end, op: .discreteAverage) { day, v in
-            var a = agg(day); a.restingHr = v; byDay[day] = a
-        }
-        try await collect(.heartRate, unit: HKUnit.count().unitDivided(by: .minute()), start: start, end: end, op: .discreteAverage) { day, v in
-            var a = agg(day); a.avgHr = v; byDay[day] = a
-        }
-        try await collect(.heartRate, unit: HKUnit.count().unitDivided(by: .minute()), start: start, end: end, op: .discreteMax) { day, v in
-            var a = agg(day); a.maxHr = v; byDay[day] = a
-        }
-        try await collect(.heartRateVariabilitySDNN, unit: .secondUnit(with: .milli), start: start, end: end, op: .discreteAverage) { day, v in
-            var a = agg(day); a.hrv = v; byDay[day] = a
-        }
-        try await collect(.oxygenSaturation, unit: .percent(), start: start, end: end, op: .discreteAverage) { day, v in
-            var a = agg(day); a.spo2 = v * 100; byDay[day] = a   // 0…1 → percent
-        }
-        try await collect(.respiratoryRate, unit: HKUnit.count().unitDivided(by: .minute()), start: start, end: end, op: .discreteAverage) { day, v in
-            var a = agg(day); a.respRate = v; byDay[day] = a
-        }
-        try await collect(.stepCount, unit: .count(), start: start, end: end, op: .cumulativeSum) { day, v in
-            var a = agg(day); a.steps = v; byDay[day] = a
-        }
-        try await collect(.activeEnergyBurned, unit: .kilocalorie(), start: start, end: end, op: .cumulativeSum) { day, v in
-            var a = agg(day); a.activeKcal = v; byDay[day] = a
-        }
-        try await collect(.basalEnergyBurned, unit: .kilocalorie(), start: start, end: end, op: .cumulativeSum) { day, v in
-            var a = agg(day); a.basalKcal = v; byDay[day] = a
-        }
-        try await collect(.vo2Max, unit: HKUnit(from: "ml/kg*min"), start: start, end: end, op: .discreteAverage) { day, v in
-            var a = agg(day); a.vo2max = v; byDay[day] = a
-        }
+        merge(try await collect(.restingHeartRate, unit: HKUnit.count().unitDivided(by: .minute()), start: start, end: end, op: .discreteAverage)) { $0.restingHr = $1 }
+        merge(try await collect(.heartRate, unit: HKUnit.count().unitDivided(by: .minute()), start: start, end: end, op: .discreteAverage)) { $0.avgHr = $1 }
+        merge(try await collect(.heartRate, unit: HKUnit.count().unitDivided(by: .minute()), start: start, end: end, op: .discreteMax)) { $0.maxHr = $1 }
+        merge(try await collect(.heartRateVariabilitySDNN, unit: .secondUnit(with: .milli), start: start, end: end, op: .discreteAverage)) { $0.hrv = $1 }
+        merge(try await collect(.oxygenSaturation, unit: .percent(), start: start, end: end, op: .discreteAverage)) { $0.spo2 = $1 * 100 }
+        merge(try await collect(.respiratoryRate, unit: HKUnit.count().unitDivided(by: .minute()), start: start, end: end, op: .discreteAverage)) { $0.respRate = $1 }
+        merge(try await collect(.stepCount, unit: .count(), start: start, end: end, op: .cumulativeSum)) { $0.steps = $1 }
+        merge(try await collect(.activeEnergyBurned, unit: .kilocalorie(), start: start, end: end, op: .cumulativeSum)) { $0.activeKcal = $1 }
+        merge(try await collect(.basalEnergyBurned, unit: .kilocalorie(), start: start, end: end, op: .cumulativeSum)) { $0.basalKcal = $1 }
+        merge(try await collect(.vo2Max, unit: HKUnit(from: "ml/kg*min"), start: start, end: end, op: .discreteAverage)) { $0.vo2max = $1 }
 
         // Body composition — READ-ONLY import under the apple-health source (#20). Weight, lean mass
         // and BMI are point-in-time readings, so take the latest-of-day; body-fat reads fine as a
         // daily average. Body-fat HealthKit gives a 0…1 fraction, scaled to percent like spo2 above.
-        try await collect(.bodyMass, unit: .gramUnit(with: .kilo), start: start, end: end, op: .discreteMostRecent) { day, v in
-            var a = agg(day); a.weightKg = v; byDay[day] = a
-        }
-        try await collect(.bodyFatPercentage, unit: .percent(), start: start, end: end, op: .discreteAverage) { day, v in
-            var a = agg(day); a.bodyFatPct = v * 100; byDay[day] = a   // 0…1 → percent
-        }
-        try await collect(.leanBodyMass, unit: .gramUnit(with: .kilo), start: start, end: end, op: .discreteMostRecent) { day, v in
-            var a = agg(day); a.leanMassKg = v; byDay[day] = a
-        }
-        try await collect(.bodyMassIndex, unit: .count(), start: start, end: end, op: .discreteMostRecent) { day, v in
-            var a = agg(day); a.bmi = v; byDay[day] = a
-        }
+        merge(try await collect(.bodyMass, unit: .gramUnit(with: .kilo), start: start, end: end, op: .mostRecent)) { $0.weightKg = $1 }
+        merge(try await collect(.bodyFatPercentage, unit: .percent(), start: start, end: end, op: .discreteAverage)) { $0.bodyFatPct = $1 * 100 }
+        merge(try await collect(.leanBodyMass, unit: .gramUnit(with: .kilo), start: start, end: end, op: .mostRecent)) { $0.leanMassKg = $1 }
+        merge(try await collect(.bodyMassIndex, unit: .count(), start: start, end: end, op: .mostRecent)) { $0.bmi = $1 }
 
         // Sleep minutes per day (asleep stages summed; attributed to wake day).
-        try await collectSleep(start: start, end: end) { day, asleepMin, deepMin, remMin, coreMin in
-            var a = agg(day)
-            a.asleepMin = asleepMin; a.deepMin = deepMin; a.remMin = remMin; a.coreMin = coreMin
-            byDay[day] = a
+        for (day, sleep) in try await collectSleep(start: start, end: end) {
+            var aggregate = byDay[day] ?? DayAgg()
+            aggregate.asleepMin = sleep.asleepMin
+            aggregate.deepMin = sleep.deepMin
+            aggregate.remMin = sleep.remMin
+            aggregate.coreMin = sleep.coreMin
+            byDay[day] = aggregate
         }
 
         // Build + upsert the store rows under the apple-health source.
@@ -966,7 +968,7 @@ final class HealthKitBridge: ObservableObject {
         case "volleyball":    return .volleyball
         case "squash":        return .squash
         case "martial arts":  return .martialArts
-        case "dancing":       return .dance
+        case "dancing":       return .socialDance
         case "golf":          return .golf
         case "climbing":      return .climbing
         case "skiing":        return .downhillSkiing
@@ -996,6 +998,13 @@ final class HealthKitBridge: ObservableObject {
         var asleepMin: Double?; var deepMin: Double?; var remMin: Double?; var coreMin: Double?
     }
 
+    private struct SleepDayAgg: Sendable {
+        var asleepMin: Double?
+        var deepMin: Double?
+        var remMin: Double?
+        var coreMin: Double?
+    }
+
     /// Excludes NOOP's own write-back samples from reads, so the two-way sync never reads its own
     /// output back in as "apple-health" data — which would make the strap and "Apple Health" plot the
     /// same line for a strap-only user, and bias the apple-health average for someone who also has a
@@ -1005,45 +1014,49 @@ final class HealthKitBridge: ObservableObject {
     }
 
     private func collect(_ id: HKQuantityTypeIdentifier, unit: HKUnit, start: Date, end: Date,
-                         op: HKStatisticsOptions, sink: @escaping (String, Double) -> Void) async throws {
-        guard let type = HKQuantityType.quantityType(forIdentifier: id) else { return }
+                         op: HKStatisticsOptions) async throws -> [String: Double] {
+        guard let type = HKQuantityType.quantityType(forIdentifier: id) else { return [:] }
         let cal = Calendar.current
         let anchor = cal.startOfDay(for: start)
         let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
             HKQuery.predicateForSamples(withStart: start, end: end, options: .strictStartDate),
             Self.notNoopAuthored,
         ])
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+        return try await withCheckedThrowingContinuation {
+            (cont: CheckedContinuation<[String: Double], Error>) in
             let q = HKStatisticsCollectionQuery(quantityType: type, quantitySamplePredicate: predicate,
                                                 options: op, anchorDate: anchor,
                                                 intervalComponents: DateComponents(day: 1))
             q.initialResultsHandler = { _, results, error in
                 if let error { cont.resume(throwing: error); return }
+                var values: [String: Double] = [:]
                 results?.enumerateStatistics(from: start, to: end) { stats, _ in
                     let q: HKQuantity?
                     switch op {
                     case .cumulativeSum:     q = stats.sumQuantity()
                     case .discreteAverage:   q = stats.averageQuantity()
                     case .discreteMax:       q = stats.maximumQuantity()
-                    case .discreteMostRecent: q = stats.mostRecentQuantity()
+                    case .mostRecent: q = stats.mostRecentQuantity()
                     default:                 q = stats.averageQuantity()
                     }
-                    if let q { sink(HealthKitBridge.dayString(stats.startDate), q.doubleValue(for: unit)) }
+                    if let q {
+                        values[HealthKitBridge.dayString(stats.startDate)] = q.doubleValue(for: unit)
+                    }
                 }
-                cont.resume(returning: ())
+                cont.resume(returning: values)
             }
             store.execute(q)
         }
     }
 
-    private func collectSleep(start: Date, end: Date,
-                              sink: @escaping (String, Double?, Double?, Double?, Double?) -> Void) async throws {
-        guard let type = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) else { return }
+    private func collectSleep(start: Date, end: Date) async throws -> [String: SleepDayAgg] {
+        guard let type = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) else { return [:] }
         let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
             HKQuery.predicateForSamples(withStart: start, end: end, options: []),
             Self.notNoopAuthored,
         ])
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+        return try await withCheckedThrowingContinuation {
+            (cont: CheckedContinuation<[String: SleepDayAgg], Error>) in
             let q = HKSampleQuery(sampleType: type, predicate: predicate, limit: HKObjectQueryNoLimit, sortDescriptors: nil) { _, samples, error in
                 if let error { cont.resume(throwing: error); return }
                 var asleep: [String: Double] = [:], deep: [String: Double] = [:]
@@ -1062,10 +1075,11 @@ final class HealthKitBridge: ObservableObject {
                         break
                     }
                 }
-                for day in Set(asleep.keys) {
-                    sink(day, asleep[day], deep[day], rem[day], core[day])
-                }
-                cont.resume(returning: ())
+                let values = Dictionary(uniqueKeysWithValues: Set(asleep.keys).map { day in
+                    (day, SleepDayAgg(asleepMin: asleep[day], deepMin: deep[day],
+                                      remMin: rem[day], coreMin: core[day]))
+                })
+                cont.resume(returning: values)
             }
             store.execute(q)
         }
@@ -1118,12 +1132,12 @@ final class HealthKitBridge: ObservableObject {
     /// Source tag stamped on workouts imported from Apple Health. Matches the macOS importer's
     /// `WorkoutSource.appleHealthSource` ("apple-health") and `appleDeviceId`, so the workout list and
     /// source filters treat an iOS-read workout exactly like a macOS-imported one.
-    static let appleWorkoutSource = "apple-health"
+    nonisolated static let appleWorkoutSource = "apple-health"
 
     /// Map an `HKWorkoutActivityType` to NOOP's human sport label. Strength training routes to the
     /// shared lifting sport so a gym session lands in the Lifting lane; anything we don't name explicitly
     /// falls back to a generic "Workout" rather than an opaque numeric type.
-    private static func sportName(_ type: HKWorkoutActivityType) -> String {
+    nonisolated private static func sportName(_ type: HKWorkoutActivityType) -> String {
         switch type {
         case .running:                    return "Running"
         case .walking:                    return "Walking"

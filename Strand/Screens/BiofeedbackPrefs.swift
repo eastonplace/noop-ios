@@ -9,6 +9,7 @@ import StrandAnalytics
 // Nothing here leaves the device (the spec's "resonance pace + outcomes are local prefs"). The toggles
 // default OFF / safe (manual-first ethos). A Settings toggle group (Wave 3) writes the same keys; this
 // type is the single reader/writer so the engine config stays consistent.
+@MainActor
 enum BiofeedbackPrefs {
 
     private static let d = UserDefaults.standard

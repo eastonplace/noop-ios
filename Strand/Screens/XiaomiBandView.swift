@@ -13,7 +13,7 @@ import Foundation
 
 /// Carries the measured chart-column width up to the view so decimation can target pixels.
 private struct ChartWidthKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
+    static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
@@ -105,7 +105,7 @@ struct XiaomiBandView: View {
 
     var body: some View {
         ScreenScaffold(title: "Mi Band", subtitle: spanSubtitle.map { "\($0)" },
-                       onRefresh: { await repo.refresh() }, lazy: loaded && hasAnyData) {
+                       onRefresh: { _ = await repo.refresh(.currentDay) }, lazy: loaded && hasAnyData) {
             if loaded && !hasAnyData {
                 ComingSoon(what: "Nothing imported yet. In Data Sources, choose your Mi Fitness export (a .zip of the Mi Fitness app folder from the Files app) to bring in your steps, heart rate, sleep stages, SpO₂ and stress.")
             } else if !loaded {

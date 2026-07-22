@@ -30,6 +30,7 @@ struct DemoDayFrame {
     let synthBody: String
 }
 
+@MainActor
 enum DemoDayHarness {
 
     /// The pinned frame, or nil when `--demo-hour` was not passed (→ zero behaviour change).

@@ -160,7 +160,9 @@ final class AppModel: ObservableObject {
 
     /// A manual workout in progress. `samples` accumulate from the smoothed live `bpm`; `liveStrain`
     /// is updated by an O(1) accumulator so the active card can show strain building in real time.
-    struct ActiveWorkout: Equatable {
+    /// Reference-owned live session. The sample buffer grows in place so each accepted HR reading does
+    /// not copy the entire retained workout before publishing the next UI update.
+    final class ActiveWorkout {
         let start: Date
         /// The named sport chosen at start (e.g. "Tennis", "Padel") , persisted as the saved row's
         /// `sport` so a live-tracked session keeps its label instead of the old generic "Workout".
@@ -432,7 +434,7 @@ final class AppModel: ObservableObject {
                 self.live.batteryPct = 68
             }
             #endif
-            await self.repo.refresh()                          // surface any imported data at once
+            _ = await self.repo.refresh(.initialLoad)          // surface any imported data at once
             await self.wireSourceCoordinator()                 // dormant unless a generic strap is active
             try? await Task.sleep(nanoseconds: 6_000_000_000)  // give the first offload a moment
             // FIX 2(a): DEFER the heavy one-shot 4000-day heal/rescore while an import is in flight. A
@@ -580,7 +582,7 @@ final class AppModel: ObservableObject {
         let repoMoved = repo.adoptActiveDeviceId(trimmed)
         guard repoMoved else { return }
         live.append(log: "Read spine re-pointed to active device after registry change (#814).")
-        await repo.refresh()
+        _ = await repo.refresh(.activeDeviceChanged)
         await intelligence.analyzeRecent()
     }
 
@@ -595,7 +597,7 @@ final class AppModel: ObservableObject {
         await intelligence.analyzeRecent(refreshRepository: false)
         // One post-analysis refresh publishes both the newly offloaded raw history and any computed
         // mutations. Refreshing before analysis made the same cache tree rebuild twice per backfill.
-        await repo.refresh(days: 120)
+        _ = await repo.refresh(.postBackfill)
         await refreshV5Signals()
         #if os(iOS)
         // #980: a strap backfill routinely completes while the app is BACKGROUNDED (it runs as a
@@ -747,7 +749,7 @@ final class AppModel: ObservableObject {
     /// session wins over a stale snapshot) or nothing is stored. Called once from `init`.
     private func rehydrateActiveWorkout() {
         guard activeWorkout == nil, let snap = ActiveWorkoutPersistence.load() else { return }
-        var w = ActiveWorkout(start: Date(timeIntervalSince1970: TimeInterval(snap.startSec)),
+        let w = ActiveWorkout(start: Date(timeIntervalSince1970: TimeInterval(snap.startSec)),
                               sport: snap.sport, maxHR: Double(profile.hrMax))
         w.samples = snap.samples
         w.strainAccumulator = .init(samples: snap.samples, maxHR: Double(profile.hrMax))
@@ -861,7 +863,7 @@ final class AppModel: ObservableObject {
                 return .failure(.readBackMissing)
             }
             if let route { RouteStore.store(route, startTs: saved.startTs, sport: saved.sport) }
-            await repo.refresh()
+            _ = await repo.refresh(.currentDay)
             lastWorkout = saved
             ActiveWorkoutPersistence.clear()
             activeWorkout = nil
@@ -888,7 +890,7 @@ final class AppModel: ObservableObject {
     /// accumulator. Called from the direct-HR path (or the R-R fallback when direct HR is absent); a
     /// no-op when no workout is running. No growing-window rescan occurs at the ~1 Hz live cadence.
     private func captureWorkoutSample() {
-        guard pendingWorkoutSnapshot == nil, var w = activeWorkout, let hr = bpm else { return }
+        guard pendingWorkoutSnapshot == nil, let w = activeWorkout, let hr = bpm else { return }
         let sample = HRSample(ts: Int(Date().timeIntervalSince1970), bpm: hr)
         w.samples.append(sample)
         w.strainAccumulator.append(sample)
@@ -1203,14 +1205,17 @@ final class AppModel: ObservableObject {
     /// identifier per category means a new alert replaces the old one rather than stacking.
     private static func postWristAlert(identifier: String, title: String, body: String) {
         guard UserDefaults.standard.bool(forKey: wristAlertsMasterKey) else { return }
-        let center = UNUserNotificationCenter.current()
-        center.getNotificationSettings { settings in
+        Task { @MainActor in
+            let center = UNUserNotificationCenter.current()
+            let settings = await center.notificationSettings()
             guard settings.authorizationStatus == .authorized else { return }
             let content = UNMutableNotificationContent()
             content.title = title
             content.body = body
             content.sound = .default
-            center.add(UNNotificationRequest(identifier: identifier, content: content, trigger: nil))
+            try? await center.add(
+                UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
+            )
         }
     }
     #endif
@@ -1247,10 +1252,6 @@ final class AppModel: ObservableObject {
     static func scheduleSmartAlarmBackupNotification(minutes: Int, weekdays: Set<Int>,
                                                      log: ((String) -> Void)? = nil) {
         #if os(iOS)
-        let center = UNUserNotificationCenter.current()
-        // Always clear BOTH the single and the per-day ids so switching modes (or editing the weekday set)
-        // never leaves an orphaned trigger or double-fires.
-        center.removePendingNotificationRequests(withIdentifiers: smartAlarmBackupIds)
         // #34: the backup follows THE ALARM, not the wrist-alerts master. This is only reached from
         // applySmartAlarm() with the alarm enabled, so the alarm being on IS the correct gate — a user who
         // sets a smart alarm but never turned on the separate wrist HR/strain alerts must still get a backup
@@ -1260,9 +1261,30 @@ final class AppModel: ObservableObject {
         // A non-empty selection that filters to nothing (only out-of-range numbers) has no day to fire on.
         if !weekdays.isEmpty && valid.isEmpty { return }
 
-        // Build + add the repeating trigger(s). Factored so the already-authorized and the just-granted
-        // paths schedule identically.
-        func addRequests() {
+        Task { @MainActor in
+            let center = UNUserNotificationCenter.current()
+            // Always clear BOTH the single and the per-day ids so switching modes (or editing the weekday set)
+            // never leaves an orphaned trigger or double-fires.
+            center.removePendingNotificationRequests(withIdentifiers: smartAlarmBackupIds)
+
+            let settings = await center.notificationSettings()
+            switch settings.authorizationStatus {
+            case .authorized, .provisional, .ephemeral:
+                break
+            case .notDetermined:
+                // The user just enabled the alarm but was never asked for notification permission (nothing
+                // else prompted — wrist alerts, which used to, may be off). Ask now, then schedule on grant
+                // so the FIRST night is covered rather than only after some later re-arm.
+                let granted = (try? await center.requestAuthorization(options: [.alert, .sound])) ?? false
+                guard granted else {
+                    log?("Smart alarm: backup notification NOT scheduled (notification permission denied)")
+                    return
+                }
+            default:
+                log?("Smart alarm: backup notification NOT scheduled (notifications not authorized)")
+                return
+            }
+
             let content = UNMutableNotificationContent()
             content.title = String(localized: "Smart alarm")
             content.body = String(localized: "Backup wake: your smart alarm time is here.")
@@ -1274,7 +1296,9 @@ final class AppModel: ObservableObject {
                 comps.hour = hour
                 comps.minute = minute
                 let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: true)
-                center.add(UNNotificationRequest(identifier: smartAlarmBackupId, content: content, trigger: trigger))
+                try? await center.add(
+                    UNNotificationRequest(identifier: smartAlarmBackupId, content: content, trigger: trigger)
+                )
             } else {
                 for weekday in valid {
                     var comps = DateComponents()
@@ -1282,26 +1306,14 @@ final class AppModel: ObservableObject {
                     comps.hour = hour
                     comps.minute = minute
                     let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: true)
-                    center.add(UNNotificationRequest(identifier: "\(smartAlarmBackupId)-d\(weekday)",
-                                                     content: content, trigger: trigger))
+                    try? await center.add(
+                        UNNotificationRequest(
+                            identifier: "\(smartAlarmBackupId)-d\(weekday)",
+                            content: content,
+                            trigger: trigger
+                        )
+                    )
                 }
-            }
-        }
-
-        center.getNotificationSettings { settings in
-            switch settings.authorizationStatus {
-            case .authorized:
-                addRequests()
-            case .notDetermined:
-                // The user just enabled the alarm but was never asked for notification permission (nothing
-                // else prompted — wrist alerts, which used to, may be off). Ask now, then schedule on grant
-                // so the FIRST night is covered rather than only after some later re-arm.
-                center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
-                    if granted { addRequests() }
-                    else { log?("Smart alarm: backup notification NOT scheduled (notification permission denied)") }
-                }
-            default:
-                log?("Smart alarm: backup notification NOT scheduled (notifications not authorized)")
             }
         }
         #endif
@@ -1618,7 +1630,7 @@ final class AppModel: ObservableObject {
         let mark = SleepMark(type: .bedtime, at: date)
         Task { [weak self] in
             guard let self, let store = await self.repo.storeHandle() else { return }
-            try? await store.upsertMetricSeries([mark.metricPoint], deviceId: self.repo.deviceId)
+            _ = try? await store.upsertMetricSeries([mark.metricPoint], deviceId: self.repo.deviceId)
         }
     }
 
@@ -2049,7 +2061,7 @@ final class AppModel: ObservableObject {
                 let summary = try await WhoopImporter.importExport(url: local.url, into: store,
                                                                    deviceId: deviceId, trace: importTraceSink())
                 try? await store.checkpointWAL()   // reclaim the WAL a bulk import grew (#590)
-                await repo.refresh()
+                _ = await repo.refresh(.postImport)
                 let span: String
                 if let a = summary.earliest, let b = summary.latest {
                     let f = DateFormatter(); f.dateFormat = "MMM yyyy"
@@ -2080,7 +2092,7 @@ final class AppModel: ObservableObject {
                 let summary = try await XiaomiImporter.importExport(url: local.url, into: store,
                                                                     trace: importTraceSink())
                 try? await store.checkpointWAL()   // reclaim the WAL a bulk import grew (#590)
-                await repo.refresh()
+                _ = await repo.refresh(.postImport)
                 let span: String
                 if let a = summary.earliest, let b = summary.latest {
                     let f = DateFormatter(); f.dateFormat = "MMM yyyy"
@@ -2114,7 +2126,7 @@ final class AppModel: ObservableObject {
                 let summary = try await AppleHealthImport.importExport(url: local.url, into: store,
                                                                        deviceId: appleDeviceId, trace: importTraceSink())
                 try? await store.checkpointWAL()   // reclaim the WAL a bulk import grew (#590)
-                await repo.refresh()
+                _ = await repo.refresh(.postImport)
                 // #833/v7.7.2: an Apple Health import may write ONLY body-composition series (weight/body_fat/
                 // lean_mass/bmi/vo2max), which live in metricSeries OUTSIDE refresh()'s diff over daily/sleep/
                 // vitals, so refresh() may not bump `refreshSeq`. AppleHealthView's re-mount cache keys on
@@ -2238,7 +2250,7 @@ final class AppModel: ObservableObject {
             let outcome = await ShortcutHealthImport.ingest(url: url, into: store)
             switch outcome {
             case .imported(let days, let workouts):
-                await repo.refresh()
+                _ = await repo.refresh(.postImport)
                 // #833/v7.7.2: the Shortcuts import writes body-composition series (e.g. weight) into
                 // metricSeries, which sits OUTSIDE refresh()'s diff, so refresh() may leave `refreshSeq`
                 // unchanged and AppleHealthView's re-mount cache would serve stale data. Drop the cache so the

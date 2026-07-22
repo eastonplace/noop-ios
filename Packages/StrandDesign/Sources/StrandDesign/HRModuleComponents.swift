@@ -193,7 +193,7 @@ public struct HRLiveModuleCard: View {
                     .contentShape(Rectangle())
                     .gesture(scrubGesture)
                     .onAppear { plotWidth = size.width }
-                    .onChange(of: size.width) { width in plotWidth = width }
+                    .onChangeCompat(of: size.width) { plotWidth = $0 }
             }
             .frame(height: Self.traceHeight)
         } else {

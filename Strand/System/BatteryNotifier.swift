@@ -56,8 +56,10 @@ enum BatteryNotifier {
     /// Ask up front (called when the user enables the alerts) so the system dialog appears at a
     /// predictable moment, not on the first low-battery crossing.
     static func requestAuthorization() {
-        UNUserNotificationCenter.current()
-            .requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        Task {
+            _ = try? await UNUserNotificationCenter.current()
+                .requestAuthorization(options: [.alert, .sound])
+        }
     }
 
     /// Run the policy against a fresh battery reading and post at most one notification per genuine
@@ -116,17 +118,19 @@ enum BatteryNotifier {
     }
 
     private static func post(identifier: String, title: String, body: String) {
-        let center = UNUserNotificationCenter.current()
-        // Authorization is requested once via requestAuthorization() when alerts are enabled; here
-        // we only check status (no second system prompt).
-        center.getNotificationSettings { settings in
+        Task {
+            let center = UNUserNotificationCenter.current()
+            // Authorization is requested once via requestAuthorization() when alerts are enabled; here
+            // we only check status (no second system prompt).
+            let settings = await center.notificationSettings()
             guard settings.authorizationStatus == .authorized else { return }
             let content = UNMutableNotificationContent()
             content.title = title
             content.body = body
             content.sound = .default
-            center.add(UNNotificationRequest(identifier: identifier,
-                                             content: content, trigger: nil))
+            try? await center.add(
+                UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
+            )
         }
     }
 }

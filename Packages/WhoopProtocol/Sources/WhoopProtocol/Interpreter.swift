@@ -1,6 +1,6 @@
 import Foundation
 
-public struct DecodedField: Codable, Equatable {
+public struct DecodedField: Codable, Equatable, Sendable {
     public let off: Int
     public let len: Int
     public let name: String
@@ -10,7 +10,7 @@ public struct DecodedField: Codable, Equatable {
     public let note: String?
 }
 
-public struct ParsedFrame: Codable, Equatable {
+public struct ParsedFrame: Codable, Equatable, Sendable {
     public let ok: Bool
     public let typeName: String
     public let seq: Int?

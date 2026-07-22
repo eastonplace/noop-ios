@@ -3,39 +3,29 @@ import StrandDesign
 import StrandAnalytics
 import WhoopStore
 
-/// Live workout mode (#238) — the in-exercise screen: a big live heart rate, the current HR zone,
-/// elapsed time, and live effort building, all from the SAME live feed and scorers the rest of the
-/// app uses (no invented numbers). Presented while a manual workout is active, entered from the
-/// Start-workout control on Live. End stops the workout and dismisses.
-///
-/// Live HR is the smoothed `AppModel.bpm`; the zone is derived from the user's HR-max via the shared
-/// `HRZones` model; elapsed time ticks from the workout's start (a TimelineView, no manual Timer);
-/// effort is the running `ActiveWorkout.liveStrain` (StrainScorer over the captured window).
+/// Live workout mode. The environment wrapper receives AppModel's high-frequency notifications, but its
+/// expensive/static content is Equatable and identity-stable. Only the dedicated heart/zone/strain leaves
+/// observe AppModel and continue updating for every available HR sample.
 struct LiveWorkoutView: View {
     @EnvironmentObject private var model: AppModel
-    // PERF (scroll/recompose): this screen deliberately does NOT observe `LiveState` directly. A connected
-    // strap publishes `LiveState` ~1 Hz (HR + each R-R packet, plus sensor frames), and an
-    // `@EnvironmentObject live` here would invalidate the WHOLE body on every tick — the HR hero, effort
-    // gauge, zone rail and stats grid all re-evaluate even though they read from `model` (smoothed bpm +
-    // scorers), not `live`. The only region that genuinely needs `live` is the additive sensor readout
-    // (speed / cadence / power), so it's extracted into the small `SensorRowIfPresent` leaf below that
-    // owns its OWN `@EnvironmentObject live`. A sensor/R-R packet now re-renders just that row, not the
-    // hero. (`model.live` is its own ObservableObject, so the leaf's `live` is the one that sees the
-    // @Published changes — exactly as the parent's direct observation did before.)
     let onClose: () -> Void
 
-    /// Strain display scale (#268) — routes the live Strain read-out through the shared helper so it
-    /// matches every other surface. Display-only; the captured value stays stored 0–100.
-    @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.whoop.rawValue
-    private var effortScale: EffortScale { UnitPrefs.resolveEffortScale(effortScaleRaw) }
+    var body: some View {
+        StableLiveWorkoutContent(model: model)
+            .equatable()
+            .overlay {
+                WorkoutGoneObserver(model: model, onClose: onClose)
+            }
+    }
+}
 
-    /// Keep the screen awake while recording (#703). Opt-in, default off; the toggle lives in Settings.
-    /// Read here so we can hold the idle timer off only while this in-exercise screen is up and release it
-    /// the moment it leaves, which is exactly the bounded usage Apple asks for. iOS-only (no-op on Mac).
+private struct StableLiveWorkoutContent: View, @preconcurrency Equatable {
+    let model: AppModel
     @AppStorage("workoutKeepScreenOn") private var keepScreenOn = false
 
-    private var zoneSet: HRZoneSet { HRZones.zones(maxHR: Double(model.profile.hrMax)) }
-    private var zone: Int { model.bpm.map { zoneSet.zoneNumber(forBPM: Double($0)) } ?? 0 }
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.model === rhs.model
+    }
 
     var body: some View {
         ScrollView {
@@ -46,41 +36,23 @@ struct LiveWorkoutView: View {
                     .staggeredAppear(index: 2)
                 PaperWorkoutMapCard(recorder: model.gpsRecorder)
                     .staggeredAppear(index: 3)
-                paperHeartRateCard.staggeredAppear(index: 4)
-                controlRow
-                if case .failed(let message) = model.workoutFinishState {
-                    Text(message)
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.statusWarning)
-                        .accessibilityLabel("Workout save failed. \(message)")
-                }
-                // Existing Strain and zone reads remain available below the S25 composition.
-                effortGauge
-                zoneRail
+                LiveWorkoutHeartCard(model: model)
+                    .staggeredAppear(index: 4)
+                LiveWorkoutControlRow(model: model)
+                LiveWorkoutFailureMessage(model: model)
+                LiveWorkoutEffortAndZone(model: model)
             }
             .screenPadding()
             .padding(.vertical, 16)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(StrandPalette.surfaceBase.ignoresSafeArea())
-        // If the workout ended elsewhere (process restart cleared it), close the screen.
-        .onChangeCompat(of: model.activeWorkout == nil) { gone in if gone { onClose() } }
-        // Arm the realtime HR stream while the in-exercise screen is up (#681). On a WHOOP 5/MG live HR
-        // only flows while the puffin realtime stream is armed; previously only the Live tab armed it, so
-        // starting a manual workout straight from Workouts (Live never opened) left `model.bpm == nil` —
-        // captureWorkoutSample bailed on every sample and endWorkout silently discarded the empty
-        // session. Ref-counted in AppModel, so when this sheet sits over an already-armed Live tab the
-        // two balance and neither disarms the other (mirrors Android LiveWorkoutScreen's DisposableEffect
-        // requestRealtimeHr/releaseRealtimeHr). Balanced: one start on appear, one stop on disappear.
         .onAppear {
             model.startRealtimeHR()
-            // Hold the display awake for the session only if the user opted in (#703).
             if keepScreenOn { ScreenIdle.keepAwake(true) }
         }
         .onDisappear {
             model.stopRealtimeHR()
-            // Always release on the way out so the system idle timer resumes. Even if the toggle was
-            // flipped off mid-workout, this clears any hold we placed.
             ScreenIdle.keepAwake(false)
         }
     }
@@ -122,9 +94,34 @@ struct LiveWorkoutView: View {
         }
     }
 
-    private var paperHeartRateCard: some View {
+    private static func elapsed(since start: Date) -> String {
+        let seconds = max(0, Int(Date().timeIntervalSince(start)))
+        return String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
+}
+
+private struct WorkoutGoneObserver: View {
+    @ObservedObject var model: AppModel
+    let onClose: () -> Void
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+            .onChangeCompat(of: model.activeWorkout == nil) { gone in
+                if gone { onClose() }
+            }
+    }
+}
+
+/// Per-sample heart history leaf. Its bounded 360-value projection is the only chart work performed for an
+/// HR update; GPS, map, header, timer chrome, and controls are outside this observation scope.
+private struct LiveWorkoutHeartCard: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
         let values = model.activeWorkout?.samples.suffix(360).map { Double($0.bpm) } ?? []
-        return PaperCard {
+        PaperCard {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .firstTextBaseline) {
                     Text("HEART RATE (LAST 3 HOURS)")
@@ -137,13 +134,19 @@ struct LiveWorkoutView: View {
                         .foregroundStyle(StrandPalette.liveRed)
                 }
                 if values.count > 1 {
-                    Sparkline(values: values,
-                              gradient: Gradient(colors: [StrandPalette.chargeAccent,
-                                                          StrandPalette.chargeAccent]),
-                              range: 100...180, lineWidth: 2,
-                              // D15: Sparkline's shared area wash is 6% alpha, safely under 12%.
-                              showsArea: true, showsHead: false, showsHover: false)
-                        .frame(height: 90)
+                    Sparkline(
+                        values: values,
+                        gradient: Gradient(colors: [
+                            StrandPalette.chargeAccent,
+                            StrandPalette.chargeAccent,
+                        ]),
+                        range: 100...180,
+                        lineWidth: 2,
+                        showsArea: true,
+                        showsHead: false,
+                        showsHover: false
+                    )
+                    .frame(height: 90)
                 } else {
                     Text("Heart-rate history will draw as the workout records.")
                         .font(StrandFont.caption)
@@ -153,8 +156,12 @@ struct LiveWorkoutView: View {
             }
         }
     }
+}
 
-    private var controlRow: some View {
+private struct LiveWorkoutControlRow: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "lock.open.fill")
                 .font(.system(size: 16, weight: .semibold))
@@ -163,8 +170,6 @@ struct LiveWorkoutView: View {
                 .background(StrandPalette.card, in: Circle())
                 .overlay(Circle().strokeBorder(StrandPalette.cardBorder, lineWidth: 1))
                 .accessibilityLabel("Screen controls unlocked")
-            // C9 limitation branch: preserve the reference's three-part geometry
-            // without inventing a Paused state while samples continue recording.
             HStack(spacing: 7) {
                 Image(systemName: "record.circle")
                 Text("Recording")
@@ -176,42 +181,83 @@ struct LiveWorkoutView: View {
                         in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(StrandPalette.cardBorder, lineWidth: 1))
-            endButton
+
+            let saving = model.workoutFinishState == .saving
+            let title: LocalizedStringKey = saving ? "Saving…" : "Finish"
+            NoopButton(
+                title,
+                systemImage: saving ? "hourglass" : "flag.checkered",
+                kind: .destructive
+            ) {
+                Task { _ = await model.endWorkout() }
+            }
+            .disabled(saving)
         }
     }
+}
 
+private struct LiveWorkoutFailureMessage: View {
+    @ObservedObject var model: AppModel
 
-    /// The accumulating Strain, on the same layered StrainGauge the rest of the app uses — the live
-    /// `liveStrain` is on NOOP's 0–100 Strain axis. The gauge renders on the user's selected Strain
-    /// scale (#313): 0–100 native, or rescaled to WHOOP's 0–21, matching the rest of the app's
-    /// read-outs (mirrors TodayView's effort hero). Display-only — the captured value stays 0–100.
+    var body: some View {
+        if case .failed(let message) = model.workoutFinishState {
+            Text(message)
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.statusWarning)
+                .accessibilityLabel("Workout save failed. \(message)")
+        }
+    }
+}
+
+private struct LiveWorkoutEffortAndZone: View {
+    @ObservedObject var model: AppModel
+    @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.whoop.rawValue
+
+    private var effortScale: EffortScale { UnitPrefs.resolveEffortScale(effortScaleRaw) }
+    private var zoneSet: HRZoneSet { HRZones.zones(maxHR: Double(model.profile.hrMax)) }
+    private var zone: Int { model.bpm.map { zoneSet.zoneNumber(forBPM: Double($0)) } ?? 0 }
+
+    var body: some View {
+        effortGauge
+        zoneRail
+    }
+
     private var effortGauge: some View {
-        return NoopCard(padding: NoopMetrics.cardInnerPadding, tint: StrandPalette.effortColor) {
+        NoopCard(padding: NoopMetrics.cardInnerPadding, tint: StrandPalette.effortColor) {
             VStack(spacing: NoopMetrics.rowSpacing) {
                 switch model.activeWorkout?.liveStrainState
-                    ?? .building(readings: 0, coverageSeconds: 0) {
+                    ?? .building(readings: 0, coverageSeconds: 0)
+                {
                 case .building(let readings, let coverageSeconds):
                     Text("STRAIN BUILDING")
-                        .font(StrandFont.overline).tracking(StrandFont.overlineTracking)
+                        .font(StrandFont.overline)
+                        .tracking(StrandFont.overlineTracking)
                         .foregroundStyle(StrandPalette.effortColor)
                     Text("Building")
                         .font(StrandFont.metricValue)
                         .foregroundStyle(StrandPalette.textPrimary)
-                    ProgressView(value: min(1, Double(coverageSeconds) /
-                                            Double(StrainScorerV2.minCoverageSeconds)))
-                        .tint(StrandPalette.effortColor)
+                    ProgressView(value: min(
+                        1,
+                        Double(coverageSeconds) / Double(StrainScorerV2.minCoverageSeconds)
+                    ))
+                    .tint(StrandPalette.effortColor)
                     Text("\(Self.elapsedCoverage(coverageSeconds)) of 10:00 coverage · \(readings) readings")
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textSecondary)
                 case .scored(let strain):
                     Text("LIVE STRAIN")
-                        .font(StrandFont.overline).tracking(StrandFont.overlineTracking)
+                        .font(StrandFont.overline)
+                        .tracking(StrandFont.overlineTracking)
                         .foregroundStyle(StrandPalette.effortColor)
                     StrainGauge(
                         strain: UnitFormatter.effortValue(strain, scale: effortScale),
                         outOf: 21,
-                        diameter: 150, lineWidth: 14, showsHover: false,
-                        valueFormat: { _ in UnitFormatter.effortDisplay(strain, scale: effortScale) }
+                        diameter: 150,
+                        lineWidth: 14,
+                        showsHover: false,
+                        valueFormat: { _ in
+                            UnitFormatter.effortDisplay(strain, scale: effortScale)
+                        }
                     )
                     .frame(maxWidth: .infinity)
                 }
@@ -223,67 +269,39 @@ struct LiveWorkoutView: View {
     private var zoneRail: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("HR ZONE")
-                .font(StrandFont.overline).tracking(StrandFont.overlineTracking)
+                .font(StrandFont.overline)
+                .tracking(StrandFont.overlineTracking)
                 .foregroundStyle(StrandPalette.textSecondary)
             HStack(spacing: 6) {
-                ForEach(1...5, id: \.self) { z in
-                    let active = z == zone
-                    let color = StrandPalette.hrZoneColor(z)
+                ForEach(1...5, id: \.self) { value in
+                    let active = value == zone
+                    let color = StrandPalette.hrZoneColor(value)
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(active ? color : color.opacity(0.18))
                         .frame(height: active ? 44 : 34)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .strokeBorder(active ? color : StrandPalette.hairline, lineWidth: 1)
-                        )
-                        .overlay(
-                            Text("Z\(z)")
-                                .font(StrandFont.captionNumber)
-                                .foregroundStyle(active ? StrandPalette.surfaceBase : StrandPalette.textTertiary)
-                        )
+                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(active ? color : StrandPalette.hairline, lineWidth: 1))
+                        .overlay(Text("Z\(value)")
+                            .font(StrandFont.captionNumber)
+                            .foregroundStyle(active
+                                ? StrandPalette.surfaceBase
+                                : StrandPalette.textTertiary))
                 }
             }
             if let band = zoneSet.zones.first(where: { $0.number == zone }) {
                 Text("Zone \(zone): \(Int(band.lower))-\(Int(band.upper)) bpm (\(Int(band.lowerPct * 100))-\(Int(band.upperPct * 100))% max HR)")
-                    .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textTertiary)
             } else {
                 Text("Warming up. Keep moving to climb into Zone 1.")
-                    .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textTertiary)
             }
         }
     }
 
-
-
-    private var endButton: some View {
-        let saving = model.workoutFinishState == .saving
-        let title: LocalizedStringKey = saving ? "Saving…" : "Finish"
-        return NoopButton(title, systemImage: saving ? "hourglass" : "flag.checkered", kind: .destructive) {
-            Task { _ = await model.endWorkout() }
-        }
-        .disabled(saving)
-    }
-
-    // MARK: - Helpers
-
-    private static func elapsed(since start: Date) -> String {
-        let s = max(0, Int(Date().timeIntervalSince(start)))
-        return String(format: "%d:%02d", s / 60, s % 60)
-    }
-
     private static func elapsedCoverage(_ seconds: Int) -> String {
         String(format: "%d:%02d", max(0, seconds) / 60, max(0, seconds) % 60)
-    }
-
-    private static func zoneName(_ zone: Int) -> String {
-        switch zone {
-        case 1: return String(localized: "Recovery")
-        case 2: return String(localized: "Fat burn")
-        case 3: return String(localized: "Aerobic")
-        case 4: return String(localized: "Threshold")
-        case 5: return String(localized: "Maximum")
-        default: return ""
-        }
     }
 }
 
@@ -308,17 +326,28 @@ private struct PaperLiveWorkoutStatsGrid: View {
         }
     }
 
-    private func metric(_ label: String, _ value: String, _ unit: String?,
-                        tint: Color = StrandPalette.textPrimary) -> some View {
+    private func metric(
+        _ label: String,
+        _ value: String,
+        _ unit: String?,
+        tint: Color = StrandPalette.textPrimary
+    ) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(label).font(StrandFont.micro.weight(.semibold))
+            Text(label)
+                .font(StrandFont.micro.weight(.semibold))
                 .foregroundStyle(StrandPalette.textTertiary)
-                .lineLimit(1).minimumScaleFactor(0.7)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
             HStack(alignment: .firstTextBaseline, spacing: 3) {
-                Text(value).font(StrandFont.metricValue).foregroundStyle(StrandPalette.textPrimary)
-                    .lineLimit(1).minimumScaleFactor(0.65)
+                Text(value)
+                    .font(StrandFont.metricValue)
+                    .foregroundStyle(tint)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.65)
                 if let unit {
-                    Text(unit).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                    Text(unit)
+                        .font(StrandFont.micro)
+                        .foregroundStyle(StrandPalette.textTertiary)
                 }
             }
         }
@@ -334,7 +363,9 @@ private struct PaperLiveWorkoutStatsGrid: View {
 
     private var distanceText: String {
         guard recorder.distanceM > 0 else { return "—" }
-        let amount = unitSystem == .imperial ? recorder.distanceM / 1609.344 : recorder.distanceM / 1000
+        let amount = unitSystem == .imperial
+            ? recorder.distanceM / 1609.344
+            : recorder.distanceM / 1000
         return String(format: "%.2f", amount)
     }
 
@@ -361,10 +392,11 @@ private struct PaperWorkoutMapCard: View {
                             Image(systemName: recorder.pointCount > 0 ? "location.fill" : "location.slash")
                                 .font(.system(size: 22, weight: .semibold))
                                 .foregroundStyle(recorder.pointCount > 0
-                                                 ? StrandPalette.link : StrandPalette.textTertiary)
+                                    ? StrandPalette.link
+                                    : StrandPalette.textTertiary)
                             Text(recorder.pointCount > 0
-                                 ? "\(recorder.pointCount) GPS points recorded"
-                                 : "Waiting for GPS route")
+                                ? "\(recorder.pointCount) GPS points recorded"
+                                : "Waiting for GPS route")
                                 .font(StrandFont.caption)
                                 .foregroundStyle(StrandPalette.textSecondary)
                         }
@@ -384,60 +416,6 @@ private struct PaperWorkoutMapCard: View {
                 .background(StrandPalette.card, in: Capsule())
                 .padding(12)
             }
-        }
-    }
-}
-
-// MARK: - Live-observing leaf (scroll-stutter isolation)
-
-/// Additive readout for a connected standard fitness sensor (a footpod / bike speed-cadence sensor /
-/// power meter) feeding RSC/CSC/CPS ALONGSIDE heart rate. Only the fields the sensor actually sent
-/// render — each tile is dropped when its value is absent, and the WHOLE block (row + entrance stagger)
-/// is hidden when nothing is present (`live.hasSensorMetrics`), so a plain HR-only workout looks exactly
-/// as before. Honest units: speed km/h, cadence per-minute (steps for running / rpm for cycling), power
-/// watts. Tinted with the Strain world so it reads as part of the hero, not a competing accent. Nothing
-/// here touches HR / zone / effort.
-///
-/// This is a standalone leaf that owns its OWN `@EnvironmentObject live` (the parent `LiveWorkoutView`
-/// no longer observes `LiveState`), so an incoming sensor / R-R packet re-renders only this row, not the
-/// HR hero / effort gauge / zone rail above. The gate, layout and `staggeredAppear(index: 5)` are
-/// preserved verbatim, so the rendered output is byte-for-byte the previous inline code.
-private struct SensorRowIfPresent: View {
-    @EnvironmentObject private var live: LiveState
-
-    var body: some View {
-        if live.hasSensorMetrics {
-            let speed = LiveState.formatSpeedKmh(live.sensorSpeedKmh)
-            let cadence = LiveState.formatCadence(live.sensorCadence)
-            let power = LiveState.formatPowerWatts(live.sensorPowerWatts)
-            VStack(alignment: .leading, spacing: 8) {
-                Text("SENSOR")
-                    .font(StrandFont.overline).tracking(StrandFont.overlineTracking)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                HStack(spacing: NoopMetrics.gap) {
-                    if let speed { stat(String(localized: "SPEED"), "\(speed) km/h", tint: StrandPalette.effortColor) }
-                    if let cadence { stat(String(localized: "CADENCE"), "\(cadence)/min", tint: StrandPalette.effortColor) }
-                    if let power { stat(String(localized: "POWER"), "\(power) W", tint: StrandPalette.effortColor) }
-                }
-            }
-            .staggeredAppear(index: 5)
-        }
-    }
-
-    /// Same metric tile as `LiveWorkoutView.stat` (the HR stats grid) — duplicated here, unchanged, so the
-    /// leaf is self-contained and the rendered tile is identical.
-    private func stat(_ title: String, _ value: String, tint: Color = StrandPalette.textPrimary) -> some View {
-        NoopCard(padding: 14, tint: tint) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(title)
-                    .font(StrandFont.overline).tracking(StrandFont.overlineTracking)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                Text(value)
-                    .font(StrandFont.number(26))
-                    .foregroundStyle(StrandPalette.textPrimary)
-                    .lineLimit(1).minimumScaleFactor(0.6)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }

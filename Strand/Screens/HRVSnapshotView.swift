@@ -456,7 +456,7 @@ struct HRVSnapshotView: View {
             }
             do {
                 try await store.upsertMetricSeries([point], deviceId: HRVSnapshot.sourceId)
-                await model.repo.refresh()
+                _ = await model.repo.refresh(.currentDay)
             } catch {
                 saved = false
             }

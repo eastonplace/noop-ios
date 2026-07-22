@@ -116,6 +116,18 @@ public struct WidgetSnapshot: Codable, Equatable {
         return copy
     }
 
+    /// Compare everything a widget can render while deliberately ignoring the publication timestamp.
+    /// Full refreshes often recompute an identical dashboard payload after an unrelated repository change;
+    /// treating `updated` as content forced an App Group write + `reloadAllTimelines()` every time. Publishers
+    /// use this equality with a bounded heartbeat so freshness can still advance without reload storms.
+    public func hasSameRenderedContent(as other: WidgetSnapshot) -> Bool {
+        var lhs = self
+        var rhs = other
+        lhs.updated = .distantPast
+        rhs.updated = .distantPast
+        return lhs == rhs
+    }
+
     /// App Group suite the app and widget both use. Injected from the `APP_GROUP_ID` build setting
     /// (see project.yml) via the `AppGroupIdentifier` Info.plist key, so the value lives in exactly
     /// one place rather than being duplicated here. Must match the `com.apple.security.application-groups`
@@ -162,10 +174,19 @@ public struct WidgetSnapshot: Codable, Equatable {
         return snap
     }
 
-    /// Persist this snapshot into the shared suite.
-    public func save() {
-        guard let defaults = UserDefaults(suiteName: WidgetSnapshot.suiteName),
-              let data = try? JSONEncoder().encode(self) else { return }
+    /// Persist this snapshot into the shared suite. The result lets publishers avoid updating their
+    /// in-process throttle cache or asking WidgetKit to reload when the App Group write could not happen.
+    @discardableResult
+    public func save() -> Bool {
+        save(to: UserDefaults(suiteName: WidgetSnapshot.suiteName))
+    }
+
+    /// Test seam and shared implementation for `save()`. Internal so production callers always use the
+    /// configured App Group while unit tests can supply an isolated defaults suite or nil failure case.
+    @discardableResult
+    func save(to defaults: UserDefaults?) -> Bool {
+        guard let defaults, let data = try? JSONEncoder().encode(self) else { return false }
         defaults.set(data, forKey: WidgetSnapshot.storageKey)
+        return true
     }
 }

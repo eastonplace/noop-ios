@@ -6,7 +6,7 @@ import WhoopStore
 /// (WhoopStore is `final`). WhoopStore conforms via the extension below.
 /// Not @MainActor — the WhoopStore actor's async methods satisfy the async requirements;
 /// a @MainActor SpyStore in tests also conforms (async witnesses hop actors).
-protocol StoreWriting: AnyObject {
+protocol StoreWriting: AnyObject, Sendable {
     @discardableResult
     func insert(_ streams: Streams, deviceId: String) async throws
         -> (hr: Int, rr: Int, events: Int, battery: Int,

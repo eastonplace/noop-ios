@@ -5,8 +5,9 @@ import AppIntents
 /// Queue of actions requested by an App Intent while the app may be suspended. Intents can't reach
 /// into the running `AppModel` directly (BLE only lives in the foreground app), so they enqueue here
 /// and the app drains the queue when it next becomes active.
+@MainActor
 enum PendingIntents {
-    enum Action: String { case markMoment, buzz }
+    enum Action: String, Sendable { case markMoment, buzz }
 
     private static let key = "noop.pendingIntents"
     private static var defaults: UserDefaults? { UserDefaults(suiteName: WidgetSnapshot.suiteName) }
@@ -41,23 +42,23 @@ enum PendingIntents {
 
 /// Record a timestamped "moment" — the iOS analogue of the strap double-tap "mark a moment" action.
 struct MarkMomentIntent: AppIntent {
-    static var title: LocalizedStringResource = "Mark a Moment"
-    static var description = IntentDescription("Record a timestamped moment in NOOP.")
+    static let title: LocalizedStringResource = "Mark a Moment"
+    static let description = IntentDescription("Record a timestamped moment in NOOP.")
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        PendingIntents.append(.markMoment, at: Date())
+        await PendingIntents.append(.markMoment, at: Date())
         return .result(dialog: "Moment marked.")
     }
 }
 
 /// Send a confirming haptic buzz to the strap. Opens the app so the live BLE link can deliver it.
 struct BuzzStrapIntent: AppIntent {
-    static var title: LocalizedStringResource = "Buzz Strap"
-    static var description = IntentDescription("Send a haptic buzz to your WHOOP strap.")
-    static var openAppWhenRun = true
+    static let title: LocalizedStringResource = "Buzz Strap"
+    static let description = IntentDescription("Send a haptic buzz to your WHOOP strap.")
+    static let openAppWhenRun = true
 
     func perform() async throws -> some IntentResult {
-        PendingIntents.append(.buzz)
+        await PendingIntents.append(.buzz)
         return .result()
     }
 }

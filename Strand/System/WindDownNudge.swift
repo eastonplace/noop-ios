@@ -150,34 +150,31 @@ enum WindDownNudge {
             return
         }
 
-        UNUserNotificationCenter.current().getNotificationSettings { settings in
-            Task { @MainActor in
-                switch settings.authorizationStatus {
-                case .authorized, .provisional, .ephemeral:
+        Task { @MainActor in
+            let center = UNUserNotificationCenter.current()
+            let settings = await center.notificationSettings()
+            switch settings.authorizationStatus {
+            case .authorized, .provisional, .ephemeral:
+                UserDefaults.standard.set(true, forKey: K.enabled)
+                schedule()
+                completion?(.scheduled)
+            case .notDetermined:
+                // First ask — the system dialog appears now (a predictable moment), then we schedule on
+                // grant so the FIRST night is covered rather than only after some later re-arm.
+                let granted = (try? await center.requestAuthorization(options: [.alert, .sound])) ?? false
+                if granted {
                     UserDefaults.standard.set(true, forKey: K.enabled)
                     schedule()
                     completion?(.scheduled)
-                case .notDetermined:
-                    // First ask — the system dialog appears now (a predictable moment), then we schedule on
-                    // grant so the FIRST night is covered rather than only after some later re-arm.
-                    UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, _ in
-                        Task { @MainActor in
-                            if granted {
-                                UserDefaults.standard.set(true, forKey: K.enabled)
-                                schedule()
-                                completion?(.scheduled)
-                            } else {
-                                UserDefaults.standard.set(false, forKey: K.enabled)
-                                completion?(.denied)
-                            }
-                        }
-                    }
-                default:
-                    // .denied (or any future non-authorized case) — don't fake an enabled toggle. The caller
-                    // surfaces a "notifications are off" prompt with a jump to Settings.
+                } else {
                     UserDefaults.standard.set(false, forKey: K.enabled)
                     completion?(.denied)
                 }
+            default:
+                // .denied (or any future non-authorized case) — don't fake an enabled toggle. The caller
+                // surfaces a "notifications are off" prompt with a jump to Settings.
+                UserDefaults.standard.set(false, forKey: K.enabled)
+                completion?(.denied)
             }
         }
     }

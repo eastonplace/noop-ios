@@ -412,7 +412,7 @@ struct TestCentreView: View {
         Baselines.recalibrateRecoveryBaselines()
         Task {
             await model.intelligence.analyzeRecent()
-            await model.repo.refresh()
+            _ = await model.repo.refresh(.currentDay)
         }
         infoTitle = String(localized: "Recovery baseline recalibrating")
         infoMessage = String(localized: "NOOP will re-learn your baseline from tonight's data onward. Your history is kept, and it takes a few nights to settle.")

@@ -76,7 +76,7 @@ struct DataSourcesView: View {
     var body: some View {
         ScreenScaffold(title: "Data Sources",
                        subtitle: "Import or connect your data.",
-                       onRefresh: { await repo.refresh() },
+                       onRefresh: { _ = await repo.refresh(.currentDay) },
                        // PERF: a nine-card import/source column (WHOOP, Apple Health, Xiaomi, nutrition,
                        // lifting, activity files, wearables, broadcast-out, live strap). The LazyVStack
                        // path is byte-identical layout. The cards stay in their inner VStack(sectionSpacing)
@@ -454,7 +454,7 @@ struct DataSourcesView: View {
                 }
                 let points = result.metricPoints.map { MetricPoint(day: $0.day, key: $0.key, value: $0.value) }
                 try await store.upsertMetricSeries(points, deviceId: NutritionCsvImporter.sourceId)
-                await repo.refresh()
+                _ = await repo.refresh(.postImport)
                 var msg = String(localized: "Imported \(result.importedDays) days (\(points.count) values)")
                 if let a = result.earliestDay, let b = result.latestDay, a != b { msg += " · \(a)-\(b)" }
                 if result.skippedRows > 0 {
@@ -518,7 +518,7 @@ struct DataSourcesView: View {
                     )
                 }
                 try await store.upsertWorkouts(rows, deviceId: LiftingImporter.sourceId)
-                await repo.refresh()
+                _ = await repo.refresh(.postImport)
                 let totalVolume = result.sessions.reduce(0.0) { $0 + $1.volumeLoadKg }
                 // Whole-phrase variants per count so translators never see a stitched plural.
                 var msg = result.sessionCount == 1
@@ -596,7 +596,7 @@ struct DataSourcesView: View {
                     notes: activity.importNote()
                 )
                 try await store.upsertWorkouts([row], deviceId: ActivityFileImporter.sourceId)
-                await repo.refresh()
+                _ = await repo.refresh(.postImport)
                 activityFileSummary = ActivityFileImporter.summaryText(activity)
                 activityFileFailed = false
                 logImport("Workout file (\(sport)): 1 workout imported")
@@ -652,7 +652,7 @@ struct DataSourcesView: View {
                                                               ext: ext, sizeBytes: size),
                                 domain: .dataImport)
                 }
-                await repo.refresh()
+                _ = await repo.refresh(.postImport)
                 wearableSummary = WearableExportImporter.summaryText(result)
                 wearableFailed = false
                 logImport("\(result.brand.displayName) export: \(result.days.count) days, \(result.sleeps.count) sleeps, \(result.summary.skippedSpans) rejected")
@@ -687,7 +687,7 @@ struct DataSourcesView: View {
                 // `DeviceRegistryStore(...).deleteAllData` directly here ran the whole transaction on the
                 // main actor and froze the UI on a large Apple Health dataset.
                 try await store.deleteAllData(deviceId: model.appleDeviceId)
-                await repo.refresh()
+                _ = await repo.refresh(.postImport)
                 // #833/v7.7.2: this purge clears the body-composition series (weight/body_fat/lean_mass/bmi/
                 // vo2max) that live in metricSeries OUTSIDE refresh()'s diff, so refresh() may not bump
                 // `refreshSeq` and AppleHealthView's re-mount cache would keep serving the now-DELETED data.

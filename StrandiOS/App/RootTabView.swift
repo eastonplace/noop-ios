@@ -2,9 +2,8 @@
 import SwiftUI
 import StrandDesign
 
-/// iOS navigation shell. macOS uses a `NavigationSplitView` sidebar (`RootView`); on iPhone the
-/// natural analogue is a `TabView` with the most-used screens as tabs and everything else under a
-/// "More" list. Every screen is the same `StrandDesign`-built view the macOS app uses.
+/// iOS navigation shell. On iPhone the natural structure is a `TabView` with the most-used screens as
+/// tabs and everything else under a "More" list.
 struct RootTabView: View {
     @EnvironmentObject private var repo: Repository
     /// Cross-screen navigation requests (e.g. Live → "Manage devices"). Devices isn't a tab — it lives
@@ -18,25 +17,19 @@ struct RootTabView: View {
     /// A routed v5 pillar screen (Insights hub / Lab Book / fused record / Rhythm) presented as a sheet
     /// when a hub row deep-links to it via NavRouter. nil = closed.
     @State private var routedPillar: NavRouter.Destination?
-    /// Selected tab — bound so tab switches can crossfade (README §Motion: ~240ms opacity swap
-    /// between tab roots, calm easing). Defaults to Today.
+    /// Selected tab — bound so tab switches can crossfade. Defaults to Today.
     @State private var selectedTab: Int
-    /// Which More-tab groups are expanded (S2). Insights + Body stay open at rest; Data + App collapse to
-    /// just their header until tapped. Persisted (#860 item 2): the user's open/closed choice must SURVIVE
-    /// leaving and re-entering the More tab (and relaunch), not reset to the seed every visit. Backed by an
-    /// `@AppStorage` CSV string (keyed identically to the Android `MoreSectionPrefs`), bridged to a
-    /// `Set<String>` through `MoreSectionPrefs` so the section logic below is unchanged.
+    /// Which More-tab groups are expanded. Persisted across navigation and relaunch.
     @AppStorage(MoreSectionPrefs.storageKey) private var expandedMoreSectionsCSV = MoreSectionPrefs.defaultCSV
     private var expandedMoreSections: Set<String> { MoreSectionPrefs.decode(expandedMoreSectionsCSV) }
 
-    /// R7: Paper is the sole Today surface.
+    /// Paper is the sole Today surface.
     private var todayTabRoot: some View { TodayView() }
 
     init() {
         var initialTab = 0
         #if DEBUG
         // Screenshot/QA harness: launch directly into a tab without UI automation permissions.
-        // Release builds always retain the normal Today default.
         let arguments = ProcessInfo.processInfo.arguments
         let argumentTab = arguments.firstIndex(of: "--demo-tab").flatMap { index in
             arguments.indices.contains(index + 1) ? arguments[index + 1] : nil
@@ -46,6 +39,7 @@ struct RootTabView: View {
         }
         #endif
         _selectedTab = State(initialValue: initialTab)
+
         // The native bar stays hidden, but keep its appearance correct for transient UIKit hosts.
         let appearance = UITabBarAppearance()
         appearance.configureWithOpaqueBackground()
@@ -68,107 +62,85 @@ struct RootTabView: View {
         .animation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24), value: selectedTab)
         .simultaneousGesture(
             DragGesture(minimumDistance: 24)
-                .onEnded { v in
+                .onEnded { value in
                     guard selectedTab != 0 else { return }
-                    let dx = v.translation.width, dy = v.translation.height
+                    let dx = value.translation.width
+                    let dy = value.translation.height
                     guard abs(dx) > 60, abs(dx) > abs(dy) * 1.6 else { return }
                     let next = min(3, max(0, selectedTab + (dx < 0 ? 1 : -1)))
                     if next != selectedTab {
-                        withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) { selectedTab = next }
+                        withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) {
+                            selectedTab = next
+                        }
                     }
                 }
         )
         .safeAreaInset(edge: .bottom, spacing: 0) {
             PaperTabBar(selection: $selectedTab, onReselect: { _ in
-                // Re-tapping the active tab refreshes that page's data (2026-07-02).
-                Task { await repo.refresh() }
+                // A reselect is a small UI refresh. It must never reload the full 4,000-day history.
+                Task { _ = await repo.refresh(.currentDay) }
             }, onQuickActions: {
                 withAnimation(Self.sheetEase) { quickAction = .menu }
             })
         }
         .task {
-            await repo.refresh()
-            // Backup & Sync: on-launch catch-up (see RootView). Detached + utility priority so a
-            // 100MB+ whole-DB ZIP never blocks startup; gated on the auto toggle (default OFF). (Must-fix #4.)
+            // AppModel owns the one initial full-history repository load. This shell only performs the
+            // independent backup catch-up, avoiding two equivalent launch refreshes racing each other.
             let backupRepo = repo
             Task.detached(priority: .utility) {
                 await FolderBackup.catchUpIfDue(checkpoint: { await backupRepo.checkpointForBackup() })
             }
         }
-        // Quick-action sheet presents with the calm easing (~0.42s) per the README sheet spec —
-        // the easing is applied where `quickAction` is set (see `presentQuickAction`), keeping the
-        // animation scoped to the sheet rather than the whole shell.
         .sheet(item: $quickAction) { action in
             quickActionDestination(action)
         }
-        // Live's "Manage devices" affordance (and any future cross-screen link to Devices) routes here:
-        // present the Devices manager in its own nav stack, the same way the quick-action screens do.
         .sheet(isPresented: $showDevices) {
             devicesScreen
         }
-        // v5 pillar deep-links (Insights hub / Lab Book / fused record / Rhythm) present as a sheet in
-        // their own nav stack — the same idiom the quick-action + Devices screens use on iPhone.
-        .sheet(item: $routedPillar) { dest in
-            pillarScreen(dest)
+        .sheet(item: $routedPillar) { destination in
+            pillarScreen(destination)
         }
-        // Honour a router request: Devices keeps its dedicated sheet; the v5 pillars route through the
-        // shared pillar sheet. Cleared so the same tap can fire again later.
-        .onChange(of: router.requestedDestination) { _, dest in
-            switch dest {
+        .onChange(of: router.requestedDestination) { _, destination in
+            switch destination {
             case .devices:
                 showDevices = true
                 router.requestedDestination = nil
             case .insightsHub, .labBook, .fusedRecord, .rhythm, .settings, .updates:
-                routedPillar = dest
+                routedPillar = destination
                 router.requestedDestination = nil
             case .trends:
-                // Trends is a primary tab on iPhone (not a pillar sheet) — switch to it.
                 withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) { selectedTab = 1 }
                 router.requestedDestination = nil
             case .activeWorkout:
-                // The Today active-workout indicator opens Live through the quick-action Live sheet; once
-                // it's up, LiveView consumes the one-shot `presentActiveWorkout` flag and presents the
-                // in-exercise screen. Calm sheet easing, matching the other quick-action presents.
                 withAnimation(Self.sheetEase) { quickAction = .live }
                 router.requestedDestination = nil
             case .liveSession:
-                // Live Sessions is presented from Today's own Start entry (a cover, not a routed sheet),
-                // so a deep-link lands on the Today tab where that entry lives.
                 withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) { selectedTab = 0 }
                 router.requestedDestination = nil
             case nil:
                 break
             }
         }
-        // A screen's top-bar "+" routes here: open the quick-action sheet, then clear the flag.
-        .onChange(of: router.quickActionsRequested) { _, req in
-            if req {
+        .onChange(of: router.quickActionsRequested) { _, requested in
+            if requested {
                 withAnimation(Self.sheetEase) { quickAction = .menu }
                 router.quickActionsRequested = false
             }
         }
     }
 
-    /// A routed v5 pillar screen wrapped in its own nav stack + Done button (mirrors `quickScreen`).
     @ViewBuilder
-    private func pillarScreen(_ dest: NavRouter.Destination) -> some View {
+    private func pillarScreen(_ destination: NavRouter.Destination) -> some View {
         NavigationStack {
             Group {
-                switch dest {
+                switch destination {
                 case .insightsHub: InsightsHubView()
                 case .labBook: LabBookView()
                 case .fusedRecord: FusedRecordHost()
                 case .rhythm: RhythmHost(onClose: { routedPillar = nil })
                 case .devices: DevicesView()
-                // .trends is never presented as a pillar sheet on iPhone (it's a primary tab — the
-                // requestedDestination handler switches `selectedTab` instead), but the switch must stay
-                // exhaustive. Fall back to Trends inside the sheet host if it ever arrives here.
                 case .trends: TrendsView()
-                // .activeWorkout routes through the quick-action Live sheet (handled above); this keeps the
-                // switch exhaustive and falls back to Live if it ever reaches the pillar host.
                 case .activeWorkout: LiveView()
-                // .liveSession routes to the Today tab (handled above — its Start entry owns the cover);
-                // this keeps the switch exhaustive and falls back to Today if it ever reaches the host.
                 case .liveSession: TodayView()
                 case .settings: SettingsView()
                 case .updates: UpdatesInboxView(onClose: { routedPillar = nil })
@@ -176,8 +148,6 @@ struct RootTabView: View {
             }
             .background(StrandPalette.appCanvas.ignoresSafeArea())
             .navigationBarTitleDisplayMode(.inline)
-            // #1027: same fix as quickScreen — the pillar screens draw the full-bleed liquid sky, so a
-            // transparent nav bar keeps it edge-to-edge instead of an opaque band clipping the top on scroll.
             .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -188,19 +158,13 @@ struct RootTabView: View {
         }
     }
 
-    /// Calm-easing curve (cubic-bezier(0.22,1,0.36,1)) at the README sheet-present duration.
     private static let sheetEase = Animation.timingCurve(0.22, 1, 0.36, 1, duration: 0.42)
 
-    // MARK: - Quick-action sheet
-
-    /// Routes a chosen quick action to the existing screen, or shows the action menu itself.
     @ViewBuilder
     private func quickActionDestination(_ action: QuickAction) -> some View {
         switch action {
         case .menu:
             QuickActionSheet { picked in
-                // Swap the menu for the chosen destination on the next runloop so the sheet
-                // re-presents cleanly (avoids dismiss/re-present races). Calm easing on re-present.
                 quickAction = nil
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                     withAnimation(Self.sheetEase) { quickAction = picked }
@@ -219,18 +183,11 @@ struct RootTabView: View {
         }
     }
 
-    /// Wraps a routed quick-action screen in its own nav stack so it has a title bar + the
-    /// shared surface background, matching how the More-tab links present these same views.
     private func quickScreen<V: View>(_ view: V) -> some View {
         NavigationStack {
             view
                 .background(StrandPalette.appCanvas.ignoresSafeArea())
                 .navigationBarTitleDisplayMode(.inline)
-                // #1027: these screens draw a full-bleed liquid sky (ScreenScaffold topBackground) that runs
-                // edge-to-edge under a transparent bar — exactly how the tab roots present it. An OPAQUE
-                // surfaceBase toolbar background sat on top of that sky and, as the content scrolled up, its
-                // extended status-bar band CLIPPED the sky + the in-content header ("Live Body Console").
-                // Hiding the bar background lets the sky stay continuous under the floating Done button.
                 .toolbarBackground(.hidden, for: .navigationBar)
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
@@ -241,8 +198,6 @@ struct RootTabView: View {
         }
     }
 
-    /// The Devices manager wrapped in its own nav stack + Done button (mirrors `quickScreen`, but
-    /// dismisses the dedicated `showDevices` sheet rather than the quick-action item).
     private var devicesScreen: some View {
         NavigationStack {
             DevicesView(onClose: { showDevices = false })
@@ -252,31 +207,23 @@ struct RootTabView: View {
     }
 
     private func tab<V: View>(_ view: V, _ title: LocalizedStringKey, _ icon: String) -> some View {
-        // Each primary tab gets its OWN NavigationStack so the in-content NavigationLinks (e.g. the Today
-        // dashboard card rows) both navigate AND render opaque. An ORPHANED NavigationLink (no
-        // NavigationStack ancestor) renders its whole label in a disabled/translucent state — that was
-        // washing the Today cards over the hero scene and dimming their text to grey (2026-06-23).
-        // The root view hides the system nav bar (each screen draws its own in-content header); pushed
-        // detail screens get their own nav bar + back button.
         NavigationStack {
             view
                 .background(StrandPalette.appCanvas.ignoresSafeArea())
                 .toolbar(.hidden, for: .navigationBar)
         }
-        .toolbar(.hidden, for: .tabBar)   // we draw our own PaperTabBar
+        .toolbar(.hidden, for: .tabBar)
         .tabItem { Label(title, systemImage: icon) }
     }
 
-    // The "More" tab is the app's catch-all index. It was a plain SwiftUI `List` with system large-title
-    // + system title-case section headers, so it didn't match any other page (which all use ScreenScaffold
-    // + SectionHeader's UPPERCASE overline + the 28pt section rhythm). Rebuilt on the shared page chrome:
-    // ScreenScaffold for the title1 "More" + subtitle, a `SectionHeader` overline per group, and the group's
-    // rows in a single grouped NoopCard with hairline dividers — the same row idiom Settings/Health use.
     private var moreTab: some View {
         NavigationStack {
-            ScreenScaffold(title: "More", subtitle: "Everything else, one tap away",
-                           onRefresh: { await repo.refresh() },
-                           topBackground: nil) {
+            ScreenScaffold(
+                title: "More",
+                subtitle: "Everything else, one tap away",
+                onRefresh: { _ = await repo.refresh(.currentDay) },
+                topBackground: nil
+            ) {
                 moreSection("Insights") {
                     MoreRow("What Moves You", "wand.and.sparkles") { InsightsHubView() }
                     MoreRow("Intelligence", "brain.head.profile") { IntelligenceView() }
@@ -293,7 +240,6 @@ struct RootTabView: View {
                     MoreRow("Stress", "bolt.heart.fill") { StressView() }
                     MoreRow("Breathe", "wind") { BreathingView() }
                     MoreRow("Intervals", "timer") { IntervalTimerView() }
-                    // Experimental beat-to-beat regularity visualization — self-gates on its own consent.
                     MoreRow("Rhythm", "waveform.path") { RhythmHost() }
                 }
                 moreSection("Data") {
@@ -302,54 +248,31 @@ struct RootTabView: View {
                     MoreRow("Mi Band", "figure.walk.motion") { XiaomiBandView() }
                     MoreRow("Data Sources", "externaldrive.fill") { DataSourcesView() }
                     MoreRow("Backup & Sync", "externaldrive.fill.badge.icloud") { BackupSyncView() }
-                    // #155: HealthKit-free Apple Health path for sideloaded installs (Siri Shortcut
-                    // reads the opt-in Documents/noop_sync.txt drop file).
                     MoreRow("Shortcuts Export", "square.and.arrow.up.fill") { ShortcutExportSettingsView() }
                 }
                 moreSection("App") {
-                    // #805/#811: the v7.3.1 #766 alarm consolidation moved Smart Alarm under a single
-                    // "Alarms" sidebar entry (RootView .smartAlarm) but the regression dropped the row
-                    // from the iPhone More list, leaving Alarms unreachable on iPhone. Restore it here
-                    // (route to SmartAlarmView, the cross-platform iOS/macOS surface).
-                    //
-                    // Notifications (RootView .notifications) is deliberately NOT added: that screen is
-                    // macOS-only (it picks which Mac apps tap your wrist via NSWorkspace, imports AppKit,
-                    // and project.yml excludes Screens/NotificationSettingsView.swift from the iOS target),
-                    // so it can't compile or apply on iPhone. iPhone's wrist-alert controls live on the
-                    // Automations screen instead. Its absence from the iPhone More list is correct.
                     MoreRow("Alarms", "alarm.fill") { SmartAlarmView() }
                     MoreRow("Automations", "wand.and.stars") { AutomationsView() }
-                    // The Test Centre (the diagnostics + bug-report hub) gets a first-class home here, not
-                    // just buried in Settings, so the feedback loop is one tap from the More tab.
                     MoreRow("Test Centre", "stethoscope") { TestCentreView() }
                     MoreRow("Siri & Shortcuts", "mic.fill") { SiriShortcutsSettingsView() }
                     MoreRow("Settings", "gearshape.fill") { SettingsView() }
                     MoreRow("Support", "hands.clap.fill") { SupportView() }
                 }
             }
-            .toolbar(.hidden, for: .tabBar)   // we draw our own PaperTabBar
+            .toolbar(.hidden, for: .tabBar)
         }
         .tabItem { Label("More", systemImage: "ellipsis.circle.fill") }
     }
 
-    /// One titled, COLLAPSIBLE group in the More index (S2): the app's overline (UPPERCASE) becomes a
-    /// tappable header with a disclosure chevron; tapping it expands/collapses the grouped rows card.
-    /// Insights + Body default open, Data + App default collapsed (the `expandedMoreSections` seed) so the
-    /// list is shorter at rest without dropping a single row. The grouped card is unchanged: a single
-    /// `NoopCard` holding a `VStack(spacing: 0)` whose `MoreRow`s draw their own hairlines, clipped to the
-    /// card's rounded shape so the last divider is trimmed inside the corners. Same idiom Settings/Health use.
     @ViewBuilder
-    private func moreSection<Rows: View>(_ title: String,
-                                         @ViewBuilder rows: @escaping () -> Rows) -> some View {
+    private func moreSection<Rows: View>(
+        _ title: String,
+        @ViewBuilder rows: @escaping () -> Rows
+    ) -> some View {
         let isOpen = expandedMoreSections.contains(title)
         VStack(alignment: .leading, spacing: 10) {
-            // Tappable overline header: the same ALL-CAPS tracked label as before, now with a trailing
-            // chevron that rotates open. A plain Button (not a SwiftUI DisclosureGroup) so the header keeps
-            // the exact strandOverline styling and the card layout below stays identical to before.
             Button {
                 withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) {
-                    // Persist the toggle via the CSV-backed @AppStorage so the choice survives leaving and
-                    // re-entering the More tab and relaunch (#860 item 2). MoreSectionPrefs owns encode/decode.
                     var open = expandedMoreSections
                     if isOpen { open.remove(title) } else { open.insert(title) }
                     expandedMoreSectionsCSV = MoreSectionPrefs.encode(open)
@@ -371,14 +294,8 @@ struct RootTabView: View {
             .accessibilityHint(Text(isOpen ? String(localized: "Double tap to collapse") : String(localized: "Double tap to expand")))
 
             if isOpen {
-                // Zero internal padding so each MoreRow owns its own comfortable insets + height; the rows
-                // supply their own hairline separators (drawn at the bottom of every row but the last via the
-                // divider overlay) so the group reads as one continuous grouped list, matching Settings/Health.
                 PaperCard(padding: 0) {
                     VStack(spacing: 0) { rows() }
-                        // Clip the rows column to the card's rounded shape so the last row's bottom hairline is
-                        // trimmed inside the corners (the card draws its surface in the BACKGROUND and doesn't
-                        // clip content itself, so without this the final divider would run past the rounded edge).
                         .clipShape(RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous))
                 }
             }
@@ -386,59 +303,49 @@ struct RootTabView: View {
     }
 }
 
-/// One tappable destination row in the More index. A `NavigationLink` whose label is the standard app row:
-/// the SF Symbol icon tinted `StrandPalette.accent`, the title in the body text colour, a `Spacer`, and a
-/// trailing `chevron.right` in `textTertiary`. ~44pt min height + the card's row insets keep the whole row a
-/// comfortable tap target. Each destination keeps the per-screen wrapper the old `link()` applied
-/// (`surfaceBase` background, inline title-bar, toolbar background) so pushed pages look identical to before.
 private struct MoreRow<Destination: View>: View {
     let title: LocalizedStringKey
     let icon: String
     @ViewBuilder let destination: () -> Destination
 
-    init(_ title: LocalizedStringKey, _ icon: String,
-         @ViewBuilder _ destination: @escaping () -> Destination) {
-        self.title = title; self.icon = icon; self.destination = destination
+    init(
+        _ title: LocalizedStringKey,
+        _ icon: String,
+        @ViewBuilder _ destination: @escaping () -> Destination
+    ) {
+        self.title = title
+        self.icon = icon
+        self.destination = destination
     }
 
     var body: some View {
         NavigationLink {
             destination()
                 .background(StrandPalette.appCanvas.ignoresSafeArea())
-                // Pushed app pages use ScreenScaffold's own expanded/compact header and back action.
-                // Quick-action, pillar and device sheets intentionally keep their native Done toolbars.
                 .environment(\.screenScaffoldNavigationRole, .detail)
                 .toolbar(.hidden, for: .navigationBar)
         } label: {
             SettingsRow(icon: icon, title: title, showsChevron: true)
-            .padding(.horizontal, 16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            // Hairline under every row; the grouped container clips the last one's overflow so the bottom
-            // edge stays clean (the divider sits inside the card's rounded corners).
-            .overlay(alignment: .bottom) {
-                Rectangle()
-                    .fill(StrandPalette.hairline)
-                    .frame(height: 1)
-                    .padding(.leading, 16)
-            }
+                .padding(.horizontal, 16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .overlay(alignment: .bottom) {
+                    Rectangle()
+                        .fill(StrandPalette.hairline)
+                        .frame(height: 1)
+                        .padding(.leading, 16)
+                }
         }
         .buttonStyle(.plain)
     }
 }
 
-// MARK: - Quick actions (centre FAB)
-
-/// The destinations the centre FAB can present. `.menu` is the action sheet itself; the rest
-/// route to existing screens. `Identifiable` so it drives `.sheet(item:)`.
 private enum QuickAction: Int, Identifiable {
     case menu, live, workout, journal, breathe
     var id: Int { rawValue }
 }
 
-/// Paper quick actions: the four existing routes, presented as quiet full-width rows.
 private struct QuickActionSheet: View {
-    /// Called with the picked destination (the host swaps the menu for that screen).
     let onPick: (QuickAction) -> Void
     @Environment(\.dismiss) private var dismiss
 
@@ -478,8 +385,13 @@ private struct QuickActionSheet: View {
         .background(StrandPalette.card.ignoresSafeArea())
     }
 
-    private func row(_ title: LocalizedStringKey, subtitle: LocalizedStringKey,
-                     icon: String, tint: Color, action: @escaping () -> Void) -> some View {
+    private func row(
+        _ title: LocalizedStringKey,
+        subtitle: LocalizedStringKey,
+        icon: String,
+        tint: Color,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             HStack(spacing: 14) {
                 Image(systemName: icon)
@@ -488,8 +400,12 @@ private struct QuickActionSheet: View {
                     .frame(width: 38, height: 38)
                     .background(tint.opacity(0.10), in: Circle())
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(StrandFont.body.weight(.semibold)).foregroundStyle(StrandPalette.textPrimary)
-                    Text(subtitle).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                    Text(title)
+                        .font(StrandFont.body.weight(.semibold))
+                        .foregroundStyle(StrandPalette.textPrimary)
+                    Text(subtitle)
+                        .font(StrandFont.caption)
+                        .foregroundStyle(StrandPalette.textSecondary)
                 }
                 Spacer()
                 Image(systemName: "chevron.right")
@@ -507,20 +423,24 @@ private struct QuickActionSheet: View {
     }
 }
 
-// MARK: - Paper tab bar
-
 private struct PaperTabBar: View {
     @Binding var selection: Int
-    /// Fires when the user taps the ALREADY-active tab (2026-07-02: re-tap should refresh).
     var onReselect: (Int) -> Void = { _ in }
-    /// Opens the Quick Actions sheet from the centre-docked FAB (board v2, spec 003 D4).
     var onQuickActions: () -> Void = {}
 
-    private struct Item: Identifiable { let title: LocalizedStringKey; let icon: String; let tag: Int; var id: Int { tag } }
-    private let nav = [Item(title: "Today", icon: "square.grid.2x2", tag: 0),
-                       Item(title: "Trends", icon: "chart.bar", tag: 1),
-                       Item(title: "Sleep", icon: "moon", tag: 2),
-                       Item(title: "More", icon: "ellipsis", tag: 3)]
+    private struct Item: Identifiable {
+        let title: LocalizedStringKey
+        let icon: String
+        let tag: Int
+        var id: Int { tag }
+    }
+
+    private let nav = [
+        Item(title: "Today", icon: "square.grid.2x2", tag: 0),
+        Item(title: "Trends", icon: "chart.bar", tag: 1),
+        Item(title: "Sleep", icon: "moon", tag: 2),
+        Item(title: "More", icon: "ellipsis", tag: 3),
+    ]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -535,8 +455,6 @@ private struct PaperTabBar: View {
         .background(StrandPalette.card)
     }
 
-    /// Centre-docked ink FAB (board v2): sits inline in the bar, same Quick Actions sheet
-    /// the old floating button opened.
     private var quickActionsButton: some View {
         Button(action: onQuickActions) {
             Image(systemName: "plus")
@@ -557,7 +475,9 @@ private struct PaperTabBar: View {
             if active {
                 onReselect(item.tag)
             } else {
-                withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) { selection = item.tag }
+                withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) {
+                    selection = item.tag
+                }
             }
         } label: {
             VStack(spacing: 3) {
@@ -575,6 +495,5 @@ private struct PaperTabBar: View {
         .accessibilityLabel(item.title)
         .accessibilityAddTraits(active ? [.isButton, .isSelected] : .isButton)
     }
-
 }
 #endif

@@ -3,7 +3,8 @@ import PackageDescription
 
 let package = Package(
     name: "StrandAnalytics",
-    platforms: [.macOS(.v13), .iOS(.v16), .watchOS(.v10)],
+    // The product ships in the iPhone app. macOS remains only as a SwiftPM host for headless tests.
+    platforms: [.iOS(.v17), .macOS(.v13)],
     products: [.library(name: "StrandAnalytics", targets: ["StrandAnalytics"])],
     dependencies: [
         .package(path: "../WhoopProtocol"),

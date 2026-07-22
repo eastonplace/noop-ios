@@ -8,7 +8,7 @@ import StrandDesign   // TrendPoint , the shared chart point type the Deep Timel
 /// Per-day sleep figures the WHOOP export carried verbatim (metricSeries rows written by
 /// WhoopImporter under the imported deviceId). SleepView prefers these over its on-device
 /// APPROXIMATE recomputations.
-struct ImportedSleepFigures: Equatable {
+struct ImportedSleepFigures: Equatable, Sendable {
     var performancePct: Double?   // "sleep_performance", 0–100
     var consistencyPct: Double?   // "sleep_consistency", 0–100
     var needMin: Double?          // "sleep_need_min", minutes
@@ -91,7 +91,7 @@ struct MetricSeriesResolution: Equatable, Sendable {
 
 /// Source provenance for daily rows before product surfaces merge them. The UI uses this to say
 /// where a vital came from without changing the stored data.
-enum DailyMetricSource: Equatable {
+enum DailyMetricSource: Equatable, Sendable {
     case whoopImport
     case noopComputed
     case appleHealth
@@ -107,7 +107,7 @@ enum DailyMetricSource: Equatable {
     }
 }
 
-struct SourcedDailyMetric: Equatable {
+struct SourcedDailyMetric: Equatable, Sendable {
     let metric: DailyMetric
     let source: DailyMetricSource
 }
@@ -152,10 +152,10 @@ struct SleepDeletionSnapshot: Equatable {
 /// two-handle BLEManager+Repository pattern safe) and publishes the dashboard caches the screens bind to.
 @MainActor
 final class Repository: ObservableObject {
-    static let sleepPerformanceV2Key = "noop_sleep_performance_v2"
-    static let sleepNeedV2Key = "noop_sleep_need_v2_min"
-    static let sleepPerformanceV2ModelKey = "noop_sleep_performance_v2_model"
-    static let sleepPerformanceV2SourceKey = "noop_sleep_performance_v2_source"
+    nonisolated static let sleepPerformanceV2Key = "noop_sleep_performance_v2"
+    nonisolated static let sleepNeedV2Key = "noop_sleep_need_v2_min"
+    nonisolated static let sleepPerformanceV2ModelKey = "noop_sleep_performance_v2_model"
+    nonisolated static let sleepPerformanceV2SourceKey = "noop_sleep_performance_v2_source"
     /// The id of the strap whose recordings this read model surfaces. SEEDED at construction with the
     /// legacy "my-whoop", then RE-POINTED to the device registry's `activeDeviceId` once the store opens
     /// (see `adoptActiveDeviceId`), exactly as `BLEManager.bootstrapStore` re-points the WRITE side.
@@ -645,7 +645,7 @@ final class Repository: ObservableObject {
     /// Canonical source ids the resolver knows how to cross-reference. The strap's actual id is
     /// `deviceId` (and its computed sibling `deviceId + "-noop"`); these are the FIXED ids.
     static let whoopSource = "my-whoop"
-    static let appleHealthSource = "apple-health"
+    nonisolated static let appleHealthSource = "apple-health"
     static let healthConnectSource = "health-connect"
     static let activityFileSource = "activity-file"
 
@@ -790,10 +790,9 @@ final class Repository: ObservableObject {
 
     /// One refresh's fully-merged dashboard caches, computed OFF the main actor (FIX 3) and applied to the
     /// `@Published` props in a single main-actor batch. Every member is an `Equatable` value type. NOT
-    /// marked `Sendable` (its `DailyMetric`/`CachedSleepSession` members aren't formally `Sendable`); it
-    /// crosses the `Task.detached` boundary the same way the engine's `DayResult` already does under this
-    /// project's `minimal` strict-concurrency setting (SWIFT_STRICT_CONCURRENCY: minimal, Swift 5 mode).
-    private struct MergedCaches {
+    /// `Sendable` because this value crosses the detached merge boundary back to the main-actor repository;
+    /// every member is an immutable value graph with an explicit `Sendable` conformance.
+    private struct MergedCaches: Sendable {
         let importedSleep: [String: ImportedSleepFigures]
         let days: [DailyMetric]
         let sleeps: [CachedSleepSession]

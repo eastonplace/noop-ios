@@ -13,7 +13,7 @@ import GRDB
 /// One Live Session (silent guardian) record. Natural key (deviceId, startTs). `endTs` is nil while the
 /// session is still in progress. All second-totals are non-negative; the two cue counts are how many push
 /// nudges / ease-offs the coach sent that session.
-public struct LiveSessionRow: Equatable, Codable {
+public struct LiveSessionRow: Equatable, Codable, Sendable {
     public let startTs: Int              // unix seconds — session start (the key)
     public let endTs: Int?               // unix seconds — nil while in progress
     public let chargeAtStart: Double?    // 0...100 recovery Charge at start; nil if unknown

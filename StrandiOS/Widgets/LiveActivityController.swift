@@ -1,6 +1,9 @@
 #if os(iOS)
 import Foundation
-import ActivityKit
+// ActivityKit's generic Activity/ActivityContent bridge is not fully Sendable-annotated in the iOS 17
+// SDK even though this controller serializes every mutation on MainActor. Keep that framework boundary
+// pre-concurrency-scoped; NOOP-owned state remains under complete strict concurrency checking.
+@preconcurrency import ActivityKit
 
 struct WorkoutLiveActivityState {
     let sport: String
@@ -14,127 +17,242 @@ struct WorkoutLiveActivityState {
 
 /// Starts, updates, and ends the live-HR Live Activity. The activity appears on the Lock Screen and
 /// in the Dynamic Island while the strap is bonded and streaming heart rate.
+///
+/// ActivityKit mutations are reconciled by one coalescing task. Incoming HR callbacks only replace the
+/// pending desired state; they never create an unbounded set of update/end tasks. The worker serializes
+/// update, end, and mode-transition operations so an older async update cannot land after workout end.
 @MainActor
 final class LiveActivityController {
+    private struct DriveInput {
+        let bpm: Int?
+        let recovery: Int?
+        let connected: Bool
+        let effort: Double?
+        let workoutIsActive: Bool
+        let workoutProjection: () -> WorkoutLiveActivityState?
+    }
+
     private var activity: Activity<NOOPActivityAttributes>?
     private var lastPush: Date = .distantPast
     /// Cached `ActivityAuthorizationInfo` — `update` runs at ~1 Hz off the live HR stream, and
     /// instantiating this system bridge per tick is needless allocation. ActivityKit's auth status
     /// only changes via Settings, so caching for the controller's lifetime is safe.
     private let authInfo = ActivityAuthorizationInfo()
-    /// Synchronous gate against concurrent `Activity.request` calls. The `else` branch below is
-    /// re-entered while the first request is still in flight (it hasn't assigned `self.activity`
-    /// yet), so without this guard two close-together HR samples could both fire `Activity.request`
-    /// and create duplicate Live Activities.
-    private var isStarting = false
-    private var isTransitioning = false
     private var lastModeWasWorkout: Bool?
+
+    /// Latest desired drive state. A new HR callback replaces this value while ActivityKit is busy;
+    /// only the newest state is reconciled after the current mutation completes.
+    private var pendingDrive: DriveInput?
+    private var reconcileTask: Task<Void, Never>?
+
+    /// The expensive workout projection (calories + time-in-zone rescan over the growing sample array)
+    /// is supplied lazily and cached here. A long workout used to rebuild it before the existing ActivityKit
+    /// throttle on every ~1 Hz HR emission, turning an otherwise O(1) live path back into O(n).
+    private var cachedWorkoutState: WorkoutLiveActivityState?
+    private var lastWorkoutProjectionAt: Date = .distantPast
+    /// Last payload handed to ActivityKit. Equal payloads do not need another async bridge call every 2 s;
+    /// a periodic heartbeat still refreshes the stale date for a quiet-but-healthy stream.
+    private var lastContentState: NOOPActivityAttributes.ContentState?
+
     #if DEBUG
     private var component41QAMode = false
     #endif
+
     /// How long after the last push iOS may keep showing the activity as fresh. The activity is
     /// refreshed every ~2 s while streaming, so this never bites a live session; it auto-greys a
-    /// frozen activity if the app is suspended/killed without an explicit end (a missed-tick safety net
-    /// on top of the connected-driven end below).
+    /// frozen activity if the app is suspended/killed without an explicit end.
     private static let staleAfter: TimeInterval = 120
+    private static let unchangedHeartbeatInterval: TimeInterval = 30
 
-    /// Drive the activity from the latest live values. Lazily starts when the strap is CONNECTED (the
-    /// live link, not the sticky "paired" flag) and a heart rate is present; ends the moment the link
-    /// drops. Throttled to ~once every 2 s so we stay well under the Live Activity update budget.
-    func update(bpm: Int?, recovery: Int?, connected: Bool, effort: Double? = nil,
-                workout: WorkoutLiveActivityState? = nil) {
+    /// Drive the activity from the latest live values. Calling this method is intentionally cheap: it
+    /// stores the latest desired state and ensures one reconciliation task is running.
+    ///
+    /// - Parameter workoutIsActive: A cheap mode signal. Existing production call sites may omit it;
+    ///   the controller then reads `LiveActivityWorkoutStatus`, while tests and future callers can inject it.
+    /// - Parameter workout: A lazy expensive projection, evaluated only after mode and cadence gates pass.
+    func update(
+        bpm: Int?,
+        recovery: Int?,
+        connected: Bool,
+        effort: Double? = nil,
+        workoutIsActive: Bool? = nil,
+        workout: @autoclosure @escaping () -> WorkoutLiveActivityState? = nil
+    ) {
         #if DEBUG
         guard !component41QAMode else { return }
         #endif
-        guard authInfo.areActivitiesEnabled else { return }
+        pendingDrive = DriveInput(
+            bpm: bpm,
+            recovery: recovery,
+            connected: connected,
+            effort: effort,
+            workoutIsActive: workoutIsActive ?? LiveActivityWorkoutStatus.isActive,
+            workoutProjection: workout
+        )
+        startReconcilerIfNeeded()
+    }
 
-        // Re-adopt an activity that outlived a previous app session. ActivityKit keeps Live Activities
-        // alive across launches/relaunches, but a fresh controller starts with `activity == nil`, so
-        // without recovering the handle here we can neither update nor END an already-showing activity
-        // — which made the #336 opt-out a no-op (#341: toggle off, heart stays) and risked spawning a
-        // duplicate on the start path below. Done on the HR tick rather than in `init` because
-        // `Activity.activities` isn't reliably hydrated at the instant of process launch.
-        if activity == nil { activity = Activity<NOOPActivityAttributes>.activities.first }
-
-        // User opt-out (#336): if the in-app toggle is off, never start — and end any activity that's
-        // already showing (the user just turned it off; this fires on the next ~1 Hz HR tick).
-        guard UnitPrefs.liveActivityEnabled() else {
-            if activity != nil { Task { await end() } }
-            return
-        }
-
-        // End the moment the live link drops — `bonded` stays true across every disconnect (it means
-        // "this strap is paired"), so keying off it left a frozen, fabricated "live" HR on the Lock
-        // Screen / Dynamic Island indefinitely after the strap went out of range.
-        if !connected {
-            Task { await end() }
-            return
-        }
-        guard bpm != nil else { return }
-
-        let desiredMode = workout != nil
-        if activity != nil, lastModeWasWorkout == nil { lastModeWasWorkout = desiredMode }
-        if activity != nil, let lastModeWasWorkout, lastModeWasWorkout != desiredMode {
-            guard !isTransitioning else { return }
-            isTransitioning = true
-            Task {
-                await end()
-                self.lastModeWasWorkout = desiredMode
-                self.isTransitioning = false
-                update(bpm: bpm, recovery: recovery, connected: connected,
-                       effort: effort, workout: workout)
-            }
-            return
-        }
-
-        let state = NOOPActivityAttributes.ContentState(
-            bpm: bpm, recovery: recovery, bonded: connected,
-            effort: workout?.strain ?? effort,
-            sport: workout?.sport, workoutStartedAt: workout?.startedAt,
-            strainBuilding: workout?.strainBuilding, calories: workout?.calories,
-            hrTrace: workout?.hrTrace, zoneSeconds: workout?.zoneSeconds)
-        let staleDate = Date().addingTimeInterval(Self.staleAfter)
-
-        if let activity {
-            guard Date().timeIntervalSince(lastPush) > 2 else { return }
-            lastPush = Date()
-            Task { await activity.update(ActivityContent(state: state, staleDate: staleDate)) }
-        } else {
-            // Set the start gate SYNCHRONOUSLY before any await so a second `update` arriving on the
-            // main actor while `Activity.request` is still in flight bails here instead of issuing a
-            // second request. The 2-second throttle above only guards the update path.
-            guard !isStarting else { return }
-            isStarting = true
-            do {
-                activity = try Activity.request(
-                    attributes: NOOPActivityAttributes(title: workout?.sport ?? String(localized: "Live HR")),
-                    content: ActivityContent(state: state, staleDate: staleDate),
-                    pushType: nil
-                )
-                lastPush = Date()
-                lastModeWasWorkout = desiredMode
-            } catch {
-                activity = nil
-            }
-            isStarting = false
+    private func startReconcilerIfNeeded() {
+        guard reconcileTask == nil else { return }
+        reconcileTask = Task { @MainActor [weak self] in
+            await self?.drainPendingDrive()
         }
     }
 
+    private func drainPendingDrive() async {
+        while !Task.isCancelled, let input = pendingDrive {
+            pendingDrive = nil
+            await reconcile(input)
+        }
+        reconcileTask = nil
+        // An input can arrive after the loop's final condition check but before the task clears itself.
+        // The main actor makes this check/start atomic with respect to `update`.
+        if pendingDrive != nil { startReconcilerIfNeeded() }
+    }
+
+    private func reconcile(_ input: DriveInput) async {
+        guard authInfo.areActivitiesEnabled else { return }
+
+        // Re-adopt an activity that outlived a previous app session. Recover its actual content mode so
+        // the first post-launch workout start/end can still trigger the required title-changing restart.
+        if activity == nil, let existing = Activity<NOOPActivityAttributes>.activities.first {
+            activity = existing
+            lastModeWasWorkout = existing.content.state.isWorkout
+            lastContentState = existing.content.state
+            lastPush = .distantPast
+        }
+
+        // Opt-out and disconnect are lifecycle edges, not ordinary updates. They run through the same
+        // serialized worker, preventing an older queued update from reviving content after the end.
+        guard UnitPrefs.liveActivityEnabled(), input.connected else {
+            await performEnd()
+            return
+        }
+        guard input.bpm != nil else { return }
+
+        let desiredModeIsWorkout = input.workoutIsActive
+        var now = Date()
+        guard LiveActivityPushPolicy.shouldPush(
+            activityExists: activity != nil,
+            currentModeIsWorkout: lastModeWasWorkout,
+            desiredModeIsWorkout: desiredModeIsWorkout,
+            lastPushedAt: lastPush,
+            now: now
+        ) else { return }
+
+        // Activity attributes are immutable, so changing between generic Live HR and a named workout
+        // requires an end/restart. Mode edges bypass the 2-second content throttle above. If a newer drive
+        // input arrived while ActivityKit was ending, let the loop reconcile that newest state instead.
+        if activity != nil,
+           let lastModeWasWorkout,
+           lastModeWasWorkout != desiredModeIsWorkout {
+            await performEnd()
+            guard !Task.isCancelled, pendingDrive == nil else { return }
+            now = Date()
+        }
+
+        if desiredModeIsWorkout {
+            if LiveActivityWorkoutProjectionPolicy.shouldRebuild(
+                workoutIsActive: true,
+                hasCachedWorkout: cachedWorkoutState != nil,
+                lastBuiltAt: lastWorkoutProjectionAt,
+                now: now
+            ) {
+                if let projection = input.workoutProjection() {
+                    cachedWorkoutState = projection
+                    lastWorkoutProjectionAt = now
+                } else {
+                    // The presence signal and projection should agree on the main actor. If a future caller
+                    // violates that contract, stay ended/generic rather than publish contradictory workout UI.
+                    cachedWorkoutState = nil
+                    lastWorkoutProjectionAt = .distantPast
+                    return
+                }
+            }
+        } else {
+            // Finish is an immediate cheap edge. Never let a ten-second cached projection keep the Lock
+            // Screen in workout mode after `activeWorkout` has been cleared.
+            cachedWorkoutState = nil
+            lastWorkoutProjectionAt = .distantPast
+        }
+
+        let workoutState = desiredModeIsWorkout ? cachedWorkoutState : nil
+        let state = NOOPActivityAttributes.ContentState(
+            bpm: input.bpm,
+            recovery: input.recovery,
+            bonded: input.connected,
+            effort: workoutState?.strain ?? input.effort,
+            sport: workoutState?.sport,
+            workoutStartedAt: workoutState?.startedAt,
+            strainBuilding: workoutState?.strainBuilding,
+            calories: workoutState?.calories,
+            hrTrace: workoutState?.hrTrace,
+            zoneSeconds: workoutState?.zoneSeconds
+        )
+        let staleDate = now.addingTimeInterval(Self.staleAfter)
+
+        if let activity {
+            let heartbeatElapsed = now.timeIntervalSince(lastPush)
+            if state == lastContentState,
+               heartbeatElapsed >= 0,
+               heartbeatElapsed < Self.unchangedHeartbeatInterval {
+                return
+            }
+            lastPush = now
+            lastContentState = state
+            lastModeWasWorkout = desiredModeIsWorkout
+            // Await directly inside the single reconciliation worker. This serializes ActivityKit updates
+            // and coalesces any HR callbacks that arrive while the bridge is suspended.
+            await activity.update(ActivityContent(state: state, staleDate: staleDate))
+        } else {
+            do {
+                activity = try Activity.request(
+                    attributes: NOOPActivityAttributes(
+                        title: workoutState?.sport ?? String(localized: "Live HR")
+                    ),
+                    content: ActivityContent(state: state, staleDate: staleDate),
+                    pushType: nil
+                )
+                lastPush = now
+                lastContentState = state
+                lastModeWasWorkout = desiredModeIsWorkout
+            } catch {
+                resetCachedState()
+            }
+        }
+    }
+
+    /// Explicit shutdown used by QA and any future lifecycle owner. Production drive calls normally reach
+    /// `performEnd` through the reconciler. Cancelling and awaiting the worker prevents update-after-end.
     func end() async {
         #if DEBUG
-        // A disconnected-state end may already be queued when the simulator QA launch task starts.
-        // Keep that stale task from immediately dismissing the proof activity; production builds do
-        // not contain this mode or guard, so real disconnect/completion cleanup remains unchanged.
         guard !component41QAMode else { return }
         #endif
-        // End every NOOP Live Activity, not just our cached handle — covers a straggler from a prior
-        // session we never re-adopted (#341) and any rare duplicate. Iterating the live list is the
-        // only way to reach activities this controller instance never started.
-        for act in Activity<NOOPActivityAttributes>.activities {
-            await act.end(nil, dismissalPolicy: .immediate)
+        pendingDrive = nil
+        if let task = reconcileTask {
+            task.cancel()
+            await task.value
         }
-        self.activity = nil
-        self.lastModeWasWorkout = nil
+        reconcileTask = nil
+        await performEnd()
+    }
+
+    private func performEnd() async {
+        // End every NOOP Live Activity, not just our cached handle — covers a straggler from a prior
+        // session we never re-adopted and any rare duplicate.
+        for existing in Activity<NOOPActivityAttributes>.activities {
+            await existing.end(nil, dismissalPolicy: .immediate)
+        }
+        resetCachedState()
+    }
+
+    private func resetCachedState() {
+        activity = nil
+        lastModeWasWorkout = nil
+        cachedWorkoutState = nil
+        lastWorkoutProjectionAt = .distantPast
+        lastContentState = nil
+        lastPush = .distantPast
     }
 
     #if DEBUG
@@ -142,24 +260,34 @@ final class LiveActivityController {
     /// remaining impossible to invoke in Release or on a user's normal launch path.
     func startComponent41QA() async {
         guard authInfo.areActivitiesEnabled else { return }
+        await end()
         component41QAMode = true
-        for existing in Activity<NOOPActivityAttributes>.activities {
-            await existing.end(nil, dismissalPolicy: .immediate)
-        }
         let state = NOOPActivityAttributes.ContentState(
-            bpm: 152, recovery: 78, bonded: true, effort: 6.8,
-            sport: "Outdoor Run", workoutStartedAt: Date().addingTimeInterval(-2_734),
-            strainBuilding: false, calories: 438,
+            bpm: 152,
+            recovery: 78,
+            bonded: true,
+            effort: 6.8,
+            sport: "Outdoor Run",
+            workoutStartedAt: Date().addingTimeInterval(-2_734),
+            strainBuilding: false,
+            calories: 438,
             hrTrace: [88, 96, 108, 121, 115, 132, 146, 139, 152, 144, 158, 152],
-            zoneSeconds: [180, 620, 1_180, 650, 104])
+            zoneSeconds: [180, 620, 1_180, 650, 104]
+        )
         do {
             activity = try Activity.request(
                 attributes: NOOPActivityAttributes(title: "Outdoor Run"),
-                content: ActivityContent(state: state, staleDate: Date().addingTimeInterval(7_200)),
-                pushType: nil)
+                content: ActivityContent(
+                    state: state,
+                    staleDate: Date().addingTimeInterval(7_200)
+                ),
+                pushType: nil
+            )
+            lastContentState = state
+            lastPush = Date()
             lastModeWasWorkout = true
         } catch {
-            activity = nil
+            resetCachedState()
         }
     }
     #endif

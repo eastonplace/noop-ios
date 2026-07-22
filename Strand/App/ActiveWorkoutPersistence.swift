@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import WhoopProtocol
 
 enum LiveStrainState: Codable, Equatable {
@@ -6,25 +7,15 @@ enum LiveStrainState: Codable, Equatable {
     case scored(storedValue: Double)
 }
 
-/// Durable persistence for an in-flight, manually-started workout (#529).
+/// Durable persistence for an in-flight, manually-started workout.
 ///
-/// A manual workout used to live ONLY in `AppModel.activeWorkout` (in memory), so if iOS killed the app
-/// mid-session — a backgrounded phone under memory pressure — the whole session was lost and could never
-/// be ended + saved. (Apple has no GPS-route session like Android's `GpsSession`; every manual workout
-/// here is the "non-GPS" case, so they all need this.) This is the Apple analogue of Android's
-/// `ActiveWorkoutStore`/`ActiveWorkoutPersistence`: a tiny `Codable` snapshot (start time, sport, the
-/// accumulated HR samples + running stats) is written to `UserDefaults` on start and on every captured
-/// sample, and read back on launch so an interrupted session can still be ended and saved.
-///
-/// On-device only; mirrors the existing `moments` / `sleepMarks` `UserDefaults` persistence in `AppModel`.
-/// The encode/decode is pure (no `UserDefaults` dependency on the codec itself) so the persist/rehydrate
-/// round-trip is unit-testable — `store(into:)` / `load(from:)` just thread a `UserDefaults` through it.
+/// Production snapshots are coalesced through one utility queue. During an active workout, repeated
+/// snapshots replace older pending work so JSON encoding and UserDefaults I/O never build a backlog on
+/// MainActor. The first snapshot and any background/inactive flush remain synchronous for durability.
+/// `clear()` invalidates pending generations and waits for the writer before removing the key, preventing
+/// a stale delayed write from resurrecting an already-finished workout.
 enum ActiveWorkoutPersistence {
-
-    /// The durable shape of an in-flight manual workout. A small, self-contained `Codable` value — the
-    /// minimum needed to rebuild `AppModel.ActiveWorkout` on relaunch and still End + save it.
     struct Snapshot: Codable, Equatable {
-        /// Workout start, as unix seconds (stable across encodings; `AppModel` maps to/from `Date`).
         var startSec: Int
         var sport: String
         var samples: [HRSample]
@@ -36,10 +27,20 @@ enum ActiveWorkoutPersistence {
             case startSec, sport, samples, avgHr, peakHr, liveStrainState, liveStrain
         }
 
-        init(startSec: Int, sport: String, samples: [HRSample], avgHr: Int, peakHr: Int,
-             liveStrainState: LiveStrainState) {
-            self.startSec = startSec; self.sport = sport; self.samples = samples
-            self.avgHr = avgHr; self.peakHr = peakHr; self.liveStrainState = liveStrainState
+        init(
+            startSec: Int,
+            sport: String,
+            samples: [HRSample],
+            avgHr: Int,
+            peakHr: Int,
+            liveStrainState: LiveStrainState
+        ) {
+            self.startSec = startSec
+            self.sport = sport
+            self.samples = samples
+            self.avgHr = avgHr
+            self.peakHr = peakHr
+            self.liveStrainState = liveStrainState
         }
 
         init(from decoder: Decoder) throws {
@@ -69,24 +70,34 @@ enum ActiveWorkoutPersistence {
         }
     }
 
-    /// The single `UserDefaults` key (JSON-encoded `Snapshot`). Namespaced like `moments`/`sleepMarks`.
     static let defaultsKey = "noop.activeWorkout"
+    private static let writer = SnapshotWriter()
 
-    /// Encode a snapshot to JSON `Data`. Returns nil only if encoding somehow fails (never expected for
-    /// this all-value shape) so the caller can no-op rather than write garbage.
+    /// Reading the growing Data value merely to ask whether it exists would itself copy/materialize that
+    /// blob on MainActor every five seconds. Cache only the existence bit for the production suite and
+    /// reset it when the ordered production clear completes.
+    @MainActor private static var productionSnapshotEstablished =
+        UserDefaults.standard.object(forKey: defaultsKey) != nil
+
     static func encode(_ snapshot: Snapshot) -> Data? {
-        try? JSONEncoder().encode(snapshot)
+        do {
+            return try JSONEncoder().encode(snapshot)
+        } catch {
+            NSLog("ActiveWorkoutPersistence: encode failed: \(error)")
+            return nil
+        }
     }
 
-    /// Decode a snapshot from JSON `Data`, bound-checking the untrusted persisted values. Returns nil for
-    /// nil/garbage/empty input or an implausible start time, so a corrupt write is treated as "no
-    /// in-flight session" rather than reviving a broken card.
     static func decode(_ data: Data?) -> Snapshot? {
-        guard let data, !data.isEmpty,
-              let raw = try? JSONDecoder().decode(Snapshot.self, from: data) else { return nil }
+        guard let data, !data.isEmpty else { return nil }
+        let raw: Snapshot
+        do {
+            raw = try JSONDecoder().decode(Snapshot.self, from: data)
+        } catch {
+            NSLog("ActiveWorkoutPersistence: decode failed: \(error)")
+            return nil
+        }
         guard raw.startSec > 0 else { return nil }
-        // Drop any out-of-range persisted HR samples (a real bpm + a positive ts only) — never trust the
-        // blob to be clean. Parity with the Android decoder's 1...300 bpm / ts > 0 gate.
         let samples = raw.samples.filter { $0.ts > 0 && (1...300).contains($0.bpm) }
         let state: LiveStrainState
         switch raw.liveStrainState {
@@ -107,20 +118,161 @@ enum ActiveWorkoutPersistence {
         )
     }
 
-    /// Persist (overwrite) the snapshot. Cheap; called on start + each captured sample.
-    static func store(_ snapshot: Snapshot, into defaults: UserDefaults = .standard) {
+    /// Normal foreground snapshots are latest-wins and encoded off MainActor. The first snapshot is
+    /// synchronous so a kill immediately after Start cannot erase the session. Background/inactive calls
+    /// also force an ordered write before iOS suspends the process.
+    @MainActor
+    static func store(_ snapshot: Snapshot, synchronously: Bool = false) {
+        let defaults = UserDefaults.standard
+        let isFirstSnapshot = !productionSnapshotEstablished
+        if isFirstSnapshot { productionSnapshotEstablished = true }
+        let applicationRequiresImmediateFlush = UIApplication.shared.applicationState != .active
+        writer.store(
+            snapshot,
+            into: defaults,
+            synchronously: synchronously || isFirstSnapshot || applicationRequiresImmediateFlush
+        )
+    }
+
+    /// Deterministic direct seam for isolated unit tests and migrations.
+    static func store(_ snapshot: Snapshot, into defaults: UserDefaults) {
         guard let data = encode(snapshot) else { return }
         defaults.set(data, forKey: defaultsKey)
     }
 
-    /// Read back the persisted snapshot, or nil if none is stored (or it was corrupt).
+    /// Internal stress-test seam: same coalescing writer as production, with an isolated defaults suite.
+    static func storeCoalesced(
+        _ snapshot: Snapshot,
+        into defaults: UserDefaults,
+        synchronously: Bool = false
+    ) {
+        writer.store(snapshot, into: defaults, synchronously: synchronously)
+    }
+
+    static func flushPendingWrites() {
+        writer.flush()
+    }
+
     static func load(from defaults: UserDefaults = .standard) -> Snapshot? {
         decode(defaults.data(forKey: defaultsKey))
     }
 
-    /// Clear the snapshot only after the finished row has been written and read back.
-    /// Failed/insufficient finishes retain the durable session so the user can retry.
-    static func clear(from defaults: UserDefaults = .standard) {
-        defaults.removeObject(forKey: defaultsKey)
+    /// Production clear is ordered after and invalidation-safe against every pending snapshot.
+    @MainActor
+    static func clear() {
+        writer.clear(from: .standard)
+        productionSnapshotEstablished = false
+    }
+
+    /// Isolated-suite seam. It still routes through the ordered writer so a queued coalesced test write
+    /// cannot resurrect the key after the clear.
+    static func clear(from defaults: UserDefaults) {
+        writer.clear(from: defaults)
+    }
+
+    private final class SnapshotWriter: @unchecked Sendable {
+        private struct Pending: @unchecked Sendable {
+            let key: ObjectIdentifier
+            let snapshot: Snapshot
+            let defaults: UserDefaults
+            let generation: UInt64
+        }
+
+        private let queue = DispatchQueue(label: "com.noop.active-workout-persistence", qos: .utility)
+        private let queueKey = DispatchSpecificKey<UInt8>()
+        private let lock = NSLock()
+        private var generations: [ObjectIdentifier: UInt64] = [:]
+        private var pendingByStore: [ObjectIdentifier: Pending] = [:]
+        private var workerScheduled = false
+
+        init() {
+            queue.setSpecific(key: queueKey, value: 1)
+        }
+
+        func store(_ snapshot: Snapshot, into defaults: UserDefaults, synchronously: Bool) {
+            let key = ObjectIdentifier(defaults)
+            let item: Pending
+            lock.lock()
+            let nextGeneration = (generations[key] ?? 0) &+ 1
+            generations[key] = nextGeneration
+            item = Pending(
+                key: key,
+                snapshot: snapshot,
+                defaults: defaults,
+                generation: nextGeneration
+            )
+            if synchronously {
+                pendingByStore.removeValue(forKey: key)
+            } else {
+                pendingByStore[key] = item
+            }
+            let shouldSchedule = !synchronously && !workerScheduled
+            if shouldSchedule { workerScheduled = true }
+            lock.unlock()
+
+            if synchronously {
+                syncOnQueue { [self] in writeIfCurrent(item) }
+            } else if shouldSchedule {
+                queue.async { [self] in drain() }
+            }
+        }
+
+        func clear(from defaults: UserDefaults) {
+            let key = ObjectIdentifier(defaults)
+            lock.lock()
+            generations[key] = (generations[key] ?? 0) &+ 1
+            pendingByStore.removeValue(forKey: key)
+            lock.unlock()
+
+            // Every durable mutation is serialized on `queue`; once this barrier runs, no older write can
+            // execute after the removal. UserDefaults I/O is deliberately outside `lock`, so a foreground
+            // enqueue never waits behind disk/property-list work.
+            syncOnQueue {
+                defaults.removeObject(forKey: ActiveWorkoutPersistence.defaultsKey)
+            }
+        }
+
+        func flush() {
+            syncOnQueue { }
+        }
+
+        private func drain() {
+            while true {
+                let item: Pending?
+                lock.lock()
+                if let entry = pendingByStore.first {
+                    item = entry.value
+                    pendingByStore.removeValue(forKey: entry.key)
+                } else {
+                    item = nil
+                    workerScheduled = false
+                }
+                lock.unlock()
+
+                guard let item else { return }
+                writeIfCurrent(item)
+            }
+        }
+
+        private func writeIfCurrent(_ item: Pending) {
+            guard let data = ActiveWorkoutPersistence.encode(item.snapshot) else { return }
+            lock.lock()
+            let isCurrent = generations[item.key] == item.generation
+            lock.unlock()
+            guard isCurrent else { return }
+
+            // The serial queue orders this write before any later synchronous flush/clear and before the next
+            // pending item. Do not hold `lock` during UserDefaults I/O; MainActor only touches that lock to
+            // enqueue a tiny value and must never inherit the storage latency.
+            item.defaults.set(data, forKey: ActiveWorkoutPersistence.defaultsKey)
+        }
+
+        private func syncOnQueue(_ operation: () -> Void) {
+            if DispatchQueue.getSpecific(key: queueKey) != nil {
+                operation()
+            } else {
+                queue.sync(execute: operation)
+            }
+        }
     }
 }
