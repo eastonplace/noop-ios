@@ -18,13 +18,13 @@ enum DeviceActionKind: String, Codable, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .none: return String(localized: "Nothing")
-        case .lockScreen: return String(localized: "Lock Screen (legacy)")
-        case .buzzBack: return String(localized: "Buzz back (confirm)")
-        case .markMoment: return String(localized: "Mark a moment")
-        case .sleepMark: return String(localized: "Log a sleep mark")
-        case .hapticClock: return String(localized: "Buzz the time")
-        case .runShortcut: return String(localized: "Run a Shortcut…")
+        case .none: return "Nothing"
+        case .lockScreen: return "Lock Screen (legacy)"
+        case .buzzBack: return "Buzz back (confirm)"
+        case .markMoment: return "Mark a moment"
+        case .sleepMark: return "Log a sleep mark"
+        case .hapticClock: return "Buzz the time"
+        case .runShortcut: return "Run a Shortcut…"
         }
     }
 
