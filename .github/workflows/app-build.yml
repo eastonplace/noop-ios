@@ -1,6 +1,6 @@
 # iPhone-only compile and test verification.
 #
-# The repository intentionally targets iOS only. This workflow performs a cheap source-contract audit,
+# The repository intentionally targets iOS only. This workflow performs cheap source-contract audits,
 # generates the Xcode project, builds the app and WidgetKit/Live Activity extension, and runs the complete
 # iOS test target. Signing is disabled; no credentials or release artifacts are used.
 name: iOS build and tests
@@ -48,6 +48,9 @@ jobs:
 
       - name: Audit unified Trends, alarm, Settings, and More contracts
         run: python3 Tools/qa/ui_unification_contract_audit.py
+
+      - name: Audit active-workout runtime contracts
+        run: python3 Tools/qa/workout_runtime_contract_audit.py
 
       - name: Install XcodeGen
         run: brew install xcodegen
