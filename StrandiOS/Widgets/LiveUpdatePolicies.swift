@@ -54,14 +54,79 @@ enum WidgetLivePublishPolicy {
     }
 }
 
+/// Pure gate for ActivityKit pushes.
+///
+/// Normal content updates retain the approximately two-second cadence. A workout start/end mode edge
+/// bypasses that throttle so the Lock Screen and Dynamic Island cannot remain in the wrong mode merely
+/// because the user tapped Start or Finish immediately after a BPM update.
+enum LiveActivityPushPolicy {
+    static let pushInterval: TimeInterval = 2
+
+    static func shouldPush(
+        activityExists: Bool,
+        currentModeIsWorkout: Bool?,
+        desiredModeIsWorkout: Bool,
+        lastPushedAt: Date,
+        now: Date,
+        pushInterval: TimeInterval = pushInterval
+    ) -> Bool {
+        guard activityExists else { return true }
+        if let currentModeIsWorkout, currentModeIsWorkout != desiredModeIsWorkout {
+            return true
+        }
+        let elapsed = now.timeIntervalSince(lastPushedAt)
+        return elapsed < 0 || elapsed >= pushInterval
+    }
+}
+
+enum LiveActivityWorkoutProjectionDecision: Equatable {
+    /// Workout mode is not active. Drop any cached workout projection without evaluating the supplier.
+    case clear
+    /// Workout mode is active and the bounded cached projection is still fresh.
+    case reuse
+    /// Workout mode is active and a fresh expensive projection is required.
+    case rebuild
+}
+
 /// Pure policy for the expensive workout projection attached to a Live Activity update.
 ///
-/// Starting a workout must be detected promptly, so the no-workout path probes whenever a throttled
-/// ActivityKit push is otherwise eligible. Once a workout projection is cached, calorie/zone rescans are
-/// capped to this interval instead of rebuilding over the entire growing sample array on every HR tick.
+/// Workout presence is supplied separately from the expensive projection itself. That lets a start/end
+/// edge be observed immediately without rescanning calories and zones on every HR event. While a workout
+/// is active, the growing-array projection is rebuilt at a bounded cadence and reused between builds.
 enum LiveActivityWorkoutProjectionPolicy {
     static let rebuildInterval: TimeInterval = 10
 
+    static func decision(
+        workoutIsActive: Bool,
+        hasCachedWorkout: Bool,
+        lastBuiltAt: Date,
+        now: Date,
+        rebuildInterval: TimeInterval = rebuildInterval
+    ) -> LiveActivityWorkoutProjectionDecision {
+        guard workoutIsActive else { return .clear }
+        guard hasCachedWorkout else { return .rebuild }
+        let elapsed = now.timeIntervalSince(lastBuiltAt)
+        return elapsed < 0 || elapsed >= rebuildInterval ? .rebuild : .reuse
+    }
+
+    static func shouldRebuild(
+        workoutIsActive: Bool,
+        hasCachedWorkout: Bool,
+        lastBuiltAt: Date,
+        now: Date,
+        rebuildInterval: TimeInterval = rebuildInterval
+    ) -> Bool {
+        decision(
+            workoutIsActive: workoutIsActive,
+            hasCachedWorkout: hasCachedWorkout,
+            lastBuiltAt: lastBuiltAt,
+            now: now,
+            rebuildInterval: rebuildInterval
+        ) == .rebuild
+    }
+
+    /// Compatibility seam for any older focused caller. New production code should pass explicit workout
+    /// presence so inactive mode cannot be inferred from a stale cached projection.
     static func shouldRebuild(
         lastModeWasWorkout: Bool?,
         hasCachedWorkout: Bool,
@@ -69,9 +134,13 @@ enum LiveActivityWorkoutProjectionPolicy {
         now: Date,
         rebuildInterval: TimeInterval = rebuildInterval
     ) -> Bool {
-        guard lastModeWasWorkout == true, hasCachedWorkout else { return true }
-        let elapsed = now.timeIntervalSince(lastBuiltAt)
-        return elapsed < 0 || elapsed >= rebuildInterval
+        shouldRebuild(
+            workoutIsActive: lastModeWasWorkout == true,
+            hasCachedWorkout: hasCachedWorkout,
+            lastBuiltAt: lastBuiltAt,
+            now: now,
+            rebuildInterval: rebuildInterval
+        )
     }
 }
 #endif
