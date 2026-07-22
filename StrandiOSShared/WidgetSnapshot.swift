@@ -166,8 +166,14 @@ public struct WidgetSnapshot: Codable, Equatable {
     /// in-process throttle cache or asking WidgetKit to reload when the App Group write could not happen.
     @discardableResult
     public func save() -> Bool {
-        guard let defaults = UserDefaults(suiteName: WidgetSnapshot.suiteName),
-              let data = try? JSONEncoder().encode(self) else { return false }
+        save(to: UserDefaults(suiteName: WidgetSnapshot.suiteName))
+    }
+
+    /// Test seam and shared implementation for `save()`. Internal so production callers always use the
+    /// configured App Group while unit tests can supply an isolated defaults suite or nil failure case.
+    @discardableResult
+    func save(to defaults: UserDefaults?) -> Bool {
+        guard let defaults, let data = try? JSONEncoder().encode(self) else { return false }
         defaults.set(data, forKey: WidgetSnapshot.storageKey)
         return true
     }
