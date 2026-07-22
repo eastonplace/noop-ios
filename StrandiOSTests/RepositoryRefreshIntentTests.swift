@@ -74,5 +74,46 @@ final class RepositoryRefreshIntentTests: XCTestCase {
         XCTAssertTrue(await narrow.value)
         XCTAssertEqual(executed, [.fullHistoryMigration, .currentDay])
     }
+
+    func testEachExecutedBatchReceivesItsOwnResult() async {
+        var executions = 0
+        var releases: [CheckedContinuation<Void, Never>] = []
+        let coordinator = RepositoryRefreshCoordinator(coalescingDelay: .zero) { _ in
+            executions += 1
+            let result = executions > 1
+            await withCheckedContinuation { releases.append($0) }
+            return result
+        }
+
+        let first = Task { await coordinator.request(.fullHistoryMigration) }
+        while executions == 0 { await Task.yield() }
+        let second = Task { await coordinator.request(.currentDay) }
+        releases.removeFirst().resume()
+        while executions < 2 { await Task.yield() }
+        releases.removeFirst().resume()
+
+        XCTAssertFalse(await first.value)
+        XCTAssertTrue(await second.value)
+    }
+
+    func testMigrationSuppressionIsInheritedByChildTask() async {
+        let inherited = await RepositoryRefreshContext.$disposition.withValue(.suppress) {
+            await Task { RepositoryRefreshContext.disposition }.value
+        }
+        XCTAssertEqual(inherited, .suppress)
+        XCTAssertEqual(RepositoryRefreshContext.disposition, .legacyDefault)
+    }
+
+    func testAlreadyCancelledRequestDoesNotEnterQueue() async {
+        let coordinator = RepositoryRefreshCoordinator { _ in
+            XCTFail("Cancelled request must not execute")
+            return true
+        }
+        let task = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return await coordinator.request(.currentDay)
+        }
+        XCTAssertFalse(await task.value)
+    }
 }
 #endif
