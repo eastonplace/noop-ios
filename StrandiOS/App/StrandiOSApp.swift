@@ -8,7 +8,6 @@ import UserNotifications
 struct StrandiOSApp: App {
     @StateObject private var model: AppModel
     @StateObject private var health: HealthKitBridge
-    @StateObject private var watch = WatchSessionBridge()
     @StateObject private var router = NavRouter()
     @State private var liveActivity = LiveActivityController()
     @State private var workoutProjection = WorkoutLiveProjectionCache()
@@ -83,13 +82,11 @@ struct StrandiOSApp: App {
                 .onReceive(model.repo.$refreshSeq.dropFirst()) { _ in
                     guard scenePhase == .active else { return }
                     Task { await WidgetSnapshot.publish(from: model) }
-                    Task { await watch.pushLatest(from: model) }
                 }
                 .onReceive(model.repo.$canonicalStrainByDay.dropFirst()) { _ in
                     guard scenePhase == .active else { return }
                     driveLiveActivity()
                     WidgetSnapshot.publishLive(from: model)
-                    Task { await watch.pushLatest(from: model) }
                 }
                 .onReceive(model.live.$batteryPct.dropFirst()) { _ in
                     guard scenePhase == .active else { return }
@@ -108,8 +105,6 @@ struct StrandiOSApp: App {
                     if url.host == "import-health" { model.handleHealthImportURL(url) }
                 }
                 .task {
-                    watch.activate()
-                    await watch.pushLatest(from: model)
                     #if DEBUG
                     if CommandLine.arguments.contains("--component41-live-qa") {
                         await liveActivity.startComponent41QA()
@@ -129,7 +124,6 @@ struct StrandiOSApp: App {
                     health.refreshAuthIfPreviouslyGranted()
                     await health.foregroundCatchUp()
                     await WidgetSnapshot.publish(from: model)
-                    await watch.pushLatest(from: model)
                 }
             } else if phase == .background {
                 Task { await WidgetSnapshot.publish(from: model) }
