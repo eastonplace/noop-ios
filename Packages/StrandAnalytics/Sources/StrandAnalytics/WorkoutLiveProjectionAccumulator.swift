@@ -11,6 +11,7 @@ public struct WorkoutLiveProjectionAccumulator: Sendable {
         public let hrTrace: [Int]
         public let sampleCount: Int
         public let lastTimestamp: Int?
+        public let lastBPM: Int?
     }
 
     private static let traceLimit = 48
@@ -87,7 +88,8 @@ public struct WorkoutLiveProjectionAccumulator: Sendable {
             zoneSeconds: Array(seconds.dropFirst()),
             hrTrace: trace,
             sampleCount: sampleCount,
-            lastTimestamp: lastSample?.ts
+            lastTimestamp: lastSample?.ts,
+            lastBPM: lastSample?.bpm
         )
     }
 
