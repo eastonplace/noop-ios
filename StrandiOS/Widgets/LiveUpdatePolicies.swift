@@ -54,6 +54,28 @@ enum WidgetLivePublishPolicy {
     }
 }
 
+/// Pure policy for the slower full-dashboard widget publication.
+///
+/// Repository refreshes can fire for unrelated data and rebuild the same widget payload. The snapshot's
+/// timestamp must not turn those semantic no-ops into App Group writes and WidgetKit reloads. A bounded
+/// heartbeat still advances freshness for a quiet app, and clock rollback is treated as an expired gate.
+enum WidgetFullPublishPolicy {
+    static let unchangedHeartbeatInterval: TimeInterval = 15 * 60
+
+    static func shouldPublish(
+        previous: WidgetSnapshot?,
+        next: WidgetSnapshot,
+        lastPublishedAt: Date,
+        now: Date,
+        unchangedHeartbeatInterval: TimeInterval = unchangedHeartbeatInterval
+    ) -> Bool {
+        guard let previous else { return true }
+        guard previous.hasSameRenderedContent(as: next) else { return true }
+        let elapsed = now.timeIntervalSince(lastPublishedAt)
+        return elapsed < 0 || elapsed >= unchangedHeartbeatInterval
+    }
+}
+
 /// Pure gate for ActivityKit pushes.
 ///
 /// Normal content updates retain the approximately two-second cadence. A workout start/end mode edge
