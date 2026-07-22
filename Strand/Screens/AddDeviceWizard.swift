@@ -209,7 +209,7 @@ struct AddDeviceWizard: View {
         // Drive the Adopting step to success (the live source reached streaming -> close the wizard) or to a
         // REACHABLE honest Failed step (the live source announced needs-pairing). Only acts while Adopting,
         // so a later steady-state needs-pairing on the device card never reopens this.
-        .onChange(of: model.ouraAdoptPhase) { phase in
+        .onChange(of: model.ouraAdoptPhase) { _, phase in
             guard type == .oura, ouraStep == .adopting else { return }
             switch phase {
             case .streaming:        stopAllScans(); onClose()   // adoption complete: the ring is the live source now
@@ -217,7 +217,7 @@ struct AddDeviceWizard: View {
             case .idle, .installingKey: break
             }
         }
-        .onChange(of: model.ouraNeedsPairing) { msg in
+        .onChange(of: model.ouraNeedsPairing) { _, msg in
             // A needs-pairing message during the Adopting step is an honest failure too (covers the no-ack /
             // ack!=OK paths that surface via needsPairing rather than a phase flip alone).
             guard type == .oura, ouraStep == .adopting, msg != nil else { return }
@@ -1061,7 +1061,7 @@ struct AddDeviceWizard: View {
                 // Heart-rate strap AND Garmin (Broadcast HR is the standard 0x180D path).
                 HRPickList(scanner: hrScanner) { strap in
                     pickedStrap = strap
-                    clearOtherPicks(except: type ?? .hrStrap)
+                    clearOtherPicks(except: type)
                     nameDraft = strap.name
                     hrScanner.stopScan()
                     step = .confirm

@@ -154,7 +154,7 @@ public struct TrendPanelChart: View {
                 .contentShape(Rectangle())
                 .gesture(scrubGesture)
                 .onAppear { plotWidth = size.width }
-                .onChange(of: size.width) { width in plotWidth = width }
+                .onChangeCompat(of: size.width) { plotWidth = $0 }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilitySummary)

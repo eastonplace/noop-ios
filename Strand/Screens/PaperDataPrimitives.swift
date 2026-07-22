@@ -91,7 +91,7 @@ struct PaperPressStyle: ButtonStyle {
 struct CountUpNumber: View, Animatable {
     var value: Double
     var font: Font
-    var animatableData: Double {
+    nonisolated var animatableData: Double {
         get { value }
         set { value = newValue }
     }

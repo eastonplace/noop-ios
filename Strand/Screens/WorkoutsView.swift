@@ -201,7 +201,7 @@ struct WorkoutsView: View {
         // page the full history in. A pick that fits the loaded window is a no-op. Also covers the
         // auto-widen: if the selected window is sparse and `effectiveRange` falls back to `.all`, the
         // full read is needed to show the older sessions.
-        .onChange(of: range) { newRange in
+        .onChange(of: range) { _, newRange in
             Task { await expandWindowIfNeeded(for: newRange == .all ? .all : effectiveRange) }
         }
         .sheet(item: $sheet) { target in

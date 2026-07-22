@@ -500,22 +500,23 @@ struct SettingsView: View {
     /// iOS 16+ and macOS 13+ (NOOP's floor), so the same control serves both platforms — no
     /// availability gating needed. The photo is stored only on this device (NOOP is fully offline).
     private var profilePhotoCard: some View {
-        SettingsSection(
+        let hasAvatar = profile.hasAvatar
+        return SettingsSection(
             icon: "person.crop.circle",
             title: "Profile photo",
             blurb: "Optional. Add a photo for the avatar in the top-left. Stored only on \(Platform.deviceNounPhrase). NOOP is offline, so it's never uploaded."
         ) {
             HStack(spacing: 16) {
                 ProfileAvatarView(imageData: profile.avatarImageData, size: 64)
-                    .accessibilityLabel(profile.hasAvatar ? "Your profile photo" : "No profile photo set")
+                    .accessibilityLabel(hasAvatar ? "Your profile photo" : "No profile photo set")
 
                 VStack(alignment: .leading, spacing: NoopMetrics.space2) {
                     PhotosPicker(selection: $avatarPickerItem, matching: .images) {
-                        Text(profile.hasAvatar ? "Change photo" : "Choose photo")
+                        Text(hasAvatar ? "Change photo" : "Choose photo")
                     }
                     .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
 
-                    if profile.hasAvatar {
+                    if hasAvatar {
                         Button("Remove photo") { profile.clearAvatar() }
                             .buttonStyle(NoopButtonStyle(.tertiary, fullWidth: true))
                             .accessibilityHint("Reverts to the default profile icon")
@@ -526,7 +527,7 @@ struct SettingsView: View {
         }
         // Load the picked photo's bytes, then hand them to the store (which downscales + persists).
         // Clearing the selection afterwards lets the user re-pick the same photo if they want.
-        .onChange(of: avatarPickerItem) { newItem in
+        .onChange(of: avatarPickerItem) { _, newItem in
             guard let newItem else { return }
             Task {
                 let data = try? await newItem.loadTransferable(type: Data.self)

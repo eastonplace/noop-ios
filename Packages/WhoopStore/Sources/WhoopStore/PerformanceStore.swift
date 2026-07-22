@@ -2,7 +2,7 @@ import Foundation
 import GRDB
 import WhoopProtocol
 
-public struct AnalysisDayBundle: Equatable {
+public struct AnalysisDayBundle: Equatable, Sendable {
     public let hr: [HRSample]
     public let rr: [RRInterval]
     public let resp: [RespSample]
@@ -14,7 +14,7 @@ public struct AnalysisDayBundle: Equatable {
     public let sleepState: [SleepStateSample]
 }
 
-public struct SleepAuxiliaryMutationResult: Equatable {
+public struct SleepAuxiliaryMutationResult: Equatable, Sendable {
     public let motionUpdated: Int
     public let sleepStateUpdated: Int
     public let sessionsDeleted: Int
@@ -25,7 +25,7 @@ public struct SleepAuxiliaryMutationResult: Equatable {
     }
 }
 
-public struct WorkoutReconcileResult: Equatable {
+public struct WorkoutReconcileResult: Equatable, Sendable {
     public let insertedOrUpdated: Int
     public let deleted: Int
     public var totalChanged: Int { insertedOrUpdated + deleted }

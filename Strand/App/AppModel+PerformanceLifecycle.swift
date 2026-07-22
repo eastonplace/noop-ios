@@ -139,7 +139,7 @@ extension AppModel {
                     // suppression also reaches IntelligenceEngine's forced child re-arm, so that compatibility
                     // path cannot quietly restore a default 4,000-day refresh between chunks.
                     await RepositoryRefreshContext.$disposition.withValue(.suppress) {
-                        await intelligence.analyzeRecent(
+                        await self.intelligence.analyzeRecent(
                             maxDays: days,
                             startOffset: offset,
                             force: true,

@@ -11,13 +11,14 @@ import UserNotifications
 ///
 /// Cross-platform (iOS + macOS). Register once at launch:
 /// `UNUserNotificationCenter.current().delegate = NotificationPresenter.shared`.
+@MainActor
 final class NotificationPresenter: NSObject, UNUserNotificationCenterDelegate {
 
     static let shared = NotificationPresenter()
 
     private override init() { super.init() }
 
-    func userNotificationCenter(
+    nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void

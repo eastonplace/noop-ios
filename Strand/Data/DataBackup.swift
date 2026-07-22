@@ -62,7 +62,7 @@ enum DataBackup {
     ///   live in the WAL and would be silently absent from the ZIP; we fail loudly rather than ship
     ///   a partial backup.
     @MainActor
-    static func runExport(checkpoint: @escaping () async -> Bool) async -> BackupResult {
+    static func runExport(checkpoint: @Sendable @escaping () async -> Bool) async -> BackupResult {
         let dbPath: String
         do { dbPath = try StorePaths.defaultDatabasePath() }
         catch { return .failure(String(localized: "Couldn't locate the NOOP database. \(error.localizedDescription)")) }
@@ -183,7 +183,7 @@ enum DataBackup {
     /// deflate ZIP via the same `writeBackupZip` the interactive export uses, so folder / auto backups
     /// are byte-identical to a manual export. The CALLER owns any security-scoped access to `dest`
     /// (start/stop around this call). Never presents UI, so it is safe off the main actor.
-    static func writeBackup(checkpoint: @escaping () async -> Bool, to dest: URL) async -> BackupResult {
+    static func writeBackup(checkpoint: @Sendable @escaping () async -> Bool, to dest: URL) async -> BackupResult {
         let dbPath: String
         do { dbPath = try StorePaths.defaultDatabasePath() }
         catch { return .failure(String(localized: "Couldn't locate the NOOP database. \(error.localizedDescription)")) }

@@ -19,7 +19,7 @@ struct LiveWorkoutView: View {
     }
 }
 
-private struct StableLiveWorkoutContent: View, Equatable {
+private struct StableLiveWorkoutContent: View, @preconcurrency Equatable {
     let model: AppModel
     @AppStorage("workoutKeepScreenOn") private var keepScreenOn = false
 

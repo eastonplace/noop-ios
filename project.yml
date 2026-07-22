@@ -11,9 +11,8 @@ settings:
   base:
     MARKETING_VERSION: "9.0.1"
     CURRENT_PROJECT_VERSION: "204"
-    SWIFT_VERSION: "5.0"
     SWIFT_EMIT_LOC_STRINGS: YES
-    SWIFT_STRICT_CONCURRENCY: minimal
+    SWIFT_STRICT_CONCURRENCY: complete
     DEVELOPMENT_TEAM: "479HYY24G2"
     CODE_SIGN_STYLE: Automatic
     APP_GROUP_ID: group.com.eastonplace.noop
@@ -102,7 +101,9 @@ targets:
         ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS: YES
         GENERATE_INFOPLIST_FILE: NO
         TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_VERSION: "6.0"
         SWIFT_EMIT_LOC_STRINGS: YES
+        SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
     dependencies:
       - package: WhoopProtocol
       - package: WhoopStore
@@ -144,6 +145,8 @@ targets:
         PRODUCT_NAME: NOOPWidgets
         GENERATE_INFOPLIST_FILE: NO
         TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_VERSION: "6.0"
+        SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
     dependencies:
       - package: StrandDesign
 
@@ -164,8 +167,10 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: com.eastonplace.noop.iostests
+        SWIFT_VERSION: "6.0"
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/NOOP.app/NOOP"
         BUNDLE_LOADER: "$(TEST_HOST)"
+        SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
 
 schemes:
   NOOPiOS:

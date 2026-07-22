@@ -10,6 +10,7 @@ import StrandDesign
 /// look, sized for a chat bubble: headings are capped near body size (a `#` must
 /// not shout inside a 560pt bubble), and tables get hairline borders.
 extension Theme {
+    @MainActor
     static let strand = Theme()
         // Paper prose stays one step quieter than headings and numerals.
         .text {

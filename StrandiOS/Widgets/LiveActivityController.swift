@@ -1,6 +1,9 @@
 #if os(iOS)
 import Foundation
-import ActivityKit
+// ActivityKit's generic Activity/ActivityContent bridge is not fully Sendable-annotated in the iOS 17
+// SDK even though this controller serializes every mutation on MainActor. Keep that framework boundary
+// pre-concurrency-scoped; NOOP-owned state remains under complete strict concurrency checking.
+@preconcurrency import ActivityKit
 
 struct WorkoutLiveActivityState {
     let sport: String

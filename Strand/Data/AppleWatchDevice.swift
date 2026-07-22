@@ -4,11 +4,11 @@ import WhoopStore
 /// iPhone-side HealthKit device registration. This is not a watchOS target; it lets the iOS app describe
 /// recent Apple Health data honestly when the user has authorized HealthKit.
 enum AppleWatchDevice {
-    static let deviceId = Repository.appleHealthSource
-    static let recentWindowDays = 14
-    static let candidateCapabilities: Set<Metric> = [.hr, .hrv, .sleep, .steps, .spo2, .skinTemp]
+    nonisolated static let deviceId = "apple-health"
+    nonisolated static let recentWindowDays = 14
+    nonisolated static let candidateCapabilities: Set<Metric> = [.hr, .hrv, .sleep, .steps, .spo2, .skinTemp]
 
-    static func capabilities(daily: [DailyMetric], apple: [AppleDaily]) -> Set<Metric> {
+    nonisolated static func capabilities(daily: [DailyMetric], apple: [AppleDaily]) -> Set<Metric> {
         var capabilities: Set<Metric> = []
         if daily.contains(where: { $0.restingHr != nil })
             || apple.contains(where: { $0.avgHr != nil || $0.maxHr != nil }) {
@@ -25,7 +25,7 @@ enum AppleWatchDevice {
         return capabilities.intersection(candidateCapabilities)
     }
 
-    static func device(
+    nonisolated static func device(
         daily: [DailyMetric],
         apple: [AppleDaily],
         authorized: Bool,

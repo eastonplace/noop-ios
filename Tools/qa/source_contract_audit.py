@@ -125,7 +125,7 @@ def main() -> int:
             "enum PendingIntents",
             "PendingIntents.append(.markMoment",
             "PendingIntents.append(.buzz)",
-            "static var openAppWhenRun = true",
+            "static let openAppWhenRun = true",
         ):
             if required_contract not in intent_text:
                 errors.append(

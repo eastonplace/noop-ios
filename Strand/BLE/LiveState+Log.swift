@@ -23,8 +23,8 @@ extension LiveState {
         return log.filter { $0.hasPrefix(prefix) }
     }
 
-    private static let tailKey = "strapLog.tail"
-    static let tailLimit = 2_000
+    nonisolated private static let tailKey = "strapLog.tail"
+    nonisolated static let tailLimit = 2_000
 
     nonisolated static func persistTail(_ lines: [String]) {
         let tail = lines.count > tailLimit ? Array(lines.suffix(tailLimit)) : lines

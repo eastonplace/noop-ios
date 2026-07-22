@@ -1205,14 +1205,17 @@ final class AppModel: ObservableObject {
     /// identifier per category means a new alert replaces the old one rather than stacking.
     private static func postWristAlert(identifier: String, title: String, body: String) {
         guard UserDefaults.standard.bool(forKey: wristAlertsMasterKey) else { return }
-        let center = UNUserNotificationCenter.current()
-        center.getNotificationSettings { settings in
+        Task { @MainActor in
+            let center = UNUserNotificationCenter.current()
+            let settings = await center.notificationSettings()
             guard settings.authorizationStatus == .authorized else { return }
             let content = UNMutableNotificationContent()
             content.title = title
             content.body = body
             content.sound = .default
-            center.add(UNNotificationRequest(identifier: identifier, content: content, trigger: nil))
+            try? await center.add(
+                UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
+            )
         }
     }
     #endif
@@ -1249,10 +1252,6 @@ final class AppModel: ObservableObject {
     static func scheduleSmartAlarmBackupNotification(minutes: Int, weekdays: Set<Int>,
                                                      log: ((String) -> Void)? = nil) {
         #if os(iOS)
-        let center = UNUserNotificationCenter.current()
-        // Always clear BOTH the single and the per-day ids so switching modes (or editing the weekday set)
-        // never leaves an orphaned trigger or double-fires.
-        center.removePendingNotificationRequests(withIdentifiers: smartAlarmBackupIds)
         // #34: the backup follows THE ALARM, not the wrist-alerts master. This is only reached from
         // applySmartAlarm() with the alarm enabled, so the alarm being on IS the correct gate — a user who
         // sets a smart alarm but never turned on the separate wrist HR/strain alerts must still get a backup
@@ -1262,9 +1261,30 @@ final class AppModel: ObservableObject {
         // A non-empty selection that filters to nothing (only out-of-range numbers) has no day to fire on.
         if !weekdays.isEmpty && valid.isEmpty { return }
 
-        // Build + add the repeating trigger(s). Factored so the already-authorized and the just-granted
-        // paths schedule identically.
-        func addRequests() {
+        Task { @MainActor in
+            let center = UNUserNotificationCenter.current()
+            // Always clear BOTH the single and the per-day ids so switching modes (or editing the weekday set)
+            // never leaves an orphaned trigger or double-fires.
+            center.removePendingNotificationRequests(withIdentifiers: smartAlarmBackupIds)
+
+            let settings = await center.notificationSettings()
+            switch settings.authorizationStatus {
+            case .authorized, .provisional, .ephemeral:
+                break
+            case .notDetermined:
+                // The user just enabled the alarm but was never asked for notification permission (nothing
+                // else prompted — wrist alerts, which used to, may be off). Ask now, then schedule on grant
+                // so the FIRST night is covered rather than only after some later re-arm.
+                let granted = (try? await center.requestAuthorization(options: [.alert, .sound])) ?? false
+                guard granted else {
+                    log?("Smart alarm: backup notification NOT scheduled (notification permission denied)")
+                    return
+                }
+            default:
+                log?("Smart alarm: backup notification NOT scheduled (notifications not authorized)")
+                return
+            }
+
             let content = UNMutableNotificationContent()
             content.title = String(localized: "Smart alarm")
             content.body = String(localized: "Backup wake: your smart alarm time is here.")
@@ -1276,7 +1296,9 @@ final class AppModel: ObservableObject {
                 comps.hour = hour
                 comps.minute = minute
                 let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: true)
-                center.add(UNNotificationRequest(identifier: smartAlarmBackupId, content: content, trigger: trigger))
+                try? await center.add(
+                    UNNotificationRequest(identifier: smartAlarmBackupId, content: content, trigger: trigger)
+                )
             } else {
                 for weekday in valid {
                     var comps = DateComponents()
@@ -1284,26 +1306,14 @@ final class AppModel: ObservableObject {
                     comps.hour = hour
                     comps.minute = minute
                     let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: true)
-                    center.add(UNNotificationRequest(identifier: "\(smartAlarmBackupId)-d\(weekday)",
-                                                     content: content, trigger: trigger))
+                    try? await center.add(
+                        UNNotificationRequest(
+                            identifier: "\(smartAlarmBackupId)-d\(weekday)",
+                            content: content,
+                            trigger: trigger
+                        )
+                    )
                 }
-            }
-        }
-
-        center.getNotificationSettings { settings in
-            switch settings.authorizationStatus {
-            case .authorized:
-                addRequests()
-            case .notDetermined:
-                // The user just enabled the alarm but was never asked for notification permission (nothing
-                // else prompted — wrist alerts, which used to, may be off). Ask now, then schedule on grant
-                // so the FIRST night is covered rather than only after some later re-arm.
-                center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
-                    if granted { addRequests() }
-                    else { log?("Smart alarm: backup notification NOT scheduled (notification permission denied)") }
-                }
-            default:
-                log?("Smart alarm: backup notification NOT scheduled (notifications not authorized)")
             }
         }
         #endif
@@ -1620,7 +1630,7 @@ final class AppModel: ObservableObject {
         let mark = SleepMark(type: .bedtime, at: date)
         Task { [weak self] in
             guard let self, let store = await self.repo.storeHandle() else { return }
-            try? await store.upsertMetricSeries([mark.metricPoint], deviceId: self.repo.deviceId)
+            _ = try? await store.upsertMetricSeries([mark.metricPoint], deviceId: self.repo.deviceId)
         }
     }
 

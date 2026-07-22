@@ -60,7 +60,7 @@ final class LiveSessionRunner: ObservableObject {
     // MARK: Session wiring (held only while running)
 
     private var engine: LiveSessionEngine?
-    private var timer: Timer?
+    private var tickTask: Task<Void, Never>?
     /// Sample-arrival tick (background survival) — see the comment where it's armed in `start`.
     private var hrSink: AnyCancellable?
     private var model: AppModel?
@@ -79,7 +79,7 @@ final class LiveSessionRunner: ObservableObject {
     /// would land on the wrist as one unreadable mush.
     private var hapticWalkUntil = Date.distantPast
 
-    deinit { timer?.invalidate() }
+    deinit { tickTask?.cancel() }
 
     // MARK: - Start
 
@@ -88,7 +88,7 @@ final class LiveSessionRunner: ObservableObject {
     /// stream (ref-counted in AppModel, balanced by `end()`), banks the in-progress row, and starts
     /// the 1 Hz tick. No-op if already running or already ended.
     func start(model: AppModel, repo: Repository, ble: BLEManager, profile: ProfileStore) {
-        guard timer == nil, finalRow == nil else { return }
+        guard tickTask == nil, finalRow == nil else { return }
         self.model = model
         self.repo = repo
         self.ble = ble
@@ -117,8 +117,12 @@ final class LiveSessionRunner: ObservableObject {
         // Bank the in-progress row immediately (endTs nil) — a mid-session crash still leaves a record.
         persist(row(endTs: nil, band: band))
 
-        timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.tick() }
+        tickTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled else { return }
+                self?.tick()
+            }
         }
 
         // Pocket-the-phone survival: a suspended app stops firing Timers, but CoreBluetooth keeps
@@ -139,9 +143,9 @@ final class LiveSessionRunner: ObservableObject {
     /// returning the already-final row.
     @discardableResult
     func end() -> LiveSessionRow? {
-        guard timer != nil else { return finalRow }
-        timer?.invalidate()
-        timer = nil
+        guard tickTask != nil else { return finalRow }
+        tickTask?.cancel()
+        tickTask = nil
         hrSink?.cancel()
         hrSink = nil
         model?.stopRealtimeHR()
@@ -162,7 +166,7 @@ final class LiveSessionRunner: ObservableObject {
     // MARK: - Tick (1 Hz)
 
     private func tick() {
-        guard timer != nil else { return }
+        guard tickTask != nil else { return }
         let now = Int(Date().timeIntervalSince1970)
         // The engine takes the live reading if one is current, or nil as a plain time tick — staleness
         // is ITS call (never-fabricate: no reading is forwarded as exactly that, not held or guessed).

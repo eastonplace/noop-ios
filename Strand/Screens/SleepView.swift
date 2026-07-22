@@ -751,7 +751,7 @@ struct SleepView: View {
         }
         // Stale-highlight guard: browsing to another night clears the stage selection. Attached to
         // the always-present hero container (not a branch that gets swapped out mid-navigation).
-        .onChange(of: nightOffset) { _ in selectedStage = nil }
+        .onChange(of: nightOffset) { _, _ in selectedStage = nil }
     }
 
     /// Naps card (#508): each of the day's sleep blocks OTHER than the night's main block, individually
@@ -2028,7 +2028,7 @@ struct SleepView: View {
     /// `offsetSec` so the timing test reads the user's clock via the SAME `offsetSec` math the engine
     /// uses (`SleepStageTotals.localSecOfDay`), instead of `Calendar.current.component(.hour:)` which was
     /// the duplicated, DST-fragile gate the audit flagged. (#547)
-    static var tzOffsetSec: Int { TimeZone.current.secondsFromGMT() }
+    nonisolated static var tzOffsetSec: Int { TimeZone.current.secondsFromGMT() }
 
     /// The wake-day key for a displayed night — the SAME `Repository.localDayKey(night.session.endTs)`
     /// resolution `paperSleepHero` uses to look up `model.performanceByDay`, factored out so the T702
@@ -2048,8 +2048,8 @@ struct SleepView: View {
     /// phantom naps (#555). `habitualMidsleepSec` is the SAME learned value the engine threads into the
     /// persisted totals (loaded via `repo.habitualMidsleepSec()`), so a shift/late sleeper's pick matches
     /// the analytics rollup; nil keeps the cold-start overnight-band bonus. (#525 / #547 / #561)
-    static func mainNightSession(_ sessions: [CachedSleepSession],
-                                 habitualMidsleepSec: Int? = nil) -> CachedSleepSession? {
+    nonisolated static func mainNightSession(_ sessions: [CachedSleepSession],
+                                             habitualMidsleepSec: Int? = nil) -> CachedSleepSession? {
         SleepStageTotals.mainNightIndex(
             sessions.map { SleepStageTotals.NightBlock(start: $0.effectiveStartTs, end: $0.endTs) },
             offsetSec: tzOffsetSec, habitualMidsleepSec: habitualMidsleepSec).map { sessions[$0] }
@@ -2062,8 +2062,8 @@ struct SleepView: View {
     /// un-bridged single-block pick and rendered the bridged siblings as phantom naps (#555). A night with
     /// no bridgeable gap collapses to the single block `mainNightSession` picks, so the common case is byte-
     /// identical. Returns ascending by effective onset. (#561 / #555)
-    static func mainNightGroup(_ sessions: [CachedSleepSession],
-                               habitualMidsleepSec: Int? = nil) -> [CachedSleepSession] {
+    nonisolated static func mainNightGroup(_ sessions: [CachedSleepSession],
+                                           habitualMidsleepSec: Int? = nil) -> [CachedSleepSession] {
         guard let idx = SleepStageTotals.mainNightGroupIndices(
             sessions.map { SleepStageTotals.NightBlock(start: $0.effectiveStartTs, end: $0.endTs) },
             offsetSec: tzOffsetSec, habitualMidsleepSec: habitualMidsleepSec) else { return [] }
@@ -2859,7 +2859,7 @@ private struct SleepMarkCard: View {
         live.append(log: mark.logLine)
         Task {
             guard let store = await repo.storeHandle() else { return }
-            try? await store.upsertMetricSeries([mark.metricPoint], deviceId: repo.deviceId)
+            _ = try? await store.upsertMetricSeries([mark.metricPoint], deviceId: repo.deviceId)
         }
     }
 }

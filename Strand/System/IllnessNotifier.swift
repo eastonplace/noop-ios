@@ -11,8 +11,10 @@ enum IllnessNotifier {
     /// Ask up front (called when the user enables the watch) so the system dialog appears at a
     /// predictable moment, not on the first 3 a.m. transition.
     static func requestAuthorization() {
-        UNUserNotificationCenter.current()
-            .requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        Task {
+            _ = try? await UNUserNotificationCenter.current()
+                .requestAuthorization(options: [.alert, .sound])
+        }
     }
 
     /// Post the early-warning, at most once per local calendar day.
@@ -24,18 +26,20 @@ enum IllnessNotifier {
         // notifications or delivery is deferred — the in-app banner stays the live surface either
         // way, and we never re-prompt or retry on every transition.
         d.set(day, forKey: lastDayKey)
-        let center = UNUserNotificationCenter.current()
-        // Authorization is requested once via requestAuthorization() when the watch is enabled;
-        // here we only check status (no second system prompt).
-        center.getNotificationSettings { settings in
+        Task {
+            let center = UNUserNotificationCenter.current()
+            // Authorization is requested once via requestAuthorization() when the watch is enabled;
+            // here we only check status (no second system prompt).
+            let settings = await center.notificationSettings()
             guard settings.authorizationStatus == .authorized else { return }
             let content = UNMutableNotificationContent()
             content.title = String(localized: "Early warning: take it easy")
             content.subtitle = String(localized: "On-device estimate (approximate), not a diagnosis.")
             content.body = message
             content.sound = .default
-            center.add(UNNotificationRequest(identifier: "illness-watch",
-                                             content: content, trigger: nil))
+            try? await center.add(
+                UNNotificationRequest(identifier: "illness-watch", content: content, trigger: nil)
+            )
         }
     }
 

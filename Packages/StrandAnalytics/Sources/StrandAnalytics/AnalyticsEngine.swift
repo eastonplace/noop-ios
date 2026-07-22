@@ -52,11 +52,9 @@ public enum AnalyticsEngine {
 
     /// The full analysis result for one day.
     ///
-    /// NOTE: not `Sendable` — it embeds `DailyMetric` / `CachedSleepSession` from
-    /// WhoopStore, which are not `Sendable` (and that package is out of scope to
-    /// modify here). The individual analyzer result types in this package ARE
-    /// `Sendable`.
-    public struct DayResult {
+    /// `Sendable` because analysis runs off the main actor and returns this immutable value graph to
+    /// the engine. All nested analytics and store records carry explicit value-safe conformances.
+    public struct DayResult: Sendable {
         /// DailyMetric in the WhoopStore cache shape (recovery/strain/sleep rolled up).
         public let daily: DailyMetric
         /// Detected sleep sessions (rich, with stage segments).

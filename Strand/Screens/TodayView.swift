@@ -30,7 +30,7 @@ import Foundation
 /// Measuring width via a zero-impact background reader instead lets the row self-size in height, so it grows
 /// to fit the rings + labels + badges and never clips. Reduce keeps the max, ignoring any 0 default.
 private struct HeroRingRowWidthKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
+    static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
@@ -44,7 +44,7 @@ private struct HeroRingRowWidthKey: PreferenceKey {
 /// When the chart leaves the tree (the sparse-day empty card) no view emits, the value falls back to
 /// `.null`, and `.null.contains(_:)` is always false, so the mask disarms itself.
 private struct HRChartFrameKey: PreferenceKey {
-    static var defaultValue: CGRect = .null
+    static let defaultValue: CGRect = .null
     static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
         let next = nextValue()
         if !next.isNull { value = next }
@@ -2358,7 +2358,7 @@ struct TodayView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Synthesis. \(status)")
+            .accessibilityLabel(Text("Synthesis. ") + Text(status))
             .accessibilityHint("Collapse")
         } else {
             // Collapsed: a one-liner with the category overline, the status headline and a down-chevron.
@@ -2385,7 +2385,7 @@ struct TodayView: View {
                 }
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Synthesis. \(status)")
+            .accessibilityLabel(Text("Synthesis. ") + Text(status))
             .accessibilityHint("Expand for the full read")
         }
     }
@@ -2790,7 +2790,7 @@ struct TodayView: View {
         }
         .padding(.vertical, 13)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(label): \(value) \(unit)")
+        .accessibilityLabel(Text(label) + Text(": \(value) \(unit)"))
     }
 
     // MARK: Synthesis card, today's read, or the carried last-scored read (#543)

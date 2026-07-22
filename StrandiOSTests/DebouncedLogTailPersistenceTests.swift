@@ -26,7 +26,7 @@ final class DebouncedLogTailPersistenceTests: XCTestCase {
             debounceInterval: 0.03,
             tailLimit: 100,
             loadPersisted: { [] },
-            persist: writes.append
+            persist: { writes.append($0) }
         )
         for index in 0..<500 { persistence.append("line \(index)") }
         try await Task.sleep(for: .milliseconds(100))
@@ -42,7 +42,7 @@ final class DebouncedLogTailPersistenceTests: XCTestCase {
             debounceInterval: 60,
             tailLimit: 10,
             loadPersisted: { [] },
-            persist: writes.append
+            persist: { writes.append($0) }
         )
         ["a", "b", "newest"].forEach(persistence.append)
         await persistence.flush()
@@ -55,7 +55,7 @@ final class DebouncedLogTailPersistenceTests: XCTestCase {
             debounceInterval: 0.025,
             tailLimit: 100,
             loadPersisted: { [] },
-            persist: writes.append
+            persist: { writes.append($0) }
         )
         for index in 0..<50 { persistence.append("first \(index)") }
         try await Task.sleep(for: .milliseconds(70))
@@ -72,7 +72,7 @@ final class DebouncedLogTailPersistenceTests: XCTestCase {
             debounceInterval: 60,
             tailLimit: 3,
             loadPersisted: { ["old 1", "old 2"] },
-            persist: writes.append
+            persist: { writes.append($0) }
         )
         persistence.append("new")
         await persistence.flush()
@@ -85,7 +85,7 @@ final class DebouncedLogTailPersistenceTests: XCTestCase {
             debounceInterval: 0.04,
             tailLimit: 10,
             loadPersisted: { [] },
-            persist: writes.append
+            persist: { writes.append($0) }
         )
         persistence.append("stale")
         await persistence.clear()
@@ -99,7 +99,7 @@ final class DebouncedLogTailPersistenceTests: XCTestCase {
             debounceInterval: 60,
             tailLimit: 10,
             loadPersisted: { [] },
-            persist: writes.append
+            persist: { writes.append($0) }
         )
         persistence.append("one")
         await persistence.flush()

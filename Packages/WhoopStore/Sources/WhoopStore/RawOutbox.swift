@@ -3,13 +3,13 @@ import Compression
 import GRDB
 import WhoopProtocol
 
-public struct ClockRef: Equatable, Codable {
+public struct ClockRef: Equatable, Codable, Sendable {
     public let device: Int
     public let wall: Int
     public init(device: Int, wall: Int) { self.device = device; self.wall = wall }
 }
 
-public struct RawBatchMeta: Equatable {
+public struct RawBatchMeta: Equatable, Sendable {
     public let batchId: String
     public let deviceId: String
     public let clockRef: ClockRef

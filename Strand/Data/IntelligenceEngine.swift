@@ -100,12 +100,9 @@ final class IntelligenceEngine: ObservableObject {
     /// One day's off-actor scan output (FIX 1). Carries the pure `AnalyticsEngine.DayResult` produced by
     /// the off-main scan loop plus the pre-computed RHR floor-vs-mean diagnostic line (#691) , computed
     /// inside the detached task from pure inputs so the main actor can replay it through the
-    /// MainActor-bound `diagnosticSink` in the SAME per-day order. Deliberately NOT marked `Sendable`:
-    /// its `AnalyticsEngine.DayResult` member isn't formally `Sendable` either, and the per-day loop ALREADY
-    /// returned a `DayResult` across the `Task.detached` boundary under this project's `minimal` strict-
-    /// concurrency setting (SWIFT_STRICT_CONCURRENCY: minimal, Swift 5 mode) , this wraps the same value
-    /// type the same way, so it crosses the boundary identically.
-    private struct DayScan {
+    /// MainActor-bound `diagnosticSink` in the SAME per-day order. The immutable value graph is explicitly
+    /// `Sendable` because it crosses from the detached scan back to the main-actor fold.
+    private struct DayScan: Sendable {
         let result: AnalyticsEngine.DayResult
         let rhrLine: String?
         /// CAPTURE-B (#814/#799): the resolved READ owner id this day was scored from, and how many HR rows

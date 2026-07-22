@@ -84,8 +84,8 @@ public final class LiveState: ObservableObject {
     lazy var logTailPersistence = DebouncedLogTailPersistence(
         debounceInterval: 3,
         tailLimit: Self.tailLimit,
-        loadPersisted: Self.persistedLogTail,
-        persist: Self.persistTail
+        loadPersisted: { Self.persistedLogTail() },
+        persist: { Self.persistTail($0) }
     )
 
     public init() {
