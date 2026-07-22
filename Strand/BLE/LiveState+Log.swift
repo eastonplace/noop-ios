@@ -1,4 +1,5 @@
 import Foundation
+import StrandAnalytics
 
 extension LiveState {
     public func append(log line: String, domain: TestDomain? = nil) {
