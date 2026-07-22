@@ -1,17 +1,13 @@
 import Foundation
-import WhoopProtocol
-#if os(iOS) && canImport(UIKit)
 import UIKit
-#elseif os(macOS) && canImport(AppKit)
-import AppKit
-#endif
+import WhoopProtocol
 
 enum LiveStrainState: Codable, Equatable {
     case building(readings: Int, coverageSeconds: Int)
     case scored(storedValue: Double)
 }
 
-/// Durable persistence for an in-flight, manually-started workout (#529).
+/// Durable persistence for an in-flight, manually-started workout.
 ///
 /// Production snapshots are coalesced through one utility queue. During an active workout, repeated
 /// snapshots replace older pending work so JSON encoding and UserDefaults I/O never build a backlog on
@@ -19,7 +15,6 @@ enum LiveStrainState: Codable, Equatable {
 /// `clear()` invalidates pending generations and waits for the writer before removing the key, preventing
 /// a stale delayed write from resurrecting an already-finished workout.
 enum ActiveWorkoutPersistence {
-
     struct Snapshot: Codable, Equatable {
         var startSec: Int
         var sport: String
@@ -32,10 +27,20 @@ enum ActiveWorkoutPersistence {
             case startSec, sport, samples, avgHr, peakHr, liveStrainState, liveStrain
         }
 
-        init(startSec: Int, sport: String, samples: [HRSample], avgHr: Int, peakHr: Int,
-             liveStrainState: LiveStrainState) {
-            self.startSec = startSec; self.sport = sport; self.samples = samples
-            self.avgHr = avgHr; self.peakHr = peakHr; self.liveStrainState = liveStrainState
+        init(
+            startSec: Int,
+            sport: String,
+            samples: [HRSample],
+            avgHr: Int,
+            peakHr: Int,
+            liveStrainState: LiveStrainState
+        ) {
+            self.startSec = startSec
+            self.sport = sport
+            self.samples = samples
+            self.avgHr = avgHr
+            self.peakHr = peakHr
+            self.liveStrainState = liveStrainState
         }
 
         init(from decoder: Decoder) throws {
@@ -67,6 +72,7 @@ enum ActiveWorkoutPersistence {
 
     static let defaultsKey = "noop.activeWorkout"
     private static let writer = SnapshotWriter()
+
     /// Reading the growing Data value merely to ask whether it exists would itself copy/materialize that
     /// blob on MainActor every five seconds. Cache only the existence bit for the production suite and
     /// reset it when the ordered production clear completes.
@@ -74,12 +80,23 @@ enum ActiveWorkoutPersistence {
         UserDefaults.standard.object(forKey: defaultsKey) != nil
 
     static func encode(_ snapshot: Snapshot) -> Data? {
-        try? JSONEncoder().encode(snapshot)
+        do {
+            return try JSONEncoder().encode(snapshot)
+        } catch {
+            NSLog("ActiveWorkoutPersistence: encode failed: \(error)")
+            return nil
+        }
     }
 
     static func decode(_ data: Data?) -> Snapshot? {
-        guard let data, !data.isEmpty,
-              let raw = try? JSONDecoder().decode(Snapshot.self, from: data) else { return nil }
+        guard let data, !data.isEmpty else { return nil }
+        let raw: Snapshot
+        do {
+            raw = try JSONDecoder().decode(Snapshot.self, from: data)
+        } catch {
+            NSLog("ActiveWorkoutPersistence: decode failed: \(error)")
+            return nil
+        }
         guard raw.startSec > 0 else { return nil }
         let samples = raw.samples.filter { $0.ts > 0 && (1...300).contains($0.bpm) }
         let state: LiveStrainState
@@ -101,21 +118,15 @@ enum ActiveWorkoutPersistence {
         )
     }
 
-    /// Production path. Normal foreground snapshots are latest-wins and encoded off MainActor. The first
-    /// snapshot is synchronous so a kill immediately after Start cannot erase the session. A lifecycle
-    /// owner can force an ordered synchronous flush before suspension on either Apple platform.
+    /// Normal foreground snapshots are latest-wins and encoded off MainActor. The first snapshot is
+    /// synchronous so a kill immediately after Start cannot erase the session. Background/inactive calls
+    /// also force an ordered write before iOS suspends the process.
     @MainActor
     static func store(_ snapshot: Snapshot, synchronously: Bool = false) {
         let defaults = UserDefaults.standard
         let isFirstSnapshot = !productionSnapshotEstablished
         if isFirstSnapshot { productionSnapshotEstablished = true }
-        #if os(iOS) && canImport(UIKit)
         let applicationRequiresImmediateFlush = UIApplication.shared.applicationState != .active
-        #elseif os(macOS) && canImport(AppKit)
-        let applicationRequiresImmediateFlush = !NSApplication.shared.isActive
-        #else
-        let applicationRequiresImmediateFlush = false
-        #endif
         writer.store(
             snapshot,
             into: defaults,
@@ -146,7 +157,7 @@ enum ActiveWorkoutPersistence {
         decode(defaults.data(forKey: defaultsKey))
     }
 
-    /// Production clear is ordered after/invalidation-safe against every pending snapshot.
+    /// Production clear is ordered after and invalidation-safe against every pending snapshot.
     @MainActor
     static func clear() {
         writer.clear(from: .standard)
@@ -190,7 +201,6 @@ enum ActiveWorkoutPersistence {
                 defaults: defaults,
                 generation: nextGeneration
             )
-            // Every newer snapshot supersedes any not-yet-encoded older one for the same store.
             if synchronously {
                 pendingByStore.removeValue(forKey: key)
             } else {
