@@ -1,0 +1,214 @@
+name: One-shot PR9 compile and refresh fixes
+
+on:
+  push:
+    branches:
+      - perf/ios-only-production-qa-2026-07-22
+    paths:
+      - .github/workflows/pr9-autofix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: perf/ios-only-production-qa-2026-07-22
+          fetch-depth: 0
+
+      - name: Apply verified source fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          def read(path: str) -> str:
+              return Path(path).read_text()
+
+          def write(path: str, text: str) -> None:
+              Path(path).write_text(text)
+
+          def replace_exact(text: str, old: str, new: str, *, count: int, label: str) -> str:
+              actual = text.count(old)
+              if actual != count:
+                  raise SystemExit(f"{label}: expected {count} match(es), found {actual}")
+              return text.replace(old, new)
+
+          # iPhone-native action model. The legacy lockScreen raw value is retained only so an old
+          # UserDefaults value decodes safely; iPhone UI filters it and execution is a documented no-op.
+          actions = '''import Foundation
+          import UIKit
+
+          /// Actions triggered by the strap's physical gestures on iPhone.
+          enum DeviceActionKind: String, Codable, CaseIterable, Identifiable {
+              case none
+              case lockScreen
+              case buzzBack
+              case markMoment
+              case sleepMark
+              case hapticClock
+              case runShortcut
+
+              var id: String { rawValue }
+
+              var label: String {
+                  switch self {
+                  case .none: return String(localized: "Nothing")
+                  case .lockScreen: return String(localized: "Lock Screen (legacy)")
+                  case .buzzBack: return String(localized: "Buzz back (confirm)")
+                  case .markMoment: return String(localized: "Mark a moment")
+                  case .sleepMark: return String(localized: "Log a sleep mark")
+                  case .hapticClock: return String(localized: "Buzz the time")
+                  case .runShortcut: return String(localized: "Run a Shortcut…")
+                  }
+              }
+
+              var symbol: String {
+                  switch self {
+                  case .none: return "circle.slash"
+                  case .lockScreen: return "lock.fill"
+                  case .buzzBack: return "waveform.path"
+                  case .markMoment: return "mappin.and.ellipse"
+                  case .sleepMark: return "moon.zzz.fill"
+                  case .hapticClock: return "clock.fill"
+                  case .runShortcut: return "bolt.fill"
+                  }
+              }
+          }
+
+          enum DeviceActions {
+              /// iOS does not expose an API for a third-party app to lock the phone. Kept only for
+              /// safe handling of a legacy persisted action that is no longer selectable on iPhone.
+              static func lockScreen() -> Bool { false }
+
+              /// Run a user-owned Shortcut by name through Apple's public URL scheme.
+              @MainActor
+              static func runShortcut(_ name: String) {
+                  let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                  guard !trimmed.isEmpty,
+                        let encoded = trimmed.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+                        let url = URL(string: "shortcuts://run-shortcut?name=\\(encoded)") else { return }
+                  UIApplication.shared.open(url)
+              }
+          }
+          '''
+          write('Strand/System/DeviceActions.swift', actions)
+
+          # Rename remaining iPhone call sites away from the deleted macOS helper.
+          path = 'Strand/Data/BehaviorStore.swift'
+          text = read(path).replace('MacActionKind', 'DeviceActionKind')
+          text = text.replace('Double-tap → Mac action', 'Double-tap action')
+          write(path, text)
+
+          path = 'Strand/Screens/AutomationsView.swift'
+          text = read(path).replace('MacActionKind', 'DeviceActionKind')
+          text = text.replace('runMacAction', 'runDeviceAction')
+          write(path, text)
+
+          path = 'Strand/App/AppModel.swift'
+          text = read(path).replace('MacActionKind', 'DeviceActionKind')
+          text = text.replace('MacActions', 'DeviceActions')
+          text = text.replace('runMacAction', 'runDeviceAction')
+
+          text = replace_exact(
+              text,
+              '            if let route { RouteStore.store(route, startTs: saved.startTs, sport: saved.sport) }\n            await repo.refresh()\n            lastWorkout = saved',
+              '            if let route { RouteStore.store(route, startTs: saved.startTs, sport: saved.sport) }\n            _ = await repo.refresh(.currentDay)\n            lastWorkout = saved',
+              count=1,
+              label='workout final refresh'
+          )
+          text = replace_exact(
+              text,
+              '            await self.repo.refresh()                          // surface any imported data at once',
+              '            _ = await self.repo.refresh(.initialLoad)          // surface imported history once',
+              count=1,
+              label='launch refresh'
+          )
+          text = replace_exact(
+              text,
+              '        live.append(log: "Read spine re-pointed to active device after registry change (#814).")\n        await repo.refresh()\n        await intelligence.analyzeRecent()',
+              '        live.append(log: "Read spine re-pointed to active device after registry change (#814).")\n        _ = await repo.refresh(.activeDeviceChanged)\n        await intelligence.analyzeRecent()',
+              count=1,
+              label='active device refresh'
+          )
+          text = replace_exact(
+              text,
+              '        await repo.refresh(days: 120)\n        await refreshV5Signals()',
+              '        _ = await repo.refresh(.postBackfill)\n        await refreshV5Signals()',
+              count=1,
+              label='post-backfill refresh'
+          )
+          text = replace_exact(
+              text,
+              '                try? await store.checkpointWAL()   // reclaim the WAL a bulk import grew (#590)\n                await repo.refresh()',
+              '                try? await store.checkpointWAL()   // reclaim the WAL a bulk import grew (#590)\n                _ = await repo.refresh(.postImport)',
+              count=3,
+              label='post-import refreshes'
+          )
+          write(path, text)
+
+          # The typed refresh now lives in endWorkout itself; remove the temporary wrapper pathway.
+          path = 'Strand/Screens/LiveWorkoutView.swift'
+          text = replace_exact(read(path), 'model.endWorkoutOptimized()', 'model.endWorkout()', count=1,
+                               label='live workout finish call')
+          write(path, text)
+          Path('Strand/App/AppModel+WorkoutFinish.swift').unlink()
+
+          # Split files need their own imports; imports are file-scoped in Swift.
+          path = 'Strand/BLE/LiveState+Log.swift'
+          text = replace_exact(read(path), 'import Foundation\n', 'import Foundation\nimport StrandAnalytics\n',
+                               count=1, label='LiveState log import')
+          write(path, text)
+
+          # The accumulator is main-actor-owned by the projection cache and does not cross actors.
+          # Snapshot stays Sendable; the mutable accumulator no longer claims HRSample is Sendable.
+          path = 'Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutLiveProjectionAccumulator.swift'
+          text = replace_exact(read(path),
+                               'public struct WorkoutLiveProjectionAccumulator: Sendable {',
+                               'public struct WorkoutLiveProjectionAccumulator {',
+                               count=1, label='projection Sendable conformance')
+          write(path, text)
+
+          # Eliminate the duplicate launch refresh and make tab reselect explicitly narrow.
+          path = 'StrandiOS/App/RootTabView.swift'
+          text = replace_exact(read(path),
+                               '                Task { await repo.refresh() }',
+                               '                Task { _ = await repo.refresh(.currentDay) }',
+                               count=1, label='tab reselect refresh')
+          text = replace_exact(text,
+                               '        .task {\n            await repo.refresh()\n            // Backup & Sync:',
+                               '        .task {\n            // AppModel owns the one initial repository load. This task only performs backup catch-up.\n            // Backup & Sync:',
+                               count=1, label='duplicate root launch refresh')
+          write(path, text)
+
+          # The project is intentionally iPhone-only. Keep the checked-in plist aligned with XcodeGen.
+          path = 'StrandiOS/Resources/Info.plist'
+          text = read(path)
+          ipad = '''\t<key>UISupportedInterfaceOrientations~ipad</key>\n\t<array>\n\t\t<string>UIInterfaceOrientationPortrait</string>\n\t\t<string>UIInterfaceOrientationPortraitUpsideDown</string>\n\t\t<string>UIInterfaceOrientationLandscapeLeft</string>\n\t\t<string>UIInterfaceOrientationLandscapeRight</string>\n\t</array>\n'''
+          text = replace_exact(text, ipad, '', count=1, label='iPad plist block')
+          write(path, text)
+          PY
+
+          echo 'Remaining zero-argument repository refresh calls:'
+          rg -n 'repo\.refresh\(\)' Strand StrandiOS || true
+          echo 'Remaining deleted macOS action identifiers:'
+          rg -n '\b(MacActionKind|MacActions|runMacAction)\b' Strand StrandiOS || true
+
+          git diff --check
+
+      - name: Commit fixes and remove one-shot workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/pr9-autofix.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '4189826+github-actions[bot]@users.noreply.github.com'
+          git add Strand StrandiOS Packages/StrandAnalytics
+          git commit -m 'fix(iOS): repair compile blockers and narrow refresh paths'
+          git push origin HEAD:perf/ios-only-production-qa-2026-07-22
