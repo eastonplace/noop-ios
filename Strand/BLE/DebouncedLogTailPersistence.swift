@@ -5,18 +5,60 @@ import UIKit
 import AppKit
 #endif
 
-/// Serial background owner for the durable strap-log tail. `LiveState` keeps UI updates immediate; this
-/// object maintains its own bounded tail and batches UserDefaults work after a quiet period.
+/// Serial background owner for the durable strap-log tail. `LiveState` keeps the visible log immediate on
+/// MainActor; this object stores the durable suffix in an O(1) ring and batches UserDefaults writes.
 final class DebouncedLogTailPersistence: @unchecked Sendable {
     typealias Persist = @Sendable ([String]) -> Void
 
+    private struct Ring {
+        private var storage: [String?]
+        private var start = 0
+        private(set) var count = 0
+
+        init(capacity: Int, initial: [String]) {
+            storage = Array(repeating: nil, count: max(0, capacity))
+            guard !storage.isEmpty else { return }
+            for value in initial.suffix(storage.count) { append(value) }
+        }
+
+        mutating func append(_ value: String) {
+            guard !storage.isEmpty else { return }
+            if count < storage.count {
+                storage[(start + count) % storage.count] = value
+                count += 1
+            } else {
+                storage[start] = value
+                start = (start + 1) % storage.count
+            }
+        }
+
+        mutating func removeAll() {
+            storage = Array(repeating: nil, count: storage.count)
+            start = 0
+            count = 0
+        }
+
+        func snapshot() -> [String] {
+            guard count > 0 else { return [] }
+            var result: [String] = []
+            result.reserveCapacity(count)
+            for offset in 0..<count {
+                if let value = storage[(start + offset) % storage.count] {
+                    result.append(value)
+                }
+            }
+            return result
+        }
+    }
+
     private let queue = DispatchQueue(label: "com.noopapp.strap-log-persistence", qos: .utility)
+    private let queueKey = DispatchSpecificKey<UInt8>()
     private let debounceInterval: TimeInterval
     private let tailLimit: Int
     private let loadPersisted: @Sendable () -> [String]
     private let persist: Persist
 
-    private var tail: [String]?
+    private var ring: Ring?
     private var pendingWork: DispatchWorkItem?
     private var revision: UInt64 = 0
     private var isDirty = false
@@ -36,6 +78,7 @@ final class DebouncedLogTailPersistence: @unchecked Sendable {
         self.tailLimit = max(0, tailLimit)
         self.loadPersisted = loadPersisted
         self.persist = persist
+        queue.setSpecific(key: queueKey, value: 1)
         registerLifecycleObservers()
     }
 
@@ -49,10 +92,9 @@ final class DebouncedLogTailPersistence: @unchecked Sendable {
     func append(_ line: String) {
         queue.async { [self] in
             loadIfNeeded()
-            tail?.append(line)
-            boundTail()
+            ring?.append(line)
             isDirty = true
-            scheduleWrite()
+            scheduleWriteIfNeeded()
         }
     }
 
@@ -65,13 +107,29 @@ final class DebouncedLogTailPersistence: @unchecked Sendable {
         }
     }
 
+    /// Termination-only barrier. Normal lifecycle paths use async `flush()`.
+    @discardableResult
+    func flushSync(timeout: TimeInterval = 1) -> Bool {
+        if DispatchQueue.getSpecific(key: queueKey) != nil {
+            flushOnQueue()
+            return true
+        }
+        let semaphore = DispatchSemaphore(value: 0)
+        queue.async { [self] in
+            flushOnQueue()
+            semaphore.signal()
+        }
+        return semaphore.wait(timeout: .now() + max(0, timeout)) == .success
+    }
+
     func clear() async {
         await withCheckedContinuation { continuation in
             queue.async { [self] in
                 revision &+= 1
                 pendingWork?.cancel()
                 pendingWork = nil
-                tail = []
+                loadIfNeeded()
+                ring?.removeAll()
                 isDirty = true
                 persistCurrentTail()
                 continuation.resume()
@@ -83,6 +141,15 @@ final class DebouncedLogTailPersistence: @unchecked Sendable {
     func writeCountForTesting() async -> Int {
         await withCheckedContinuation { continuation in
             queue.async { continuation.resume(returning: self.debugWrites) }
+        }
+    }
+
+    func tailForTesting() async -> [String] {
+        await withCheckedContinuation { continuation in
+            queue.async { [self] in
+                loadIfNeeded()
+                continuation.resume(returning: ring?.snapshot() ?? [])
+            }
         }
     }
     #endif
@@ -114,33 +181,15 @@ final class DebouncedLogTailPersistence: @unchecked Sendable {
         }
     }
 
-    private func flushOnQueue() {
-        loadIfNeeded()
-        revision &+= 1
-        pendingWork?.cancel()
-        pendingWork = nil
-        persistCurrentTail()
-    }
-
     private func loadIfNeeded() {
-        guard tail == nil else { return }
-        tail = loadPersisted()
-        boundTail()
+        guard ring == nil else { return }
+        ring = Ring(capacity: tailLimit, initial: loadPersisted())
     }
 
-    private func boundTail() {
-        guard let tail else { return }
-        if tailLimit == 0 {
-            self.tail = []
-        } else if tail.count > tailLimit {
-            self.tail = Array(tail.suffix(tailLimit))
-        }
-    }
-
-    private func scheduleWrite() {
+    private func scheduleWriteIfNeeded() {
+        guard pendingWork == nil else { return }
         revision &+= 1
         let scheduledRevision = revision
-        pendingWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.revision == scheduledRevision else { return }
             self.pendingWork = nil
@@ -150,9 +199,17 @@ final class DebouncedLogTailPersistence: @unchecked Sendable {
         queue.asyncAfter(deadline: .now() + debounceInterval, execute: work)
     }
 
+    private func flushOnQueue() {
+        loadIfNeeded()
+        revision &+= 1
+        pendingWork?.cancel()
+        pendingWork = nil
+        persistCurrentTail()
+    }
+
     private func persistCurrentTail() {
         guard isDirty else { return }
-        persist(tail ?? [])
+        persist(ring?.snapshot() ?? [])
         isDirty = false
         #if DEBUG
         debugWrites += 1
