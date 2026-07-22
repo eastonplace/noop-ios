@@ -86,8 +86,10 @@ final class LiveActivityController {
         let now = Date()
         // IMPORTANT: gate BEFORE evaluating the workout autoclosure. The prior code built calories and all
         // zone totals over the full growing sample array, then discovered ActivityKit was still inside its
-        // 2-second throttle and threw the work away.
-        if activity != nil, now.timeIntervalSince(lastPush) <= Self.pushInterval { return }
+        // 2-second throttle and threw the work away. A wall-clock rollback is treated as an expired window
+        // rather than suppressing updates until the old future timestamp is reached again.
+        let pushElapsed = now.timeIntervalSince(lastPush)
+        if activity != nil, pushElapsed >= 0, pushElapsed <= Self.pushInterval { return }
 
         if LiveActivityWorkoutProjectionPolicy.shouldRebuild(
             lastModeWasWorkout: lastModeWasWorkout,
@@ -122,8 +124,10 @@ final class LiveActivityController {
         let staleDate = now.addingTimeInterval(Self.staleAfter)
 
         if let activity {
+            let heartbeatElapsed = now.timeIntervalSince(lastPush)
             if state == lastContentState,
-               now.timeIntervalSince(lastPush) < Self.unchangedHeartbeatInterval {
+               heartbeatElapsed >= 0,
+               heartbeatElapsed < Self.unchangedHeartbeatInterval {
                 return
             }
             lastPush = now
