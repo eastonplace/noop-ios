@@ -65,6 +65,19 @@ enum RepositoryRefreshIntent: Equatable, Sendable, CustomStringConvertible {
     }
 }
 
+/// Dynamic refresh policy inherited by child `Task` values. Historical migration analysis sets `.suppress`
+/// while running a chunk. If `IntelligenceEngine` re-arms a forced pass in an unstructured child task, that
+/// child inherits the suppression and cannot accidentally restore the legacy 4,000-day repository refresh.
+enum RepositoryRefreshContext {
+    enum Disposition: Equatable, Sendable {
+        case legacyDefault
+        case suppress
+        case intent(RepositoryRefreshIntent)
+    }
+
+    @TaskLocal static var disposition: Disposition = .legacyDefault
+}
+
 /// Main-actor single-flight queue because `Repository` itself is MainActor-isolated. Requests that arrive
 /// before an operation starts merge into one pending batch. Requests arriving after a refresh starts queue a
 /// later pass because they may represent data committed after the running query took its SQLite snapshot.
@@ -113,7 +126,12 @@ final class RepositoryRefreshCoordinator {
         worker = Task { [weak self] in
             guard let self else { return }
             if coalescingDelay > .zero {
-                try? await Task.sleep(for: coalescingDelay)
+                do {
+                    try await Task.sleep(for: coalescingDelay)
+                } catch {
+                    // The coordinator owns the worker. A cancelled caller must not strand other waiters;
+                    // proceed to drain the already-accepted batch and deliver a deterministic result.
+                }
             } else {
                 await Task.yield()
             }
@@ -140,6 +158,7 @@ private enum RepositoryRefreshRegistry {
     private final class Entry {
         weak var repository: Repository?
         let coordinator: RepositoryRefreshCoordinator
+
         init(repository: Repository, coordinator: RepositoryRefreshCoordinator) {
             self.repository = repository
             self.coordinator = coordinator
@@ -168,5 +187,19 @@ extension Repository {
     @discardableResult
     func refresh(_ intent: RepositoryRefreshIntent) async -> Bool {
         await RepositoryRefreshRegistry.coordinator(for: self).request(intent)
+    }
+
+    /// Compatibility overload for legacy zero-argument calls. Normal callers retain the prior 4,000-day
+    /// behavior until they are explicitly migrated. Task-local policy can safely suppress or redirect only
+    /// the dynamic subtree that requested it, including an `IntelligenceEngine` child re-arm task.
+    func refresh() async {
+        switch RepositoryRefreshContext.disposition {
+        case .legacyDefault:
+            await refresh(days: 4_000)
+        case .suppress:
+            return
+        case .intent(let intent):
+            _ = await refresh(intent)
+        }
     }
 }
