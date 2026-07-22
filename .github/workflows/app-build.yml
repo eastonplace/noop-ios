@@ -1,5 +1,5 @@
-# TEMPORARY one-shot repair run for PR #9. The repair step restores this workflow to its prior
-# contents before committing, so the branch is left with the normal iPhone build/test workflow.
+# TEMPORARY one-shot repair run for PR #9. The Linux job restores the normal workflow before it
+# commits, so the branch is left with the standard iPhone build/test configuration.
 name: iOS build and tests
 
 on:
@@ -25,9 +25,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-and-test:
-    runs-on: macos-26
-    timeout-minutes: 60
+  apply-fixes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout PR branch
         uses: actions/checkout@v4
@@ -54,8 +54,6 @@ jobs:
                   raise SystemExit(f"{label}: expected {count} match(es), found {actual}")
               return value.replace(old, new)
 
-          # Migrate the remaining iPhone call sites away from deleted macOS names. Compatibility aliases
-          # remain in DeviceActions.swift for any low-risk legacy edge that this pass does not touch.
           path = 'Strand/Data/BehaviorStore.swift'
           value = read(path).replace('MacActionKind', 'DeviceActionKind')
           value = value.replace('Double-tap → Mac action', 'Double-tap action')
@@ -108,14 +106,12 @@ jobs:
           )
           write(path, value)
 
-          # The canonical endWorkout implementation now owns its narrow refresh directly.
           path = 'Strand/Screens/LiveWorkoutView.swift'
           value = replace_exact(read(path), 'model.endWorkoutOptimized()', 'model.endWorkout()', 1,
                                 'workout finish call')
           write(path, value)
           Path('Strand/App/AppModel+WorkoutFinish.swift').unlink()
 
-          # One initial load is owned by AppModel. A tab reselect only needs the coherent recent dashboard.
           path = 'StrandiOS/App/RootTabView.swift'
           value = replace_exact(read(path),
                                 '                Task { await repo.refresh() }',
@@ -133,21 +129,30 @@ jobs:
           git diff --check
           echo 'Remaining zero-argument repository refreshes:'
           rg -n 'repo\.refresh\(\)' Strand StrandiOS || true
-          echo 'Remaining macOS action identifiers:'
+          echo 'Remaining deleted macOS action identifiers:'
           rg -n '\b(MacActionKind|MacActions|runMacAction)\b' Strand StrandiOS || true
 
-      - name: Commit the source repair and remove temporary workflow files
+      - name: Commit source repair and restore normal workflow
         shell: bash
         run: |
           set -euo pipefail
-          # Restore the normal workflow from this temporary commit's parent and remove the abandoned helper.
-          git show HEAD^:.github/workflows/app-build.yml > .github/workflows/app-build.yml
+          git show 5b3898242d8c159ef5652eb2466637b918a0a48a:.github/workflows/app-build.yml > .github/workflows/app-build.yml
           git rm -f .github/workflows/pr9-autofix.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add .github/workflows/app-build.yml Strand StrandiOS Packages
           git commit -m 'fix(iOS): finish compile repair and typed refresh migration'
           git push origin HEAD:perf/ios-only-production-qa-2026-07-22
+
+  build-and-test:
+    needs: apply-fixes
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repaired PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: perf/ios-only-production-qa-2026-07-22
 
       - name: Install XcodeGen
         run: brew install xcodegen
