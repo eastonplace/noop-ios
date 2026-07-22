@@ -40,7 +40,9 @@ final class DebouncedLogTailPersistence: @unchecked Sendable {
     }
 
     deinit {
-        lifecycleObservers.forEach(NotificationCenter.default.removeObserver)
+        for observer in lifecycleObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
         pendingWork?.cancel()
     }
 
@@ -107,7 +109,7 @@ final class DebouncedLogTailPersistence: @unchecked Sendable {
                 queue: nil
             ) { [weak self] _ in
                 guard let self else { return }
-                queue.async { self.flushOnQueue() }
+                self.queue.async { self.flushOnQueue() }
             })
         }
     }
@@ -140,9 +142,9 @@ final class DebouncedLogTailPersistence: @unchecked Sendable {
         let scheduledRevision = revision
         pendingWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
-            guard let self, revision == scheduledRevision else { return }
-            pendingWork = nil
-            persistCurrentTail()
+            guard let self, self.revision == scheduledRevision else { return }
+            self.pendingWork = nil
+            self.persistCurrentTail()
         }
         pendingWork = work
         queue.asyncAfter(deadline: .now() + debounceInterval, execute: work)
