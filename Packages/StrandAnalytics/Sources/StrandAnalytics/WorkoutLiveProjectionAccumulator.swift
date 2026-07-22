@@ -4,7 +4,7 @@ import WhoopProtocol
 /// Incremental, exact-equivalent live projection for a growing workout HR stream. The active workout screen
 /// still receives every sample; this accumulator prevents Lock Screen/Dynamic Island calories and zone data
 /// from sorting and rescanning the complete workout every projection interval.
-public struct WorkoutLiveProjectionAccumulator: Sendable {
+public struct WorkoutLiveProjectionAccumulator {
     public struct Snapshot: Equatable, Sendable {
         public let caloriesKcal: Double
         public let zoneSeconds: [Double]
