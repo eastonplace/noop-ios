@@ -202,5 +202,74 @@ final class ActiveWorkoutPersistenceTests: XCTestCase {
         XCTAssertEqual(decoded.peakHr, 0)
         XCTAssertEqual(decoded.liveStrainState, .scored(storedValue: 0))
     }
+
+    func testBinaryJournalRoundTripsLargeSampleSetAtFixedWidth() {
+        let samples = (0..<10_000).map {
+            sample(1_700_000_000 + $0, 60 + ($0 % 140))
+        }
+        let encoded = ActiveWorkoutSampleJournalCodec.encode(samples)
+        XCTAssertEqual(
+            encoded.count,
+            samples.count * ActiveWorkoutSampleJournalCodec.bytesPerSample
+        )
+        XCTAssertEqual(ActiveWorkoutSampleJournalCodec.decode(encoded), samples)
+    }
+
+    func testJournalPlannerAppendsOnlyNewSuffixForCompatibleSession() {
+        let old = [sample(100, 100), sample(101, 110)]
+        let next = snapshot(
+            startSec: 90,
+            sport: "Run",
+            samples: old + [sample(102, 120), sample(103, 130)]
+        )
+        XCTAssertEqual(
+            ActiveWorkoutJournalPlanner.strategy(
+                persistedStartSec: 90,
+                persistedSport: "Run",
+                persistedCount: old.count,
+                persistedLastSample: old.last,
+                next: next
+            ),
+            .append(fromIndex: 2)
+        )
+    }
+
+    func testJournalPlannerRewritesOnReplacementShrinkOrPrefixCorrection() {
+        let original = [sample(100, 100), sample(101, 110)]
+        XCTAssertEqual(
+            ActiveWorkoutJournalPlanner.strategy(
+                persistedStartSec: 90,
+                persistedSport: "Run",
+                persistedCount: original.count,
+                persistedLastSample: original.last,
+                next: snapshot(startSec: 91, sport: "Run", samples: original)
+            ),
+            .rewrite
+        )
+        XCTAssertEqual(
+            ActiveWorkoutJournalPlanner.strategy(
+                persistedStartSec: 90,
+                persistedSport: "Run",
+                persistedCount: original.count,
+                persistedLastSample: original.last,
+                next: snapshot(startSec: 90, sport: "Run", samples: [original[0]])
+            ),
+            .rewrite
+        )
+        XCTAssertEqual(
+            ActiveWorkoutJournalPlanner.strategy(
+                persistedStartSec: 90,
+                persistedSport: "Run",
+                persistedCount: original.count,
+                persistedLastSample: original.last,
+                next: snapshot(
+                    startSec: 90,
+                    sport: "Run",
+                    samples: [original[0], sample(101, 125)]
+                )
+            ),
+            .rewrite
+        )
+    }
 }
 #endif
