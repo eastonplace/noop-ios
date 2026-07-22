@@ -1,4 +1,5 @@
 import Foundation
+import WhoopStore
 
 extension AppModel {
     /// Canonical user-initiated workout finish path. `endWorkout()` retains its existing scoring, persistence,
