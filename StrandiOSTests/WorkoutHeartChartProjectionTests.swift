@@ -74,4 +74,15 @@ final class WorkoutHeartChartProjectionTests: XCTestCase {
         )
         XCTAssertEqual(projection.values, [80])
     }
+
+    @MainActor
+    func testLifecycleIdentityChangesOnlyForStartEndOrReplacement() {
+        let first = AppModel.ActiveWorkout(start: .now, sport: "Run", maxHR: 190)
+        let replacement = AppModel.ActiveWorkout(start: .now, sport: "Ride", maxHR: 190)
+
+        let firstIdentity = WorkoutLifecycleProjection.identity(first)
+        XCTAssertEqual(firstIdentity, WorkoutLifecycleProjection.identity(first))
+        XCTAssertNotEqual(firstIdentity, WorkoutLifecycleProjection.identity(replacement))
+        XCTAssertNil(WorkoutLifecycleProjection.identity(nil))
+    }
 }
