@@ -146,6 +146,47 @@ final class UIUnificationTests: XCTestCase {
         XCTAssertTrue(generation.accepts(secondToken, request: disabled, current: disabled))
     }
 
+    func testBackgroundRequestRoundTripsExactEndpointAndConfiguration() throws {
+        let snapshot = SmartAlarmRuntimeSnapshot(
+            enabled: true,
+            mode: .inTheGreen,
+            minutes: 6 * 60 + 45,
+            weekdays: [2, 4, 6]
+        )
+        let endpoint = Date(timeIntervalSince1970: 1_800_000_000)
+        let request = SmartAlarmBackgroundRequest(endpoint: endpoint, snapshot: snapshot)
+        let decoded = try JSONDecoder().decode(
+            SmartAlarmBackgroundRequest.self,
+            from: JSONEncoder().encode(request)
+        )
+
+        XCTAssertEqual(decoded, request)
+        XCTAssertEqual(decoded.endpoint, endpoint)
+        XCTAssertEqual(decoded.snapshot, snapshot)
+    }
+
+    func testFollowingBackgroundOccurrenceStartsAfterConsumedEndpoint() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let monday = try XCTUnwrap(calendar.date(from: DateComponents(
+            year: 2026, month: 7, day: 27, hour: 7
+        )))
+        let nextMonday = try XCTUnwrap(SmartAlarmSchedule.nextDate(
+            minutes: 7 * 60,
+            weekdays: [2],
+            after: monday.addingTimeInterval(1),
+            calendar: calendar
+        ))
+        XCTAssertEqual(
+            calendar.dateComponents(
+                [.day],
+                from: calendar.startOfDay(for: monday),
+                to: calendar.startOfDay(for: nextMonday)
+            ).day,
+            7
+        )
+    }
+
     func testWakeNudgeCannotCrossRecurringOccurrenceMidnight() {
         let monday0002 = 1_440 + 2
         XCTAssertNil(SleepAlarmEditorSupport.sameOccurrenceMinute(
