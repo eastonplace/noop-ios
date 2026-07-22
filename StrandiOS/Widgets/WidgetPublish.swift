@@ -161,15 +161,26 @@ extension WidgetSnapshot {
         guard hr.count >= DaytimeStress.minHourHRSamples else { return (nil, nil) }
         let rr = (try? await model.repo.storeHandle()?.rrIntervals(
             deviceId: model.repo.deviceId, from: start, to: end, limit: 200_000)) ?? []
-        let result = DaytimeStress.analyze(
-            hr: hr, rr: rr, tzOffsetSeconds: TimeZone.current.secondsFromGMT(for: now))
-        var hours = [Double?](repeating: nil, count: 24)
-        for point in result.hours where (0..<24).contains(point.hour) { hours[point.hour] = point.level }
-        let summary: String?
-        if result.sustainedHigh { summary = "Sustained high" }
-        else if let mean = result.dayMean { summary = mean >= 2 ? "High" : mean >= 1 ? "Moderate" : "Low" }
-        else { summary = nil }
-        return (hours, summary)
+        let tzOffset = TimeZone.current.secondsFromGMT(for: now)
+
+        // DaytimeStress fingerprints and then buckets as many as 200k HR + 200k R-R rows. `publish` is
+        // MainActor-isolated because it reads app state and writes WidgetKit, but the pure numeric scan does
+        // not belong on the UI executor. Return only the tiny widget projection to the main actor.
+        return await Task.detached(priority: .utility) {
+            let result = DaytimeStress.analyze(hr: hr, rr: rr, tzOffsetSeconds: tzOffset)
+            var hours = [Double?](repeating: nil, count: 24)
+            for point in result.hours where (0..<24).contains(point.hour) {
+                hours[point.hour] = point.level
+            }
+            let summary: String?
+            if result.sustainedHigh { summary = "Sustained high" }
+            else if let mean = result.dayMean {
+                summary = mean >= 2 ? "High" : mean >= 1 ? "Moderate" : "Low"
+            } else {
+                summary = nil
+            }
+            return (hours, summary)
+        }.value
     }
 
     /// #114/#169: HR is the ONE high-frequency widget-publish trigger — `model.bpm` moves every few
