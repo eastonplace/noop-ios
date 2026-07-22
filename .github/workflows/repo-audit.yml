@@ -1,0 +1,72 @@
+name: One-shot iOS-only repository audit
+
+on:
+  push:
+    branches:
+      - perf/ios-only-production-qa-2026-07-22
+    paths:
+      - .github/workflows/repo-audit.yml
+
+permissions:
+  contents: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate repository and platform-reference audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p docs
+          find . -path './.git' -prune -o -type f -print \
+            | sed 's#^./##' \
+            | sort > docs/IOS_ONLY_REPO_FILE_MANIFEST.txt
+
+          {
+            echo '# iOS-only platform reference audit'
+            echo
+            echo 'Generated from commit:' "$(git rev-parse HEAD)"
+            echo
+            echo '## References requiring review'
+            rg -n --hidden \
+              --glob '!.git/**' \
+              --glob '!docs/IOS_ONLY_PLATFORM_REFERENCE_AUDIT.txt' \
+              '(WatchSessionBridge|WatchRecovery|WatchScoreSnapshot|AppleWatch|watchOS|NOOPWatch|os\(macOS\)|canImport\(AppKit\)|import AppKit|NSApplication|MenuBarExtra|android/|Android)' \
+              . || true
+          } > docs/IOS_ONLY_PLATFORM_REFERENCE_AUDIT.txt
+
+          {
+            echo '# Portable QA'
+            echo
+            echo 'Swift:'
+            swift --version
+            echo
+            for package in WhoopProtocol WhoopStore OuraProtocol StrandAnalytics StrandImport; do
+              echo "## $package"
+              if timeout 8m swift test --package-path "Packages/$package"; then
+                echo 'RESULT: PASS'
+              else
+                echo 'RESULT: FAIL'
+              fi
+              echo
+            done
+          } > docs/IOS_ONLY_PORTABLE_QA.txt 2>&1
+
+      - name: Commit audit evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/IOS_ONLY_REPO_FILE_MANIFEST.txt \
+                  docs/IOS_ONLY_PLATFORM_REFERENCE_AUDIT.txt \
+                  docs/IOS_ONLY_PORTABLE_QA.txt
+          git diff --cached --quiet && exit 0
+          git commit -m 'qa: capture iOS-only repository audit evidence'
+          git push
