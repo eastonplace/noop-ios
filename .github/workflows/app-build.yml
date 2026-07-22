@@ -1,8 +1,8 @@
 # iPhone-only compile and test verification.
 #
-# The repository intentionally targets iOS only. This workflow generates the Xcode project from
-# project.yml, builds the app and WidgetKit/Live Activity extension, and runs the complete iOS test target.
-# Signing is disabled; no credentials or release artifacts are used.
+# The repository intentionally targets iOS only. This workflow performs a cheap source-contract audit,
+# generates the Xcode project, builds the app and WidgetKit/Live Activity extension, and runs the complete
+# iOS test target. Signing is disabled; no credentials or release artifacts are used.
 name: iOS build and tests
 
 on:
@@ -14,6 +14,7 @@ on:
       - 'StrandiOSWidgets/**'
       - 'StrandiOSTests/**'
       - 'Packages/**'
+      - 'Tools/qa/**'
       - 'project.yml'
       - '.github/workflows/app-build.yml'
   push:
@@ -25,6 +26,7 @@ on:
       - 'StrandiOSWidgets/**'
       - 'StrandiOSTests/**'
       - 'Packages/**'
+      - 'Tools/qa/**'
       - 'project.yml'
       - '.github/workflows/app-build.yml'
   workflow_dispatch:
@@ -40,6 +42,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Audit iPhone source contracts
+        run: python3 Tools/qa/source_contract_audit.py
 
       - name: Install XcodeGen
         run: brew install xcodegen
