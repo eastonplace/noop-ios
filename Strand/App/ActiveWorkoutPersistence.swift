@@ -100,22 +100,22 @@ enum ActiveWorkoutPersistence {
     }
 
     /// Production path. Normal foreground snapshots are latest-wins and encoded off MainActor. The first
-    /// snapshot is synchronous so a kill immediately after Start cannot erase the session. When iOS is
-    /// inactive/backgrounded, the force-flush call also takes the synchronous path before suspension.
+    /// snapshot is synchronous so a kill immediately after Start cannot erase the session. A lifecycle
+    /// owner can force an ordered synchronous flush before suspension on either Apple platform.
     @MainActor
-    static func store(_ snapshot: Snapshot) {
+    static func store(_ snapshot: Snapshot, synchronously: Bool = false) {
         let defaults = UserDefaults.standard
         let isFirstSnapshot = !productionSnapshotEstablished
         if isFirstSnapshot { productionSnapshotEstablished = true }
         #if os(iOS) && canImport(UIKit)
-        let requiresImmediateFlush = UIApplication.shared.applicationState != .active
+        let applicationRequiresImmediateFlush = UIApplication.shared.applicationState != .active
         #else
-        let requiresImmediateFlush = false
+        let applicationRequiresImmediateFlush = false
         #endif
         writer.store(
             snapshot,
             into: defaults,
-            synchronously: isFirstSnapshot || requiresImmediateFlush
+            synchronously: synchronously || isFirstSnapshot || applicationRequiresImmediateFlush
         )
     }
 
