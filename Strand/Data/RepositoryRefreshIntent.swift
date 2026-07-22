@@ -91,7 +91,7 @@ final class RepositoryRefreshCoordinator {
     func request(_ intent: RepositoryRefreshIntent) async -> Bool {
         await withCheckedContinuation { continuation in
             waiters.append(continuation)
-            pending = pending.map { .merged($0, intent) } ?? intent
+            pending = pending.map { RepositoryRefreshIntent.merged($0, intent) } ?? intent
             startIfNeeded()
         }
     }
@@ -115,7 +115,8 @@ final class RepositoryRefreshCoordinator {
             #if DEBUG
             executed.append(intent)
             #endif
-            queueSucceeded = queueSucceeded && (await executor(intent))
+            let succeeded = await executor(intent)
+            queueSucceeded = queueSucceeded && succeeded
         }
         worker = nil
         let completed = waiters
