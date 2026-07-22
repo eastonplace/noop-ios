@@ -2,6 +2,8 @@ import Foundation
 import WhoopProtocol
 #if os(iOS) && canImport(UIKit)
 import UIKit
+#elseif os(macOS) && canImport(AppKit)
+import AppKit
 #endif
 
 enum LiveStrainState: Codable, Equatable {
@@ -109,6 +111,8 @@ enum ActiveWorkoutPersistence {
         if isFirstSnapshot { productionSnapshotEstablished = true }
         #if os(iOS) && canImport(UIKit)
         let applicationRequiresImmediateFlush = UIApplication.shared.applicationState != .active
+        #elseif os(macOS) && canImport(AppKit)
+        let applicationRequiresImmediateFlush = !NSApplication.shared.isActive
         #else
         let applicationRequiresImmediateFlush = false
         #endif
