@@ -33,8 +33,6 @@ struct StrandiOSApp: App {
         ))
     }
 
-    /// Only the bounded ActivityKit projection reads this cache. Active-workout SwiftUI continues to consume
-    /// every sample from `AppModel.activeWorkout` without any added delay or throttle.
     private var workoutActivityState: WorkoutLiveActivityState? {
         guard let workout = model.activeWorkout else { return nil }
         return workoutProjection.state(workout: workout, profile: model.profile)
@@ -168,7 +166,7 @@ private struct iOSRootView: View {
             if !onboarded && !demoBypass {
                 OnboardingWizard(onFinished: {
                     onboarded = true
-                    lastSeenChangelogVersion = AppChangelog.currentVersion
+                    lastSeenChangelog = AppChangelog.currentVersion
                 })
                 .transition(.opacity)
                 .zIndex(1)
