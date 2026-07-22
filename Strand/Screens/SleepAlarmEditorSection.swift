@@ -4,7 +4,8 @@ import StrandAnalytics
 import WhoopStore
 
 /// Shared presentation and binding seams for every in-app alarm editor. The stored
-/// source of truth remains `BehaviorStore`; this type owns no parallel alarm state.
+/// source of truth for enabled/time/weekdays remains `BehaviorStore`; adaptive mode and
+/// transactional side effects are owned by the app-root alarm runtime.
 @MainActor
 enum SleepAlarmEditorSupport {
     struct SchedulePresentation {
@@ -42,25 +43,6 @@ enum SleepAlarmEditorSupport {
         )
     }
 
-    static func deliveryStatus(model: AppModel, behavior: BehaviorStore) -> String {
-        guard behavior.smartAlarmEnabled else { return String(localized: "Off") }
-        SmartAlarmEvidenceStore.refreshCorrelation()
-        let evidence = SmartAlarmEvidenceStore.latest
-        if evidence?.strapReportedArmedAt != nil { return String(localized: "Armed on strap") }
-        if model.whoop5Detected && !PuffinExperiment.isEnabled {
-            return String(localized: "Not armed · Experimental required")
-        }
-        if !model.live.connected || evidence?.actuation == .queuedForReconnect {
-            return String(localized: "Saved · waiting for strap")
-        }
-        if evidence?.actuation == .experimentalDisabled {
-            return String(localized: "Not armed · Experimental required")
-        }
-        if model.whoop5Detected {
-            return String(localized: "Experimental arm sent · unconfirmed")
-        }
-        return String(localized: "Arming…")
-    }
     static func wakeModes(recoveryHistoryCount: Int) -> [SleepAlarmWakeMode] {
         let greenAvailability: SleepAlarmWakeMode.Availability =
             recoveryHistoryCount >= RecoveryForecaster.minBaselineNights
@@ -100,14 +82,24 @@ enum SleepAlarmEditorSupport {
         ]
     }
 
-    static func modeBinding(_ behavior: BehaviorStore) -> Binding<String> {
+    static func modeBinding(_ modeStore: SmartAlarmAdaptiveModeStore) -> Binding<String> {
         Binding(
-            get: { behavior.smartAlarmMode.rawValue },
+            get: { modeStore.mode.rawValue },
             set: { raw in
                 guard let mode = SmartAlarmEvaluator.Mode(rawValue: raw) else { return }
-                behavior.smartAlarmMode = mode
+                modeStore.mode = mode
             }
         )
+    }
+
+    /// The compact +/- editor is a clock-time editor for one recurring weekday occurrence, not a date
+    /// editor. Reject a nudge that crosses that occurrence's midnight; otherwise modulo persistence would
+    /// turn Monday 00:02 minus five minutes into Monday 23:57 (almost a day later).
+    nonisolated static func sameOccurrenceMinute(current: Int, proposed: Int) -> Int? {
+        guard current >= 0 else { return nil }
+        let dayStart = (current / 1_440) * 1_440
+        guard proposed >= dayStart, proposed < dayStart + 1_440 else { return nil }
+        return proposed
     }
 
     static func wakeBinding(_ behavior: BehaviorStore, now: Date) -> Binding<Int> {
@@ -117,7 +109,12 @@ enum SleepAlarmEditorSupport {
                     ?? behavior.smartAlarmMinutes
             },
             set: { continuousMinutes in
-                behavior.smartAlarmMinutes = ((continuousMinutes % 1_440) + 1_440) % 1_440
+                let current = schedule(at: now, behavior: behavior)?.continuousMinutes
+                    ?? behavior.smartAlarmMinutes
+                guard let accepted = sameOccurrenceMinute(
+                    current: current, proposed: continuousMinutes
+                ) else { return }
+                behavior.smartAlarmMinutes = ((accepted % 1_440) + 1_440) % 1_440
             }
         )
     }
@@ -125,12 +122,13 @@ enum SleepAlarmEditorSupport {
 
 /// The fully editable alarm module embedded on Sleep. It uses the exact same
 /// `BehaviorStore` fields as Alarms and delegates actuation to the single app-root
-/// reconciler, so mounting both tabs cannot double-arm the strap.
+/// runtime, so mounting both tabs cannot double-arm the strap.
 struct SleepAlarmEditorSection: View {
-    @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var repo: Repository
     @EnvironmentObject private var behavior: BehaviorStore
     @EnvironmentObject private var intelligence: IntelligenceEngine
+    @EnvironmentObject private var alarmMode: SmartAlarmAdaptiveModeStore
+    @EnvironmentObject private var alarmRuntime: SmartAlarmRuntimeController
 
     @State private var needPlan: CanonicalSleepNeedPlan?
 
@@ -177,6 +175,7 @@ struct SleepAlarmEditorSection: View {
         }
         .task(id: repo.refreshSeq) {
             await reloadCanonicalNeed()
+            alarmRuntime.refreshStatus()
         }
     }
 
@@ -185,7 +184,7 @@ struct SleepAlarmEditorSection: View {
         let components = Calendar.current.dateComponents([.hour, .minute], from: date)
         let nowMinutes = (components.hour ?? 0) * 60 + (components.minute ?? 0)
         let plan = displayedPlan
-        let selected = wakeModes.first { $0.id == behavior.smartAlarmMode.rawValue }
+        let selected = wakeModes.first { $0.id == alarmMode.mode.rawValue }
         let windowMinutes = selected?.windowMinutes ?? 0
         let schedule = SleepAlarmEditorSupport.schedule(at: date, behavior: behavior)
         let wake = schedule?.continuousMinutes ?? SleepAlarmTime.nextOccurrence(
@@ -200,12 +199,12 @@ struct SleepAlarmEditorSection: View {
             SleepAlarmModuleCard(
                 armed: $behavior.smartAlarmEnabled,
                 modes: wakeModes,
-                selectedModeId: SleepAlarmEditorSupport.modeBinding(behavior),
+                selectedModeId: SleepAlarmEditorSupport.modeBinding(alarmMode),
                 wakeMinutes: SleepAlarmEditorSupport.wakeBinding(behavior, now: date),
                 nowMinutes: nowMinutes,
                 needMinutes: plan.minutes,
                 wakeDayLabel: schedule?.dayLabel ?? String(localized: "No enabled day"),
-                deliveryStatus: SleepAlarmEditorSupport.deliveryStatus(model: model, behavior: behavior),
+                deliveryStatus: alarmRuntime.deliveryStatus,
                 showsBedtimePlan: schedule?.isUpcomingSleepPeriod == true
             )
 
