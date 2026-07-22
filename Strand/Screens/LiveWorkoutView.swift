@@ -183,8 +183,9 @@ private struct LiveWorkoutControlRow: View {
                 .strokeBorder(StrandPalette.cardBorder, lineWidth: 1))
 
             let saving = model.workoutFinishState == .saving
+            let title: LocalizedStringKey = saving ? "Saving…" : "Finish"
             NoopButton(
-                saving ? "Saving…" : "Finish",
+                title,
                 systemImage: saving ? "hourglass" : "flag.checkered",
                 kind: .destructive
             ) {
@@ -340,7 +341,7 @@ private struct PaperLiveWorkoutStatsGrid: View {
             HStack(alignment: .firstTextBaseline, spacing: 3) {
                 Text(value)
                     .font(StrandFont.metricValue)
-                    .foregroundStyle(tint)
+                    .foregroundStyle(StrandPalette.textPrimary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.65)
                 if let unit {
