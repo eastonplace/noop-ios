@@ -140,24 +140,13 @@ private struct iOSRootView: View {
     @State private var showWhatsNew = false
 
     var body: some View {
-        #if DEBUG
-        if let demo = DemoScreens.requested {
-            return AnyView(
-                NavigationStack {
-                    demo
-                        .background(StrandPalette.appCanvas.ignoresSafeArea())
-                        .navigationBarTitleDisplayMode(.inline)
-                }
-            )
-        }
-        #endif
-        return AnyView(shell)
+        shell
     }
 
     private var shell: some View {
         ZStack {
             RootTabView()
-            if !onboarded && !demoBypass {
+            if !onboarded {
                 OnboardingWizard(onFinished: {
                     onboarded = true
                     lastSeenChangelog = AppChangelog.currentVersion
@@ -165,7 +154,7 @@ private struct iOSRootView: View {
                 .transition(.opacity)
                 .zIndex(1)
             }
-            if acceptedTerms != Terms.currentVersion && !demoBypass {
+            if acceptedTerms != Terms.currentVersion {
                 TermsGateView(onAccept: { acceptedTerms = Terms.currentVersion })
                     .transition(.opacity)
                     .zIndex(2)
@@ -186,16 +175,7 @@ private struct iOSRootView: View {
         .onChange(of: acceptedTerms) { _, _ in showWhatsNewIfDue() }
     }
 
-    private var demoBypass: Bool {
-        #if DEBUG
-        return CommandLine.arguments.contains("--demo-seed")
-        #else
-        return false
-        #endif
-    }
-
     private func showWhatsNewIfDue() {
-        if demoBypass { return }
         if onboarded && acceptedTerms == Terms.currentVersion
             && lastSeenChangelog != AppChangelog.currentVersion
         {
