@@ -1,12 +1,9 @@
-# Compile-only verification for the macOS and iOS app targets.
+# iPhone-only compile and test verification.
 #
-# Why this exists: the iOS app is a build-from-source community port (no App Store —
-# NOOP stays anonymous), so it isn't exercised on a device by the maintainer. This job
-# compiles both app targets on every relevant change so a shared-code change can't
-# silently break iOS (or regress macOS). It is anonymity-safe: CODE_SIGNING_ALLOWED=NO,
-# no secrets, no signing identity, no artifacts uploaded — it only checks that it builds.
-# (The shipped macOS .app is still produced and anonymized by hand; this is a compile gate.)
-name: App build (macOS + iOS)
+# The repository intentionally targets iOS only. This workflow generates the Xcode project from
+# project.yml, builds the app and WidgetKit/Live Activity extension, and runs the complete iOS test target.
+# Signing is disabled; no credentials or release artifacts are used.
+name: iOS build and tests
 
 on:
   pull_request:
@@ -16,6 +13,7 @@ on:
       - 'StrandiOS/**'
       - 'StrandiOSShared/**'
       - 'StrandiOSWidgets/**'
+      - 'StrandiOSTests/**'
       - 'Packages/**'
       - 'project.yml'
       - '.github/workflows/app-build.yml'
@@ -26,36 +24,20 @@ on:
       - 'StrandiOS/**'
       - 'StrandiOSShared/**'
       - 'StrandiOSWidgets/**'
+      - 'StrandiOSTests/**'
       - 'Packages/**'
       - 'project.yml'
       - '.github/workflows/app-build.yml'
   workflow_dispatch:
 
 concurrency:
-  group: app-build-${{ github.ref }}
+  group: ios-build-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build:
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # #51: the macOS build must be universal — 'platform=macOS' on an Apple-Silicon runner thins to
-          # arm64-only. Use the generic destination + explicit ARCHS so this CI verify catches an x86_64
-          # break at PR time (matches the release/testing workflows).
-          - scheme: Strand
-            destination: 'generic/platform=macOS'
-            extra_args: 'ARCHS="x86_64 arm64" ONLY_ACTIVE_ARCH=NO'
-            runner: macos-15
-          # iOS needs the iOS 26 SDK (Liquid Glass's `glassEffect`, landed 2026-07-07) which macos-15's
-          # default Xcode doesn't ship — matches the runner fork-testing-build.yml / fork-release.yml
-          # already use for their NOOPiOS legs. macos-15 stays correct for the macOS/Strand leg above.
-          - scheme: NOOPiOS
-            destination: 'generic/platform=iOS Simulator'
-            extra_args: ''
-            runner: macos-26
+  build-and-test:
+    runs-on: macos-26
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -66,25 +48,45 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
-      - name: Build ${{ matrix.scheme }}
+      - name: Build iPhone app and extensions
         run: >-
-          xcodebuild -scheme '${{ matrix.scheme }}' -configuration Debug
-          -destination '${{ matrix.destination }}' ${{ matrix.extra_args }}
+          xcodebuild -scheme NOOPiOS -configuration Debug
+          -destination 'generic/platform=iOS Simulator'
           CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
           build
 
-  # Fork-only housekeeping: on-demand app-build runs are dispatched from disposable `ci/<name>` branches
-  # (a PR's content pushed somewhere the workflow can run). Once the build finishes (pass OR fail —
-  # always()), delete that branch so GitHub's "Compare & pull request" banner doesn't linger after each
-  # run. Guarded to ci/-prefixed BRANCH refs only — a dispatch from main or any real branch is untouched.
-  cleanup:
-    needs: [build]
-    if: ${{ always() && github.ref_type == 'branch' && startsWith(github.ref_name, 'ci/') }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Delete the disposable CI branch
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh api -X DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/${GITHUB_REF_NAME}" || true
+      - name: Select an available iPhone simulator
+        id: simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          udid=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          data = json.load(sys.stdin)
+          for runtime, devices in data.get("devices", {}).items():
+              if "iOS" not in runtime:
+                  continue
+              for device in devices:
+                  if device.get("isAvailable") and device.get("name", "").startswith("iPhone"):
+                      print(device["udid"])
+                      raise SystemExit(0)
+          raise SystemExit("No available iPhone simulator found")
+          ')
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+
+      - name: Run NOOPiOSTests
+        run: >-
+          xcodebuild -scheme NOOPiOS -configuration Debug
+          -destination 'platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}'
+          CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+          test
+
+      - name: Run Swift package tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          for package in WhoopProtocol WhoopStore OuraProtocol StrandAnalytics StrandImport StrandDesign; do
+            echo "::group::$package"
+            swift test --package-path "Packages/$package"
+            echo "::endgroup::"
+          done
