@@ -1,8 +1,17 @@
 #if os(iOS)
 import SwiftUI
+import Combine
 import StrandDesign
 import StrandAnalytics
 import UserNotifications
+
+/// A manual workout republishes the same reference after every accepted HR sample. External surfaces need
+/// immediate start/end transitions, not another lifecycle callback for every mutation of that same session.
+enum WorkoutLifecycleProjection {
+    static func identity(_ workout: AppModel.ActiveWorkout?) -> ObjectIdentifier? {
+        workout.map(ObjectIdentifier.init)
+    }
+}
 
 @main
 struct StrandiOSApp: App {
@@ -82,8 +91,13 @@ struct StrandiOSApp: App {
                 .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                 .onReceive(model.live.$heartRate) { _ in driveLiveActivity() }
                 .onReceive(model.live.$connected) { driveLiveActivity(connected: $0) }
-                .onReceive(model.$activeWorkout.dropFirst()) { workout in
-                    if workout == nil { workoutProjection.reset() }
+                .onReceive(
+                    model.$activeWorkout
+                        .map(WorkoutLifecycleProjection.identity)
+                        .removeDuplicates()
+                        .dropFirst()
+                ) { identity in
+                    if identity == nil { workoutProjection.reset() }
                     driveLiveActivity()
                     WidgetSnapshot.publishLive(from: model)
                 }
