@@ -28,6 +28,13 @@ final class SleepAlarmComponentsTests: XCTestCase {
         XCTAssertEqual(SleepAlarmTime.clock(24 * 60 + 6 * 60 + 40), "6:40 AM")
     }
 
+    func testClockHonorsTwentyFourHourLocale() {
+        let rendered = SleepAlarmTime.clock(18 * 60 + 40, locale: Locale(identifier: "en_GB"))
+        XCTAssertFalse(rendered.localizedCaseInsensitiveContains("AM"))
+        XCTAssertFalse(rendered.localizedCaseInsensitiveContains("PM"))
+        XCTAssertTrue(rendered.contains("18"))
+    }
+
     func testDurationPhrasingNeverGoesNegative() {
         XCTAssertEqual(SleepAlarmTime.duration(0), "0 m")
         XCTAssertEqual(SleepAlarmTime.duration(45), "45 m")

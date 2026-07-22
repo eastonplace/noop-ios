@@ -27,11 +27,16 @@ struct TrendSummaryPresentation {
     let delta: Double?
     let spark: [TrendPoint]
     let deltaTone: TrendSummaryDeltaTone
+    let currentCount: Int
+    let previousCount: Int
+    let expectedCount: Int
+    let comparisonIsReliable: Bool
 
     init(
         series: [TrendPoint],
         previousSeries: [TrendPoint],
-        goodDirection: TrendSummaryGoodDirection
+        goodDirection: TrendSummaryGoodDirection,
+        expectedCount: Int
     ) {
         source = series
         latest = series.last?.value
@@ -39,8 +44,13 @@ struct TrendSummaryPresentation {
         let previousMean = Self.mean(previousSeries)
         delta = currentMean.flatMap { current in previousMean.map { current - $0 } }
         spark = Self.sample(series, maximumCount: 30)
+        currentCount = series.count
+        previousCount = previousSeries.count
+        self.expectedCount = max(1, expectedCount)
+        let minimum = max(3, Int(ceil(Double(self.expectedCount) * 0.2)))
+        comparisonIsReliable = series.count >= minimum && previousSeries.count >= minimum
 
-        guard let delta, abs(delta) > 0.000_000_1 else {
+        guard comparisonIsReliable, let delta, abs(delta) > 0.000_000_1 else {
             deltaTone = .neutral
             return
         }
@@ -138,6 +148,13 @@ private enum ProductionTrendMetric: String, CaseIterable, Identifiable {
         case .strain, .steps, .stress: ""
         }
     }
+    var chartDirection: TrendPanelChart.Direction {
+        switch self {
+        case .recovery, .sleepPerformance, .hrv, .spo2: .higherIsBetter
+        case .restingHR, .stress: .lowerIsBetter
+        case .strain, .sleepDuration, .respiratory, .skinTemp, .steps, .calories: .contextual
+        }
+    }
     func format(_ value: Double) -> String {
         switch self {
         case .strain, .sleepDuration, .respiratory, .skinTemp, .stress:
@@ -209,7 +226,7 @@ struct TrendsView: View {
     }
 
     private var scaffold: some View {
-        ScreenScaffold(title: LocalizedStringKey(weekOffsetLabel), subtitle: LocalizedStringKey(paperWeekRangeLabel),
+        ScreenScaffold(title: "Trends", subtitle: "Selected ranges and weekly reviews.",
                        // PERF (scroll): lazy column — byte-identical layout (LazyVStack == eager VStack
                        // alignment/spacing/header). The content is one inner eager VStack, so the staggered
                        // section reveal is unchanged; this only defers building that stack until it scrolls in.
@@ -231,7 +248,6 @@ struct TrendsView: View {
                     : "Loading your history…")
             } else {
                 VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
-                    paperScoreTiles
                     paperScoresOverTime
                     paperWeekReview
                 }
@@ -260,7 +276,8 @@ struct TrendsView: View {
     // MARK: - Paper Trends (S2)
 
     private var paperDigest: WeeklyDigest {
-        WeeklyDigestSource.digest(from: repo.canonicalDays, anchorDay: weekAnchorDay)
+        WeeklyDigestSource.digest(from: repo.canonicalDays, anchorDay: weekAnchorDay,
+                                  sleepByDay: sleepPerfByDay)
     }
 
     private var paperWeekDays: [DailyMetric] {
@@ -356,6 +373,12 @@ struct TrendsView: View {
         let spread = max(selectedTrendSpread, 0.5)
         let typical = (baseline - spread)...(baseline + spread)
         return VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Selected range").strandOverline()
+                Text("Last \(selectedRange.days) calendar days through today")
+                    .font(StrandFont.micro)
+                    .foregroundStyle(StrandPalette.textSecondary)
+            }
             HStack(spacing: 7) {
                 metricDropdown
                 Spacer(minLength: 8)
@@ -374,10 +397,14 @@ struct TrendsView: View {
                     tint: selectedMetric.tint,
                     unit: selectedMetric.unit,
                     valueFormat: selectedMetric.format,
-                    range: selectedRange
+                    range: selectedRange,
+                    direction: selectedMetric.chartDirection
                 )
                 .id("\(selectedMetric.rawValue)-\(selectedRange.rawValue)")
                 if selectedRange != .week {
+                    Text("Calendar heat · latest 35 days")
+                        .font(StrandFont.micro)
+                        .foregroundStyle(StrandPalette.textSecondary)
                     TrendMonthHeat(days: calendarDays, tint: selectedMetric.tint,
                                    referenceDate: referenceDate,
                                    valueFormat: selectedMetric.format,
@@ -524,7 +551,8 @@ struct TrendsView: View {
         let presentation = TrendSummaryPresentation(
             series: points,
             previousSeries: previousPoints,
-            goodDirection: goodDirection
+            goodDirection: goodDirection,
+            expectedCount: selectedRange.days
         )
         let tone: TrendDeltaTone
         switch presentation.deltaTone {
@@ -532,7 +560,9 @@ struct TrendsView: View {
         case .negative: tone = .negative
         case .neutral: tone = .neutral
         }
-        let deltaText = presentation.delta.map { delta in
+        let deltaText = !presentation.comparisonIsReliable
+            ? "Early read · \(presentation.currentCount)/\(presentation.expectedCount) days"
+            : presentation.delta.map { delta in
             "\(delta >= 0 ? "+" : "−")\(format(abs(delta))) avg"
         } ?? "Need prior data"
         return TrendDeltaRow(
@@ -662,6 +692,8 @@ struct TrendsView: View {
                     .disabled(weekOffset >= 0)
                     .accessibilityLabel("Next week")
                 }
+
+                paperScoreTiles
 
                 if !paperMoverRows.isEmpty {
                     Text("Biggest changes").strandOverline()

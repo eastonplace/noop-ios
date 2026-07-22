@@ -57,6 +57,7 @@ public enum TrendRange: String, CaseIterable, Identifiable {
 // MARK: - TrendPanelChart
 
 public struct TrendPanelChart: View {
+    public enum Direction: Sendable { case higherIsBetter, lowerIsBetter, contextual }
     /// One fixed slot per calendar day. Nil values stay selectable as honest gaps.
     let days: [CalendarMetricDay]
     let dateDomain: ClosedRange<Date>
@@ -70,6 +71,7 @@ public struct TrendPanelChart: View {
     let unit: String
     var valueFormat: (Double) -> String = { "\(Int($0.rounded()))" }
     let range: TrendRange
+    let direction: Direction
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var revealed = false
@@ -109,8 +111,12 @@ public struct TrendPanelChart: View {
     }
 
     private var deltaColor: Color {
-        abs(delta) < 0.001 ? StrandPalette.textTertiary
-            : (delta >= 0 ? StrandPalette.statusPositive : StrandPalette.metricRose)
+        guard abs(delta) >= 0.001 else { return StrandPalette.textTertiary }
+        switch direction {
+        case .higherIsBetter: return delta >= 0 ? StrandPalette.statusPositive : StrandPalette.metricRose
+        case .lowerIsBetter: return delta <= 0 ? StrandPalette.statusPositive : StrandPalette.metricRose
+        case .contextual: return StrandPalette.textSecondary
+        }
     }
 
     private var header: some View {
@@ -162,6 +168,21 @@ public struct TrendPanelChart: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilitySummary)
+        .accessibilityValue(selectedDayAccessibilityValue)
+        .accessibilityAdjustableAction { direction in
+            guard !days.isEmpty else { return }
+            let current = scrubDay.flatMap { selected in
+                days.firstIndex(where: { calendar.isDate($0.date, inSameDayAs: selected.date) })
+            } ?? max(days.count - 1, 0)
+            switch direction {
+            case .increment:
+                scrubDay = days[min(current + 1, days.count - 1)]
+            case .decrement:
+                scrubDay = days[max(current - 1, 0)]
+            default:
+                break
+            }
+        }
     }
 
     @ViewBuilder
@@ -340,6 +361,12 @@ public struct TrendPanelChart: View {
         "Trend, latest \(valueFormat(last))\(unitSuffix), baseline \(valueFormat(baseline)), typical \(valueFormat(typical.lowerBound)) to \(valueFormat(typical.upperBound)), \(points.count) scored days and \(days.filter { $0.value == nil }.count) missing days shown from \(Self.axisFormatter.string(from: dateDomain.lowerBound)) to \(Self.axisFormatter.string(from: dateDomain.upperBound))."
     }
 
+    private var selectedDayAccessibilityValue: String {
+        guard let day = scrubDay ?? days.last else { return "No trend data" }
+        let value = day.value.map { "\(valueFormat($0))\(unitSuffix)" } ?? "No data"
+        return "\(TrendCalendar.relativeLabel(for: day.date, relativeTo: referenceDate, calendar: calendar)), \(value)"
+    }
+
     private static let axisFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = .current
@@ -499,7 +526,7 @@ public enum TrendCalendar {
     /// Maps a horizontal touch to one of seven Monday-first weekday slots.
     public static func weekdayIndex(atUnitPosition position: Double) -> Int {
         let fraction = min(max(position, 0), 1)
-        return Int((fraction * 6).rounded())
+        return min(Int(fraction * 7), 6)
     }
 
     /// Maps a normalized grid touch to its exact row-major calendar cell.
@@ -648,6 +675,15 @@ public struct TrendMonthHeat: View {
         .onAppear { revealed = true }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilitySummary)
+        .accessibilityValue(selectedAccessibilityValue)
+        .accessibilityAdjustableAction { direction in
+            let current = scrubIndex ?? max(days.count - 1, 0)
+            switch direction {
+            case .increment: scrubIndex = min(current + 1, max(days.count - 1, 0))
+            case .decrement: scrubIndex = max(current - 1, 0)
+            default: break
+            }
+        }
     }
 
     private var grid: some View {
@@ -760,6 +796,14 @@ public struct TrendMonthHeat: View {
         let missing = states.filter { $0 == .missing }.count
         let future = states.filter { $0 == .future }.count
         return "Last 35 calendar days, \(values.count) scored, \(missing) missing, \(future) upcoming, average \(valueFormat(average)), best \(valueFormat(best))."
+    }
+
+    private var selectedAccessibilityValue: String {
+        guard let index = scrubIndex, days.indices.contains(index) else {
+            return String(localized: "No day selected", bundle: .module)
+        }
+        let day = days[index]
+        return "\(TrendCalendar.relativeLabel(for: day.date, relativeTo: referenceDate, calendar: calendar)), \(day.value.map(valueFormat) ?? String(localized: "No data", bundle: .module))"
     }
 }
 
@@ -980,6 +1024,16 @@ public struct TrendWeekdayBars: View {
         .onAppear { revealed = true }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilitySummary)
+        .accessibilityValue(selectedWeekdayAccessibilityValue)
+        .accessibilityAdjustableAction { direction in
+            let current = scrubIndex ?? TrendCalendar.mondayFirstWeekdayIndex(
+                for: referenceDate, calendar: calendar)
+            switch direction {
+            case .increment: scrubIndex = min(current + 1, 6)
+            case .decrement: scrubIndex = max(current - 1, 0)
+            default: break
+            }
+        }
     }
 
     private func barColor(value: Double?, isCurrent: Bool, isSelected: Bool) -> Color {
@@ -998,5 +1052,12 @@ public struct TrendWeekdayBars: View {
             "\(name) \(value.map(valueFormat) ?? "missing")"
         }.joined(separator: ", ")
         return "Average by weekday. Today is \(Self.fullLabels[current]). \(summary). Touch and drag to inspect each weekday."
+    }
+
+    private var selectedWeekdayAccessibilityValue: String {
+        guard let index = scrubIndex else {
+            return String(localized: "No weekday selected", bundle: .module)
+        }
+        return "\(Self.fullLabels[index]), \(values[index].map(valueFormat) ?? String(localized: "No data", bundle: .module))"
     }
 }

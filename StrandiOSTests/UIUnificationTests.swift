@@ -1,6 +1,7 @@
 import XCTest
 import StrandDesign
 import StrandAnalytics
+import WhoopStore
 @testable import NOOP
 
 final class UIUnificationTests: XCTestCase {
@@ -15,7 +16,8 @@ final class UIUnificationTests: XCTestCase {
         let presentation = TrendSummaryPresentation(
             series: current,
             previousSeries: previous,
-            goodDirection: .higher
+            goodDirection: .higher,
+            expectedCount: 3
         )
 
         XCTAssertEqual(presentation.latest, 30)
@@ -28,7 +30,8 @@ final class UIUnificationTests: XCTestCase {
         let presentation = TrendSummaryPresentation(
             series: [TrendPoint(date: .now, value: 14)],
             previousSeries: [TrendPoint(date: .distantPast, value: 8)],
-            goodDirection: .neutral
+            goodDirection: .neutral,
+            expectedCount: 1
         )
 
         XCTAssertEqual(try XCTUnwrap(presentation.delta), 6, accuracy: 0.0001)
@@ -42,12 +45,39 @@ final class UIUnificationTests: XCTestCase {
         let presentation = TrendSummaryPresentation(
             series: points,
             previousSeries: [],
-            goodDirection: .higher
+            goodDirection: .higher,
+            expectedCount: 180
         )
 
         XCTAssertEqual(presentation.spark.count, 30)
         XCTAssertEqual(presentation.spark.first?.value, 0)
         XCTAssertEqual(presentation.spark.last?.value, 179)
+    }
+
+    func testWeeklyDigestUsesCanonicalSleepAuthority() throws {
+        let day = DailyMetric(
+            day: "2026-07-20", totalSleepMin: 300, efficiency: 0.7,
+            deepMin: 40, remMin: 50, lightMin: 210, disturbances: 10,
+            restingHr: 60, avgHrv: 40, recovery: 70, strain: 8,
+            exerciseCount: 0
+        )
+        let digest = WeeklyDigestSource.digest(
+            from: [day], anchorDay: day.day, sleepByDay: [day.day: 85]
+        )
+        let sleep = try XCTUnwrap(digest.summary(.rest))
+        XCTAssertEqual(sleep.thisWeek.mean, 85, accuracy: 0.0001)
+    }
+
+    func testSparseTrendComparisonStaysNeutral() {
+        let point = TrendPoint(date: .now, value: 80)
+        let presentation = TrendSummaryPresentation(
+            series: [point], previousSeries: [TrendPoint(date: .distantPast, value: 60)],
+            goodDirection: .higher, expectedCount: 90
+        )
+        XCTAssertFalse(presentation.comparisonIsReliable)
+        XCTAssertEqual(presentation.deltaTone, .neutral)
+        XCTAssertEqual(presentation.currentCount, 1)
+        XCTAssertEqual(presentation.previousCount, 1)
     }
 
     @MainActor
@@ -82,56 +112,21 @@ final class UIUnificationTests: XCTestCase {
         XCTAssertEqual(snapshot.weekdays, [1, 7])
     }
 
-    @MainActor
-    func testAlarmCoordinatorCoalescesRapidEnabledEditsToNewestSnapshot() async throws {
-        let coordinator = SmartAlarmCommandReconcileCoordinator(debounceNanoseconds: 5_000_000)
+    func testAlarmReconcileStateDebouncesEnabledEdits() {
+        var state = SmartAlarmCommandReconcileState()
         let first = SmartAlarmCommandSnapshot(
             enabled: true, modeRawValue: "exact", minutes: 420, weekdays: [2, 3]
         )
-        let newest = SmartAlarmCommandSnapshot(
-            enabled: true, modeRawValue: "exact", minutes: 435, weekdays: [2, 3, 4]
-        )
-        var applied: [SmartAlarmCommandSnapshot] = []
-
-        coordinator.schedule(first) { applied.append(first) }
-        coordinator.schedule(newest) { applied.append(newest) }
-        try await Task.sleep(nanoseconds: 30_000_000)
-
-        XCTAssertEqual(applied, [newest])
+        XCTAssertEqual(state.decision(for: first), .debounce)
+        state.markApplied(first)
+        XCTAssertEqual(state.decision(for: first), .ignore)
     }
 
-    @MainActor
-    func testAlarmCoordinatorAppliesDisableImmediatelyAndCancelsPendingEdit() async throws {
-        let coordinator = SmartAlarmCommandReconcileCoordinator(debounceNanoseconds: 50_000_000)
-        let pending = SmartAlarmCommandSnapshot(
-            enabled: true, modeRawValue: "exact", minutes: 420, weekdays: [2]
-        )
+    func testAlarmReconcileStateAppliesDisableImmediately() {
+        let state = SmartAlarmCommandReconcileState()
         let disabled = SmartAlarmCommandSnapshot(
             enabled: false, modeRawValue: "exact", minutes: 420, weekdays: [2]
         )
-        var applied: [SmartAlarmCommandSnapshot] = []
-
-        coordinator.schedule(pending) { applied.append(pending) }
-        coordinator.schedule(disabled) { applied.append(disabled) }
-        XCTAssertEqual(applied, [disabled])
-        try await Task.sleep(nanoseconds: 80_000_000)
-
-        XCTAssertEqual(applied, [disabled])
-    }
-
-    @MainActor
-    func testAlarmCoordinatorSuppressesDuplicateAppliedSnapshot() async throws {
-        let coordinator = SmartAlarmCommandReconcileCoordinator(debounceNanoseconds: 1_000_000)
-        let snapshot = SmartAlarmCommandSnapshot(
-            enabled: true, modeRawValue: "exact", minutes: 420, weekdays: [2]
-        )
-        var applyCount = 0
-
-        coordinator.schedule(snapshot) { applyCount += 1 }
-        try await Task.sleep(nanoseconds: 10_000_000)
-        coordinator.schedule(snapshot) { applyCount += 1 }
-        try await Task.sleep(nanoseconds: 10_000_000)
-
-        XCTAssertEqual(applyCount, 1)
+        XCTAssertEqual(state.decision(for: disabled), .applyImmediately)
     }
 }

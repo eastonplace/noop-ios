@@ -46,6 +46,9 @@ jobs:
       - name: Audit iPhone source contracts
         run: python3 Tools/qa/source_contract_audit.py
 
+      - name: Audit unified Trends, alarm, Settings, and More contracts
+        run: python3 Tools/qa/ui_unification_contract_audit.py
+
       - name: Install XcodeGen
         run: brew install xcodegen
 

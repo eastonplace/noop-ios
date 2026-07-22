@@ -1518,23 +1518,7 @@ final class AppModel: ObservableObject {
                                                weekdays: Set<Int>,
                                                from now: Date = Date(),
                                                calendar cal: Calendar = .current) -> Date? {
-        let valid = weekdays.filter { (1...7).contains($0) }
-        // An empty input means "every day" (backward compatible). A non-empty selection that filters to
-        // nothing (only out-of-range numbers) has no valid day to fire on, so it's nil, not a daily alarm.
-        if !weekdays.isEmpty && valid.isEmpty { return nil }
-        let hour = minutes / 60
-        let minute = minutes % 60
-        // Scan today (offset 0) through +7 days so a once-a-week alarm picked for "today, already
-        // passed" still resolves to the same weekday next week.
-        for offset in 0...7 {
-            guard let day = cal.date(byAdding: .day, value: offset, to: now),
-                  let fire = cal.date(bySettingHour: hour, minute: minute, second: 0, of: day)
-            else { continue }
-            if fire <= now { continue }
-            if weekdays.isEmpty { return fire }
-            if valid.contains(cal.component(.weekday, from: fire)) { return fire }
-        }
-        return nil
+        SmartAlarmSchedule.nextDate(minutes: minutes, weekdays: weekdays, after: now, calendar: cal)
     }
 
     /// Re-arms the single-instant firmware alarm once per day (just after local midnight) so a

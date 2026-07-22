@@ -290,7 +290,8 @@ public extension TrendPanelChart {
         tint: Color,
         unit: String,
         valueFormat: @escaping (Double) -> String = { "\(Int($0.rounded()))" },
-        range: TrendRange
+        range: TrendRange,
+        direction: TrendPanelChart.Direction = .contextual
     ) {
         self.days = days.sorted { $0.date < $1.date }
         self.dateDomain = dateDomain
@@ -302,6 +303,7 @@ public extension TrendPanelChart {
         self.unit = unit
         self.valueFormat = valueFormat
         self.range = range
+        self.direction = direction
     }
 }
 

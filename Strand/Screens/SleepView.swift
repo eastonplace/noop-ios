@@ -257,7 +257,10 @@ struct SleepView: View {
                         durationTrend(resolved).staggeredAppear(index: 9)
                     }
                 } else {
-                    emptyState
+                    LazyVStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+                        SleepAlarmEditorSection()
+                        emptyState
+                    }
                 }
             }
             // Persist the freshly-built model so subsequent renders with the same inputs hit

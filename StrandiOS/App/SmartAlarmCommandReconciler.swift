@@ -15,6 +15,20 @@ struct SmartAlarmCommandSnapshot: Equatable, Sendable {
     }
 }
 
+struct SmartAlarmCommandReconcileState {
+    enum Decision: Equatable { case ignore, applyImmediately, debounce }
+    private(set) var lastApplied: SmartAlarmCommandSnapshot?
+
+    func decision(for snapshot: SmartAlarmCommandSnapshot) -> Decision {
+        if snapshot == lastApplied { return .ignore }
+        return snapshot.enabled ? .debounce : .applyImmediately
+    }
+
+    mutating func markApplied(_ snapshot: SmartAlarmCommandSnapshot) {
+        lastApplied = snapshot
+    }
+}
+
 /// Owns one latest-wins lane for persisted alarm edits. Disabling is urgent and
 /// applies immediately; enabled edits are briefly coalesced so changing mode,
 /// time, and weekdays in one interaction cannot produce a BLE command burst.
@@ -22,7 +36,8 @@ struct SmartAlarmCommandSnapshot: Equatable, Sendable {
 final class SmartAlarmCommandReconcileCoordinator: ObservableObject {
     private let debounceNanoseconds: UInt64
     private var pendingTask: Task<Void, Never>?
-    private var lastApplied: SmartAlarmCommandSnapshot?
+    private var state = SmartAlarmCommandReconcileState()
+    private var generation = 0
 
     init(debounceNanoseconds: UInt64 = 150_000_000) {
         self.debounceNanoseconds = debounceNanoseconds
@@ -38,12 +53,17 @@ final class SmartAlarmCommandReconcileCoordinator: ObservableObject {
     ) {
         pendingTask?.cancel()
         pendingTask = nil
+        generation &+= 1
+        let requestGeneration = generation
 
-        guard snapshot != lastApplied else { return }
-
-        if !snapshot.enabled {
+        switch state.decision(for: snapshot) {
+        case .ignore:
+            return
+        case .applyImmediately:
             applyNow(snapshot, apply: apply)
             return
+        case .debounce:
+            break
         }
 
         pendingTask = Task { @MainActor [weak self] in
@@ -53,7 +73,7 @@ final class SmartAlarmCommandReconcileCoordinator: ObservableObject {
             } catch {
                 return
             }
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, self.generation == requestGeneration else { return }
             applyNow(snapshot, apply: apply)
         }
     }
@@ -67,7 +87,7 @@ final class SmartAlarmCommandReconcileCoordinator: ObservableObject {
         _ snapshot: SmartAlarmCommandSnapshot,
         apply: @MainActor () -> Void
     ) {
-        lastApplied = snapshot
+        state.markApplied(snapshot)
         pendingTask = nil
         apply()
     }

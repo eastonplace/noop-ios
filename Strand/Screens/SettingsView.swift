@@ -360,7 +360,7 @@ struct SettingsView: View {
                         tint: StrandPalette.metricCyan,
                         title: "Test Centre",
                         subtitle: "Connection, sensor, notification, and scoring diagnostics"
-                    ) { testCentreSettingsDetail },
+                    ) { TestCentreView() },
                     .navDetail(
                         id: "experimental",
                         icon: "flask.fill",
@@ -410,12 +410,6 @@ struct SettingsView: View {
     private var recoverySettingsDetail: some View {
         settingsDetail("Recovery & scoring", subtitle: "Calibrate and understand your scoring inputs") {
             recoveryCard
-        }
-    }
-
-    private var testCentreSettingsDetail: some View {
-        settingsDetail("Test Centre", subtitle: "Run focused diagnostics without cluttering everyday settings") {
-            testCentreCard
         }
     }
 
@@ -1348,34 +1342,6 @@ struct SettingsView: View {
         backupAlertTitle = String(localized: "Recovery baseline recalibrating")
         backupAlertMessage = String(localized: "NOOP will re-learn your baseline from tonight's data onward. Your history is kept, and it takes a few nights to settle.")
         showBackupAlert = true
-    }
-
-    // MARK: - Test Centre (the diagnostic home, #507/#509)
-
-    /// A nav row into the Test Centre, the single home for the diagnostic, log and test controls (spec
-    /// section 7). The strap log, recalibrate, scheduled export and experimental toggles also live there
-    /// on the same bindings, so this is a faster door to the full set without growing this screen.
-    private var testCentreCard: some View {
-        SettingsSection(
-            icon: "testtube.2",
-            title: "Test Centre",
-            blurb: "Turn on a test for the thing that's wrong, wear the strap, then tap Report. Your strap log, recalibrate, scheduled export and experimental probes all live here too."
-        ) {
-            NavigationLink(destination: TestCentreView()) {
-                HStack {
-                    Text("Open Test Centre")
-                        .font(StrandFont.body)
-                        .foregroundStyle(StrandPalette.textPrimary)
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(StrandPalette.textTertiary)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(PaperPressStyle())
-            .accessibilityLabel("Open Test Centre")
-        }
     }
 
     // MARK: - Features (opt-in trackers)

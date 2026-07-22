@@ -72,7 +72,8 @@ try:
         "SmartAlarmCommandReconcileCoordinator",
         "pendingTask?.cancel()",
         "try await Task.sleep",
-        "if !snapshot.enabled",
+        "SmartAlarmCommandReconcileState",
+        "case .applyImmediately",
     )
     forbid(
         "Strand/Screens/SmartAlarmView.swift",
@@ -80,6 +81,20 @@ try:
         "onChangeCompat(of: behavior.smartAlarmEnabled)",
         "onChangeCompat(of: behavior.smartAlarmMinutes)",
         "onChangeCompat(of: behavior.smartAlarmWeekdays)",
+    )
+    require(
+        "Packages/StrandAnalytics/Sources/StrandAnalytics/SmartAlarmSchedule.swift",
+        "public static func nextDate",
+        "matchingPolicy: .nextTime",
+    )
+    require(
+        "Packages/StrandDesign/Sources/StrandDesign/TrendsV2Components.swift",
+        "min(Int(fraction * 7), 6)",
+        ".accessibilityAdjustableAction",
+    )
+    forbid(
+        "Strand/Screens/WeeklyDigestView.swift",
+        "AnalyticsEngine.Rest.composite",
     )
     require(
         "Strand/Screens/SettingsView.swift",

@@ -1,4 +1,5 @@
 import SwiftUI
+import UserNotifications
 import StrandDesign
 import StrandAnalytics
 
@@ -45,6 +46,7 @@ struct SmartAlarmView: View {
     @State private var needIsStartingEstimate = true
     @State private var evidence: SmartAlarmEvidence?
     @State private var scheduleToolsExpanded = false
+    @State private var backupStatus = String(localized: "Checking…")
 
     var body: some View {
         // #766: retitled to "Alarms" because it now holds BOTH the strap's silent wake-alarm and the
@@ -62,6 +64,10 @@ struct SmartAlarmView: View {
             await resolveCanonicalNeed()
             SmartAlarmEvidenceStore.refreshCorrelation()
             evidence = SmartAlarmEvidenceStore.latest
+        }
+        .task(id: behavior.smartAlarmEnabled) { await refreshBackupStatus() }
+        .task(id: scheduleToolsExpanded) {
+            if scheduleToolsExpanded { await refreshBackupStatus() }
         }
         // Stored edits are reconciled once by the app-root SmartAlarmCommandReconciler.
         // Keeping side effects out of each editor prevents duplicate BLE commands when
@@ -92,9 +98,12 @@ struct SmartAlarmView: View {
     /// continuous wake axis for a given "now" — resolves to later today or tomorrow, whichever is the
     /// actual next occurrence, and writes any nudge straight back to the same store the DatePicker
     /// below edits (one binding, two controls).
-    private func wakeContinuousBinding(nowMinutes: Int) -> Binding<Int> {
+    private func wakeContinuousBinding(now: Date) -> Binding<Int> {
         Binding(
-            get: { SleepAlarmTime.nextOccurrence(now: nowMinutes, timeOfDay: behavior.smartAlarmMinutes) },
+            get: {
+                SleepAlarmEditorSupport.schedule(at: now, behavior: behavior)?.continuousMinutes
+                    ?? behavior.smartAlarmMinutes
+            },
             set: { newContinuous in
                 behavior.smartAlarmMinutes = ((newContinuous % 1_440) + 1_440) % 1_440
             }
@@ -126,7 +135,9 @@ struct SmartAlarmView: View {
             let modes = wakeModes
             let selected = modes.first { $0.id == behavior.smartAlarmMode.rawValue }
             let windowMinutes = selected?.windowMinutes ?? 0
-            let wake = SleepAlarmTime.nextOccurrence(now: nowMinutes, timeOfDay: behavior.smartAlarmMinutes)
+            let schedule = SleepAlarmEditorSupport.schedule(at: context.date, behavior: behavior)
+            let wake = schedule?.continuousMinutes ?? SleepAlarmTime.nextOccurrence(
+                now: nowMinutes, timeOfDay: behavior.smartAlarmMinutes)
             let windowStart = wake - windowMinutes
             let asleepBy = SleepAlarmTime.asleepByMinutes(wakeMinutes: wake, windowMinutes: windowMinutes,
                                                            needMinutes: needMinutes)
@@ -136,9 +147,12 @@ struct SmartAlarmView: View {
                     armed: $behavior.smartAlarmEnabled,
                     modes: modes,
                     selectedModeId: smartAlarmModeBinding,
-                    wakeMinutes: wakeContinuousBinding(nowMinutes: nowMinutes),
+                    wakeMinutes: wakeContinuousBinding(now: context.date),
                     nowMinutes: nowMinutes,
-                    needMinutes: needMinutes
+                    needMinutes: needMinutes,
+                    wakeDayLabel: schedule?.dayLabel ?? String(localized: "No enabled day"),
+                    deliveryStatus: SleepAlarmEditorSupport.deliveryStatus(model: model, behavior: behavior),
+                    showsBedtimePlan: schedule?.isUpcomingSleepPeriod == true
                 )
                 if needIsStartingEstimate {
                     Text("Starting estimate — NOOP hasn't computed your personal Sleep Need yet.")
@@ -149,7 +163,7 @@ struct SmartAlarmView: View {
                 if let evidence {
                     evaluationEvidenceRow(evidence)
                 }
-                if behavior.smartAlarmEnabled {
+                if behavior.smartAlarmEnabled, schedule?.isUpcomingSleepPeriod == true {
                     SleepPlanTimeline(now: nowMinutes, asleepBy: asleepBy, windowStart: windowStart, alarm: wake)
                 }
             }
@@ -265,16 +279,33 @@ struct SmartAlarmView: View {
                         SettingsRow(icon: "iphone", title: "Backup notification",
                                     subtitle: "Phone fallback when the strap alarm is armed",
                                     showsChevron: false) {
-                            Text(behavior.smartAlarmEnabled ? "On" : "Off")
+                            Text(backupStatus)
                         }
 
                         NoteCard("Alarms use your strap's vibration. Keep it charged and within range.",
                                  style: .warning)
-                        PrimaryButton("Test alarm") { model.buzz(loops: 2) }
+                        PrimaryButton("Test alarm") { model.buzzStrapOnce() }
                     }
                 }
             }
         }
+    }
+
+    @MainActor
+    private func refreshBackupStatus() async {
+        guard behavior.smartAlarmEnabled else {
+            backupStatus = String(localized: "Off")
+            return
+        }
+        let center = UNUserNotificationCenter.current()
+        let settings = await center.notificationSettings()
+        guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else {
+            backupStatus = String(localized: "Unavailable · permission denied")
+            return
+        }
+        let pending = await center.pendingNotificationRequests()
+        let scheduled = pending.contains { $0.identifier.hasPrefix("smart-alarm-wake-backup") }
+        backupStatus = scheduled ? String(localized: "Scheduled") : String(localized: "Not scheduled")
     }
 
     // The up-front, honest note about the difference between the strap's silent buzz (above) and a loud
@@ -290,7 +321,7 @@ struct SmartAlarmView: View {
                     Text("The strap alarm is a silent buzz, not a sound")
                         .font(StrandFont.headline)
                         .foregroundStyle(StrandPalette.textPrimary)
-                    Text("The wake-alarm above buzzes your wrist from the strap's own firmware. It can't sound a loud alarm. We also schedule a backup notification at your wake time, but a sideloaded app can't sound a guaranteed wake on this device (that needs a critical-alert permission this build doesn't have), so Focus or silent mode can still mute it. Keep your phone's built-in Clock alarm as your real backup. NOOP's phone-based smart wake (light-sleep detection) is available on the Android app.")
+                    Text("The wake alarm can buzz your wrist from the strap's firmware after the strap confirms it is armed. A phone backup notification is best-effort: Focus, silent mode, or denied notification permission can prevent it from alerting you. Keep your phone's built-in Clock alarm as your dependable backup.")
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)

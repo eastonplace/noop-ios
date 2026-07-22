@@ -17,14 +17,24 @@ import SwiftUI
 public enum SleepAlarmTime {
     /// "6:40 AM" from a minute-of-day value. Values outside `0..<1440` (a continuous-axis minute past
     /// midnight) wrap to the correct clock time first.
-    public static func clock(_ minutesFromMidnight: Int) -> String {
+    public static func clock(
+        _ minutesFromMidnight: Int,
+        locale: Locale = .autoupdatingCurrent,
+        calendar inputCalendar: Calendar = .autoupdatingCurrent,
+        timeZone: TimeZone = .autoupdatingCurrent
+    ) -> String {
         let total = ((minutesFromMidnight % 1440) + 1440) % 1440
-        let hour24 = total / 60
-        let minute = total % 60
-        let suffix = hour24 >= 12 ? "PM" : "AM"
-        var hour12 = hour24 % 12
-        if hour12 == 0 { hour12 = 12 }
-        return String(format: "%d:%02d %@", hour12, minute, suffix)
+        var calendar = inputCalendar
+        calendar.timeZone = timeZone
+        let date = calendar.date(from: DateComponents(year: 2001, month: 1, day: 1,
+                                                       hour: total / 60, minute: total % 60)) ?? Date()
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.calendar = calendar
+        formatter.timeZone = timeZone
+        formatter.dateStyle = .none
+        formatter.timeStyle = .short
+        return formatter.string(from: date).replacingOccurrences(of: "\u{202F}", with: " ")
     }
 
     /// "1 h 30 m" / "45 m" / "2 h" duration phrasing for the countdown-to-bed reading. Never negative
@@ -113,6 +123,9 @@ public struct SleepAlarmModuleCard: View {
     public let nowMinutes: Int
     /// Tonight's dynamic Sleep Need, in minutes.
     public let needMinutes: Double
+    public let wakeDayLabel: String
+    public let deliveryStatus: String
+    public let showsBedtimePlan: Bool
     /// Optional haptics-only toggle. nil hides the row entirely — the promoted module never invents a
     /// sound-vs-haptics choice the host doesn't actually have.
     public var hapticOnly: Binding<Bool>?
@@ -124,6 +137,9 @@ public struct SleepAlarmModuleCard: View {
         wakeMinutes: Binding<Int>,
         nowMinutes: Int,
         needMinutes: Double,
+        wakeDayLabel: String,
+        deliveryStatus: String,
+        showsBedtimePlan: Bool,
         hapticOnly: Binding<Bool>? = nil
     ) {
         self._armed = armed
@@ -132,6 +148,9 @@ public struct SleepAlarmModuleCard: View {
         self._wakeMinutes = wakeMinutes
         self.nowMinutes = nowMinutes
         self.needMinutes = needMinutes
+        self.wakeDayLabel = wakeDayLabel
+        self.deliveryStatus = deliveryStatus
+        self.showsBedtimePlan = showsBedtimePlan
         self.hapticOnly = hapticOnly
     }
 
@@ -147,8 +166,6 @@ public struct SleepAlarmModuleCard: View {
     /// axis (`nowMinutes` is always `0..<1440`; a same-day wake stays under 1440, a next-day wake is
     /// `timeOfDay + 1440`). A post-midnight user with a same-day wake sees "Today", never a false
     /// "Tomorrow".
-    private var wakeIsTomorrow: Bool { wakeMinutes >= 1440 }
-
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
@@ -169,13 +186,21 @@ public struct SleepAlarmModuleCard: View {
                         .padding(.horizontal, 13)
                         .padding(.top, 10)
                 }
-                Divider().overlay(StrandPalette.hairline)
-                    .padding(.horizontal, 13)
-                    .padding(.top, 12)
-                bedtimeBlock
-                    .padding(.horizontal, 13)
-                    .padding(.top, 11)
-                    .padding(.bottom, hapticOnly == nil ? 13 : 0)
+                if showsBedtimePlan {
+                    Divider().overlay(StrandPalette.hairline)
+                        .padding(.horizontal, 13)
+                        .padding(.top, 12)
+                    bedtimeBlock
+                        .padding(.horizontal, 13)
+                        .padding(.top, 11)
+                        .padding(.bottom, hapticOnly == nil ? 13 : 0)
+                } else {
+                    Text("Sleep Need planning appears when this alarm is for the upcoming sleep period.", bundle: .module)
+                        .font(StrandFont.micro)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .padding(.horizontal, 13)
+                        .padding(.vertical, 11)
+                }
                 if let hapticOnly {
                     hapticRow(hapticOnly)
                         .padding(.horizontal, 13)
@@ -202,23 +227,20 @@ public struct SleepAlarmModuleCard: View {
                         )
                 )
         )
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilitySummary)
+        .accessibilityElement(children: .contain)
     }
 
     private var accessibilitySummary: String {
         guard armed else {
             return String(localized: "Alarm off. No wake time set.", bundle: .module)
         }
-        let dayWord = wakeIsTomorrow ? String(localized: "tomorrow", bundle: .module)
-                                      : String(localized: "today", bundle: .module)
         let modeWord = selectedMode?.title ?? ""
         let windowPart = windowMinutes > 0
             ? " " + String(localized: "Wake window from \(SleepAlarmTime.clock(windowStart)) to \(SleepAlarmTime.clock(wakeMinutes)).", bundle: .module)
             : ""
-        return String(localized: "Alarm armed, \(modeWord), \(SleepAlarmTime.clock(wakeMinutes)) \(dayWord).", bundle: .module)
+        return String(localized: "Alarm configured, \(modeWord), \(SleepAlarmTime.clock(wakeMinutes)) \(wakeDayLabel). \(deliveryStatus).", bundle: .module)
             + windowPart + " "
-            + String(localized: "To meet tonight's need, be asleep by \(SleepAlarmTime.clock(asleepBy)), in \(SleepAlarmTime.duration(minutesUntilBed)).", bundle: .module)
+            + (showsBedtimePlan ? String(localized: "To meet tonight's need, be asleep by \(SleepAlarmTime.clock(asleepBy)), in \(SleepAlarmTime.duration(minutesUntilBed)).", bundle: .module) : "")
     }
 
     // MARK: pieces
@@ -229,15 +251,16 @@ public struct SleepAlarmModuleCard: View {
                 .font(StrandFont.overline)
                 .tracking(StrandFont.overlineTracking)
                 .foregroundStyle(StrandPalette.textSecondary)
-            Text(wakeIsTomorrow ? String(localized: "Tomorrow", bundle: .module) : String(localized: "Today", bundle: .module))
+            Text(wakeDayLabel)
                 .font(StrandFont.micro)
                 .foregroundStyle(StrandPalette.textTertiary)
             Spacer(minLength: 8)
-            Text(armed ? String(localized: "Armed", bundle: .module) : String(localized: "Off", bundle: .module))
+            Text(armed ? deliveryStatus : String(localized: "Off", bundle: .module))
                 .font(StrandFont.micro)
                 .foregroundStyle(armed ? StrandPalette.chargeAccent : StrandPalette.textTertiary)
             Toggle("", isOn: $armed.animation(StrandMotion.value))
                 .labelsHidden()
+                .accessibilityLabel(Text("Alarm", bundle: .module))
                 .tint(StrandPalette.textPrimary)
                 .scaleEffect(0.82, anchor: .trailing)
         }
@@ -260,16 +283,25 @@ public struct SleepAlarmModuleCard: View {
             }
             Spacer(minLength: 8)
             HStack(spacing: 7) {
-                nudgeButton("minus", enabled: wakeMinutes - 5 > nowMinutes) { wakeMinutes -= 5 }
+                nudgeButton("minus", label: String(localized: "Wake 5 minutes earlier", bundle: .module), enabled: wakeMinutes - 5 > nowMinutes) { wakeMinutes -= 5 }
                 Text("5 min", bundle: .module)
                     .font(StrandFont.micro)
                     .foregroundStyle(StrandPalette.textTertiary)
-                nudgeButton("plus", enabled: wakeMinutes + 5 < nowMinutes + 2 * 1440) { wakeMinutes += 5 }
+                nudgeButton("plus", label: String(localized: "Wake 5 minutes later", bundle: .module), enabled: wakeMinutes + 5 < nowMinutes + 8 * 1440) { wakeMinutes += 5 }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text("Wake time \(SleepAlarmTime.clock(wakeMinutes)), \(wakeDayLabel)", bundle: .module))
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment where wakeMinutes + 5 < nowMinutes + 8 * 1_440: wakeMinutes += 5
+            case .decrement where wakeMinutes - 5 > nowMinutes: wakeMinutes -= 5
+            default: break
             }
         }
     }
 
-    private func nudgeButton(_ symbol: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+    private func nudgeButton(_ symbol: String, label: String, enabled: Bool, action: @escaping () -> Void) -> some View {
         Button {
             withAnimation(StrandMotion.interactive) { action() }
             StrandHaptic.selection.play()
@@ -282,7 +314,7 @@ public struct SleepAlarmModuleCard: View {
         }
         .buttonStyle(StressModulePressStyle())
         .disabled(!enabled)
-        .accessibilityHidden(true)
+        .accessibilityLabel(label)
     }
 
     private var modeChips: some View {
@@ -309,9 +341,17 @@ public struct SleepAlarmModuleCard: View {
                 .buttonStyle(StressModulePressStyle())
                 .disabled(!option.isAvailable)
                 .accessibilityAddTraits(selected ? .isSelected : [])
+                .accessibilityLabel(option.title)
+                .accessibilityValue(selected ? String(localized: "Selected", bundle: .module) : "")
+                .accessibilityHint(option.isAvailable ? option.explanation : unavailableReason(option))
             }
             Spacer(minLength: 0)
         }
+    }
+
+    private func unavailableReason(_ mode: SleepAlarmWakeMode) -> String {
+        if case .unavailable(let reason) = mode.availability { return reason }
+        return ""
     }
 
     /// The explanation line under the chips: the mode's normal explanation, or — when the SELECTED

@@ -7,6 +7,60 @@ import WhoopStore
 /// source of truth remains `BehaviorStore`; this type owns no parallel alarm state.
 @MainActor
 enum SleepAlarmEditorSupport {
+    struct SchedulePresentation {
+        let nextDate: Date
+        let continuousMinutes: Int
+        let dayLabel: String
+        let isUpcomingSleepPeriod: Bool
+    }
+
+    static func schedule(at now: Date, behavior: BehaviorStore, calendar: Calendar = .current) -> SchedulePresentation? {
+        guard let next = SmartAlarmSchedule.nextDate(
+            minutes: behavior.smartAlarmMinutes,
+            weekdays: behavior.smartAlarmWeekdays,
+            after: now,
+            calendar: calendar
+        ) else { return nil }
+        let dayOffset = calendar.dateComponents(
+            [.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: next)
+        ).day ?? 0
+        let nextComponents = calendar.dateComponents([.hour, .minute], from: next)
+        let continuous = dayOffset * 1_440 + (nextComponents.hour ?? 0) * 60 + (nextComponents.minute ?? 0)
+        let label: String
+        if calendar.isDateInToday(next) {
+            label = String(localized: "Today")
+        } else if calendar.isDateInTomorrow(next) {
+            label = String(localized: "Tomorrow")
+        } else {
+            label = next.formatted(.dateTime.weekday(.wide).month(.abbreviated).day())
+        }
+        return SchedulePresentation(
+            nextDate: next,
+            continuousMinutes: continuous,
+            dayLabel: label,
+            isUpcomingSleepPeriod: dayOffset <= 1
+        )
+    }
+
+    static func deliveryStatus(model: AppModel, behavior: BehaviorStore) -> String {
+        guard behavior.smartAlarmEnabled else { return String(localized: "Off") }
+        SmartAlarmEvidenceStore.refreshCorrelation()
+        let evidence = SmartAlarmEvidenceStore.latest
+        if evidence?.strapReportedArmedAt != nil { return String(localized: "Armed on strap") }
+        if model.whoop5Detected && !PuffinExperiment.isEnabled {
+            return String(localized: "Not armed · Experimental required")
+        }
+        if !model.live.connected || evidence?.actuation == .queuedForReconnect {
+            return String(localized: "Saved · waiting for strap")
+        }
+        if evidence?.actuation == .experimentalDisabled {
+            return String(localized: "Not armed · Experimental required")
+        }
+        if model.whoop5Detected {
+            return String(localized: "Experimental arm sent · unconfirmed")
+        }
+        return String(localized: "Arming…")
+    }
     static func wakeModes(recoveryHistoryCount: Int) -> [SleepAlarmWakeMode] {
         let greenAvailability: SleepAlarmWakeMode.Availability =
             recoveryHistoryCount >= RecoveryForecaster.minBaselineNights
@@ -56,13 +110,11 @@ enum SleepAlarmEditorSupport {
         )
     }
 
-    static func wakeBinding(_ behavior: BehaviorStore, nowMinutes: Int) -> Binding<Int> {
+    static func wakeBinding(_ behavior: BehaviorStore, now: Date) -> Binding<Int> {
         Binding(
             get: {
-                SleepAlarmTime.nextOccurrence(
-                    now: nowMinutes,
-                    timeOfDay: behavior.smartAlarmMinutes
-                )
+                schedule(at: now, behavior: behavior)?.continuousMinutes
+                    ?? behavior.smartAlarmMinutes
             },
             set: { continuousMinutes in
                 behavior.smartAlarmMinutes = ((continuousMinutes % 1_440) + 1_440) % 1_440
@@ -75,6 +127,7 @@ enum SleepAlarmEditorSupport {
 /// `BehaviorStore` fields as Alarms and delegates actuation to the single app-root
 /// reconciler, so mounting both tabs cannot double-arm the strap.
 struct SleepAlarmEditorSection: View {
+    @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var repo: Repository
     @EnvironmentObject private var behavior: BehaviorStore
     @EnvironmentObject private var intelligence: IntelligenceEngine
@@ -134,10 +187,9 @@ struct SleepAlarmEditorSection: View {
         let plan = displayedPlan
         let selected = wakeModes.first { $0.id == behavior.smartAlarmMode.rawValue }
         let windowMinutes = selected?.windowMinutes ?? 0
-        let wake = SleepAlarmTime.nextOccurrence(
-            now: nowMinutes,
-            timeOfDay: behavior.smartAlarmMinutes
-        )
+        let schedule = SleepAlarmEditorSupport.schedule(at: date, behavior: behavior)
+        let wake = schedule?.continuousMinutes ?? SleepAlarmTime.nextOccurrence(
+            now: nowMinutes, timeOfDay: behavior.smartAlarmMinutes)
         let asleepBy = SleepAlarmTime.asleepByMinutes(
             wakeMinutes: wake,
             windowMinutes: windowMinutes,
@@ -149,9 +201,12 @@ struct SleepAlarmEditorSection: View {
                 armed: $behavior.smartAlarmEnabled,
                 modes: wakeModes,
                 selectedModeId: SleepAlarmEditorSupport.modeBinding(behavior),
-                wakeMinutes: SleepAlarmEditorSupport.wakeBinding(behavior, nowMinutes: nowMinutes),
+                wakeMinutes: SleepAlarmEditorSupport.wakeBinding(behavior, now: date),
                 nowMinutes: nowMinutes,
-                needMinutes: plan.minutes
+                needMinutes: plan.minutes,
+                wakeDayLabel: schedule?.dayLabel ?? String(localized: "No enabled day"),
+                deliveryStatus: SleepAlarmEditorSupport.deliveryStatus(model: model, behavior: behavior),
+                showsBedtimePlan: schedule?.isUpcomingSleepPeriod == true
             )
 
             if plan.isStartingEstimate {
@@ -161,7 +216,7 @@ struct SleepAlarmEditorSection: View {
                     .padding(.horizontal, 4)
             }
 
-            if behavior.smartAlarmEnabled {
+            if behavior.smartAlarmEnabled, schedule?.isUpcomingSleepPeriod == true {
                 SleepPlanTimeline(
                     now: nowMinutes,
                     asleepBy: asleepBy,

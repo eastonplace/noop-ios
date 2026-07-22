@@ -248,14 +248,19 @@ final class TrendCalendarTests: XCTestCase {
         XCTAssertEqual(TrendRange.month.summarySubtitle, "Last 30 days · vs prior 30")
     }
 
-    func testWeekdayScrubIndexRoundsAndClampsAcrossSevenSlots() {
+    func testWeekdayScrubIndexUsesSevenEqualHitRegions() {
         XCTAssertEqual(TrendCalendar.weekdayIndex(atUnitPosition: -1), 0)
         XCTAssertEqual(TrendCalendar.weekdayIndex(atUnitPosition: 0), 0)
-        XCTAssertEqual(TrendCalendar.weekdayIndex(atUnitPosition: 0.16), 1)
+        XCTAssertEqual(TrendCalendar.weekdayIndex(atUnitPosition: 0.10), 0)
+        XCTAssertEqual(TrendCalendar.weekdayIndex(atUnitPosition: 0.90), 6)
         XCTAssertEqual(TrendCalendar.weekdayIndex(atUnitPosition: 0.5), 3)
-        XCTAssertEqual(TrendCalendar.weekdayIndex(atUnitPosition: 0.84), 5)
         XCTAssertEqual(TrendCalendar.weekdayIndex(atUnitPosition: 1), 6)
         XCTAssertEqual(TrendCalendar.weekdayIndex(atUnitPosition: 2), 6)
+        for boundary in 1...6 {
+            let value = Double(boundary) / 7
+            XCTAssertEqual(TrendCalendar.weekdayIndex(atUnitPosition: value.nextDown), boundary - 1)
+            XCTAssertEqual(TrendCalendar.weekdayIndex(atUnitPosition: value), boundary)
+        }
     }
 
     private func date(_ year: Int, _ month: Int, _ day: Int) throws -> Date {
