@@ -1,4 +1,5 @@
 import XCTest
+import Foundation
 @testable import NOOP
 
 #if os(iOS)
@@ -105,6 +106,21 @@ final class LiveUpdatePoliciesTests: XCTestCase {
             lastModeWasWorkout: true, hasCachedWorkout: true,
             lastBuiltAt: t0.addingTimeInterval(300), now: t0,
             rebuildInterval: 10))
+    }
+
+    func testWidgetSnapshotSaveReportsMissingDefaults() {
+        XCTAssertFalse(snapshot(bpm: 80, sparkline: nil).save(to: nil))
+    }
+
+    func testWidgetSnapshotSaveWritesAndRoundTripsInIsolatedSuite() throws {
+        let suite = "test.widget.snapshot.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let value = snapshot(bpm: 87, sparkline: [80, 84, 87])
+        XCTAssertTrue(value.save(to: defaults))
+        let data = try XCTUnwrap(defaults.data(forKey: WidgetSnapshot.storageKey))
+        XCTAssertEqual(try JSONDecoder().decode(WidgetSnapshot.self, from: data), value)
     }
 
     private func snapshot(bpm: Int?, sparkline: [Int]?, effort: Double = 10.5) -> WidgetSnapshot {
