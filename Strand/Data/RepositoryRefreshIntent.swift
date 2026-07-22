@@ -65,16 +65,22 @@ enum RepositoryRefreshIntent: Equatable, Sendable, CustomStringConvertible {
     }
 }
 
+/// Main-actor single-flight queue because `Repository` itself is MainActor-isolated. Requests that arrive
+/// before an operation starts merge into one pending batch. Requests arriving after a refresh starts queue a
+/// later pass because they may represent data committed after the running query took its SQLite snapshot.
 @MainActor
 final class RepositoryRefreshCoordinator {
     typealias Executor = @MainActor (RepositoryRefreshIntent) async -> Bool
 
+    private struct PendingBatch {
+        var intent: RepositoryRefreshIntent
+        var waiters: [CheckedContinuation<Bool, Never>]
+    }
+
     private let executor: Executor
     private let coalescingDelay: Duration
-    private var pending: RepositoryRefreshIntent?
+    private var pending: PendingBatch?
     private var worker: Task<Void, Never>?
-    private var waiters: [CheckedContinuation<Bool, Never>] = []
-    private var queueSucceeded = true
 
     #if DEBUG
     private(set) var executed: [RepositoryRefreshIntent] = []
@@ -89,9 +95,15 @@ final class RepositoryRefreshCoordinator {
     }
 
     func request(_ intent: RepositoryRefreshIntent) async -> Bool {
-        await withCheckedContinuation { continuation in
-            waiters.append(continuation)
-            pending = pending.map { RepositoryRefreshIntent.merged($0, intent) } ?? intent
+        if Task.isCancelled { return false }
+        return await withCheckedContinuation { continuation in
+            if var batch = pending {
+                batch.intent = RepositoryRefreshIntent.merged(batch.intent, intent)
+                batch.waiters.append(continuation)
+                pending = batch
+            } else {
+                pending = PendingBatch(intent: intent, waiters: [continuation])
+            }
             startIfNeeded()
         }
     }
@@ -110,20 +122,15 @@ final class RepositoryRefreshCoordinator {
     }
 
     private func drain() async {
-        while let intent = pending {
+        while let batch = pending {
             pending = nil
             #if DEBUG
-            executed.append(intent)
+            executed.append(batch.intent)
             #endif
-            let succeeded = await executor(intent)
-            queueSucceeded = queueSucceeded && succeeded
+            let succeeded = await executor(batch.intent)
+            batch.waiters.forEach { $0.resume(returning: succeeded) }
         }
         worker = nil
-        let completed = waiters
-        waiters.removeAll(keepingCapacity: true)
-        let result = queueSucceeded
-        queueSucceeded = true
-        completed.forEach { $0.resume(returning: result) }
         if pending != nil { startIfNeeded() }
     }
 }
