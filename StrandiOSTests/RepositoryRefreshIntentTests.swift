@@ -15,6 +15,44 @@ final class RepositoryRefreshIntentTests: XCTestCase {
         )
     }
 
+    func testLegacyRefreshInferenceKeepsSmallUIWorkNarrowAndRealHistoryMutationsBroad() {
+        XCTAssertEqual(
+            RepositoryRefreshIntent.inferredLegacyIntent(
+                file: "NOOP/StrandiOS/App/RootTabView.swift",
+                function: "body.getter"
+            ),
+            .currentDay
+        )
+        XCTAssertEqual(
+            RepositoryRefreshIntent.inferredLegacyIntent(
+                file: "NOOP/Strand/App/AppModel.swift",
+                function: "importWhoop(url:)"
+            ),
+            .postImport
+        )
+        XCTAssertEqual(
+            RepositoryRefreshIntent.inferredLegacyIntent(
+                file: "NOOP/Strand/App/AppModel.swift",
+                function: "adoptActiveDevice(_:)"
+            ),
+            .activeDeviceChanged
+        )
+        XCTAssertEqual(
+            RepositoryRefreshIntent.inferredLegacyIntent(
+                file: "NOOP/Strand/Data/IntelligenceEngine.swift",
+                function: "runTimestampHealIfNeeded()"
+            ),
+            .fullHistoryMigration
+        )
+        XCTAssertEqual(
+            RepositoryRefreshIntent.inferredLegacyIntent(
+                file: "NOOP/Strand/Data/IntelligenceEngine.swift",
+                function: "analyzeRecent(maxDays:startOffset:force:refreshRepository:)"
+            ),
+            .recentDashboard(days: 120)
+        )
+    }
+
     func testOverlappingNarrowRequestsCoalesceToWidestPendingRange() async {
         var executed: [RepositoryRefreshIntent] = []
         var releases: [CheckedContinuation<Void, Never>] = []
