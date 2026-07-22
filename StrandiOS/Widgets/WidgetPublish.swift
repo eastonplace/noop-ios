@@ -9,17 +9,20 @@ private enum WidgetLivePublishGate {
     private(set) static var cachedSnapshot: WidgetSnapshot?
     private(set) static var lastPublishedAt: Date = .distantPast
 
-    static func currentSnapshot(or fallback: @autoclosure () -> WidgetSnapshot) -> WidgetSnapshot {
+    /// Return the last in-process snapshot, or hydrate it once from the App Group. A genuinely empty
+    /// store returns nil so the first live publication is forced and creates the widget snapshot instead
+    /// of repeatedly decoding a missing value on every sensor event.
+    static func currentSnapshot(now: Date) -> WidgetSnapshot? {
         if let cachedSnapshot { return cachedSnapshot }
-        if let loaded = WidgetSnapshot.load() {
-            cachedSnapshot = loaded
-            lastPublishedAt = loaded.updated
-            return loaded
-        }
-        return fallback()
+        guard let loaded = WidgetSnapshot.load() else { return nil }
+        cachedSnapshot = loaded
+        // A wall-clock correction can leave a persisted `updated` timestamp in the future. Do not let
+        // that suppress live publication until the clock catches up.
+        lastPublishedAt = loaded.updated <= now ? loaded.updated : .distantPast
+        return loaded
     }
 
-    static func shouldPublish(previous: WidgetSnapshot, next: WidgetSnapshot, now: Date) -> Bool {
+    static func shouldPublish(previous: WidgetSnapshot?, next: WidgetSnapshot, now: Date) -> Bool {
         WidgetLivePublishPolicy.shouldPublish(
             previous: previous,
             next: next,
@@ -120,16 +123,17 @@ extension WidgetSnapshot {
     /// every one of those ~1 Hz emissions decoded the App Group snapshot, encoded it again, and called
     /// `WidgetCenter.reloadAllTimelines()`. That made the supposedly-fast lane a synchronous disk/WidgetKit
     /// hot loop on the main actor. We now keep the last snapshot in memory, skip byte-equivalent payloads,
-    /// publish connection/battery/Strain/workout-mode edges immediately, and coalesce HR/sparkline churn to
-    /// the same one-minute cadence used by the explicit HR publisher.
+    /// publish connection/battery/workout-mode edges immediately, and coalesce HR, live Strain, and
+    /// sparkline churn to a one-minute cadence.
     @MainActor
     static func publishLive(from model: AppModel) {
         let day = Repository.widgetAnchor(days: model.repo.days)
         let storedStrain = day.flatMap { model.repo.canonicalStrain(for: $0.day)?.storedValue }
         let now = Date()
-        let base = WidgetLivePublishGate.currentSnapshot(or: WidgetSnapshot(
+        let previous = WidgetLivePublishGate.currentSnapshot(now: now)
+        let base = previous ?? WidgetSnapshot(
             recovery: day?.recovery.map { Int($0.rounded()) }, bpm: nil, batteryPct: nil,
-            bonded: model.live.bonded, updated: now))
+            bonded: model.live.bonded, updated: now)
         let sparkline = model.activeWorkout.map { Array($0.samples.suffix(48).map(\.bpm)) }
         var next = base.mergingLive(
             bpm: model.bpm ?? model.live.heartRate,
@@ -142,7 +146,7 @@ extension WidgetSnapshot {
         // ended. Clear the old trace so the widget exits workout mode immediately instead of retaining the
         // last session's graph forever.
         if model.activeWorkout == nil { next.hrSparkline = nil }
-        guard WidgetLivePublishGate.shouldPublish(previous: base, next: next, now: now) else { return }
+        guard WidgetLivePublishGate.shouldPublish(previous: previous, next: next, now: now) else { return }
         next.save()
         WidgetLivePublishGate.notePublished(next, at: now)
         WidgetCenter.shared.reloadAllTimelines()
@@ -182,7 +186,8 @@ extension WidgetSnapshot {
         /// True (and stamps `now`) when at least `interval` has elapsed since the last HR-driven publish;
         /// false to skip this HR change. The first call always admits (`.distantPast`).
         static func admit(now: Date = Date()) -> Bool {
-            guard now.timeIntervalSince(lastPublishedAt) >= interval else { return false }
+            let elapsed = now.timeIntervalSince(lastPublishedAt)
+            guard elapsed < 0 || elapsed >= interval else { return false }
             lastPublishedAt = now
             return true
         }
