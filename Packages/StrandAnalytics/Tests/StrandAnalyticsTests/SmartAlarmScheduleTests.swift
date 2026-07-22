@@ -49,4 +49,21 @@ final class SmartAlarmScheduleTests: XCTestCase {
             XCTAssertEqual(cal.component(.minute, from: next), 0)
         }
     }
+
+    func testDailyRearmRecomputesLocalMidnightAcrossDST() throws {
+        let cal = calendar()
+        let springNow = date(2026, 3, 8, 0, 2, calendar: cal)
+        let springNext = try XCTUnwrap(SmartAlarmSchedule.nextDailyRearm(
+            after: springNow, calendar: cal))
+        XCTAssertEqual(cal.component(.hour, from: springNext), 0)
+        XCTAssertEqual(cal.component(.minute, from: springNext), 1)
+        XCTAssertEqual(Int(springNext.timeIntervalSince(springNow)), 22 * 3_600 + 59 * 60)
+
+        let fallNow = date(2026, 11, 1, 0, 2, calendar: cal)
+        let fallNext = try XCTUnwrap(SmartAlarmSchedule.nextDailyRearm(
+            after: fallNow, calendar: cal))
+        XCTAssertEqual(cal.component(.hour, from: fallNext), 0)
+        XCTAssertEqual(cal.component(.minute, from: fallNext), 1)
+        XCTAssertEqual(Int(fallNext.timeIntervalSince(fallNow)), 24 * 3_600 + 59 * 60)
+    }
 }
