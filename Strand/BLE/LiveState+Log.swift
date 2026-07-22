@@ -72,16 +72,18 @@ extension LiveState {
         return output
     }
 
-    /// Export path used by Copy/Save/Share. It waits for the serial durable-tail queue before returning the
-    /// in-memory body, so the same user action both includes and commits every message accepted before it.
+    /// Export path used by new async Copy/Save/Share surfaces. It waits for the serial durable-tail queue
+    /// before returning the in-memory body, so the user action both includes and commits every accepted line.
     func exportableLogTextFlushing(extraHeaderLines: [String] = []) async -> String {
         await flushLogPersistence()
         return exportableLogText(extraHeaderLines: extraHeaderLines)
     }
 
-    /// Synchronous body builder retained for background-free presentation and tests. User-triggered exports
-    /// should call `exportableLogTextFlushing` so the durability edge is explicit and awaitable.
+    /// Synchronous compatibility body builder. It includes every in-memory line immediately and also starts
+    /// a force-flush on the owned persistence queue, so existing copy/save callers do not block the UI or
+    /// silently leave their newest messages waiting for the ordinary debounce.
     func exportableLogText(extraHeaderLines: [String] = []) -> String {
+        Task { [weak self] in await self?.flushLogPersistence() }
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         var header = "NOOP strap log - iOS\nApp: \(version)\niOS: "
             + ProcessInfo.processInfo.operatingSystemVersionString + "\n"
