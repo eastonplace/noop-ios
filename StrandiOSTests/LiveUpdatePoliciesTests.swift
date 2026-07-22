@@ -89,6 +89,51 @@ final class LiveUpdatePoliciesTests: XCTestCase {
             highFrequencyInterval: 60))
     }
 
+    func testFullWidgetPolicyIgnoresTimestampOnlyUntilHeartbeat() {
+        let previous = snapshot(bpm: 80, sparkline: nil)
+        var next = previous
+        next.updated = t0.addingTimeInterval(60)
+
+        XCTAssertTrue(previous.hasSameRenderedContent(as: next))
+        XCTAssertFalse(WidgetFullPublishPolicy.shouldPublish(
+            previous: previous,
+            next: next,
+            lastPublishedAt: t0,
+            now: t0.addingTimeInterval(899),
+            unchangedHeartbeatInterval: 900))
+        XCTAssertTrue(WidgetFullPublishPolicy.shouldPublish(
+            previous: previous,
+            next: next,
+            lastPublishedAt: t0,
+            now: t0.addingTimeInterval(900),
+            unchangedHeartbeatInterval: 900))
+    }
+
+    func testFullWidgetPolicyPublishesChangedRenderedContentImmediately() {
+        let previous = snapshot(bpm: 80, sparkline: nil)
+        var next = previous
+        next.rest = 83
+        next.updated = t0.addingTimeInterval(1)
+
+        XCTAssertFalse(previous.hasSameRenderedContent(as: next))
+        XCTAssertTrue(WidgetFullPublishPolicy.shouldPublish(
+            previous: previous,
+            next: next,
+            lastPublishedAt: t0,
+            now: t0.addingTimeInterval(1)))
+    }
+
+    func testFullWidgetPolicyRecoversFromWallClockRollback() {
+        let previous = snapshot(bpm: 80, sparkline: nil)
+        var next = previous
+        next.updated = t0
+        XCTAssertTrue(WidgetFullPublishPolicy.shouldPublish(
+            previous: previous,
+            next: next,
+            lastPublishedAt: t0.addingTimeInterval(300),
+            now: t0))
+    }
+
     func testLiveActivityPushPolicyRetainsTwoSecondCadenceForSameMode() {
         XCTAssertFalse(LiveActivityPushPolicy.shouldPush(
             activityExists: true,
