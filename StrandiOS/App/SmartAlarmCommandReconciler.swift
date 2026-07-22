@@ -1,6 +1,8 @@
 #if os(iOS)
 import SwiftUI
 
+/// Normalized alarm configuration retained as a small, testable contract. The production runtime uses
+/// the richer `SmartAlarmRuntimeSnapshot`; this compatibility value keeps existing call-site/tests honest.
 struct SmartAlarmCommandSnapshot: Equatable, Sendable {
     let enabled: Bool
     let modeRawValue: String
@@ -29,98 +31,17 @@ struct SmartAlarmCommandReconcileState {
     }
 }
 
-/// Owns one latest-wins lane for persisted alarm edits. Disabling is urgent and
-/// applies immediately; enabled edits are briefly coalesced so changing mode,
-/// time, and weekdays in one interaction cannot produce a BLE command burst.
-@MainActor
-final class SmartAlarmCommandReconcileCoordinator: ObservableObject {
-    private let debounceNanoseconds: UInt64
-    private var pendingTask: Task<Void, Never>?
-    private var state = SmartAlarmCommandReconcileState()
-    private var generation = 0
-
-    init(debounceNanoseconds: UInt64 = 150_000_000) {
-        self.debounceNanoseconds = debounceNanoseconds
-    }
-
-    deinit {
-        pendingTask?.cancel()
-    }
-
-    func schedule(
-        _ snapshot: SmartAlarmCommandSnapshot,
-        apply: @escaping @MainActor () -> Void
-    ) {
-        pendingTask?.cancel()
-        pendingTask = nil
-        generation &+= 1
-        let requestGeneration = generation
-
-        switch state.decision(for: snapshot) {
-        case .ignore:
-            return
-        case .applyImmediately:
-            applyNow(snapshot, apply: apply)
-            return
-        case .debounce:
-            break
-        }
-
-        pendingTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            do {
-                try await Task.sleep(nanoseconds: debounceNanoseconds)
-            } catch {
-                return
-            }
-            guard !Task.isCancelled, self.generation == requestGeneration else { return }
-            applyNow(snapshot, apply: apply)
-        }
-    }
-
-    func cancelPending() {
-        pendingTask?.cancel()
-        pendingTask = nil
-    }
-
-    private func applyNow(
-        _ snapshot: SmartAlarmCommandSnapshot,
-        apply: @MainActor () -> Void
-    ) {
-        state.markApplied(snapshot)
-        pendingTask = nil
-        apply()
-    }
-}
-
-/// Both Sleep and Alarms edit the same `BehaviorStore`. This root-mounted leaf
-/// observes one normalized snapshot and is the only UI edit path that triggers
-/// BLE and notification reconciliation.
+/// Zero-layout app-root host. All side effects live in `SmartAlarmRuntimeController`; this view merely
+/// starts the long-lived controller once the environment is installed. It intentionally does not cancel
+/// on tab or scene disappearance because alarm delivery belongs to the application, not one screen.
 struct SmartAlarmCommandReconciler: View {
-    @EnvironmentObject private var model: AppModel
-    @EnvironmentObject private var behavior: BehaviorStore
-    @StateObject private var coordinator = SmartAlarmCommandReconcileCoordinator()
-
-    private var snapshot: SmartAlarmCommandSnapshot {
-        SmartAlarmCommandSnapshot(
-            enabled: behavior.smartAlarmEnabled,
-            modeRawValue: behavior.smartAlarmMode.rawValue,
-            minutes: behavior.smartAlarmMinutes,
-            weekdays: behavior.smartAlarmWeekdays
-        )
-    }
+    @EnvironmentObject private var runtime: SmartAlarmRuntimeController
 
     var body: some View {
         Color.clear
             .frame(width: 0, height: 0)
-            .onChangeCompat(of: snapshot) { next in
-                coordinator.schedule(next) {
-                    model.applySmartAlarm()
-                }
-            }
-            .onDisappear {
-                coordinator.cancelPending()
-            }
+            .accessibilityHidden(true)
+            .onAppear { runtime.start() }
     }
 }
 #endif
