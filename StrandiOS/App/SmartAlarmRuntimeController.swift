@@ -57,8 +57,8 @@ struct SmartAlarmRuntimeSnapshot: Equatable, Sendable {
 }
 
 /// Persisted payload for iOS's payload-less BGTask request. Without this, a late BG execution recomputed
-/// "next alarm" from its actual run time and could evaluate the following week's recurrence instead of the
-/// endpoint whose wake window scheduled the task.
+/// "next alarm" from its actual run time and could evaluate the following recurrence instead of the endpoint
+/// whose wake window scheduled the task.
 struct SmartAlarmBackgroundRequest: Codable, Equatable, Sendable {
     let endpoint: Date
     let enabled: Bool
@@ -207,7 +207,7 @@ final class SmartAlarmRuntimeController: ObservableObject {
     }
 
     /// Evaluate exactly the persisted endpoint that scheduled this background task. A stale request is never
-    /// translated into another recurrence; instead it is discarded and the current configuration is reconciled.
+    /// translated into another recurrence; it is discarded and the current configuration is reconciled.
     @discardableResult
     func handleBackgroundRefresh(_ request: SmartAlarmBackgroundRequest?) async -> Bool {
         start()
@@ -218,7 +218,7 @@ final class SmartAlarmRuntimeController: ObservableObject {
               requestedSnapshot.mode != .exactTime
         else {
             reconcileImmediately(trigger: .backgroundRefresh)
-            return request == nil ? false : true
+            return request != nil
         }
 
         let token = generation.value
@@ -231,9 +231,14 @@ final class SmartAlarmRuntimeController: ObservableObject {
         guard generation.accepts(token, request: requestedSnapshot, current: currentSnapshot),
               !Task.isCancelled else { return false }
 
-        // Whether evaluation waited, woke, or observed the endpoint, schedule the next firmware fail-safe and
-        // future BG request from current time without launching a second evaluation for the old endpoint.
-        reconcileImmediately(trigger: .backgroundRefresh, evaluateInsideWindow: false)
+        // A consumed request must not submit the SAME past window again. Keep the already-armed current
+        // firmware endpoint untouched and queue the following recurrence's adaptive evaluation. The older
+        // endpoint-only hook re-arms firmware after a confirmed strap fire; foreground/daily reconciliation
+        // remains the belt-and-braces path when the process is alive.
+        scheduleFollowingBackgroundRequest(
+            after: request.endpoint,
+            snapshot: requestedSnapshot
+        )
         return succeeded
     }
 
@@ -276,21 +281,13 @@ final class SmartAlarmRuntimeController: ObservableObject {
         }
     }
 
-    func reconcileImmediately(
-        trigger: SmartAlarmEvaluator.Trigger,
-        evaluateInsideWindow: Bool = true
-    ) {
+    func reconcileImmediately(trigger: SmartAlarmEvaluator.Trigger) {
         let snapshot = currentSnapshot
         observedSnapshot = snapshot
         cancelGenerationWork()
         let token = generation.advance()
         if snapshot.enabled {
-            apply(
-                snapshot: snapshot,
-                token: token,
-                trigger: trigger,
-                evaluateInsideWindow: evaluateInsideWindow
-            )
+            apply(snapshot: snapshot, token: token, trigger: trigger)
         } else {
             applyDisabled(snapshot: snapshot, token: token)
         }
@@ -318,8 +315,6 @@ final class SmartAlarmRuntimeController: ObservableObject {
         backupStatus = String(localized: "Off")
         evidence = nil
 
-        // A notification authorization prompt cannot be programmatically cancelled. Re-clear once after it
-        // could have returned so a superseded legacy task cannot resurrect a disabled wake.
         notificationTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(1))
             guard let self, !self.currentSnapshot.enabled,
@@ -332,8 +327,7 @@ final class SmartAlarmRuntimeController: ObservableObject {
     private func apply(
         snapshot: SmartAlarmRuntimeSnapshot,
         token: UInt64,
-        trigger: SmartAlarmEvaluator.Trigger,
-        evaluateInsideWindow: Bool = true
+        trigger: SmartAlarmEvaluator.Trigger
     ) {
         guard generation.accepts(token, request: snapshot, current: currentSnapshot),
               let endpoint = SmartAlarmSchedule.nextDate(
@@ -360,18 +354,46 @@ final class SmartAlarmRuntimeController: ObservableObject {
         if snapshot.mode == .exactTime {
             SmartAlarmRuntimeBackgroundScheduler.cancel()
         } else {
+            scheduleBackgroundRequest(endpoint: endpoint, snapshot: snapshot)
             let windowStart = endpoint.addingTimeInterval(
                 -Double(SmartAlarmEvaluator.adaptiveWindowMinutes * 60)
             )
-            SmartAlarmRuntimeBackgroundScheduler.schedule(
-                windowStart: windowStart,
-                endpoint: endpoint,
-                snapshot: snapshot
-            )
-            if evaluateInsideWindow, Date() >= windowStart {
+            if Date() >= windowStart {
                 beginEvaluation(snapshot: snapshot, endpoint: endpoint, token: token, trigger: trigger)
             }
         }
+    }
+
+    private func scheduleBackgroundRequest(
+        endpoint: Date,
+        snapshot: SmartAlarmRuntimeSnapshot
+    ) {
+        let windowStart = endpoint.addingTimeInterval(
+            -Double(SmartAlarmEvaluator.adaptiveWindowMinutes * 60)
+        )
+        SmartAlarmRuntimeBackgroundScheduler.schedule(
+            windowStart: windowStart,
+            endpoint: endpoint,
+            snapshot: snapshot
+        )
+    }
+
+    private func scheduleFollowingBackgroundRequest(
+        after endpoint: Date,
+        snapshot: SmartAlarmRuntimeSnapshot
+    ) {
+        guard generation.accepts(generation.value, request: snapshot, current: currentSnapshot),
+              let next = SmartAlarmSchedule.nextDate(
+                minutes: snapshot.minutes,
+                weekdays: snapshot.weekdaySet,
+                after: endpoint.addingTimeInterval(1),
+                calendar: .current
+              )
+        else {
+            SmartAlarmRuntimeBackgroundScheduler.cancel()
+            return
+        }
+        scheduleBackgroundRequest(endpoint: next, snapshot: snapshot)
     }
 
     private func currentEndpoint(now: Date = Date()) -> Date? {
@@ -842,15 +864,15 @@ enum SmartAlarmRuntimeBackgroundScheduler {
                 task.setTaskCompleted(success: false)
                 return
             }
-            let request = loadRequest()
             let operation = Task { @MainActor in
+                let request = Self.loadRequest()
                 guard let runtime = Self.runtime, !Task.isCancelled else {
                     refreshTask.setTaskCompleted(success: false)
                     return
                 }
                 let succeeded = await runtime.handleBackgroundRefresh(request)
                 guard !Task.isCancelled else { return }
-                clearRequest(ifMatching: request)
+                Self.clearRequest(ifMatching: request)
                 refreshTask.setTaskCompleted(success: succeeded)
             }
             refreshTask.expirationHandler = { operation.cancel() }
