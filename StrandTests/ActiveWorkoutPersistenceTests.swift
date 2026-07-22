@@ -81,6 +81,56 @@ final class ActiveWorkoutPersistenceTests: XCTestCase {
         XCTAssertEqual(ActiveWorkoutPersistence.load(from: defaults), later)
     }
 
+    func testCoalescedWriterKeepsNewestSnapshot() {
+        let defaults = freshDefaults()
+        for count in 1...200 {
+            let samples = (0..<count).map { sample(1_700_000_001 + $0, 100 + ($0 % 60)) }
+            ActiveWorkoutPersistence.storeCoalesced(
+                snapshot(samples: samples, avgHr: 130, peakHr: 159,
+                         liveStrainState: .building(readings: count, coverageSeconds: count)),
+                into: defaults
+            )
+        }
+        ActiveWorkoutPersistence.flushPendingWrites()
+        XCTAssertEqual(ActiveWorkoutPersistence.load(from: defaults)?.samples.count, 200)
+    }
+
+    func testSynchronousFlushSupersedesQueuedSnapshots() {
+        let defaults = freshDefaults()
+        for count in 1...50 {
+            let samples = (0..<count).map { sample(1_700_000_001 + $0, 100 + ($0 % 60)) }
+            ActiveWorkoutPersistence.storeCoalesced(
+                snapshot(samples: samples, avgHr: 130, peakHr: 159,
+                         liveStrainState: .building(readings: count, coverageSeconds: count)),
+                into: defaults
+            )
+        }
+        let finalSamples = (0..<51).map { sample(1_700_000_001 + $0, 100 + ($0 % 60)) }
+        ActiveWorkoutPersistence.storeCoalesced(
+            snapshot(samples: finalSamples, avgHr: 130, peakHr: 159,
+                     liveStrainState: .building(readings: 51, coverageSeconds: 51)),
+            into: defaults,
+            synchronously: true
+        )
+        ActiveWorkoutPersistence.flushPendingWrites()
+        XCTAssertEqual(ActiveWorkoutPersistence.load(from: defaults)?.samples.count, 51)
+    }
+
+    func testClearInvalidatesQueuedSnapshotAndPreventsResurrection() {
+        let defaults = freshDefaults()
+        for count in 1...100 {
+            let samples = (0..<count).map { sample(1_700_000_001 + $0, 100 + ($0 % 60)) }
+            ActiveWorkoutPersistence.storeCoalesced(
+                snapshot(samples: samples, avgHr: 130, peakHr: 159,
+                         liveStrainState: .building(readings: count, coverageSeconds: count)),
+                into: defaults
+            )
+        }
+        ActiveWorkoutPersistence.clear(from: defaults)
+        ActiveWorkoutPersistence.flushPendingWrites()
+        XCTAssertNil(ActiveWorkoutPersistence.load(from: defaults))
+    }
+
     // MARK: - honest failure (no revived bogus card)
 
     func testDecodeNilOrEmptyIsNil() {
