@@ -37,15 +37,24 @@ public enum SleepAlarmTime {
         return formatter.string(from: date).replacingOccurrences(of: "\u{202F}", with: " ")
     }
 
-    /// "1 h 30 m" / "45 m" / "2 h" duration phrasing for the countdown-to-bed reading. Never negative
-    /// — a bedtime already in the past reads "0 m" rather than a negative countdown.
-    public static func duration(_ minutes: Int) -> String {
+    /// Locale-aware duration phrasing for the countdown-to-bed reading. Never negative — a bedtime
+    /// already in the past reads a localized zero-minute value rather than a negative countdown.
+    public static func duration(
+        _ minutes: Int,
+        locale: Locale = .autoupdatingCurrent
+    ) -> String {
         let clamped = max(0, minutes)
-        let hours = clamped / 60
-        let mins = clamped % 60
-        if hours == 0 { return "\(mins) m" }
-        if mins == 0 { return "\(hours) h" }
-        return "\(hours) h \(mins) m"
+        let formatter = DateComponentsFormatter()
+        var calendar = Calendar.autoupdatingCurrent
+        calendar.locale = locale
+        formatter.calendar = calendar
+        formatter.allowedUnits = [.hour, .minute]
+        formatter.unitsStyle = .abbreviated
+        formatter.maximumUnitCount = 2
+        formatter.zeroFormattingBehavior = .dropAll
+        return formatter.string(from: TimeInterval(clamped * 60))
+            ?? String.localizedStringWithFormat(
+                String(localized: "%lld min", bundle: .module), Int64(clamped))
     }
 
     /// "7:30" / "+0:14" / "\u{2212}0:00" — the need-breakdown card's H:MM figure. `signed` prints an

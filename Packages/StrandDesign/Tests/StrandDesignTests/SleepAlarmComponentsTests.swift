@@ -36,11 +36,18 @@ final class SleepAlarmComponentsTests: XCTestCase {
     }
 
     func testDurationPhrasingNeverGoesNegative() {
-        XCTAssertEqual(SleepAlarmTime.duration(0), "0 m")
-        XCTAssertEqual(SleepAlarmTime.duration(45), "45 m")
-        XCTAssertEqual(SleepAlarmTime.duration(60), "1 h")
-        XCTAssertEqual(SleepAlarmTime.duration(90), "1 h 30 m")
-        XCTAssertEqual(SleepAlarmTime.duration(-10), "0 m")
+        let locale = Locale(identifier: "en_US")
+        XCTAssertEqual(SleepAlarmTime.duration(0, locale: locale), "0m")
+        XCTAssertEqual(SleepAlarmTime.duration(45, locale: locale), "45m")
+        XCTAssertEqual(SleepAlarmTime.duration(60, locale: locale), "1h")
+        XCTAssertEqual(SleepAlarmTime.duration(90, locale: locale), "1h 30m")
+        XCTAssertEqual(SleepAlarmTime.duration(-10, locale: locale), "0m")
+    }
+
+    func testDurationPhrasingUsesTheRequestedLocale() {
+        let french = SleepAlarmTime.duration(90, locale: Locale(identifier: "fr_FR"))
+        XCTAssertFalse(french.contains("hr"))
+        XCTAssertTrue(french.contains("30"))
     }
 
     func testHoursMinutesSignedFormattingMatchesTheNeedBreakdownCard() {
