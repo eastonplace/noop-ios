@@ -2,17 +2,20 @@ import Combine
 import Foundation
 
 @MainActor
-private enum PerformanceLifecycleRegistry {
-    private final class Entry {
+fileprivate enum PerformanceLifecycleRegistry {
+    fileprivate final class Entry {
         weak var model: AppModel?
         var active = false
         var migrationTask: Task<Void, Never>?
-        init(model: AppModel) { self.model = model }
+
+        init(model: AppModel) {
+            self.model = model
+        }
     }
 
     private static var entries: [ObjectIdentifier: Entry] = [:]
 
-    static func entry(for model: AppModel) -> Entry {
+    fileprivate static func entry(for model: AppModel) -> Entry {
         entries = entries.filter { $0.value.model != nil }
         let key = ObjectIdentifier(model)
         if let existing = entries[key] { return existing }
@@ -43,8 +46,9 @@ extension AppModel {
         let entry = PerformanceLifecycleRegistry.entry(for: self)
         entry.active = active
         guard active else {
+            // Keep the task reference until its defer runs. Clearing it here allowed a rapid background →
+            // foreground transition to launch a second migration while the cancelled task was still unwinding.
             entry.migrationTask?.cancel()
-            entry.migrationTask = nil
             flushActiveWorkoutSnapshot()
             Task { [live] in await live.flushLogPersistence() }
             return
