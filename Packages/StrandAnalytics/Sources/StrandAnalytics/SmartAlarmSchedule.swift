@@ -36,4 +36,19 @@ public enum SmartAlarmSchedule {
         }
         return nil
     }
+
+    /// Next local 00:01 maintenance edge. This is intentionally recomputed after every fire instead of
+    /// repeating at a fixed 86,400-second interval, because a local civil day can be 23 or 25 hours at DST.
+    public static func nextDailyRearm(
+        after now: Date = Date(),
+        calendar inputCalendar: Calendar = .current
+    ) -> Date? {
+        inputCalendar.nextDate(
+            after: now,
+            matching: DateComponents(hour: 0, minute: 1, second: 0),
+            matchingPolicy: .nextTime,
+            repeatedTimePolicy: .first,
+            direction: .forward
+        )
+    }
 }
