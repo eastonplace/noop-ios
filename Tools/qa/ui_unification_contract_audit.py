@@ -64,16 +64,46 @@ try:
         "BehaviorStore",
         "canonicalSleepNeedPlan",
         "SmartAlarmView()",
+        "SmartAlarmAdaptiveModeStore",
+        "SmartAlarmRuntimeController",
+        "sameOccurrenceMinute",
+    )
+    require(
+        "StrandiOS/App/SmartAlarmRuntimeController.swift",
+        "SmartAlarmRuntimeGeneration",
+        "generation.accepts",
+        "notificationTask?.cancel()",
+        "evaluationTask?.cancel()",
+        "Task.detached(priority: .utility)",
+        "expirationHandler",
+        "pinLegacyEndpointOnly",
+        "nextDailyRearm",
+        "removePendingNotificationRequests",
     )
     require(
         "StrandiOS/App/SmartAlarmCommandReconciler.swift",
-        "model.applySmartAlarm()",
         "SmartAlarmCommandSnapshot",
-        "SmartAlarmCommandReconcileCoordinator",
-        "pendingTask?.cancel()",
-        "try await Task.sleep",
         "SmartAlarmCommandReconcileState",
-        "case .applyImmediately",
+        "SmartAlarmRuntimeController",
+        "runtime.start()",
+    )
+    forbid(
+        "StrandiOS/App/SmartAlarmCommandReconciler.swift",
+        "model.applySmartAlarm()",
+        "SmartAlarmCommandReconcileCoordinator",
+    )
+    require(
+        "StrandiOS/App/StrandiOSApp.swift",
+        "SmartAlarmAdaptiveModeStore",
+        "SmartAlarmRuntimeController",
+        ".environmentObject(alarmMode)",
+        ".environmentObject(alarmRuntime)",
+        "alarmRuntime.handleForeground()",
+    )
+    forbid(
+        "StrandiOS/App/StrandiOSApp.swift",
+        "SmartAlarmScheduler.register()",
+        "model.applySmartAlarm()",
     )
     forbid(
         "Strand/Screens/SmartAlarmView.swift",
@@ -81,10 +111,12 @@ try:
         "onChangeCompat(of: behavior.smartAlarmEnabled)",
         "onChangeCompat(of: behavior.smartAlarmMinutes)",
         "onChangeCompat(of: behavior.smartAlarmWeekdays)",
+        "SmartAlarmEvidenceStore.refreshCorrelation()",
     )
     require(
         "Packages/StrandAnalytics/Sources/StrandAnalytics/SmartAlarmSchedule.swift",
         "public static func nextDate",
+        "public static func nextDailyRearm",
         "matchingPolicy: .nextTime",
     )
     require(
