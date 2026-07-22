@@ -28,11 +28,17 @@ struct TrendSummaryPresentation {
     let spark: [TrendPoint]
     let deltaTone: TrendSummaryDeltaTone
 
-    init(series: [TrendPoint], goodDirection: TrendSummaryGoodDirection) {
+    init(
+        series: [TrendPoint],
+        previousSeries: [TrendPoint],
+        goodDirection: TrendSummaryGoodDirection
+    ) {
         source = series
         latest = series.last?.value
-        delta = series.count > 1 ? series[series.count - 1].value - series[series.count - 2].value : nil
-        spark = Array(series.suffix(7))
+        let currentMean = Self.mean(series)
+        let previousMean = Self.mean(previousSeries)
+        delta = currentMean.flatMap { current in previousMean.map { current - $0 } }
+        spark = Self.sample(series, maximumCount: 30)
 
         guard let delta, abs(delta) > 0.000_000_1 else {
             deltaTone = .neutral
@@ -45,6 +51,20 @@ struct TrendSummaryPresentation {
             deltaTone = delta < 0 ? .positive : .negative
         case .neutral:
             deltaTone = .neutral
+        }
+    }
+
+    private static func mean(_ series: [TrendPoint]) -> Double? {
+        guard !series.isEmpty else { return nil }
+        return series.reduce(0) { $0 + $1.value } / Double(series.count)
+    }
+
+    /// Keep long-range sparks legible without changing the source or period calculation.
+    private static func sample(_ series: [TrendPoint], maximumCount: Int) -> [TrendPoint] {
+        guard maximumCount > 1, series.count > maximumCount else { return series }
+        return (0..<maximumCount).map { slot in
+            let position = Double(slot) * Double(series.count - 1) / Double(maximumCount - 1)
+            return series[Int(position.rounded())]
         }
     }
 }
@@ -128,6 +148,12 @@ private enum ProductionTrendMetric: String, CaseIterable, Identifiable {
             return "\(Int(value.rounded()))"
         }
     }
+
+    func formatWithUnit(_ value: Double) -> String {
+        let rendered = format(value)
+        guard !unit.isEmpty else { return rendered }
+        return unit == "%" ? "\(rendered)%" : "\(rendered) \(unit)"
+    }
 }
 
 struct TrendsView: View {
@@ -208,7 +234,6 @@ struct TrendsView: View {
                     paperScoreTiles
                     paperScoresOverTime
                     paperWeekReview
-                    paperInsight
                 }
             }
         }
@@ -265,10 +290,28 @@ struct TrendsView: View {
         }
     }
 
-    /// One derivation for both the chart marks and summary rows. Do not split this
-    /// back into view-local maps: T030 pins the exact shared arrays.
+    /// The compact rows follow the selected W/M/3M/6M range, not the review card's
+    /// Monday-Sunday week. The immediately preceding equal-length range supplies the delta.
     private var paperTrendSeries: PaperTrendSeries {
-        PaperTrendSeries.build(days: paperWeekDays, sleepByDay: sleepPerfByDay, date: date)
+        PaperTrendSeries.build(days: paperRangeDays(periodOffset: 0), sleepByDay: sleepPerfByDay, date: date)
+    }
+
+    private var previousPaperTrendSeries: PaperTrendSeries {
+        PaperTrendSeries.build(days: paperRangeDays(periodOffset: -1), sleepByDay: sleepPerfByDay, date: date)
+    }
+
+    private func paperRangeDays(periodOffset: Int) -> [DailyMetric] {
+        let calendar = Calendar.current
+        guard let period = TrendCalendar.equalLengthPeriod(
+            through: trendReferenceDate,
+            count: selectedRange.days,
+            periodOffset: periodOffset,
+            calendar: calendar
+        ) else { return [] }
+        return repo.canonicalDays.filter { day in
+            guard let stamp = localDate(day.day, calendar: calendar) else { return false }
+            return period.contains(stamp)
+        }
     }
 
     private func paperScoreTile(_ metric: WeeklyMetric, accent: Color) -> some View {
@@ -298,6 +341,7 @@ struct TrendsView: View {
 
     private var paperScoresOverTime: some View {
         let series = paperTrendSeries
+        let previousSeries = previousPaperTrendSeries
         let referenceDate = trendReferenceDate
         let selectedPoints = selectedTrendPoints
         let selectedDateDomain = TrendCalendar.dateDomain(
@@ -341,13 +385,17 @@ struct TrendsView: View {
                         .id("heat-\(selectedMetric.rawValue)-\(selectedRange.rawValue)")
                 }
             }
-            trendV2Row("Recovery", points: series.recovery, tint: StrandPalette.recoveryData,
+            trendV2Row("Recovery", points: series.recovery, previousPoints: previousSeries.recovery,
+                       goodDirection: .higher, tint: StrandPalette.recoveryData,
                        format: { "\(Int($0.rounded()))" })
-            trendV2Row("Strain", points: series.strain, tint: StrandPalette.strainAccent,
+            trendV2Row("Strain", points: series.strain, previousPoints: previousSeries.strain,
+                       goodDirection: .neutral, tint: StrandPalette.strainAccent,
                        format: StrainScale.formatted)
-            trendV2Row("Sleep", points: series.sleep, tint: StrandPalette.sleepAccent,
+            trendV2Row("Sleep", points: series.sleep, previousPoints: previousSeries.sleep,
+                       goodDirection: .higher, tint: StrandPalette.sleepAccent,
                        format: { "\(Int($0.rounded()))%" })
-            trendV2Row("HRV", points: series.hrv, tint: StrandPalette.metricPurple,
+            trendV2Row("HRV", points: series.hrv, previousPoints: previousSeries.hrv,
+                       goodDirection: .higher, tint: StrandPalette.metricPurple,
                        format: { "\(Int($0.rounded())) ms" })
             if !weekdayAverages.compactMap({ $0 }).isEmpty {
                 VStack(alignment: .leading, spacing: 2) {
@@ -360,7 +408,8 @@ struct TrendsView: View {
                     values: weekdayAverages,
                     tint: selectedMetric.tint,
                     referenceDate: referenceDate,
-                    calendar: .current
+                    calendar: .current,
+                    valueFormat: selectedMetric.formatWithUnit
                 )
                     .frame(height: 150)
             }
@@ -467,20 +516,32 @@ struct TrendsView: View {
     private func trendV2Row(
         _ label: String,
         points: [TrendPoint],
+        previousPoints: [TrendPoint],
+        goodDirection: TrendSummaryGoodDirection,
         tint: Color,
         format: (Double) -> String
     ) -> some View {
-        let values = points.map(\.value)
-        let latest = values.last
-        let prior = values.dropLast().last
-        let delta = latest.flatMap { current in prior.map { current - $0 } }
+        let presentation = TrendSummaryPresentation(
+            series: points,
+            previousSeries: previousPoints,
+            goodDirection: goodDirection
+        )
+        let tone: TrendDeltaTone
+        switch presentation.deltaTone {
+        case .positive: tone = .positive
+        case .negative: tone = .negative
+        case .neutral: tone = .neutral
+        }
+        let deltaText = presentation.delta.map { delta in
+            "\(delta >= 0 ? "+" : "−")\(format(abs(delta))) avg"
+        } ?? "Need prior data"
         return TrendDeltaRow(
             label: label,
-            subtitle: "This week",
-            values: values,
-            latest: latest.map(format) ?? "—",
-            delta: delta.map { "\($0 >= 0 ? "+" : "−")\(format(abs($0)))" } ?? "—",
-            positive: (delta ?? 0) >= 0,
+            subtitle: selectedRange.summarySubtitle,
+            values: presentation.spark.map(\.value),
+            latest: presentation.latest.map(format) ?? "—",
+            delta: deltaText,
+            tone: tone,
             tint: tint
         )
     }
@@ -520,9 +581,59 @@ struct TrendsView: View {
         return StrandPalette.textTertiary
     }
 
+    private var paperMoverRows: [WeeklyMetricSummary] {
+        Array(
+            paperDigest.metrics
+                .filter { $0.weekOverWeek.current.n > 0 && $0.weekOverWeek.previous.n > 0 }
+                .sorted { abs($0.normalisedMove) > abs($1.normalisedMove) }
+                .prefix(3)
+        )
+    }
+
+    private func paperMoverAccent(_ metric: WeeklyMetric) -> Color {
+        switch metric {
+        case .charge: StrandPalette.recoveryData
+        case .effort: StrandPalette.strainAccent
+        case .rest: StrandPalette.sleepAccent
+        case .rhr: StrandPalette.metricRose
+        case .hrv: StrandPalette.metricPurple
+        }
+    }
+
+    private func paperMoverValue(_ summary: WeeklyMetricSummary) -> String {
+        let value = summary.thisWeek.mean
+        switch summary.metric {
+        case .effort: return StrainScale.formatted(value)
+        case .rhr: return "\(Int(value.rounded())) bpm"
+        case .hrv: return "\(Int(value.rounded())) ms"
+        case .charge, .rest: return "\(Int(value.rounded()))"
+        }
+    }
+
+    private func paperMoverDelta(_ summary: WeeklyMetricSummary) -> String {
+        let delta = summary.wowDelta
+        let magnitude: String
+        switch summary.metric {
+        case .effort: magnitude = StrainScale.formattedDelta(abs(delta))
+        case .rhr: magnitude = "\(Int(abs(delta).rounded())) bpm"
+        case .hrv: magnitude = "\(Int(abs(delta).rounded())) ms"
+        case .charge, .rest: magnitude = "\(Int(abs(delta).rounded()))"
+        }
+        return "\(delta >= 0 ? "+" : "−")\(magnitude)"
+    }
+
+    private func paperMoverTone(_ summary: WeeklyMetricSummary) -> Color {
+        guard !summary.isRoughComparison else { return StrandPalette.textTertiary }
+        switch summary.wowGoodness {
+        case 1: return StrandPalette.statusPositive
+        case -1: return StrandPalette.statusCritical
+        default: return StrandPalette.textSecondary
+        }
+    }
+
     private var paperWeekReview: some View {
         PaperCard {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 10) {
                     Button { stepWeek(-1) } label: {
                         Image(systemName: "chevron.left").frame(width: 28, height: 28)
@@ -532,10 +643,17 @@ struct TrendsView: View {
                     .disabled(weekOffset <= minWeekOffset)
                     .accessibilityLabel("Previous week")
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Week in Review").strandOverline()
+                        Text("Weekly readout").strandOverline()
                         Text(weekOffsetLabel).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
                     }
                     Spacer()
+                    Text("\(paperDigest.daysWithData)/7 days")
+                        .font(StrandFont.micro.weight(.semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(StrandPalette.surfaceInset, in: Capsule())
                     Button { stepWeek(1) } label: {
                         Image(systemName: "chevron.right").frame(width: 28, height: 28)
                     }
@@ -544,21 +662,69 @@ struct TrendsView: View {
                     .disabled(weekOffset >= 0)
                     .accessibilityLabel("Next week")
                 }
-                ForEach(Array(paperReviewLines.enumerated()), id: \.offset) { index, line in
-                    HStack(alignment: .top, spacing: 9) {
-                        ZStack {
-                            Circle().fill(reviewDotColor(for: line))
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 8, weight: .bold))
-                                .foregroundStyle(Color.white)
+
+                if !paperMoverRows.isEmpty {
+                    Text("Biggest changes").strandOverline()
+                    VStack(spacing: 9) {
+                        ForEach(paperMoverRows, id: \.metric.rawValue) { summary in
+                            HStack(spacing: 9) {
+                                Circle().fill(paperMoverAccent(summary.metric)).frame(width: 7, height: 7)
+                                Text(summary.metric.label)
+                                    .font(StrandFont.caption.weight(.semibold))
+                                    .foregroundStyle(StrandPalette.textPrimary)
+                                if summary.isRoughComparison {
+                                    Text("early read")
+                                        .font(StrandFont.micro)
+                                        .foregroundStyle(StrandPalette.textTertiary)
+                                }
+                                Spacer(minLength: 8)
+                                Text(paperMoverValue(summary))
+                                    .font(StrandFont.captionNumber.weight(.semibold))
+                                    .monospacedDigit()
+                                    .foregroundStyle(StrandPalette.textPrimary)
+                                Text(paperMoverDelta(summary))
+                                    .font(StrandFont.micro.weight(.semibold))
+                                    .monospacedDigit()
+                                    .foregroundStyle(paperMoverTone(summary))
+                                    .frame(minWidth: 50, alignment: .trailing)
+                            }
                         }
-                        .frame(width: 18, height: 18)
-                        .padding(.top, 1)
-                        .accessibilityHidden(true)
-                        Text(line).font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
+                    }
+                }
+
+                if let consistency = paperDigest.sleepConsistencySD {
+                    Label("Sleep consistency ±\(Int(consistency.rounded())) points", systemImage: "moon.zzz")
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                }
+
+                Divider().overlay(StrandPalette.hairline)
+
+                ForEach(Array(paperReviewLines.enumerated()), id: \.offset) { _, line in
+                    HStack(alignment: .top, spacing: 9) {
+                        Circle().fill(reviewDotColor(for: line)).frame(width: 7, height: 7).padding(.top, 6)
+                        Text(line)
+                            .font(StrandFont.body)
+                            .foregroundStyle(StrandPalette.textPrimary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
+
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(StrandPalette.link)
+                        .padding(.top, 2)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Insight").strandOverline()
+                        Text(paperInsightText)
+                            .font(StrandFont.footnote)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(12)
+                .background(StrandPalette.surfaceInset, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
         }
     }

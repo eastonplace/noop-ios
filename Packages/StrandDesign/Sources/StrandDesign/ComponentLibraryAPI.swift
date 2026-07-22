@@ -326,7 +326,17 @@ public extension TrendDeltaRow {
         self.values = values
         self.latest = latest
         self.delta = delta
-        self.positive = positive
+        self.tone = positive ? .positive : .negative
+        self.tint = tint
+    }
+
+    init(_publicAPI: Void = (), label: String, subtitle: String, values: [Double], latest: String, delta: String, tone: TrendDeltaTone, tint: Color) {
+        self.label = label
+        self.subtitle = subtitle
+        self.values = values
+        self.latest = latest
+        self.delta = delta
+        self.tone = tone
         self.tint = tint
     }
 }

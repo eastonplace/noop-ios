@@ -19,10 +19,6 @@ struct RootTabView: View {
     @State private var routedPillar: NavRouter.Destination?
     /// Selected tab — bound so tab switches can crossfade. Defaults to Today.
     @State private var selectedTab: Int
-    /// Which More-tab groups are expanded. Persisted across navigation and relaunch.
-    @AppStorage(MoreSectionPrefs.storageKey) private var expandedMoreSectionsCSV = MoreSectionPrefs.defaultCSV
-    private var expandedMoreSections: Set<String> { MoreSectionPrefs.decode(expandedMoreSectionsCSV) }
-
     /// Paper is the sole Today surface.
     private var todayTabRoot: some View { TodayView() }
 
@@ -82,6 +78,11 @@ struct RootTabView: View {
             }, onQuickActions: {
                 withAnimation(Self.sheetEase) { quickAction = .menu }
             })
+        }
+        .background {
+            SmartAlarmCommandReconciler()
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
         }
         .task {
             // AppModel owns the one initial full-history repository load. This shell only performs the
@@ -220,123 +221,301 @@ struct RootTabView: View {
         NavigationStack {
             ScreenScaffold(
                 title: "More",
-                subtitle: "Everything else, one tap away",
+                subtitle: "Tools grouped by what you are trying to do",
                 onRefresh: { _ = await repo.refresh(.currentDay) },
                 topBackground: nil
             ) {
-                moreSection("Insights") {
-                    MoreRow("What Moves You", "wand.and.sparkles") { InsightsHubView() }
-                    MoreRow("Intelligence", "brain.head.profile") { IntelligenceView() }
-                    MoreRow("Coach", "sparkles") { CoachView() }
-                    MoreRow("Insights", "lightbulb.fill") { InsightsHubView() }
-                    MoreRow("Explore", "square.grid.2x2.fill") { MetricExplorerView() }
-                    MoreRow("Compare", "rectangle.split.2x1.fill") { CompareView() }
-                }
-                moreSection("Body") {
-                    MoreRow("Live", "waveform.path.ecg") { LiveView() }
-                    MoreRow("Workouts", "figure.run") { WorkoutsView() }
-                    MoreRow("Health", "heart.text.square.fill") { HealthView() }
-                    MoreRow("Lab Book", "books.vertical.fill") { LabBookView() }
-                    MoreRow("Stress", "bolt.heart.fill") { StressView() }
-                    MoreRow("Breathe", "wind") { BreathingView() }
-                    MoreRow("Intervals", "timer") { IntervalTimerView() }
-                    MoreRow("Rhythm", "waveform.path") { RhythmHost() }
-                }
-                moreSection("Data") {
-                    MoreRow("Your Data, Fused", "square.stack.3d.up.fill") { FusedRecordHost() }
-                    MoreRow("Apple Health", "heart.fill") { AppleHealthView() }
-                    MoreRow("Mi Band", "figure.walk.motion") { XiaomiBandView() }
-                    MoreRow("Data Sources", "externaldrive.fill") { DataSourcesView() }
-                    MoreRow("Backup & Sync", "externaldrive.fill.badge.icloud") { BackupSyncView() }
-                    MoreRow("Shortcuts Export", "square.and.arrow.up.fill") { ShortcutExportSettingsView() }
-                }
-                moreSection("App") {
-                    MoreRow("Alarms", "alarm.fill") { SmartAlarmView() }
-                    MoreRow("Automations", "wand.and.stars") { AutomationsView() }
-                    MoreRow("Test Centre", "stethoscope") { TestCentreView() }
-                    MoreRow("Siri & Shortcuts", "mic.fill") { SiriShortcutsSettingsView() }
-                    MoreRow("Settings", "gearshape.fill") { SettingsView() }
-                    MoreRow("Support", "hands.clap.fill") { SupportView() }
-                }
+                SettingsScreenTemplate(sections: moreSections)
             }
             .toolbar(.hidden, for: .tabBar)
         }
         .tabItem { Label("More", systemImage: "ellipsis.circle.fill") }
     }
 
-    @ViewBuilder
-    private func moreSection<Rows: View>(
-        _ title: String,
-        @ViewBuilder rows: @escaping () -> Rows
-    ) -> some View {
-        let isOpen = expandedMoreSections.contains(title)
-        VStack(alignment: .leading, spacing: 10) {
-            Button {
-                withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) {
-                    var open = expandedMoreSections
-                    if isOpen { open.remove(title) } else { open.insert(title) }
-                    expandedMoreSectionsCSV = MoreSectionPrefs.encode(open)
-                }
-            } label: {
-                HStack(spacing: 6) {
-                    SectionHeader(LocalizedStringKey(title))
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(StrandPalette.textTertiary)
-                        .rotationEffect(.degrees(isOpen ? 0 : -90))
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(Text(title))
-            .accessibilityValue(Text(isOpen ? String(localized: "Expanded") : String(localized: "Collapsed")))
-            .accessibilityHint(Text(isOpen ? String(localized: "Double tap to collapse") : String(localized: "Double tap to expand")))
+    private var moreSections: [SettingsSectionModel] {
+        [
+            SettingsSectionModel(
+                id: "browse",
+                header: "Browse",
+                footer: "Open a focused group instead of scanning one long wall of tools.",
+                rows: [
+                    .navDetail(
+                        id: "understand",
+                        icon: "brain.head.profile",
+                        tint: StrandPalette.metricPurple,
+                        title: "Understand your data",
+                        subtitle: "Patterns, coaching, metric exploration, and comparisons"
+                    ) {
+                        MoreCategoryView(
+                            title: "Understand",
+                            subtitle: "Turn your history into patterns and decisions",
+                            rows: understandRows
+                        )
+                    },
+                    .navDetail(
+                        id: "train-recover",
+                        icon: "figure.run.circle.fill",
+                        tint: StrandPalette.strainAccent,
+                        title: "Train & recover",
+                        subtitle: "Live data, workouts, health, stress, breathing, and timing"
+                    ) {
+                        MoreCategoryView(
+                            title: "Train & recover",
+                            subtitle: "Record, review, and regulate your body",
+                            rows: trainRecoverRows
+                        )
+                    },
+                    .navDetail(
+                        id: "data-devices",
+                        icon: "externaldrive.connected.to.line.below.fill",
+                        tint: StrandPalette.metricCyan,
+                        title: "Data & devices",
+                        subtitle: "Sources, Apple Health, fused records, backups, and exports"
+                    ) {
+                        MoreCategoryView(
+                            title: "Data & devices",
+                            subtitle: "Connect, inspect, move, and protect your data",
+                            rows: dataDeviceRows
+                        )
+                    },
+                    .navDetail(
+                        id: "plan-automate",
+                        icon: "wand.and.stars",
+                        tint: StrandPalette.metricAmber,
+                        title: "Plan & automate",
+                        subtitle: "Alarms, automations, diagnostics, and Siri shortcuts"
+                    ) {
+                        MoreCategoryView(
+                            title: "Plan & automate",
+                            subtitle: "Set up routines and technical tools",
+                            rows: planAutomateRows
+                        )
+                    },
+                ]
+            ),
+            SettingsSectionModel(
+                id: "account-help",
+                header: "Account & Help",
+                rows: [
+                    .navDetail(
+                        id: "settings",
+                        icon: "gearshape.fill",
+                        tint: StrandPalette.textSecondary,
+                        title: "Settings",
+                        subtitle: "Profile, device, scoring, appearance, privacy, and advanced tools"
+                    ) { SettingsView() },
+                    .navDetail(
+                        id: "support",
+                        icon: "heart.fill",
+                        tint: StrandPalette.metricRose,
+                        title: "Support",
+                        subtitle: "Help, troubleshooting, and support for the project"
+                    ) { SupportView() },
+                ]
+            ),
+        ]
+    }
 
-            if isOpen {
-                PaperCard(padding: 0) {
-                    VStack(spacing: 0) { rows() }
-                        .clipShape(RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous))
-                }
-            }
-        }
+    private var understandRows: [SettingsRowModel] {
+        [
+            .navDetail(
+                id: "what-moves-you",
+                icon: "wand.and.sparkles",
+                tint: StrandPalette.metricPurple,
+                title: "What Moves You",
+                subtitle: "Your strongest relationships and recurring behavior signals"
+            ) { InsightsHubView() },
+            .navDetail(
+                id: "intelligence",
+                icon: "brain.head.profile",
+                tint: StrandPalette.recoveryData,
+                title: "Intelligence",
+                subtitle: "Forecasts, confidence, and engine-backed explanations"
+            ) { IntelligenceView() },
+            .navDetail(
+                id: "coach",
+                icon: "sparkles",
+                tint: StrandPalette.metricAmber,
+                title: "Coach",
+                subtitle: "Personalized guidance grounded in your local history"
+            ) { CoachView() },
+            .navDetail(
+                id: "explore",
+                icon: "square.grid.2x2.fill",
+                tint: StrandPalette.metricCyan,
+                title: "Explore metrics",
+                subtitle: "Open every recorded and derived metric in one catalog"
+            ) { MetricExplorerView() },
+            .navDetail(
+                id: "compare",
+                icon: "rectangle.split.2x1.fill",
+                tint: StrandPalette.sleepAccent,
+                title: "Compare",
+                subtitle: "Place two periods or metrics side by side"
+            ) { CompareView() },
+        ]
+    }
+
+    private var trainRecoverRows: [SettingsRowModel] {
+        [
+            .navDetail(
+                id: "live",
+                icon: "waveform.path.ecg",
+                tint: StrandPalette.liveRed,
+                title: "Live",
+                subtitle: "Current heart rate, strap state, and live session controls"
+            ) { LiveView() },
+            .navDetail(
+                id: "workouts",
+                icon: "figure.run",
+                tint: StrandPalette.strainAccent,
+                title: "Workouts",
+                subtitle: "Record, finish, edit, and review training sessions"
+            ) { WorkoutsView() },
+            .navDetail(
+                id: "health",
+                icon: "heart.text.square.fill",
+                tint: StrandPalette.metricRose,
+                title: "Health",
+                subtitle: "Vitals, trends, flags, and health context"
+            ) { HealthView() },
+            .navDetail(
+                id: "lab-book",
+                icon: "books.vertical.fill",
+                tint: StrandPalette.metricPurple,
+                title: "Lab Book",
+                subtitle: "Experiments, observations, and personal evidence"
+            ) { LabBookView() },
+            .navDetail(
+                id: "stress",
+                icon: "bolt.heart.fill",
+                tint: StrandPalette.stressAccent,
+                title: "Stress",
+                subtitle: "Daytime stress, check-ins, and regulation tools"
+            ) { StressView() },
+            .navDetail(
+                id: "breathe",
+                icon: "wind",
+                tint: StrandPalette.recoveryData,
+                title: "Breathe",
+                subtitle: "Guided breathing sessions with live feedback"
+            ) { BreathingView() },
+            .navDetail(
+                id: "intervals",
+                icon: "timer",
+                tint: StrandPalette.metricAmber,
+                title: "Intervals",
+                subtitle: "Simple interval timing for structured sessions"
+            ) { IntervalTimerView() },
+            .navDetail(
+                id: "rhythm",
+                icon: "waveform.path",
+                tint: StrandPalette.sleepAccent,
+                title: "Rhythm",
+                subtitle: "Daily timing, sleep regularity, and circadian patterns"
+            ) { RhythmHost() },
+        ]
+    }
+
+    private var dataDeviceRows: [SettingsRowModel] {
+        [
+            .navDetail(
+                id: "fused-record",
+                icon: "square.stack.3d.up.fill",
+                tint: StrandPalette.metricPurple,
+                title: "Your data, fused",
+                subtitle: "One chronological record across local sources"
+            ) { FusedRecordHost() },
+            .navDetail(
+                id: "apple-health",
+                icon: "heart.fill",
+                tint: StrandPalette.metricRose,
+                title: "Apple Health",
+                subtitle: "Read and write permissions, sync, and source status"
+            ) { AppleHealthView() },
+            .navDetail(
+                id: "mi-band",
+                icon: "figure.walk.motion",
+                tint: StrandPalette.metricCyan,
+                title: "Mi Band",
+                subtitle: "Xiaomi band connection and supported data"
+            ) { XiaomiBandView() },
+            .navDetail(
+                id: "data-sources",
+                icon: "externaldrive.fill",
+                tint: StrandPalette.metricCyan,
+                title: "Data Sources",
+                subtitle: "Imports, source priority, storage, and cleanup"
+            ) { DataSourcesView() },
+            .navDetail(
+                id: "backup-sync",
+                icon: "externaldrive.fill.badge.icloud",
+                tint: StrandPalette.sleepAccent,
+                title: "Backup & Sync",
+                subtitle: "Create, restore, and inspect portable backups"
+            ) { BackupSyncView() },
+            .navDetail(
+                id: "shortcuts-export",
+                icon: "square.and.arrow.up.fill",
+                tint: StrandPalette.metricAmber,
+                title: "Shortcuts Export",
+                subtitle: "Configure files and values exposed to Shortcuts"
+            ) { ShortcutExportSettingsView() },
+        ]
+    }
+
+    private var planAutomateRows: [SettingsRowModel] {
+        [
+            .navDetail(
+                id: "alarms",
+                icon: "alarm.fill",
+                tint: StrandPalette.sleepAccent,
+                title: "Alarms",
+                subtitle: "Wake mode, weekdays, wind-down, test buzz, and backup status"
+            ) { SmartAlarmView() },
+            .navDetail(
+                id: "automations",
+                icon: "wand.and.stars",
+                tint: StrandPalette.metricPurple,
+                title: "Automations",
+                subtitle: "Run local actions from strap and app events"
+            ) { AutomationsView() },
+            .navDetail(
+                id: "test-centre",
+                icon: "stethoscope",
+                tint: StrandPalette.metricCyan,
+                title: "Test Centre",
+                subtitle: "Connection, sensor, scoring, and notification checks"
+            ) { TestCentreView() },
+            .navDetail(
+                id: "siri-shortcuts",
+                icon: "mic.fill",
+                tint: StrandPalette.metricRose,
+                title: "Siri & Shortcuts",
+                subtitle: "Voice and system actions exposed by NOOP"
+            ) { SiriShortcutsSettingsView() },
+        ]
     }
 }
 
-private struct MoreRow<Destination: View>: View {
+private struct MoreCategoryView: View {
     let title: LocalizedStringKey
-    let icon: String
-    @ViewBuilder let destination: () -> Destination
-
-    init(
-        _ title: LocalizedStringKey,
-        _ icon: String,
-        @ViewBuilder _ destination: @escaping () -> Destination
-    ) {
-        self.title = title
-        self.icon = icon
-        self.destination = destination
-    }
+    let subtitle: LocalizedStringKey
+    let rows: [SettingsRowModel]
 
     var body: some View {
-        NavigationLink {
-            destination()
-                .background(StrandPalette.appCanvas.ignoresSafeArea())
-                .environment(\.screenScaffoldNavigationRole, .detail)
-                .toolbar(.hidden, for: .navigationBar)
-        } label: {
-            SettingsRow(icon: icon, title: title, showsChevron: true)
-                .padding(.horizontal, 16)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-                .overlay(alignment: .bottom) {
-                    Rectangle()
-                        .fill(StrandPalette.hairline)
-                        .frame(height: 1)
-                        .padding(.leading, 16)
-                }
+        ScreenScaffold(title: title, subtitle: subtitle, lazy: true, topBackground: nil) {
+            SettingsScreenTemplate(
+                sections: [
+                    SettingsSectionModel(
+                        id: "tools",
+                        header: "Tools",
+                        rows: rows
+                    )
+                ]
+            )
         }
-        .buttonStyle(.plain)
+        .environment(\.screenScaffoldNavigationRole, .detail)
     }
 }
 

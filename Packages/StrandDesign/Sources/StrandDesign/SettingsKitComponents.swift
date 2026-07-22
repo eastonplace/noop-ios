@@ -4,8 +4,21 @@ import SwiftUI
 
 /// A production-bound settings grammar. Values and actions are supplied by the
 /// feature so the design package never owns or fabricates settings state.
+public struct SettingsDestination {
+    private let build: () -> AnyView
+
+    public init(_ build: @escaping () -> AnyView) {
+        self.build = build
+    }
+
+    public func callAsFunction() -> AnyView {
+        build()
+    }
+}
+
 public enum SettingsRowModel: Identifiable {
-    case nav(id: String, icon: String, tint: Color, title: String, value: String?, destination: AnyView)
+    case nav(id: String, icon: String, tint: Color, title: String, value: String?, destination: SettingsDestination)
+    case navDetail(id: String, icon: String, tint: Color, title: String, subtitle: String, value: String?, destination: SettingsDestination)
     case toggle(id: String, icon: String, tint: Color, title: String, subtitle: String?, isOn: Binding<Bool>)
     case segmented(id: String, icon: String, tint: Color, title: String, options: [String], selection: Binding<String>)
     case stepper(id: String, icon: String, tint: Color, title: String, unit: String,
@@ -17,8 +30,9 @@ public enum SettingsRowModel: Identifiable {
 
     public var id: String {
         switch self {
-        case .nav(let id, _, _, _, _, _), .toggle(let id, _, _, _, _, _),
-             .segmented(let id, _, _, _, _, _), .stepper(let id, _, _, _, _, _, _, _, _),
+        case .nav(let id, _, _, _, _, _), .navDetail(let id, _, _, _, _, _, _),
+             .toggle(let id, _, _, _, _, _), .segmented(let id, _, _, _, _, _),
+             .stepper(let id, _, _, _, _, _, _, _, _),
              .info(let id, _, _, _, _), .link(let id, _, _, _, _),
              .destructive(let id, _, _, _), .custom(let id, _):
             return id
@@ -31,10 +45,18 @@ public enum SettingsRowModel: Identifiable {
 
     public static func nav<Destination: View>(
         id: String, icon: String, tint: Color, title: String, value: String? = nil,
-        @ViewBuilder destination: () -> Destination
+        @ViewBuilder destination: @escaping () -> Destination
     ) -> Self {
         .nav(id: id, icon: icon, tint: tint, title: title, value: value,
-             destination: AnyView(destination()))
+             destination: SettingsDestination { AnyView(destination()) })
+    }
+
+    public static func navDetail<Destination: View>(
+        id: String, icon: String, tint: Color, title: String, subtitle: String,
+        value: String? = nil, @ViewBuilder destination: @escaping () -> Destination
+    ) -> Self {
+        .navDetail(id: id, icon: icon, tint: tint, title: title, subtitle: subtitle,
+                   value: value, destination: SettingsDestination { AnyView(destination()) })
     }
 }
 
@@ -168,7 +190,7 @@ public struct SettingsRowView: View {
         switch row {
         case .nav(_, let icon, let tint, let title, let value, let destination):
             NavigationLink {
-                destination
+                destination()
             } label: {
                 rowChrome(icon: icon, tint: tint, title: title) {
                     if let value {
@@ -180,6 +202,21 @@ public struct SettingsRowView: View {
             }
             .buttonStyle(StressModulePressStyle())
             .accessibilityLabel(value.map { "\(title), \($0)" } ?? title)
+
+        case .navDetail(_, let icon, let tint, let title, let subtitle, let value, let destination):
+            NavigationLink {
+                destination()
+            } label: {
+                rowChrome(icon: icon, tint: tint, title: title, subtitle: subtitle) {
+                    if let value {
+                        Text(value).font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
+                    }
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold)).foregroundStyle(StrandPalette.textTertiary)
+                }
+            }
+            .buttonStyle(StressModulePressStyle())
+            .accessibilityLabel(value.map { "\(title), \($0). \(subtitle)" } ?? "\(title). \(subtitle)")
 
         case .toggle(_, let icon, let tint, let title, let subtitle, let isOn):
             rowChrome(icon: icon, tint: tint, title: title, subtitle: subtitle) {

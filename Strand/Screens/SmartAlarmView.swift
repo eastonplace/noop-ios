@@ -63,55 +63,19 @@ struct SmartAlarmView: View {
             SmartAlarmEvidenceStore.refreshCorrelation()
             evidence = SmartAlarmEvidenceStore.latest
         }
-        // Wiring for the NEW mode picker (T702): the other three properties the hero also edits
-        // (enabled / minutes / weekdays) already re-arm via the identical `.onChangeCompat` on
-        // the screen below — mode had no editor before this kit, so it gets its own.
-        .onChangeCompat(of: behavior.smartAlarmMode) { _ in model.applySmartAlarm() }
-        .onChangeCompat(of: behavior.smartAlarmEnabled) { _ in model.applySmartAlarm() }
-        .onChangeCompat(of: behavior.smartAlarmMinutes) { _ in model.applySmartAlarm() }
-        .onChangeCompat(of: behavior.smartAlarmWeekdays) { _ in model.applySmartAlarm() }
+        // Stored edits are reconciled once by the app-root SmartAlarmCommandReconciler.
+        // Keeping side effects out of each editor prevents duplicate BLE commands when
+        // Sleep and Alarms remain mounted at the same time.
     }
 
     // MARK: - T702 hero: real clock, real modes, real canonical need
 
-    /// The Sleep goal / In the green / Exact time modes, mapped to the REAL conditional-alarm system
-    /// (`SmartAlarmEvaluator.Mode`, already implemented and hardened in `AppModel`). "Exact time" arms
-    /// the strap firmware alarm at the set endpoint; the two smart modes are best-effort early wake —
-    /// the endpoint stays armed as the fail-safe, and early wake needs a live, connected phone, so it
-    /// is never promised as guaranteed on iOS.
-    private var wakeModes: [SleepAlarmWakeMode] {
-        [
-            SleepAlarmWakeMode(
-                id: SmartAlarmEvaluator.Mode.exactTime.rawValue,
-                title: String(localized: "Exact time"),
-                explanation: String(localized: "Wakes you with the strap's firmware alarm at exactly the time you set — no window."),
-                windowMinutes: 0
-            ),
-            SleepAlarmWakeMode(
-                id: SmartAlarmEvaluator.Mode.sleepGoal.rawValue,
-                title: String(localized: "Sleep goal"),
-                explanation: String(localized: "Best-effort early wake once tonight's Sleep Need is banked, inside a \(SmartAlarmEvaluator.adaptiveWindowMinutes)-minute window. The strap's exact-time alarm stays armed as the fail-safe; early wake is best-effort on iOS, never guaranteed."),
-                windowMinutes: SmartAlarmEvaluator.adaptiveWindowMinutes
-            ),
-            SleepAlarmWakeMode(
-                id: SmartAlarmEvaluator.Mode.inTheGreen.rawValue,
-                title: String(localized: "In the green"),
-                explanation: String(localized: "Best-effort early wake once tomorrow's Recovery is projected to land in the green, inside a \(SmartAlarmEvaluator.adaptiveWindowMinutes)-minute window. Same fail-safe endpoint and same iOS best-effort caveat as Sleep goal."),
-                windowMinutes: SmartAlarmEvaluator.adaptiveWindowMinutes,
-                availability: inTheGreenAvailability
-            )
-        ]
+    private var recoveryHistoryCount: Int {
+        intelligence.results.compactMap(\.recovery).count
     }
 
-    /// Scored Recovery nights on hand — the same `RecoveryForecaster.minBaselineNights` gate the
-    /// forecast itself enforces, so "In the green" never claims availability the forecast would
-    /// immediately refuse.
-    private var recoveryHistoryCount: Int { intelligence.results.compactMap(\.recovery).count }
-
-    private var inTheGreenAvailability: SleepAlarmWakeMode.Availability {
-        recoveryHistoryCount >= RecoveryForecaster.minBaselineNights
-            ? .available
-            : .unavailable(reason: String(localized: "Needs a few more scored nights of Recovery to forecast tonight (\(recoveryHistoryCount) of \(RecoveryForecaster.minBaselineNights) so far)."))
+    private var wakeModes: [SleepAlarmWakeMode] {
+        SleepAlarmEditorSupport.wakeModes(recoveryHistoryCount: recoveryHistoryCount)
     }
 
     private var smartAlarmModeBinding: Binding<String> {
@@ -313,105 +277,6 @@ struct SmartAlarmView: View {
         }
     }
 
-    private var paperAlarmSummary: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
-            VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
-                SectionHeader("Strap wake alarm")
-                PaperCard(padding: 14) {
-                    VStack(spacing: 0) {
-                        SettingsRow(icon: "bell", title: "Smart Wake",
-                                    subtitle: "Silent strap vibration", showsChevron: false) {
-                            Toggle("", isOn: $behavior.smartAlarmEnabled)
-                                .labelsHidden().tint(StrandPalette.ink)
-                        }
-                        Divider().overlay(StrandPalette.hairline)
-                        SettingsRow(title: "Target time", showsChevron: false) {
-                            Text(timeLabel(behavior.smartAlarmMinutes))
-                        }
-                        Divider().overlay(StrandPalette.hairline)
-                        Text("Your strap will vibrate gently to wake you. Keep a reliable backup alarm.")
-                            .font(StrandFont.caption)
-                            .foregroundStyle(StrandPalette.textSecondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.vertical, 10)
-                    }
-                }
-            }
-            VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
-                SectionHeader("Evening wind-down reminder")
-                PaperCard(padding: 14) {
-                    VStack(spacing: 0) {
-                        SettingsRow(icon: "moon", title: "Wind-down reminder",
-                                    subtitle: "Help build a consistent bedtime", showsChevron: false) {
-                            Toggle("", isOn: $windDownOn)
-                                .labelsHidden().tint(StrandPalette.ink)
-                                .onChangeCompat(of: windDownOn) { on in WindDownNudge.setEnabled(on) }
-                        }
-                        Divider().overlay(StrandPalette.hairline)
-                        SettingsRow(title: "Start time", showsChevron: false) {
-                            Text(timeLabel(WindDownNudge.nudgeMinuteOfDay()))
-                        }
-                    }
-                }
-            }
-            PaperCard(padding: 14) {
-                SettingsRow(icon: "iphone", title: "Backup notification",
-                            subtitle: "Phone fallback when the strap alarm is armed", showsChevron: false) {
-                    Text(behavior.smartAlarmEnabled ? "On" : "Off")
-                }
-            }
-            NoteCard("Alarms use your strap's vibration. Keep it charged and within range.", style: .warning)
-            PrimaryButton("Test alarm") { model.buzz(loops: 2) }
-        }
-    }
-
-    // A small Sleep-tinted hero — the wind-down readout as a clean time pairing (wind-down → wake)
-    // over a scenic Sleep backdrop, so a glance gives the night's shape. It's about winding down to
-    // sleep, so it reads in the Sleep world (indigo) rather than the brand-green chrome below.
-    private var windowHero: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous)
-                .fill(StrandPalette.card)
-                .overlay(
-                    RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous)
-                        .strokeBorder(StrandPalette.cardBorder, lineWidth: 1)
-                )
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Tonight").strandOverline()
-                HStack(alignment: .firstTextBaseline, spacing: 14) {
-                    heroTime(label: "Wind down",
-                             time: windDownOn ? timeLabel(WindDownNudge.nudgeMinuteOfDay()) : "—",
-                             tint: StrandPalette.restColor)
-                    Image(systemName: "arrow.right")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(StrandPalette.textTertiary)
-                        .accessibilityHidden(true)
-                    heroTime(label: "Wake",
-                             time: timeLabel(wakeMinutes),
-                             tint: StrandPalette.restBright)
-                    Spacer(minLength: 0)
-                }
-                Text(windDownOn
-                     ? "A calm nudge \(WindDownNudge.sleepNeedMinutes / 60)h \(WindDownNudge.leadMinutes)m before your wake time."
-                     : "Turn on the wind-down reminder below to land at your wake time rested.")
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(20)
-        }
-        .accessibilityElement(children: .combine)
-    }
-
-    private func heroTime(label: LocalizedStringKey, time: String, tint: Color) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(label).strandOverline()
-            Text(time)
-                .font(StrandFont.number(28))
-                .foregroundStyle(StrandPalette.textPrimary)
-        }
-    }
-
     // The up-front, honest note about the difference between the strap's silent buzz (above) and a loud
     // phone wake. The strap alarm is real, but it's a gentle wrist buzz, not a sound, so we say plainly
     // to keep a backup, and that the louder smart wake lives on Android.
@@ -431,90 +296,6 @@ struct SmartAlarmView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-        }
-    }
-
-    // MARK: - Strap silent wake-alarm (#766, moved here from Automations)
-
-    // The strap's own firmware alarm: a silent wrist buzz at the chosen time, armed over BLE so it fires
-    // even if the phone is asleep or NOOP is closed. Lifted verbatim (behaviour intact) out of
-    // AutomationsView.alarmCard so users stop conflating it with the wind-down reminder below.
-    private var strapAlarmCard: some View {
-        StrandCard(padding: 20, tint: behavior.smartAlarmEnabled ? StrandPalette.accent : nil) {
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Morning").strandOverline()
-                    HStack(spacing: 10) {
-                        Image(systemName: "alarm.fill")
-                            .foregroundStyle(StrandPalette.accent)
-                            .accessibilityHidden(true)
-                        Text("Strap wake-alarm")
-                            .font(StrandFont.title2)
-                            .foregroundStyle(StrandPalette.textPrimary)
-                    }
-                }
-
-                HStack(alignment: .center, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Wake me with a strap buzz")
-                            .font(StrandFont.body)
-                            .foregroundStyle(StrandPalette.textPrimary)
-                        Text("Arms the strap to buzz at your wake time, even if NOOP is closed. Sends the exact alarm command the official app sends, confirmed buzzing on a real WHOOP 4.0 (community wire capture + on-device test, #535). Keep a backup alarm for anything you truly can't miss.")
-                            .font(StrandFont.footnote)
-                            .foregroundStyle(StrandPalette.textTertiary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer()
-                    Toggle("", isOn: $behavior.smartAlarmEnabled)
-                        .labelsHidden().toggleStyle(.switch).tint(StrandPalette.ink)
-                        .accessibilityLabel("Wake me with a strap buzz")
-                }
-                .frame(minHeight: 42)
-
-                if behavior.smartAlarmEnabled {
-                    Divider().overlay(StrandPalette.hairline)
-                    HStack {
-                        Text("Wake at").font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
-                        Spacer()
-                        DatePicker("", selection: alarmTimeBinding, displayedComponents: .hourAndMinute)
-                            .labelsHidden().datePickerStyle(.compact)
-                            .accessibilityLabel("Wake time")
-                    }
-                    .frame(minHeight: 42)
-                    Divider().overlay(StrandPalette.hairline)
-                    alarmWeekdayPicker
-                    // #864: a WHOOP 5/MG only arms its firmware alarm when Experimental is on (see
-                    // BLEManager.armStrapAlarm, which logs "not armed" and returns otherwise). Without this
-                    // branch the card claimed "Armed on the strap itself" to a 5/MG owner whose strap was
-                    // NOT armed, an honest-data violation (reporter: 5/MG, Experimental off, never buzzed).
-                    // Mirrors the Android SmartAlarmScreen StrapAlarmCard wording exactly. The else copy
-                    // was truth-synced once a real 4.0 wake was confirmed (PR #535: official-app wire
-                    // capture + on-device buzz by the capture author); 5/MG remains unconfirmed, so this
-                    // gated branch keeps its honesty wording.
-                    if model.whoop5Detected && !PuffinExperiment.isEnabled {
-                        Text("Your WHOOP 5/MG won't arm this until Experimental mode is on (Settings, Experimental). Right now your wake time is saved but the strap is NOT armed. Even with Experimental on, a 5/MG strap-driven wake is still unconfirmed on our side, so keep a backup alarm.")
-                            .font(StrandFont.footnote)
-                            .foregroundStyle(StrandPalette.textPrimary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    } else if model.whoop5Detected {
-                        // 5/MG with Experimental ON: the strap IS armed (the rev-4 puffin payload), but a
-                        // strap-driven wake has NEVER been captured on 5/MG - so the "confirmed on 4.0" copy
-                        // must NOT show here (#864 honesty). Keep the 5/MG-unconfirmed caveat.
-                        Text("Armed on the strap itself with the experimental 5/MG command. A strap-driven wake is still unconfirmed on 5/MG on our side (confirmed only on WHOOP 4.0), so keep a backup alarm for anything you truly can't miss.")
-                            .font(StrandFont.footnote)
-                            .foregroundStyle(StrandPalette.textTertiary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    } else {
-                        Text("Armed on the strap itself, so it can buzz at your wake time even if your phone is asleep or NOOP is closed. Sends the exact alarm command the official app sends, confirmed buzzing on a real WHOOP 4.0 (community wire capture + on-device test, #535). Keep a backup alarm for anything you truly can't miss.")
-                            .font(StrandFont.footnote)
-                            .foregroundStyle(StrandPalette.textTertiary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-            }
-            .onChangeCompat(of: behavior.smartAlarmEnabled) { _ in model.applySmartAlarm() }
-            .onChangeCompat(of: behavior.smartAlarmMinutes) { _ in model.applySmartAlarm() }
-            .onChangeCompat(of: behavior.smartAlarmWeekdays) { _ in model.applySmartAlarm() }
         }
     }
 
