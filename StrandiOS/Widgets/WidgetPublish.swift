@@ -31,6 +31,14 @@ private enum WidgetLivePublishGate {
             now: now)
     }
 
+    static func shouldPublishFull(previous: WidgetSnapshot?, next: WidgetSnapshot, now: Date) -> Bool {
+        WidgetFullPublishPolicy.shouldPublish(
+            previous: previous,
+            next: next,
+            lastPublishedAt: lastPublishedAt,
+            now: now)
+    }
+
     static func notePublished(_ snapshot: WidgetSnapshot, at date: Date) {
         cachedSnapshot = snapshot
         lastPublishedAt = date
@@ -130,6 +138,11 @@ extension WidgetSnapshot {
             updated: now
         )
         guard WidgetLivePublishGate.isCurrentFullPublish(generation) else { return }
+        // A refreshSeq change unrelated to widget data must not rewrite the same App Group blob or reload
+        // every timeline. Re-read the in-process latest snapshot only after all awaits; a live-lane publish
+        // may have advanced it while this slower projection was suspended.
+        let previous = WidgetLivePublishGate.currentSnapshot(now: now)
+        guard WidgetLivePublishGate.shouldPublishFull(previous: previous, next: snap, now: now) else { return }
         guard snap.save() else { return }
         WidgetLivePublishGate.notePublished(snap, at: now)
         WidgetCenter.shared.reloadAllTimelines()
