@@ -11,12 +11,12 @@ The app already contains several good performance defenses: repository cache dif
 The highest-confidence freeze paths are:
 
 1. **Active workout → widget reload storm.** `AppModel.activeWorkout` is rewritten about once per HR sample. `StrandiOSApp` observes every rewrite and calls `WidgetSnapshot.publishLive`, which previously decoded and encoded the App Group snapshot and called `WidgetCenter.reloadAllTimelines()` every time.
-2. **Active workout → repeated full-history projection.** The Live Activity input was computed before its two-second ActivityKit throttle. Calories and time-in-zone were rescanned over the entire growing workout sample array on every HR emission, recreating an O(n) path inside a live loop that AppModel had otherwise made O(1).
+2. **Active workout → repeated growing-history projection.** The Live Activity input was computed before its two-second ActivityKit throttle. Calories and time-in-zone were rescanned over the entire growing workout sample array on every HR emission, recreating an O(n) path inside a live loop that AppModel had otherwise made incremental for Strain.
 3. **One-time Effort migration → up to ~134 broad repository refreshes.** `runEffortRescoreIfNeeded(historyDays: 4000)` processes 30-day chunks and each `analyzeRecent` may call the default 4,000-day `repo.refresh()`. Even when cache diffing prevents a publish, all broad SQLite reads happen before the diff.
 4. **Strap log → synchronous full-tail persistence.** `LiveState.append(log:)` runs on the main actor and writes up to 2,000 strings to UserDefaults on every line. Backfills and diagnostic modes can turn this into repeated array copies, property-list serialization, and disk coordination during the most write-heavy periods.
 5. **Analysis → unconditional 60-day motion calibration scan.** Every forced `analyzeRecent` performs owner resolution and gravity reads for up to 60 days even when neither Apple step references nor gravity frontiers changed.
 
-This PR fixes items 1 and 2. Items 3–5 should be split into focused follow-up PRs with measurements and rollback boundaries.
+This PR removes the widget reload storm and materially reduces the Live Activity projection frequency. It does **not** make active-workout storage, persistence, calories, or zones fully incremental; those remain follow-up work documented in the QA ledger.
 
 ## Changes in this PR
 
@@ -25,10 +25,13 @@ This PR fixes items 1 and 2. Items 3–5 should be split into focused follow-up 
 `WidgetSnapshot.publishLive` now:
 
 - caches the last in-process snapshot instead of decoding App Group storage every call;
+- forces the first publication when no snapshot exists yet;
 - skips semantically identical live payloads;
-- immediately publishes connection, battery, canonical Strain, and workout start/end changes;
-- limits BPM and in-workout sparkline churn to one publication per minute;
-- calls `WidgetCenter.reloadAllTimelines()` only when a publication is actually admitted.
+- immediately publishes connection, battery, and workout start/end changes;
+- limits BPM, live canonical Strain, and in-workout sparkline churn to one publication per minute;
+- compares Strain at the one-decimal precision the widget renders;
+- calls `WidgetCenter.reloadAllTimelines()` only when a publication is actually admitted;
+- recovers after wall-clock rollback or a future-dated persisted snapshot.
 
 This keeps start/end and important status edges responsive while removing the ~1 Hz storage and WidgetKit loop during a workout.
 
@@ -38,11 +41,18 @@ This keeps start/end and important status edges responsive while removing the ~1
 
 - applies the existing ActivityKit push throttle before evaluating the expensive projection;
 - caches the workout projection for ten seconds;
-- still probes promptly when no workout is active so workout start is detected;
+- probes promptly when no workout is active so workout start is detected;
 - skips identical ActivityKit payloads, with a 30-second heartbeat to refresh the stale date;
-- clears all projection/content caches when the activity ends.
+- clears all projection/content caches when the activity ends;
+- recovers after wall-clock rollback.
 
 BPM remains eligible for the existing two-second Live Activity cadence. Calories, zones, and the workout trace no longer rescan the entire session every HR tick.
+
+**Known draft blocker:** workout end currently becomes visible to the projection only when the ten-second projection cache rebuilds. The clean production fix is a separate cheap `workoutIsActive` input so mode edges bypass the expensive projection interval.
+
+### 3. Move slow stress projection off the UI executor
+
+The full widget publication can read up to 200k HR and 200k R-R rows for the current-day stress strip. The pure fingerprint, bucketing, and stress computation now run in a utility detached task; only the small 24-hour projection returns to the main actor. `AnalyticsMemoCache` is lock-protected and explicitly thread-safe.
 
 ## Follow-up plan
 
@@ -81,6 +91,20 @@ Recommended change:
 - never serialize the entire tail synchronously from the main actor per log line.
 
 Success condition: 1,000 log appends cause a small bounded number of UserDefaults writes, and exported content remains complete after an explicit flush.
+
+### P0 — make active workout state and durability incremental
+
+Targets: `Strand/App/AppModel.swift`, `Strand/App/ActiveWorkoutPersistence.swift`
+
+Recommended change:
+
+- replace the growing value-typed `@Published ActiveWorkout` payload with reference-owned session storage;
+- publish a lightweight value snapshot at a bounded UI cadence;
+- maintain incremental Strain, calories, zone-duration, and trace accumulators;
+- persist sample deltas/chunks instead of repeatedly encoding the full growing array;
+- force-flush metadata and pending chunks on background/end.
+
+Success condition: per-sample work and memory remain flat during a multi-hour workout, while kill recovery and final scoring stay exact.
 
 ### P1 — fingerprint the 60-day steps-calibration inputs
 
@@ -133,9 +157,12 @@ For each feature family:
 Capture on a physical iPhone Release build with a large database and an active strap:
 
 - main-thread stalls over 100 ms during a 30-minute workout;
+- `AppModel`/active-workout publications per minute;
 - WidgetKit reload requests per minute;
 - App Group snapshot writes per minute;
 - Live Activity projection builds per minute;
+- ActivityKit state pushes per minute;
+- active-workout durable writes and bytes encoded;
 - repository refresh count during a full Effort migration;
 - durable log writes during a 1,000-line synthetic burst;
 - `analyzeRecent` duration and number of store reads with unchanged calibration inputs.
