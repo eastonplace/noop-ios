@@ -1,22 +1,28 @@
 import Combine
 import Foundation
 
+/// File-scoped lifecycle state for one AppModel. Keeping this type outside the private registry avoids
+/// leaking a nested private type through `entry(for:)`, which Swift rejects at compile time.
+@MainActor
+fileprivate final class PerformanceLifecycleEntry {
+    weak var model: AppModel?
+    var active = false
+    var migrationTask: Task<Void, Never>?
+
+    init(model: AppModel) {
+        self.model = model
+    }
+}
+
 @MainActor
 private enum PerformanceLifecycleRegistry {
-    private final class Entry {
-        weak var model: AppModel?
-        var active = false
-        var migrationTask: Task<Void, Never>?
-        init(model: AppModel) { self.model = model }
-    }
+    private static var entries: [ObjectIdentifier: PerformanceLifecycleEntry] = [:]
 
-    private static var entries: [ObjectIdentifier: Entry] = [:]
-
-    static func entry(for model: AppModel) -> Entry {
+    static func entry(for model: AppModel) -> PerformanceLifecycleEntry {
         entries = entries.filter { $0.value.model != nil }
         let key = ObjectIdentifier(model)
         if let existing = entries[key] { return existing }
-        let created = Entry(model: model)
+        let created = PerformanceLifecycleEntry(model: model)
         entries[key] = created
         return created
     }
