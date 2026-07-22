@@ -114,13 +114,15 @@ private struct WorkoutGoneObserver: View {
     }
 }
 
-/// Per-sample heart history leaf. Its bounded 360-value projection is the only chart work performed for an
-/// HR update; GPS, map, header, timer chrome, and controls are outside this observation scope.
+/// Per-sample heart history leaf. The authoritative session remains untouched; this leaf derives a true
+/// trailing-three-hour, extrema-preserving render projection with a fixed point budget.
 private struct LiveWorkoutHeartCard: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
-        let values = model.activeWorkout?.samples.suffix(360).map { Double($0.bpm) } ?? []
+        let projection = WorkoutHeartChartProjection.make(
+            samples: model.activeWorkout?.samples ?? []
+        )
         PaperCard {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .firstTextBaseline) {
@@ -133,20 +135,23 @@ private struct LiveWorkoutHeartCard: View {
                         .font(StrandFont.captionNumber)
                         .foregroundStyle(StrandPalette.liveRed)
                 }
-                if values.count > 1 {
+                if projection.values.count > 1 {
                     Sparkline(
-                        values: values,
+                        values: projection.values,
                         gradient: Gradient(colors: [
                             StrandPalette.chargeAccent,
                             StrandPalette.chargeAccent,
                         ]),
-                        range: 100...180,
+                        range: projection.range,
                         lineWidth: 2,
                         showsArea: true,
                         showsHead: false,
                         showsHover: false
                     )
                     .frame(height: 90)
+                    .accessibilityLabel(
+                        "Workout heart rate, \(projection.values.count) plotted points over \(projection.observedSeconds) seconds"
+                    )
                 } else {
                     Text("Heart-rate history will draw as the workout records.")
                         .font(StrandFont.caption)
