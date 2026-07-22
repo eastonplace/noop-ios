@@ -65,6 +65,11 @@ enum ActiveWorkoutPersistence {
 
     static let defaultsKey = "noop.activeWorkout"
     private static let writer = SnapshotWriter()
+    /// Reading the growing Data value merely to ask whether it exists would itself copy/materialize that
+    /// blob on MainActor every five seconds. Cache only the existence bit for the production suite and
+    /// reset it when the ordered production clear completes.
+    @MainActor private static var productionSnapshotEstablished =
+        UserDefaults.standard.object(forKey: defaultsKey) != nil
 
     static func encode(_ snapshot: Snapshot) -> Data? {
         try? JSONEncoder().encode(snapshot)
@@ -100,7 +105,8 @@ enum ActiveWorkoutPersistence {
     @MainActor
     static func store(_ snapshot: Snapshot) {
         let defaults = UserDefaults.standard
-        let isFirstSnapshot = defaults.data(forKey: defaultsKey) == nil
+        let isFirstSnapshot = !productionSnapshotEstablished
+        if isFirstSnapshot { productionSnapshotEstablished = true }
         #if os(iOS) && canImport(UIKit)
         let requiresImmediateFlush = UIApplication.shared.applicationState != .active
         #else
@@ -140,6 +146,7 @@ enum ActiveWorkoutPersistence {
     @MainActor
     static func clear() {
         writer.clear(from: .standard)
+        productionSnapshotEstablished = false
     }
 
     /// Isolated-suite seam. It still routes through the ordered writer so a queued coalesced test write
