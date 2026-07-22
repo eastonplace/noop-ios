@@ -40,6 +40,20 @@ enum RepositoryRefreshIntent: Equatable, Sendable, CustomStringConvertible {
         }
     }
 
+    /// `PerformanceTrace.begin` deliberately accepts `StaticString`, so every trace name must be a literal.
+    /// Keeping this mapping next to the intent prevents runtime interpolation from becoming a compile failure.
+    var traceName: StaticString {
+        switch self {
+        case .currentDay: return "repository_refresh_current_day"
+        case .recentDashboard: return "repository_refresh_recent_dashboard"
+        case .postBackfill: return "repository_refresh_post_backfill"
+        case .initialLoad: return "repository_refresh_initial_load"
+        case .activeDeviceChanged: return "repository_refresh_active_device_changed"
+        case .postImport: return "repository_refresh_post_import"
+        case .fullHistoryMigration: return "repository_refresh_full_history_migration"
+        }
+    }
+
     func absorbs(_ other: Self) -> Bool {
         days >= other.days && datasets.isSuperset(of: other.datasets)
     }
@@ -233,7 +247,7 @@ private enum RepositoryRefreshRegistry {
         if let existing = entries[key]?.coordinator { return existing }
         let coordinator = RepositoryRefreshCoordinator { [weak repository] intent in
             guard let repository, await repository.storeHandle() != nil else { return false }
-            let trace = PerformanceTrace.begin("repository_refresh_\(intent.description)")
+            let trace = PerformanceTrace.begin(intent.traceName)
             defer { PerformanceTrace.end(trace) }
             await repository.refresh(days: intent.days)
             return true
