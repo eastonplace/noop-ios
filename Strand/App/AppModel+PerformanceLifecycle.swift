@@ -1,13 +1,15 @@
 import Combine
 import Foundation
 
-/// File-scoped lifecycle state for one AppModel. Keeping this type outside the private registry avoids
-/// leaking a nested private type through `entry(for:)`, which Swift rejects at compile time.
+/// File-scoped lifecycle state for one AppModel. The task remains owned until it actually exits; cancelling
+/// it never opens a window where a second migration can start against the same persisted offset.
 @MainActor
 fileprivate final class PerformanceLifecycleEntry {
     weak var model: AppModel?
     var active = false
     var migrationTask: Task<Void, Never>?
+    var cancelRequested = false
+    var restartWhenFinished = false
 
     init(model: AppModel) {
         self.model = model
@@ -43,24 +45,45 @@ extension AppModel {
 
     private static let effortMigrationProgressKey = "intelligence.strainV2CalendarHistory.v2.progress"
 
-    /// Owned lifecycle path for the resumable Effort migration. Backgrounding cancels the current driver,
-    /// flushes workout/log durability, and leaves the committed offset intact for the next foreground.
+    /// Owned lifecycle path for the resumable Effort migration. Backgrounding requests cancellation but keeps
+    /// ownership of the old task until it exits, preventing a quick foreground transition from starting a
+    /// concurrent driver at the same offset. If foreground returns while cancellation is unwinding, one restart
+    /// is queued and starts only after the previous task has relinquished ownership.
     func setApplicationActiveOptimized(_ active: Bool) {
         let entry = PerformanceLifecycleRegistry.entry(for: self)
         entry.active = active
         guard active else {
+            entry.cancelRequested = true
+            entry.restartWhenFinished = false
             entry.migrationTask?.cancel()
-            entry.migrationTask = nil
             flushActiveWorkoutSnapshot()
             Task { [live] in await live.flushLogPersistence() }
             return
         }
 
-        guard entry.migrationTask == nil else { return }
+        if entry.migrationTask != nil {
+            if entry.cancelRequested { entry.restartWhenFinished = true }
+            return
+        }
+        startPerformanceMigration(entry)
+    }
+
+    private func startPerformanceMigration(_ entry: PerformanceLifecycleEntry) {
+        guard entry.active, entry.migrationTask == nil else { return }
+        entry.cancelRequested = false
+        entry.restartWhenFinished = false
         entry.migrationTask = Task { [weak self, weak entry] in
             guard let self, let entry else { return }
-            defer { entry.migrationTask = nil }
+            defer {
+                entry.migrationTask = nil
+                entry.cancelRequested = false
+                let restart = entry.active && entry.restartWhenFinished
+                entry.restartWhenFinished = false
+                if restart { self.startPerformanceMigration(entry) }
+            }
+
             await repo.refreshLiveDayStrain(maxHR: Double(profile.hrMax))
+            guard !Task.isCancelled else { return }
 
             let outcome = await HistoricalMigrationDriver.run(
                 historyDays: 4_000,
