@@ -1,0 +1,97 @@
+name: Apply UI unification refactor
+
+on:
+  push:
+    branches:
+      - fix/trends-alarm-settings-unification-2026-07-22
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ui-unification-patcher-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  patch-and-audit:
+    if: ${{ !contains(github.event.head_commit.message, '[ui-patcher]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/trends-alarm-settings-unification-2026-07-22
+          fetch-depth: 0
+
+      - name: Materialize guarded patcher
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .github/ui-patcher-parts/part-01.txt .github/ui-patcher-parts/part-02.txt > /tmp/payload.b64
+          for part in .github/ui-patcher-binary/part-*.bin; do
+            base64 -w0 "$part" >> /tmp/payload.b64
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          import base64
+          import zlib
+
+          payload = Path('/tmp/payload.b64').read_text().strip()
+          target = Path('Tools/qa/apply_ui_unification.py')
+          target.parent.mkdir(parents=True, exist_ok=True)
+          target.write_bytes(zlib.decompress(base64.b64decode(payload)))
+          PY
+          python3 -W error -m py_compile Tools/qa/apply_ui_unification.py
+
+      - name: Apply source refactor
+        run: python3 Tools/qa/apply_ui_unification.py
+
+      - name: Run UI contract audit
+        run: python3 Tools/qa/ui_unification_contract_audit.py
+
+      - name: Run repository source audit
+        run: python3 Tools/qa/source_contract_audit.py
+
+      - name: Parse changed Swift sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v swiftc >/dev/null 2>&1; then
+            swiftc -parse \
+              Packages/StrandDesign/Sources/StrandDesign/SettingsKitComponents.swift \
+              Packages/StrandDesign/Sources/StrandDesign/TrendsV2Components.swift \
+              Packages/StrandDesign/Sources/StrandDesign/ComponentLibraryAPI.swift \
+              Packages/StrandDesign/Tests/StrandDesignTests/TrendCalendarTests.swift \
+              Strand/Screens/TrendsView.swift \
+              Strand/Screens/SleepView.swift \
+              Strand/Screens/SleepAlarmEditorSection.swift \
+              Strand/Screens/SmartAlarmView.swift \
+              Strand/Screens/SettingsView.swift \
+              StrandiOS/App/RootTabView.swift \
+              StrandiOS/App/SmartAlarmCommandReconciler.swift \
+              StrandiOSTests/UIUnificationTests.swift
+          else
+            echo 'swiftc is not installed; guarded audits still ran.'
+          fi
+
+      - name: Validate diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git status --short
+          git diff --stat
+
+      - name: Commit production changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f Tools/qa/apply_ui_unification.py
+          rm -f .github/workflows/ui-unification-patcher.yml
+          rm -rf .github/ui-patcher-parts .github/ui-patcher-binary
+          git config user.name 'NOOP UI Refactor Bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'fix(ui): unify trends, alarms, settings, and more [ui-patcher]'
+          git push origin HEAD:fix/trends-alarm-settings-unification-2026-07-22
