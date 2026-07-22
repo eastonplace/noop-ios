@@ -112,7 +112,7 @@ extension WidgetSnapshot {
             hrvSparkline: hrvSparkline,
             updated: now
         )
-        snap.save()
+        guard snap.save() else { return }
         WidgetLivePublishGate.notePublished(snap, at: now)
         WidgetCenter.shared.reloadAllTimelines()
     }
@@ -147,7 +147,7 @@ extension WidgetSnapshot {
         // last session's graph forever.
         if model.activeWorkout == nil { next.hrSparkline = nil }
         guard WidgetLivePublishGate.shouldPublish(previous: previous, next: next, now: now) else { return }
-        next.save()
+        guard next.save() else { return }
         WidgetLivePublishGate.notePublished(next, at: now)
         WidgetCenter.shared.reloadAllTimelines()
     }
