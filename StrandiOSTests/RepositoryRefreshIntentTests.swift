@@ -15,6 +15,29 @@ final class RepositoryRefreshIntentTests: XCTestCase {
         )
     }
 
+    func testTraceNamesAreCompileTimeLiteralsAndStable() {
+        XCTAssertEqual(
+            String(describing: RepositoryRefreshIntent.currentDay.traceName),
+            "repository_refresh_current_day"
+        )
+        XCTAssertEqual(
+            String(describing: RepositoryRefreshIntent.recentDashboard(days: 120).traceName),
+            "repository_refresh_recent_dashboard"
+        )
+        XCTAssertEqual(
+            String(describing: RepositoryRefreshIntent.recentDashboard(days: 4_000).traceName),
+            "repository_refresh_recent_dashboard"
+        )
+        XCTAssertEqual(
+            String(describing: RepositoryRefreshIntent.postBackfill.traceName),
+            "repository_refresh_post_backfill"
+        )
+        XCTAssertEqual(
+            String(describing: RepositoryRefreshIntent.fullHistoryMigration.traceName),
+            "repository_refresh_full_history_migration"
+        )
+    }
+
     func testLegacyRefreshInferenceKeepsSmallUIWorkNarrowAndRealHistoryMutationsBroad() {
         XCTAssertEqual(
             RepositoryRefreshIntent.inferredLegacyIntent(
