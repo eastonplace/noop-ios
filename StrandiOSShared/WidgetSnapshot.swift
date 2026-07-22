@@ -116,6 +116,18 @@ public struct WidgetSnapshot: Codable, Equatable {
         return copy
     }
 
+    /// Compare everything a widget can render while deliberately ignoring the publication timestamp.
+    /// Full refreshes often recompute an identical dashboard payload after an unrelated repository change;
+    /// treating `updated` as content forced an App Group write + `reloadAllTimelines()` every time. Publishers
+    /// use this equality with a bounded heartbeat so freshness can still advance without reload storms.
+    public func hasSameRenderedContent(as other: WidgetSnapshot) -> Bool {
+        var lhs = self
+        var rhs = other
+        lhs.updated = .distantPast
+        rhs.updated = .distantPast
+        return lhs == rhs
+    }
+
     /// App Group suite the app and widget both use. Injected from the `APP_GROUP_ID` build setting
     /// (see project.yml) via the `AppGroupIdentifier` Info.plist key, so the value lives in exactly
     /// one place rather than being duplicated here. Must match the `com.apple.security.application-groups`
