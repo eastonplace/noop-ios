@@ -17,9 +17,12 @@ enum RepositoryRefreshIntent: Equatable, Sendable, CustomStringConvertible {
 
     var days: Int {
         switch self {
-        case .currentDay, .postBackfill: return 120
-        case .recentDashboard(let days): return min(4_000, max(120, days))
-        case .initialLoad, .activeDeviceChanged, .postImport, .fullHistoryMigration: return 4_000
+        case .currentDay, .postBackfill:
+            return 120
+        case .recentDashboard(let days):
+            return min(4_000, max(120, days))
+        case .initialLoad, .activeDeviceChanged, .postImport, .fullHistoryMigration:
+            return 4_000
         }
     }
 
@@ -43,13 +46,70 @@ enum RepositoryRefreshIntent: Equatable, Sendable, CustomStringConvertible {
 
     static func merged(_ lhs: Self, _ rhs: Self) -> Self {
         if case .recentDashboard(let leftDays) = lhs,
-            case .recentDashboard(let rightDays) = rhs
-        {
+           case .recentDashboard(let rightDays) = rhs {
             return .recentDashboard(days: max(leftDays, rightDays))
         }
         if lhs.days > rhs.days { return lhs }
         if rhs.days > lhs.days { return rhs }
         return rank(lhs) >= rank(rhs) ? lhs : rhs
+    }
+
+    /// Transitional routing for old zero-argument `refresh()` call sites. The compiler supplies the caller's
+    /// file and function through default arguments, which lets the compatibility path remain deterministic
+    /// without stack inspection. New code should still call `refresh(_:)` explicitly.
+    static func inferredLegacyIntent(file: String, function: String) -> Self {
+        let lowerFile = file.lowercased()
+        let lowerFunction = function.lowercased()
+
+        // A file import, restore, or source purge can change any historical day.
+        if lowerFunction.contains("import")
+            || lowerFunction.contains("restore")
+            || lowerFunction.contains("deleteapplehealthdata")
+            || lowerFunction.contains("deletedata") {
+            return .postImport
+        }
+
+        // Changing the active data owner changes which historical namespace the dashboard reads.
+        if lowerFunction.contains("adoptactivedevice")
+            || lowerFunction.contains("activedevicechanged") {
+            return .activeDeviceChanged
+        }
+
+        // Backfill completion has a known coherent recent-window replacement.
+        if lowerFunction.contains("refreshaftercompletedbackfill")
+            || lowerFunction.contains("backfill") {
+            return .postBackfill
+        }
+
+        // Full-history maintenance is deliberately broad, except where a TaskLocal suppression is active.
+        if lowerFunction.contains("migration")
+            || lowerFunction.contains("timestampheal")
+            || lowerFunction.contains("effortrescore") {
+            return .fullHistoryMigration
+        }
+
+        // The AppModel bootstrap is the one normal broad load.
+        if lowerFunction == "init()"
+            || lowerFunction.contains("bootstrap")
+            || lowerFunction.contains("initialload") {
+            return .initialLoad
+        }
+
+        // User-facing screen refreshes, workout saves, edits and recalibrations only need the coherent recent
+        // dashboard window. `currentDay` intentionally maps to 120 days because Repository replaces the shared
+        // dashboard cache rather than merging a one-day slice.
+        if lowerFile.contains("/screens/")
+            || lowerFile.contains("/strandios/")
+            || lowerFunction.contains("endworkout")
+            || lowerFunction.contains("save")
+            || lowerFunction.contains("edit")
+            || lowerFunction.contains("recalibrat") {
+            return .currentDay
+        }
+
+        // Analysis and other unclassified compatibility callers receive the bounded coherent dashboard,
+        // never the historical 4,000-day default. Truly broad work must state its intent explicitly.
+        return .recentDashboard(days: 120)
     }
 
     private static func rank(_ intent: Self) -> Int {
@@ -67,7 +127,7 @@ enum RepositoryRefreshIntent: Equatable, Sendable, CustomStringConvertible {
 
 /// Dynamic refresh policy inherited by child `Task` values. Historical migration analysis sets `.suppress`
 /// while running a chunk. If `IntelligenceEngine` re-arms a forced pass in an unstructured child task, that
-/// child inherits the suppression and cannot accidentally restore the legacy 4,000-day repository refresh.
+/// child inherits the suppression and cannot accidentally restore a broad repository refresh.
 enum RepositoryRefreshContext {
     enum Disposition: Equatable, Sendable {
         case legacyDefault
@@ -189,17 +249,26 @@ extension Repository {
         await RepositoryRefreshRegistry.coordinator(for: self).request(intent)
     }
 
-    /// Compatibility overload for call sites that have not yet been explicitly classified. Normal callers
-    /// retain the historical 4,000-day behavior. Narrow or suppressed refreshes are supplied deliberately via
-    /// `RepositoryRefreshContext`, so launch hydration can never be accidentally truncated by unrelated state.
-    func refresh() async {
+    /// Compatibility overload for call sites not yet migrated to an explicit intent. It no longer means
+    /// "always load 4,000 days": the compiler-provided source location deterministically selects the narrowest
+    /// safe intent. Task-local suppression/redirects still take precedence for migrations and focused flows.
+    func refresh(
+        file: StaticString = #fileID,
+        function: StaticString = #function,
+        line: UInt = #line
+    ) async {
         switch RepositoryRefreshContext.disposition {
         case .legacyDefault:
-            await refresh(days: 4_000)
+            let intent = RepositoryRefreshIntent.inferredLegacyIntent(
+                file: String(describing: file),
+                function: String(describing: function)
+            )
+            _ = await refresh(intent)
         case .suppress:
             return
         case .intent(let intent):
             _ = await refresh(intent)
         }
+        _ = line
     }
 }
