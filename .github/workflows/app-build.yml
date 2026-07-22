@@ -2,7 +2,6 @@ name: iOS app build and tests
 
 on:
   pull_request:
-    branches: [main]
     paths:
       - 'Strand/**'
       - 'StrandiOS/**'
@@ -13,7 +12,9 @@ on:
       - 'project.yml'
       - '.github/workflows/app-build.yml'
   push:
-    branches: [main]
+    branches:
+      - main
+      - refactor/ios-only-qa-2026-07-22
     paths:
       - 'Strand/**'
       - 'StrandiOS/**'
