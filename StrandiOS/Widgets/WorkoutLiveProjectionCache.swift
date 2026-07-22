@@ -108,11 +108,13 @@ final class WorkoutLiveProjectionCache {
             rebuild(samples: samples, signature: signature, profile: profile, maxHR: maxHR, zoneSet: zoneSet)
             return
         }
-        if snapshot.sampleCount > 0,
-            samples[snapshot.sampleCount - 1].ts != snapshot.lastTimestamp
-        {
-            rebuild(samples: samples, signature: signature, profile: profile, maxHR: maxHR, zoneSet: zoneSet)
-            return
+        if snapshot.sampleCount > 0 {
+            let cachedTail = samples[snapshot.sampleCount - 1]
+            guard cachedTail.ts == snapshot.lastTimestamp,
+                  cachedTail.bpm == snapshot.lastBPM else {
+                rebuild(samples: samples, signature: signature, profile: profile, maxHR: maxHR, zoneSet: zoneSet)
+                return
+            }
         }
         for sample in samples.dropFirst(snapshot.sampleCount) {
             guard accumulator.append(sample) else {
