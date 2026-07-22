@@ -55,6 +55,9 @@ jobs:
       - name: Audit active-workout recovery persistence
         run: python3 Tools/qa/workout_persistence_contract_audit.py
 
+      - name: Audit Trends snapshot freshness
+        run: python3 Tools/qa/trends_snapshot_contract_audit.py
+
       - name: Install XcodeGen
         run: brew install xcodegen
 
