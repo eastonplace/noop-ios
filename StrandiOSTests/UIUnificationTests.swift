@@ -129,4 +129,35 @@ final class UIUnificationTests: XCTestCase {
         )
         XCTAssertEqual(state.decision(for: disabled), .applyImmediately)
     }
+
+    func testAlarmGenerationRejectsSupersededAsyncWork() {
+        var generation = SmartAlarmRuntimeGeneration()
+        let enabled = SmartAlarmRuntimeSnapshot(
+            enabled: true, mode: .sleepGoal, minutes: 420, weekdays: [2]
+        )
+        let firstToken = generation.advance()
+        XCTAssertTrue(generation.accepts(firstToken, request: enabled, current: enabled))
+
+        let disabled = SmartAlarmRuntimeSnapshot(
+            enabled: false, mode: .sleepGoal, minutes: 420, weekdays: [2]
+        )
+        let secondToken = generation.advance()
+        XCTAssertFalse(generation.accepts(firstToken, request: enabled, current: disabled))
+        XCTAssertTrue(generation.accepts(secondToken, request: disabled, current: disabled))
+    }
+
+    func testWakeNudgeCannotCrossRecurringOccurrenceMidnight() {
+        let monday0002 = 1_440 + 2
+        XCTAssertNil(SleepAlarmEditorSupport.sameOccurrenceMinute(
+            current: monday0002, proposed: monday0002 - 5
+        ))
+        XCTAssertEqual(SleepAlarmEditorSupport.sameOccurrenceMinute(
+            current: monday0002 + 10, proposed: monday0002 + 5
+        ), monday0002 + 5)
+
+        let sunday2358 = 1_438
+        XCTAssertNil(SleepAlarmEditorSupport.sameOccurrenceMinute(
+            current: sunday2358, proposed: sunday2358 + 5
+        ))
+    }
 }
