@@ -224,10 +224,11 @@ enum ActiveWorkoutPersistence {
             pendingByStore.removeValue(forKey: key)
             lock.unlock()
 
-            syncOnQueue { [self] in
-                lock.lock()
+            // Every durable mutation is serialized on `queue`; once this barrier runs, no older write can
+            // execute after the removal. UserDefaults I/O is deliberately outside `lock`, so a foreground
+            // enqueue never waits behind disk/property-list work.
+            syncOnQueue {
                 defaults.removeObject(forKey: ActiveWorkoutPersistence.defaultsKey)
-                lock.unlock()
             }
         }
 
@@ -255,13 +256,15 @@ enum ActiveWorkoutPersistence {
 
         private func writeIfCurrent(_ item: Pending) {
             guard let data = ActiveWorkoutPersistence.encode(item.snapshot) else { return }
-            // Keep the generation check and write atomic relative to clear/newer stores. UserDefaults I/O
-            // happens on the utility queue, so holding this short lock never blocks MainActor on encoding.
             lock.lock()
-            if generations[item.key] == item.generation {
-                item.defaults.set(data, forKey: ActiveWorkoutPersistence.defaultsKey)
-            }
+            let isCurrent = generations[item.key] == item.generation
             lock.unlock()
+            guard isCurrent else { return }
+
+            // The serial queue orders this write before any later synchronous flush/clear and before the next
+            // pending item. Do not hold `lock` during UserDefaults I/O; MainActor only touches that lock to
+            // enqueue a tiny value and must never inherit the storage latency.
+            item.defaults.set(data, forKey: ActiveWorkoutPersistence.defaultsKey)
         }
 
         private func syncOnQueue(_ operation: () -> Void) {
