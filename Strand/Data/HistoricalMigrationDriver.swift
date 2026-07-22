@@ -4,7 +4,7 @@ import Foundation
 /// one final typed refresh succeeds before the completion marker is committed.
 @MainActor
 enum HistoricalMigrationDriver {
-    enum Outcome: Equatable {
+    enum Outcome: Equatable, Sendable {
         case alreadyCompleted
         case completed
         case paused
