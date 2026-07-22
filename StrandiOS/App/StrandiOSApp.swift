@@ -8,6 +8,8 @@ import UserNotifications
 struct StrandiOSApp: App {
     @StateObject private var model: AppModel
     @StateObject private var health: HealthKitBridge
+    @StateObject private var alarmMode: SmartAlarmAdaptiveModeStore
+    @StateObject private var alarmRuntime: SmartAlarmRuntimeController
     @StateObject private var router = NavRouter()
     @State private var liveActivity = LiveActivityController()
     @State private var workoutProjection = WorkoutLiveProjectionCache()
@@ -21,10 +23,13 @@ struct StrandiOSApp: App {
         #endif
         WidgetSnapshot.assertGroupProvisioned()
         ScheduledDebugExport.register()
-        SmartAlarmScheduler.register()
         UNUserNotificationCenter.current().delegate = NotificationPresenter.shared
         let model = AppModel()
+        let alarmMode = SmartAlarmAdaptiveModeStore(legacy: model.behavior)
+        let alarmRuntime = SmartAlarmRuntimeController(model: model, modeStore: alarmMode)
         _model = StateObject(wrappedValue: model)
+        _alarmMode = StateObject(wrappedValue: alarmMode)
+        _alarmRuntime = StateObject(wrappedValue: alarmRuntime)
         _health = StateObject(wrappedValue: HealthKitBridge(
             repo: model.repo,
             appleDeviceId: model.appleDeviceId,
@@ -63,6 +68,8 @@ struct StrandiOSApp: App {
                 .environmentObject(model.repo)
                 .environmentObject(model.profile)
                 .environmentObject(model.behavior)
+                .environmentObject(alarmMode)
+                .environmentObject(alarmRuntime)
                 .environmentObject(model.intelligence)
                 .environmentObject(model.coach)
                 .environmentObject(health)
@@ -105,6 +112,7 @@ struct StrandiOSApp: App {
                     if url.host == "import-health" { model.handleHealthImportURL(url) }
                 }
                 .task {
+                    alarmRuntime.start()
                     #if DEBUG
                     if CommandLine.arguments.contains("--component41-live-qa") {
                         await liveActivity.startComponent41QA()
@@ -116,7 +124,7 @@ struct StrandiOSApp: App {
             model.setApplicationActiveOptimized(phase == .active)
             if phase == .active {
                 model.drainPendingIntents()
-                model.applySmartAlarm()
+                alarmRuntime.handleForeground()
                 model.ble.requestSync(.foreground)
                 Task {
                     let trace = PerformanceTrace.begin("foreground_refresh")
