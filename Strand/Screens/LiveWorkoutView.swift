@@ -189,7 +189,7 @@ private struct LiveWorkoutControlRow: View {
                 systemImage: saving ? "hourglass" : "flag.checkered",
                 kind: .destructive
             ) {
-                Task { _ = await model.endWorkout() }
+                Task { _ = await model.endWorkoutOptimized() }
             }
             .disabled(saving)
         }
@@ -341,7 +341,7 @@ private struct PaperLiveWorkoutStatsGrid: View {
             HStack(alignment: .firstTextBaseline, spacing: 3) {
                 Text(value)
                     .font(StrandFont.metricValue)
-                    .foregroundStyle(StrandPalette.textPrimary)
+                    .foregroundStyle(tint)
                     .lineLimit(1)
                     .minimumScaleFactor(0.65)
                 if let unit {
