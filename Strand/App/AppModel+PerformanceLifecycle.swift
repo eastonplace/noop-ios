@@ -16,6 +16,26 @@ fileprivate final class PerformanceLifecycleEntry {
     }
 }
 
+/// Combine may deliver publisher closures on an executor the compiler treats as concurrent. A lock-backed
+/// reference avoids mutating a captured local variable from that closure and keeps strict-concurrency builds
+/// clean without assuming a specific publisher delivery thread.
+fileprivate final class AnalysisStartProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var started = false
+
+    func markStarted() {
+        lock.lock()
+        started = true
+        lock.unlock()
+    }
+
+    var value: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return started
+    }
+}
+
 @MainActor
 private enum PerformanceLifecycleRegistry {
     private static var entries: [ObjectIdentifier: PerformanceLifecycleEntry] = [:]
@@ -109,10 +129,10 @@ extension AppModel {
                     guard let self else { throw CancellationError() }
                     guard !intelligence.computing else { throw PerformanceMigrationError.analysisBusy }
 
-                    var sawAnalysisStart = false
+                    let startProbe = AnalysisStartProbe()
                     let observation = intelligence.$computing
                         .dropFirst()
-                        .sink { if $0 { sawAnalysisStart = true } }
+                        .sink { if $0 { startProbe.markStarted() } }
                     defer { observation.cancel() }
 
                     await intelligence.analyzeRecent(
@@ -121,7 +141,7 @@ extension AppModel {
                         force: true,
                         refreshRepository: false
                     )
-                    guard sawAnalysisStart, !intelligence.computing else {
+                    guard startProbe.value, !intelligence.computing else {
                         throw PerformanceMigrationError.analysisDidNotStart
                     }
                 },
