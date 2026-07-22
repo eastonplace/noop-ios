@@ -162,10 +162,13 @@ public struct WidgetSnapshot: Codable, Equatable {
         return snap
     }
 
-    /// Persist this snapshot into the shared suite.
-    public func save() {
+    /// Persist this snapshot into the shared suite. The result lets publishers avoid updating their
+    /// in-process throttle cache or asking WidgetKit to reload when the App Group write could not happen.
+    @discardableResult
+    public func save() -> Bool {
         guard let defaults = UserDefaults(suiteName: WidgetSnapshot.suiteName),
-              let data = try? JSONEncoder().encode(self) else { return }
+              let data = try? JSONEncoder().encode(self) else { return false }
         defaults.set(data, forKey: WidgetSnapshot.storageKey)
+        return true
     }
 }
