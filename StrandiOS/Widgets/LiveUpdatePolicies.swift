@@ -3,10 +3,10 @@ import Foundation
 
 /// Pure publication policy for the widget's fast live lane.
 ///
-/// Connection, battery, canonical Strain, and workout start/end transitions are user-visible state
-/// changes and publish immediately. Heart-rate and in-workout sparkline churn are high-frequency and
-/// coalesce to a bounded cadence so a 1 Hz workout does not encode App Group JSON and ask WidgetKit to
-/// reload every second.
+/// Connection, battery, and workout start/end transitions are user-visible state edges and publish
+/// immediately. Heart-rate, canonical Strain, and in-workout sparkline churn are high-frequency and
+/// coalesce to a bounded cadence so a live session does not encode App Group JSON and ask WidgetKit to
+/// reload several times per minute.
 enum WidgetLivePublishPolicy {
     static let highFrequencyInterval: TimeInterval = 60
 
@@ -26,25 +26,29 @@ enum WidgetLivePublishPolicy {
         let workoutModeChanged = (old.hrSparkline == nil) != (new.hrSparkline == nil)
         let urgentChange = old.bonded != new.bonded
             || old.batteryPct != new.batteryPct
-            || old.strain != new.strain
             || workoutModeChanged
         if urgentChange { return true }
 
-        return now.timeIntervalSince(lastPublishedAt) >= highFrequencyInterval
+        // A manual clock correction must not starve publication until wall time catches up with a
+        // future-dated snapshot. Treat a negative elapsed interval as an expired throttle window.
+        let elapsed = now.timeIntervalSince(lastPublishedAt)
+        return elapsed < 0 || elapsed >= highFrequencyInterval
     }
 
     private struct LiveFields: Equatable {
         let bpm: Int?
         let batteryPct: Int?
         let bonded: Bool
-        let strain: Double?
+        /// Widgets render Strain at one decimal place. Comparing the rendered tenth prevents tiny
+        /// floating-point changes that cannot alter the UI from triggering a publication.
+        let strainTenths: Int?
         let hrSparkline: [Int]?
 
         init(_ snapshot: WidgetSnapshot) {
             bpm = snapshot.bpm
             batteryPct = snapshot.batteryPct
             bonded = snapshot.bonded
-            strain = snapshot.strain
+            strainTenths = snapshot.strain.map { Int(($0 * 10).rounded()) }
             hrSparkline = snapshot.hrSparkline
         }
     }
@@ -66,7 +70,8 @@ enum LiveActivityWorkoutProjectionPolicy {
         rebuildInterval: TimeInterval = rebuildInterval
     ) -> Bool {
         guard lastModeWasWorkout == true, hasCachedWorkout else { return true }
-        return now.timeIntervalSince(lastBuiltAt) >= rebuildInterval
+        let elapsed = now.timeIntervalSince(lastBuiltAt)
+        return elapsed < 0 || elapsed >= rebuildInterval
     }
 }
 #endif
