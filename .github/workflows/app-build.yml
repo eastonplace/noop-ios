@@ -52,6 +52,9 @@ jobs:
       - name: Audit active-workout runtime contracts
         run: python3 Tools/qa/workout_runtime_contract_audit.py
 
+      - name: Audit active-workout recovery persistence
+        run: python3 Tools/qa/workout_persistence_contract_audit.py
+
       - name: Install XcodeGen
         run: brew install xcodegen
 
