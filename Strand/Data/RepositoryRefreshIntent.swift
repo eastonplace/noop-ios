@@ -189,13 +189,18 @@ extension Repository {
         await RepositoryRefreshRegistry.coordinator(for: self).request(intent)
     }
 
-    /// Compatibility overload for legacy zero-argument calls. Normal callers retain the prior 4,000-day
-    /// behavior until they are explicitly migrated. Task-local policy can safely suppress or redirect only
-    /// the dynamic subtree that requested it, including an `IntelligenceEngine` child re-arm task.
+    /// Compatibility overload for legacy zero-argument calls. Task-local policy can suppress or redirect a
+    /// specific dynamic subtree. While an active-workout recovery snapshot exists, a zero-argument refresh is
+    /// known to be an intraday workout path, so it is narrowed to the coherent 120-day dashboard horizon rather
+    /// than rereading 4,000 days. Other legacy callers retain their historical behavior until explicitly typed.
     func refresh() async {
         switch RepositoryRefreshContext.disposition {
         case .legacyDefault:
-            await refresh(days: 4_000)
+            if UserDefaults.standard.object(forKey: ActiveWorkoutPersistence.defaultsKey) != nil {
+                _ = await refresh(.currentDay)
+            } else {
+                await refresh(days: 4_000)
+            }
         case .suppress:
             return
         case .intent(let intent):
