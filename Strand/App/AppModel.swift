@@ -160,7 +160,9 @@ final class AppModel: ObservableObject {
 
     /// A manual workout in progress. `samples` accumulate from the smoothed live `bpm`; `liveStrain`
     /// is updated by an O(1) accumulator so the active card can show strain building in real time.
-    struct ActiveWorkout: Equatable {
+    /// Reference-owned live session. The sample buffer grows in place so each accepted HR reading does
+    /// not copy the entire retained workout before publishing the next UI update.
+    final class ActiveWorkout {
         let start: Date
         /// The named sport chosen at start (e.g. "Tennis", "Padel") , persisted as the saved row's
         /// `sport` so a live-tracked session keeps its label instead of the old generic "Workout".
@@ -432,7 +434,7 @@ final class AppModel: ObservableObject {
                 self.live.batteryPct = 68
             }
             #endif
-            await self.repo.refresh()                          // surface any imported data at once
+            _ = await self.repo.refresh(.initialLoad)          // surface any imported data at once
             await self.wireSourceCoordinator()                 // dormant unless a generic strap is active
             try? await Task.sleep(nanoseconds: 6_000_000_000)  // give the first offload a moment
             // FIX 2(a): DEFER the heavy one-shot 4000-day heal/rescore while an import is in flight. A
@@ -580,7 +582,7 @@ final class AppModel: ObservableObject {
         let repoMoved = repo.adoptActiveDeviceId(trimmed)
         guard repoMoved else { return }
         live.append(log: "Read spine re-pointed to active device after registry change (#814).")
-        await repo.refresh()
+        _ = await repo.refresh(.activeDeviceChanged)
         await intelligence.analyzeRecent()
     }
 
@@ -595,7 +597,7 @@ final class AppModel: ObservableObject {
         await intelligence.analyzeRecent(refreshRepository: false)
         // One post-analysis refresh publishes both the newly offloaded raw history and any computed
         // mutations. Refreshing before analysis made the same cache tree rebuild twice per backfill.
-        await repo.refresh(days: 120)
+        _ = await repo.refresh(.postBackfill)
         await refreshV5Signals()
         #if os(iOS)
         // #980: a strap backfill routinely completes while the app is BACKGROUNDED (it runs as a
@@ -747,7 +749,7 @@ final class AppModel: ObservableObject {
     /// session wins over a stale snapshot) or nothing is stored. Called once from `init`.
     private func rehydrateActiveWorkout() {
         guard activeWorkout == nil, let snap = ActiveWorkoutPersistence.load() else { return }
-        var w = ActiveWorkout(start: Date(timeIntervalSince1970: TimeInterval(snap.startSec)),
+        let w = ActiveWorkout(start: Date(timeIntervalSince1970: TimeInterval(snap.startSec)),
                               sport: snap.sport, maxHR: Double(profile.hrMax))
         w.samples = snap.samples
         w.strainAccumulator = .init(samples: snap.samples, maxHR: Double(profile.hrMax))
@@ -861,7 +863,7 @@ final class AppModel: ObservableObject {
                 return .failure(.readBackMissing)
             }
             if let route { RouteStore.store(route, startTs: saved.startTs, sport: saved.sport) }
-            await repo.refresh()
+            _ = await repo.refresh(.currentDay)
             lastWorkout = saved
             ActiveWorkoutPersistence.clear()
             activeWorkout = nil
@@ -888,7 +890,7 @@ final class AppModel: ObservableObject {
     /// accumulator. Called from the direct-HR path (or the R-R fallback when direct HR is absent); a
     /// no-op when no workout is running. No growing-window rescan occurs at the ~1 Hz live cadence.
     private func captureWorkoutSample() {
-        guard pendingWorkoutSnapshot == nil, var w = activeWorkout, let hr = bpm else { return }
+        guard pendingWorkoutSnapshot == nil, let w = activeWorkout, let hr = bpm else { return }
         let sample = HRSample(ts: Int(Date().timeIntervalSince1970), bpm: hr)
         w.samples.append(sample)
         w.strainAccumulator.append(sample)
@@ -2049,7 +2051,7 @@ final class AppModel: ObservableObject {
                 let summary = try await WhoopImporter.importExport(url: local.url, into: store,
                                                                    deviceId: deviceId, trace: importTraceSink())
                 try? await store.checkpointWAL()   // reclaim the WAL a bulk import grew (#590)
-                await repo.refresh()
+                _ = await repo.refresh(.postImport)
                 let span: String
                 if let a = summary.earliest, let b = summary.latest {
                     let f = DateFormatter(); f.dateFormat = "MMM yyyy"
@@ -2080,7 +2082,7 @@ final class AppModel: ObservableObject {
                 let summary = try await XiaomiImporter.importExport(url: local.url, into: store,
                                                                     trace: importTraceSink())
                 try? await store.checkpointWAL()   // reclaim the WAL a bulk import grew (#590)
-                await repo.refresh()
+                _ = await repo.refresh(.postImport)
                 let span: String
                 if let a = summary.earliest, let b = summary.latest {
                     let f = DateFormatter(); f.dateFormat = "MMM yyyy"
@@ -2114,7 +2116,7 @@ final class AppModel: ObservableObject {
                 let summary = try await AppleHealthImport.importExport(url: local.url, into: store,
                                                                        deviceId: appleDeviceId, trace: importTraceSink())
                 try? await store.checkpointWAL()   // reclaim the WAL a bulk import grew (#590)
-                await repo.refresh()
+                _ = await repo.refresh(.postImport)
                 // #833/v7.7.2: an Apple Health import may write ONLY body-composition series (weight/body_fat/
                 // lean_mass/bmi/vo2max), which live in metricSeries OUTSIDE refresh()'s diff over daily/sleep/
                 // vitals, so refresh() may not bump `refreshSeq`. AppleHealthView's re-mount cache keys on
@@ -2238,7 +2240,7 @@ final class AppModel: ObservableObject {
             let outcome = await ShortcutHealthImport.ingest(url: url, into: store)
             switch outcome {
             case .imported(let days, let workouts):
-                await repo.refresh()
+                _ = await repo.refresh(.postImport)
                 // #833/v7.7.2: the Shortcuts import writes body-composition series (e.g. weight) into
                 // metricSeries, which sits OUTSIDE refresh()'s diff, so refresh() may leave `refreshSeq`
                 // unchanged and AppleHealthView's re-mount cache would serve stale data. Drop the cache so the

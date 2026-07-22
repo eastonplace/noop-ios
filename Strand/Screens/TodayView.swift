@@ -1574,7 +1574,7 @@ struct TodayView: View {
     var body: some View {
         ScreenScaffold(title: scaffoldTitle, onRefresh: {
                            model.ble.syncNow()
-                           await repo.refresh()
+                           _ = await repo.refresh(.currentDay)
                        },
                        // PERF (scroll): lazy column so the scaffold materialises Today's content on demand.
                        // Today supplies its own inner eager VStack (below), so the staggered section reveal is

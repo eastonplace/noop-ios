@@ -1508,7 +1508,9 @@ final class IntelligenceEngine: ObservableObject {
         // Reload the dashboard caches so the freshly computed scores show up immediately. A heal-only
         // pass (#899 dedup deleted stale session rows but no daily changed) must refresh too, so the
         // Sleep tab stops showing the removed duplicates right away.
-        if persistedMutationCount > 0 && refreshRepository { await repo.refresh() }
+        if persistedMutationCount > 0 && refreshRepository {
+            _ = await repo.refresh(.recentDashboard(days: 120))
+        }
         performanceChangedRows = persistedMutationCount
 
         // #836: record the raw-HR fingerprint this run scored against, so a later NON-forced tick can

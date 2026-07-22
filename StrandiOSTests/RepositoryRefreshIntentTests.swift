@@ -38,44 +38,6 @@ final class RepositoryRefreshIntentTests: XCTestCase {
         )
     }
 
-    func testLegacyRefreshInferenceKeepsSmallUIWorkNarrowAndRealHistoryMutationsBroad() {
-        XCTAssertEqual(
-            RepositoryRefreshIntent.inferredLegacyIntent(
-                file: "NOOP/StrandiOS/App/RootTabView.swift",
-                function: "body.getter"
-            ),
-            .currentDay
-        )
-        XCTAssertEqual(
-            RepositoryRefreshIntent.inferredLegacyIntent(
-                file: "NOOP/Strand/App/AppModel.swift",
-                function: "importWhoop(url:)"
-            ),
-            .postImport
-        )
-        XCTAssertEqual(
-            RepositoryRefreshIntent.inferredLegacyIntent(
-                file: "NOOP/Strand/App/AppModel.swift",
-                function: "adoptActiveDevice(_:)"
-            ),
-            .activeDeviceChanged
-        )
-        XCTAssertEqual(
-            RepositoryRefreshIntent.inferredLegacyIntent(
-                file: "NOOP/Strand/Data/IntelligenceEngine.swift",
-                function: "runTimestampHealIfNeeded()"
-            ),
-            .fullHistoryMigration
-        )
-        XCTAssertEqual(
-            RepositoryRefreshIntent.inferredLegacyIntent(
-                file: "NOOP/Strand/Data/IntelligenceEngine.swift",
-                function: "analyzeRecent(maxDays:startOffset:force:refreshRepository:)"
-            ),
-            .recentDashboard(days: 120)
-        )
-    }
-
     func testOverlappingNarrowRequestsCoalesceToWidestPendingRange() async {
         var executed: [RepositoryRefreshIntent] = []
         var releases: [CheckedContinuation<Void, Never>] = []
@@ -91,9 +53,12 @@ final class RepositoryRefreshIntentTests: XCTestCase {
         releases.removeFirst().resume()
         while executed.count < 2 { await Task.yield() }
         releases.removeFirst().resume()
-        XCTAssertTrue(await first.value)
-        XCTAssertTrue(await second.value)
-        XCTAssertTrue(await third.value)
+        let firstResult = await first.value
+        let secondResult = await second.value
+        let thirdResult = await third.value
+        XCTAssertTrue(firstResult)
+        XCTAssertTrue(secondResult)
+        XCTAssertTrue(thirdResult)
         XCTAssertEqual(executed, [.currentDay, .recentDashboard(days: 240)])
     }
 
@@ -111,9 +76,12 @@ final class RepositoryRefreshIntentTests: XCTestCase {
         while executed.isEmpty { await Task.yield() }
         release?.resume()
         release = nil
-        XCTAssertTrue(await broad.value)
-        XCTAssertTrue(await narrowA.value)
-        XCTAssertTrue(await narrowB.value)
+        let broadResult = await broad.value
+        let narrowAResult = await narrowA.value
+        let narrowBResult = await narrowB.value
+        XCTAssertTrue(broadResult)
+        XCTAssertTrue(narrowAResult)
+        XCTAssertTrue(narrowBResult)
         XCTAssertEqual(executed, [.fullHistoryMigration])
     }
 
@@ -131,8 +99,10 @@ final class RepositoryRefreshIntentTests: XCTestCase {
         releases.removeFirst().resume()
         while executed.count < 2 { await Task.yield() }
         releases.removeFirst().resume()
-        XCTAssertTrue(await broad.value)
-        XCTAssertTrue(await narrow.value)
+        let broadResult = await broad.value
+        let narrowResult = await narrow.value
+        XCTAssertTrue(broadResult)
+        XCTAssertTrue(narrowResult)
         XCTAssertEqual(executed, [.fullHistoryMigration, .currentDay])
     }
 
@@ -153,8 +123,10 @@ final class RepositoryRefreshIntentTests: XCTestCase {
         while executions < 2 { await Task.yield() }
         releases.removeFirst().resume()
 
-        XCTAssertFalse(await first.value)
-        XCTAssertTrue(await second.value)
+        let firstResult = await first.value
+        let secondResult = await second.value
+        XCTAssertFalse(firstResult)
+        XCTAssertTrue(secondResult)
     }
 
     func testMigrationSuppressionIsInheritedByChildTask() async {
@@ -162,7 +134,7 @@ final class RepositoryRefreshIntentTests: XCTestCase {
             await Task { RepositoryRefreshContext.disposition }.value
         }
         XCTAssertEqual(inherited, .suppress)
-        XCTAssertEqual(RepositoryRefreshContext.disposition, .legacyDefault)
+        XCTAssertEqual(RepositoryRefreshContext.disposition, .allow)
     }
 
     func testAlreadyCancelledRequestDoesNotEnterQueue() async {
@@ -174,7 +146,8 @@ final class RepositoryRefreshIntentTests: XCTestCase {
             withUnsafeCurrentTask { $0?.cancel() }
             return await coordinator.request(.currentDay)
         }
-        XCTAssertFalse(await task.value)
+        let result = await task.value
+        XCTAssertFalse(result)
     }
 }
 #endif

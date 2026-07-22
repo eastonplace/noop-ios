@@ -61,7 +61,8 @@ final class HistoricalMigrationDriverTests: XCTestCase {
         XCTAssertEqual(offset, 30)
         XCTAssertFalse(done)
         XCTAssertEqual(finalRefreshes, 0)
-        XCTAssertEqual(await run(), .completed)
+        let resumedOutcome = await run()
+        XCTAssertEqual(resumedOutcome, .completed)
         XCTAssertTrue(done)
         XCTAssertEqual(finalRefreshes, 1)
     }
@@ -111,7 +112,8 @@ final class HistoricalMigrationDriverTests: XCTestCase {
         task.cancel()
         gate?.resume()
         gate = nil
-        XCTAssertEqual(await task.value, .cancelled)
+        let cancelledOutcome = await task.value
+        XCTAssertEqual(cancelledOutcome, .cancelled)
         XCTAssertEqual(offset, 0)
         XCTAssertFalse(done)
     }

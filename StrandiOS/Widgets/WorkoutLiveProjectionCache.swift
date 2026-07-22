@@ -1,6 +1,7 @@
 #if os(iOS)
 import Foundation
 import StrandAnalytics
+import StrandDesign
 import WhoopProtocol
 
 /// Reference-owned cache for the expensive Live Activity workout projection. It incrementally consumes only

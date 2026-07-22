@@ -146,11 +146,6 @@ struct SettingsView: View {
     /// recording means, and where the provenance badges come from.
     @State private var showHowNoopWorks = false
 
-    /// "Set up Apple Watch" sheet: the honest watch onboarding flow (what it's great at, where
-    /// it's lighter, then the Health permission request). Presented from the About page's primary
-    /// action. iOS does the real HealthKit request; macOS reads as an iPhone-only step.
-    @State private var showAppleWatchSetup = false
-
     /// Steps-estimate calibration sheet (WHOOP 4.0). Reached from the Profile card's "Steps estimate"
     /// tap-through; explains the estimate, shows the current fit + a recent estimated-vs-phone table,
     /// and offers a manual coefficient override. See [StepsCalibrationSheet].
@@ -206,9 +201,6 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showHowNoopWorks) {
             HowNoopWorksView(onClose: { showHowNoopWorks = false })
-        }
-        .sheet(isPresented: $showAppleWatchSetup) {
-            AppleWatchSetupView(onClose: { showAppleWatchSetup = false })
         }
         .sheet(isPresented: $showStepsCalibration) {
             StepsCalibrationSheet(repo: model.repo, onClose: { showStepsCalibration = false })
@@ -1194,7 +1186,7 @@ struct SettingsView: View {
         Baselines.recalibrateRecoveryBaselines()
         Task {
             await model.intelligence.analyzeRecent()
-            await model.repo.refresh()
+            _ = await model.repo.refresh(.postImport)
         }
         backupAlertTitle = String(localized: "Recovery baseline recalibrating")
         backupAlertMessage = String(localized: "NOOP will re-learn your baseline from tonight's data onward. Your history is kept, and it takes a few nights to settle.")
@@ -2004,13 +1996,10 @@ struct SettingsView: View {
                 .buttonStyle(PaperPressStyle())
                 .accessibilityLabel("How your scores work")
 
-                // About Apple Watch data: the honest capability/confidence page for running NOOP off
-                // just an Apple Watch (what it's great at, where it's lighter than a strap, why recovery
-                // calibrates, the SpO₂ caveat). Its primary action opens the watch setup + Health
-                // permission flow. Renders the same on macOS and iOS (pure reference content); the setup
-                // sheet itself does the iOS-only HealthKit request.
+                // Honest capability/confidence page for Apple Health data available on this iPhone.
+                // It does not restore a watchOS target or a second live-device lifecycle.
                 NavigationLink {
-                    AppleWatchAboutView(onStartSetup: { showAppleWatchSetup = true })
+                    AppleWatchAboutView()
                 } label: {
                     HStack(spacing: 10) {
                         Image(systemName: "applewatch")

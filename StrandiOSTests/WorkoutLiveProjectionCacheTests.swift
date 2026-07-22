@@ -5,10 +5,23 @@ import WhoopProtocol
 #if os(iOS)
 @MainActor
 final class WorkoutLiveProjectionCacheTests: XCTestCase {
+    func testActiveWorkoutSampleBufferIsReferenceOwned() {
+        let session = AppModel.ActiveWorkout(
+            start: Date(timeIntervalSince1970: 1_700_000_000),
+            sport: "Running",
+            maxHR: 190
+        )
+        let retained = session
+        session.samples.append(HRSample(ts: 1_700_000_000, bpm: 120))
+
+        XCTAssertTrue(session === retained)
+        XCTAssertEqual(retained.samples, [HRSample(ts: 1_700_000_000, bpm: 120)])
+    }
+
     func testSameTimestampTailCorrectionForcesAuthoritativeRebuild() {
         let profile = ProfileStore()
         profile.hrMaxOverride = 190
-        var workout = AppModel.ActiveWorkout(
+        let workout = AppModel.ActiveWorkout(
             start: Date(timeIntervalSince1970: 1_700_000_000),
             sport: "Running",
             maxHR: 190

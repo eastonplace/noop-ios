@@ -197,7 +197,7 @@ struct SleepView: View {
                        // with dropping the top-level LiveState observation (the sleep-mark card + the
                        // syncing note now own `live` in their own leaves), so a 1 Hz HR tick no longer
                        // re-evaluates this heavy body.
-                       onRefresh: { await repo.refresh() },
+                       onRefresh: { _ = await repo.refresh(.currentDay) },
                        lazy: true,
                        topBackground: nil,
                        showsSubtitleInExpandedHeader: false,
@@ -317,7 +317,7 @@ struct SleepView: View {
                     // Re-score the day so the dashboard aggregates (Sleep / recovery) honor the corrected
                     // sleep window, not just the Sleep tab's session view; then refresh the read cache.
                     await intelligence.analyzeRecent()
-                    await repo.refresh()
+                    _ = await repo.refresh(.currentDay)
                 }, onDelete: {
                     // Delete = the edit path minus the re-insert: drop this session so every metric
                     // recomputes immediately as if the night were never recorded, durably tombstoned so a
@@ -327,7 +327,7 @@ struct SleepView: View {
                     let snapshot = await repo.deleteSleepSession(detectedStartTs: edit.detectedStartTs,
                                                                  endTs: edit.wakeTs)
                     await intelligence.analyzeRecent()
-                    await repo.refresh()
+                    _ = await repo.refresh(.currentDay)
                     // `edit.bedTs` is the effective (displayed) onset, so the banner shows the same clock
                     // time the user saw for this night.
                     if let snapshot { presentSleepUndo(snapshot, displayStart: edit.bedTs, windowEnd: edit.wakeTs) }
@@ -344,7 +344,7 @@ struct SleepView: View {
                     await repo.addManualNap(startTs: startTs, endTs: endTs)
                     // Re-score so the day's aggregates pick up the new session, exactly like an edit.
                     await intelligence.analyzeRecent()
-                    await repo.refresh()
+                    _ = await repo.refresh(.currentDay)
                 }
             }
         }
@@ -400,7 +400,7 @@ struct SleepView: View {
         SleepUndoTaskControl.cancelAndClear(&sleepUndoTask)
         await repo.undoDeleteSleepSession(banner.snapshot)
         await intelligence.analyzeRecent()
-        await repo.refresh()
+        _ = await repo.refresh(.currentDay)
         await MainActor.run { withAnimation(.easeOut(duration: 0.2)) { sleepUndo = nil } }
     }
 

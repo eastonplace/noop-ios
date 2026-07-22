@@ -5,7 +5,7 @@ import XCTest
 @MainActor
 final class DeviceActionsTests: XCTestCase {
     func testLegacyRawValuesStillDecodeAfterMacAppRemoval() {
-        XCTAssertEqual(DeviceActionKind(rawValue: "none"), .none)
+        XCTAssertEqual(DeviceActionKind(rawValue: "none"), DeviceActionKind.none)
         XCTAssertEqual(DeviceActionKind(rawValue: "lockScreen"), .lockScreen)
         XCTAssertEqual(DeviceActionKind(rawValue: "buzzBack"), .buzzBack)
         XCTAssertEqual(DeviceActionKind(rawValue: "markMoment"), .markMoment)

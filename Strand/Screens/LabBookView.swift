@@ -272,7 +272,7 @@ struct LabBookView: View {
                     )
                 }
                 try await store.upsertLabMarkers(rows)
-                await repo.refresh()   // re-resolves the lab-book projection into Compare/Explore/Coach
+                _ = await repo.refresh(.currentDay)   // re-resolves the lab-book projection into Compare/Explore/Coach
                 await load()
                 var msg = String(localized: "Imported \(result.importedReadings) readings (\(result.distinctMarkers) markers)")
                 if let a = result.earliestDay, let b = result.latestDay, a != b { msg += " · \(a)-\(b)" }
@@ -532,14 +532,14 @@ struct LabBookView: View {
     private func save(_ drafts: [LabMarkerRow]) async {
         guard !drafts.isEmpty, let store = await repo.storeHandle() else { return }
         try? await store.upsertLabMarkers(drafts)
-        await repo.refresh()   // re-resolves the lab-book projection into Compare/Explore/Coach
+        _ = await repo.refresh(.currentDay)   // re-resolves the lab-book projection into Compare/Explore/Coach
         await load()
     }
 
     private func delete(_ id: String) async {
         guard let store = await repo.storeHandle() else { return }
         _ = try? await store.deleteLabMarker(id: id)
-        await repo.refresh()
+        _ = await repo.refresh(.currentDay)
         await load()
     }
 }

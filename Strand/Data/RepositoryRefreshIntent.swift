@@ -68,64 +68,6 @@ enum RepositoryRefreshIntent: Equatable, Sendable, CustomStringConvertible {
         return rank(lhs) >= rank(rhs) ? lhs : rhs
     }
 
-    /// Transitional routing for old zero-argument `refresh()` call sites. The compiler supplies the caller's
-    /// file and function through default arguments, which lets the compatibility path remain deterministic
-    /// without stack inspection. New code should still call `refresh(_:)` explicitly.
-    static func inferredLegacyIntent(file: String, function: String) -> Self {
-        let lowerFile = file.lowercased()
-        let lowerFunction = function.lowercased()
-
-        // A file import, restore, or source purge can change any historical day.
-        if lowerFunction.contains("import")
-            || lowerFunction.contains("restore")
-            || lowerFunction.contains("deleteapplehealthdata")
-            || lowerFunction.contains("deletedata") {
-            return .postImport
-        }
-
-        // Changing the active data owner changes which historical namespace the dashboard reads.
-        if lowerFunction.contains("adoptactivedevice")
-            || lowerFunction.contains("activedevicechanged") {
-            return .activeDeviceChanged
-        }
-
-        // Backfill completion has a known coherent recent-window replacement.
-        if lowerFunction.contains("refreshaftercompletedbackfill")
-            || lowerFunction.contains("backfill") {
-            return .postBackfill
-        }
-
-        // Full-history maintenance is deliberately broad, except where a TaskLocal suppression is active.
-        if lowerFunction.contains("migration")
-            || lowerFunction.contains("timestampheal")
-            || lowerFunction.contains("effortrescore") {
-            return .fullHistoryMigration
-        }
-
-        // The AppModel bootstrap is the one normal broad load.
-        if lowerFunction == "init()"
-            || lowerFunction.contains("bootstrap")
-            || lowerFunction.contains("initialload") {
-            return .initialLoad
-        }
-
-        // User-facing screen refreshes, workout saves, edits and recalibrations only need the coherent recent
-        // dashboard window. `currentDay` intentionally maps to 120 days because Repository replaces the shared
-        // dashboard cache rather than merging a one-day slice.
-        if lowerFile.contains("/screens/")
-            || lowerFile.contains("/strandios/")
-            || lowerFunction.contains("endworkout")
-            || lowerFunction.contains("save")
-            || lowerFunction.contains("edit")
-            || lowerFunction.contains("recalibrat") {
-            return .currentDay
-        }
-
-        // Analysis and other unclassified compatibility callers receive the bounded coherent dashboard,
-        // never the historical 4,000-day default. Truly broad work must state its intent explicitly.
-        return .recentDashboard(days: 120)
-    }
-
     private static func rank(_ intent: Self) -> Int {
         switch intent {
         case .currentDay: return 0
@@ -144,12 +86,11 @@ enum RepositoryRefreshIntent: Equatable, Sendable, CustomStringConvertible {
 /// child inherits the suppression and cannot accidentally restore a broad repository refresh.
 enum RepositoryRefreshContext {
     enum Disposition: Equatable, Sendable {
-        case legacyDefault
+        case allow
         case suppress
-        case intent(RepositoryRefreshIntent)
     }
 
-    @TaskLocal static var disposition: Disposition = .legacyDefault
+    @TaskLocal static var disposition: Disposition = .allow
 }
 
 /// Main-actor single-flight queue because `Repository` itself is MainActor-isolated. Requests that arrive
@@ -260,29 +201,11 @@ private enum RepositoryRefreshRegistry {
 extension Repository {
     @discardableResult
     func refresh(_ intent: RepositoryRefreshIntent) async -> Bool {
-        await RepositoryRefreshRegistry.coordinator(for: self).request(intent)
-    }
-
-    /// Compatibility overload for call sites not yet migrated to an explicit intent. It no longer means
-    /// "always load 4,000 days": the compiler-provided source location deterministically selects the narrowest
-    /// safe intent. Task-local suppression/redirects still take precedence for migrations and focused flows.
-    func refresh(
-        file: StaticString = #fileID,
-        function: StaticString = #function,
-        line: UInt = #line
-    ) async {
         switch RepositoryRefreshContext.disposition {
-        case .legacyDefault:
-            let intent = RepositoryRefreshIntent.inferredLegacyIntent(
-                file: String(describing: file),
-                function: String(describing: function)
-            )
-            _ = await refresh(intent)
+        case .allow:
+            return await RepositoryRefreshRegistry.coordinator(for: self).request(intent)
         case .suppress:
-            return
-        case .intent(let intent):
-            _ = await refresh(intent)
+            return false
         }
-        _ = line
     }
 }

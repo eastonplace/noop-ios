@@ -81,7 +81,7 @@ struct AppHeaderChrome: View {
         transientSyncState = .syncing
         model.ble.syncNow()
         Task {
-            await repo.refresh()
+            _ = await repo.refresh(.currentDay)
         }
     }
 }

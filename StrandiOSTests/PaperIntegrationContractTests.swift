@@ -91,24 +91,12 @@ final class PaperIntegrationContractTests: XCTestCase {
         XCTAssertEqual(state.zoneSeconds, [1, 2, 3, 4, 5])
     }
 
-    @MainActor
-    func testEveryDemoRouteResolvesToAView() {
-        XCTAssertFalse(DemoScreens.routeNames.isEmpty)
-        XCTAssertEqual(Set(DemoScreens.routeNames).count, DemoScreens.routeNames.count)
-        for route in DemoScreens.routeNames {
-            XCTAssertNotNil(DemoScreens.view(named: route), "Unresolved demo route: \(route)")
-        }
-        XCTAssertNil(DemoScreens.view(named: "definitely-not-a-route"))
-    }
-
     func testPaperLocalizationCatalogsContainNoLegacyPillarKeys() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let catalogs = [
             "Strand/Resources/Localizable.xcstrings",
-            "NOOPWatch/Localizable.xcstrings",
-            "NOOPWatchComplications/Localizable.xcstrings",
             "Packages/StrandDesign/Sources/StrandDesign/Resources/Localizable.xcstrings",
         ]
         let legacyPillar = try NSRegularExpression(

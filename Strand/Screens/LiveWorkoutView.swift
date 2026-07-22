@@ -189,7 +189,7 @@ private struct LiveWorkoutControlRow: View {
                 systemImage: saving ? "hourglass" : "flag.checkered",
                 kind: .destructive
             ) {
-                Task { _ = await model.endWorkoutOptimized() }
+                Task { _ = await model.endWorkout() }
             }
             .disabled(saving)
         }
