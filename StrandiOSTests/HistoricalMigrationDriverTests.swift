@@ -1,5 +1,5 @@
 import XCTest
-@testable import Strand
+@testable import NOOP
 
 @MainActor
 final class HistoricalMigrationDriverTests: XCTestCase {
@@ -9,13 +9,17 @@ final class HistoricalMigrationDriverTests: XCTestCase {
         var chunks = 0
         var finalRefreshes = 0
         let outcome = await HistoricalMigrationDriver.run(
-            historyDays: 4_000, chunkDays: 30,
-            isCompleted: { done }, loadOffset: { offset },
-            saveOffset: { offset = $0 }, markCompleted: { done = true },
+            historyDays: 4_000,
+            chunkDays: 30,
+            isCompleted: { done },
+            loadOffset: { offset },
+            saveOffset: { offset = $0 },
+            markCompleted: { done = true },
             shouldPause: { false },
             analyzeChunk: { _, _ in chunks += 1 },
             finalRefresh: { finalRefreshes += 1; return true },
-            interChunkDelay: .zero)
+            interChunkDelay: .zero
+        )
         XCTAssertEqual(outcome, .completed)
         XCTAssertEqual(chunks, 134)
         XCTAssertEqual(finalRefreshes, 1)
@@ -26,20 +30,29 @@ final class HistoricalMigrationDriverTests: XCTestCase {
         struct Failure: Error {}
         var offset = 0
         var done = false
-        var fail = true
+        var shouldFail = true
         var finalRefreshes = 0
+
         func run() async -> HistoricalMigrationDriver.Outcome {
             await HistoricalMigrationDriver.run(
-                historyDays: 90, chunkDays: 30,
-                isCompleted: { done }, loadOffset: { offset },
-                saveOffset: { offset = $0 }, markCompleted: { done = true },
+                historyDays: 90,
+                chunkDays: 30,
+                isCompleted: { done },
+                loadOffset: { offset },
+                saveOffset: { offset = $0 },
+                markCompleted: { done = true },
                 shouldPause: { false },
                 analyzeChunk: { _, current in
-                    if current == 30 && fail { fail = false; throw Failure() }
+                    if current == 30 && shouldFail {
+                        shouldFail = false
+                        throw Failure()
+                    }
                 },
                 finalRefresh: { finalRefreshes += 1; return true },
-                interChunkDelay: .zero)
+                interChunkDelay: .zero
+            )
         }
+
         guard case .chunkFailed(let failedOffset, _) = await run() else {
             return XCTFail("Expected chunk failure")
         }
@@ -57,13 +70,17 @@ final class HistoricalMigrationDriverTests: XCTestCase {
         var done = false
         var chunks = 0
         let outcome = await HistoricalMigrationDriver.run(
-            historyDays: 90, chunkDays: 30,
-            isCompleted: { done }, loadOffset: { offset },
-            saveOffset: { offset = $0 }, markCompleted: { done = true },
+            historyDays: 90,
+            chunkDays: 30,
+            isCompleted: { done },
+            loadOffset: { offset },
+            saveOffset: { offset = $0 },
+            markCompleted: { done = true },
             shouldPause: { chunks >= 2 },
             analyzeChunk: { _, _ in chunks += 1 },
             finalRefresh: { XCTFail("Should not refresh"); return true },
-            interChunkDelay: .zero)
+            interChunkDelay: .zero
+        )
         XCTAssertEqual(outcome, .paused)
         XCTAssertEqual(offset, 30)
         XCTAssertFalse(done)
@@ -75,13 +92,19 @@ final class HistoricalMigrationDriverTests: XCTestCase {
         var gate: CheckedContinuation<Void, Never>?
         let task = Task { @MainActor in
             await HistoricalMigrationDriver.run(
-                historyDays: 90, chunkDays: 30,
-                isCompleted: { done }, loadOffset: { offset },
-                saveOffset: { offset = $0 }, markCompleted: { done = true },
+                historyDays: 90,
+                chunkDays: 30,
+                isCompleted: { done },
+                loadOffset: { offset },
+                saveOffset: { offset = $0 },
+                markCompleted: { done = true },
                 shouldPause: { false },
-                analyzeChunk: { _, _ in await withCheckedContinuation { gate = $0 } },
+                analyzeChunk: { _, _ in
+                    await withCheckedContinuation { gate = $0 }
+                },
                 finalRefresh: { XCTFail("Should not refresh"); return true },
-                interChunkDelay: .zero)
+                interChunkDelay: .zero
+            )
         }
         while gate == nil { await Task.yield() }
         task.cancel()
@@ -96,13 +119,17 @@ final class HistoricalMigrationDriverTests: XCTestCase {
         var offset = 30
         var done = false
         let outcome = await HistoricalMigrationDriver.run(
-            historyDays: 30, chunkDays: 30,
-            isCompleted: { done }, loadOffset: { offset },
-            saveOffset: { offset = $0 }, markCompleted: { done = true },
+            historyDays: 30,
+            chunkDays: 30,
+            isCompleted: { done },
+            loadOffset: { offset },
+            saveOffset: { offset = $0 },
+            markCompleted: { done = true },
             shouldPause: { false },
             analyzeChunk: { _, _ in XCTFail("Should not re-analyze") },
             finalRefresh: { false },
-            interChunkDelay: .zero)
+            interChunkDelay: .zero
+        )
         XCTAssertEqual(outcome, .finalRefreshFailed)
         XCTAssertFalse(done)
     }
@@ -112,13 +139,17 @@ final class HistoricalMigrationDriverTests: XCTestCase {
         var done = false
         var refreshes = 0
         let outcome = await HistoricalMigrationDriver.run(
-            historyDays: 30, chunkDays: 30,
-            isCompleted: { done }, loadOffset: { offset },
-            saveOffset: { offset = $0 }, markCompleted: { done = true },
+            historyDays: 30,
+            chunkDays: 30,
+            isCompleted: { done },
+            loadOffset: { offset },
+            saveOffset: { offset = $0 },
+            markCompleted: { done = true },
             shouldPause: { false },
             analyzeChunk: { _, _ in XCTFail("Should not re-analyze") },
             finalRefresh: { refreshes += 1; return true },
-            interChunkDelay: .zero)
+            interChunkDelay: .zero
+        )
         XCTAssertEqual(outcome, .completed)
         XCTAssertEqual(refreshes, 1)
         XCTAssertTrue(done)
@@ -128,13 +159,17 @@ final class HistoricalMigrationDriverTests: XCTestCase {
         var offset = 0
         var done = false
         let outcome = await HistoricalMigrationDriver.run(
-            historyDays: 90, chunkDays: 30,
-            isCompleted: { done }, loadOffset: { offset },
-            saveOffset: { offset = $0 }, markCompleted: { done = true },
+            historyDays: 90,
+            chunkDays: 30,
+            isCompleted: { done },
+            loadOffset: { offset },
+            saveOffset: { offset = $0 },
+            markCompleted: { done = true },
             shouldPause: { false },
             analyzeChunk: { _, _ in throw CancellationError() },
             finalRefresh: { XCTFail("Should not refresh"); return true },
-            interChunkDelay: .zero)
+            interChunkDelay: .zero
+        )
         XCTAssertEqual(outcome, .cancelled)
         XCTAssertEqual(offset, 0)
         XCTAssertFalse(done)

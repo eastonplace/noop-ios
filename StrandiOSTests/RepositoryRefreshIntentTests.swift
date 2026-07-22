@@ -1,5 +1,5 @@
 import XCTest
-@testable import Strand
+@testable import NOOP
 
 @MainActor
 final class RepositoryRefreshIntentTests: XCTestCase {
@@ -38,7 +38,9 @@ final class RepositoryRefreshIntentTests: XCTestCase {
     func testBroadPendingRequestAbsorbsNarrowRequestsBeforeExecution() async {
         var executed: [RepositoryRefreshIntent] = []
         var release: CheckedContinuation<Void, Never>?
-        let coordinator = RepositoryRefreshCoordinator(coalescingDelay: .milliseconds(30)) { intent in
+        let coordinator = RepositoryRefreshCoordinator(
+            coalescingDelay: .milliseconds(30)
+        ) { intent in
             executed.append(intent)
             await withCheckedContinuation { release = $0 }
             return true
