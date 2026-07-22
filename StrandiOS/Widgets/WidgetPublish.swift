@@ -8,6 +8,7 @@ import WidgetKit
 private enum WidgetLivePublishGate {
     private(set) static var cachedSnapshot: WidgetSnapshot?
     private(set) static var lastPublishedAt: Date = .distantPast
+    private(set) static var fullPublishGeneration: UInt64 = 0
 
     /// Return the last in-process snapshot, or hydrate it once from the App Group. A genuinely empty
     /// store returns nil so the first live publication is forced and creates the widget snapshot instead
@@ -34,6 +35,18 @@ private enum WidgetLivePublishGate {
         cachedSnapshot = snapshot
         lastPublishedAt = date
     }
+
+    /// Full dashboard publications perform several async reads. A later refresh can start while an older
+    /// one is suspended; generation tokens ensure that older work cannot resume and overwrite newer App
+    /// Group state. The checks after each expensive await also abandon superseded work early.
+    static func beginFullPublish() -> UInt64 {
+        fullPublishGeneration &+= 1
+        return fullPublishGeneration
+    }
+
+    static func isCurrentFullPublish(_ generation: UInt64) -> Bool {
+        generation == fullPublishGeneration
+    }
 }
 
 extension WidgetSnapshot {
@@ -55,6 +68,7 @@ extension WidgetSnapshot {
     /// the rollover yet always describes today.
     @MainActor
     static func publish(from model: AppModel) async {
+        let generation = WidgetLivePublishGate.beginFullPublish()
         let days = model.repo.days
         let now = Date()
         // The recovery-derived anchor: today's row when it's scored, else the freshest STRICTLY-PRIOR
@@ -75,6 +89,7 @@ extension WidgetSnapshot {
         var restScore: Double?
         if let day {
             let restSeries = await model.repo.exploreSeries(key: "sleep_performance", source: "my-whoop")
+            guard WidgetLivePublishGate.isCurrentFullPublish(generation) else { return }
             let restByDay = Dictionary(restSeries.map { ($0.day, $0.value) }, uniquingKeysWith: { _, last in last })
             let anchorIsToday = day.day == Repository.localDayKey(now)
             restScore = restByDay[day.day] ?? (anchorIsToday ? restSeries.last?.value : nil)
@@ -87,11 +102,13 @@ extension WidgetSnapshot {
             return Int((current - previousRecovery).rounded())
         }()
         let hrvSeries = await model.repo.exploreSeries(key: "hrv", source: "my-whoop")
+        guard WidgetLivePublishGate.isCurrentFullPublish(generation) else { return }
         let hrvSparkline = hrvSeries
             .filter { point in day.map { point.day <= $0.day } ?? true }
             .suffix(12)
             .map { Int($0.value.rounded()) }
         let stress = await dashboardStress(from: model)
+        guard WidgetLivePublishGate.isCurrentFullPublish(generation) else { return }
         let sparkline = model.activeWorkout.map { Array($0.samples.suffix(48).map(\.bpm)) }
         let snap = WidgetSnapshot.publishing(
             recovery: day?.recovery,
@@ -112,6 +129,7 @@ extension WidgetSnapshot {
             hrvSparkline: hrvSparkline,
             updated: now
         )
+        guard WidgetLivePublishGate.isCurrentFullPublish(generation) else { return }
         guard snap.save() else { return }
         WidgetLivePublishGate.notePublished(snap, at: now)
         WidgetCenter.shared.reloadAllTimelines()
