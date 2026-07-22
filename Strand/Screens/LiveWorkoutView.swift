@@ -1,11 +1,10 @@
 import SwiftUI
 import StrandDesign
 import StrandAnalytics
-import WhoopStore
 
 /// Live workout mode. The environment wrapper receives AppModel's high-frequency notifications, but its
-/// expensive/static content is Equatable and identity-stable. Only the dedicated heart/zone/strain leaves
-/// observe AppModel and continue updating for every available HR sample.
+/// expensive/static content is Equatable and identity-stable. Dedicated leaves continue observing every
+/// accepted HR sample for BPM, history, Strain, and zone feedback.
 struct LiveWorkoutView: View {
     @EnvironmentObject private var model: AppModel
     let onClose: () -> Void
@@ -41,6 +40,7 @@ private struct StableLiveWorkoutContent: View, Equatable {
                 LiveWorkoutControlRow(model: model)
                 LiveWorkoutFailureMessage(model: model)
                 LiveWorkoutEffortAndZone(model: model)
+                SensorRowIfPresent()
             }
             .screenPadding()
             .padding(.vertical, 16)
@@ -114,8 +114,8 @@ private struct WorkoutGoneObserver: View {
     }
 }
 
-/// Per-sample heart history leaf. Its bounded 360-value projection is the only chart work performed for an
-/// HR update; GPS, map, header, timer chrome, and controls are outside this observation scope.
+/// Per-sample heart history leaf. Its bounded projection is the only chart work performed for an HR update;
+/// GPS, map, header, timer chrome, and controls remain outside this observation scope.
 private struct LiveWorkoutHeartCard: View {
     @ObservedObject var model: AppModel
 
@@ -305,6 +305,57 @@ private struct LiveWorkoutEffortAndZone: View {
     }
 }
 
+private struct SensorRowIfPresent: View {
+    @EnvironmentObject private var live: LiveState
+
+    var body: some View {
+        if live.hasSensorMetrics {
+            let speed = LiveState.formatSpeedKmh(live.sensorSpeedKmh)
+            let cadence = LiveState.formatCadence(live.sensorCadence)
+            let power = LiveState.formatPowerWatts(live.sensorPowerWatts)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("SENSOR")
+                    .font(StrandFont.overline)
+                    .tracking(StrandFont.overlineTracking)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                HStack(spacing: NoopMetrics.gap) {
+                    if let speed {
+                        stat(String(localized: "SPEED"), "\(speed) km/h", tint: StrandPalette.effortColor)
+                    }
+                    if let cadence {
+                        stat(String(localized: "CADENCE"), "\(cadence)/min", tint: StrandPalette.effortColor)
+                    }
+                    if let power {
+                        stat(String(localized: "POWER"), "\(power) W", tint: StrandPalette.effortColor)
+                    }
+                }
+            }
+            .staggeredAppear(index: 5)
+        }
+    }
+
+    private func stat(
+        _ title: String,
+        _ value: String,
+        tint: Color = StrandPalette.textPrimary
+    ) -> some View {
+        NoopCard(padding: 14, tint: tint) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(StrandFont.overline)
+                    .tracking(StrandFont.overlineTracking)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                Text(value)
+                    .font(StrandFont.number(26))
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
 private struct PaperLiveWorkoutStatsGrid: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var live: LiveState
@@ -341,7 +392,7 @@ private struct PaperLiveWorkoutStatsGrid: View {
             HStack(alignment: .firstTextBaseline, spacing: 3) {
                 Text(value)
                     .font(StrandFont.metricValue)
-                    .foregroundStyle(StrandPalette.textPrimary)
+                    .foregroundStyle(tint)
                     .lineLimit(1)
                     .minimumScaleFactor(0.65)
                 if let unit {
