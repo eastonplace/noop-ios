@@ -45,12 +45,7 @@ extension LiveState {
 
     nonisolated public static func scheduledExportText(extraHeaderLines: [String] = []) -> String {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
-        #if os(iOS)
-        let osName = "iOS"
-        #else
-        let osName = "macOS"
-        #endif
-        var header = "NOOP strap log (scheduled export) — \(osName)\nApp: \(version)\n\(osName): "
+        var header = "NOOP strap log (scheduled export) — iOS\nApp: \(version)\niOS: "
             + ProcessInfo.processInfo.operatingSystemVersionString + "\n"
         if !extraHeaderLines.isEmpty { header += extraHeaderLines.joined(separator: "\n") + "\n" }
         header += String(repeating: "-", count: 40) + "\n"
@@ -77,27 +72,21 @@ extension LiveState {
         return output
     }
 
+    /// Export path used by Copy/Save/Share. It waits for the serial durable-tail queue before returning the
+    /// in-memory body, so the same user action both includes and commits every message accepted before it.
     func exportableLogTextFlushing(extraHeaderLines: [String] = []) async -> String {
         await flushLogPersistence()
         return exportableLogText(extraHeaderLines: extraHeaderLines)
     }
 
+    /// Synchronous body builder retained for background-free presentation and tests. User-triggered exports
+    /// should call `exportableLogTextFlushing` so the durability edge is explicit and awaitable.
     func exportableLogText(extraHeaderLines: [String] = []) -> String {
-        // Existing synchronous callers still receive every in-memory line immediately. Start a background
-        // force-flush so Copy/Save also commits the durable tail without blocking the UI.
-        Task { await flushLogPersistence() }
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
-        #if os(iOS)
-        let osName = "iOS"
-        #else
-        let osName = "macOS"
-        #endif
-        var header = "NOOP strap log - \(osName)\nApp: \(version)\n\(osName): "
+        var header = "NOOP strap log - iOS\nApp: \(version)\niOS: "
             + ProcessInfo.processInfo.operatingSystemVersionString + "\n"
-        #if os(iOS)
         let diagnosticLines = IOSDiagnostics.capture().summaryLines()
         if !diagnosticLines.isEmpty { header += diagnosticLines.joined(separator: "\n") + "\n" }
-        #endif
         if !extraHeaderLines.isEmpty { header += extraHeaderLines.joined(separator: "\n") + "\n" }
         header += String(repeating: "-", count: 40) + "\n"
         return header + log.joined(separator: "\n")
