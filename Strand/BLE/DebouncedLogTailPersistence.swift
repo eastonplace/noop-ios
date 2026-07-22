@@ -1,9 +1,5 @@
 import Foundation
-#if os(iOS)
 import UIKit
-#elseif os(macOS)
-import AppKit
-#endif
 
 /// Serial background owner for the durable strap-log tail. `LiveState` keeps the visible log immediate on
 /// MainActor; this object stores the durable suffix in an O(1) ring and batches UserDefaults writes.
@@ -155,20 +151,10 @@ final class DebouncedLogTailPersistence: @unchecked Sendable {
     #endif
 
     private func registerLifecycleObservers() {
-        #if os(iOS)
         let names: [Notification.Name] = [
             UIApplication.didEnterBackgroundNotification,
             UIApplication.willTerminateNotification,
         ]
-        #elseif os(macOS)
-        let names: [Notification.Name] = [
-            NSApplication.didResignActiveNotification,
-            NSApplication.willTerminateNotification,
-        ]
-        #else
-        let names: [Notification.Name] = []
-        #endif
-
         for name in names {
             lifecycleObservers.append(NotificationCenter.default.addObserver(
                 forName: name,
