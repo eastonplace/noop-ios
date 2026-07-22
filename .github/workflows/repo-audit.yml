@@ -1,14 +1,13 @@
-name: One-shot iOS-only repository audit
+name: iOS-only repository audit
 
 on:
-  push:
-    branches:
-      - perf/ios-only-production-qa-2026-07-22
+  pull_request:
     paths:
-      - .github/workflows/repo-audit.yml
+      - '**'
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   audit:
@@ -23,10 +22,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p docs
+          mkdir -p audit
           find . -path './.git' -prune -o -type f -print \
             | sed 's#^./##' \
-            | sort > docs/IOS_ONLY_REPO_FILE_MANIFEST.txt
+            | sort > audit/repository-file-manifest.txt
 
           {
             echo '# iOS-only platform reference audit'
@@ -36,10 +35,10 @@ jobs:
             echo '## References requiring review'
             rg -n --hidden \
               --glob '!.git/**' \
-              --glob '!docs/IOS_ONLY_PLATFORM_REFERENCE_AUDIT.txt' \
+              --glob '!audit/**' \
               '(WatchSessionBridge|WatchRecovery|WatchScoreSnapshot|AppleWatch|watchOS|NOOPWatch|os\(macOS\)|canImport\(AppKit\)|import AppKit|NSApplication|MenuBarExtra|android/|Android)' \
               . || true
-          } > docs/IOS_ONLY_PLATFORM_REFERENCE_AUDIT.txt
+          } > audit/platform-reference-audit.txt
 
           {
             echo '# Portable QA'
@@ -56,17 +55,12 @@ jobs:
               fi
               echo
             done
-          } > docs/IOS_ONLY_PORTABLE_QA.txt 2>&1
+          } > audit/portable-qa.txt 2>&1
 
-      - name: Commit audit evidence
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add docs/IOS_ONLY_REPO_FILE_MANIFEST.txt \
-                  docs/IOS_ONLY_PLATFORM_REFERENCE_AUDIT.txt \
-                  docs/IOS_ONLY_PORTABLE_QA.txt
-          git diff --cached --quiet && exit 0
-          git commit -m 'qa: capture iOS-only repository audit evidence'
-          git push
+      - name: Upload audit evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-only-repository-audit
+          path: audit
+          if-no-files-found: error
+          retention-days: 7
