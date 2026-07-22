@@ -135,12 +135,17 @@ extension AppModel {
                         .sink { if $0 { startProbe.markStarted() } }
                     defer { observation.cancel() }
 
-                    await intelligence.analyzeRecent(
-                        maxDays: days,
-                        startOffset: offset,
-                        force: true,
-                        refreshRepository: false
-                    )
+                    // The explicit false prevents this chunk from publishing repository caches. The task-local
+                    // suppression also reaches IntelligenceEngine's forced child re-arm, so that compatibility
+                    // path cannot quietly restore a default 4,000-day refresh between chunks.
+                    await RepositoryRefreshContext.$disposition.withValue(.suppress) {
+                        await intelligence.analyzeRecent(
+                            maxDays: days,
+                            startOffset: offset,
+                            force: true,
+                            refreshRepository: false
+                        )
+                    }
                     guard startProbe.value, !intelligence.computing else {
                         throw PerformanceMigrationError.analysisDidNotStart
                     }
