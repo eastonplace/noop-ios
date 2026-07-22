@@ -30,11 +30,11 @@ def forbid(rel: str, *needles: str) -> None:
 try:
     require(
         "Strand/Screens/TrendsView.swift",
-        "previousPaperTrendSeries",
         "selectedRange.summarySubtitle",
         "paperMoverRows",
         'Text("Weekly readout")',
         "TrendDeltaTone",
+        "WeeklyDigestSource.digest",
     )
     forbid(
         "Strand/Screens/TrendsView.swift",
@@ -71,6 +71,7 @@ try:
     require(
         "StrandiOS/App/SmartAlarmRuntimeController.swift",
         "SmartAlarmRuntimeGeneration",
+        "SmartAlarmBackgroundRequest",
         "generation.accepts",
         "notificationTask?.cancel()",
         "evaluationTask?.cancel()",
@@ -78,6 +79,9 @@ try:
         "expirationHandler",
         "pinLegacyEndpointOnly",
         "nextDailyRearm",
+        "scheduleFollowingBackgroundRequest",
+        "loadRequest()",
+        "clearRequest(ifMatching: request)",
         "removePendingNotificationRequests",
     )
     require(
