@@ -6,7 +6,7 @@ name: Swift Packages CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, staging/noop-ios-2.0]
     paths:
       - 'Packages/**'
       - '.github/workflows/swift-packages.yml'

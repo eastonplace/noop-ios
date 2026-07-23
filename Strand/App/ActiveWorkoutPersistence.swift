@@ -13,6 +13,12 @@ enum LiveStrainState: Codable, Equatable, Sendable {
 enum ActiveWorkoutSampleJournalCodec {
     static let bytesPerSample = MemoryLayout<Int64>.size + MemoryLayout<Int32>.size
 
+    static func encodedByteCount(for sampleCount: Int) -> Int? {
+        guard sampleCount >= 0 else { return nil }
+        let result = sampleCount.multipliedReportingOverflow(by: bytesPerSample)
+        return result.overflow ? nil : result.partialValue
+    }
+
     static func encode(_ samples: ArraySlice<HRSample>) -> Data {
         var data = Data()
         data.reserveCapacity(samples.count * bytesPerSample)
@@ -207,6 +213,7 @@ enum ActiveWorkoutPersistence {
 
     static let defaultsKey = "noop.activeWorkout"
     static let metadataKey = "noop.activeWorkout.v2.metadata"
+    static let previousMetadataKey = "noop.activeWorkout.v2.previousMetadata"
     static let legacyJournalName = "active-workout-samples-v2.bin"
     private static let legacyWriter = SnapshotWriter()
     private static let productionWriter = ProductionJournalWriter()
@@ -265,12 +272,16 @@ enum ActiveWorkoutPersistence {
     @discardableResult
     static func store(_ snapshot: Snapshot, synchronously: Bool = false) -> Bool {
         let isFirstSnapshot = !productionSnapshotEstablished
-        if isFirstSnapshot { productionSnapshotEstablished = true }
         let applicationRequiresImmediateFlush = UIApplication.shared.applicationState != .active
-        return productionWriter.store(
+        let requiresSynchronousCommit = synchronously || isFirstSnapshot || applicationRequiresImmediateFlush
+        let accepted = productionWriter.store(
             snapshot,
-            synchronously: synchronously || isFirstSnapshot || applicationRequiresImmediateFlush
+            synchronously: requiresSynchronousCommit
         )
+        if isFirstSnapshot, requiresSynchronousCommit, accepted {
+            productionSnapshotEstablished = true
+        }
+        return accepted
     }
 
     /// Deterministic legacy/direct seam for isolated unit tests and old snapshot migrations.
@@ -534,6 +545,7 @@ enum ActiveWorkoutPersistence {
 
             syncOnQueue {
                 defaults.removeObject(forKey: ActiveWorkoutPersistence.metadataKey)
+                defaults.removeObject(forKey: ActiveWorkoutPersistence.previousMetadataKey)
                 defaults.removeObject(forKey: ActiveWorkoutPersistence.defaultsKey)
                 guard let directory else { return }
                 let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
@@ -589,9 +601,19 @@ enum ActiveWorkoutPersistence {
                 try faultInjector(.afterFileSync)
                 guard isCurrent(request.epoch) else { return false }
                 try faultInjector(.beforeMetadataCommit)
-                let metadataData = try JSONEncoder().encode(metadata)
+                let encoder = JSONEncoder()
+                let metadataData = try encoder.encode(metadata)
+                let previousMetadataData = try previous.map { try encoder.encode($0) }
+                if let previousMetadataData {
+                    defaults.set(previousMetadataData, forKey: ActiveWorkoutPersistence.previousMetadataKey)
+                } else {
+                    defaults.removeObject(forKey: ActiveWorkoutPersistence.previousMetadataKey)
+                }
                 defaults.set(metadataData, forKey: ActiveWorkoutPersistence.metadataKey)
-                guard defaults.synchronize() else { throw CocoaError(.fileWriteUnknown) }
+                guard defaults.synchronize(),
+                      defaults.data(forKey: ActiveWorkoutPersistence.metadataKey) == metadataData,
+                      defaults.data(forKey: ActiveWorkoutPersistence.previousMetadataKey) == previousMetadataData
+                else { throw CocoaError(.fileWriteUnknown) }
                 defaults.removeObject(forKey: ActiveWorkoutPersistence.defaultsKey)
 
                 lock.lock()
@@ -633,11 +655,21 @@ enum ActiveWorkoutPersistence {
         }
 
         private func loadOnQueue() -> Snapshot? {
-            if let metadata = loadMetadata(defaults),
+            if let metadata = loadMetadata(defaults, key: ActiveWorkoutPersistence.metadataKey),
                   metadata.version == JournalMetadata.currentVersion,
                   metadata.startSec > 0,
                   metadata.sampleCount >= 0,
                   let snapshot = load(metadata: metadata) {
+                return snapshot
+            }
+            if let previous = loadMetadata(defaults, key: ActiveWorkoutPersistence.previousMetadataKey),
+               previous.version == JournalMetadata.currentVersion,
+               previous.startSec > 0,
+               previous.sampleCount >= 0,
+               let snapshot = load(metadata: previous),
+               let encoded = try? JSONEncoder().encode(previous) {
+                defaults.set(encoded, forKey: ActiveWorkoutPersistence.metadataKey)
+                _ = defaults.synchronize()
                 return snapshot
             }
 
@@ -649,8 +681,11 @@ enum ActiveWorkoutPersistence {
                   let directory
             else { return nil }
             let url = directory.appendingPathComponent(ActiveWorkoutPersistence.legacyJournalName)
-            guard let data = try? Data(contentsOf: url, options: .mappedIfSafe),
-                  data.count >= legacy.sampleCount * ActiveWorkoutSampleJournalCodec.bytesPerSample
+            guard let expectedBytes = ActiveWorkoutSampleJournalCodec.encodedByteCount(
+                for: legacy.sampleCount
+            ),
+                  let data = try? Data(contentsOf: url, options: .mappedIfSafe),
+                  data.count >= expectedBytes
             else { return nil }
             let samples = ActiveWorkoutSampleJournalCodec.decode(data, count: legacy.sampleCount)
             guard samples.count == legacy.sampleCount else { return nil }
@@ -663,8 +698,11 @@ enum ActiveWorkoutPersistence {
 
         private func load(metadata: JournalMetadata) -> Snapshot? {
             let url = journalURL(for: metadata.generation)
-            guard let data = try? Data(contentsOf: url, options: .mappedIfSafe),
-                  data.count == metadata.sampleCount * ActiveWorkoutSampleJournalCodec.bytesPerSample,
+            guard let expectedBytes = ActiveWorkoutSampleJournalCodec.encodedByteCount(
+                for: metadata.sampleCount
+            ),
+                  let data = try? Data(contentsOf: url, options: .mappedIfSafe),
+                  data.count == expectedBytes,
                   Self.checksum(data) == metadata.checksum
             else { return nil }
             let samples = ActiveWorkoutSampleJournalCodec.decode(data, count: metadata.sampleCount)
@@ -681,8 +719,11 @@ enum ActiveWorkoutPersistence {
             ))
         }
 
-        private func loadMetadata(_ defaults: UserDefaults) -> JournalMetadata? {
-            guard let data = defaults.data(forKey: ActiveWorkoutPersistence.metadataKey) else { return nil }
+        private func loadMetadata(
+            _ defaults: UserDefaults,
+            key: String = ActiveWorkoutPersistence.metadataKey
+        ) -> JournalMetadata? {
+            guard let data = defaults.data(forKey: key) else { return nil }
             return try? JSONDecoder().decode(JournalMetadata.self, from: data)
         }
 
@@ -718,7 +759,9 @@ enum ActiveWorkoutPersistence {
                   let handle = try? FileHandle(forReadingFrom: url)
             else { return nil }
             defer { try? handle.close() }
-            let offset = UInt64((count - 1) * ActiveWorkoutSampleJournalCodec.bytesPerSample)
+            guard let byteOffset = ActiveWorkoutSampleJournalCodec.encodedByteCount(for: count - 1)
+            else { return nil }
+            let offset = UInt64(byteOffset)
             do {
                 try handle.seek(toOffset: offset)
                 guard let data = try handle.read(upToCount: ActiveWorkoutSampleJournalCodec.bytesPerSample),

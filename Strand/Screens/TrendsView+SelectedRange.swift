@@ -12,8 +12,11 @@ extension TrendsView {
         if let screenSnapshot = currentScreenSnapshot {
             paperScoresOverTime(screenSnapshot)
         } else {
-            ProgressView("Preparing trends…")
-                .frame(maxWidth: .infinity, minHeight: 180)
+            VStack(alignment: .leading, spacing: 14) {
+                rangeControls
+                ProgressView("Preparing trends…")
+                    .frame(maxWidth: .infinity, minHeight: 180)
+            }
         }
     }
 
@@ -29,13 +32,7 @@ extension TrendsView {
                     .foregroundStyle(StrandPalette.textSecondary)
             }
 
-            HStack(spacing: 7) {
-                metricDropdown
-                Spacer(minLength: 8)
-                ForEach(TrendRange.allCases) { range in
-                    rangeChip(range)
-                }
-            }
+            rangeControls
 
             if !snapshot.selectedPoints.isEmpty {
                 TrendPanelChart(
@@ -120,6 +117,22 @@ extension TrendsView {
         }
     }
 
+    private var rangeControls: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 7) {
+                metricDropdown
+                Spacer(minLength: 8)
+                ForEach(TrendRange.allCases) { range in rangeChip(range) }
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                metricDropdown
+                HStack(spacing: 7) {
+                    ForEach(TrendRange.allCases) { range in rangeChip(range) }
+                }
+            }
+        }
+    }
+
     private var metricDropdown: some View {
         Menu {
             ForEach(ProductionTrendMetric.allCases) { metric in
@@ -145,6 +158,7 @@ extension TrendsView {
             .foregroundStyle(StrandPalette.textPrimary)
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
+            .frame(minHeight: 44)
             .background(StrandPalette.surfaceRaised, in: Capsule())
             .overlay(Capsule().stroke(StrandPalette.hairlineStrong, lineWidth: 0.75))
         }
@@ -162,6 +176,7 @@ extension TrendsView {
                     : StrandPalette.textSecondary)
                 .padding(.horizontal, 9)
                 .padding(.vertical, 8)
+                .frame(minHeight: 44)
                 .background(
                     selectedRange == range
                         ? StrandPalette.textPrimary

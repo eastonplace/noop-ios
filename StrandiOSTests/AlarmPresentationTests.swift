@@ -21,6 +21,35 @@ final class AlarmPresentationTests: XCTestCase {
         XCTAssertTrue(presentation.isUpcomingSleepPeriod)
     }
 
+    func testSpringForwardPlanClocksMapBackToRealDates() throws {
+        let calendar = newYorkCalendar()
+        let now = try date(2026, 3, 7, 23, 0, calendar: calendar)
+        let presentation = try XCTUnwrap(SleepAlarmEditorSupport.schedule(
+            at: now,
+            minutes: 7 * 60,
+            weekdays: [1],
+            calendar: calendar
+        ))
+        let asleepBy = presentation.wakeAxisMinutes - 8 * 60
+
+        XCTAssertEqual(
+            presentation.clockLabel(
+                for: presentation.nowAxisMinutes,
+                locale: Locale(identifier: "en_US"),
+                calendar: calendar
+            ),
+            "11:00 PM"
+        )
+        XCTAssertEqual(
+            presentation.clockLabel(
+                for: asleepBy,
+                locale: Locale(identifier: "en_US"),
+                calendar: calendar
+            ),
+            "10:00 PM"
+        )
+    }
+
     func testFallBackPresentationUsesEndpointClockAndRealElapsedTime() throws {
         let calendar = newYorkCalendar()
         let now = try date(2026, 10, 31, 23, 0, calendar: calendar)
@@ -36,6 +65,35 @@ final class AlarmPresentationTests: XCTestCase {
         XCTAssertEqual(presentation.wakeAxisMinutes.moduloDay, 7 * 60)
         XCTAssertEqual(presentation.wakeClock(locale: Locale(identifier: "en_US"), calendar: calendar), "7:00 AM")
         XCTAssertEqual(presentation.dayLabel, "Tomorrow")
+    }
+
+    func testFallBackPlanClocksMapBackToRealDates() throws {
+        let calendar = newYorkCalendar()
+        let now = try date(2026, 10, 31, 23, 0, calendar: calendar)
+        let presentation = try XCTUnwrap(SleepAlarmEditorSupport.schedule(
+            at: now,
+            minutes: 7 * 60,
+            weekdays: [1],
+            calendar: calendar
+        ))
+        let asleepBy = presentation.wakeAxisMinutes - 8 * 60
+
+        XCTAssertEqual(
+            presentation.clockLabel(
+                for: presentation.nowAxisMinutes,
+                locale: Locale(identifier: "en_US"),
+                calendar: calendar
+            ),
+            "11:00 PM"
+        )
+        XCTAssertEqual(
+            presentation.clockLabel(
+                for: asleepBy,
+                locale: Locale(identifier: "en_US"),
+                calendar: calendar
+            ),
+            "12:00 AM"
+        )
     }
 
     func testSameDayAlarmKeepsTodayIdentity() throws {
@@ -76,7 +134,8 @@ final class AlarmPresentationTests: XCTestCase {
             at: now,
             minutes: 7 * 60,
             weekdays: [2],
-            calendar: calendar
+            calendar: calendar,
+            locale: Locale(identifier: "en_US")
         ))
         let components = calendar.dateComponents([.weekday, .hour, .minute], from: presentation.endpoint)
         let civilDays = calendar.dateComponents(
@@ -89,8 +148,7 @@ final class AlarmPresentationTests: XCTestCase {
         XCTAssertEqual(components.weekday, 2)
         XCTAssertEqual(components.hour, 7)
         XCTAssertEqual(components.minute, 0)
-        XCTAssertNotEqual(presentation.dayLabel, "Today")
-        XCTAssertNotEqual(presentation.dayLabel, "Tomorrow")
+        XCTAssertEqual(presentation.dayLabel, "Monday, Jul 27")
         XCTAssertFalse(presentation.isUpcomingSleepPeriod)
     }
 

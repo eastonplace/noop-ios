@@ -12,7 +12,7 @@ enum SmartAlarmBackgroundRequestLoadResult: Equatable, Sendable {
 /// Malformed persisted payloads are removed so one corrupt request cannot poison every later background wake.
 @MainActor
 enum SmartAlarmBackgroundTaskRegistrar {
-    private static let requestKey = "smartAlarm.runtime.backgroundRequest"
+    private static var requestKey: String { SmartAlarmRuntimeBackgroundScheduler.requestKey }
     private static weak var runtime: SmartAlarmRuntimeController?
     private static var registered = false
 

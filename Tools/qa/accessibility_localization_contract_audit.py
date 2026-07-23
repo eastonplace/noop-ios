@@ -55,6 +55,16 @@ try:
         ".frame(width: 30, height: 30)",
     )
     require(
+        "Strand/Screens/TrendsView+SelectedRange.swift",
+        "private var rangeControls",
+        "ViewThatFits(in: .horizontal)",
+        ".frame(minHeight: 44)",
+    )
+    require(
+        "Strand/Screens/TrendsView+WeeklyReview.swift",
+        "frame(width: 44, height: 44)",
+    )
+    require(
         "Packages/StrandDesign/Sources/StrandDesign/SleepAlarmComponents.swift",
         "@Environment(\\.dynamicTypeSize)",
         "if dynamicTypeSize.isAccessibilitySize",

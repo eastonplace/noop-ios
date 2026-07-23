@@ -42,6 +42,8 @@ try:
         "let generation: UUID",
         "let sessionID: UUID",
         "let checksum: UInt64",
+        "previousMetadataKey",
+        "encodedByteCount(for sampleCount: Int)",
         "private var committedCursor: Cursor?",
         "private var pendingCursor: Cursor?",
         "try handle.synchronize()",
@@ -49,6 +51,12 @@ try:
         "faultInjector(.beforeMetadataCommit)",
         "productionWriter.store(",
         "epoch &+= 1",
+    )
+    require(
+        "Strand/App/AppModel.swift",
+        "if accepted { lastWorkoutSnapshotAt = now }",
+        "persistActiveWorkout(force: true, synchronously: true)",
+        "func flushActiveWorkoutSnapshot() -> Bool",
     )
     forbid(
         "Strand/App/ActiveWorkoutPersistence.swift",
@@ -62,7 +70,8 @@ try:
         "testGenerationJournalCommitsMetadataPointerAndChecksum",
         "testSynchronousWriteReportsFailureBeforeCommitAndRelaunchKeepsPreviousGeneration",
         "testRelaunchUsesNewGenerationWhenProcessDiesAfterPointerSwap",
-        "testChecksumMismatchRejectsJournalInsteadOfCombiningWrongSessionBytes",
+        "testEncodedByteCountRejectsOverflow",
+        "testChecksumMismatchRecoversPreviousCommittedGeneration",
         "testLegacyV2PairMigratesToGenerationJournalOnLoad",
     )
 except AssertionError as error:

@@ -214,6 +214,15 @@ final class ActiveWorkoutPersistenceTests: XCTestCase {
         XCTAssertEqual(decoded.liveStrainState, .scored(storedValue: 0))
     }
 
+    func testEncodedByteCountRejectsOverflow() {
+        XCTAssertEqual(
+            ActiveWorkoutSampleJournalCodec.encodedByteCount(for: 10),
+            10 * ActiveWorkoutSampleJournalCodec.bytesPerSample
+        )
+        XCTAssertNil(ActiveWorkoutSampleJournalCodec.encodedByteCount(for: -1))
+        XCTAssertNil(ActiveWorkoutSampleJournalCodec.encodedByteCount(for: Int.max))
+    }
+
     func testBinaryJournalRoundTripsLargeSampleSetAtFixedWidth() {
         let samples = (0..<10_000).map {
             sample(1_700_000_000 + $0, 60 + ($0 % 140))
@@ -348,12 +357,22 @@ final class ActiveWorkoutPersistenceTests: XCTestCase {
         XCTAssertEqual(relaunched.load(), replacement)
     }
 
-    func testChecksumMismatchRejectsJournalInsteadOfCombiningWrongSessionBytes() throws {
+    func testChecksumMismatchRecoversPreviousCommittedGeneration() throws {
         let (defaults, directory) = try freshJournalEnvironment()
         let writer = ActiveWorkoutPersistence.ProductionJournalWriter(defaults: defaults, directory: directory)
-        XCTAssertTrue(writer.store(snapshot(), synchronously: true))
+        let initial = snapshot(samples: [sample(100, 110)], avgHr: 110, peakHr: 110)
+        let replacement = snapshot(
+            samples: [sample(100, 110), sample(101, 120)],
+            avgHr: 115,
+            peakHr: 120
+        )
+        XCTAssertTrue(writer.store(initial, synchronously: true))
+        XCTAssertTrue(writer.store(replacement, synchronously: true))
         let metadataData = try XCTUnwrap(defaults.data(forKey: ActiveWorkoutPersistence.metadataKey))
-        let metadata = try JSONDecoder().decode(ActiveWorkoutPersistence.JournalMetadata.self, from: metadataData)
+        let metadata = try JSONDecoder().decode(
+            ActiveWorkoutPersistence.JournalMetadata.self,
+            from: metadataData
+        )
         let journal = directory.appendingPathComponent(
             "active-workout-\(metadata.generation.uuidString.lowercased()).bin"
         )
@@ -361,8 +380,11 @@ final class ActiveWorkoutPersistenceTests: XCTestCase {
         bytes[0] ^= 0xff
         try bytes.write(to: journal)
 
-        let relaunched = ActiveWorkoutPersistence.ProductionJournalWriter(defaults: defaults, directory: directory)
-        XCTAssertNil(relaunched.load())
+        let relaunched = ActiveWorkoutPersistence.ProductionJournalWriter(
+            defaults: defaults,
+            directory: directory
+        )
+        XCTAssertEqual(relaunched.load(), initial)
     }
 
     func testLegacyV2PairMigratesToGenerationJournalOnLoad() throws {

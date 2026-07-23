@@ -54,6 +54,41 @@ final class UIUnificationTests: XCTestCase {
         XCTAssertEqual(presentation.spark.last?.value, 179)
     }
 
+    func testTrendSummaryDropsNonFiniteValuesBeforeMeanAndReliability() {
+        let presentation = TrendSummaryPresentation(
+            series: [
+                TrendPoint(date: .distantPast, value: .nan),
+                TrendPoint(date: .now, value: 80),
+            ],
+            previousSeries: [
+                TrendPoint(date: .distantPast, value: .infinity),
+                TrendPoint(date: .now, value: 60),
+            ],
+            goodDirection: .higher,
+            expectedCount: 1
+        )
+
+        XCTAssertEqual(presentation.source.map(\.value), [80])
+        XCTAssertEqual(presentation.latest, 80)
+        XCTAssertEqual(presentation.delta, 20)
+        XCTAssertEqual(presentation.currentCount, 1)
+        XCTAssertEqual(presentation.previousCount, 1)
+    }
+
+    func testWeeklyDigestDropsNonFiniteInputs() {
+        let day = DailyMetric(
+            day: "2026-07-20", totalSleepMin: 300, efficiency: 0.7,
+            deepMin: 40, remMin: 50, lightMin: 210, disturbances: 10,
+            restingHr: nil, avgHrv: .infinity, recovery: .nan, strain: .infinity,
+            exerciseCount: 0
+        )
+        let digest = WeeklyDigestSource.digest(
+            from: [day], anchorDay: day.day, sleepByDay: [day.day: .nan]
+        )
+
+        XCTAssertTrue(digest.isEmpty)
+    }
+
     func testWeeklyDigestUsesCanonicalSleepAuthority() throws {
         let day = DailyMetric(
             day: "2026-07-20", totalSleepMin: 300, efficiency: 0.7,

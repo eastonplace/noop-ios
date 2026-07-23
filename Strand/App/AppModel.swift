@@ -755,12 +755,15 @@ final class AppModel: ObservableObject {
     /// session (#529). Called on start + each captured sample. A no-op when nothing is running. Apple has
     /// no GPS-route session, so every manual workout is the "non-GPS" case and gets this durability ,
     /// the Apple analogue of Android's `persistNonGpsWorkout`.
-    private func persistActiveWorkout(force: Bool = false) {
-        guard let w = activeWorkout else { return }
+    @discardableResult
+    private func persistActiveWorkout(
+        force: Bool = false,
+        synchronously: Bool = false
+    ) -> Bool {
+        guard let w = activeWorkout else { return true }
         let now = Date()
-        guard force || now.timeIntervalSince(lastWorkoutSnapshotAt) >= 5 else { return }
-        lastWorkoutSnapshotAt = now
-        ActiveWorkoutPersistence.store(
+        guard force || now.timeIntervalSince(lastWorkoutSnapshotAt) >= 5 else { return true }
+        let accepted = ActiveWorkoutPersistence.store(
             ActiveWorkoutPersistence.Snapshot(
                 sessionID: w.sessionID,
                 startSec: Int(w.start.timeIntervalSince1970),
@@ -768,7 +771,11 @@ final class AppModel: ObservableObject {
                 samples: w.samples,
                 avgHr: w.avgHr,
                 peakHr: w.peakHr,
-                liveStrainState: w.liveStrainState))
+                liveStrainState: w.liveStrainState),
+            synchronously: synchronously
+        )
+        if accepted { lastWorkoutSnapshotAt = now }
+        return accepted
     }
 
     /// If a manual workout was in flight when iOS killed the app, rebuild `activeWorkout` from the durable
@@ -785,14 +792,16 @@ final class AppModel: ObservableObject {
     }
 
     /// Flushes the in-flight workout before iOS suspends the process.
-    func flushActiveWorkoutSnapshot() {
-        persistActiveWorkout(force: true)
+    @discardableResult
+    func flushActiveWorkoutSnapshot() -> Bool {
+        if persistActiveWorkout(force: true, synchronously: true) { return true }
+        return persistActiveWorkout(force: true, synchronously: true)
     }
 
     func setApplicationActive(_ active: Bool) {
         applicationIsActive = active
         if !active {
-            flushActiveWorkoutSnapshot()
+            _ = flushActiveWorkoutSnapshot()
         } else {
             Task { [weak self] in
                 guard let self else { return }
@@ -847,9 +856,11 @@ final class AppModel: ObservableObject {
             return .failure(.insufficientEvidence)
         }
         let end = pendingWorkoutEnd ?? Date()
-        let avg = samples.isEmpty ? nil
-            : Int((Double(samples.map(\.bpm).reduce(0, +)) / Double(samples.count)).rounded())
-        let peak = samples.map(\.bpm).max()
+        // ActiveWorkout already maintains these values exactly as canonical same-second samples
+        // are appended or replaced. Reuse them instead of allocating and scanning the full
+        // three-hour sample array twice on the main actor during Finish.
+        let avg = samples.isEmpty ? nil : w.avgHr
+        let peak = samples.isEmpty ? nil : w.peakHr
         let strain = samples.count >= 2
             ? StrainScorerV2.strain(samples, maxHR: Double(profile.hrMax), mode: .activity) : nil
         // Estimate calories from the captured HR window (same Keytel/Harris–Benedict model the

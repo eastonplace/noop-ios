@@ -174,9 +174,9 @@ enum ProductionTrendMetric: String, CaseIterable, Identifiable, Sendable {
         case .strain, .sleepDuration, .respiratory, .skinTemp, .stress:
             return value.formatted(.number.precision(.fractionLength(1)))
         case .steps, .calories:
-            return Int(value.rounded()).formatted()
+            return value.formatted(.number.precision(.fractionLength(0)))
         default:
-            return "\(Int(value.rounded()))"
+            return value.formatted(.number.precision(.fractionLength(0)))
         }
     }
 
@@ -276,7 +276,7 @@ struct TrendsScreenSnapshot: Sendable {
         guard !Task.isCancelled else { return nil }
 
         let selectedCalendarDays = Array(observations.suffix(range.days))
-        let selectedPoints = selectedCalendarDays.compactMap { day in
+        let selectedPoints: [TrendPoint] = selectedCalendarDays.compactMap { day in
             guard day.date.timeIntervalSinceReferenceDate.isFinite,
                   let value = finite(day.value) else { return nil }
             return TrendPoint(date: day.date, value: value)
@@ -389,6 +389,13 @@ struct TrendsScreenSnapshot: Sendable {
 }
 
 enum TrendsSnapshotHandoff {
+    nonisolated static func canonicalDays(
+        loaded: TrendsLoadedData,
+        fallback: [DailyMetric]
+    ) -> [DailyMetric] {
+        loaded.revision < 0 ? fallback : loaded.canonicalDays
+    }
+
     nonisolated static func accepts(
         snapshotKey: TrendsScreenSnapshotKey?,
         currentKey: TrendsScreenSnapshotKey

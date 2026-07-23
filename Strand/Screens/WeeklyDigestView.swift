@@ -37,11 +37,11 @@ enum WeeklyDigestSource {
         var rhr: [String: Double] = [:]
         var hrv: [String: Double] = [:]
         for d in days {
-            if let v = d.recovery { charge[d.day] = v }
-            if let v = d.strain   { effort[d.day] = v }
-            if let value = sleepByDay[d.day] { rest[d.day] = value }
+            if let v = d.recovery, v.isFinite { charge[d.day] = v }
+            if let v = d.strain, v.isFinite { effort[d.day] = v }
+            if let value = sleepByDay[d.day], value.isFinite { rest[d.day] = value }
             if let v = d.restingHr { rhr[d.day] = Double(v) }
-            if let v = d.avgHrv    { hrv[d.day] = v }
+            if let v = d.avgHrv, v.isFinite { hrv[d.day] = v }
         }
         return WeeklyDigestEngine.build(
             byMetric: [.charge: charge, .effort: effort, .rest: rest, .rhr: rhr, .hrv: hrv],

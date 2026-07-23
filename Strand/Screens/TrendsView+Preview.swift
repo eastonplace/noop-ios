@@ -1,3 +1,6 @@
+import SwiftUI
+import WhoopStore
+
 #if DEBUG
 @MainActor
 private func previewRepo() -> Repository {

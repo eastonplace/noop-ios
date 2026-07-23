@@ -147,6 +147,7 @@ jobs:
             test 2>&1 | tee qa-artifacts/xcodebuild-test.txt
 
       - name: Run retained Swift package tests
+        if: always()
         shell: bash
         run: |
           set -uo pipefail

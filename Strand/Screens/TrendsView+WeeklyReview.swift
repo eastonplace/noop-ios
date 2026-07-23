@@ -26,7 +26,7 @@ extension TrendsView {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 10) {
                     Button { stepWeek(-1) } label: {
-                        Image(systemName: "chevron.left").frame(width: 28, height: 28)
+                        Image(systemName: "chevron.left").frame(width: 44, height: 44)
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(weekOffset <= minWeekOffset
@@ -53,7 +53,7 @@ extension TrendsView {
                         .background(StrandPalette.surfaceInset, in: Capsule())
 
                     Button { stepWeek(1) } label: {
-                        Image(systemName: "chevron.right").frame(width: 28, height: 28)
+                        Image(systemName: "chevron.right").frame(width: 44, height: 44)
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(weekOffset >= 0

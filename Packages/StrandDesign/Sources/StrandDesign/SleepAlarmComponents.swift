@@ -137,6 +137,7 @@ public struct SleepAlarmModuleCard: View {
     public let wakeDayLabel: String
     public let deliveryStatus: String
     public let showsBedtimePlan: Bool
+    public let clockLabel: (Int) -> String
     /// Optional haptics-only toggle. nil hides the row entirely — the promoted module never invents a
     /// sound-vs-haptics choice the host doesn't actually have.
     public var hapticOnly: Binding<Bool>?
@@ -151,6 +152,7 @@ public struct SleepAlarmModuleCard: View {
         wakeDayLabel: String,
         deliveryStatus: String,
         showsBedtimePlan: Bool,
+        clockLabel: @escaping (Int) -> String = { SleepAlarmTime.clock($0) },
         hapticOnly: Binding<Bool>? = nil
     ) {
         self._armed = armed
@@ -162,6 +164,7 @@ public struct SleepAlarmModuleCard: View {
         self.wakeDayLabel = wakeDayLabel
         self.deliveryStatus = deliveryStatus
         self.showsBedtimePlan = showsBedtimePlan
+        self.clockLabel = clockLabel
         self.hapticOnly = hapticOnly
     }
 
@@ -247,11 +250,11 @@ public struct SleepAlarmModuleCard: View {
         }
         let modeWord = selectedMode?.title ?? ""
         let windowPart = windowMinutes > 0
-            ? " " + String(localized: "Wake window from \(SleepAlarmTime.clock(windowStart)) to \(SleepAlarmTime.clock(wakeMinutes)).", bundle: .module)
+            ? " " + String(localized: "Wake window from \(clockLabel(windowStart)) to \(clockLabel(wakeMinutes)).", bundle: .module)
             : ""
-        return String(localized: "Alarm configured, \(modeWord), \(SleepAlarmTime.clock(wakeMinutes)) \(wakeDayLabel). \(deliveryStatus).", bundle: .module)
+        return String(localized: "Alarm configured, \(modeWord), \(clockLabel(wakeMinutes)) \(wakeDayLabel). \(deliveryStatus).", bundle: .module)
             + windowPart + " "
-            + (showsBedtimePlan ? String(localized: "To meet tonight's need, be asleep by \(SleepAlarmTime.clock(asleepBy)), in \(SleepAlarmTime.duration(minutesUntilBed)).", bundle: .module) : "")
+            + (showsBedtimePlan ? String(localized: "To meet tonight's need, be asleep by \(clockLabel(asleepBy)), in \(SleepAlarmTime.duration(minutesUntilBed)).", bundle: .module) : "")
     }
 
     // MARK: pieces
@@ -317,7 +320,7 @@ public struct SleepAlarmModuleCard: View {
                 nudgeControls
             }
             .accessibilityElement(children: .contain)
-            .accessibilityLabel(Text("Wake time \(SleepAlarmTime.clock(wakeMinutes)), \(wakeDayLabel)", bundle: .module))
+            .accessibilityLabel(Text("Wake time \(clockLabel(wakeMinutes)), \(wakeDayLabel)", bundle: .module))
             .accessibilityAdjustableAction { adjustWakeTime($0) }
         } else {
             HStack(alignment: .center, spacing: 10) {
@@ -326,14 +329,14 @@ public struct SleepAlarmModuleCard: View {
                 nudgeControls
             }
             .accessibilityElement(children: .contain)
-            .accessibilityLabel(Text("Wake time \(SleepAlarmTime.clock(wakeMinutes)), \(wakeDayLabel)", bundle: .module))
+            .accessibilityLabel(Text("Wake time \(clockLabel(wakeMinutes)), \(wakeDayLabel)", bundle: .module))
             .accessibilityAdjustableAction { adjustWakeTime($0) }
         }
     }
 
     private var wakeTimeLabel: some View {
         HStack(alignment: .firstTextBaseline, spacing: 5) {
-            Text(SleepAlarmTime.clock(wakeMinutes))
+            Text(clockLabel(wakeMinutes))
                 .font(StrandFont.number(34, weight: .bold))
                 .monospacedDigit()
                 .foregroundStyle(StrandPalette.textPrimary)
@@ -459,7 +462,7 @@ public struct SleepAlarmModuleCard: View {
                         .frame(width: 10, height: 10)
                         .overlay(Circle().strokeBorder(StrandPalette.surfaceRaised, lineWidth: 1.5))
                         .offset(x: proxy.size.width - 5)
-                    Text(SleepAlarmTime.clock(railStart))
+                    Text(clockLabel(railStart))
                         .font(.system(size: 8.5, weight: .medium, design: .rounded))
                         .monospacedDigit()
                         .foregroundStyle(StrandPalette.textTertiary)
@@ -469,7 +472,7 @@ public struct SleepAlarmModuleCard: View {
             .frame(height: 22)
             HStack {
                 Spacer(minLength: 0)
-                Text("earliest \(SleepAlarmTime.clock(windowStart)) · latest \(SleepAlarmTime.clock(wakeMinutes))")
+                Text("earliest \(clockLabel(windowStart)) · latest \(clockLabel(wakeMinutes))")
                     .font(StrandFont.micro)
                     .monospacedDigit()
                     .foregroundStyle(StrandPalette.textTertiary)
@@ -484,7 +487,7 @@ public struct SleepAlarmModuleCard: View {
                     .font(StrandFont.micro)
                     .foregroundStyle(StrandPalette.textTertiary)
                 HStack(alignment: .firstTextBaseline, spacing: 5) {
-                    Text("Asleep by \(SleepAlarmTime.clock(asleepBy))")
+                    Text("Asleep by \(clockLabel(asleepBy))")
                         .font(StrandFont.caption.weight(.semibold))
                         .monospacedDigit()
                         .foregroundStyle(StrandPalette.textPrimary)
@@ -641,12 +644,20 @@ public struct SleepPlanTimeline: View {
     public let asleepBy: Int
     public let windowStart: Int
     public let alarm: Int
+    public let clockLabel: (Int) -> String
 
-    public init(now: Int, asleepBy: Int, windowStart: Int, alarm: Int) {
+    public init(
+        now: Int,
+        asleepBy: Int,
+        windowStart: Int,
+        alarm: Int,
+        clockLabel: @escaping (Int) -> String = { SleepAlarmTime.clock($0) }
+    ) {
         self.now = now
         self.asleepBy = asleepBy
         self.windowStart = windowStart
         self.alarm = alarm
+        self.clockLabel = clockLabel
     }
 
     private var axisStart: Int { min(now, asleepBy) - 15 }
@@ -686,10 +697,10 @@ public struct SleepPlanTimeline: View {
             }
             .frame(height: 14)
             HStack(spacing: 0) {
-                timelineLabel(String(localized: "now", bundle: .module), SleepAlarmTime.clock(now), at: now)
-                timelineLabel(String(localized: "asleep by", bundle: .module), SleepAlarmTime.clock(asleepBy), at: asleepBy)
-                timelineLabel(String(localized: "window", bundle: .module), SleepAlarmTime.clock(windowStart), at: windowStart)
-                timelineLabel(String(localized: "alarm", bundle: .module), SleepAlarmTime.clock(alarm), at: alarm)
+                timelineLabel(String(localized: "now", bundle: .module), clockLabel(now), at: now)
+                timelineLabel(String(localized: "asleep by", bundle: .module), clockLabel(asleepBy), at: asleepBy)
+                timelineLabel(String(localized: "window", bundle: .module), clockLabel(windowStart), at: windowStart)
+                timelineLabel(String(localized: "alarm", bundle: .module), clockLabel(alarm), at: alarm)
             }
             .frame(maxWidth: .infinity)
         }
@@ -703,7 +714,7 @@ public struct SleepPlanTimeline: View {
                 )
         )
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(String(localized: "Night plan: now \(SleepAlarmTime.clock(now)), asleep by \(SleepAlarmTime.clock(asleepBy)), wake window opens \(SleepAlarmTime.clock(windowStart)), alarm \(SleepAlarmTime.clock(alarm))", bundle: .module))
+        .accessibilityLabel(String(localized: "Night plan: now \(clockLabel(now)), asleep by \(clockLabel(asleepBy)), wake window opens \(clockLabel(windowStart)), alarm \(clockLabel(alarm))", bundle: .module))
     }
 
     private func fraction(_ minutes: Int) -> CGFloat {

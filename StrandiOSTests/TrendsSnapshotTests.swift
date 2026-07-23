@@ -153,6 +153,39 @@ final class TrendsSnapshotTests: XCTestCase {
         ))
     }
 
+    func testLoadedEmptyRevisionDoesNotFallBackToRepositoryRows() {
+        let fallback = [DailyMetric(
+            day: "2026-07-22",
+            totalSleepMin: 420,
+            efficiency: 0.9,
+            deepMin: 90,
+            remMin: 110,
+            lightMin: 200,
+            disturbances: 6,
+            restingHr: 52,
+            avgHrv: 64,
+            recovery: 72,
+            strain: 9,
+            exerciseCount: 1
+        )]
+        XCTAssertEqual(
+            TrendsSnapshotHandoff.canonicalDays(loaded: .empty, fallback: fallback),
+            fallback
+        )
+        let loaded = TrendsLoadedData(
+            revision: 1,
+            anchorDay: "2026-07-22",
+            timeZoneIdentifier: "UTC",
+            canonicalDays: [],
+            sleepPerfByDay: [:],
+            stressByDay: [:],
+            appleDays: []
+        )
+        XCTAssertTrue(
+            TrendsSnapshotHandoff.canonicalDays(loaded: loaded, fallback: fallback).isEmpty
+        )
+    }
+
     func testFourThousandDaySnapshotKeepsRenderInputsBounded() throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC")!
@@ -291,10 +324,13 @@ final class TrendsSnapshotTests: XCTestCase {
         XCTAssertTrue(snapshot.typical.upperBound.isFinite)
     }
 
-    func testMetricFormatterFailsClosedForNonFiniteValues() {
+    func testMetricFormatterFailsClosedForNonFiniteAndExtremeValues() {
         XCTAssertEqual(ProductionTrendMetric.recovery.format(.nan), "—")
         XCTAssertEqual(ProductionTrendMetric.sleepDuration.format(.infinity), "—")
         XCTAssertEqual(ProductionTrendMetric.hrv.formatWithUnit(-.infinity), "—")
+        let rendered = ProductionTrendMetric.recovery.format(.greatestFiniteMagnitude)
+        XCTAssertFalse(rendered.isEmpty)
+        XCTAssertNotEqual(rendered, "—")
     }
 
     private func key(

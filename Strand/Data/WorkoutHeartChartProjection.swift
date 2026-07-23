@@ -166,13 +166,22 @@ struct WorkoutHeartChartAccumulator: Sendable {
         }
 
         var extrema: [HRSample] {
-            var candidates = [last]
+            // A minute boundary can carry a meaningful step even when its first/last values are not
+            // that minute's extrema. Retain the explicit first/last contract alongside min/max while
+            // keeping the bucket constant-size.
+            var candidates = [first, last]
             if let completedMinimum { candidates.append(completedMinimum) }
             if let completedMaximum { candidates.append(completedMaximum) }
-            guard let minimum = candidates.min(by: Self.minimumOrder),
-                  let maximum = candidates.max(by: Self.maximumOrder) else { return [] }
-            if minimum.ts == maximum.ts { return [minimum] }
-            return minimum.ts < maximum.ts ? [minimum, maximum] : [maximum, minimum]
+            candidates.sort { lhs, rhs in
+                lhs.ts == rhs.ts ? lhs.bpm < rhs.bpm : lhs.ts < rhs.ts
+            }
+            var unique: [HRSample] = []
+            unique.reserveCapacity(4)
+            for candidate in candidates {
+                if unique.last?.ts == candidate.ts { unique[unique.count - 1] = candidate }
+                else { unique.append(candidate) }
+            }
+            return unique
         }
 
         var retainedSampleCount: Int {

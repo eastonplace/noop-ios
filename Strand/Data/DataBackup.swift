@@ -38,6 +38,10 @@ enum DataBackup {
         case postSwapValidation
     }
 
+    enum BackupWriteFault: Equatable {
+        case beforeInstall
+    }
+
     enum BackupResult {
         case exported(URL)
         case imported(sidecar: URL)
@@ -70,7 +74,6 @@ enum DataBackup {
         let scoped = dest.startAccessingSecurityScopedResource()
         defer { if scoped { dest.stopAccessingSecurityScopedResource() } }
         do {
-            if FileManager.default.fileExists(atPath: dest.path) { try FileManager.default.removeItem(at: dest) }
             try await Task.detached(priority: .utility) {
                 try writeVerifiedBackupZip(dbURL: dbURL, to: dest, settingsJSON: currentSettingsJSON())
             }.value
@@ -79,9 +82,11 @@ enum DataBackup {
             return .failure(String(localized: "Export failed: \(error.localizedDescription)"))
         }
         #else
-        let staged = FileManager.default.temporaryDirectory.appendingPathComponent(defaultBackupName())
+        let staged = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "NOOP-backup-\(UUID().uuidString).noopbak"
+        )
+        defer { try? FileManager.default.removeItem(at: staged) }
         do {
-            if FileManager.default.fileExists(atPath: staged.path) { try FileManager.default.removeItem(at: staged) }
             try await Task.detached(priority: .utility) {
                 try writeVerifiedBackupZip(dbURL: dbURL, to: staged, settingsJSON: currentSettingsJSON())
             }.value
@@ -104,7 +109,29 @@ enum DataBackup {
         if let complaint = DatabaseIntegrity.quickCheckFailure(atPath: dbURL.path) {
             throw ExportIntegrityFailure(complaint: complaint)
         }
-        try writeBackupZip(dbURL: dbURL, to: dest, settingsJSON: settingsJSON)
+        try writeBackupZipAtomically(dbURL: dbURL, to: dest, settingsJSON: settingsJSON)
+    }
+
+    private static func writeBackupZipAtomically(
+        dbURL: URL,
+        to destination: URL,
+        settingsJSON: Data?,
+        fault: BackupWriteFault? = nil
+    ) throws {
+        let fileManager = FileManager.default
+        let staged = destination.deletingLastPathComponent().appendingPathComponent(
+            ".\(destination.lastPathComponent).\(UUID().uuidString).tmp"
+        )
+        defer { removeIfPresent(staged) }
+        try writeBackupZip(dbURL: dbURL, to: staged, settingsJSON: settingsJSON)
+        #if os(iOS)
+        try? fileManager.setAttributes(
+            [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+            ofItemAtPath: staged.path
+        )
+        #endif
+        if fault == .beforeInstall { throw CocoaError(.fileWriteUnknown) }
+        try atomicInstall(staged, at: destination)
     }
 
     private static func writeBackupZip(dbURL: URL, to dest: URL, settingsJSON: Data?) throws {
@@ -134,7 +161,6 @@ enum DataBackup {
             return .failure(String(localized: "Couldn't safely back up right now. Recent changes are still in the write-ahead log."))
         }
         do {
-            if FileManager.default.fileExists(atPath: dest.path) { try FileManager.default.removeItem(at: dest) }
             try writeVerifiedBackupZip(dbURL: dbURL, to: dest, settingsJSON: currentSettingsJSON())
             return .exported(dest)
         } catch {
@@ -142,11 +168,18 @@ enum DataBackup {
         }
     }
 
-    static func writeBackupForTesting(databaseAt dbURL: URL, to dest: URL,
-                                      settings: [String: Any]? = nil) throws {
-        if FileManager.default.fileExists(atPath: dest.path) { try FileManager.default.removeItem(at: dest) }
-        try writeBackupZip(dbURL: dbURL, to: dest,
-                           settingsJSON: settings.flatMap { BackupSettings.encode($0) })
+    static func writeBackupForTesting(
+        databaseAt dbURL: URL,
+        to dest: URL,
+        settings: [String: Any]? = nil,
+        fault: BackupWriteFault? = nil
+    ) throws {
+        try writeBackupZipAtomically(
+            dbURL: dbURL,
+            to: dest,
+            settingsJSON: settings.flatMap { BackupSettings.encode($0) },
+            fault: fault
+        )
     }
 
     @MainActor
@@ -308,15 +341,43 @@ enum DataBackup {
             let forcedComplaint = fault == .postSwapValidation ? "simulated post-swap failure" : nil
             if let complaint = forcedComplaint ?? DatabaseIntegrity.quickCheckFailure(atPath: dbURL.path) {
                 if sidecar != dbURL, fm.fileExists(atPath: sidecar.path) {
-                    try? rollback(from: sidecar, toDatabaseAt: dbPath)
-                    return .failure(String(localized: "Import failed its post-restore integrity check (SQLite reports: \(complaint)). Your previous data was rolled back automatically."))
+                    do {
+                        try rollback(from: sidecar, toDatabaseAt: dbPath)
+                        return .failure(String(localized: "Import failed its post-restore integrity check (SQLite reports: \(complaint)). Your previous data was rolled back automatically."))
+                    } catch {
+                        return .failure(String(localized: "Import failed its post-restore integrity check (SQLite reports: \(complaint)), and automatic rollback failed. The safety copy remains at \(sidecar.path). \(error.localizedDescription)"))
+                    }
                 }
-                return .failure(String(localized: "Import failed its post-restore integrity check (SQLite reports: \(complaint))."))
+                removeIfPresent(dbURL)
+                removeIfPresent(URL(fileURLWithPath: dbPath + "-wal"))
+                removeIfPresent(URL(fileURLWithPath: dbPath + "-shm"))
+                guard !fm.fileExists(atPath: dbURL.path) else {
+                    return .failure(String(localized: "Import failed its post-restore integrity check (SQLite reports: \(complaint)), and the damaged fresh database could not be removed."))
+                }
+                return .failure(String(localized: "Import failed its post-restore integrity check (SQLite reports: \(complaint)). The damaged file was removed; there was no previous database to roll back."))
             }
 
             if extractedDir == nil {
-                restoreSidecar(from: source, toMainPath: dbPath, suffix: "-wal")
-                restoreSidecar(from: source, toMainPath: dbPath, suffix: "-shm")
+                do {
+                    try restoreSidecar(from: source, toMainPath: dbPath, suffix: "-wal")
+                    try restoreSidecar(from: source, toMainPath: dbPath, suffix: "-shm")
+                } catch {
+                    if sidecar != dbURL, fm.fileExists(atPath: sidecar.path) {
+                        do {
+                            try rollback(from: sidecar, toDatabaseAt: dbPath)
+                            return .failure(String(localized: "The legacy backup sidecars could not be restored, so NOOP rolled back to your previous database. \(error.localizedDescription)"))
+                        } catch {
+                            return .failure(String(localized: "The legacy backup sidecars failed and automatic rollback also failed. The safety copy remains at \(sidecar.path). \(error.localizedDescription)"))
+                        }
+                    }
+                    removeIfPresent(dbURL)
+                    removeIfPresent(URL(fileURLWithPath: dbPath + "-wal"))
+                    removeIfPresent(URL(fileURLWithPath: dbPath + "-shm"))
+                    guard !fm.fileExists(atPath: dbURL.path) else {
+                        return .failure(String(localized: "The legacy backup sidecars failed, and the incomplete fresh database could not be removed. \(error.localizedDescription)"))
+                    }
+                    return .failure(String(localized: "The legacy backup sidecars could not be restored. The incomplete fresh database was removed. \(error.localizedDescription)"))
+                }
             }
             if let extractedDir {
                 let settingsURL = extractedDir.appendingPathComponent(BackupSettings.entryName)
@@ -551,21 +612,23 @@ enum DataBackup {
             entries.append(entry)
         }
 
-        let available = availableCapacity(at: destDir)
+        let available = try availableCapacity(at: destDir)
         guard available >= declaredTotal else {
             throw RestoreFailure.insufficientCapacity(required: declaredTotal, available: available)
         }
 
         var extractedTotal: UInt64 = 0
-        for entry in entries {
-            let out = destDir.appendingPathComponent(entry.path)
-            guard FileManager.default.createFile(atPath: out.path, contents: nil) else {
-                throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: out.path])
-            }
-            let handle = try FileHandle(forWritingTo: out)
-            defer { try? handle.close() }
-            var entryBytes: UInt64 = 0
-            do {
+        var extractedURLs: [URL] = []
+        do {
+            for entry in entries {
+                let out = destDir.appendingPathComponent(entry.path)
+                guard FileManager.default.createFile(atPath: out.path, contents: nil) else {
+                    throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: out.path])
+                }
+                extractedURLs.append(out)
+                let handle = try FileHandle(forWritingTo: out)
+                defer { try? handle.close() }
+                var entryBytes: UInt64 = 0
                 _ = try archive.extract(entry) { chunk in
                     let chunkBytes = UInt64(chunk.count)
                     guard entryBytes <= entry.uncompressedSize - min(chunkBytes, entry.uncompressedSize),
@@ -584,25 +647,25 @@ enum DataBackup {
                 guard entryBytes == entry.uncompressedSize else {
                     throw BackupArchiveError.extractedSizeMismatch(entry.path)
                 }
-            } catch {
-                try? FileManager.default.removeItem(at: out)
-                throw error
             }
+        } catch {
+            for url in extractedURLs { try? FileManager.default.removeItem(at: url) }
+            throw error
         }
     }
 
     private static func preflightRestoreCapacity(source: URL, pickedSource: URL, databaseURL: URL,
                                                  extractedDirectory: URL?, fileManager: FileManager) throws {
-        let sourceBytes = fileSize(source, fileManager: fileManager)
-        let liveBytes = fileSize(databaseURL, fileManager: fileManager)
+        let sourceBytes = try fileSize(source, fileManager: fileManager)
+        let liveBytes = try fileSize(databaseURL, fileManager: fileManager)
         let archiveBytes = extractedDirectory == nil
-            ? 0 : fileSize(pickedSource, fileManager: fileManager)
+            ? 0 : try fileSize(pickedSource, fileManager: fileManager)
         let required = saturatingAdd(
             saturatingMultiply(sourceBytes, by: 2),
             saturatingMultiply(liveBytes, by: 2),
             archiveBytes
         )
-        let available = availableCapacity(at: databaseURL.deletingLastPathComponent())
+        let available = try availableCapacity(at: databaseURL.deletingLastPathComponent())
         guard available >= required else {
             throw RestoreFailure.insufficientCapacity(required: required, available: available)
         }
@@ -620,22 +683,27 @@ enum DataBackup {
         }
     }
 
-    private static func fileSize(_ url: URL, fileManager: FileManager) -> UInt64 {
-        ((try? fileManager.attributesOfItem(atPath: url.path)[.size]) as? NSNumber)?.uint64Value ?? 0
+    private static func fileSize(_ url: URL, fileManager: FileManager) throws -> UInt64 {
+        guard fileManager.fileExists(atPath: url.path) else { return 0 }
+        let attributes = try fileManager.attributesOfItem(atPath: url.path)
+        guard let size = attributes[.size] as? NSNumber else {
+            throw CocoaError(.fileReadUnknown, userInfo: [NSFilePathErrorKey: url.path])
+        }
+        return size.uint64Value
     }
 
-    private static func availableCapacity(at url: URL) -> UInt64 {
-        let values = try? url.resourceValues(forKeys: [
+    private static func availableCapacity(at url: URL) throws -> UInt64 {
+        let values = try url.resourceValues(forKeys: [
             .volumeAvailableCapacityForImportantUsageKey,
             .volumeAvailableCapacityKey,
         ])
-        if let important = values?.volumeAvailableCapacityForImportantUsage, important > 0 {
+        if let important = values.volumeAvailableCapacityForImportantUsage, important > 0 {
             return UInt64(important)
         }
-        if let ordinary = values?.volumeAvailableCapacity, ordinary > 0 {
+        if let ordinary = values.volumeAvailableCapacity, ordinary > 0 {
             return UInt64(ordinary)
         }
-        return .max
+        throw CocoaError(.fileReadUnknown, userInfo: [NSFilePathErrorKey: url.path])
     }
 
     private static func isSQLiteFile(at url: URL) -> Bool {
@@ -651,11 +719,17 @@ enum DataBackup {
         }
     }
 
-    private static func restoreSidecar(from source: URL, toMainPath dbPath: String, suffix: String) {
+    private static func restoreSidecar(
+        from source: URL,
+        toMainPath dbPath: String,
+        suffix: String
+    ) throws {
         let src = URL(fileURLWithPath: source.path + suffix)
         guard FileManager.default.fileExists(atPath: src.path) else { return }
         let dst = URL(fileURLWithPath: dbPath + suffix)
-        if FileManager.default.fileExists(atPath: dst.path) { try? FileManager.default.removeItem(at: dst) }
-        try? FileManager.default.copyItem(at: src, to: dst)
+        if FileManager.default.fileExists(atPath: dst.path) {
+            try FileManager.default.removeItem(at: dst)
+        }
+        try FileManager.default.copyItem(at: src, to: dst)
     }
 }

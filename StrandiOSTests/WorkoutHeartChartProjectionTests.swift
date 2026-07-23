@@ -139,6 +139,23 @@ final class WorkoutHeartChartProjectionTests: XCTestCase {
         XCTAssertEqual(accumulator.retainedSampleCount, 2)
     }
 
+    func testIntermediateMinuteKeepsFirstAndLastWhenTheyAreNotExtrema() {
+        var accumulator = WorkoutHeartChartAccumulator(windowSeconds: 600, maximumPoints: 30)
+        XCTAssertTrue(accumulator.ingest(HRSample(ts: 960, bpm: 100)))
+        XCTAssertTrue(accumulator.ingest(HRSample(ts: 1_020, bpm: 121)))
+        XCTAssertTrue(accumulator.ingest(HRSample(ts: 1_021, bpm: 90)))
+        XCTAssertTrue(accumulator.ingest(HRSample(ts: 1_022, bpm: 150)))
+        XCTAssertTrue(accumulator.ingest(HRSample(ts: 1_023, bpm: 111)))
+        XCTAssertTrue(accumulator.ingest(HRSample(ts: 1_080, bpm: 130)))
+
+        let values = accumulator.projection.values
+        XCTAssertTrue(values.contains(121), "minute-opening step was dropped")
+        XCTAssertTrue(values.contains(111), "minute-closing value was dropped")
+        XCTAssertTrue(values.contains(90))
+        XCTAssertTrue(values.contains(150))
+        XCTAssertLessThanOrEqual(accumulator.retainedSampleCount, accumulator.retainedMinuteCount * 4)
+    }
+
     func testBoundaryMinuteDropsExpiredExtremaInsteadOfRenderingOutsideWindow() {
         var accumulator = WorkoutHeartChartAccumulator(windowSeconds: 60, maximumPoints: 20)
         XCTAssertTrue(accumulator.ingest(HRSample(ts: 1_000, bpm: 230)))

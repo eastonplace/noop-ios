@@ -87,6 +87,9 @@ struct SmartAlarmView: View {
             let windowStart = wake - windowMinutes
             let asleepBy = SleepAlarmTime.asleepByMinutes(wakeMinutes: wake, windowMinutes: windowMinutes,
                                                            needMinutes: needMinutes)
+            let clockLabel: (Int) -> String = { minute in
+                schedule?.clockLabel(for: minute) ?? SleepAlarmTime.clock(minute)
+            }
 
             VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
                 SleepAlarmModuleCard(
@@ -98,7 +101,8 @@ struct SmartAlarmView: View {
                     needMinutes: needMinutes,
                     wakeDayLabel: schedule?.dayLabel ?? String(localized: "No enabled day"),
                     deliveryStatus: alarmRuntime.deliveryStatus,
-                    showsBedtimePlan: schedule?.isUpcomingSleepPeriod == true
+                    showsBedtimePlan: schedule?.isUpcomingSleepPeriod == true,
+                    clockLabel: clockLabel
                 )
                 if needIsStartingEstimate {
                     Text("Starting estimate — NOOP hasn't computed your personal Sleep Need yet.")
@@ -110,7 +114,13 @@ struct SmartAlarmView: View {
                     evaluationEvidenceRow(evidence)
                 }
                 if behavior.smartAlarmEnabled, schedule?.isUpcomingSleepPeriod == true {
-                    SleepPlanTimeline(now: now, asleepBy: asleepBy, windowStart: windowStart, alarm: wake)
+                    SleepPlanTimeline(
+                        now: now,
+                        asleepBy: asleepBy,
+                        windowStart: windowStart,
+                        alarm: wake,
+                        clockLabel: clockLabel
+                    )
                 }
             }
         }

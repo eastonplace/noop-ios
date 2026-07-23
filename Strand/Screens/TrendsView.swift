@@ -23,7 +23,10 @@ struct TrendsView: View {
     /// During the first frame, use Repository's already-published canonical projection. After the auxiliary
     /// reads finish, every Trends section consumes the same captured revision from `loadedData`.
     private var canonicalDays: [DailyMetric] {
-        loadedData.canonicalDays.isEmpty ? repo.canonicalDays : loadedData.canonicalDays
+        TrendsSnapshotHandoff.canonicalDays(
+            loaded: loadedData,
+            fallback: repo.canonicalDays
+        )
     }
 
     var trendReferenceDate: Date {

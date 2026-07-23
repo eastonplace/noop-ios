@@ -29,11 +29,17 @@ def forbid(rel: str, *needles: str) -> None:
 
 try:
     require(
-        "Strand/Screens/TrendsView.swift",
+        "Strand/Screens/TrendsView+SelectedRange.swift",
         "selectedRange.summarySubtitle",
+        "TrendDeltaTone",
+    )
+    require(
+        "Strand/Screens/TrendsView+WeeklyReview.swift",
         "paperMoverRows",
         'Text("Weekly readout")',
-        "TrendDeltaTone",
+    )
+    require(
+        "Strand/Screens/TrendsSnapshotModels.swift",
         "WeeklyDigestSource.digest",
     )
     forbid(
@@ -74,6 +80,9 @@ try:
         "let nowAxisMinutes",
         "let civilDayOffset",
         "voiceOverWakeTimeValue",
+        "func clockLabel(",
+        "date(forAxisMinute axisMinute: Int)",
+        "formatter.setLocalizedDateFormatFromTemplate(\"EEEE MMM d\")",
         "Calendar.current.isDate(proposedDate, inSameDayAs: presentation.endpoint)",
     )
     forbid(
@@ -85,7 +94,9 @@ try:
     require(
         "StrandiOSTests/AlarmPresentationTests.swift",
         "testSpringForwardPresentationUsesEndpointClockAndRealElapsedTime",
+        "testSpringForwardPlanClocksMapBackToRealDates",
         "testFallBackPresentationUsesEndpointClockAndRealElapsedTime",
+        "testFallBackPlanClocksMapBackToRealDates",
         "testSameDayAlarmKeepsTodayIdentity",
         "testTomorrowAlarmKeepsTomorrowIdentity",
         "testWeekdaySeveralDaysAwayUsesCalendarDayIdentity",
@@ -110,11 +121,13 @@ try:
         "SmartAlarmBackgroundCompletionGate",
         "completion.complete(.missingRequest)",
         "completion.complete(.malformedRequest)",
+        "clearStoredRequest()",
         "completion.complete(.missingRuntime)",
         "completion.complete(.cancelled)",
         "completion.complete(.evaluationError)",
         "completion.complete(.expired)",
         "refreshTask.setTaskCompleted(success: success)",
+        "SmartAlarmRuntimeBackgroundScheduler.requestKey",
         "SmartAlarmRuntimeBackgroundScheduler.clearRequest(ifMatching: request)",
     )
     require(
@@ -129,6 +142,8 @@ try:
     require(
         "StrandiOSTests/SmartAlarmBackgroundTaskRegistrarTests.swift",
         "testRequestLoaderDistinguishesMissingMalformedAndValidPayloads",
+        "SmartAlarmBackgroundTaskRegistrar.clearStoredRequest(defaults: defaults)",
+        "testBackgroundRequestPersistenceRoundTripsBeforeSubmission",
     )
     require(
         "StrandiOS/App/StrandiOSApp.swift",
@@ -150,13 +165,16 @@ try:
         "configurationID",
         "nextDailyRearm",
         "scheduleFollowingBackgroundRequest",
-        "clearRequest(ifMatching: request)",
+        "clearRequest(ifMatching: payload)",
+        "persistRequest(payload)",
         "removePendingNotificationRequests",
     )
     forbid(
         "StrandiOS/App/SmartAlarmRuntimeController.swift",
         "Task.detached(priority: .utility)",
         "BGTaskScheduler.shared.register(forTaskWithIdentifier: bgTaskIdentifier",
+        "SmartAlarmRuntimeBackgroundScheduler.install(self)",
+        "static func install(_ runtime: SmartAlarmRuntimeController)",
     )
     forbid(
         "Strand/App/AppModel.swift",

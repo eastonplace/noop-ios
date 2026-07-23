@@ -169,7 +169,6 @@ final class SmartAlarmRuntimeController: ObservableObject {
     func start() {
         guard !started else { return }
         started = true
-        SmartAlarmRuntimeBackgroundScheduler.install(self)
 
         behavior.objectWillChange
             .sink { [weak self] _ in
@@ -978,10 +977,6 @@ enum SmartAlarmRuntimeBackgroundScheduler {
     static let requestKey = "smartAlarm.runtime.backgroundRequest"
     private static let configurationKey = "smartAlarm.runtime.configuration"
 
-    static func install(_ runtime: SmartAlarmRuntimeController) {
-        _ = SmartAlarmBackgroundTaskRegistrar.install(runtime)
-    }
-
     static func schedule(
         windowStart: Date,
         endpoint: Date,
@@ -993,8 +988,9 @@ enum SmartAlarmRuntimeBackgroundScheduler {
             endpoint: endpoint,
             snapshot: snapshot
         )
-        if let encoded = try? JSONEncoder().encode(payload) {
-            UserDefaults.standard.set(encoded, forKey: requestKey)
+        guard persistRequest(payload) else {
+            cancel()
+            return
         }
         BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: bgTaskIdentifier)
         let request = BGAppRefreshTaskRequest(identifier: bgTaskIdentifier)
@@ -1033,6 +1029,20 @@ enum SmartAlarmRuntimeBackgroundScheduler {
         let persisted = SmartAlarmPersistedConfiguration(id: id, snapshot: snapshot)
         guard let data = try? JSONEncoder().encode(persisted) else { return }
         defaults.set(data, forKey: configurationKey)
+    }
+
+    @discardableResult
+    static func persistRequest(
+        _ request: SmartAlarmBackgroundRequest,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        guard let encoded = try? JSONEncoder().encode(request) else { return false }
+        defaults.set(encoded, forKey: requestKey)
+        guard defaults.synchronize(), defaults.data(forKey: requestKey) == encoded else {
+            defaults.removeObject(forKey: requestKey)
+            return false
+        }
+        return true
     }
 
     static func loadRequest(defaults: UserDefaults = .standard) -> SmartAlarmBackgroundRequest? {

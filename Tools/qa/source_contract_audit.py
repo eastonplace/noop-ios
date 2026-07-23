@@ -109,24 +109,27 @@ def main() -> int:
         errors.append("StrandiOS/Resources/Info.plist still contains iPad-only orientation configuration.")
 
     project = ROOT / "project.yml"
-    retained_packages = (
+    app_packages = (
         "WhoopProtocol",
         "OuraProtocol",
         "WhoopStore",
         "StrandAnalytics",
         "StrandImport",
         "StrandDesign",
-        "NoopLocalAccess",
     )
+    retained_packages = app_packages + ("NoopLocalAccess",)
     if not project.exists():
         errors.append("project.yml is missing.")
     else:
         project_text = project.read_text(encoding="utf-8")
         if project_text.count('TARGETED_DEVICE_FAMILY: "1"') < 2:
             errors.append("project.yml must target iPhone for both the app and widget extension.")
-        for package in retained_packages:
+        for package in app_packages:
             if f"{package}:\n    path: Packages/{package}" not in project_text:
-                errors.append(f"project.yml is missing retained local package {package}.")
+                errors.append(f"project.yml is missing app-linked local package {package}.")
+        for package in retained_packages:
+            if not (ROOT / "Packages" / package / "Package.swift").exists():
+                errors.append(f"repository is missing retained package Packages/{package}.")
         for forbidden in ("PolarProtocol", "platform: macOS", "platform: watchOS", "platform: tvOS"):
             if forbidden in project_text:
                 errors.append(f"project.yml restored forbidden retired-platform marker {forbidden!r}.")

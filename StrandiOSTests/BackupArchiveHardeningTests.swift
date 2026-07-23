@@ -1,4 +1,5 @@
 import XCTest
+import SQLite3
 import ZIPFoundation
 @testable import NOOP
 
@@ -16,6 +17,42 @@ final class BackupArchiveHardeningTests: XCTestCase {
         if let temporaryDirectory {
             try? FileManager.default.removeItem(at: temporaryDirectory)
         }
+    }
+
+    func testFailedAtomicBackupWritePreservesExistingArchive() throws {
+        let source = temporaryDirectory.appendingPathComponent("source.sqlite")
+        try Data("new database".utf8).write(to: source)
+        let destination = temporaryDirectory.appendingPathComponent("existing.noopbak")
+        let original = Data("last known good backup".utf8)
+        try original.write(to: destination)
+
+        XCTAssertThrowsError(try DataBackup.writeBackupForTesting(
+            databaseAt: source,
+            to: destination,
+            fault: .beforeInstall
+        ))
+        XCTAssertEqual(try Data(contentsOf: destination), original)
+        XCTAssertFalse(
+            try FileManager.default.contentsOfDirectory(atPath: temporaryDirectory.path)
+                .contains { $0.hasSuffix(".tmp") }
+        )
+    }
+
+    func testFreshInstallPostSwapFailureRemovesDamagedDatabase() throws {
+        let source = try makeValidDatabase()
+        let destination = temporaryDirectory.appendingPathComponent("fresh-live.sqlite")
+
+        let result = DataBackup.restore(
+            from: source,
+            toDatabaseAt: destination.path,
+            fault: .postSwapValidation
+        )
+
+        guard case .failure(let message) = result else {
+            return XCTFail("Forced post-swap validation must fail")
+        }
+        XCTAssertTrue(message.localizedCaseInsensitiveContains("damaged file was removed"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
     }
 
     func testCanonicalEntriesExtractWithoutPathFlattening() throws {
@@ -123,6 +160,24 @@ final class BackupArchiveHardeningTests: XCTestCase {
         let output = try makeOutputDirectory()
         XCTAssertThrowsError(try DataBackup.extractBackupZip(at: archive, into: output))
         XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: output.path).isEmpty)
+    }
+
+    private func makeValidDatabase() throws -> URL {
+        let url = temporaryDirectory.appendingPathComponent("valid-\(UUID().uuidString).sqlite")
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(url.path, &db), SQLITE_OK)
+        defer { sqlite3_close(db) }
+        XCTAssertEqual(
+            sqlite3_exec(
+                db,
+                "CREATE TABLE grdb_migrations(identifier TEXT PRIMARY KEY);",
+                nil,
+                nil,
+                nil
+            ),
+            SQLITE_OK
+        )
+        return url
     }
 
     private func makeArchive(entries: [(String, Data, CompressionMethod)]) throws -> URL {

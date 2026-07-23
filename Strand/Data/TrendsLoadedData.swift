@@ -43,8 +43,8 @@ struct TrendsLoadedData: Equatable, Sendable {
             self.canonicalDays.map { ($0.day, $0) },
             uniquingKeysWith: { _, latest in latest }
         )
-        self.sleepPerfByDay = sleepPerfByDay
-        self.stressByDay = stressByDay
+        self.sleepPerfByDay = sleepPerfByDay.filter { $0.value.isFinite }
+        self.stressByDay = stressByDay.filter { $0.value.isFinite }
         self.appleDays = appleDays
         appleByDay = Dictionary(
             appleDays.map { ($0.day, $0) },

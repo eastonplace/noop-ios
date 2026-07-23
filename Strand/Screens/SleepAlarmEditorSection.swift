@@ -25,7 +25,12 @@ enum SleepAlarmEditorSupport {
             max(0, Int((remainingSeconds / 60).rounded(.up)))
         }
 
-        func wakeClock(
+        func date(forAxisMinute axisMinute: Int) -> Date {
+            endpoint.addingTimeInterval(TimeInterval(axisMinute - wakeAxisMinutes) * 60)
+        }
+
+        func clockLabel(
+            for axisMinute: Int,
             locale: Locale = .autoupdatingCurrent,
             calendar inputCalendar: Calendar = .autoupdatingCurrent
         ) -> String {
@@ -36,7 +41,15 @@ enum SleepAlarmEditorSupport {
             formatter.timeZone = calendar.timeZone
             formatter.dateStyle = .none
             formatter.timeStyle = .short
-            return formatter.string(from: endpoint).replacingOccurrences(of: "\u{202F}", with: " ")
+            return formatter.string(from: date(forAxisMinute: axisMinute))
+                .replacingOccurrences(of: "\u{202F}", with: " ")
+        }
+
+        func wakeClock(
+            locale: Locale = .autoupdatingCurrent,
+            calendar: Calendar = .autoupdatingCurrent
+        ) -> String {
+            clockLabel(for: wakeAxisMinutes, locale: locale, calendar: calendar)
         }
 
         func voiceOverWakeTimeValue(
@@ -64,7 +77,8 @@ enum SleepAlarmEditorSupport {
         at now: Date,
         minutes: Int,
         weekdays: Set<Int>,
-        calendar inputCalendar: Calendar
+        calendar inputCalendar: Calendar,
+        locale: Locale = .autoupdatingCurrent
     ) -> SchedulePresentation? {
         let calendar = inputCalendar
         guard let endpoint = SmartAlarmSchedule.nextDate(
@@ -91,7 +105,12 @@ enum SleepAlarmEditorSupport {
         } else if civilDayOffset == 1 {
             label = String(localized: "Tomorrow")
         } else {
-            label = endpoint.formatted(.dateTime.weekday(.wide).month(.abbreviated).day())
+            let formatter = DateFormatter()
+            formatter.locale = locale
+            formatter.calendar = calendar
+            formatter.timeZone = calendar.timeZone
+            formatter.setLocalizedDateFormatFromTemplate("EEEE MMM d")
+            label = formatter.string(from: endpoint)
         }
         return SchedulePresentation(
             endpoint: endpoint,
@@ -259,6 +278,9 @@ struct SleepAlarmEditorSection: View {
             windowMinutes: windowMinutes,
             needMinutes: plan.minutes
         )
+        let clockLabel: (Int) -> String = { minute in
+            schedule?.clockLabel(for: minute) ?? SleepAlarmTime.clock(minute)
+        }
 
         VStack(alignment: .leading, spacing: NoopMetrics.space2) {
             SleepAlarmModuleCard(
@@ -270,7 +292,8 @@ struct SleepAlarmEditorSection: View {
                 needMinutes: plan.minutes,
                 wakeDayLabel: schedule?.dayLabel ?? String(localized: "No enabled day"),
                 deliveryStatus: alarmRuntime.deliveryStatus,
-                showsBedtimePlan: schedule?.isUpcomingSleepPeriod == true
+                showsBedtimePlan: schedule?.isUpcomingSleepPeriod == true,
+                clockLabel: clockLabel
             )
 
             if plan.isStartingEstimate {
@@ -285,7 +308,8 @@ struct SleepAlarmEditorSection: View {
                     now: now,
                     asleepBy: asleepBy,
                     windowStart: wake - windowMinutes,
-                    alarm: wake
+                    alarm: wake,
+                    clockLabel: clockLabel
                 )
             }
         }

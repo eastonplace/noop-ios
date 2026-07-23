@@ -59,6 +59,11 @@ try:
         "range: 100...180",
     )
     require(
+        "Strand/App/AppModel.swift",
+        "let avg = samples.isEmpty ? nil : w.avgHr",
+        "let peak = samples.isEmpty ? nil : w.peakHr",
+    )
+    require(
         "StrandiOS/App/StrandiOSApp.swift",
         "WorkoutLifecycleProjection",
         ".map(WorkoutLifecycleProjection.identity)",
@@ -78,6 +83,7 @@ try:
         "testCanonicalWorkoutIngestionProducesEquivalentScoresAtOneAndThreeHertz",
         "testIncrementalChartProjectionStaysBoundedAcrossLongWorkout",
         "testMinuteBucketReplacementUpdatesCurrentExtremaWithoutRetainingEverySecond",
+        "testIntermediateMinuteKeepsFirstAndLastWhenTheyAreNotExtrema",
         "testBoundaryMinuteDropsExpiredExtremaInsteadOfRenderingOutsideWindow",
     )
     forbid(

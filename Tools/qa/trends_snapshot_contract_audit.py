@@ -32,6 +32,8 @@ try:
         "Strand/Data/TrendsLoadedData.swift",
         "struct TrendsLoadedData",
         "let revision: Int",
+        "sleepPerfByDay.filter { $0.value.isFinite }",
+        "stressByDay.filter { $0.value.isFinite }",
         "let anchorDay: String",
         "let timeZoneIdentifier: String",
         "let canonicalDays: [DailyMetric]",
@@ -52,7 +54,6 @@ try:
         "Strand/Screens/TrendsSnapshotModels.swift",
         "struct TrendsScreenSnapshotKey",
         "struct TrendsScreenSnapshot",
-        "TrendsScreenSnapshot.build(",
         "data.canonicalByDay[",
         "TrendPointExtremaSampler.sample",
         "enum TrendsSnapshotHandoff",
@@ -66,6 +67,8 @@ try:
         "filter(Self.hasFiniteDigestInputs)",
         "data.sleepPerfByDay.filter { $0.value.isFinite }",
         "effortDisplayFactor.isFinite ? effortDisplayFactor : 1",
+        "loaded.revision < 0 ? fallback : loaded.canonicalDays",
+        "value.formatted(.number.precision(.fractionLength(0)))",
     )
     require(
         "Strand/Screens/TrendsView.swift",
@@ -80,6 +83,7 @@ try:
         "var currentScreenSnapshot: TrendsScreenSnapshot?",
         "TrendsSnapshotHandoff.current(screenSnapshot, for: screenSnapshotKey)",
         "guard !Task.isCancelled, key == screenSnapshotKey, let next else { return }",
+        "TrendsScreenSnapshot.build(",
     )
     require(
         "Strand/Screens/TrendsView+SelectedRange.swift",
@@ -129,7 +133,13 @@ try:
         "testFourThousandDaySnapshotKeepsRenderInputsBounded",
         "testTrendSummaryDropsNonFiniteValuesAndSortsLatestChronologically",
         "testSnapshotDropsNonFiniteMetricValuesBeforeBuildingRanges",
-        "testMetricFormatterFailsClosedForNonFiniteValues",
+        "testMetricFormatterFailsClosedForNonFiniteAndExtremeValues",
+        "testLoadedEmptyRevisionDoesNotFallBackToRepositoryRows",
+    )
+    require(
+        "StrandiOSTests/UIUnificationTests.swift",
+        "testTrendSummaryDropsNonFiniteValuesBeforeMeanAndReliability",
+        "testWeeklyDigestDropsNonFiniteInputs",
     )
 except AssertionError as error:
     print(f"Trends snapshot contract audit: FAIL\n{error}", file=sys.stderr)
