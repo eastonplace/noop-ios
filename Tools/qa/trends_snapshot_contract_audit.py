@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Source contracts for Trends freshness and bounded projection work."""
+"""Source contracts for Trends freshness, bounded projection work, and atomic UI handoff."""
 from pathlib import Path
 import sys
 
@@ -49,6 +49,17 @@ try:
         "result.append(last)",
     )
     require(
+        "Strand/Screens/TrendsSnapshotModels.swift",
+        "struct TrendsScreenSnapshotKey",
+        "struct TrendsScreenSnapshot",
+        "TrendsScreenSnapshot.build(",
+        "data.canonicalByDay[",
+        "TrendPointExtremaSampler.sample",
+        "enum TrendsSnapshotHandoff",
+        "snapshotKey == currentKey",
+        "guard accepts(snapshotKey: snapshot?.key, currentKey: key)",
+    )
+    require(
         "Strand/Screens/TrendsView.swift",
         "@State private var loadedData = TrendsLoadedData.empty",
         ".task(id: repo.refreshSeq)",
@@ -58,9 +69,21 @@ try:
         "let (sleep, stress, apple) = await",
         "revision == repo.refreshSeq",
         "let next = TrendsLoadedData(",
-        "TrendsScreenSnapshot.build(",
-        "data.canonicalByDay[",
-        "TrendPointExtremaSampler.sample",
+        "var currentScreenSnapshot: TrendsScreenSnapshot?",
+        "TrendsSnapshotHandoff.current(screenSnapshot, for: screenSnapshotKey)",
+        "guard !Task.isCancelled, key == screenSnapshotKey, let next else { return }",
+    )
+    require(
+        "Strand/Screens/TrendsView+SelectedRange.swift",
+        "if let screenSnapshot = currentScreenSnapshot",
+        "paperScoresOverTime(screenSnapshot)",
+    )
+    require(
+        "Strand/Screens/TrendsView+WeeklyReview.swift",
+        "if let screenSnapshot = currentScreenSnapshot",
+        "paperWeekReview(screenSnapshot)",
+        "currentScreenSnapshot?.minimumWeekOffset",
+        "Sleep score variability ±",
     )
     forbid(
         "Strand/Screens/TrendsView.swift",
@@ -74,11 +97,27 @@ try:
         "selectedMetricObservations",
         "Sleep consistency ±",
     )
+    forbid(
+        "Strand/Screens/TrendsView+SelectedRange.swift",
+        "if let screenSnapshot {",
+    )
+    forbid(
+        "Strand/Screens/TrendsView+WeeklyReview.swift",
+        "if let screenSnapshot {",
+        "screenSnapshot?.minimumWeekOffset",
+        "Sleep consistency ±",
+    )
     require(
         "StrandiOSTests/TrendsSnapshotTests.swift",
         "testExtremaSamplerKeepsEndpointsSpikeAndTrough",
         "testExtremaSamplerSortsAndDropsNonFiniteValues",
         "testLoadedDataKeepsOneCanonicalRevisionAndAuxiliaryMaps",
+        "testSnapshotHandoffRejectsRapidMetricChanges",
+        "testSnapshotHandoffRejectsRapidRangeChanges",
+        "testSnapshotHandoffRejectsRapidWeeklyReviewNavigation",
+        "testSnapshotHandoffRejectsRepositoryRevisionWhileBuildIsSuspended",
+        "testOldCompletionCannotReplaceNewerSnapshotKey",
+        "testSnapshotHandoffRejectsNilDuringFirstOrReplacementBuild",
         "testFourThousandDaySnapshotKeepsRenderInputsBounded",
     )
 except AssertionError as error:

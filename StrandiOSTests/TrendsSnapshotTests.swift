@@ -93,6 +93,66 @@ final class TrendsSnapshotTests: XCTestCase {
         XCTAssertTrue(loaded.appleByDay.isEmpty)
     }
 
+    func testSnapshotHandoffRejectsRapidMetricChanges() {
+        let old = key(metric: "Recovery")
+        let current = key(metric: "HRV")
+
+        XCTAssertFalse(TrendsSnapshotHandoff.accepts(snapshotKey: old, currentKey: current))
+        XCTAssertTrue(TrendsSnapshotHandoff.accepts(snapshotKey: current, currentKey: current))
+    }
+
+    func testSnapshotHandoffRejectsRapidRangeChanges() {
+        let ranges = ["W", "M", "3M", "6M"]
+        for oldRange in ranges {
+            for currentRange in ranges where currentRange != oldRange {
+                XCTAssertFalse(TrendsSnapshotHandoff.accepts(
+                    snapshotKey: key(range: oldRange),
+                    currentKey: key(range: currentRange)
+                ))
+            }
+        }
+    }
+
+    func testSnapshotHandoffRejectsRapidWeeklyReviewNavigation() {
+        XCTAssertFalse(TrendsSnapshotHandoff.accepts(
+            snapshotKey: key(weekOffset: -3),
+            currentKey: key(weekOffset: -1)
+        ))
+        XCTAssertTrue(TrendsSnapshotHandoff.accepts(
+            snapshotKey: key(weekOffset: -1),
+            currentKey: key(weekOffset: -1)
+        ))
+    }
+
+    func testSnapshotHandoffRejectsRepositoryRevisionWhileBuildIsSuspended() {
+        XCTAssertFalse(TrendsSnapshotHandoff.accepts(
+            snapshotKey: key(revision: 41),
+            currentKey: key(revision: 42)
+        ))
+    }
+
+    func testOldCompletionCannotReplaceNewerSnapshotKey() {
+        let oldCompletion = key(revision: 7, metric: "Recovery", range: "M", weekOffset: 0)
+        let newerSelection = key(revision: 8, metric: "HRV", range: "6M", weekOffset: -2)
+        var renderedKey: TrendsScreenSnapshotKey?
+
+        if TrendsSnapshotHandoff.accepts(snapshotKey: newerSelection, currentKey: newerSelection) {
+            renderedKey = newerSelection
+        }
+        if TrendsSnapshotHandoff.accepts(snapshotKey: oldCompletion, currentKey: newerSelection) {
+            renderedKey = oldCompletion
+        }
+
+        XCTAssertEqual(renderedKey, newerSelection)
+    }
+
+    func testSnapshotHandoffRejectsNilDuringFirstOrReplacementBuild() {
+        XCTAssertFalse(TrendsSnapshotHandoff.accepts(
+            snapshotKey: nil,
+            currentKey: key()
+        ))
+    }
+
     func testFourThousandDaySnapshotKeepsRenderInputsBounded() throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC")!
@@ -157,5 +217,21 @@ final class TrendsSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.previousSeries.recovery.count, 180)
         XCTAssertEqual(snapshot.heatDays.count, 35)
         XCTAssertEqual(snapshot.minimumWeekOffset, -520)
+    }
+
+    private func key(
+        revision: Int = 7,
+        metric: String = "Recovery",
+        range: String = "M",
+        weekOffset: Int = 0
+    ) -> TrendsScreenSnapshotKey {
+        TrendsScreenSnapshotKey(
+            revision: revision,
+            anchorDay: "2026-07-22",
+            timeZoneIdentifier: "America/New_York",
+            metric: metric,
+            range: range,
+            weekOffset: weekOffset
+        )
     }
 }
