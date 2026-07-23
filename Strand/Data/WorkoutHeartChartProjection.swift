@@ -123,30 +123,81 @@ struct WorkoutHeartChartProjection: Equatable, Sendable {
 }
 
 /// Incremental live-chart state. It retains at most the trailing three hours of canonical one-second
-/// samples, grouped into minute buckets, and publishes at most 360 extrema-preserving points. Updating the
-/// live chart therefore has a fixed memory/work budget instead of rescanning an ever-growing workout.
+/// samples as constant-size minute summaries, and publishes at most 360 extrema-preserving points. Updating
+/// the live chart therefore has a fixed memory/work budget proportional to retained minutes, not callbacks.
 struct WorkoutHeartChartAccumulator: Sendable {
     private struct MinuteBucket: Sendable {
         let minute: Int
-        var samples: [HRSample]
+        private(set) var first: HRSample
+        private(set) var last: HRSample
+        private var completedMinimum: HRSample?
+        private var completedMaximum: HRSample?
+
+        init(minute: Int, sample: HRSample) {
+            self.minute = minute
+            first = sample
+            last = sample
+            completedMinimum = nil
+            completedMaximum = nil
+        }
 
         mutating func ingest(_ sample: HRSample) -> Bool {
-            if let last = samples.last {
-                guard sample.ts >= last.ts else { return false }
-                if sample.ts == last.ts {
-                    samples[samples.count - 1] = sample
-                    return true
-                }
+            guard sample.ts >= last.ts else { return false }
+            if sample.ts == last.ts {
+                last = sample
+                if first.ts == sample.ts { first = sample }
+                return true
             }
-            samples.append(sample)
+
+            includeCompleted(last)
+            last = sample
+            return true
+        }
+
+        /// The moving window can enter the first retained minute. Since the bucket intentionally does not
+        /// retain every second, discard its older aggregate state and keep only the newest in-window sample.
+        /// This fails closed (never renders data older than the requested window) at a maximum cost of one
+        /// boundary minute of chart detail.
+        mutating func trim(before lowerBound: Int) -> Bool {
+            guard last.ts >= lowerBound else { return false }
+            guard first.ts < lowerBound else { return true }
+            self = MinuteBucket(minute: minute, sample: last)
             return true
         }
 
         var extrema: [HRSample] {
-            guard let minimum = samples.min(by: { $0.bpm < $1.bpm }),
-                  let maximum = samples.max(by: { $0.bpm < $1.bpm }) else { return [] }
+            var candidates = [last]
+            if let completedMinimum { candidates.append(completedMinimum) }
+            if let completedMaximum { candidates.append(completedMaximum) }
+            guard let minimum = candidates.min(by: Self.minimumOrder),
+                  let maximum = candidates.max(by: Self.maximumOrder) else { return [] }
             if minimum.ts == maximum.ts { return [minimum] }
             return minimum.ts < maximum.ts ? [minimum, maximum] : [maximum, minimum]
+        }
+
+        var retainedSampleCount: Int {
+            Set([first.ts, last.ts, completedMinimum?.ts, completedMaximum?.ts].compactMap { $0 }).count
+        }
+
+        private mutating func includeCompleted(_ sample: HRSample) {
+            if let current = completedMinimum {
+                if Self.minimumOrder(sample, current) { completedMinimum = sample }
+            } else {
+                completedMinimum = sample
+            }
+            if let current = completedMaximum {
+                if Self.maximumOrder(current, sample) { completedMaximum = sample }
+            } else {
+                completedMaximum = sample
+            }
+        }
+
+        private static func minimumOrder(_ lhs: HRSample, _ rhs: HRSample) -> Bool {
+            lhs.bpm == rhs.bpm ? lhs.ts < rhs.ts : lhs.bpm < rhs.bpm
+        }
+
+        private static func maximumOrder(_ lhs: HRSample, _ rhs: HRSample) -> Bool {
+            lhs.bpm == rhs.bpm ? lhs.ts > rhs.ts : lhs.bpm < rhs.bpm
         }
     }
 
@@ -172,25 +223,25 @@ struct WorkoutHeartChartAccumulator: Sendable {
             guard buckets[buckets.count - 1].ingest(sample) else { return false }
         } else {
             guard buckets.last.map({ minute > $0.minute }) ?? true else { return false }
-            buckets.append(MinuteBucket(minute: minute, samples: [sample]))
+            buckets.append(MinuteBucket(minute: minute, sample: sample))
         }
 
         let lowerBound = sample.ts - windowSeconds
-        while let first = buckets.first, (first.samples.last?.ts ?? .min) < lowerBound {
+        while let first = buckets.first, first.last.ts < lowerBound {
             buckets.removeFirst()
         }
-        if let firstIndex = buckets.indices.first {
-            buckets[firstIndex].samples.removeAll { $0.ts < lowerBound }
-            if buckets[firstIndex].samples.isEmpty { buckets.removeFirst() }
+        if !buckets.isEmpty, !buckets[0].trim(before: lowerBound) {
+            buckets.removeFirst()
         }
         return true
     }
 
-    var retainedSampleCount: Int { buckets.reduce(0) { $0 + $1.samples.count } }
+    var retainedSampleCount: Int { buckets.reduce(0) { $0 + $1.retainedSampleCount } }
+    var retainedMinuteCount: Int { buckets.count }
 
     var projection: WorkoutHeartChartProjection {
-        guard let first = buckets.first?.samples.first,
-              let last = buckets.last?.samples.last else {
+        guard let first = buckets.first?.first,
+              let last = buckets.last?.last else {
             return WorkoutHeartChartProjection(
                 values: [], range: WorkoutHeartChartProjection.displayRange([]),
                 firstSampleAt: nil, lastSampleAt: nil
