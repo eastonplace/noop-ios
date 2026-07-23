@@ -16,7 +16,7 @@ enum TrendSummaryDeltaTone: Equatable {
 }
 
 /// Pure presentation derived from the exact `TrendPoint` array handed to the chart.
-/// Latest, period delta, reliability, and compact spark all share one source.
+/// Latest, period delta, reliability, and compact spark all share one finite, chronological source.
 struct TrendSummaryPresentation {
     let source: [TrendPoint]
     let latest: Double?
@@ -34,17 +34,19 @@ struct TrendSummaryPresentation {
         goodDirection: TrendSummaryGoodDirection,
         expectedCount: Int
     ) {
-        source = series
-        latest = series.last?.value
-        let currentMean = Self.mean(series)
-        let previousMean = Self.mean(previousSeries)
+        let finiteSeries = Self.finiteChronological(series)
+        let finitePreviousSeries = Self.finiteChronological(previousSeries)
+        source = finiteSeries
+        latest = finiteSeries.last?.value
+        let currentMean = Self.mean(finiteSeries)
+        let previousMean = Self.mean(finitePreviousSeries)
         delta = currentMean.flatMap { current in previousMean.map { current - $0 } }
-        spark = TrendPointExtremaSampler.sample(series, maximumCount: 30)
-        currentCount = series.count
-        previousCount = previousSeries.count
+        spark = TrendPointExtremaSampler.sample(finiteSeries, maximumCount: 30)
+        currentCount = finiteSeries.count
+        previousCount = finitePreviousSeries.count
         self.expectedCount = max(1, expectedCount)
         let minimum = max(3, Int(ceil(Double(self.expectedCount) * 0.2)))
-        comparisonIsReliable = series.count >= minimum && previousSeries.count >= minimum
+        comparisonIsReliable = finiteSeries.count >= minimum && finitePreviousSeries.count >= minimum
 
         guard comparisonIsReliable, let delta, abs(delta) > 0.000_000_1 else {
             deltaTone = .neutral
@@ -58,6 +60,17 @@ struct TrendSummaryPresentation {
         case .neutral:
             deltaTone = .neutral
         }
+    }
+
+    private static func finiteChronological(_ series: [TrendPoint]) -> [TrendPoint] {
+        series
+            .filter {
+                $0.value.isFinite && $0.date.timeIntervalSinceReferenceDate.isFinite
+            }
+            .sorted { lhs, rhs in
+                if lhs.date == rhs.date { return lhs.value < rhs.value }
+                return lhs.date < rhs.date
+            }
     }
 
     private static func mean(_ series: [TrendPoint]) -> Double? {
@@ -76,19 +89,28 @@ struct PaperTrendSeries: Sendable {
                       date: (String) -> Date?) -> PaperTrendSeries {
         PaperTrendSeries(
             recovery: days.compactMap { day in
-                guard let value = day.recovery, let date = date(day.day) else { return nil }
+                guard let value = day.recovery, value.isFinite,
+                      let date = date(day.day), date.timeIntervalSinceReferenceDate.isFinite
+                else { return nil }
                 return TrendPoint(date: date, value: value)
             },
             strain: days.compactMap { day in
-                guard let stored = day.strain, let date = date(day.day) else { return nil }
-                return TrendPoint(date: date, value: StrainScale.displayValue(fromStored: stored))
+                guard let stored = day.strain, stored.isFinite,
+                      let date = date(day.day), date.timeIntervalSinceReferenceDate.isFinite
+                else { return nil }
+                let value = StrainScale.displayValue(fromStored: stored)
+                return value.isFinite ? TrendPoint(date: date, value: value) : nil
             },
             sleep: days.compactMap { day in
-                guard let value = sleepByDay[day.day], let date = date(day.day) else { return nil }
+                guard let value = sleepByDay[day.day], value.isFinite,
+                      let date = date(day.day), date.timeIntervalSinceReferenceDate.isFinite
+                else { return nil }
                 return TrendPoint(date: date, value: value)
             },
             hrv: days.compactMap { day in
-                guard let value = day.avgHrv, let date = date(day.day) else { return nil }
+                guard let value = day.avgHrv, value.isFinite,
+                      let date = date(day.day), date.timeIntervalSinceReferenceDate.isFinite
+                else { return nil }
                 return TrendPoint(date: date, value: value)
             }
         )
@@ -147,9 +169,10 @@ enum ProductionTrendMetric: String, CaseIterable, Identifiable, Sendable {
     }
 
     func format(_ value: Double) -> String {
+        guard value.isFinite else { return "—" }
         switch self {
         case .strain, .sleepDuration, .respiratory, .skinTemp, .stress:
-            return String(format: "%.1f", value)
+            return value.formatted(.number.precision(.fractionLength(1)))
         case .steps, .calories:
             return Int(value.rounded()).formatted()
         default:
@@ -159,7 +182,7 @@ enum ProductionTrendMetric: String, CaseIterable, Identifiable, Sendable {
 
     func formatWithUnit(_ value: Double) -> String {
         let rendered = format(value)
-        guard !unit.isEmpty else { return rendered }
+        guard rendered != "—", !unit.isEmpty else { return rendered }
         return unit == "%" ? "\(rendered)%" : "\(rendered) \(unit)"
     }
 }
@@ -197,7 +220,8 @@ struct TrendsScreenSnapshot: Sendable {
         calendar inputCalendar: Calendar,
         effortDisplayFactor: Double
     ) -> TrendsScreenSnapshot? {
-        guard !Task.isCancelled else { return nil }
+        guard !Task.isCancelled,
+              referenceDate.timeIntervalSinceReferenceDate.isFinite else { return nil }
         var calendar = inputCalendar
         calendar.timeZone = TimeZone(identifier: data.timeZoneIdentifier) ?? inputCalendar.timeZone
 
@@ -240,7 +264,7 @@ struct TrendsScreenSnapshot: Sendable {
                 byAdding: .day,
                 value: offset - (observationCount - 1),
                 to: referenceDate
-            ) else { return nil }
+            ), date.timeIntervalSinceReferenceDate.isFinite else { return nil }
             let key = formatter.string(from: date)
             return CalendarMetricDay(
                 date: calendar.startOfDay(for: date),
@@ -253,7 +277,9 @@ struct TrendsScreenSnapshot: Sendable {
 
         let selectedCalendarDays = Array(observations.suffix(range.days))
         let selectedPoints = selectedCalendarDays.compactMap { day in
-            day.value.map { TrendPoint(date: day.date, value: $0) }
+            guard day.date.timeIntervalSinceReferenceDate.isFinite,
+                  let value = finite(day.value) else { return nil }
+            return TrendPoint(date: day.date, value: value)
         }
         let dateDomain = TrendCalendar.dateDomain(
             through: referenceDate,
@@ -266,6 +292,7 @@ struct TrendsScreenSnapshot: Sendable {
             calendar: calendar
         )
         let weekdayAverages = TrendCalendar.weekdayAverages(selectedCalendarDays, calendar: calendar)
+            .map(finite)
         let values = selectedPoints.map(\.value)
         let baseline = values.isEmpty ? 0 : values.reduce(0, +) / Double(values.count)
         let spread: Double = {
@@ -283,15 +310,15 @@ struct TrendsScreenSnapshot: Sendable {
             )
             digestDays = (0..<(7 * (WeeklyDigestEngine.baselineWeeks + 2))).compactMap { offset in
                 data.canonicalByDay[WeeklyDigestEngine.addDays(first, offset)]
-            }
+            }.filter(Self.hasFiniteDigestInputs)
         } else {
             digestDays = []
         }
         let digest = WeeklyDigestSource.digest(
             from: digestDays,
             anchorDay: weekAnchorDay,
-            sleepByDay: data.sleepPerfByDay,
-            effortDisplayFactor: effortDisplayFactor
+            sleepByDay: data.sleepPerfByDay.filter { $0.value.isFinite },
+            effortDisplayFactor: effortDisplayFactor.isFinite ? effortDisplayFactor : 1
         )
 
         let minimumWeekOffset: Int = {
@@ -327,25 +354,37 @@ struct TrendsScreenSnapshot: Sendable {
         return DateComponents(year: pieces[0], month: pieces[1], day: pieces[2])
     }
 
+    private static func hasFiniteDigestInputs(_ day: DailyMetric) -> Bool {
+        [day.totalSleepMin, day.avgHrv, day.recovery, day.strain]
+            .compactMap { $0 }
+            .allSatisfy(\.isFinite)
+    }
+
     private static func value(
         for metric: ProductionTrendMetric,
         day: DailyMetric,
         data: TrendsLoadedData
     ) -> Double? {
         switch metric {
-        case .recovery: day.recovery
-        case .strain: day.strain.map(StrainScale.displayValue(fromStored:))
-        case .sleepPerformance: data.sleepPerfByDay[day.day]
-        case .sleepDuration: day.totalSleepMin.map { $0 / 60 }
-        case .hrv: day.avgHrv
-        case .restingHR: day.restingHr.map(Double.init)
-        case .respiratory: day.respRateBpm
-        case .spo2: day.spo2Pct
-        case .skinTemp: day.skinTempDevC
-        case .steps: day.steps.map(Double.init) ?? data.appleByDay[day.day]?.steps.map(Double.init)
-        case .calories: day.activeKcalEst ?? data.appleByDay[day.day]?.activeKcal
-        case .stress: data.stressByDay[day.day]
+        case .recovery: finite(day.recovery)
+        case .strain: finite(day.strain.map(StrainScale.displayValue(fromStored:)))
+        case .sleepPerformance: finite(data.sleepPerfByDay[day.day])
+        case .sleepDuration: finite(day.totalSleepMin.map { $0 / 60 })
+        case .hrv: finite(day.avgHrv)
+        case .restingHR: finite(day.restingHr.map(Double.init))
+        case .respiratory: finite(day.respRateBpm)
+        case .spo2: finite(day.spo2Pct)
+        case .skinTemp: finite(day.skinTempDevC)
+        case .steps:
+            finite(day.steps.map(Double.init) ?? data.appleByDay[day.day]?.steps.map(Double.init))
+        case .calories:
+            finite(day.activeKcalEst ?? data.appleByDay[day.day]?.activeKcal)
+        case .stress: finite(data.stressByDay[day.day])
         }
+    }
+
+    private static func finite(_ value: Double?) -> Double? {
+        value.flatMap { $0.isFinite ? $0 : nil }
     }
 }
 
