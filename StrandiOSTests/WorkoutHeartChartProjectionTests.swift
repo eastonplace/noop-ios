@@ -113,10 +113,44 @@ final class WorkoutHeartChartProjectionTests: XCTestCase {
         }
 
         let projection = accumulator.projection
-        XCTAssertLessThanOrEqual(accumulator.retainedSampleCount, 3 * 60 * 60 + 1)
+        XCTAssertLessThanOrEqual(accumulator.retainedMinuteCount, 3 * 60 + 1)
+        XCTAssertLessThanOrEqual(
+            accumulator.retainedSampleCount,
+            accumulator.retainedMinuteCount * 4
+        )
         XCTAssertLessThanOrEqual(projection.values.count, 360)
         XCTAssertEqual(projection.lastSampleAt, start + 8 * 60 * 60 - 1)
         XCTAssertTrue(projection.values.contains(230))
+    }
+
+    func testMinuteBucketReplacementUpdatesCurrentExtremaWithoutRetainingEverySecond() {
+        var accumulator = WorkoutHeartChartAccumulator(windowSeconds: 600, maximumPoints: 20)
+        XCTAssertTrue(accumulator.ingest(HRSample(ts: 1_000, bpm: 100)))
+        XCTAssertTrue(accumulator.ingest(HRSample(ts: 1_001, bpm: 200)))
+        XCTAssertTrue(accumulator.ingest(HRSample(ts: 1_001, bpm: 90)))
+
+        let projection = accumulator.projection
+        XCTAssertEqual(projection.firstSampleAt, 1_000)
+        XCTAssertEqual(projection.lastSampleAt, 1_001)
+        XCTAssertTrue(projection.values.contains(90))
+        XCTAssertTrue(projection.values.contains(100))
+        XCTAssertFalse(projection.values.contains(200))
+        XCTAssertEqual(accumulator.retainedMinuteCount, 1)
+        XCTAssertEqual(accumulator.retainedSampleCount, 2)
+    }
+
+    func testBoundaryMinuteDropsExpiredExtremaInsteadOfRenderingOutsideWindow() {
+        var accumulator = WorkoutHeartChartAccumulator(windowSeconds: 60, maximumPoints: 20)
+        XCTAssertTrue(accumulator.ingest(HRSample(ts: 1_000, bpm: 230)))
+        XCTAssertTrue(accumulator.ingest(HRSample(ts: 1_059, bpm: 100)))
+        XCTAssertTrue(accumulator.ingest(HRSample(ts: 1_060, bpm: 110)))
+        XCTAssertTrue(accumulator.ingest(HRSample(ts: 1_061, bpm: 120)))
+
+        let projection = accumulator.projection
+        XCTAssertGreaterThanOrEqual(projection.firstSampleAt ?? .min, 1_001)
+        XCTAssertFalse(projection.values.contains(230))
+        XCTAssertTrue(projection.values.contains(100))
+        XCTAssertTrue(projection.values.contains(120))
     }
 
     @MainActor
