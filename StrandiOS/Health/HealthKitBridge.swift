@@ -199,6 +199,18 @@ final class HealthKitBridge: ObservableObject {
     /// `noopDeviceId` daily row, so those metrics exist ONLY here.
     private var computedDeviceId: String { noopDeviceId + "-noop" }
 
+    private lazy var anchorPager = HealthKitAnchorPager(
+        loader: HealthKitAnchoredPageLoader(store: store)
+    )
+    private lazy var syncCoordinator = HealthKitSyncCoordinator(
+        persistence: HealthKitPendingWindowDefaultsStore()
+    ) { [weak self] window in
+        guard let self else { return false }
+        return await self.performSync(window: window)
+    }
+    private var observerScanActive = false
+    private var observerScanWaiters: [CheckedContinuation<Void, Never>] = []
+
     init(repo: Repository, appleDeviceId: String, noopDeviceId: String) {
         self.repo = repo
         self.appleDeviceId = appleDeviceId
@@ -400,6 +412,10 @@ final class HealthKitBridge: ObservableObject {
             // aggregate scores. Failure here is non-fatal: the foreground catch-up still backfills.
             store.enableBackgroundDelivery(for: type, frequency: .hourly) { _, _ in }
         }
+
+        // Resume a window journaled before a prior process was suspended or killed. The coordinator
+        // is single-flight, so this is safe alongside observer wakes and the foreground catch-up.
+        syncCoordinator.start()
     }
 
     /// Foreground catch-up. Call on app-active so anything background delivery missed (the system can
@@ -423,44 +439,85 @@ final class HealthKitBridge: ObservableObject {
     /// keeps every per-day average correct and idempotent — `sync` upserts are keyed by day.
     private func syncFromObserver(type: HKSampleType) async {
         guard auth == .authorized else { return }
-        let touched = await fetchTouchedDayWindow(type: type)
-        // No new samples since the last anchor (a spurious wake): nothing to do.
-        guard let touched else { return }
-        let cal = Calendar.current
-        let daysBack = cal.dateComponents([.day], from: cal.startOfDay(for: touched),
-                                          to: cal.startOfDay(for: Date())).day ?? 0
-        // Clamp to a sane window: at least today, and never re-walk more than a month from one wake.
-        let window = max(1, min(31, daysBack + 1))
-        await sync(days: window)
+        await acquireObserverScanLease()
+        defer { releaseObserverScanLease() }
+
+        let key = HealthKitBridge.anchorDefaultsKey(for: type)
+        let priorAnchor = Self.loadAnchor(forKey: key)
+
+        do {
+            let scan = try await anchorPager.scan(
+                type: type,
+                predicate: Self.notNoopAuthored,
+                priorAnchor: priorAnchor
+            )
+
+            let changedObjects = scan.sampleCount + scan.deletedCount
+            guard changedObjects > 0 else {
+                try Self.saveAnchor(scan.finalAnchor, forKey: key)
+                return
+            }
+
+            let now = Date()
+            let fallbackStart = Calendar.current.date(byAdding: .day, value: -31, to: now) ?? now
+            var start = scan.oldestSampleDate ?? fallbackStart
+            // Establishing the first cursor may page through years of history. Foreground/manual sync
+            // already owns deep import; the initial live-delivery catch-up intentionally covers only
+            // the latest month. Later deltas retain their exact old dates, so an edited historical
+            // sample is never silently clamped away after the cursor exists.
+            if scan.wasInitialScan { start = max(start, fallbackStart) }
+            let window = HealthKitSyncWindow(
+                start: Calendar.current.startOfDay(for: start),
+                end: max(now, scan.newestSampleDate ?? now)
+            )
+
+            // Crash-safety ordering is deliberate: persist/widen pending work, flush it, then advance
+            // the HealthKit cursor. A kill after the cursor write still leaves the aggregation window
+            // recoverable; a kill before it merely replays an idempotent page scan.
+            try syncCoordinator.offer(window)
+            do {
+                try Self.saveAnchor(scan.finalAnchor, forKey: key)
+            } catch {
+                syncCoordinator.start()
+                throw error
+            }
+            syncCoordinator.start()
+        } catch {
+            lastError = String(localized: "Apple Health observer sync failed: \(error.localizedDescription)")
+        }
     }
 
-    /// Advance this type's stored anchor over any new samples and return the OLDEST sample date seen,
-    /// or nil when there were no new samples. Anchors are persisted in UserDefaults per type so live
-    /// deltas are neither re-ingested nor missed across launches. We don't consume the samples here —
-    /// `sync(days:)` re-reads the aggregate for the affected window — the anchor's only job is to tell
-    /// us how far back the change reached.
-    private func fetchTouchedDayWindow(type: HKSampleType) async -> Date? {
-        let key = HealthKitBridge.anchorDefaultsKey(for: type)
-        let priorAnchor: HKQueryAnchor? = {
-            guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
-            return try? NSKeyedUnarchiver.unarchivedObject(ofClass: HKQueryAnchor.self, from: data)
-        }()
+    /// HealthKit can invoke several observer handlers while an anchored query is suspended. Keep the
+    /// scan-and-anchor transaction FIFO so an older page result can never overwrite a newer cursor.
+    private func acquireObserverScanLease() async {
+        guard observerScanActive else {
+            observerScanActive = true
+            return
+        }
+        await withCheckedContinuation { observerScanWaiters.append($0) }
+    }
 
-        return await withCheckedContinuation { (cont: CheckedContinuation<Date?, Never>) in
-            let q = HKAnchoredObjectQuery(
-                type: type, predicate: Self.notNoopAuthored,
-                anchor: priorAnchor, limit: HKObjectQueryNoLimit
-            ) { _, samples, _, newAnchor, _ in
-                // Persist the advanced anchor so the next wake only sees genuinely-new samples. Skip the
-                // write on a query error (newAnchor nil) so we don't blow away a good cursor.
-                if let newAnchor,
-                   let data = try? NSKeyedArchiver.archivedData(withRootObject: newAnchor, requiringSecureCoding: true) {
-                    UserDefaults.standard.set(data, forKey: key)
-                }
-                let oldest = (samples ?? []).map { $0.startDate }.min()
-                cont.resume(returning: oldest)
-            }
-            store.execute(q)
+    private func releaseObserverScanLease() {
+        guard !observerScanWaiters.isEmpty else {
+            observerScanActive = false
+            return
+        }
+        observerScanWaiters.removeFirst().resume()
+    }
+
+    private static func loadAnchor(forKey key: String) -> HKQueryAnchor? {
+        guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
+        return try? NSKeyedUnarchiver.unarchivedObject(ofClass: HKQueryAnchor.self, from: data)
+    }
+
+    private static func saveAnchor(_ anchor: HKQueryAnchor, forKey key: String) throws {
+        let data = try NSKeyedArchiver.archivedData(
+            withRootObject: anchor,
+            requiringSecureCoding: true
+        )
+        UserDefaults.standard.set(data, forKey: key)
+        guard UserDefaults.standard.synchronize(), UserDefaults.standard.data(forKey: key) == data else {
+            throw CocoaError(.fileWriteUnknown)
         }
     }
 
@@ -476,17 +533,33 @@ final class HealthKitBridge: ObservableObject {
     /// then write NOOP's own computed metrics back into Health. Safe to call repeatedly (idempotent
     /// upserts keyed by day).
     func sync(days: Int = 30) async {
-        guard auth == .authorized, !syncing else { return }
+        guard auth == .authorized else { return }
+        let now = Date()
+        guard let start = Calendar.current.date(
+            byAdding: .day,
+            value: -max(1, days),
+            to: Calendar.current.startOfDay(for: now)
+        ) else { return }
+        do {
+            try syncCoordinator.offer(HealthKitSyncWindow(start: start, end: now))
+            await syncCoordinator.runAndWait()
+        } catch {
+            lastError = String(localized: "Apple Health sync failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func performSync(window: HealthKitSyncWindow) async -> Bool {
+        guard auth == .authorized else { return false }
         syncing = true
         defer { syncing = false }
         guard let store = await repo.storeHandle() else {
             lastError = String(localized: "Apple Health sync failed: \(BridgeError.storeUnavailable.localizedDescription)")
-            return
+            return false
         }
 
         let cal = Calendar.current
-        let end = Date()
-        guard let start = cal.date(byAdding: .day, value: -days, to: cal.startOfDay(for: end)) else { return }
+        let start = cal.startOfDay(for: window.start)
+        let end = max(Date(), window.end)
 
         do {
         var byDay: [String: DayAgg] = [:]
@@ -593,8 +666,10 @@ final class HealthKitBridge: ObservableObject {
             try await writeBack(whoopStore: store)
             lastSync = Date()
             lastError = nil
+            return true
         } catch {
             lastError = String(localized: "Apple Health sync failed: \(error.localizedDescription)")
+            return false
         }
     }
 
