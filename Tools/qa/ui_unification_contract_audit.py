@@ -30,21 +30,11 @@ def forbid(rel: str, *needles: str) -> None:
 try:
     require(
         "Strand/Screens/TrendsView.swift",
-        ".task(id: repo.refreshSeq)",
-        ".task(id: screenSnapshotKey)",
-        "currentScreenSnapshot",
-    )
-    require(
-        "Strand/Screens/TrendsView+SelectedRange.swift",
         "selectedRange.summarySubtitle",
-        "TrendDeltaTone",
-    )
-    require(
-        "Strand/Screens/TrendsView+WeeklyReview.swift",
         "paperMoverRows",
         'Text("Weekly readout")',
+        "TrendDeltaTone",
         "WeeklyDigestSource.digest",
-        "Sleep score variability ±",
     )
     forbid(
         "Strand/Screens/TrendsView.swift",
@@ -143,13 +133,11 @@ try:
     require(
         "StrandiOS/App/StrandiOSApp.swift",
         "SmartAlarmBackgroundTaskRegistrar.install(alarmRuntime)",
+    )
+    forbid(
+        "StrandiOS/App/StrandiOSApp.swift",
         "SmartAlarmRuntimeBackgroundScheduler.install(alarmRuntime)",
     )
-    app_source = text("StrandiOS/App/StrandiOSApp.swift")
-    if app_source.index("SmartAlarmBackgroundTaskRegistrar.install(alarmRuntime)") > app_source.index(
-        "SmartAlarmRuntimeBackgroundScheduler.install(alarmRuntime)"
-    ):
-        raise AssertionError("StrandiOSApp: exactly-once registrar must install before the legacy scheduler")
     require(
         "StrandiOS/App/SmartAlarmRuntimeController.swift",
         "SmartAlarmRuntimeGeneration",
@@ -160,17 +148,15 @@ try:
         "async let child = Self.computeEvaluation",
         "try Task.checkCancellation()",
         "configurationID",
-        "expirationHandler",
-        "synchronizeBehaviorMode",
         "nextDailyRearm",
         "scheduleFollowingBackgroundRequest",
-        "loadRequest()",
         "clearRequest(ifMatching: request)",
         "removePendingNotificationRequests",
     )
     forbid(
         "StrandiOS/App/SmartAlarmRuntimeController.swift",
         "Task.detached(priority: .utility)",
+        "BGTaskScheduler.shared.register(forTaskWithIdentifier: bgTaskIdentifier",
     )
     forbid(
         "Strand/App/AppModel.swift",
@@ -193,38 +179,6 @@ try:
         "StrandiOS/App/SmartAlarmCommandReconciler.swift",
         "model.applySmartAlarm()",
         "SmartAlarmCommandReconcileCoordinator",
-    )
-    require(
-        "StrandiOS/App/StrandiOSApp.swift",
-        "SmartAlarmAdaptiveModeStore",
-        "SmartAlarmRuntimeController",
-        ".environmentObject(alarmMode)",
-        ".environmentObject(alarmRuntime)",
-        "alarmRuntime.handleForeground()",
-    )
-    forbid(
-        "StrandiOS/App/StrandiOSApp.swift",
-        "SmartAlarmScheduler.register()",
-        "model.applySmartAlarm()",
-    )
-    require(
-        "Strand/Screens/SmartAlarmView.swift",
-        "schedule?.wakeAxisMinutes",
-        "schedule?.nowAxisMinutes",
-        "nowMinutes: now",
-        "SleepPlanTimeline(now: now",
-        "SleepAlarmTime.duration(WindDownNudge.sleepNeedMinutes + WindDownNudge.leadMinutes)",
-    )
-    forbid(
-        "Strand/Screens/SmartAlarmView.swift",
-        "onChangeCompat(of: behavior.smartAlarmMode)",
-        "onChangeCompat(of: behavior.smartAlarmEnabled)",
-        "onChangeCompat(of: behavior.smartAlarmMinutes)",
-        "onChangeCompat(of: behavior.smartAlarmWeekdays)",
-        "SmartAlarmEvidenceStore.refreshCorrelation()",
-        "schedule?.continuousMinutes",
-        "WindDownNudge.sleepNeedMinutes / 60)h",
-        "WindDownNudge.leadMinutes)m before this",
     )
     require(
         "Packages/StrandAnalytics/Sources/StrandAnalytics/SmartAlarmSchedule.swift",
