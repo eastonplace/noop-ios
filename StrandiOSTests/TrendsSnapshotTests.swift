@@ -219,6 +219,84 @@ final class TrendsSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.minimumWeekOffset, -520)
     }
 
+    func testTrendSummaryDropsNonFiniteValuesAndSortsLatestChronologically() throws {
+        let presentation = TrendSummaryPresentation(
+            series: [
+                TrendPoint(date: Date(timeIntervalSince1970: 3), value: 30),
+                TrendPoint(date: Date(timeIntervalSince1970: 1), value: .nan),
+                TrendPoint(date: Date(timeIntervalSince1970: 2), value: 20),
+                TrendPoint(date: Date(timeIntervalSince1970: 4), value: .infinity),
+            ],
+            previousSeries: [
+                TrendPoint(date: Date(timeIntervalSince1970: 2), value: 18),
+                TrendPoint(date: Date(timeIntervalSince1970: 1), value: -.infinity),
+                TrendPoint(date: Date(timeIntervalSince1970: 3), value: 22),
+            ],
+            goodDirection: .higher,
+            expectedCount: 2
+        )
+
+        XCTAssertEqual(presentation.source.map(\.value), [20, 30])
+        XCTAssertEqual(presentation.currentCount, 2)
+        XCTAssertEqual(presentation.previousCount, 2)
+        XCTAssertEqual(presentation.latest, 30)
+        XCTAssertEqual(try XCTUnwrap(presentation.delta), 5, accuracy: 0.0001)
+    }
+
+    func testSnapshotDropsNonFiniteMetricValuesBeforeBuildingRanges() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(
+            year: 2026, month: 7, day: 22
+        )))
+        let day = DailyMetric(
+            day: "2026-07-22",
+            totalSleepMin: 420,
+            efficiency: 0.9,
+            deepMin: 90,
+            remMin: 110,
+            lightMin: 200,
+            disturbances: 6,
+            restingHr: 52,
+            avgHrv: .infinity,
+            recovery: .nan,
+            strain: 9,
+            exerciseCount: 1
+        )
+        let loaded = TrendsLoadedData(
+            revision: 9,
+            anchorDay: day.day,
+            timeZoneIdentifier: "UTC",
+            canonicalDays: [day],
+            sleepPerfByDay: [day.day: .infinity],
+            stressByDay: [day.day: .nan],
+            appleDays: []
+        )
+        let snapshot = try XCTUnwrap(TrendsScreenSnapshot.build(
+            key: key(revision: 9),
+            data: loaded,
+            metric: .recovery,
+            range: .week,
+            weekOffset: 0,
+            referenceDate: anchor,
+            calendar: calendar,
+            effortDisplayFactor: .nan
+        ))
+
+        XCTAssertTrue(snapshot.selectedPoints.isEmpty)
+        XCTAssertTrue(snapshot.currentSeries.recovery.isEmpty)
+        XCTAssertTrue(snapshot.currentSeries.hrv.isEmpty)
+        XCTAssertTrue(snapshot.baseline.isFinite)
+        XCTAssertTrue(snapshot.typical.lowerBound.isFinite)
+        XCTAssertTrue(snapshot.typical.upperBound.isFinite)
+    }
+
+    func testMetricFormatterFailsClosedForNonFiniteValues() {
+        XCTAssertEqual(ProductionTrendMetric.recovery.format(.nan), "—")
+        XCTAssertEqual(ProductionTrendMetric.sleepDuration.format(.infinity), "—")
+        XCTAssertEqual(ProductionTrendMetric.hrv.formatWithUnit(-.infinity), "—")
+    }
+
     private func key(
         revision: Int = 7,
         metric: String = "Recovery",
