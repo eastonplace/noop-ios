@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # anonymize-ios-app.sh — scrub the building machine's home path out of an UNSIGNED iOS
-# .app (the twin of anonymize-macos-app.sh) before it is packaged into a sideloadable .ipa.
+# .app before it is packaged into a sideloadable .ipa.
 #
 # Why: Swift/clang bake source-file path literals (e.g. GRDB's `#file` defaults) into the
 # compiled binary; on a release build those include the *builder's* home directory — i.e.
@@ -15,9 +15,6 @@
 #     xcodebuild -scheme NOOPiOS -configuration Release -destination 'generic/platform=iOS' \
 #         -derivedDataPath build/ios-dd CODE_SIGNING_ALLOWED=NO build
 #     Tools/anonymize-ios-app.sh build/ios-dd/Build/Products/Release-iphoneos/NOOP.app
-#
-# os.walk below recurses the WHOLE bundle, so the embedded watch app (NOOP.app/Watch/NOOPWatch.app)
-# and its complication .appex are scrubbed and residual-checked along with everything else.
 #
 # The replacement is the SAME byte length as the original path, so all Mach-O offsets stay
 # valid; only the read-only string section changes. The script reads $HOME at runtime and

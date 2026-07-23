@@ -46,7 +46,7 @@
 
 ### 1.3 MTU negotiation
 - Notifications stream up to the negotiated MTU (max payload = MTU − 3 ATT bytes). Default BlueZ MTU is 23 unless negotiated. [open_ring]
-- **NOOP rule:** immediately after subscribing to `…0003`, request ATT MTU = **247** (Gen 4/5) or **203** (Gen 3). On iOS/CoreBluetooth the MTU is auto-negotiated; read `maximumWriteValueLength` and `CBPeripheral.maximumWriteValueLength(for: .withoutResponse)` and clamp writes. On Android, call `requestMtu(247)` before the first command.
+- **NOOP rule:** immediately after subscribing to `…0003`, use the MTU CoreBluetooth negotiates and clamp writes to `maximumWriteValueLength` / `CBPeripheral.maximumWriteValueLength(for: .withoutResponse)`.
 
 ---
 
@@ -114,7 +114,7 @@ Used once after a factory reset to provision NOOP's own 16-byte AES key into the
 phone → ring:  24 10 <16-byte key>          (SetAuthKey; 0x10 = 16-byte len)
 ring  → phone: 25 01 00                       (status 0x00 = OK)
 ```
-NOOP stores its 16-byte key locally (Keychain on iOS, EncryptedSharedPreferences/Keystore on Android). This key is required for every subsequent session's challenge.
+NOOP stores its 16-byte key locally in the iOS Keychain. This key is required for every subsequent session's challenge.
 
 ### 3.3 Get auth nonce (sub-op `0x01` → response `0x2C`)
 ```

@@ -3,8 +3,6 @@ set -euo pipefail
 
 catalogs=(
   "Strand/Resources/Localizable.xcstrings"
-  "NOOPWatch/Localizable.xcstrings"
-  "NOOPWatchComplications/Localizable.xcstrings"
   "Packages/StrandDesign/Sources/StrandDesign/Resources/Localizable.xcstrings"
 )
 

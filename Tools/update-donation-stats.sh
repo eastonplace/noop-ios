@@ -4,9 +4,8 @@
 # instead of api.github.com. The on-chain donor counts (BTC/ETH explorers) are unchanged.
 #
 # The app is fully offline by design — it never fetches these itself. Run this before each
-# release; it rewrites the constants in BOTH platforms' DonationStats so they stay in lockstep:
-#   Strand/Screens/DonationNudgeCard.swift                  (Swift: macOS + iOS)
-#   android/app/src/main/java/com/noop/ui/DonationNudge.kt  (Kotlin)
+# release; it rewrites the iPhone app's DonationStats constants:
+#   Strand/Screens/DonationNudgeCard.swift
 #
 # Downloads floored to nearest 500 ("5,000+"). Donors = incoming BTC outputs + incoming ETH txs.
 # Usage: update-donation-stats.sh   (needs curl + python3 + jq; forge token optional but recommended)
@@ -50,13 +49,10 @@ for p, dl_pat, dn_pat, dl_fmt, dn_fmt in [
     ('Strand/Screens/DonationNudgeCard.swift',
      r'static let downloads = [\d_]+', r'static let donors = \d+',
      'static let downloads = {:_}', 'static let donors = {}'),
-    ('android/app/src/main/java/com/noop/ui/DonationNudge.kt',
-     r'const val DOWNLOADS = [\d_]+', r'const val DONORS = \d+',
-     'const val DOWNLOADS = {:_}', 'const val DONORS = {}'),
 ]:
     s = open(p).read()
     s = re.sub(dl_pat, dl_fmt.format(int(floored)), s)
     s = re.sub(dn_pat, dn_fmt.format(int(donors)), s)
     open(p, 'w').write(s)
-print('✓ DonationStats updated on both platforms')
+print('✓ DonationStats updated')
 EOF
