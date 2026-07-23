@@ -58,6 +58,14 @@ try:
         "enum TrendsSnapshotHandoff",
         "snapshotKey == currentKey",
         "guard accepts(snapshotKey: snapshot?.key, currentKey: key)",
+        "finiteChronological",
+        "$0.value.isFinite",
+        ".sorted { lhs, rhs in",
+        'guard value.isFinite else { return "—" }',
+        "private static func finite(_ value: Double?)",
+        "filter(Self.hasFiniteDigestInputs)",
+        "data.sleepPerfByDay.filter { $0.value.isFinite }",
+        "effortDisplayFactor.isFinite ? effortDisplayFactor : 1",
     )
     require(
         "Strand/Screens/TrendsView.swift",
@@ -119,6 +127,9 @@ try:
         "testOldCompletionCannotReplaceNewerSnapshotKey",
         "testSnapshotHandoffRejectsNilDuringFirstOrReplacementBuild",
         "testFourThousandDaySnapshotKeepsRenderInputsBounded",
+        "testTrendSummaryDropsNonFiniteValuesAndSortsLatestChronologically",
+        "testSnapshotDropsNonFiniteMetricValuesBeforeBuildingRanges",
+        "testMetricFormatterFailsClosedForNonFiniteValues",
     )
 except AssertionError as error:
     print(f"Trends snapshot contract audit: FAIL\n{error}", file=sys.stderr)
