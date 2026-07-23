@@ -59,6 +59,7 @@ struct StrandiOSApp: App {
         let model = AppModel()
         let alarmMode = SmartAlarmAdaptiveModeStore(legacy: model.behavior)
         let alarmRuntime = SmartAlarmRuntimeController(model: model, modeStore: alarmMode)
+        SmartAlarmBackgroundTaskRegistrar.install(alarmRuntime)
         SmartAlarmRuntimeBackgroundScheduler.install(alarmRuntime)
         _model = StateObject(wrappedValue: model)
         _alarmMode = StateObject(wrappedValue: alarmMode)

@@ -103,6 +103,54 @@ try:
         "testVoiceOverWakeTimeValueUsesEndpointClock",
     )
     require(
+        "StrandiOS/App/SmartAlarmBackgroundCompletionGate.swift",
+        "enum SmartAlarmBackgroundTerminalEvent",
+        "case missingRuntime",
+        "case missingRequest",
+        "case malformedRequest",
+        "case cancelled",
+        "case expired",
+        "case evaluationError",
+        "guard terminalEvent == nil else { return false }",
+        "final class SmartAlarmBackgroundCompletionGate",
+    )
+    require(
+        "StrandiOS/App/SmartAlarmBackgroundTaskRegistrar.swift",
+        "BGTaskScheduler.shared.register",
+        "SmartAlarmBackgroundCompletionGate",
+        "completion.complete(.missingRequest)",
+        "completion.complete(.malformedRequest)",
+        "completion.complete(.missingRuntime)",
+        "completion.complete(.cancelled)",
+        "completion.complete(.evaluationError)",
+        "completion.complete(.expired)",
+        "refreshTask.setTaskCompleted(success: success)",
+        "SmartAlarmRuntimeBackgroundScheduler.clearRequest(ifMatching: request)",
+    )
+    require(
+        "StrandiOSTests/SmartAlarmBackgroundCompletionGateTests.swift",
+        "testSuccessCompletesExactlyOnce",
+        "testFailureCompletesExactlyOnce",
+        "testEveryExceptionalTerminalEventCompletesFalse",
+        "testExpirationWinsOverLateSuccess",
+        "testCancellationWinsOverLateFailure",
+        "testStateMachineAcceptsOnlyFirstTerminalEvent",
+    )
+    require(
+        "StrandiOSTests/SmartAlarmBackgroundTaskRegistrarTests.swift",
+        "testRequestLoaderDistinguishesMissingMalformedAndValidPayloads",
+    )
+    require(
+        "StrandiOS/App/StrandiOSApp.swift",
+        "SmartAlarmBackgroundTaskRegistrar.install(alarmRuntime)",
+        "SmartAlarmRuntimeBackgroundScheduler.install(alarmRuntime)",
+    )
+    app_source = text("StrandiOS/App/StrandiOSApp.swift")
+    if app_source.index("SmartAlarmBackgroundTaskRegistrar.install(alarmRuntime)") > app_source.index(
+        "SmartAlarmRuntimeBackgroundScheduler.install(alarmRuntime)"
+    ):
+        raise AssertionError("StrandiOSApp: exactly-once registrar must install before the legacy scheduler")
+    require(
         "StrandiOS/App/SmartAlarmRuntimeController.swift",
         "SmartAlarmRuntimeGeneration",
         "SmartAlarmBackgroundRequest",
