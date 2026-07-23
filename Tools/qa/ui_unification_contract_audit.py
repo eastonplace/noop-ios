@@ -207,6 +207,14 @@ try:
         "SmartAlarmScheduler.register()",
         "model.applySmartAlarm()",
     )
+    require(
+        "Strand/Screens/SmartAlarmView.swift",
+        "schedule?.wakeAxisMinutes",
+        "schedule?.nowAxisMinutes",
+        "nowMinutes: now",
+        "SleepPlanTimeline(now: now",
+        "SleepAlarmTime.duration(WindDownNudge.sleepNeedMinutes + WindDownNudge.leadMinutes)",
+    )
     forbid(
         "Strand/Screens/SmartAlarmView.swift",
         "onChangeCompat(of: behavior.smartAlarmMode)",
@@ -214,6 +222,9 @@ try:
         "onChangeCompat(of: behavior.smartAlarmMinutes)",
         "onChangeCompat(of: behavior.smartAlarmWeekdays)",
         "SmartAlarmEvidenceStore.refreshCorrelation()",
+        "schedule?.continuousMinutes",
+        "WindDownNudge.sleepNeedMinutes / 60)h",
+        "WindDownNudge.leadMinutes)m before this",
     )
     require(
         "Packages/StrandAnalytics/Sources/StrandAnalytics/SmartAlarmSchedule.swift",
