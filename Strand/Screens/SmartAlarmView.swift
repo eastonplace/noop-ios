@@ -6,6 +6,8 @@ import StrandAnalytics
 /// The UI owns no BLE/notification side effects; every editor writes shared state and the app-root
 /// `SmartAlarmRuntimeController` reconciles one generation-safe configuration.
 struct SmartAlarmView: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var behavior: BehaviorStore
     @EnvironmentObject private var repo: Repository
@@ -291,21 +293,22 @@ struct SmartAlarmView: View {
 
                 if windDownOn {
                     Divider().overlay(StrandPalette.hairline)
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Wake time")
-                                .font(StrandFont.body)
-                                .foregroundStyle(StrandPalette.textPrimary)
-                            Text("The nudge fires \(WindDownNudge.sleepNeedMinutes / 60)h \(WindDownNudge.leadMinutes)m before this.")
-                                .font(StrandFont.footnote)
-                                .foregroundStyle(StrandPalette.textTertiary)
+                    ViewThatFits(in: .horizontal) {
+                        HStack {
+                            windDownWakeTimeCopy
+                            Spacer(minLength: 12)
+                            DatePicker("Wake time", selection: wakeBinding, displayedComponents: .hourAndMinute)
+                                .labelsHidden()
+                                .accessibilityLabel("Wake time")
                         }
-                        Spacer()
-                        DatePicker("", selection: wakeBinding, displayedComponents: .hourAndMinute)
-                            .labelsHidden()
-                            .accessibilityLabel("Wake time")
+                        VStack(alignment: .leading, spacing: 10) {
+                            windDownWakeTimeCopy
+                            DatePicker("Wake time", selection: wakeBinding, displayedComponents: .hourAndMinute)
+                                .labelsHidden()
+                                .accessibilityLabel("Wake time")
+                        }
                     }
-                    Text("You'll be reminded around \(timeLabel(WindDownNudge.nudgeMinuteOfDay())).")
+                    Text("You'll be reminded around \(Self.windDownTimeLabel(WindDownNudge.nudgeMinuteOfDay())).")
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textSecondary)
 
@@ -316,29 +319,31 @@ struct SmartAlarmView: View {
         }
     }
 
-    @ViewBuilder private var perDaySection: some View {
-        HStack(alignment: .center, spacing: 16) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Different wake time per day")
-                    .font(StrandFont.body)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                Text("Set a wake time for specific days (a lie-in at the weekend, say). Days you leave alone use the time above.")
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer()
-            Toggle("", isOn: $perDayOn)
-                .labelsHidden().toggleStyle(.switch).tint(StrandPalette.ink)
-                .accessibilityLabel("Different wake time per day")
-                .onChangeCompat(of: perDayOn) { on in
-                    if !on {
-                        WindDownNudge.setWakeOverrides([:])
-                        overrides = [:]
-                    }
-                }
+    private var windDownWakeTimeCopy: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Wake time")
+                .font(StrandFont.body)
+                .foregroundStyle(StrandPalette.textPrimary)
+            Text("The nudge fires \(WindDownNudge.sleepNeedMinutes / 60)h \(WindDownNudge.leadMinutes)m before this.")
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(minHeight: 42)
+    }
+
+    @ViewBuilder private var perDaySection: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: 16) {
+                perDayCopy
+                Spacer(minLength: 12)
+                perDayToggle
+            }
+            VStack(alignment: .leading, spacing: 10) {
+                perDayCopy
+                perDayToggle
+            }
+        }
+        .frame(minHeight: 44)
 
         if perDayOn {
             VStack(spacing: 8) {
@@ -350,15 +355,55 @@ struct SmartAlarmView: View {
         }
     }
 
+    private var perDayCopy: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Different wake time per day")
+                .font(StrandFont.body)
+                .foregroundStyle(StrandPalette.textPrimary)
+            Text("Set a wake time for specific days (a lie-in at the weekend, say). Days you leave alone use the time above.")
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var perDayToggle: some View {
+        Toggle("Different wake time per day", isOn: $perDayOn)
+            .labelsHidden().toggleStyle(.switch).tint(StrandPalette.ink)
+            .accessibilityLabel("Different wake time per day")
+            .onChangeCompat(of: perDayOn) { on in
+                if !on {
+                    WindDownNudge.setWakeOverrides([:])
+                    overrides = [:]
+                }
+            }
+    }
+
     private func weekdayOverrideRow(_ weekday: Int) -> some View {
         let effective = overrides[weekday] ?? wakeMinutes
         let hasOverride = overrides[weekday] != nil
-        return HStack(spacing: 12) {
-            Text(Self.weekdayName(weekday))
-                .font(StrandFont.subhead)
-                .foregroundStyle(hasOverride ? StrandPalette.textPrimary : StrandPalette.textSecondary)
-                .frame(width: 96, alignment: .leading)
-            Spacer(minLength: 0)
+        return ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) {
+                weekdayOverrideLabel(weekday, hasOverride: hasOverride)
+                Spacer(minLength: 0)
+                weekdayOverrideControls(weekday, effective: effective, hasOverride: hasOverride)
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                weekdayOverrideLabel(weekday, hasOverride: hasOverride)
+                weekdayOverrideControls(weekday, effective: effective, hasOverride: hasOverride)
+            }
+        }
+    }
+
+    private func weekdayOverrideLabel(_ weekday: Int, hasOverride: Bool) -> some View {
+        Text(Self.weekdayName(weekday))
+            .font(StrandFont.subhead)
+            .foregroundStyle(hasOverride ? StrandPalette.textPrimary : StrandPalette.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func weekdayOverrideControls(_ weekday: Int, effective: Int, hasOverride: Bool) -> some View {
+        HStack(spacing: 8) {
             if hasOverride {
                 Button {
                     WindDownNudge.setWakeOverride(weekday: weekday, minutes: nil)
@@ -367,13 +412,15 @@ struct SmartAlarmView: View {
                     Image(systemName: "arrow.uturn.backward")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(StrandPalette.textTertiary)
-                        .padding(6)
+                        .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Clear \(Self.weekdayName(weekday)) override, use the default wake time")
+                .accessibilityLabel("Clear \(Self.weekdayName(weekday)) override")
+                .accessibilityHint("Uses the default wake time")
             }
-            DatePicker("", selection: overrideBinding(weekday, effective: effective),
+            DatePicker("\(Self.weekdayName(weekday)) wake time",
+                       selection: overrideBinding(weekday, effective: effective),
                        displayedComponents: .hourAndMinute)
                 .labelsHidden()
                 .accessibilityLabel("\(Self.weekdayName(weekday)) wake time")
@@ -421,13 +468,18 @@ struct SmartAlarmView: View {
         )
     }
 
-    private func timeLabel(_ minutes: Int) -> String {
-        SleepAlarmTime.clock(minutes)
+    nonisolated static func windDownTimeLabel(
+        _ minutes: Int,
+        locale: Locale = .autoupdatingCurrent,
+        calendar: Calendar = .autoupdatingCurrent,
+        timeZone: TimeZone = .autoupdatingCurrent
+    ) -> String {
+        SleepAlarmTime.clock(minutes, locale: locale, calendar: calendar, timeZone: timeZone)
     }
 
     private var alarmWeekdayPicker: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
+            LazyVGrid(columns: alarmWeekdayColumns, spacing: 6) {
                 ForEach(Self.weekdayOrder, id: \.self) { dow in
                     let selected = Self.alarmWeekdayIsSelected(dow, in: behavior.smartAlarmWeekdays)
                     Button {
@@ -438,13 +490,15 @@ struct SmartAlarmView: View {
                         Text(Self.alarmWeekdayInitial(dow))
                             .font(StrandFont.caption)
                             .foregroundStyle(selected ? StrandPalette.surfaceBase : StrandPalette.textSecondary)
-                            .frame(width: 44, height: 44)
-                            .background(selected ? StrandPalette.accent : StrandPalette.surfaceInset, in: Circle())
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .background(selected ? StrandPalette.accent : StrandPalette.surfaceInset,
+                                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel(Self.weekdayName(dow))
                         .accessibilityValue(selected ? "Selected" : "Not selected")
                         .accessibilityAddTraits(selected ? .isSelected : [])
+                        .accessibilityHint("Double-tap to \(selected ? "exclude" : "include") this day")
                 }
             }
             Text(Self.alarmWeekdaySummary(behavior.smartAlarmWeekdays))
@@ -452,6 +506,13 @@ struct SmartAlarmView: View {
                 .foregroundStyle(StrandPalette.textTertiary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var alarmWeekdayColumns: [GridItem] {
+        Array(
+            repeating: GridItem(.flexible(minimum: 44), spacing: 6),
+            count: dynamicTypeSize.isAccessibilitySize ? 4 : 7
+        )
     }
 
     private var alarmTimeBinding: Binding<Date> {

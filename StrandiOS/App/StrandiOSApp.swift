@@ -115,7 +115,6 @@ struct StrandiOSApp: App {
                 .environment(\.stressNudgeCenter, model.stressNudgeCenter)
                 .preferredColorScheme(AppearanceMode.resolve(appearanceRaw).colorScheme)
                 .chartStyle(chartStyleRaw)
-                .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                 .onReceive(model.live.$heartRate) { _ in driveLiveActivity() }
                 .onReceive(model.live.$connected) { driveLiveActivity(connected: $0) }
                 .onReceive(

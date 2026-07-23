@@ -122,6 +122,8 @@ public struct SleepAlarmWakeMode: Identifiable, Equatable, Sendable {
 /// the real clock, the real wake modes (with truthful availability), and the real dynamic Sleep Need;
 /// nothing here is fixture state.
 public struct SleepAlarmModuleCard: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     @Binding public var armed: Bool
     public let modes: [SleepAlarmWakeMode]
     @Binding public var selectedModeId: String
@@ -254,7 +256,37 @@ public struct SleepAlarmModuleCard: View {
 
     // MARK: pieces
 
-    private var header: some View {
+    @ViewBuilder private var header: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Text("Alarm".uppercased())
+                        .font(StrandFont.overline)
+                        .tracking(StrandFont.overlineTracking)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                    Spacer(minLength: 8)
+                    Toggle("", isOn: $armed.animation(StrandMotion.value))
+                        .labelsHidden()
+                        .accessibilityLabel(Text("Alarm", bundle: .module))
+                        .tint(StrandPalette.textPrimary)
+                }
+                Text(wakeDayLabel)
+                    .font(StrandFont.micro)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                Text(armed ? deliveryStatus : String(localized: "Off", bundle: .module))
+                    .font(StrandFont.micro)
+                    .foregroundStyle(armed ? StrandPalette.chargeAccent : StrandPalette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 13)
+            .padding(.top, 12)
+            .padding(.bottom, 4)
+        } else {
+            compactHeader
+        }
+    }
+
+    private var compactHeader: some View {
         HStack(spacing: 8) {
             Text("Alarm".uppercased())
                 .font(StrandFont.overline)
@@ -278,35 +310,55 @@ public struct SleepAlarmModuleCard: View {
         .padding(.bottom, 4)
     }
 
-    private var wakeRow: some View {
-        HStack(alignment: .center, spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 5) {
-                Text(SleepAlarmTime.clock(wakeMinutes))
-                    .font(StrandFont.number(34, weight: .bold))
-                    .monospacedDigit()
-                    .foregroundStyle(StrandPalette.textPrimary)
-                    .contentTransition(.numericText())
-                Text("wake", bundle: .module)
-                    .font(StrandFont.micro)
-                    .foregroundStyle(StrandPalette.textTertiary)
+    @ViewBuilder private var wakeRow: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 10) {
+                wakeTimeLabel
+                nudgeControls
             }
-            Spacer(minLength: 8)
-            HStack(spacing: 7) {
-                nudgeButton("minus", label: String(localized: "Wake 5 minutes earlier", bundle: .module), enabled: wakeMinutes - 5 > nowMinutes) { wakeMinutes -= 5 }
-                Text("5 min", bundle: .module)
-                    .font(StrandFont.micro)
-                    .foregroundStyle(StrandPalette.textTertiary)
-                nudgeButton("plus", label: String(localized: "Wake 5 minutes later", bundle: .module), enabled: wakeMinutes + 5 < nowMinutes + 8 * 1440) { wakeMinutes += 5 }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(Text("Wake time \(SleepAlarmTime.clock(wakeMinutes)), \(wakeDayLabel)", bundle: .module))
+            .accessibilityAdjustableAction { adjustWakeTime($0) }
+        } else {
+            HStack(alignment: .center, spacing: 10) {
+                wakeTimeLabel
+                Spacer(minLength: 8)
+                nudgeControls
             }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(Text("Wake time \(SleepAlarmTime.clock(wakeMinutes)), \(wakeDayLabel)", bundle: .module))
+            .accessibilityAdjustableAction { adjustWakeTime($0) }
         }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(Text("Wake time \(SleepAlarmTime.clock(wakeMinutes)), \(wakeDayLabel)", bundle: .module))
-        .accessibilityAdjustableAction { direction in
-            switch direction {
-            case .increment where wakeMinutes + 5 < nowMinutes + 8 * 1_440: wakeMinutes += 5
-            case .decrement where wakeMinutes - 5 > nowMinutes: wakeMinutes -= 5
-            default: break
-            }
+    }
+
+    private var wakeTimeLabel: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
+            Text(SleepAlarmTime.clock(wakeMinutes))
+                .font(StrandFont.number(34, weight: .bold))
+                .monospacedDigit()
+                .foregroundStyle(StrandPalette.textPrimary)
+                .contentTransition(.numericText())
+            Text("wake", bundle: .module)
+                .font(StrandFont.micro)
+                .foregroundStyle(StrandPalette.textTertiary)
+        }
+    }
+
+    private var nudgeControls: some View {
+        HStack(spacing: 7) {
+            nudgeButton("minus", label: String(localized: "Wake 5 minutes earlier", bundle: .module), enabled: wakeMinutes - 5 > nowMinutes) { wakeMinutes -= 5 }
+            Text("5 min", bundle: .module)
+                .font(StrandFont.micro)
+                .foregroundStyle(StrandPalette.textTertiary)
+            nudgeButton("plus", label: String(localized: "Wake 5 minutes later", bundle: .module), enabled: wakeMinutes + 5 < nowMinutes + 8 * 1440) { wakeMinutes += 5 }
+        }
+    }
+
+    private func adjustWakeTime(_ direction: AccessibilityAdjustmentDirection) {
+        switch direction {
+        case .increment where wakeMinutes + 5 < nowMinutes + 8 * 1_440: wakeMinutes += 5
+        case .decrement where wakeMinutes - 5 > nowMinutes: wakeMinutes -= 5
+        default: break
         }
     }
 
@@ -318,7 +370,7 @@ public struct SleepAlarmModuleCard: View {
             Image(systemName: symbol)
                 .font(.system(size: 11, weight: .bold))
                 .foregroundStyle(enabled ? StrandPalette.textPrimary : StrandPalette.textTertiary.opacity(0.5))
-                .frame(width: 28, height: 28)
+                .frame(width: 44, height: 44)
                 .background(Circle().fill(StrandPalette.surfaceInset))
         }
         .buttonStyle(StressModulePressStyle())
@@ -326,36 +378,45 @@ public struct SleepAlarmModuleCard: View {
         .accessibilityLabel(label)
     }
 
-    private var modeChips: some View {
-        HStack(spacing: 4) {
-            ForEach(modes) { option in
-                let selected = option.id == selectedModeId
-                Button {
-                    withAnimation(StrandMotion.interactive) { selectedModeId = option.id }
-                    StrandHaptic.selection.play()
-                } label: {
-                    Text(option.title)
-                        .font(.system(size: 10.5, weight: .semibold, design: .rounded))
-                        .lineLimit(1)
-                        .fixedSize()
-                        .foregroundStyle(selected ? StrandPalette.surfaceRaised : StrandPalette.textSecondary)
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 6)
-                        .background(
-                            Capsule(style: .continuous)
-                                .fill(selected ? StrandPalette.textPrimary : StrandPalette.surfaceInset)
-                        )
-                        .opacity(option.isAvailable ? 1 : 0.45)
-                }
-                .buttonStyle(StressModulePressStyle())
-                .disabled(!option.isAvailable)
-                .accessibilityAddTraits(selected ? .isSelected : [])
-                .accessibilityLabel(option.title)
-                .accessibilityValue(selected ? String(localized: "Selected", bundle: .module) : "")
-                .accessibilityHint(option.isAvailable ? option.explanation : unavailableReason(option))
+    @ViewBuilder private var modeChips: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            LazyVGrid(columns: [GridItem(.flexible())], spacing: 6) {
+                ForEach(modes) { modeChip($0, fillsWidth: true) }
             }
-            Spacer(minLength: 0)
+        } else {
+            HStack(spacing: 4) {
+                ForEach(modes) { modeChip($0, fillsWidth: false) }
+                Spacer(minLength: 0)
+            }
         }
+    }
+
+    private func modeChip(_ option: SleepAlarmWakeMode, fillsWidth: Bool) -> some View {
+        let selected = option.id == selectedModeId
+        return Button {
+            withAnimation(StrandMotion.interactive) { selectedModeId = option.id }
+            StrandHaptic.selection.play()
+        } label: {
+            Text(option.title)
+                .font(StrandFont.micro.weight(.semibold))
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .foregroundStyle(selected ? StrandPalette.surfaceRaised : StrandPalette.textSecondary)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 6)
+                .frame(maxWidth: fillsWidth ? .infinity : nil, minHeight: 44)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(selected ? StrandPalette.textPrimary : StrandPalette.surfaceInset)
+                )
+                .opacity(option.isAvailable ? 1 : 0.45)
+        }
+        .buttonStyle(StressModulePressStyle())
+        .disabled(!option.isAvailable)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityLabel(option.title)
+        .accessibilityValue(selected ? String(localized: "Selected", bundle: .module) : String(localized: "Not selected", bundle: .module))
+        .accessibilityHint(option.isAvailable ? option.explanation : unavailableReason(option))
     }
 
     private func unavailableReason(_ mode: SleepAlarmWakeMode) -> String {

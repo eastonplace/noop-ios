@@ -58,6 +58,9 @@ jobs:
       - name: Audit Trends snapshot freshness
         run: python3 Tools/qa/trends_snapshot_contract_audit.py
 
+      - name: Audit accessibility and localization contracts
+        run: python3 Tools/qa/accessibility_localization_contract_audit.py
+
       - name: Install XcodeGen
         run: brew install xcodegen
 

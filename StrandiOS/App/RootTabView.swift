@@ -588,6 +588,8 @@ private struct QuickActionSheet: View {
 }
 
 private struct PaperTabBar: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     @Binding var selection: Int
     var onReselect: (Int) -> Void = { _ in }
     var onQuickActions: () -> Void = {}
@@ -614,7 +616,9 @@ private struct PaperTabBar: View {
                 quickActionsButton
                 ForEach(nav.suffix(2)) { tabButton($0) }
             }
-            .frame(height: NoopMetrics.navBarHeight)
+            // Larger accessibility categories need vertical room for the user's actual label size.
+            // The old app-wide cap hid this fixed-height collision instead of fixing it.
+            .frame(height: dynamicTypeSize.isAccessibilitySize ? 92 : NoopMetrics.navBarHeight)
         }
         .background(StrandPalette.card)
     }
@@ -649,6 +653,8 @@ private struct PaperTabBar: View {
                     .font(.system(size: 18, weight: active ? .semibold : .regular))
                 Text(item.title)
                     .font(StrandFont.micro.weight(active ? .semibold : .regular))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .foregroundStyle(active ? StrandPalette.ink : StrandPalette.textTertiary)
             .frame(maxWidth: .infinity)
