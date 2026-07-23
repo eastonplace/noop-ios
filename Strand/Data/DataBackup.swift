@@ -36,6 +36,7 @@ enum DataBackup {
     enum RestoreFault: Equatable {
         case replacementCopy
         case postSwapValidation
+        case replacementRemoval
     }
 
     enum BackupWriteFault: Equatable {
@@ -224,20 +225,22 @@ enum DataBackup {
     @MainActor
     static func restore(from pickedSource: URL, toDatabaseAt dbPath: String,
                         lifecycle: RestoreLifecycle,
-                        settingsDefaults: UserDefaults = .standard) async -> BackupResult {
+                        settingsDefaults: UserDefaults = .standard,
+                        fault: RestoreFault? = nil) async -> BackupResult {
         do { try await lifecycle.quiesce() }
         catch { return .failure(String(localized: "Couldn't pause the local database safely. Nothing was replaced. \(error.localizedDescription)")) }
         let result = await Task.detached(priority: .utility) {
-            restore(from: pickedSource, toDatabaseAt: dbPath)
+            restore(from: pickedSource, toDatabaseAt: dbPath, fault: fault)
         }.value
         return await finishRestore(result, databasePath: dbPath, lifecycle: lifecycle,
-                                   settingsDefaults: settingsDefaults)
+                                   settingsDefaults: settingsDefaults, fault: fault)
     }
 
     @MainActor
     private static func finishRestore(_ result: BackupResult, databasePath: String,
                                       lifecycle: RestoreLifecycle,
-                                      settingsDefaults: UserDefaults = .standard) async -> BackupResult {
+                                      settingsDefaults: UserDefaults = .standard,
+                                      fault: RestoreFault? = nil) async -> BackupResult {
         switch result {
         case .imported(let safetyCopy, let stagedSettings):
             do {
@@ -255,8 +258,8 @@ enum DataBackup {
                             try rollback(from: safetyCopy, toDatabaseAt: databasePath)
                         }.value
                     } else {
-                        await Task.detached(priority: .utility) {
-                            removeReplacement(at: databasePath)
+                        try await Task.detached(priority: .utility) {
+                            try removeReplacement(at: databasePath, fault: fault)
                         }.value
                     }
                     try await lifecycle.reopenAndMigrate()
@@ -330,6 +333,14 @@ enum DataBackup {
 
         let legacyWALPresent = extractedDir == nil
             && fm.fileExists(atPath: source.path + "-wal")
+        if legacyWALPresent {
+            do {
+                try validateLegacyWAL(at: URL(fileURLWithPath: source.path + "-wal"))
+                return .failure(String(localized: "This legacy backup has a WAL sidecar. NOOP cannot prove that a legacy WAL is complete, so it was not restored. Export a new .noopbak backup from the source device instead; your current data was left untouched."))
+            } catch {
+                return .failure(String(localized: "This legacy backup has a malformed WAL sidecar and can't be restored. Your current data was left untouched. \(error.localizedDescription)"))
+            }
+        }
         if !legacyWALPresent,
            let complaint = DatabaseIntegrity.quickCheckFailure(atPath: source.path) {
             return .failure(String(localized: "This backup file is damaged and can't be restored (SQLite reports: \(complaint)). Your current data was left untouched."))
@@ -379,30 +390,6 @@ enum DataBackup {
                 return .failure(String(localized: "Import failed its post-restore integrity check (SQLite reports: \(complaint)). The damaged file was removed; there was no previous database to roll back."))
             }
 
-            if legacyWALPresent {
-                do {
-                    try restoreWAL(from: source, toMainPath: dbPath)
-                    if let complaint = DatabaseIntegrity.quickCheckFailure(atPath: dbURL.path) {
-                        throw RestoreFailure.invalidReplacement(complaint)
-                    }
-                } catch {
-                    if let safetyCopy, fm.fileExists(atPath: safetyCopy.path) {
-                        do {
-                            try rollback(from: safetyCopy, toDatabaseAt: dbPath)
-                            return .failure(String(localized: "The legacy backup sidecars could not be restored, so NOOP rolled back to your previous database. \(error.localizedDescription)"))
-                        } catch {
-                            return .failure(String(localized: "The legacy backup sidecars failed and automatic rollback also failed. The safety copy remains at \(safetyCopy.path). \(error.localizedDescription)"))
-                        }
-                    }
-                    removeIfPresent(dbURL)
-                    removeIfPresent(URL(fileURLWithPath: dbPath + "-wal"))
-                    removeIfPresent(URL(fileURLWithPath: dbPath + "-shm"))
-                    guard !fm.fileExists(atPath: dbURL.path) else {
-                        return .failure(String(localized: "The legacy backup sidecars failed, and the incomplete fresh database could not be removed. \(error.localizedDescription)"))
-                    }
-                    return .failure(String(localized: "The legacy backup sidecars could not be restored. The incomplete fresh database was removed. \(error.localizedDescription)"))
-                }
-            }
             let stagedSettings: Data?
             if let extractedDir {
                 let settingsURL = extractedDir.appendingPathComponent(BackupSettings.entryName)
@@ -418,6 +405,7 @@ enum DataBackup {
 
     private enum RestoreFailure: LocalizedError {
         case simulatedReplacementCopy
+        case replacementRemovalFailed
         case invalidReplacement(String)
         case sqliteBackup(String)
         case insufficientCapacity(required: UInt64, available: UInt64)
@@ -426,6 +414,8 @@ enum DataBackup {
             switch self {
             case .simulatedReplacementCopy:
                 return "Simulated replacement-copy failure."
+            case .replacementRemovalFailed:
+                return "NOOP could not remove the rejected replacement database."
             case .invalidReplacement(let complaint):
                 return "The staged replacement failed its integrity check: \(complaint)"
             case .sqliteBackup(let complaint):
@@ -482,10 +472,20 @@ enum DataBackup {
         try atomicInstall(staged, at: destination)
     }
 
-    private static func removeReplacement(at dbPath: String) {
-        removeIfPresent(URL(fileURLWithPath: dbPath))
-        removeIfPresent(URL(fileURLWithPath: dbPath + "-wal"))
-        removeIfPresent(URL(fileURLWithPath: dbPath + "-shm"))
+    private static func removeReplacement(at dbPath: String, fault: RestoreFault? = nil) throws {
+        if fault == .replacementRemoval { throw RestoreFailure.replacementRemovalFailed }
+        let fileManager = FileManager.default
+        let urls = [
+            URL(fileURLWithPath: dbPath),
+            URL(fileURLWithPath: dbPath + "-wal"),
+            URL(fileURLWithPath: dbPath + "-shm"),
+        ]
+        for url in urls where fileManager.fileExists(atPath: url.path) {
+            try fileManager.removeItem(at: url)
+        }
+        guard urls.allSatisfy({ !fileManager.fileExists(atPath: $0.path) }) else {
+            throw RestoreFailure.replacementRemovalFailed
+        }
     }
 
     private static let backupEntryName = "noop-backup.sqlite"
@@ -687,11 +687,15 @@ enum DataBackup {
     private static func preflightRestoreCapacity(source: URL, pickedSource: URL, databaseURL: URL,
                                                  extractedDirectory: URL?, fileManager: FileManager) throws {
         let sourceBytes = try fileSize(source, fileManager: fileManager)
+        let walBytes = extractedDirectory == nil
+            ? try fileSize(URL(fileURLWithPath: source.path + "-wal"), fileManager: fileManager)
+            : 0
         let liveBytes = try fileSize(databaseURL, fileManager: fileManager)
         let archiveBytes = extractedDirectory == nil
             ? 0 : try fileSize(pickedSource, fileManager: fileManager)
         let required = saturatingAdd(
             saturatingMultiply(sourceBytes, by: 2),
+            saturatingMultiply(walBytes, by: 2),
             saturatingMultiply(liveBytes, by: 2),
             archiveBytes
         )
@@ -749,10 +753,10 @@ enum DataBackup {
         }
     }
 
-    private static func restoreWAL(from source: URL, toMainPath dbPath: String) throws {
-        let src = URL(fileURLWithPath: source.path + "-wal")
-        guard FileManager.default.fileExists(atPath: src.path) else { return }
-        let handle = try FileHandle(forReadingFrom: src)
+    /// A legacy sidecar lacks authenticated expected length. Validate enough to report corrupt input,
+    /// then fail closed above rather than risking a silent, incomplete recovery.
+    private static func validateLegacyWAL(at url: URL) throws {
+        let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         let header = try handle.read(upToCount: 32) ?? Data()
         let magic = Array(header.prefix(4))
@@ -762,10 +766,15 @@ enum DataBackup {
         else {
             throw RestoreFailure.invalidReplacement("legacy WAL header is malformed")
         }
-        let dst = URL(fileURLWithPath: dbPath + "-wal")
-        if FileManager.default.fileExists(atPath: dst.path) {
-            try FileManager.default.removeItem(at: dst)
+        let pageSizeField = Int(header[8]) << 8 | Int(header[9])
+        let pageSize = pageSizeField == 1 ? 65_536 : pageSizeField
+        guard pageSize >= 512, pageSize <= 65_536, pageSize.nonzeroBitCount == 1 else {
+            throw RestoreFailure.invalidReplacement("legacy WAL has an invalid page size")
         }
-        try FileManager.default.copyItem(at: src, to: dst)
+        let size = try fileSize(url, fileManager: .default)
+        let frameSize = UInt64(24 + pageSize)
+        guard size > 32, (size - 32).isMultiple(of: frameSize) else {
+            throw RestoreFailure.invalidReplacement("legacy WAL is truncated or contains no complete frames")
+        }
     }
 }

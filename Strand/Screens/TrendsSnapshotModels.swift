@@ -198,6 +198,23 @@ enum ProductionTrendMetric: String, CaseIterable, Identifiable, Sendable {
         guard rendered != "—", !unit.isEmpty else { return rendered }
         return unit == "%" ? "\(rendered)%" : "\(rendered) \(unit)"
     }
+
+    /// Imported database rows are untrusted display input. Keep corrupt but finite
+    /// values out of chart geometry as well as formatters.
+    func acceptsForDisplay(_ value: Double) -> Bool {
+        guard value.isFinite else { return false }
+        switch self {
+        case .recovery, .sleepPerformance, .spo2: return (0...100).contains(value)
+        case .strain, .stress: return (0...100).contains(value)
+        case .sleepDuration: return (0...24).contains(value)
+        case .hrv: return (0...2_000).contains(value)
+        case .restingHR: return (20...300).contains(value)
+        case .respiratory: return (4...80).contains(value)
+        case .skinTemp: return (-20...20).contains(value)
+        case .steps: return (0...2_000_000).contains(value)
+        case .calories: return (0...100_000).contains(value)
+        }
+    }
 }
 
 struct TrendsScreenSnapshotKey: Hashable, Sendable {
@@ -410,22 +427,23 @@ struct TrendsScreenSnapshot: Sendable {
         day: DailyMetric,
         data: TrendsLoadedData
     ) -> Double? {
+        let candidate: Double?
         switch metric {
-        case .recovery: finite(day.recovery)
-        case .strain: finite(day.strain.map(StrainScale.displayValue(fromStored:)))
-        case .sleepPerformance: finite(data.sleepPerfByDay[day.day])
-        case .sleepDuration: finite(day.totalSleepMin.map { $0 / 60 })
-        case .hrv: finite(day.avgHrv)
-        case .restingHR: finite(day.restingHr.map(Double.init))
-        case .respiratory: finite(day.respRateBpm)
-        case .spo2: finite(day.spo2Pct)
-        case .skinTemp: finite(day.skinTempDevC)
-        case .steps:
-            finite(day.steps.map(Double.init) ?? data.appleByDay[day.day]?.steps.map(Double.init))
-        case .calories:
-            finite(day.activeKcalEst ?? data.appleByDay[day.day]?.activeKcal)
-        case .stress: finite(data.stressByDay[day.day])
+        case .recovery: candidate = day.recovery
+        case .strain: candidate = day.strain.map(StrainScale.displayValue(fromStored:))
+        case .sleepPerformance: candidate = data.sleepPerfByDay[day.day]
+        case .sleepDuration: candidate = day.totalSleepMin.map { $0 / 60 }
+        case .hrv: candidate = day.avgHrv
+        case .restingHR: candidate = day.restingHr.map(Double.init)
+        case .respiratory: candidate = day.respRateBpm
+        case .spo2: candidate = day.spo2Pct
+        case .skinTemp: candidate = day.skinTempDevC
+        case .steps: candidate = day.steps.map(Double.init) ?? data.appleByDay[day.day]?.steps.map(Double.init)
+        case .calories: candidate = day.activeKcalEst ?? data.appleByDay[day.day]?.activeKcal
+        case .stress: candidate = data.stressByDay[day.day]
         }
+        guard let value = finite(candidate), metric.acceptsForDisplay(value) else { return nil }
+        return value
     }
 
     private static func finite(_ value: Double?) -> Double? {

@@ -85,7 +85,8 @@ try:
         "formatter.setLocalizedDateFormatFromTemplate(\"EEEE MMM d\")",
         "preservesTimeZoneOccurrence(",
         "calendar.isDate(proposed, inSameDayAs: endpoint)",
-        "secondsFromGMT(for: proposed)",
+        "repeatedTimePolicy: .first",
+        "return first == last || abs(first.timeIntervalSince(proposed)) < 0.5",
     )
     forbid(
         "Strand/Screens/SleepAlarmEditorSection.swift",

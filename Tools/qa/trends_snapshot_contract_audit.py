@@ -79,7 +79,9 @@ try:
     require(
         "Strand/Screens/TrendsView.swift",
         "@State private var loadedData = TrendsLoadedData.empty",
-        ".task(id: repo.refreshSeq)",
+        "repo.refreshSeq)-\\(civilContext.localDay)-\\(civilContext.timeZoneIdentifier)",
+        "TimelineView(.periodic(from: .now, by: 60))",
+        "NSSystemTimeZoneDidChange",
         ".task(id: screenSnapshotKey)",
         "await loadDataForCurrentRevision()",
         "await rebuildScreenSnapshot()",

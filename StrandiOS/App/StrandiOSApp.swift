@@ -20,12 +20,19 @@ struct ExternalSurfaceDayProjection: Equatable {
     let recovery: Int?
     let effort: Double?
 
+    static func recoveryValue(_ value: Double?) -> Int? {
+        guard let value, value.isFinite, (0...100).contains(value),
+              value >= Double(Int.min), value <= Double(Int.max)
+        else { return nil }
+        return Int(value.rounded())
+    }
+
     @MainActor
     static func make(repository: Repository, now: Date = Date()) -> Self {
         let day = Repository.widgetAnchor(days: repository.days, now: now)
         return Self(
             logicalDayKey: Repository.logicalDayKey(now),
-            recovery: day?.recovery.map { Int($0.rounded()) },
+            recovery: recoveryValue(day?.recovery),
             effort: day
                 .flatMap { repository.canonicalStrain(for: $0.day)?.storedValue }
                 .map { StrainScale.displayValue(fromStored: $0) }

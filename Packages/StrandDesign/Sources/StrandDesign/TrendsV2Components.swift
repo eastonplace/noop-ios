@@ -56,6 +56,36 @@ public enum TrendRange: String, CaseIterable, Identifiable, Sendable {
 
 // MARK: - TrendPanelChart
 
+/// A scale that never computes an overflowing raw span. Chart coordinates are
+/// derived in a normalized domain, so finite imported extremes cannot become NaN.
+public struct FiniteChartScale: Sendable {
+    private let magnitude: Double
+    private let lowerNormalized: Double
+    private let spanNormalized: Double
+
+    public init?(values: [Double]) {
+        let finite = values.filter(\.isFinite)
+        guard let lower = finite.min(), let upper = finite.max() else { return nil }
+        magnitude = max(abs(lower), abs(upper), 1)
+        let low = lower / magnitude
+        let high = upper / magnitude
+        if high > low {
+            lowerNormalized = low
+            spanNormalized = high - low
+        } else {
+            lowerNormalized = low - 0.5
+            spanNormalized = 1
+        }
+    }
+
+    public func normalized(_ value: Double) -> Double? {
+        guard value.isFinite else { return nil }
+        let result = (value / magnitude - lowerNormalized) / spanNormalized
+        guard result.isFinite else { return nil }
+        return min(max(result, 0), 1)
+    }
+}
+
 public struct TrendPanelChart: View {
     public enum Direction: Sendable { case higherIsBetter, lowerIsBetter, contextual }
     /// One fixed slot per calendar day. Nil values stay selectable as honest gaps.
@@ -150,11 +180,9 @@ public struct TrendPanelChart: View {
         .animation(StrandMotion.fade, value: scrubDay)
     }
 
-    private var yRange: ClosedRange<Double> {
+    private var yScale: FiniteChartScale {
         let all = values + [baseline, typical.lowerBound, typical.upperBound]
-        guard let lo = all.min(), let hi = all.max(), hi > lo else { return 0...1 }
-        let pad = (hi - lo) * 0.16
-        return (lo - pad)...(hi + pad)
+        return FiniteChartScale(values: all) ?? FiniteChartScale(values: [0, 1])!
     }
 
     private var plot: some View {
@@ -187,12 +215,13 @@ public struct TrendPanelChart: View {
 
     @ViewBuilder
     private func plotLayers(size: CGSize) -> some View {
-        let yr = yRange
-        let ySpan = max(yr.upperBound - yr.lowerBound, 0.0001)
+        let scale = yScale
         let xOf: (Date) -> CGFloat = {
             size.width * CGFloat(TrendCalendar.unitPosition(of: $0, in: dateDomain))
         }
-        let yOf: (Double) -> CGFloat = { size.height - size.height * CGFloat(($0 - yr.lowerBound) / ySpan) }
+        let yOf: (Double) -> CGFloat = { value in
+            size.height - size.height * CGFloat(scale.normalized(value) ?? 0.5)
+        }
         let rendered = points.map { (xOf($0.date), yOf($0.value)) }
 
         ZStack {
@@ -457,7 +486,7 @@ public enum TrendCalendar {
 
     public static func mean(of days: [CalendarMetricDay]) -> Double? {
         let values = days.compactMap(\.value)
-        return values.isEmpty ? nil : values.reduce(0, +) / Double(values.count)
+        return stableMean(values)
     }
 
     public static func dateDomain(
@@ -611,8 +640,25 @@ public enum TrendCalendar {
             values[mondayFirstIndex].append(value)
         }
         return values.map { bucket in
-            bucket.isEmpty ? nil : bucket.reduce(0, +) / Double(bucket.count)
+            stableMean(bucket)
         }
+    }
+
+    static func stableMean(_ values: [Double]) -> Double? {
+        let values = values.filter(\.isFinite)
+        guard !values.isEmpty else { return nil }
+        let scale = values.reduce(0.0) { max($0, abs($1)) }
+        guard scale > 0, scale.isFinite else { return scale == 0 ? 0 : nil }
+        if scale <= Double.greatestFiniteMagnitude / Double(values.count) {
+            let direct = values.reduce(0, +) / Double(values.count)
+            if direct.isFinite { return direct }
+        }
+        var result = 0.0
+        for (index, value) in values.enumerated() {
+            result += (value / scale - result) / Double(index + 1)
+        }
+        let mean = result * scale
+        return mean.isFinite ? mean : nil
     }
 
     private static func slots(
@@ -688,9 +734,7 @@ public struct TrendMonthHeat: View {
 
     private var grid: some View {
         let values = days.compactMap(\.value)
-        let lo = values.min() ?? 0
-        let hi = values.max() ?? 1
-        let span = max(hi - lo, 0.0001)
+        let scale = FiniteChartScale(values: values) ?? FiniteChartScale(values: [0, 1])!
         let today = calendar.startOfDay(for: referenceDate)
 
         return GeometryReader { proxy in
@@ -699,7 +743,7 @@ public struct TrendMonthHeat: View {
                     ForEach(days) { day in
                         let index = days.firstIndex(where: { $0.id == day.id }) ?? 0
                         RoundedRectangle(cornerRadius: 4, style: .continuous)
-                            .fill(cellColor(for: day, low: lo, span: span))
+                            .fill(cellColor(for: day, scale: scale))
                             .frame(height: 22)
                             .overlay {
                                 if calendar.isDate(today, inSameDayAs: day.date) || scrubIndex == index {
@@ -771,18 +815,18 @@ public struct TrendMonthHeat: View {
         .frame(height: 126)
     }
 
-    private func cellColor(for day: TrendCalendarDay, low: Double, span: Double) -> Color {
+    private func cellColor(for day: TrendCalendarDay, scale: FiniteChartScale) -> Color {
         switch TrendCalendar.cellState(for: day, today: referenceDate, calendar: calendar) {
-        case .value(let value): cellColor(for: value, low: low, span: span)
+        case .value(let value): cellColor(for: value, scale: scale)
         case .missing: StrandPalette.surfaceInset
         case .future: StrandPalette.surfaceInset.opacity(0.35)
         }
     }
 
-    private func cellColor(for value: Double, low: Double, span: Double) -> Color {
+    private func cellColor(for value: Double, scale: FiniteChartScale) -> Color {
         switch colorScale {
         case .intensity:
-            return tint.opacity(0.12 + 0.78 * (value - low) / span)
+            return tint.opacity(0.12 + 0.78 * (scale.normalized(value) ?? 0.5))
         case .recoveryBands:
             return RecoveryBands.color(for: value)
         }
@@ -791,7 +835,7 @@ public struct TrendMonthHeat: View {
     private var accessibilitySummary: String {
         let values = days.compactMap(\.value)
         guard let best = values.max() else { return "No month data yet." }
-        let average = values.reduce(0, +) / Double(max(values.count, 1))
+        let average = TrendCalendar.stableMean(values) ?? 0
         let states = days.map { TrendCalendar.cellState(for: $0, today: referenceDate, calendar: calendar) }
         let missing = states.filter { $0 == .missing }.count
         let future = states.filter { $0 == .future }.count
@@ -913,16 +957,14 @@ public struct TrendWeekdayBars: View {
                 let slot = proxy.size.width / CGFloat(count)
                 let barWidth = max(6, slot * 0.42)
                 let scored = values.compactMap { $0 }
-                let top = scored.max() ?? 1
-                let bottom = scored.min() ?? 0
-                let span = max(top - bottom, 0.0001)
-                let average = scored.isEmpty ? 0 : scored.reduce(0, +) / Double(scored.count)
+                let scale = FiniteChartScale(values: scored) ?? FiniteChartScale(values: [0, 1])!
+                let average = TrendCalendar.stableMean(scored) ?? 0
                 let currentWeekday = TrendCalendar.mondayFirstWeekdayIndex(
                     for: referenceDate, calendar: calendar
                 )
                 let plotHeight = max(54, proxy.size.height - 30)
                 let heightOf: (Double) -> CGFloat = { value in
-                    max(6, CGFloat(0.25 + 0.75 * (value - bottom) / span) * plotHeight)
+                    max(6, CGFloat(0.25 + 0.75 * (scale.normalized(value) ?? 0.5)) * plotHeight)
                 }
 
                 ZStack(alignment: .topLeading) {

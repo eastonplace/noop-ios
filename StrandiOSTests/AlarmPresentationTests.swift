@@ -200,6 +200,15 @@ final class AlarmPresentationTests: XCTestCase {
         ))
     }
 
+    func testSpringForwardNudgeAllowsTheMissingHourJump() throws {
+        let calendar = newYorkCalendar()
+        let oneFiftyFive = try date(2026, 3, 8, 1, 55, calendar: calendar)
+        let threeAM = try XCTUnwrap(calendar.date(byAdding: .minute, value: 5, to: oneFiftyFive))
+        XCTAssertTrue(SleepAlarmEditorSupport.preservesTimeZoneOccurrence(
+            endpoint: oneFiftyFive, proposed: threeAM, calendar: calendar
+        ))
+    }
+
     private func newYorkCalendar() -> Calendar {
         var calendar = Calendar(identifier: .gregorian)
         calendar.locale = Locale(identifier: "en_US")

@@ -124,6 +124,50 @@ final class BackupArchiveHardeningTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
     }
 
+    func testValidHeaderButZeroFrameLegacyWALFailsClosed() throws {
+        let source = try makeValidDatabase()
+        var header = Data([0x37, 0x7f, 0x06, 0x82])
+        header.append(contentsOf: Array(repeating: 0, count: 4))
+        header.append(0x10); header.append(0x00) // 4 KiB page size
+        header.append(contentsOf: Array(repeating: 0, count: 22))
+        XCTAssertEqual(header.count, 32)
+        try header.write(to: URL(fileURLWithPath: source.path + "-wal"))
+        let destination = temporaryDirectory.appendingPathComponent("legacy-live.sqlite")
+
+        let result = DataBackup.restore(from: source, toDatabaseAt: destination.path)
+
+        guard case .failure(let message) = result else {
+            return XCTFail("An unverifiable legacy WAL must never be attached to a live restore")
+        }
+        XCTAssertTrue(message.localizedCaseInsensitiveContains("wal"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+    }
+
+    @MainActor
+    func testFreshInstallLifecycleReportsReplacementRemovalFailure() async throws {
+        let source = try makeValidDatabase()
+        let destination = temporaryDirectory.appendingPathComponent("fresh-live.sqlite")
+        var reopenAttempts = 0
+        let lifecycle = DataBackup.RestoreLifecycle(
+            quiesce: {},
+            reopenAndMigrate: {
+                reopenAttempts += 1
+                if reopenAttempts == 1 { throw CocoaError(.fileReadCorruptFile) }
+            }
+        )
+
+        let result = await DataBackup.restore(
+            from: source, toDatabaseAt: destination.path, lifecycle: lifecycle,
+            fault: .replacementRemoval
+        )
+
+        guard case .failure(let message) = result else {
+            return XCTFail("A failed replacement deletion must fail the lifecycle")
+        }
+        XCTAssertTrue(message.localizedCaseInsensitiveContains("could not reopen an empty store"))
+        XCTAssertEqual(reopenAttempts, 1)
+    }
+
     func testCanonicalEntriesExtractWithoutPathFlattening() throws {
         let archive = try makeArchive(entries: [
             ("noop-backup.sqlite", Data("database".utf8), .none),

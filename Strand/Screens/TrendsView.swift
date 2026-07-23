@@ -5,12 +5,22 @@ import StrandAnalytics
 import WhoopStore
 import Foundation
 
+private struct TrendsCivilContext: Equatable {
+    let localDay: String
+    let timeZoneIdentifier: String
+
+    @MainActor static func current(at date: Date = Date()) -> Self {
+        Self(localDay: Repository.localDayKey(date), timeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier)
+    }
+}
+
 struct TrendsView: View {
     @EnvironmentObject private var repo: Repository
 
     @State private var showingReport = false
     @State private var loadedData = TrendsLoadedData.empty
     @State private var screenSnapshot: TrendsScreenSnapshot?
+    @State private var civilContext = TrendsCivilContext.current()
     @State var selectedMetric: ProductionTrendMetric = .recovery
     @State var selectedRange: TrendRange = .month
     /// Zero is the current Monday-Sunday digest; negative values step backward.
@@ -96,10 +106,24 @@ struct TrendsView: View {
         .sheet(isPresented: $showingReport) {
             TrendsReportSheet(days: canonicalDays)
         }
+        .background {
+            TimelineView(.periodic(from: .now, by: 60)) { timeline in
+                Color.clear
+                    .task(id: TrendsCivilContext.current(at: timeline.date)) {
+                        civilContext = TrendsCivilContext.current(at: timeline.date)
+                    }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)) { _ in
+            civilContext = .current()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)) { _ in
+            civilContext = .current()
+        }
         // A rescore can replace values without changing the number of day rows. `refreshSeq`, not count,
         // is the revision contract. `.task(id:)` cancels a superseded load; one assignment below prevents
         // Sleep, Stress, and Apple fallback data from briefly describing different revisions.
-        .task(id: repo.refreshSeq) {
+        .task(id: "\(repo.refreshSeq)-\(civilContext.localDay)-\(civilContext.timeZoneIdentifier)") {
             await loadDataForCurrentRevision()
         }
         .task(id: screenSnapshotKey) {

@@ -181,16 +181,36 @@ enum SleepAlarmEditorSupport {
         return proposed
     }
 
-    /// Recurring schedules persist only wall-clock components. Crossing a timezone-offset transition
-    /// would discard which repeated-hour occurrence the user was editing, so the compact nudge rejects it.
+    /// Recurring schedules persist only wall-clock components. Reject only a proposed time that is the
+    /// *second* occurrence of a repeated fall-back hour: the scheduler persists the first occurrence.
+    /// A spring-forward jump is unambiguous and must remain editable.
     nonisolated static func preservesTimeZoneOccurrence(
         endpoint: Date,
         proposed: Date,
         calendar: Calendar
     ) -> Bool {
-        calendar.isDate(proposed, inSameDayAs: endpoint)
-            && calendar.timeZone.secondsFromGMT(for: proposed)
-                == calendar.timeZone.secondsFromGMT(for: endpoint)
+        guard calendar.isDate(proposed, inSameDayAs: endpoint) else { return false }
+        let components = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: proposed)
+        guard let dayStart = calendar.date(from: DateComponents(
+            year: components.year, month: components.month, day: components.day
+        )), let searchStart = calendar.date(byAdding: .second, value: -1, to: dayStart),
+        let first = calendar.nextDate(
+            after: searchStart,
+            matching: components,
+            matchingPolicy: .nextTime,
+            repeatedTimePolicy: .first,
+            direction: .forward
+        ), let last = calendar.nextDate(
+            after: searchStart,
+            matching: components,
+            matchingPolicy: .nextTime,
+            repeatedTimePolicy: .last,
+            direction: .forward
+        ), calendar.isDate(first, inSameDayAs: proposed), calendar.isDate(last, inSameDayAs: proposed)
+        else { return false }
+        // A normal/spring-forward wall time has one date. For a fall-back wall time,
+        // only the first occurrence survives recurrence persistence safely.
+        return first == last || abs(first.timeIntervalSince(proposed)) < 0.5
     }
 
     static func wakeBinding(_ behavior: BehaviorStore, now: Date) -> Binding<Int> {

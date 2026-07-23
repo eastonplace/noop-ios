@@ -82,24 +82,18 @@ public enum ComparisonEngine {
     /// of value against the 0-based position index (the order in which values are
     /// supplied). Returns `.empty` for an empty input.
     public static func stat(_ values: [Double]) -> SeriesStat {
+        let values = values.filter(\.isFinite)
         let n = values.count
         guard n > 0 else { return .empty }
 
-        let mean = values.reduce(0, +) / Double(n)
+        guard let mean = StableStatistics.mean(values) else { return .empty }
         let med = median(values)
         let mn = values.min()!
         let mx = values.max()!
 
-        let sd: Double
-        if n >= 2 {
-            var ss = 0.0
-            for v in values { let d = v - mean; ss += d * d }
-            sd = (ss / Double(n - 1)).squareRoot()
-        } else {
-            sd = 0.0
-        }
+        let sd = StableStatistics.sampleStandardDeviation(values, mean: mean) ?? 0.0
 
-        let slope = leastSquaresSlope(values)
+        let slope = StableStatistics.leastSquaresSlope(values) ?? 0.0
 
         return SeriesStat(mean: mean, median: med, min: mn, max: mx,
                           stdev: sd, n: n, slopePerDay: slope)
@@ -113,14 +107,10 @@ public enum ComparisonEngine {
         let cur = stat(current)
         let prev = stat(previous)
 
-        let delta = cur.mean - prev.mean
+        let delta = StableStatistics.difference(cur.mean, prev.mean) ?? 0
 
         let pct: Double?
-        if prev.n > 0 && prev.mean != 0 {
-            pct = (cur.mean - prev.mean) / abs(prev.mean) * 100.0
-        } else {
-            pct = nil
-        }
+        pct = prev.n > 0 ? StableStatistics.percentChange(current: cur.mean, previous: prev.mean) : nil
 
         // Direction is meaningful only when both periods carry data.
         let direction: Int
@@ -175,30 +165,16 @@ public enum ComparisonEngine {
     /// Median of an array (0 when empty).
     static func median(_ values: [Double]) -> Double {
         guard !values.isEmpty else { return 0 }
-        let s = values.sorted()
+        let s = values.filter(\.isFinite).sorted()
         let n = s.count
         if n % 2 == 1 { return s[n / 2] }
-        return (s[n / 2 - 1] + s[n / 2]) / 2.0
+        return StableStatistics.mean([s[n / 2 - 1], s[n / 2]]) ?? 0
     }
 
     /// OLS slope of values against their 0-based index. 0 when n < 2 or the index
     /// has zero variance (impossible for distinct indices, but guarded anyway).
     static func leastSquaresSlope(_ values: [Double]) -> Double {
-        let n = values.count
-        guard n >= 2 else { return 0 }
-        let nD = Double(n)
-        // x = 0…n-1. meanX = (n-1)/2.
-        let meanX = Double(n - 1) / 2.0
-        let meanY = values.reduce(0, +) / nD
-        var sxy = 0.0
-        var sxx = 0.0
-        for i in 0..<n {
-            let dx = Double(i) - meanX
-            sxy += dx * (values[i] - meanY)
-            sxx += dx * dx
-        }
-        guard sxx > 0 else { return 0 }
-        return sxy / sxx
+        StableStatistics.leastSquaresSlope(values) ?? 0
     }
 
     /// Parse the "yyyy-MM" prefix of a "yyyy-MM-…" day string.

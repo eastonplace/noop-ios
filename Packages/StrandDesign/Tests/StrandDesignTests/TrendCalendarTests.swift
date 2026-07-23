@@ -2,6 +2,16 @@ import XCTest
 @testable import StrandDesign
 
 final class TrendCalendarTests: XCTestCase {
+
+    func testFiniteChartScaleNormalizesOpposingFiniteExtremes() throws {
+        let maximum = Double.greatestFiniteMagnitude
+        let scale = try XCTUnwrap(FiniteChartScale(values: [-maximum, maximum]))
+        for value in [-maximum, 0, maximum] {
+            let normalized = try XCTUnwrap(scale.normalized(value))
+            XCTAssertTrue(normalized.isFinite)
+            XCTAssertTrue((0...1).contains(normalized))
+        }
+    }
     private var calendar: Calendar {
         var calendar = Calendar(identifier: .gregorian)
         calendar.locale = Locale(identifier: "en_US_POSIX")
