@@ -8,11 +8,11 @@ enum SmartAlarmBackgroundRequestLoadResult: Equatable, Sendable {
     case loaded(SmartAlarmBackgroundRequest)
 }
 
-/// Owns the single production BGTask launch handler for the smart-alarm identifier. The scheduler enum
-/// retains only request persistence and submission helpers, so expiration and every other terminal path
-/// flow through the same exactly-once completion gate.
+/// Installs the exactly-once smart-alarm BGTask handler during app initialization, before runtime start.
+/// Malformed persisted payloads are removed so one corrupt request cannot poison every later background wake.
 @MainActor
 enum SmartAlarmBackgroundTaskRegistrar {
+    private static let requestKey = "smartAlarm.runtime.backgroundRequest"
     private static weak var runtime: SmartAlarmRuntimeController?
     private static var registered = false
 
@@ -81,16 +81,14 @@ enum SmartAlarmBackgroundTaskRegistrar {
     static func loadRequest(
         defaults: UserDefaults = .standard
     ) -> SmartAlarmBackgroundRequestLoadResult {
-        guard let data = defaults.data(
-            forKey: SmartAlarmRuntimeBackgroundScheduler.requestKey
-        ) else { return .missing }
+        guard let data = defaults.data(forKey: requestKey) else { return .missing }
         guard let request = try? JSONDecoder().decode(SmartAlarmBackgroundRequest.self, from: data)
         else { return .malformed }
         return .loaded(request)
     }
 
     static func clearStoredRequest(defaults: UserDefaults = .standard) {
-        defaults.removeObject(forKey: SmartAlarmRuntimeBackgroundScheduler.requestKey)
+        defaults.removeObject(forKey: requestKey)
     }
 
     private static func evaluate(
