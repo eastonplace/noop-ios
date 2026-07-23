@@ -181,6 +181,18 @@ enum SleepAlarmEditorSupport {
         return proposed
     }
 
+    /// Recurring schedules persist only wall-clock components. Crossing a timezone-offset transition
+    /// would discard which repeated-hour occurrence the user was editing, so the compact nudge rejects it.
+    nonisolated static func preservesTimeZoneOccurrence(
+        endpoint: Date,
+        proposed: Date,
+        calendar: Calendar
+    ) -> Bool {
+        calendar.isDate(proposed, inSameDayAs: endpoint)
+            && calendar.timeZone.secondsFromGMT(for: proposed)
+                == calendar.timeZone.secondsFromGMT(for: endpoint)
+    }
+
     static func wakeBinding(_ behavior: BehaviorStore, now: Date) -> Binding<Int> {
         Binding(
             get: {
@@ -190,13 +202,18 @@ enum SleepAlarmEditorSupport {
             set: { proposedMinutes in
                 guard let presentation = schedule(at: now, behavior: behavior) else { return }
                 let delta = proposedMinutes - presentation.wakeAxisMinutes
-                guard let proposedDate = Calendar.current.date(
+                let calendar = Calendar.current
+                guard let proposedDate = calendar.date(
                     byAdding: .minute,
                     value: delta,
                     to: presentation.endpoint
-                ), Calendar.current.isDate(proposedDate, inSameDayAs: presentation.endpoint)
+                ), preservesTimeZoneOccurrence(
+                    endpoint: presentation.endpoint,
+                    proposed: proposedDate,
+                    calendar: calendar
+                )
                 else { return }
-                let components = Calendar.current.dateComponents([.hour, .minute], from: proposedDate)
+                let components = calendar.dateComponents([.hour, .minute], from: proposedDate)
                 behavior.smartAlarmMinutes = (components.hour ?? 0) * 60 + (components.minute ?? 0)
             }
         )

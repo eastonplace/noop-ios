@@ -71,7 +71,7 @@ extension TrendsView {
                 previousPoints: previousSeries.recovery,
                 goodDirection: .higher,
                 tint: StrandPalette.recoveryData,
-                format: { "\(Int($0.rounded()))" }
+                format: ProductionTrendMetric.recovery.format
             )
             trendV2Row(
                 "Strain",
@@ -87,7 +87,7 @@ extension TrendsView {
                 previousPoints: previousSeries.sleep,
                 goodDirection: .higher,
                 tint: StrandPalette.sleepAccent,
-                format: { "\(Int($0.rounded()))%" }
+                format: ProductionTrendMetric.sleepPerformance.formatWithUnit
             )
             trendV2Row(
                 "HRV",
@@ -95,7 +95,7 @@ extension TrendsView {
                 previousPoints: previousSeries.hrv,
                 goodDirection: .higher,
                 tint: StrandPalette.metricPurple,
-                format: { "\(Int($0.rounded())) ms" }
+                format: ProductionTrendMetric.hrv.formatWithUnit
             )
 
             if !snapshot.weekdayAverages.compactMap({ $0 }).isEmpty {
@@ -176,7 +176,7 @@ extension TrendsView {
                     : StrandPalette.textSecondary)
                 .padding(.horizontal, 9)
                 .padding(.vertical, 8)
-                .frame(minHeight: 44)
+                .frame(minWidth: 44, minHeight: 44)
                 .background(
                     selectedRange == range
                         ? StrandPalette.textPrimary

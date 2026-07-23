@@ -42,9 +42,11 @@ enum DataBackup {
         case beforeInstall
     }
 
-    enum BackupResult {
+    enum BackupResult: Sendable {
         case exported(URL)
-        case imported(sidecar: URL)
+        /// The optional safety copy exists only when a previous database was present. Restored settings
+        /// stay staged until the lifecycle has reopened and migrated the replacement successfully.
+        case imported(safetyCopy: URL?, stagedSettings: Data?)
         case cancelled
         case failure(String)
     }
@@ -82,11 +84,13 @@ enum DataBackup {
             return .failure(String(localized: "Export failed: \(error.localizedDescription)"))
         }
         #else
-        let staged = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "NOOP-backup-\(UUID().uuidString).noopbak"
+        let stagingDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "noop-export-\(UUID().uuidString)", isDirectory: true
         )
-        defer { try? FileManager.default.removeItem(at: staged) }
+        let staged = stagingDirectory.appendingPathComponent(defaultBackupName())
+        defer { try? FileManager.default.removeItem(at: stagingDirectory) }
         do {
+            try FileManager.default.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
             try await Task.detached(priority: .utility) {
                 try writeVerifiedBackupZip(dbURL: dbURL, to: staged, settingsJSON: currentSettingsJSON())
             }.value
@@ -219,33 +223,52 @@ enum DataBackup {
 
     @MainActor
     static func restore(from pickedSource: URL, toDatabaseAt dbPath: String,
-                        lifecycle: RestoreLifecycle) async -> BackupResult {
+                        lifecycle: RestoreLifecycle,
+                        settingsDefaults: UserDefaults = .standard) async -> BackupResult {
         do { try await lifecycle.quiesce() }
         catch { return .failure(String(localized: "Couldn't pause the local database safely. Nothing was replaced. \(error.localizedDescription)")) }
         let result = await Task.detached(priority: .utility) {
             restore(from: pickedSource, toDatabaseAt: dbPath)
         }.value
-        return await finishRestore(result, databasePath: dbPath, lifecycle: lifecycle)
+        return await finishRestore(result, databasePath: dbPath, lifecycle: lifecycle,
+                                   settingsDefaults: settingsDefaults)
     }
 
     @MainActor
     private static func finishRestore(_ result: BackupResult, databasePath: String,
-                                      lifecycle: RestoreLifecycle) async -> BackupResult {
+                                      lifecycle: RestoreLifecycle,
+                                      settingsDefaults: UserDefaults = .standard) async -> BackupResult {
         switch result {
-        case .imported(let safetyCopy):
+        case .imported(let safetyCopy, let stagedSettings):
             do {
                 try await lifecycle.reopenAndMigrate()
+                if let stagedSettings {
+                    BackupSettings.apply(BackupSettings.decode(stagedSettings), to: settingsDefaults)
+                }
+                settingsDefaults.set(Date().timeIntervalSince1970, forKey: "backup.lastRestoreAt")
                 return result
             } catch {
                 do {
                     try await lifecycle.quiesce()
-                    try await Task.detached(priority: .utility) {
-                        try rollback(from: safetyCopy, toDatabaseAt: databasePath)
-                    }.value
+                    if let safetyCopy {
+                        try await Task.detached(priority: .utility) {
+                            try rollback(from: safetyCopy, toDatabaseAt: databasePath)
+                        }.value
+                    } else {
+                        await Task.detached(priority: .utility) {
+                            removeReplacement(at: databasePath)
+                        }.value
+                    }
                     try await lifecycle.reopenAndMigrate()
+                    if safetyCopy == nil {
+                        return .failure(String(localized: "The replacement database could not be opened or migrated, so NOOP removed it and reopened an empty store. \(error.localizedDescription)"))
+                    }
                     return .failure(String(localized: "The replacement database could not be opened or migrated, so NOOP restored your previous data automatically. \(error.localizedDescription)"))
                 } catch {
-                    return .failure(String(localized: "The replacement failed and automatic rollback could not reopen the previous database. The safety copy is at \(safetyCopy.path). \(error.localizedDescription)"))
+                    if let safetyCopy {
+                        return .failure(String(localized: "The replacement failed and automatic rollback could not reopen the previous database. The safety copy is at \(safetyCopy.path). \(error.localizedDescription)"))
+                    }
+                    return .failure(String(localized: "The replacement failed and NOOP could not reopen an empty store. \(error.localizedDescription)"))
                 }
             }
         case .failure, .cancelled, .exported:
@@ -266,7 +289,6 @@ enum DataBackup {
     }
 
     static func restore(from pickedSource: URL, toDatabaseAt dbPath: String,
-                        settingsDefaults: UserDefaults = .standard,
                         fault: RestoreFault? = nil) -> BackupResult {
         let fm = FileManager.default
         let source: URL
@@ -306,9 +328,9 @@ enum DataBackup {
             return .failure(String(localized: "This isn't a NOOP backup from this app. It's missing the migration bookkeeping a NOOP backup carries, and restoring it would strand your store."))
         }
 
-        let legacySidecarsPresent = extractedDir == nil
-            && (fm.fileExists(atPath: source.path + "-wal") || fm.fileExists(atPath: source.path + "-shm"))
-        if !legacySidecarsPresent,
+        let legacyWALPresent = extractedDir == nil
+            && fm.fileExists(atPath: source.path + "-wal")
+        if !legacyWALPresent,
            let complaint = DatabaseIntegrity.quickCheckFailure(atPath: source.path) {
             return .failure(String(localized: "This backup file is damaged and can't be restored (SQLite reports: \(complaint)). Your current data was left untouched."))
         }
@@ -317,13 +339,13 @@ enum DataBackup {
         do {
             try preflightRestoreCapacity(source: source, pickedSource: pickedSource, databaseURL: dbURL,
                                          extractedDirectory: extractedDir, fileManager: fm)
-            var sidecar = dbURL.deletingLastPathComponent()
+            var safetyCopy: URL?
+            let replacementSidecar = dbURL.deletingLastPathComponent()
                 .appendingPathComponent("whoop-replaced-\(timestamp()).sqlite")
             if fm.fileExists(atPath: dbURL.path) {
-                if fm.fileExists(atPath: sidecar.path) { try fm.removeItem(at: sidecar) }
-                try onlineBackup(fromDatabaseAt: dbURL.path, to: sidecar.path)
-            } else {
-                sidecar = dbURL
+                if fm.fileExists(atPath: replacementSidecar.path) { try fm.removeItem(at: replacementSidecar) }
+                try onlineBackup(fromDatabaseAt: dbURL.path, to: replacementSidecar.path)
+                safetyCopy = replacementSidecar
             }
 
             let incoming = dbURL.deletingLastPathComponent()
@@ -331,7 +353,7 @@ enum DataBackup {
             defer { removeIfPresent(incoming) }
             if fault == .replacementCopy { throw RestoreFailure.simulatedReplacementCopy }
             try fm.copyItem(at: source, to: incoming)
-            if let complaint = DatabaseIntegrity.quickCheckFailure(atPath: incoming.path), !legacySidecarsPresent {
+            if let complaint = DatabaseIntegrity.quickCheckFailure(atPath: incoming.path), !legacyWALPresent {
                 throw RestoreFailure.invalidReplacement(complaint)
             }
             removeIfPresent(URL(fileURLWithPath: dbPath + "-wal"))
@@ -340,12 +362,12 @@ enum DataBackup {
 
             let forcedComplaint = fault == .postSwapValidation ? "simulated post-swap failure" : nil
             if let complaint = forcedComplaint ?? DatabaseIntegrity.quickCheckFailure(atPath: dbURL.path) {
-                if sidecar != dbURL, fm.fileExists(atPath: sidecar.path) {
+                if let safetyCopy, fm.fileExists(atPath: safetyCopy.path) {
                     do {
-                        try rollback(from: sidecar, toDatabaseAt: dbPath)
+                        try rollback(from: safetyCopy, toDatabaseAt: dbPath)
                         return .failure(String(localized: "Import failed its post-restore integrity check (SQLite reports: \(complaint)). Your previous data was rolled back automatically."))
                     } catch {
-                        return .failure(String(localized: "Import failed its post-restore integrity check (SQLite reports: \(complaint)), and automatic rollback failed. The safety copy remains at \(sidecar.path). \(error.localizedDescription)"))
+                        return .failure(String(localized: "Import failed its post-restore integrity check (SQLite reports: \(complaint)), and automatic rollback failed. The safety copy remains at \(safetyCopy.path). \(error.localizedDescription)"))
                     }
                 }
                 removeIfPresent(dbURL)
@@ -357,17 +379,19 @@ enum DataBackup {
                 return .failure(String(localized: "Import failed its post-restore integrity check (SQLite reports: \(complaint)). The damaged file was removed; there was no previous database to roll back."))
             }
 
-            if extractedDir == nil {
+            if legacyWALPresent {
                 do {
-                    try restoreSidecar(from: source, toMainPath: dbPath, suffix: "-wal")
-                    try restoreSidecar(from: source, toMainPath: dbPath, suffix: "-shm")
+                    try restoreWAL(from: source, toMainPath: dbPath)
+                    if let complaint = DatabaseIntegrity.quickCheckFailure(atPath: dbURL.path) {
+                        throw RestoreFailure.invalidReplacement(complaint)
+                    }
                 } catch {
-                    if sidecar != dbURL, fm.fileExists(atPath: sidecar.path) {
+                    if let safetyCopy, fm.fileExists(atPath: safetyCopy.path) {
                         do {
-                            try rollback(from: sidecar, toDatabaseAt: dbPath)
+                            try rollback(from: safetyCopy, toDatabaseAt: dbPath)
                             return .failure(String(localized: "The legacy backup sidecars could not be restored, so NOOP rolled back to your previous database. \(error.localizedDescription)"))
                         } catch {
-                            return .failure(String(localized: "The legacy backup sidecars failed and automatic rollback also failed. The safety copy remains at \(sidecar.path). \(error.localizedDescription)"))
+                            return .failure(String(localized: "The legacy backup sidecars failed and automatic rollback also failed. The safety copy remains at \(safetyCopy.path). \(error.localizedDescription)"))
                         }
                     }
                     removeIfPresent(dbURL)
@@ -379,14 +403,14 @@ enum DataBackup {
                     return .failure(String(localized: "The legacy backup sidecars could not be restored. The incomplete fresh database was removed. \(error.localizedDescription)"))
                 }
             }
+            let stagedSettings: Data?
             if let extractedDir {
                 let settingsURL = extractedDir.appendingPathComponent(BackupSettings.entryName)
-                if let data = try? Data(contentsOf: settingsURL) {
-                    BackupSettings.apply(BackupSettings.decode(data), to: settingsDefaults)
-                }
+                stagedSettings = try? Data(contentsOf: settingsURL)
+            } else {
+                stagedSettings = nil
             }
-            UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "backup.lastRestoreAt")
-            return .imported(sidecar: sidecar)
+            return .imported(safetyCopy: safetyCopy, stagedSettings: stagedSettings)
         } catch {
             return .failure(String(localized: "Import failed. Your existing data was kept. \(error.localizedDescription)"))
         }
@@ -456,6 +480,12 @@ enum DataBackup {
         removeIfPresent(URL(fileURLWithPath: dbPath + "-wal"))
         removeIfPresent(URL(fileURLWithPath: dbPath + "-shm"))
         try atomicInstall(staged, at: destination)
+    }
+
+    private static func removeReplacement(at dbPath: String) {
+        removeIfPresent(URL(fileURLWithPath: dbPath))
+        removeIfPresent(URL(fileURLWithPath: dbPath + "-wal"))
+        removeIfPresent(URL(fileURLWithPath: dbPath + "-shm"))
     }
 
     private static let backupEntryName = "noop-backup.sqlite"
@@ -719,14 +749,20 @@ enum DataBackup {
         }
     }
 
-    private static func restoreSidecar(
-        from source: URL,
-        toMainPath dbPath: String,
-        suffix: String
-    ) throws {
-        let src = URL(fileURLWithPath: source.path + suffix)
+    private static func restoreWAL(from source: URL, toMainPath dbPath: String) throws {
+        let src = URL(fileURLWithPath: source.path + "-wal")
         guard FileManager.default.fileExists(atPath: src.path) else { return }
-        let dst = URL(fileURLWithPath: dbPath + suffix)
+        let handle = try FileHandle(forReadingFrom: src)
+        defer { try? handle.close() }
+        let header = try handle.read(upToCount: 32) ?? Data()
+        let magic = Array(header.prefix(4))
+        guard header.count >= 32,
+              magic == [0x37, 0x7f, 0x06, 0x82]
+                || magic == [0x37, 0x7f, 0x06, 0x83]
+        else {
+            throw RestoreFailure.invalidReplacement("legacy WAL header is malformed")
+        }
+        let dst = URL(fileURLWithPath: dbPath + "-wal")
         if FileManager.default.fileExists(atPath: dst.path) {
             try FileManager.default.removeItem(at: dst)
         }

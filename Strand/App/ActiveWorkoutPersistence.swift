@@ -563,6 +563,8 @@ enum ActiveWorkoutPersistence {
         @discardableResult
         private func write(_ request: Request) -> Bool {
             guard isCurrent(request.epoch), directory != nil else { return false }
+            var newGenerationURL: URL?
+            var metadataCommitted = false
 
             do {
                 let previous = loadMetadata(defaults)
@@ -597,9 +599,14 @@ enum ActiveWorkoutPersistence {
                     liveStrainState: request.snapshot.liveStrainState
                 )
                 try faultInjector(.beforeFileWrite)
-                try writeDurably(data, to: journalURL(for: generation))
+                let generationURL = journalURL(for: generation)
+                newGenerationURL = generationURL
+                try writeDurably(data, to: generationURL)
                 try faultInjector(.afterFileSync)
-                guard isCurrent(request.epoch) else { return false }
+                guard isCurrent(request.epoch) else {
+                    try? FileManager.default.removeItem(at: generationURL)
+                    return false
+                }
                 try faultInjector(.beforeMetadataCommit)
                 let encoder = JSONEncoder()
                 let metadataData = try encoder.encode(metadata)
@@ -615,6 +622,7 @@ enum ActiveWorkoutPersistence {
                       defaults.data(forKey: ActiveWorkoutPersistence.previousMetadataKey) == previousMetadataData
                 else { throw CocoaError(.fileWriteUnknown) }
                 defaults.removeObject(forKey: ActiveWorkoutPersistence.defaultsKey)
+                metadataCommitted = true
 
                 lock.lock()
                 committedCursor = Cursor(
@@ -633,6 +641,9 @@ enum ActiveWorkoutPersistence {
                 cleanupStaleGenerations(keeping: [generation, previous?.generation].compactMap { $0 })
                 return true
             } catch {
+                if !metadataCommitted, let newGenerationURL {
+                    try? FileManager.default.removeItem(at: newGenerationURL)
+                }
                 NSLog("ActiveWorkoutPersistence: journal write failed: \(error)")
                 invalidate(epoch: request.epoch)
                 return false

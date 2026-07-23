@@ -138,6 +138,8 @@ final class AppModel: ObservableObject {
     /// The just-ended workout, for a brief inline confirmation on Live (cleared on the next start).
     @Published var lastWorkout: WorkoutRow?
     @Published private(set) var workoutFinishState: WorkoutFinishState = .recording
+    /// A visible, non-blocking warning when the initial crash-recovery snapshot could not commit.
+    @Published private(set) var workoutDurabilityWarning: String?
 
     /// Records the GPS route of an in-flight distance-type workout (run / ride / walk / hike) from
     /// CoreLocation (#524) , the Apple analogue of Android's `GpsSession` + foreground `LocationManager`.
@@ -708,7 +710,11 @@ final class AppModel: ObservableObject {
         }
         // Make the session durable from the first instant (#529): persist it now so an OS kill right
         // after Start , before any HR sample lands , can still be rehydrated + ended on relaunch.
-        persistActiveWorkout(force: true)
+        let initialSnapshotCommitted = persistActiveWorkout(force: true, synchronously: true)
+            || persistActiveWorkout(force: true, synchronously: true)
+        if !initialSnapshotCommitted {
+            workoutDurabilityWarning = String(localized: "This workout is recording, but it is not safely recoverable if NOOP closes. Keep the app open and free storage before continuing.")
+        }
         // Workouts & GPS test mode (Test Centre): one session-start line tagged `.workouts`. Zero-cost when
         // off (the gate is one UserDefaults bool read), so the lifecycle of a missing workout is visible.
         emitWorkoutsTrace(WorkoutsTrace.sessionLine(
@@ -774,7 +780,10 @@ final class AppModel: ObservableObject {
                 liveStrainState: w.liveStrainState),
             synchronously: synchronously
         )
-        if accepted { lastWorkoutSnapshotAt = now }
+        if accepted {
+            lastWorkoutSnapshotAt = now
+            workoutDurabilityWarning = nil
+        }
         return accepted
     }
 

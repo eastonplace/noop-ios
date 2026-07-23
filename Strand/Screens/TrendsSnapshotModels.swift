@@ -40,7 +40,12 @@ struct TrendSummaryPresentation {
         latest = finiteSeries.last?.value
         let currentMean = Self.mean(finiteSeries)
         let previousMean = Self.mean(finitePreviousSeries)
-        delta = currentMean.flatMap { current in previousMean.map { current - $0 } }
+        delta = currentMean.flatMap { current in
+            previousMean.flatMap { previous in
+                let candidate = current - previous
+                return candidate.isFinite ? candidate : nil
+            }
+        }
         spark = TrendPointExtremaSampler.sample(finiteSeries, maximumCount: 30)
         currentCount = finiteSeries.count
         previousCount = finitePreviousSeries.count
@@ -75,7 +80,15 @@ struct TrendSummaryPresentation {
 
     private static func mean(_ series: [TrendPoint]) -> Double? {
         guard !series.isEmpty else { return nil }
-        return series.reduce(0) { $0 + $1.value } / Double(series.count)
+        let scale = series.reduce(0.0) { max($0, abs($1.value)) }
+        guard scale.isFinite, scale > 0 else { return 0 }
+        var mean = 0.0
+        for (index, point) in series.enumerated() {
+            let value = point.value / scale
+            mean += (value - mean) / Double(index + 1)
+        }
+        let result = mean * scale
+        return result.isFinite ? result : nil
     }
 }
 
@@ -294,12 +307,8 @@ struct TrendsScreenSnapshot: Sendable {
         let weekdayAverages = TrendCalendar.weekdayAverages(selectedCalendarDays, calendar: calendar)
             .map(finite)
         let values = selectedPoints.map(\.value)
-        let baseline = values.isEmpty ? 0 : values.reduce(0, +) / Double(values.count)
-        let spread: Double = {
-            guard values.count > 1 else { return max(abs(baseline) * 0.1, 1) }
-            let variance = values.reduce(0) { $0 + pow($1 - baseline, 2) } / Double(values.count)
-            return max(sqrt(variance), abs(baseline) * 0.04)
-        }()
+        let baseline = stableMean(values) ?? 0
+        let spread = stableSpread(values, around: baseline)
 
         let weekAnchorDay = WeeklyDigestEngine.addDays(data.anchorDay, weekOffset * 7)
         let digestDays: [DailyMetric]
@@ -310,7 +319,7 @@ struct TrendsScreenSnapshot: Sendable {
             )
             digestDays = (0..<(7 * (WeeklyDigestEngine.baselineWeeks + 2))).compactMap { offset in
                 data.canonicalByDay[WeeklyDigestEngine.addDays(first, offset)]
-            }.filter(Self.hasFiniteDigestInputs)
+            }
         } else {
             digestDays = []
         }
@@ -342,7 +351,7 @@ struct TrendsScreenSnapshot: Sendable {
             heatDays: heatDays,
             weekdayAverages: weekdayAverages,
             baseline: baseline,
-            typical: (baseline - max(spread, 0.5))...(baseline + max(spread, 0.5)),
+            typical: finiteTypical(center: baseline, spread: spread),
             weeklyDigest: digest,
             minimumWeekOffset: minimumWeekOffset
         )
@@ -354,10 +363,46 @@ struct TrendsScreenSnapshot: Sendable {
         return DateComponents(year: pieces[0], month: pieces[1], day: pieces[2])
     }
 
-    private static func hasFiniteDigestInputs(_ day: DailyMetric) -> Bool {
-        [day.totalSleepMin, day.avgHrv, day.recovery, day.strain]
-            .compactMap { $0 }
-            .allSatisfy(\.isFinite)
+    private static func stableMean(_ values: [Double]) -> Double? {
+        guard !values.isEmpty else { return nil }
+        let scale = values.reduce(0.0) { max($0, abs($1)) }
+        guard scale.isFinite else { return nil }
+        guard scale > 0 else { return 0 }
+        var mean = 0.0
+        for (index, value) in values.enumerated() {
+            let normalised = value / scale
+            mean += (normalised - mean) / Double(index + 1)
+        }
+        let result = mean * scale
+        return result.isFinite ? result : nil
+    }
+
+    private static func stableSpread(_ values: [Double], around baseline: Double) -> Double {
+        guard values.count > 1, baseline.isFinite else {
+            return max(abs(baseline) * 0.1, 1)
+        }
+        let scale = values.reduce(0.0) { max($0, abs($1)) }
+        guard scale.isFinite, scale > 0 else { return 1 }
+        let center = baseline / scale
+        var meanSquares = 0.0
+        for (index, value) in values.enumerated() {
+            let delta = value / scale - center
+            let square = delta * delta
+            meanSquares += (square - meanSquares) / Double(index + 1)
+        }
+        let scaled = sqrt(max(0, meanSquares)) * scale
+        let result = max(scaled, abs(baseline) * 0.04, 0.5)
+        return result.isFinite ? result : Double.greatestFiniteMagnitude
+    }
+
+    private static func finiteTypical(center: Double, spread: Double) -> ClosedRange<Double> {
+        guard center.isFinite, spread.isFinite else { return -1...1 }
+        let lowerCandidate = center - spread
+        let upperCandidate = center + spread
+        let lower = lowerCandidate.isFinite ? lowerCandidate : -Double.greatestFiniteMagnitude
+        let upper = upperCandidate.isFinite ? upperCandidate : Double.greatestFiniteMagnitude
+        guard lower <= upper else { return -1...1 }
+        return lower...upper
     }
 
     private static func value(

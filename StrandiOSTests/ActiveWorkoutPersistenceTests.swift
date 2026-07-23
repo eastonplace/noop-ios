@@ -336,6 +336,9 @@ final class ActiveWorkoutPersistenceTests: XCTestCase {
 
             let relaunched = ActiveWorkoutPersistence.ProductionJournalWriter(defaults: defaults, directory: directory)
             XCTAssertEqual(relaunched.load(), initial, "phase: \(phase)")
+            let generations = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+                .filter { $0.hasPrefix("active-workout-") && $0.hasSuffix(".bin") }
+            XCTAssertEqual(generations.count, 1, "failed generation leaked at phase: \(phase)")
         }
     }
 

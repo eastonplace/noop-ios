@@ -55,6 +55,75 @@ final class BackupArchiveHardeningTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
     }
 
+    @MainActor
+    func testFreshInstallLifecycleFailureRemovesReplacementAndReopensEmptyStore() async throws {
+        let source = try makeValidDatabase()
+        let destination = temporaryDirectory.appendingPathComponent("fresh-live.sqlite")
+        var reopenAttempts = 0
+        let lifecycle = DataBackup.RestoreLifecycle(
+            quiesce: {},
+            reopenAndMigrate: {
+                reopenAttempts += 1
+                if reopenAttempts == 1 { throw CocoaError(.fileReadCorruptFile) }
+            }
+        )
+
+        let result = await DataBackup.restore(
+            from: source, toDatabaseAt: destination.path, lifecycle: lifecycle
+        )
+
+        guard case .failure(let message) = result else {
+            return XCTFail("A lifecycle reopen failure must fail the restore")
+        }
+        XCTAssertTrue(message.localizedCaseInsensitiveContains("removed it"))
+        XCTAssertEqual(reopenAttempts, 2)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+    }
+
+    @MainActor
+    func testFailedLifecycleRestoreLeavesExistingSettingsUntouched() async throws {
+        let source = try makeValidDatabase()
+        let archive = temporaryDirectory.appendingPathComponent("with-settings.noopbak")
+        try DataBackup.writeBackupForTesting(
+            databaseAt: source, to: archive, settings: ["profile.sex": "imported"]
+        )
+        let destination = temporaryDirectory.appendingPathComponent("existing-live.sqlite")
+        _ = try makeValidDatabase().copyTo(destination)
+        let defaultsName = "test.restore-settings.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+        defaults.removePersistentDomain(forName: defaultsName)
+        defaults.set("original", forKey: "profile.sex")
+        var reopenAttempts = 0
+        let lifecycle = DataBackup.RestoreLifecycle(
+            quiesce: {},
+            reopenAndMigrate: {
+                reopenAttempts += 1
+                if reopenAttempts == 1 { throw CocoaError(.fileReadCorruptFile) }
+            }
+        )
+
+        _ = await DataBackup.restore(
+            from: archive, toDatabaseAt: destination.path, lifecycle: lifecycle,
+            settingsDefaults: defaults
+        )
+
+        XCTAssertEqual(reopenAttempts, 2)
+        XCTAssertEqual(defaults.string(forKey: "profile.sex"), "original")
+    }
+
+    func testMalformedLegacyWALFailsFinalPostInstallValidation() throws {
+        let source = try makeValidDatabase()
+        try Data("not a sqlite wal".utf8).write(to: URL(fileURLWithPath: source.path + "-wal"))
+        let destination = temporaryDirectory.appendingPathComponent("legacy-live.sqlite")
+
+        let result = DataBackup.restore(from: source, toDatabaseAt: destination.path)
+
+        guard case .failure = result else {
+            return XCTFail("A malformed legacy WAL must not be accepted after the main database check")
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+    }
+
     func testCanonicalEntriesExtractWithoutPathFlattening() throws {
         let archive = try makeArchive(entries: [
             ("noop-backup.sqlite", Data("database".utf8), .none),
@@ -217,5 +286,12 @@ final class BackupArchiveHardeningTests: XCTestCase {
         }
         XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: output.path).isEmpty,
                       "A rejected archive must not write partial output", file: file, line: line)
+    }
+}
+
+private extension URL {
+    func copyTo(_ destination: URL) throws -> URL {
+        try FileManager.default.copyItem(at: self, to: destination)
+        return destination
     }
 }

@@ -64,11 +64,17 @@ try:
         ".sorted { lhs, rhs in",
         'guard value.isFinite else { return "—" }',
         "private static func finite(_ value: Double?)",
-        "filter(Self.hasFiniteDigestInputs)",
+        "private static func stableMean(_ values: [Double])",
+        "private static func stableSpread(_ values: [Double], around baseline: Double)",
+        "private static func finiteTypical(center: Double, spread: Double)",
         "data.sleepPerfByDay.filter { $0.value.isFinite }",
         "effortDisplayFactor.isFinite ? effortDisplayFactor : 1",
         "loaded.revision < 0 ? fallback : loaded.canonicalDays",
         "value.formatted(.number.precision(.fractionLength(0)))",
+    )
+    forbid(
+        "Strand/Screens/TrendsSnapshotModels.swift",
+        "filter(Self.hasFiniteDigestInputs)",
     )
     require(
         "Strand/Screens/TrendsView.swift",

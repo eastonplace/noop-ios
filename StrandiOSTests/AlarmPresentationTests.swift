@@ -189,6 +189,17 @@ final class AlarmPresentationTests: XCTestCase {
         )
     }
 
+    func testFallBackNudgeRejectsCrossingRepeatedHourOccurrence() throws {
+        let calendar = newYorkCalendar()
+        let firstOneFiftyFive = try date(2026, 11, 1, 1, 55, calendar: calendar)
+        let secondOne = try XCTUnwrap(calendar.date(
+            byAdding: .minute, value: 5, to: firstOneFiftyFive
+        ))
+        XCTAssertFalse(SleepAlarmEditorSupport.preservesTimeZoneOccurrence(
+            endpoint: firstOneFiftyFive, proposed: secondOne, calendar: calendar
+        ))
+    }
+
     private func newYorkCalendar() -> Calendar {
         var calendar = Calendar(identifier: .gregorian)
         calendar.locale = Locale(identifier: "en_US")

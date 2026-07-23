@@ -333,6 +333,79 @@ final class TrendsSnapshotTests: XCTestCase {
         XCTAssertNotEqual(rendered, "—")
     }
 
+    func testSnapshotKeepsFiniteExtremesFromOverflowingItsTypicalRange() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 7, day: 22)))
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        let extremes = [Double.greatestFiniteMagnitude, 1e308, -Double.greatestFiniteMagnitude,
+                        -1e308, Double.greatestFiniteMagnitude, 1e308, -1e308]
+        let days = try extremes.enumerated().map { offset, value in
+            let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset - 6, to: anchor))
+            return DailyMetric(
+                day: formatter.string(from: date), totalSleepMin: 420, efficiency: 0.9,
+                deepMin: 90, remMin: 110, lightMin: 200, disturbances: 6,
+                restingHr: 52, avgHrv: 64, recovery: value, strain: 9, exerciseCount: 1
+            )
+        }
+        let loaded = TrendsLoadedData(revision: 10, anchorDay: formatter.string(from: anchor),
+                                      timeZoneIdentifier: "UTC", canonicalDays: days,
+                                      sleepPerfByDay: [:], stressByDay: [:], appleDays: [])
+        let snapshot = try XCTUnwrap(TrendsScreenSnapshot.build(
+            key: key(revision: 10), data: loaded, metric: .recovery, range: .week,
+            weekOffset: 0, referenceDate: anchor, calendar: calendar, effortDisplayFactor: 1
+        ))
+
+        XCTAssertTrue(snapshot.baseline.isFinite)
+        XCTAssertTrue(snapshot.typical.lowerBound.isFinite)
+        XCTAssertTrue(snapshot.typical.upperBound.isFinite)
+        XCTAssertLessThanOrEqual(snapshot.typical.lowerBound, snapshot.typical.upperBound)
+    }
+
+    func testTrendSummaryOmitsOverflowingExtremeDelta() {
+        let current = [TrendPoint(date: .now, value: Double.greatestFiniteMagnitude)]
+        let previous = [TrendPoint(date: .now, value: -Double.greatestFiniteMagnitude)]
+        let presentation = TrendSummaryPresentation(
+            series: current, previousSeries: previous, goodDirection: .higher, expectedCount: 1
+        )
+        XCTAssertNil(presentation.delta)
+    }
+
+    func testMixedQualityDigestDayKeepsItsIndependentFiniteMetrics() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 7, day: 22)))
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        let days = try (0..<7).map { offset -> DailyMetric in
+            let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset - 6, to: anchor))
+            return DailyMetric(day: formatter.string(from: date), totalSleepMin: 420, efficiency: 0.9,
+                               deepMin: 90, remMin: 110, lightMin: 200, disturbances: 6,
+                               restingHr: 51, avgHrv: 54, recovery: .nan, strain: 9, exerciseCount: 1)
+        }
+        let sleep = Dictionary(uniqueKeysWithValues: days.map { ($0.day, 82.0) })
+        let loaded = TrendsLoadedData(revision: 11, anchorDay: formatter.string(from: anchor),
+                                      timeZoneIdentifier: "UTC", canonicalDays: days,
+                                      sleepPerfByDay: sleep, stressByDay: [:], appleDays: [])
+        let snapshot = try XCTUnwrap(TrendsScreenSnapshot.build(
+            key: key(revision: 11), data: loaded, metric: .sleepPerformance, range: .week,
+            weekOffset: 0, referenceDate: anchor, calendar: calendar, effortDisplayFactor: 1
+        ))
+
+        XCTAssertEqual(snapshot.weeklyDigest.summary(.charge)?.thisWeek.n, 0)
+        XCTAssertGreaterThan(snapshot.weeklyDigest.summary(.rest)?.thisWeek.n ?? 0, 0)
+        XCTAssertGreaterThan(snapshot.weeklyDigest.summary(.effort)?.thisWeek.n ?? 0, 0)
+        XCTAssertGreaterThan(snapshot.weeklyDigest.summary(.hrv)?.thisWeek.n ?? 0, 0)
+        XCTAssertGreaterThan(snapshot.weeklyDigest.summary(.rhr)?.thisWeek.n ?? 0, 0)
+    }
+
     private func key(
         revision: Int = 7,
         metric: String = "Recovery",

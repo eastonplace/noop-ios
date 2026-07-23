@@ -83,7 +83,9 @@ try:
         "func clockLabel(",
         "date(forAxisMinute axisMinute: Int)",
         "formatter.setLocalizedDateFormatFromTemplate(\"EEEE MMM d\")",
-        "Calendar.current.isDate(proposedDate, inSameDayAs: presentation.endpoint)",
+        "preservesTimeZoneOccurrence(",
+        "calendar.isDate(proposed, inSameDayAs: endpoint)",
+        "secondsFromGMT(for: proposed)",
     )
     forbid(
         "Strand/Screens/SleepAlarmEditorSection.swift",

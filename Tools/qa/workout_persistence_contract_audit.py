@@ -54,7 +54,9 @@ try:
     )
     require(
         "Strand/App/AppModel.swift",
-        "if accepted { lastWorkoutSnapshotAt = now }",
+        "if accepted {",
+        "lastWorkoutSnapshotAt = now",
+        "workoutDurabilityWarning = nil",
         "persistActiveWorkout(force: true, synchronously: true)",
         "func flushActiveWorkoutSnapshot() -> Bool",
     )

@@ -41,6 +41,7 @@ private struct StableLiveWorkoutContent: View, @preconcurrency Equatable {
                         .staggeredAppear(index: 4)
                 }
                 LiveWorkoutControlRow(model: model)
+                LiveWorkoutDurabilityWarning(model: model)
                 LiveWorkoutFailureMessage(model: model)
                 if let workout = model.activeWorkout {
                     LiveWorkoutEffortAndZone(workout: workout, profile: model.profile)
@@ -212,6 +213,20 @@ private struct LiveWorkoutFailureMessage: View {
                 .font(StrandFont.footnote)
                 .foregroundStyle(StrandPalette.statusWarning)
                 .accessibilityLabel("Workout save failed. \(message)")
+        }
+    }
+}
+
+private struct LiveWorkoutDurabilityWarning: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        if let warning = model.workoutDurabilityWarning {
+            Label(warning, systemImage: "externaldrive.badge.exclamationmark")
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.statusWarning)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityLabel("Workout recovery warning. \(warning)")
         }
     }
 }

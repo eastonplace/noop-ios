@@ -98,7 +98,7 @@ extension TrendsView {
 
                 if let consistency = digest.sleepConsistencySD {
                     Label(
-                        "Sleep score variability ±\(Int(consistency.rounded())) points",
+                        "Sleep score variability ±\(ProductionTrendMetric.sleepPerformance.format(consistency)) points",
                         systemImage: "moon.zzz"
                     )
                     .font(StrandFont.footnote)
@@ -167,7 +167,7 @@ extension TrendsView {
         let hasValue = (summary?.thisWeek.n ?? 0) > 0
         let mean = summary?.thisWeek.mean ?? 0
         let value: String = hasValue
-            ? (metric == .effort ? StrainScale.formatted(mean) : "\(Int(mean.rounded()))")
+            ? weeklyMetricValue(metric, value: mean)
             : "—"
         let delta = summary?.wowDelta ?? 0
         let sign = delta >= 0 ? "+" : "−"
@@ -181,7 +181,7 @@ extension TrendsView {
                     .font(StrandFont.statValue)
                     .foregroundStyle(StrandPalette.textPrimary)
                 Text(hasValue
-                    ? "\(sign)\(metric == .effort ? StrainScale.formattedDelta(abs(delta)) : "\(Int(abs(delta).rounded()))") vs last week"
+                    ? "\(sign)\(weeklyMetricDelta(metric, value: abs(delta))) vs last week"
                     : "No data this week")
                     .font(StrandFont.micro)
                     .foregroundStyle(StrandPalette.textSecondary)
@@ -236,9 +236,10 @@ extension TrendsView {
         let value = summary.thisWeek.mean
         switch summary.metric {
         case .effort: return StrainScale.formatted(value)
-        case .rhr: return "\(Int(value.rounded())) bpm"
-        case .hrv: return "\(Int(value.rounded())) ms"
-        case .charge, .rest: return "\(Int(value.rounded()))"
+        case .rhr: return ProductionTrendMetric.restingHR.formatWithUnit(value)
+        case .hrv: return ProductionTrendMetric.hrv.formatWithUnit(value)
+        case .charge: return ProductionTrendMetric.recovery.format(value)
+        case .rest: return ProductionTrendMetric.sleepPerformance.format(value)
         }
     }
 
@@ -247,9 +248,10 @@ extension TrendsView {
         let magnitude: String
         switch summary.metric {
         case .effort: magnitude = StrainScale.formattedDelta(abs(delta))
-        case .rhr: magnitude = "\(Int(abs(delta).rounded())) bpm"
-        case .hrv: magnitude = "\(Int(abs(delta).rounded())) ms"
-        case .charge, .rest: magnitude = "\(Int(abs(delta).rounded()))"
+        case .rhr: magnitude = ProductionTrendMetric.restingHR.formatWithUnit(abs(delta))
+        case .hrv: magnitude = ProductionTrendMetric.hrv.formatWithUnit(abs(delta))
+        case .charge: magnitude = ProductionTrendMetric.recovery.format(abs(delta))
+        case .rest: magnitude = ProductionTrendMetric.sleepPerformance.format(abs(delta))
         }
         return "\(delta >= 0 ? "+" : "−")\(magnitude)"
     }
@@ -260,6 +262,26 @@ extension TrendsView {
         case 1: return StrandPalette.statusPositive
         case -1: return StrandPalette.statusCritical
         default: return StrandPalette.textSecondary
+        }
+    }
+
+    private func weeklyMetricValue(_ metric: WeeklyMetric, value: Double) -> String {
+        switch metric {
+        case .effort: return StrainScale.formatted(value)
+        case .rhr: return ProductionTrendMetric.restingHR.formatWithUnit(value)
+        case .hrv: return ProductionTrendMetric.hrv.formatWithUnit(value)
+        case .charge: return ProductionTrendMetric.recovery.format(value)
+        case .rest: return ProductionTrendMetric.sleepPerformance.format(value)
+        }
+    }
+
+    private func weeklyMetricDelta(_ metric: WeeklyMetric, value: Double) -> String {
+        switch metric {
+        case .effort: return StrainScale.formattedDelta(value)
+        case .rhr: return ProductionTrendMetric.restingHR.formatWithUnit(value)
+        case .hrv: return ProductionTrendMetric.hrv.formatWithUnit(value)
+        case .charge: return ProductionTrendMetric.recovery.format(value)
+        case .rest: return ProductionTrendMetric.sleepPerformance.format(value)
         }
     }
 
