@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fast source-level guardrails for NOOP's iPhone-only performance branch.
+"""Fast source-level guardrails for NOOP's iPhone-only integration branch.
 
 This is intentionally a pre-build audit, not a replacement for Xcode. It catches regressions that are
 cheap and deterministic to identify from source before package resolution and simulator compilation.
@@ -25,6 +25,17 @@ def swift_sources() -> list[Path]:
         if root.exists():
             files.extend(path for path in root.rglob("*.swift") if ".build" not in path.parts)
     return sorted(files)
+
+
+def require_before(errors: list[str], source: str, earlier: str, later: str, label: str) -> None:
+    try:
+        earlier_index = source.index(earlier)
+        later_index = source.index(later)
+    except ValueError as error:
+        errors.append(f"{label}: missing ordered marker {error.args[0]!r}.")
+        return
+    if earlier_index >= later_index:
+        errors.append(f"{label}: {earlier!r} must appear before {later!r}.")
 
 
 def main() -> int:
@@ -98,12 +109,87 @@ def main() -> int:
         errors.append("StrandiOS/Resources/Info.plist still contains iPad-only orientation configuration.")
 
     project = ROOT / "project.yml"
+    retained_packages = (
+        "WhoopProtocol",
+        "OuraProtocol",
+        "WhoopStore",
+        "StrandAnalytics",
+        "StrandImport",
+        "StrandDesign",
+        "NoopLocalAccess",
+    )
     if not project.exists():
         errors.append("project.yml is missing.")
     else:
         project_text = project.read_text(encoding="utf-8")
         if project_text.count('TARGETED_DEVICE_FAMILY: "1"') < 2:
             errors.append("project.yml must target iPhone for both the app and widget extension.")
+        for package in retained_packages:
+            if f"{package}:\n    path: Packages/{package}" not in project_text:
+                errors.append(f"project.yml is missing retained local package {package}.")
+        for forbidden in ("PolarProtocol", "platform: macOS", "platform: watchOS", "platform: tvOS"):
+            if forbidden in project_text:
+                errors.append(f"project.yml restored forbidden retired-platform marker {forbidden!r}.")
+
+    forbidden_paths = (
+        "docs/ANDROID.md",
+        "docs/CROSS_PLATFORM.md",
+        "docs/assets/shot-android-today.png",
+        "docs/assets/shot-android-trend.png",
+        "StrandTests/MacEnvHeaderTests.swift",
+        "Tools/anonymize-macos-app.sh",
+        "Tools/build-v7-artifacts.sh",
+        "Packages/PolarProtocol",
+        "StrandAndroid",
+        "StrandWatch",
+        "StrandMac",
+        "NoopAndroid",
+        "NoopWatch",
+        "NoopMac",
+    )
+    for forbidden in forbidden_paths:
+        if (ROOT / forbidden).exists():
+            errors.append(f"retired platform residue restored at {forbidden}.")
+
+    audit_names = (
+        "source_contract_audit.py",
+        "ui_unification_contract_audit.py",
+        "workout_runtime_contract_audit.py",
+        "workout_persistence_contract_audit.py",
+        "trends_snapshot_contract_audit.py",
+        "accessibility_localization_contract_audit.py",
+        "healthkit_sync_contract_audit.py",
+    )
+    for audit in audit_names:
+        if not (ROOT / "Tools/qa" / audit).exists():
+            errors.append(f"missing focused source audit Tools/qa/{audit}.")
+
+    app_workflow = ROOT / ".github/workflows/app-build.yml"
+    if not app_workflow.exists():
+        errors.append(".github/workflows/app-build.yml is missing.")
+    else:
+        workflow_text = app_workflow.read_text(encoding="utf-8")
+        audit_markers = list(audit_names)
+        for marker in audit_markers:
+            if marker not in workflow_text:
+                errors.append(f"app-build workflow is missing audit command marker {marker!r}.")
+        for earlier, later in zip(audit_markers, audit_markers[1:]):
+            require_before(errors, workflow_text, earlier, later, "app-build workflow")
+        require_before(errors, workflow_text, audit_markers[-1], "xcodegen generate", "app-build workflow")
+        for package in retained_packages:
+            if package not in workflow_text:
+                errors.append(f"app-build workflow does not run retained package {package}.")
+
+    package_workflow = ROOT / ".github/workflows/swift-packages.yml"
+    if not package_workflow.exists():
+        errors.append(".github/workflows/swift-packages.yml is missing.")
+    else:
+        package_workflow_text = package_workflow.read_text(encoding="utf-8")
+        for package in retained_packages:
+            if package not in package_workflow_text:
+                errors.append(f"swift-packages workflow does not run retained package {package}.")
+        if "PolarProtocol" in package_workflow_text:
+            errors.append("swift-packages workflow restored PolarProtocol without an intentional package.")
 
     refresh_contract = ROOT / "Strand/Data/RepositoryRefreshIntent.swift"
     if "inferredLegacyIntent" in refresh_contract.read_text(encoding="utf-8"):
