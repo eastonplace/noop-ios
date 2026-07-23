@@ -13,6 +13,8 @@ import UserNotifications
 enum WindDownNudge {
 
     private static let requestId = "wind-down-nudge"
+    private static var enableTask: Task<Void, Never>?
+    private static var enableGeneration: UInt64 = 0
 
     // MARK: - Persisted settings (own keys; default OFF, opt-in like every automation)
 
@@ -107,7 +109,20 @@ enum WindDownNudge {
         } else {
             map.removeValue(forKey: weekday)
         }
-        let encodable = Dictionary(uniqueKeysWithValues: map.map { (String($0.key), $0.value) })
+        setWakeOverrides(map)
+    }
+
+    /// Atomically replace the weekday map and rebuild notifications once. This is the batch seam used
+    /// when the UI turns all per-day overrides off.
+    static func setWakeOverrides(_ overrides: [Int: Int]) {
+        let pairs: [(Int, Int)] = overrides.compactMap { weekday, minutes in
+            guard (1...7).contains(weekday) else { return nil }
+            return (weekday, min(max(minutes, 0), 24 * 60 - 1))
+        }
+        let map: [Int: Int] = Dictionary(uniqueKeysWithValues: pairs)
+        let encodable: [String: Int] = Dictionary(
+            uniqueKeysWithValues: map.map { (String($0.key), $0.value) }
+        )
         if let data = try? JSONEncoder().encode(encodable) {
             UserDefaults.standard.set(data, forKey: K.perDayWake)
         }
@@ -141,6 +156,10 @@ enum WindDownNudge {
     ///
     /// `completion` always runs on the main actor (the settings/authorization callbacks fire off-main).
     static func setEnabled(_ on: Bool, completion: (@MainActor (EnableOutcome) -> Void)? = nil) {
+        enableGeneration &+= 1
+        let generation = enableGeneration
+        enableTask?.cancel()
+
         guard on else {
             UserDefaults.standard.set(false, forKey: K.enabled)
             // Clear the single trigger AND any per-day triggers (PR#554) so disabling leaves nothing behind.
@@ -150,9 +169,10 @@ enum WindDownNudge {
             return
         }
 
-        Task { @MainActor in
+        enableTask = Task { @MainActor in
             let center = UNUserNotificationCenter.current()
             let settings = await center.notificationSettings()
+            guard !Task.isCancelled, generation == enableGeneration else { return }
             switch settings.authorizationStatus {
             case .authorized, .provisional, .ephemeral:
                 UserDefaults.standard.set(true, forKey: K.enabled)
@@ -162,6 +182,7 @@ enum WindDownNudge {
                 // First ask — the system dialog appears now (a predictable moment), then we schedule on
                 // grant so the FIRST night is covered rather than only after some later re-arm.
                 let granted = (try? await center.requestAuthorization(options: [.alert, .sound])) ?? false
+                guard !Task.isCancelled, generation == enableGeneration else { return }
                 if granted {
                     UserDefaults.standard.set(true, forKey: K.enabled)
                     schedule()

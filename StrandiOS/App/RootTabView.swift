@@ -56,21 +56,6 @@ struct RootTabView: View {
         }
         .toolbar(.hidden, for: .tabBar)
         .animation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24), value: selectedTab)
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 24)
-                .onEnded { value in
-                    guard selectedTab != 0 else { return }
-                    let dx = value.translation.width
-                    let dy = value.translation.height
-                    guard abs(dx) > 60, abs(dx) > abs(dy) * 1.6 else { return }
-                    let next = min(3, max(0, selectedTab + (dx < 0 ? 1 : -1)))
-                    if next != selectedTab {
-                        withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) {
-                            selectedTab = next
-                        }
-                    }
-                }
-        )
         .safeAreaInset(edge: .bottom, spacing: 0) {
             PaperTabBar(selection: $selectedTab, onReselect: { _ in
                 // A reselect is a small UI refresh. It must never reload the full 4,000-day history.

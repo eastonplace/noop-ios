@@ -14,6 +14,7 @@ struct SmartAlarmView: View {
     @EnvironmentObject private var alarmRuntime: SmartAlarmRuntimeController
 
     @State private var windDownOn = WindDownNudge.isEnabled
+    @State private var windDownPermissionDenied = false
     /// Earliest wake time the nudge is derived from (minutes since midnight). Seeded from the store.
     @State private var wakeMinutes = WindDownNudge.wakeMinutes
 
@@ -44,6 +45,11 @@ struct SmartAlarmView: View {
         .task {
             await resolveCanonicalNeed()
             alarmRuntime.refreshStatus()
+        }
+        .alert("Notifications are off", isPresented: $windDownPermissionDenied) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Allow notifications in Settings before enabling the wind-down nudge.")
         }
     }
 
@@ -269,7 +275,17 @@ struct SmartAlarmView: View {
                     Toggle("", isOn: $windDownOn)
                         .labelsHidden().toggleStyle(.switch).tint(StrandPalette.ink)
                         .accessibilityLabel("Remind me to wind down")
-                        .onChangeCompat(of: windDownOn) { on in WindDownNudge.setEnabled(on) }
+                        .onChangeCompat(of: windDownOn) { on in
+                            WindDownNudge.setEnabled(on) { outcome in
+                                switch outcome {
+                                case .scheduled, .off:
+                                    windDownOn = WindDownNudge.isEnabled
+                                case .denied:
+                                    windDownOn = false
+                                    windDownPermissionDenied = true
+                                }
+                            }
+                        }
                 }
                 .frame(minHeight: 42)
 
@@ -317,7 +333,7 @@ struct SmartAlarmView: View {
                 .accessibilityLabel("Different wake time per day")
                 .onChangeCompat(of: perDayOn) { on in
                     if !on {
-                        for weekday in 1...7 { WindDownNudge.setWakeOverride(weekday: weekday, minutes: nil) }
+                        WindDownNudge.setWakeOverrides([:])
                         overrides = [:]
                     }
                 }
@@ -406,7 +422,7 @@ struct SmartAlarmView: View {
     }
 
     private func timeLabel(_ minutes: Int) -> String {
-        String(format: "%02d:%02d", minutes / 60, minutes % 60)
+        SleepAlarmTime.clock(minutes)
     }
 
     private var alarmWeekdayPicker: some View {
@@ -414,18 +430,20 @@ struct SmartAlarmView: View {
             HStack(spacing: 6) {
                 ForEach(Self.weekdayOrder, id: \.self) { dow in
                     let selected = Self.alarmWeekdayIsSelected(dow, in: behavior.smartAlarmWeekdays)
-                    Text(Self.alarmWeekdayInitial(dow))
-                        .font(StrandFont.caption)
-                        .foregroundStyle(selected ? StrandPalette.surfaceBase : StrandPalette.textSecondary)
-                        .frame(width: 30, height: 30)
-                        .background(selected ? StrandPalette.accent : StrandPalette.surfaceInset, in: Circle())
-                        .contentShape(Circle())
-                        .onTapGesture {
+                    Button {
                             behavior.smartAlarmWeekdays = Self.alarmToggledWeekday(
                                 dow, in: behavior.smartAlarmWeekdays
                             )
+                    } label: {
+                        Text(Self.alarmWeekdayInitial(dow))
+                            .font(StrandFont.caption)
+                            .foregroundStyle(selected ? StrandPalette.surfaceBase : StrandPalette.textSecondary)
+                            .frame(width: 44, height: 44)
+                            .background(selected ? StrandPalette.accent : StrandPalette.surfaceInset, in: Circle())
                         }
+                        .buttonStyle(.plain)
                         .accessibilityLabel(Self.weekdayName(dow))
+                        .accessibilityValue(selected ? "Selected" : "Not selected")
                         .accessibilityAddTraits(selected ? .isSelected : [])
                 }
             }

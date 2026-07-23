@@ -22,11 +22,12 @@ enum SleepAlarmEditorSupport {
             after: now,
             calendar: calendar
         ) else { return nil }
-        let dayOffset = calendar.dateComponents(
-            [.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: next)
-        ).day ?? 0
-        let nextComponents = calendar.dateComponents([.hour, .minute], from: next)
-        let continuous = dayOffset * 1_440 + (nextComponents.hour ?? 0) * 60 + (nextComponents.minute ?? 0)
+        let nowComponents = calendar.dateComponents([.hour, .minute], from: now)
+        let nowMinuteOfDay = (nowComponents.hour ?? 0) * 60 + (nowComponents.minute ?? 0)
+        // Keep elapsed time grounded in the scheduler's real Date. Civil days at DST can be 23 or 25
+        // hours, so `dayOffset * 1_440 + clock time` is not a valid presentation timeline.
+        let elapsedMinutes = max(0, Int((next.timeIntervalSince(now) / 60).rounded(.up)))
+        let continuous = nowMinuteOfDay + elapsedMinutes
         let label: String
         if calendar.isDateInToday(next) {
             label = String(localized: "Today")
@@ -39,7 +40,7 @@ enum SleepAlarmEditorSupport {
             nextDate: next,
             continuousMinutes: continuous,
             dayLabel: label,
-            isUpcomingSleepPeriod: dayOffset <= 1
+            isUpcomingSleepPeriod: next.timeIntervalSince(now) <= 24 * 60 * 60
         )
     }
 
@@ -108,13 +109,17 @@ enum SleepAlarmEditorSupport {
                 schedule(at: now, behavior: behavior)?.continuousMinutes
                     ?? behavior.smartAlarmMinutes
             },
-            set: { continuousMinutes in
-                let current = schedule(at: now, behavior: behavior)?.continuousMinutes
-                    ?? behavior.smartAlarmMinutes
-                guard let accepted = sameOccurrenceMinute(
-                    current: current, proposed: continuousMinutes
-                ) else { return }
-                behavior.smartAlarmMinutes = ((accepted % 1_440) + 1_440) % 1_440
+            set: { proposedMinutes in
+                guard let presentation = schedule(at: now, behavior: behavior) else { return }
+                let delta = proposedMinutes - presentation.continuousMinutes
+                guard let proposedDate = Calendar.current.date(
+                    byAdding: .minute,
+                    value: delta,
+                    to: presentation.nextDate
+                ), Calendar.current.isDate(proposedDate, inSameDayAs: presentation.nextDate)
+                else { return }
+                let components = Calendar.current.dateComponents([.hour, .minute], from: proposedDate)
+                behavior.smartAlarmMinutes = (components.hour ?? 0) * 60 + (components.minute ?? 0)
             }
         )
     }

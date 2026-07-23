@@ -154,15 +154,67 @@ final class UIUnificationTests: XCTestCase {
             weekdays: [2, 4, 6]
         )
         let endpoint = Date(timeIntervalSince1970: 1_800_000_000)
-        let request = SmartAlarmBackgroundRequest(endpoint: endpoint, snapshot: snapshot)
+        let configurationID = UUID()
+        let request = SmartAlarmBackgroundRequest(
+            configurationID: configurationID,
+            endpoint: endpoint,
+            snapshot: snapshot
+        )
         let decoded = try JSONDecoder().decode(
             SmartAlarmBackgroundRequest.self,
             from: JSONEncoder().encode(request)
         )
 
         XCTAssertEqual(decoded, request)
+        XCTAssertEqual(decoded.configurationID, configurationID)
         XCTAssertEqual(decoded.endpoint, endpoint)
         XCTAssertEqual(decoded.snapshot, snapshot)
+    }
+
+    @MainActor
+    func testBackgroundConfigurationIdentityChangesAcrossSameValueLifecycle() {
+        let suite = "SmartAlarmBackgroundConfigTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let snapshot = SmartAlarmRuntimeSnapshot(
+            enabled: true, mode: .sleepGoal, minutes: 420, weekdays: [2]
+        )
+        let first = SmartAlarmRuntimeBackgroundScheduler.configurationID(
+            for: snapshot,
+            defaults: defaults
+        )
+        let middle = SmartAlarmRuntimeSnapshot(
+            enabled: true, mode: .sleepGoal, minutes: 480, weekdays: [2]
+        )
+        let middleID = UUID()
+        SmartAlarmRuntimeBackgroundScheduler.persistConfiguration(
+            id: middleID,
+            snapshot: middle,
+            defaults: defaults
+        )
+        let returned = UUID()
+        SmartAlarmRuntimeBackgroundScheduler.persistConfiguration(
+            id: returned,
+            snapshot: snapshot,
+            defaults: defaults
+        )
+
+        XCTAssertNotEqual(first, middleID)
+        XCTAssertNotEqual(first, returned)
+        XCTAssertEqual(
+            SmartAlarmRuntimeBackgroundScheduler.configurationID(for: snapshot, defaults: defaults),
+            returned
+        )
+    }
+
+    @MainActor
+    func testBackupNotificationIdentifiersAreConfigurationScoped() {
+        let first = SmartAlarmRuntimeController.backupIdentifiers(configurationID: UUID())
+        let second = SmartAlarmRuntimeController.backupIdentifiers(configurationID: UUID())
+
+        XCTAssertTrue(Set(first).isDisjoint(with: Set(second)))
+        XCTAssertEqual(first.count, 8)
+        XCTAssertTrue(first.allSatisfy { $0.hasPrefix(SmartAlarmRuntimeController.backupBaseIdentifier) })
     }
 
     func testFollowingBackgroundOccurrenceStartsAfterConsumedEndpoint() throws {

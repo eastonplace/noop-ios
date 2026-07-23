@@ -75,14 +75,30 @@ try:
         "generation.accepts",
         "notificationTask?.cancel()",
         "evaluationTask?.cancel()",
-        "Task.detached(priority: .utility)",
+        "async let child = Self.computeEvaluation",
+        "try Task.checkCancellation()",
+        "configurationID",
         "expirationHandler",
-        "pinLegacyEndpointOnly",
+        "synchronizeBehaviorMode",
         "nextDailyRearm",
         "scheduleFollowingBackgroundRequest",
         "loadRequest()",
         "clearRequest(ifMatching: request)",
         "removePendingNotificationRequests",
+    )
+    forbid(
+        "StrandiOS/App/SmartAlarmRuntimeController.swift",
+        "Task.detached(priority: .utility)",
+    )
+    forbid(
+        "Strand/App/AppModel.swift",
+        "func applySmartAlarm()",
+        "evaluateConditionalSmartAlarm",
+        "scheduleSmartAlarmBackupNotification",
+        "scheduleDailySmartAlarmRearm",
+        "SmartAlarmScheduler",
+        "pinLegacyEndpointOnly",
+        "live.$connectSettled.dropFirst()",
     )
     require(
         "StrandiOS/App/SmartAlarmCommandReconciler.swift",
@@ -156,6 +172,7 @@ try:
     )
     forbid(
         "StrandiOS/App/RootTabView.swift",
+        ".simultaneousGesture(",
         "MoreRow<",
         "expandedMoreSections",
         'MoreRow("Insights"',
