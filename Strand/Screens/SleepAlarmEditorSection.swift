@@ -66,7 +66,7 @@ enum SleepAlarmEditorSupport {
         weekdays: Set<Int>,
         calendar inputCalendar: Calendar
     ) -> SchedulePresentation? {
-        var calendar = inputCalendar
+        let calendar = inputCalendar
         guard let endpoint = SmartAlarmSchedule.nextDate(
             minutes: minutes,
             weekdays: weekdays,

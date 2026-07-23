@@ -75,14 +75,15 @@ struct SmartAlarmView: View {
     /// The promoted module plus last-evaluation evidence and tonight's real plan timeline.
     private var alarmHeroSection: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
-            let comps = Calendar.current.dateComponents([.hour, .minute], from: context.date)
-            let nowMinutes = (comps.hour ?? 0) * 60 + (comps.minute ?? 0)
+            let components = Calendar.current.dateComponents([.hour, .minute], from: context.date)
+            let wallClockNowMinutes = (components.hour ?? 0) * 60 + (components.minute ?? 0)
             let modes = wakeModes
             let selected = modes.first { $0.id == alarmMode.mode.rawValue }
             let windowMinutes = selected?.windowMinutes ?? 0
             let schedule = SleepAlarmEditorSupport.schedule(at: context.date, behavior: behavior)
-            let wake = schedule?.continuousMinutes ?? SleepAlarmTime.nextOccurrence(
-                now: nowMinutes, timeOfDay: behavior.smartAlarmMinutes)
+            let wake = schedule?.wakeAxisMinutes ?? SleepAlarmTime.nextOccurrence(
+                now: wallClockNowMinutes, timeOfDay: behavior.smartAlarmMinutes)
+            let now = schedule?.nowAxisMinutes ?? wallClockNowMinutes
             let windowStart = wake - windowMinutes
             let asleepBy = SleepAlarmTime.asleepByMinutes(wakeMinutes: wake, windowMinutes: windowMinutes,
                                                            needMinutes: needMinutes)
@@ -93,7 +94,7 @@ struct SmartAlarmView: View {
                     modes: modes,
                     selectedModeId: SleepAlarmEditorSupport.modeBinding(alarmMode),
                     wakeMinutes: SleepAlarmEditorSupport.wakeBinding(behavior, now: context.date),
-                    nowMinutes: nowMinutes,
+                    nowMinutes: now,
                     needMinutes: needMinutes,
                     wakeDayLabel: schedule?.dayLabel ?? String(localized: "No enabled day"),
                     deliveryStatus: alarmRuntime.deliveryStatus,
@@ -109,7 +110,7 @@ struct SmartAlarmView: View {
                     evaluationEvidenceRow(evidence)
                 }
                 if behavior.smartAlarmEnabled, schedule?.isUpcomingSleepPeriod == true {
-                    SleepPlanTimeline(now: nowMinutes, asleepBy: asleepBy, windowStart: windowStart, alarm: wake)
+                    SleepPlanTimeline(now: now, asleepBy: asleepBy, windowStart: windowStart, alarm: wake)
                 }
             }
         }
@@ -324,7 +325,7 @@ struct SmartAlarmView: View {
             Text("Wake time")
                 .font(StrandFont.body)
                 .foregroundStyle(StrandPalette.textPrimary)
-            Text("The nudge fires \(WindDownNudge.sleepNeedMinutes / 60)h \(WindDownNudge.leadMinutes)m before this.")
+            Text("The nudge fires \(SleepAlarmTime.duration(WindDownNudge.sleepNeedMinutes + WindDownNudge.leadMinutes)) before this.")
                 .font(StrandFont.footnote)
                 .foregroundStyle(StrandPalette.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
