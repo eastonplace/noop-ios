@@ -37,6 +37,15 @@ try:
         "displayRange",
         "WorkoutHeartChartAccumulator",
         "retainedSampleCount",
+        "retainedMinuteCount",
+        "completedMinimum",
+        "completedMaximum",
+    )
+    forbid(
+        "Strand/Data/WorkoutHeartChartProjection.swift",
+        "var samples: [HRSample]",
+        "samples.min(by:",
+        "samples.max(by:",
     )
     require(
         "Strand/Screens/LiveWorkoutView.swift",
@@ -68,6 +77,8 @@ try:
         "testLifecycleIdentityChangesOnlyForStartEndOrReplacement",
         "testCanonicalWorkoutIngestionProducesEquivalentScoresAtOneAndThreeHertz",
         "testIncrementalChartProjectionStaysBoundedAcrossLongWorkout",
+        "testMinuteBucketReplacementUpdatesCurrentExtremaWithoutRetainingEverySecond",
+        "testBoundaryMinuteDropsExpiredExtremaInsteadOfRenderingOutsideWindow",
     )
     forbid(
         "StrandiOS/App/StrandiOSApp.swift",

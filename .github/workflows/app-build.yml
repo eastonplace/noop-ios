@@ -61,6 +61,9 @@ jobs:
       - name: Audit accessibility and localization contracts
         run: python3 Tools/qa/accessibility_localization_contract_audit.py
 
+      - name: Audit HealthKit synchronization contracts
+        run: python3 Tools/qa/healthkit_sync_contract_audit.py
+
       - name: Install XcodeGen
         run: brew install xcodegen
 
@@ -104,7 +107,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for package in WhoopProtocol WhoopStore OuraProtocol StrandAnalytics StrandImport StrandDesign; do
+          for package in WhoopProtocol OuraProtocol WhoopStore StrandAnalytics StrandImport StrandDesign NoopLocalAccess; do
             echo "::group::$package"
             swift test --package-path "Packages/$package"
             echo "::endgroup::"
