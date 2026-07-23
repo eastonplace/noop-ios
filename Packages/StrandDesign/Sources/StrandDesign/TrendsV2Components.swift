@@ -12,7 +12,7 @@ import SwiftUI
 
 // MARK: - Ranges
 
-public enum TrendRange: String, CaseIterable, Identifiable {
+public enum TrendRange: String, CaseIterable, Identifiable, Sendable {
     case week = "W"
     case month = "M"
     case quarter = "3M"

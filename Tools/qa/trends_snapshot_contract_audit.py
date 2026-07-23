@@ -31,13 +31,19 @@ try:
     require(
         "Strand/Data/TrendsLoadedData.swift",
         "struct TrendsLoadedData",
+        "let revision: Int",
+        "let anchorDay: String",
+        "let timeZoneIdentifier: String",
         "let canonicalDays: [DailyMetric]",
+        "let canonicalByDay: [String: DailyMetric]",
         "let appleByDay: [String: AppleDaily]",
         "uniquingKeysWith",
     )
     require(
         "Strand/Data/TrendPointExtremaSampler.swift",
         "enum TrendPointExtremaSampler",
+        ".filter { $0.value.isFinite",
+        ".sorted { $0.date < $1.date }",
         "minimum.element",
         "maximum.element",
         "result.append(last)",
@@ -46,11 +52,14 @@ try:
         "Strand/Screens/TrendsView.swift",
         "@State private var loadedData = TrendsLoadedData.empty",
         ".task(id: repo.refreshSeq)",
+        ".task(id: screenSnapshotKey)",
         "await loadDataForCurrentRevision()",
+        "await rebuildScreenSnapshot()",
         "let (sleep, stress, apple) = await",
-        "guard !Task.isCancelled else { return }",
-        "loadedData = TrendsLoadedData(",
-        "let observations = selectedMetricObservations",
+        "revision == repo.refreshSeq",
+        "let next = TrendsLoadedData(",
+        "TrendsScreenSnapshot.build(",
+        "data.canonicalByDay[",
         "TrendPointExtremaSampler.sample",
     )
     forbid(
@@ -61,11 +70,16 @@ try:
         "@State private var stressByDay",
         "Double(slot) * Double(series.count - 1)",
         "Dictionary(appleDays.map",
+        "canonicalDays.filter",
+        "selectedMetricObservations",
+        "Sleep consistency ±",
     )
     require(
         "StrandiOSTests/TrendsSnapshotTests.swift",
         "testExtremaSamplerKeepsEndpointsSpikeAndTrough",
+        "testExtremaSamplerSortsAndDropsNonFiniteValues",
         "testLoadedDataKeepsOneCanonicalRevisionAndAuxiliaryMaps",
+        "testFourThousandDaySnapshotKeepsRenderInputsBounded",
     )
 except AssertionError as error:
     print(f"Trends snapshot contract audit: FAIL\n{error}", file=sys.stderr)

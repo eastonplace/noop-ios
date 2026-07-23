@@ -66,7 +66,7 @@ struct TrendSummaryPresentation {
     }
 }
 
-struct PaperTrendSeries {
+struct PaperTrendSeries: Sendable {
     let recovery: [TrendPoint]
     let strain: [TrendPoint]
     let sleep: [TrendPoint]
@@ -95,7 +95,7 @@ struct PaperTrendSeries {
     }
 }
 
-private enum ProductionTrendMetric: String, CaseIterable, Identifiable {
+enum ProductionTrendMetric: String, CaseIterable, Identifiable, Sendable {
     case recovery = "Recovery"
     case strain = "Strain"
     case sleepPerformance = "Sleep performance"
@@ -164,11 +164,197 @@ private enum ProductionTrendMetric: String, CaseIterable, Identifiable {
     }
 }
 
+struct TrendsScreenSnapshotKey: Hashable, Sendable {
+    let revision: Int
+    let anchorDay: String
+    let timeZoneIdentifier: String
+    let metric: String
+    let range: String
+    let weekOffset: Int
+}
+
+struct TrendsScreenSnapshot: Sendable {
+    let key: TrendsScreenSnapshotKey
+    let currentSeries: PaperTrendSeries
+    let previousSeries: PaperTrendSeries
+    let selectedCalendarDays: [CalendarMetricDay]
+    let selectedPoints: [TrendPoint]
+    let selectedDateDomain: ClosedRange<Date>
+    let heatDays: [CalendarMetricDay]
+    let weekdayAverages: [Double?]
+    let baseline: Double
+    let typical: ClosedRange<Double>
+    let weeklyDigest: WeeklyDigest
+    let minimumWeekOffset: Int
+
+    nonisolated static func build(
+        key: TrendsScreenSnapshotKey,
+        data: TrendsLoadedData,
+        metric: ProductionTrendMetric,
+        range: TrendRange,
+        weekOffset: Int,
+        referenceDate: Date,
+        calendar inputCalendar: Calendar,
+        effortDisplayFactor: Double
+    ) -> TrendsScreenSnapshot? {
+        guard !Task.isCancelled else { return nil }
+        var calendar = inputCalendar
+        calendar.timeZone = TimeZone(identifier: data.timeZoneIdentifier) ?? inputCalendar.timeZone
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+
+        func days(periodOffset: Int) -> [DailyMetric] {
+            guard let period = TrendCalendar.equalLengthPeriod(
+                through: referenceDate,
+                count: range.days,
+                periodOffset: periodOffset,
+                calendar: calendar
+            ) else { return [] }
+            return (0..<range.days).compactMap { offset in
+                guard let date = calendar.date(byAdding: .day, value: offset, to: period.lowerBound)
+                else { return nil }
+                return data.canonicalByDay[formatter.string(from: date)]
+            }
+        }
+
+        let currentDays = days(periodOffset: 0)
+        let previousDays = days(periodOffset: -1)
+        let currentSeries = PaperTrendSeries.build(
+            days: currentDays,
+            sleepByDay: data.sleepPerfByDay,
+            date: { calendar.date(from: Self.components(for: $0)) }
+        )
+        let previousSeries = PaperTrendSeries.build(
+            days: previousDays,
+            sleepByDay: data.sleepPerfByDay,
+            date: { calendar.date(from: Self.components(for: $0)) }
+        )
+
+        let observationCount = max(range.days, 35)
+        let observations: [CalendarMetricDay] = (0..<observationCount).compactMap { offset in
+            guard let date = calendar.date(
+                byAdding: .day,
+                value: offset - (observationCount - 1),
+                to: referenceDate
+            ) else { return nil }
+            let key = formatter.string(from: date)
+            return CalendarMetricDay(
+                date: calendar.startOfDay(for: date),
+                value: data.canonicalByDay[key].flatMap {
+                    value(for: metric, day: $0, data: data)
+                }
+            )
+        }
+        guard !Task.isCancelled else { return nil }
+
+        let selectedCalendarDays = Array(observations.suffix(range.days))
+        let selectedPoints = selectedCalendarDays.compactMap { day in
+            day.value.map { TrendPoint(date: day.date, value: $0) }
+        }
+        let dateDomain = TrendCalendar.dateDomain(
+            through: referenceDate,
+            count: range.days,
+            calendar: calendar
+        ) ?? referenceDate...referenceDate
+        let heatDays = TrendCalendar.buildFiveWeekWindow(
+            observations: observations,
+            through: referenceDate,
+            calendar: calendar
+        )
+        let weekdayAverages = TrendCalendar.weekdayAverages(selectedCalendarDays, calendar: calendar)
+        let values = selectedPoints.map(\.value)
+        let baseline = values.isEmpty ? 0 : values.reduce(0, +) / Double(values.count)
+        let spread: Double = {
+            guard values.count > 1 else { return max(abs(baseline) * 0.1, 1) }
+            let variance = values.reduce(0) { $0 + pow($1 - baseline, 2) } / Double(values.count)
+            return max(sqrt(variance), abs(baseline) * 0.04)
+        }()
+
+        let weekAnchorDay = WeeklyDigestEngine.addDays(data.anchorDay, weekOffset * 7)
+        let digestDays: [DailyMetric]
+        if let monday = WeeklyDigestEngine.mondayOfWeek(containing: weekAnchorDay) {
+            let first = WeeklyDigestEngine.addDays(
+                monday,
+                -7 * (WeeklyDigestEngine.baselineWeeks + 1)
+            )
+            digestDays = (0..<(7 * (WeeklyDigestEngine.baselineWeeks + 2))).compactMap { offset in
+                data.canonicalByDay[WeeklyDigestEngine.addDays(first, offset)]
+            }
+        } else {
+            digestDays = []
+        }
+        let digest = WeeklyDigestSource.digest(
+            from: digestDays,
+            anchorDay: weekAnchorDay,
+            sleepByDay: data.sleepPerfByDay,
+            effortDisplayFactor: effortDisplayFactor
+        )
+
+        let minimumWeekOffset: Int = {
+            guard let earliest = data.canonicalDays.first?.day,
+                  let earliestMonday = WeeklyDigestEngine.mondayOfWeek(containing: earliest),
+                  let thisMonday = WeeklyDigestEngine.mondayOfWeek(containing: data.anchorDay),
+                  let earliestDate = calendar.date(from: Self.components(for: earliestMonday)),
+                  let thisDate = calendar.date(from: Self.components(for: thisMonday))
+            else { return 0 }
+            let days = calendar.dateComponents([.day], from: earliestDate, to: thisDate).day ?? 0
+            return -min(520, max(0, days / 7))
+        }()
+
+        return TrendsScreenSnapshot(
+            key: key,
+            currentSeries: currentSeries,
+            previousSeries: previousSeries,
+            selectedCalendarDays: selectedCalendarDays,
+            selectedPoints: selectedPoints,
+            selectedDateDomain: dateDomain,
+            heatDays: heatDays,
+            weekdayAverages: weekdayAverages,
+            baseline: baseline,
+            typical: (baseline - max(spread, 0.5))...(baseline + max(spread, 0.5)),
+            weeklyDigest: digest,
+            minimumWeekOffset: minimumWeekOffset
+        )
+    }
+
+    private static func components(for day: String) -> DateComponents {
+        let pieces = day.split(separator: "-").compactMap { Int($0) }
+        guard pieces.count == 3 else { return DateComponents() }
+        return DateComponents(year: pieces[0], month: pieces[1], day: pieces[2])
+    }
+
+    private static func value(
+        for metric: ProductionTrendMetric,
+        day: DailyMetric,
+        data: TrendsLoadedData
+    ) -> Double? {
+        switch metric {
+        case .recovery: day.recovery
+        case .strain: day.strain.map(StrainScale.displayValue(fromStored:))
+        case .sleepPerformance: data.sleepPerfByDay[day.day]
+        case .sleepDuration: day.totalSleepMin.map { $0 / 60 }
+        case .hrv: day.avgHrv
+        case .restingHR: day.restingHr.map(Double.init)
+        case .respiratory: day.respRateBpm
+        case .spo2: day.spo2Pct
+        case .skinTemp: day.skinTempDevC
+        case .steps: day.steps.map(Double.init) ?? data.appleByDay[day.day]?.steps.map(Double.init)
+        case .calories: day.activeKcalEst ?? data.appleByDay[day.day]?.activeKcal
+        case .stress: data.stressByDay[day.day]
+        }
+    }
+}
+
 struct TrendsView: View {
     @EnvironmentObject private var repo: Repository
 
     @State private var showingReport = false
     @State private var loadedData = TrendsLoadedData.empty
+    @State private var screenSnapshot: TrendsScreenSnapshot?
     @State private var selectedMetric: ProductionTrendMetric = .recovery
     @State private var selectedRange: TrendRange = .month
     /// Zero is the current Monday-Sunday digest; negative values step backward.
@@ -184,12 +370,20 @@ struct TrendsView: View {
         loadedData.canonicalDays.isEmpty ? repo.canonicalDays : loadedData.canonicalDays
     }
 
-    private var sleepPerfByDay: [String: Double] { loadedData.sleepPerfByDay }
-    private var stressByDay: [String: Double] { loadedData.stressByDay }
-    private var appleByDay: [String: AppleDaily] { loadedData.appleByDay }
-    private var trendReferenceDate: Date { Calendar.current.startOfDay(for: Date()) }
+    private var trendReferenceDate: Date {
+        localDate(loadedData.anchorDay) ?? Calendar.current.startOfDay(for: Date())
+    }
 
-    private func date(_ day: String) -> Date? { localDate(day) }
+    private var screenSnapshotKey: TrendsScreenSnapshotKey {
+        TrendsScreenSnapshotKey(
+            revision: loadedData.revision,
+            anchorDay: loadedData.anchorDay,
+            timeZoneIdentifier: loadedData.timeZoneIdentifier,
+            metric: selectedMetric.rawValue,
+            range: selectedRange.rawValue,
+            weekOffset: weekOffset
+        )
+    }
 
     /// Repository day keys are local civil days, not UTC instants.
     private func localDate(_ day: String, calendar: Calendar = .autoupdatingCurrent) -> Date? {
@@ -245,19 +439,32 @@ struct TrendsView: View {
         .task(id: repo.refreshSeq) {
             await loadDataForCurrentRevision()
         }
+        .task(id: screenSnapshotKey) {
+            await rebuildScreenSnapshot()
+        }
     }
 
     @MainActor
     private func loadDataForCurrentRevision() async {
+        let revision = repo.refreshSeq
+        let anchorDay = Repository.localDayKey(Date())
+        let timeZoneIdentifier = TimeZone.autoupdatingCurrent.identifier
         let revisionDays = repo.canonicalDays
         async let sleepSeries = repo.exploreSeries(key: "sleep_performance", source: "my-whoop")
         async let stressSeries = repo.exploreSeries(key: "stress", source: "my-whoop")
         async let appleRows = repo.appleDailyRows()
 
         let (sleep, stress, apple) = await (sleepSeries, stressSeries, appleRows)
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled,
+              revision == repo.refreshSeq,
+              anchorDay == Repository.localDayKey(Date()),
+              timeZoneIdentifier == TimeZone.autoupdatingCurrent.identifier
+        else { return }
 
-        loadedData = TrendsLoadedData(
+        let next = TrendsLoadedData(
+            revision: revision,
+            anchorDay: anchorDay,
+            timeZoneIdentifier: timeZoneIdentifier,
             canonicalDays: revisionDays,
             sleepPerfByDay: Dictionary(
                 sleep.map { ($0.day, $0.value) },
@@ -269,68 +476,60 @@ struct TrendsView: View {
             ),
             appleDays: apple
         )
+        if next != loadedData {
+            loadedData = next
+        }
+    }
+
+    @MainActor
+    private func rebuildScreenSnapshot() async {
+        let key = screenSnapshotKey
+        let data = loadedData
+        guard data.revision >= 0 else { return }
+        var calendar = Calendar.autoupdatingCurrent
+        calendar.timeZone = TimeZone(identifier: data.timeZoneIdentifier) ?? .autoupdatingCurrent
+        let referenceDate = localDate(data.anchorDay, calendar: calendar) ?? Date()
+        let metric = selectedMetric
+        let range = selectedRange
+        let offset = weekOffset
+        let effortDisplayFactor = UnitPrefs.currentEffortDisplayFactor()
+
+        let worker = Task { @concurrent in
+            TrendsScreenSnapshot.build(
+                key: key,
+                data: data,
+                metric: metric,
+                range: range,
+                weekOffset: offset,
+                referenceDate: referenceDate,
+                calendar: calendar,
+                effortDisplayFactor: effortDisplayFactor
+            )
+        }
+        let next = await withTaskCancellationHandler {
+            await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
+        guard !Task.isCancelled, key == screenSnapshotKey, let next else { return }
+        screenSnapshot = next
     }
 
     // MARK: - Selected range
 
-    private func rangeDays(periodOffset: Int) -> [DailyMetric] {
-        let calendar = Calendar.current
-        guard let period = TrendCalendar.equalLengthPeriod(
-            through: trendReferenceDate,
-            count: selectedRange.days,
-            periodOffset: periodOffset,
-            calendar: calendar
-        ) else { return [] }
-        return canonicalDays.filter { day in
-            guard let stamp = localDate(day.day, calendar: calendar) else { return false }
-            return period.contains(stamp)
+    @ViewBuilder
+    private var paperScoresOverTime: some View {
+        if let screenSnapshot {
+            paperScoresOverTime(screenSnapshot)
+        } else {
+            ProgressView("Preparing trends…")
+                .frame(maxWidth: .infinity, minHeight: 180)
         }
     }
 
-    private var paperScoresOverTime: some View {
-        let currentDays = rangeDays(periodOffset: 0)
-        let previousDays = rangeDays(periodOffset: -1)
-        let series = PaperTrendSeries.build(
-            days: currentDays,
-            sleepByDay: sleepPerfByDay,
-            date: date
-        )
-        let previousSeries = PaperTrendSeries.build(
-            days: previousDays,
-            sleepByDay: sleepPerfByDay,
-            date: date
-        )
-
-        // Build the selected metric's calendar projection exactly once per body evaluation and thread the
-        // immutable result through the main chart, heat map, and weekday aggregation.
-        let observations = selectedMetricObservations
-        let selectedCalendarDays = TrendCalendar.buildRollingWindow(
-            observations: observations,
-            through: trendReferenceDate,
-            count: selectedRange.days,
-            calendar: .current
-        )
-        let selectedPoints = selectedCalendarDays.compactMap { day in
-            day.value.map { TrendPoint(date: day.date, value: $0) }
-        }
-        let selectedDateDomain = TrendCalendar.dateDomain(
-            through: trendReferenceDate,
-            count: selectedRange.days,
-            calendar: .current
-        ) ?? trendReferenceDate...trendReferenceDate
-        let calendarDays = TrendCalendar.buildFiveWeekWindow(
-            observations: observations,
-            through: trendReferenceDate
-        )
-        let weekdayAverages = TrendCalendar.weekdayAverages(selectedCalendarDays)
-        let values = selectedPoints.map(\.value)
-        let baseline = values.isEmpty ? 0 : values.reduce(0, +) / Double(values.count)
-        let spread: Double = {
-            guard values.count > 1 else { return max(abs(baseline) * 0.1, 1) }
-            let variance = values.reduce(0) { $0 + pow($1 - baseline, 2) } / Double(values.count)
-            return max(sqrt(variance), abs(baseline) * 0.04)
-        }()
-        let typical = (baseline - max(spread, 0.5))...(baseline + max(spread, 0.5))
+    private func paperScoresOverTime(_ snapshot: TrendsScreenSnapshot) -> some View {
+        let series = snapshot.currentSeries
+        let previousSeries = snapshot.previousSeries
 
         return VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 2) {
@@ -348,14 +547,14 @@ struct TrendsView: View {
                 }
             }
 
-            if !selectedPoints.isEmpty {
+            if !snapshot.selectedPoints.isEmpty {
                 TrendPanelChart(
-                    days: selectedCalendarDays,
-                    dateDomain: selectedDateDomain,
+                    days: snapshot.selectedCalendarDays,
+                    dateDomain: snapshot.selectedDateDomain,
                     referenceDate: trendReferenceDate,
                     calendar: .current,
-                    baseline: baseline,
-                    typical: typical,
+                    baseline: snapshot.baseline,
+                    typical: snapshot.typical,
                     tint: selectedMetric.tint,
                     unit: selectedMetric.unit,
                     valueFormat: selectedMetric.format,
@@ -369,7 +568,7 @@ struct TrendsView: View {
                         .font(StrandFont.micro)
                         .foregroundStyle(StrandPalette.textSecondary)
                     TrendMonthHeat(
-                        days: calendarDays,
+                        days: snapshot.heatDays,
                         tint: selectedMetric.tint,
                         referenceDate: trendReferenceDate,
                         valueFormat: selectedMetric.format,
@@ -412,7 +611,7 @@ struct TrendsView: View {
                 format: { "\(Int($0.rounded())) ms" }
             )
 
-            if !weekdayAverages.compactMap({ $0 }).isEmpty {
+            if !snapshot.weekdayAverages.compactMap({ $0 }).isEmpty {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(selectedRange.averageHeading).strandOverline()
                     Text("By weekday · \(selectedRange.days) calendar days")
@@ -420,7 +619,7 @@ struct TrendsView: View {
                         .foregroundStyle(StrandPalette.textSecondary)
                 }
                 TrendWeekdayBars(
-                    values: weekdayAverages,
+                    values: snapshot.weekdayAverages,
                     tint: selectedMetric.tint,
                     referenceDate: trendReferenceDate,
                     calendar: .current,
@@ -428,33 +627,6 @@ struct TrendsView: View {
                 )
                 .frame(height: 150)
             }
-        }
-    }
-
-    private var selectedMetricObservations: [CalendarMetricDay] {
-        canonicalDays.compactMap { day in
-            guard let stamp = localDate(day.day) else { return nil }
-            return CalendarMetricDay(
-                date: stamp,
-                value: selectedMetricValue(for: day, apple: appleByDay)
-            )
-        }
-    }
-
-    private func selectedMetricValue(for day: DailyMetric, apple: [String: AppleDaily]) -> Double? {
-        switch selectedMetric {
-        case .recovery: day.recovery
-        case .strain: day.strain.map(StrainScale.displayValue(fromStored:))
-        case .sleepPerformance: sleepPerfByDay[day.day]
-        case .sleepDuration: day.totalSleepMin.map { $0 / 60 }
-        case .hrv: day.avgHrv
-        case .restingHR: day.restingHr.map(Double.init)
-        case .respiratory: day.respRateBpm
-        case .spo2: day.spo2Pct
-        case .skinTemp: day.skinTempDevC
-        case .steps: day.steps.map(Double.init) ?? apple[day.day]?.steps.map(Double.init)
-        case .calories: day.activeKcalEst ?? apple[day.day]?.activeKcal
-        case .stress: stressByDay[day.day]
         }
     }
 
@@ -556,12 +728,17 @@ struct TrendsView: View {
 
     // MARK: - Weekly review
 
+    @ViewBuilder
     private var paperWeekReview: some View {
-        let digest = WeeklyDigestSource.digest(
-            from: canonicalDays,
-            anchorDay: weekAnchorDay,
-            sleepByDay: sleepPerfByDay
-        )
+        if let screenSnapshot {
+            paperWeekReview(screenSnapshot)
+        } else {
+            EmptyView()
+        }
+    }
+
+    private func paperWeekReview(_ snapshot: TrendsScreenSnapshot) -> some View {
+        let digest = snapshot.weeklyDigest
         let reviewLines = paperReviewLines(digest)
         let movers = paperMoverRows(digest)
         let insight = paperInsightText(digest, reviewLines: reviewLines)
@@ -642,7 +819,7 @@ struct TrendsView: View {
 
                 if let consistency = digest.sleepConsistencySD {
                     Label(
-                        "Sleep consistency ±\(Int(consistency.rounded())) points",
+                        "Sleep score variability ±\(Int(consistency.rounded())) points",
                         systemImage: "moon.zzz"
                     )
                     .font(StrandFont.footnote)
@@ -808,27 +985,7 @@ struct TrendsView: View {
     }
 
     private var minWeekOffset: Int {
-        guard let earliest = canonicalDays.first?.day,
-              let earliestMonday = WeeklyDigestEngine.mondayOfWeek(containing: earliest),
-              let thisMonday = WeeklyDigestEngine.mondayOfWeek(
-                containing: Repository.localDayKey(Date())
-              )
-        else { return 0 }
-
-        var offset = 0
-        var monday = thisMonday
-        while monday > earliestMonday && offset > -520 {
-            monday = WeeklyDigestEngine.addDays(monday, -7)
-            offset -= 1
-        }
-        return offset
-    }
-
-    private var weekAnchorDay: String {
-        WeeklyDigestEngine.addDays(
-            Repository.localDayKey(trendReferenceDate),
-            weekOffset * 7
-        )
+        screenSnapshot?.minimumWeekOffset ?? 0
     }
 
     private func stepWeek(_ delta: Int) {

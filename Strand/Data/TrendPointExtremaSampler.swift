@@ -8,11 +8,16 @@ import StrandDesign
 /// the important shape while retaining a fixed upper bound for SwiftUI rendering.
 enum TrendPointExtremaSampler {
     static func sample(_ points: [TrendPoint], maximumCount: Int) -> [TrendPoint] {
-        let limit = max(2, maximumCount)
-        guard points.count > limit else { return points }
-        guard let first = points.first, let last = points.last else { return [] }
+        guard maximumCount > 0 else { return [] }
+        let ordered = points
+            .filter { $0.value.isFinite && $0.date.timeIntervalSinceReferenceDate.isFinite }
+            .sorted { $0.date < $1.date }
+        guard maximumCount > 1 else { return ordered.last.map { [$0] } ?? [] }
+        let limit = maximumCount
+        guard ordered.count > limit else { return ordered }
+        guard let first = ordered.first, let last = ordered.last else { return [] }
 
-        let interior = Array(points.dropFirst().dropLast())
+        let interior = Array(ordered.dropFirst().dropLast())
         let interiorBudget = limit - 2
         guard interiorBudget > 0, !interior.isEmpty else { return [first, last] }
 
