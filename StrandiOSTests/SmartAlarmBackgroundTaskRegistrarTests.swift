@@ -19,6 +19,11 @@ final class SmartAlarmBackgroundTaskRegistrarTests: XCTestCase {
             SmartAlarmBackgroundTaskRegistrar.loadRequest(defaults: defaults),
             .malformed
         )
+        SmartAlarmBackgroundTaskRegistrar.clearStoredRequest(defaults: defaults)
+        XCTAssertEqual(
+            SmartAlarmBackgroundTaskRegistrar.loadRequest(defaults: defaults),
+            .missing
+        )
 
         let snapshot = SmartAlarmRuntimeSnapshot(
             enabled: true,
