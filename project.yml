@@ -163,6 +163,7 @@ targets:
       - package: WhoopProtocol
       - package: WhoopStore
       - package: OuraProtocol
+      - package: ZIPFoundation
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES

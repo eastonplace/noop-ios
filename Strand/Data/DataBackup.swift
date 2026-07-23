@@ -362,9 +362,8 @@ enum DataBackup {
                 try? fm.removeItem(at: tmpExtract)
                 return .failure(String(localized: "Couldn't open the backup archive: \(error.localizedDescription)"))
             }
-            guard let sqliteEntry = (try? fm.contentsOfDirectory(
-                at: tmpExtract, includingPropertiesForKeys: nil))?
-                .first(where: { $0.pathExtension == "sqlite" }) else {
+            let sqliteEntry = tmpExtract.appendingPathComponent(backupEntryName)
+            guard fm.fileExists(atPath: sqliteEntry.path) else {
                 try? fm.removeItem(at: tmpExtract)
                 return .failure(String(localized: "The backup archive doesn't contain a database file."))
             }
@@ -563,6 +562,50 @@ enum DataBackup {
     /// a backup produced on either platform restores on the other.
     private static let backupEntryName = "noop-backup.sqlite"
 
+    /// Hard ceilings for the tiny `.noopbak` container. The archive is intentionally only a database
+    /// plus optional settings; bounded metadata and extraction prevent a selected ZIP from becoming a
+    /// disk/memory exhaustion primitive. Internal so tests can exercise each gate with small fixtures.
+    struct ArchiveRestoreLimits: Sendable {
+        var maxArchiveCompressedBytes: UInt64 = 1_073_741_824 // 1 GiB on disk
+        var maxEntryCount = 2
+        var maxTotalUncompressedBytes: UInt64 = 4_294_967_296 // 4 GiB extracted
+        var maxDatabaseBytes: UInt64 = 4_294_967_296
+        var maxSettingsBytes: UInt64 = 1_048_576
+        var maxExpansionRatio: UInt64 = 200
+    }
+
+    private enum BackupArchiveError: LocalizedError {
+        case compressedInputTooLarge
+        case tooManyEntries
+        case duplicateName(String)
+        case unexpectedEntry(String)
+        case entryTooLarge(String)
+        case totalTooLarge
+        case suspiciousExpansion(String)
+        case extractedSizeMismatch(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .compressedInputTooLarge:
+                return "The selected archive is larger than NOOP's backup limit."
+            case .tooManyEntries:
+                return "A NOOP backup can contain only noop-backup.sqlite and settings.json."
+            case .duplicateName(let name):
+                return "The archive contains duplicate or ambiguous entries named \(name)."
+            case .unexpectedEntry(let path):
+                return "The archive contains an unexpected entry: \(path)."
+            case .entryTooLarge(let path):
+                return "The archive entry \(path) exceeds NOOP's restore limit."
+            case .totalTooLarge:
+                return "The archive expands beyond NOOP's restore limit."
+            case .suspiciousExpansion(let path):
+                return "The archive entry \(path) has a suspicious compression ratio."
+            case .extractedSizeMismatch(let path):
+                return "The archive entry \(path) expanded beyond its declared size."
+            }
+        }
+    }
+
     /// "NOOP-backup-2026-06-07.noopbak"
     private static func defaultBackupName() -> String {
         let f = DateFormatter()
@@ -641,15 +684,84 @@ enum DataBackup {
         return head[0] == 0x50 && head[1] == 0x4B && head[2] == 0x03 && head[3] == 0x04
     }
 
-    /// Extract the SQLite entry from a `.noopbak` ZIP at `zipURL` into `destDir`. Each file entry is
-    /// written under its own last-path-component, so the SQLite lands as `<destDir>/<name>.sqlite`
-    /// for the caller to locate. Uses the `Archive` reader (the repo's ZIPFoundation idiom).
-    private static func extractBackupZip(at zipURL: URL, into destDir: URL) throws {
+    /// Validate the complete central directory before writing anything, then extract only the two
+    /// canonical root entries. Exact paths avoid the old last-component flattening ambiguity.
+    /// Chunk-level counters enforce the same budgets while inflating, so corrupt metadata cannot
+    /// bypass the preflight and consume unbounded disk.
+    static func extractBackupZip(at zipURL: URL, into destDir: URL,
+                                 limits: ArchiveRestoreLimits = ArchiveRestoreLimits()) throws {
+        let attributes = try FileManager.default.attributesOfItem(atPath: zipURL.path)
+        let archiveBytes = (attributes[.size] as? NSNumber)?.uint64Value ?? 0
+        guard archiveBytes <= limits.maxArchiveCompressedBytes else {
+            throw BackupArchiveError.compressedInputTooLarge
+        }
+
         let archive = try Archive(url: zipURL, accessMode: .read)
-        for entry in archive where entry.type == .file {
-            let name = (entry.path as NSString).lastPathComponent
-            let out = destDir.appendingPathComponent(name)
-            _ = try archive.extract(entry, to: out)
+        let entries = Array(archive)
+        guard entries.count <= limits.maxEntryCount else { throw BackupArchiveError.tooManyEntries }
+
+        var flattenedNames = Set<String>()
+        var declaredTotal: UInt64 = 0
+        for entry in entries {
+            let flattened = (entry.path as NSString).lastPathComponent
+            guard flattenedNames.insert(flattened).inserted else {
+                throw BackupArchiveError.duplicateName(flattened)
+            }
+            guard entry.type == .file,
+                  entry.path == backupEntryName || entry.path == BackupSettings.entryName else {
+                throw BackupArchiveError.unexpectedEntry(entry.path)
+            }
+            let perEntryLimit = entry.path == backupEntryName
+                ? limits.maxDatabaseBytes : limits.maxSettingsBytes
+            guard entry.uncompressedSize <= perEntryLimit else {
+                throw BackupArchiveError.entryTooLarge(entry.path)
+            }
+            guard declaredTotal <= limits.maxTotalUncompressedBytes - min(
+                entry.uncompressedSize, limits.maxTotalUncompressedBytes
+            ), declaredTotal + entry.uncompressedSize <= limits.maxTotalUncompressedBytes else {
+                throw BackupArchiveError.totalTooLarge
+            }
+            declaredTotal += entry.uncompressedSize
+            if entry.uncompressedSize > 0 {
+                guard entry.compressedSize > 0,
+                      entry.uncompressedSize / entry.compressedSize <= limits.maxExpansionRatio else {
+                    throw BackupArchiveError.suspiciousExpansion(entry.path)
+                }
+            }
+        }
+
+        var extractedTotal: UInt64 = 0
+        for entry in entries {
+            let out = destDir.appendingPathComponent(entry.path)
+            guard FileManager.default.createFile(atPath: out.path, contents: nil) else {
+                throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: out.path])
+            }
+            let handle = try FileHandle(forWritingTo: out)
+            defer { try? handle.close() }
+            var entryBytes: UInt64 = 0
+            do {
+                _ = try archive.extract(entry) { chunk in
+                    let chunkBytes = UInt64(chunk.count)
+                    guard entryBytes <= entry.uncompressedSize - min(chunkBytes, entry.uncompressedSize),
+                          entryBytes + chunkBytes <= entry.uncompressedSize else {
+                        throw BackupArchiveError.extractedSizeMismatch(entry.path)
+                    }
+                    guard extractedTotal <= limits.maxTotalUncompressedBytes - min(
+                        chunkBytes, limits.maxTotalUncompressedBytes
+                    ), extractedTotal + chunkBytes <= limits.maxTotalUncompressedBytes else {
+                        throw BackupArchiveError.totalTooLarge
+                    }
+                    try handle.write(contentsOf: chunk)
+                    entryBytes += chunkBytes
+                    extractedTotal += chunkBytes
+                }
+                guard entryBytes == entry.uncompressedSize else {
+                    throw BackupArchiveError.extractedSizeMismatch(entry.path)
+                }
+            } catch {
+                try? FileManager.default.removeItem(at: out)
+                throw error
+            }
         }
     }
 

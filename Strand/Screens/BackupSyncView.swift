@@ -114,7 +114,7 @@ struct BackupSyncView: View {
         }
         sections.append(.init(id: "privacy", header: "Privacy", rows: [
             .custom(id: "privacy-note") {
-                NoteCard("Backups are saved to your chosen local or cloud-synced folder. You're in control.",
+                NoteCard("A .noopbak is an unencrypted copy of your health database. Anyone with access to the file can read it, including through a cloud-synced folder. Choose and protect the folder accordingly.",
                          style: .privacy).padding(13)
             }
         ]))
