@@ -13,6 +13,26 @@ enum WorkoutLifecycleProjection {
     }
 }
 
+/// Repository-backed fields needed by widgets/Live Activity. Rebuilt only when repository state changes
+/// (or the logical day rolls), never on a raw heart-rate callback.
+struct ExternalSurfaceDayProjection: Equatable {
+    let logicalDayKey: String
+    let recovery: Int?
+    let effort: Double?
+
+    @MainActor
+    static func make(repository: Repository, now: Date = Date()) -> Self {
+        let day = Repository.widgetAnchor(days: repository.days, now: now)
+        return Self(
+            logicalDayKey: Repository.logicalDayKey(now),
+            recovery: day?.recovery.map { Int($0.rounded()) },
+            effort: day
+                .flatMap { repository.canonicalStrain(for: $0.day)?.storedValue }
+                .map { StrainScale.displayValue(fromStored: $0) }
+        )
+    }
+}
+
 @main
 struct StrandiOSApp: App {
     @StateObject private var model: AppModel
@@ -22,6 +42,9 @@ struct StrandiOSApp: App {
     @StateObject private var router = NavRouter()
     @State private var liveActivity = LiveActivityController()
     @State private var workoutProjection = WorkoutLiveProjectionCache()
+    @State private var externalSurfaceDay = ExternalSurfaceDayProjection(
+        logicalDayKey: "", recovery: nil, effort: nil
+    )
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage(AppearanceMode.storageKey) private var appearanceRaw = AppearanceMode.system.rawValue
     @AppStorage(ChartStyle.storageKey) private var chartStyleRaw = ChartStyle.titanium.rawValue
@@ -53,18 +76,22 @@ struct StrandiOSApp: App {
     }
 
     private func driveLiveActivity(connected: Bool? = nil) {
+        if externalSurfaceDay.logicalDayKey != Repository.logicalDayKey(Date()) {
+            refreshExternalSurfaceDay()
+        }
         let isConnected = connected ?? model.live.connected
-        let day = Repository.widgetAnchor(days: model.repo.days)
         liveActivity.update(
             bpm: isConnected ? (model.bpm ?? model.live.heartRate) : nil,
-            recovery: day?.recovery.map { Int($0.rounded()) },
+            recovery: externalSurfaceDay.recovery,
             connected: isConnected,
-            effort: day
-                .flatMap { model.repo.canonicalStrain(for: $0.day)?.storedValue }
-                .map { StrainScale.displayValue(fromStored: $0) },
+            effort: externalSurfaceDay.effort,
             workoutIsActive: model.activeWorkout != nil,
             workout: workoutActivityState
         )
+    }
+
+    private func refreshExternalSurfaceDay() {
+        externalSurfaceDay = ExternalSurfaceDayProjection.make(repository: model.repo)
     }
 
     var body: some Scene {
@@ -103,10 +130,12 @@ struct StrandiOSApp: App {
                 }
                 .onReceive(model.repo.$refreshSeq.dropFirst()) { _ in
                     guard scenePhase == .active else { return }
+                    refreshExternalSurfaceDay()
                     Task { await WidgetSnapshot.publish(from: model) }
                 }
                 .onReceive(model.repo.$canonicalStrainByDay.dropFirst()) { _ in
                     guard scenePhase == .active else { return }
+                    refreshExternalSurfaceDay()
                     driveLiveActivity()
                     WidgetSnapshot.publishLive(from: model)
                 }
@@ -127,6 +156,7 @@ struct StrandiOSApp: App {
                     if url.host == "import-health" { model.handleHealthImportURL(url) }
                 }
                 .task {
+                    refreshExternalSurfaceDay()
                     alarmRuntime.start()
                     #if DEBUG
                     if CommandLine.arguments.contains("--component41-live-qa") {

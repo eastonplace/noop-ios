@@ -1,4 +1,5 @@
 import Foundation
+import WhoopProtocol
 import WhoopStore
 
 /// A render-budgeted projection for the live workout heart chart.
@@ -118,5 +119,102 @@ struct WorkoutHeartChartProjection: Equatable, Sendable {
             }
         }
         return lower...upper
+    }
+}
+
+/// Incremental live-chart state. It retains at most the trailing three hours of canonical one-second
+/// samples, grouped into minute buckets, and publishes at most 360 extrema-preserving points. Updating the
+/// live chart therefore has a fixed memory/work budget instead of rescanning an ever-growing workout.
+struct WorkoutHeartChartAccumulator: Sendable {
+    private struct MinuteBucket: Sendable {
+        let minute: Int
+        var samples: [HRSample]
+
+        mutating func ingest(_ sample: HRSample) -> Bool {
+            if let last = samples.last {
+                guard sample.ts >= last.ts else { return false }
+                if sample.ts == last.ts {
+                    samples[samples.count - 1] = sample
+                    return true
+                }
+            }
+            samples.append(sample)
+            return true
+        }
+
+        var extrema: [HRSample] {
+            guard let minimum = samples.min(by: { $0.bpm < $1.bpm }),
+                  let maximum = samples.max(by: { $0.bpm < $1.bpm }) else { return [] }
+            if minimum.ts == maximum.ts { return [minimum] }
+            return minimum.ts < maximum.ts ? [minimum, maximum] : [maximum, minimum]
+        }
+    }
+
+    private let windowSeconds: Int
+    private let maximumPoints: Int
+    private var buckets: [MinuteBucket] = []
+
+    init(
+        samples: [HRSample] = [],
+        windowSeconds: Int = WorkoutHeartChartProjection.defaultWindowSeconds,
+        maximumPoints: Int = WorkoutHeartChartProjection.defaultMaximumPoints
+    ) {
+        self.windowSeconds = max(1, windowSeconds)
+        self.maximumPoints = max(2, maximumPoints)
+        for sample in samples.sorted(by: { $0.ts < $1.ts }) { _ = ingest(sample) }
+    }
+
+    @discardableResult
+    mutating func ingest(_ sample: HRSample) -> Bool {
+        guard sample.ts > 0, (30...240).contains(sample.bpm) else { return false }
+        let minute = sample.ts / 60
+        if buckets.last?.minute == minute {
+            guard buckets[buckets.count - 1].ingest(sample) else { return false }
+        } else {
+            guard buckets.last.map({ minute > $0.minute }) ?? true else { return false }
+            buckets.append(MinuteBucket(minute: minute, samples: [sample]))
+        }
+
+        let lowerBound = sample.ts - windowSeconds
+        while let first = buckets.first, (first.samples.last?.ts ?? .min) < lowerBound {
+            buckets.removeFirst()
+        }
+        if let firstIndex = buckets.indices.first {
+            buckets[firstIndex].samples.removeAll { $0.ts < lowerBound }
+            if buckets[firstIndex].samples.isEmpty { buckets.removeFirst() }
+        }
+        return true
+    }
+
+    var retainedSampleCount: Int { buckets.reduce(0) { $0 + $1.samples.count } }
+
+    var projection: WorkoutHeartChartProjection {
+        guard let first = buckets.first?.samples.first,
+              let last = buckets.last?.samples.last else {
+            return WorkoutHeartChartProjection(
+                values: [], range: WorkoutHeartChartProjection.displayRange([]),
+                firstSampleAt: nil, lastSampleAt: nil
+            )
+        }
+        var candidates = buckets.flatMap(\.extrema)
+        candidates.append(first)
+        candidates.append(last)
+        candidates.sort { lhs, rhs in lhs.ts == rhs.ts ? lhs.bpm < rhs.bpm : lhs.ts < rhs.ts }
+        var unique: [HRSample] = []
+        unique.reserveCapacity(candidates.count)
+        for candidate in candidates {
+            if unique.last?.ts == candidate.ts { unique[unique.count - 1] = candidate }
+            else { unique.append(candidate) }
+        }
+        let rendered = WorkoutHeartChartProjection.extremaPreservingSample(
+            unique, maximumPoints: maximumPoints
+        )
+        let values = rendered.map { Double($0.bpm) }
+        return WorkoutHeartChartProjection(
+            values: values,
+            range: WorkoutHeartChartProjection.displayRange(values),
+            firstSampleAt: rendered.first?.ts,
+            lastSampleAt: rendered.last?.ts
+        )
     }
 }

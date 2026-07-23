@@ -36,11 +36,15 @@ private struct StableLiveWorkoutContent: View, @preconcurrency Equatable {
                     .staggeredAppear(index: 2)
                 PaperWorkoutMapCard(recorder: model.gpsRecorder)
                     .staggeredAppear(index: 3)
-                LiveWorkoutHeartCard(model: model)
-                    .staggeredAppear(index: 4)
+                if let workout = model.activeWorkout {
+                    LiveWorkoutHeartCard(workout: workout)
+                        .staggeredAppear(index: 4)
+                }
                 LiveWorkoutControlRow(model: model)
                 LiveWorkoutFailureMessage(model: model)
-                LiveWorkoutEffortAndZone(model: model)
+                if let workout = model.activeWorkout {
+                    LiveWorkoutEffortAndZone(workout: workout, profile: model.profile)
+                }
             }
             .screenPadding()
             .padding(.vertical, 16)
@@ -114,15 +118,13 @@ private struct WorkoutGoneObserver: View {
     }
 }
 
-/// Per-sample heart history leaf. The authoritative session remains untouched; this leaf derives a true
-/// trailing-three-hour, extrema-preserving render projection with a fixed point budget.
+/// Per-sample heart history leaf. `ActiveWorkout` publishes an already-bounded incremental projection, so
+/// this view never observes broad AppModel invalidations or scans the complete retained workout.
 private struct LiveWorkoutHeartCard: View {
-    @ObservedObject var model: AppModel
+    @ObservedObject var workout: AppModel.ActiveWorkout
 
     var body: some View {
-        let projection = WorkoutHeartChartProjection.make(
-            samples: model.activeWorkout?.samples ?? []
-        )
+        let projection = workout.chartProjection
         PaperCard {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .firstTextBaseline) {
@@ -131,7 +133,7 @@ private struct LiveWorkoutHeartCard: View {
                         .tracking(StrandFont.sectionOverlineTracking)
                         .foregroundStyle(StrandPalette.textSecondary)
                     Spacer()
-                    Text(model.bpm.map { "\($0) bpm" } ?? "—")
+                    Text(workout.currentBPM.map { "\($0) bpm" } ?? "—")
                         .font(StrandFont.captionNumber)
                         .foregroundStyle(StrandPalette.liveRed)
                 }
@@ -215,12 +217,13 @@ private struct LiveWorkoutFailureMessage: View {
 }
 
 private struct LiveWorkoutEffortAndZone: View {
-    @ObservedObject var model: AppModel
+    @ObservedObject var workout: AppModel.ActiveWorkout
+    @ObservedObject var profile: ProfileStore
     @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.whoop.rawValue
 
     private var effortScale: EffortScale { UnitPrefs.resolveEffortScale(effortScaleRaw) }
-    private var zoneSet: HRZoneSet { HRZones.zones(maxHR: Double(model.profile.hrMax)) }
-    private var zone: Int { model.bpm.map { zoneSet.zoneNumber(forBPM: Double($0)) } ?? 0 }
+    private var zoneSet: HRZoneSet { HRZones.zones(maxHR: Double(profile.hrMax)) }
+    private var zone: Int { workout.currentBPM.map { zoneSet.zoneNumber(forBPM: Double($0)) } ?? 0 }
 
     var body: some View {
         effortGauge
@@ -230,9 +233,7 @@ private struct LiveWorkoutEffortAndZone: View {
     private var effortGauge: some View {
         NoopCard(padding: NoopMetrics.cardInnerPadding, tint: StrandPalette.effortColor) {
             VStack(spacing: NoopMetrics.rowSpacing) {
-                switch model.activeWorkout?.liveStrainState
-                    ?? .building(readings: 0, coverageSeconds: 0)
-                {
+                switch workout.liveStrainState {
                 case .building(let readings, let coverageSeconds):
                     Text("STRAIN BUILDING")
                         .font(StrandFont.overline)

@@ -162,22 +162,85 @@ final class AppModel: ObservableObject {
     /// is updated by an O(1) accumulator so the active card can show strain building in real time.
     /// Reference-owned live session. The sample buffer grows in place so each accepted HR reading does
     /// not copy the entire retained workout before publishing the next UI update.
-    final class ActiveWorkout {
+    final class ActiveWorkout: ObservableObject {
         let start: Date
         /// The named sport chosen at start (e.g. "Tennis", "Padel") , persisted as the saved row's
         /// `sport` so a live-tracked session keeps its label instead of the old generic "Workout".
         /// Defaults to the catalogue default ("Other") when started without a pick. (#519)
         var sport: String = WorkoutCatalog.defaultSportName
-        var samples: [HRSample] = []
-        var liveStrainState: LiveStrainState = .building(readings: 0, coverageSeconds: 0)
-        var avgHr: Int = 0
-        var peakHr: Int = 0
+        private(set) var samples: [HRSample] = []
+        @Published private(set) var liveStrainState: LiveStrainState = .building(readings: 0, coverageSeconds: 0)
+        @Published private(set) var avgHr: Int = 0
+        @Published private(set) var peakHr: Int = 0
+        @Published private(set) var currentBPM: Int?
+        @Published private(set) var chartProjection = WorkoutHeartChartProjection.make(samples: [])
         var strainAccumulator: StrainScorerV2.ActivityAccumulator
+        private var chartAccumulator = WorkoutHeartChartAccumulator()
+        private let maxHR: Double
 
         init(start: Date, sport: String, maxHR: Double) {
             self.start = start
             self.sport = sport
+            self.maxHR = maxHR
             self.strainAccumulator = .init(maxHR: maxHR)
+        }
+
+        @discardableResult
+        func ingest(_ sample: HRSample) -> Bool {
+            guard sample.ts > 0, (30...240).contains(sample.bpm) else { return false }
+            if let last = samples.last {
+                guard sample.ts >= last.ts else { return false }
+                if sample.ts == last.ts {
+                    samples[samples.count - 1] = sample
+                    guard strainAccumulator.replaceCurrentSecond(with: sample),
+                          chartAccumulator.ingest(sample) else { return false }
+                } else {
+                    samples.append(sample)
+                    strainAccumulator.append(sample)
+                    guard chartAccumulator.ingest(sample) else { return false }
+                }
+            } else {
+                samples.append(sample)
+                strainAccumulator.append(sample)
+                guard chartAccumulator.ingest(sample) else { return false }
+            }
+            publishLiveState(sample: sample)
+            return true
+        }
+
+        func restore(samples restoredSamples: [HRSample]) {
+            var canonical: [HRSample] = []
+            for sample in restoredSamples.sorted(by: { $0.ts < $1.ts })
+                where sample.ts > 0 && (30...240).contains(sample.bpm) {
+                if canonical.last?.ts == sample.ts { canonical[canonical.count - 1] = sample }
+                else { canonical.append(sample) }
+            }
+            samples = canonical
+            strainAccumulator = .init(samples: canonical, maxHR: maxHR)
+            chartAccumulator = WorkoutHeartChartAccumulator(samples: canonical)
+            chartProjection = chartAccumulator.projection
+            currentBPM = canonical.last?.bpm
+            avgHr = strainAccumulator.averageHR ?? 0
+            peakHr = strainAccumulator.peakHR ?? 0
+            if let strain = strainAccumulator.strain {
+                liveStrainState = .scored(storedValue: strain)
+            } else {
+                liveStrainState = .building(readings: strainAccumulator.readingCount,
+                                            coverageSeconds: strainAccumulator.coverageSeconds)
+            }
+        }
+
+        private func publishLiveState(sample: HRSample) {
+            currentBPM = sample.bpm
+            chartProjection = chartAccumulator.projection
+            peakHr = strainAccumulator.peakHR ?? sample.bpm
+            avgHr = strainAccumulator.averageHR ?? sample.bpm
+            if let strain = strainAccumulator.strain {
+                liveStrainState = .scored(storedValue: strain)
+            } else {
+                liveStrainState = .building(readings: strainAccumulator.readingCount,
+                                            coverageSeconds: strainAccumulator.coverageSeconds)
+            }
         }
     }
     /// Illness/strain early-warning (recent RHR up + HRV down + skin-temp up vs baseline). nil = clear.
@@ -713,16 +776,7 @@ final class AppModel: ObservableObject {
         guard activeWorkout == nil, let snap = ActiveWorkoutPersistence.load() else { return }
         let w = ActiveWorkout(start: Date(timeIntervalSince1970: TimeInterval(snap.startSec)),
                               sport: snap.sport, maxHR: Double(profile.hrMax))
-        w.samples = snap.samples
-        w.strainAccumulator = .init(samples: snap.samples, maxHR: Double(profile.hrMax))
-        w.avgHr = snap.avgHr
-        w.peakHr = snap.peakHr
-        if let strain = w.strainAccumulator.strain {
-            w.liveStrainState = .scored(storedValue: strain)
-        } else {
-            w.liveStrainState = .building(readings: w.strainAccumulator.readingCount,
-                                          coverageSeconds: w.strainAccumulator.coverageSeconds)
-        }
+        w.restore(samples: snap.samples)
         activeWorkout = w
     }
 
@@ -854,17 +908,7 @@ final class AppModel: ObservableObject {
     private func captureWorkoutSample() {
         guard pendingWorkoutSnapshot == nil, let w = activeWorkout, let hr = bpm else { return }
         let sample = HRSample(ts: Int(Date().timeIntervalSince1970), bpm: hr)
-        w.samples.append(sample)
-        w.strainAccumulator.append(sample)
-        w.peakHr = w.strainAccumulator.peakHR ?? hr
-        w.avgHr = w.strainAccumulator.averageHR ?? hr
-        if let strain = w.strainAccumulator.strain {
-            w.liveStrainState = .scored(storedValue: strain)
-        } else {
-            w.liveStrainState = .building(readings: w.strainAccumulator.readingCount,
-                                          coverageSeconds: w.strainAccumulator.coverageSeconds)
-        }
-        activeWorkout = w
+        guard w.ingest(sample) else { return }
         // Re-snapshot the durable session so a kill keeps the latest accumulated HR window (#529).
         persistActiveWorkout()
     }

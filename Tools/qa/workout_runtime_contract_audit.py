@@ -35,10 +35,12 @@ try:
         "extremaPreservingSample",
         "bySecond[sample.ts] = sample.bpm",
         "displayRange",
+        "WorkoutHeartChartAccumulator",
+        "retainedSampleCount",
     )
     require(
         "Strand/Screens/LiveWorkoutView.swift",
-        "WorkoutHeartChartProjection.make",
+        "workout.chartProjection",
         "range: projection.range",
         'Text("HEART RATE (LAST 3 HOURS)")',
     )
@@ -52,6 +54,8 @@ try:
         "WorkoutLifecycleProjection",
         ".map(WorkoutLifecycleProjection.identity)",
         ".removeDuplicates()",
+        "ExternalSurfaceDayProjection",
+        "externalSurfaceDay.effort",
     )
     forbid(
         "StrandiOS/App/StrandiOSApp.swift",
@@ -62,6 +66,12 @@ try:
         "testProjectionUsesTrailingTimeWindowNotCallbackCount",
         "testExtremaPreservingSampleKeepsEndpointsSpikeAndTrough",
         "testLifecycleIdentityChangesOnlyForStartEndOrReplacement",
+        "testCanonicalWorkoutIngestionProducesEquivalentScoresAtOneAndThreeHertz",
+        "testIncrementalChartProjectionStaysBoundedAcrossLongWorkout",
+    )
+    forbid(
+        "StrandiOS/App/StrandiOSApp.swift",
+        "let day = Repository.widgetAnchor(days: model.repo.days)",
     )
 except AssertionError as error:
     print(f"Workout runtime contract audit: FAIL\n{error}", file=sys.stderr)

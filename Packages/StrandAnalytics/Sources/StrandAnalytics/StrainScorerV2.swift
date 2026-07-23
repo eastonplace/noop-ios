@@ -48,6 +48,7 @@ public enum StrainScorerV2 {
         private var currentSecondMaxBPM = 0
         private var cardiovascularLoad = 0.0
         private var bpmSum = 0
+        private var bpmHistogram = Array(repeating: 0, count: 241)
 
         public private(set) var readingCount = 0
         public private(set) var coverageSeconds = 0
@@ -108,7 +109,29 @@ public enum StrainScorerV2 {
 
             readingCount += 1
             bpmSum += sample.bpm
+            bpmHistogram[sample.bpm] += 1
             peakHR = max(peakHR ?? sample.bpm, sample.bpm)
+        }
+
+        /// Replace the canonical value for the current integer second without increasing reading count or
+        /// changing elapsed coverage. Live transports can callback several times inside one second; the
+        /// workout session owns one last-write-wins sample for that second and uses this operation to keep
+        /// its running average/peak/strain preview equivalent to the eventually persisted sample array.
+        @discardableResult
+        public mutating func replaceCurrentSecond(with sample: HRSample) -> Bool {
+            guard sample.ts > 0, (30...240).contains(sample.bpm),
+                  sample.ts == currentSecond,
+                  effectiveMaxHR.isFinite, restingHR.isFinite,
+                  effectiveMaxHR > restingHR else { return false }
+
+            let replacedBPM = currentSecondMaxBPM
+            bpmSum += sample.bpm - replacedBPM
+            bpmHistogram[replacedBPM] -= 1
+            bpmHistogram[sample.bpm] += 1
+            currentSecondMaxBPM = sample.bpm
+            peakHR = stride(from: 240, through: 30, by: -1)
+                .first(where: { bpmHistogram[$0] > 0 })
+            return true
         }
     }
 

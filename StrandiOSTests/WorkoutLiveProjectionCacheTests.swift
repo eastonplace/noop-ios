@@ -12,7 +12,7 @@ final class WorkoutLiveProjectionCacheTests: XCTestCase {
             maxHR: 190
         )
         let retained = session
-        session.samples.append(HRSample(ts: 1_700_000_000, bpm: 120))
+        XCTAssertTrue(session.ingest(HRSample(ts: 1_700_000_000, bpm: 120)))
 
         XCTAssertTrue(session === retained)
         XCTAssertEqual(retained.samples, [HRSample(ts: 1_700_000_000, bpm: 120)])
@@ -26,15 +26,15 @@ final class WorkoutLiveProjectionCacheTests: XCTestCase {
             sport: "Running",
             maxHR: 190
         )
-        workout.samples = [
+        workout.restore(samples: [
             HRSample(ts: 1_700_000_000, bpm: 100),
             HRSample(ts: 1_700_000_001, bpm: 110),
-        ]
+        ])
 
         let cache = WorkoutLiveProjectionCache()
         XCTAssertEqual(cache.state(workout: workout, profile: profile).hrTrace, [100, 110])
 
-        workout.samples[1] = HRSample(ts: 1_700_000_001, bpm: 150)
+        XCTAssertTrue(workout.ingest(HRSample(ts: 1_700_000_001, bpm: 150)))
         XCTAssertEqual(cache.state(workout: workout, profile: profile).hrTrace, [100, 150])
     }
 }
