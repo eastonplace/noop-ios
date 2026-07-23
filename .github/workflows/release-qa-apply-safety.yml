@@ -1,4 +1,5 @@
 name: Apply release QA safety fixes
+# Second-stage push trigger: the workflow now exists before this commit.
 
 on:
   push:
