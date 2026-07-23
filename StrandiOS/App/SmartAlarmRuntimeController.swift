@@ -975,33 +975,11 @@ final class SmartAlarmRuntimeController: ObservableObject {
 @MainActor
 enum SmartAlarmRuntimeBackgroundScheduler {
     static let bgTaskIdentifier = "com.noopapp.noop.smartalarm"
-    private static let requestKey = "smartAlarm.runtime.backgroundRequest"
+    static let requestKey = "smartAlarm.runtime.backgroundRequest"
     private static let configurationKey = "smartAlarm.runtime.configuration"
-    private static weak var runtime: SmartAlarmRuntimeController?
-    private static var registered = false
 
     static func install(_ runtime: SmartAlarmRuntimeController) {
-        self.runtime = runtime
-        guard !registered else { return }
-        registered = true
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: bgTaskIdentifier, using: nil) { task in
-            guard let refreshTask = task as? BGAppRefreshTask else {
-                task.setTaskCompleted(success: false)
-                return
-            }
-            let operation = Task { @MainActor in
-                let request = Self.loadRequest()
-                guard let runtime = Self.runtime, !Task.isCancelled else {
-                    refreshTask.setTaskCompleted(success: false)
-                    return
-                }
-                let succeeded = await runtime.handleBackgroundRefresh(request)
-                guard !Task.isCancelled else { return }
-                Self.clearRequest(ifMatching: request)
-                refreshTask.setTaskCompleted(success: succeeded)
-            }
-            refreshTask.expirationHandler = { operation.cancel() }
-        }
+        _ = SmartAlarmBackgroundTaskRegistrar.install(runtime)
     }
 
     static func schedule(
