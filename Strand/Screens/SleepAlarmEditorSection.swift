@@ -8,39 +8,98 @@ import WhoopStore
 /// transactional side effects are owned by the app-root alarm runtime.
 @MainActor
 enum SleepAlarmEditorSupport {
-    struct SchedulePresentation {
-        let nextDate: Date
-        let continuousMinutes: Int
+    struct SchedulePresentation: Equatable, Sendable {
+        /// The scheduler's authoritative civil-time endpoint. Display and day identity must always derive
+        /// from this Date rather than by wrapping an elapsed-duration axis at 1,440 minutes.
+        let endpoint: Date
+        /// A display/timeline coordinate whose modulo-1,440 clock is the endpoint's real calendar clock.
+        /// Its distance from `nowAxisMinutes` is derived from `endpoint.timeIntervalSince(now)`, so the
+        /// relative countdown remains correct on 23-hour and 25-hour civil days.
+        let wakeAxisMinutes: Int
+        let nowAxisMinutes: Int
+        let remainingSeconds: TimeInterval
         let dayLabel: String
         let isUpcomingSleepPeriod: Bool
+
+        var remainingMinutes: Int {
+            max(0, Int((remainingSeconds / 60).rounded(.up)))
+        }
+
+        func wakeClock(
+            locale: Locale = .autoupdatingCurrent,
+            calendar inputCalendar: Calendar = .autoupdatingCurrent
+        ) -> String {
+            let calendar = inputCalendar
+            let formatter = DateFormatter()
+            formatter.locale = locale
+            formatter.calendar = calendar
+            formatter.timeZone = calendar.timeZone
+            formatter.dateStyle = .none
+            formatter.timeStyle = .short
+            return formatter.string(from: endpoint).replacingOccurrences(of: "\u{202F}", with: " ")
+        }
+
+        func voiceOverWakeTimeValue(
+            locale: Locale = .autoupdatingCurrent,
+            calendar: Calendar = .autoupdatingCurrent
+        ) -> String {
+            String(localized: "Wake time \(wakeClock(locale: locale, calendar: calendar)), \(dayLabel)")
+        }
     }
 
-    static func schedule(at now: Date, behavior: BehaviorStore, calendar: Calendar = .current) -> SchedulePresentation? {
-        guard let next = SmartAlarmSchedule.nextDate(
+    static func schedule(
+        at now: Date,
+        behavior: BehaviorStore,
+        calendar: Calendar = .current
+    ) -> SchedulePresentation? {
+        schedule(
+            at: now,
             minutes: behavior.smartAlarmMinutes,
             weekdays: behavior.smartAlarmWeekdays,
+            calendar: calendar
+        )
+    }
+
+    nonisolated static func schedule(
+        at now: Date,
+        minutes: Int,
+        weekdays: Set<Int>,
+        calendar inputCalendar: Calendar
+    ) -> SchedulePresentation? {
+        var calendar = inputCalendar
+        guard let endpoint = SmartAlarmSchedule.nextDate(
+            minutes: minutes,
+            weekdays: weekdays,
             after: now,
             calendar: calendar
         ) else { return nil }
-        let nowComponents = calendar.dateComponents([.hour, .minute], from: now)
-        let nowMinuteOfDay = (nowComponents.hour ?? 0) * 60 + (nowComponents.minute ?? 0)
-        // Keep elapsed time grounded in the scheduler's real Date. Civil days at DST can be 23 or 25
-        // hours, so `dayOffset * 1_440 + clock time` is not a valid presentation timeline.
-        let elapsedMinutes = max(0, Int((next.timeIntervalSince(now) / 60).rounded(.up)))
-        let continuous = nowMinuteOfDay + elapsedMinutes
+
+        let endpointComponents = calendar.dateComponents([.hour, .minute], from: endpoint)
+        let endpointMinuteOfDay = (endpointComponents.hour ?? 0) * 60 + (endpointComponents.minute ?? 0)
+        let civilDayOffset = max(0, calendar.dateComponents(
+            [.day],
+            from: calendar.startOfDay(for: now),
+            to: calendar.startOfDay(for: endpoint)
+        ).day ?? 0)
+        let wakeAxisMinutes = civilDayOffset * 1_440 + endpointMinuteOfDay
+        let remainingSeconds = max(0, endpoint.timeIntervalSince(now))
+        let remainingMinutes = max(0, Int((remainingSeconds / 60).rounded(.up)))
+
         let label: String
-        if calendar.isDateInToday(next) {
+        if civilDayOffset == 0 {
             label = String(localized: "Today")
-        } else if calendar.isDateInTomorrow(next) {
+        } else if civilDayOffset == 1 {
             label = String(localized: "Tomorrow")
         } else {
-            label = next.formatted(.dateTime.weekday(.wide).month(.abbreviated).day())
+            label = endpoint.formatted(.dateTime.weekday(.wide).month(.abbreviated).day())
         }
         return SchedulePresentation(
-            nextDate: next,
-            continuousMinutes: continuous,
+            endpoint: endpoint,
+            wakeAxisMinutes: wakeAxisMinutes,
+            nowAxisMinutes: wakeAxisMinutes - remainingMinutes,
+            remainingSeconds: remainingSeconds,
             dayLabel: label,
-            isUpcomingSleepPeriod: next.timeIntervalSince(now) <= 24 * 60 * 60
+            isUpcomingSleepPeriod: remainingSeconds <= 24 * 60 * 60
         )
     }
 
@@ -106,17 +165,17 @@ enum SleepAlarmEditorSupport {
     static func wakeBinding(_ behavior: BehaviorStore, now: Date) -> Binding<Int> {
         Binding(
             get: {
-                schedule(at: now, behavior: behavior)?.continuousMinutes
+                schedule(at: now, behavior: behavior)?.wakeAxisMinutes
                     ?? behavior.smartAlarmMinutes
             },
             set: { proposedMinutes in
                 guard let presentation = schedule(at: now, behavior: behavior) else { return }
-                let delta = proposedMinutes - presentation.continuousMinutes
+                let delta = proposedMinutes - presentation.wakeAxisMinutes
                 guard let proposedDate = Calendar.current.date(
                     byAdding: .minute,
                     value: delta,
-                    to: presentation.nextDate
-                ), Calendar.current.isDate(proposedDate, inSameDayAs: presentation.nextDate)
+                    to: presentation.endpoint
+                ), Calendar.current.isDate(proposedDate, inSameDayAs: presentation.endpoint)
                 else { return }
                 let components = Calendar.current.dateComponents([.hour, .minute], from: proposedDate)
                 behavior.smartAlarmMinutes = (components.hour ?? 0) * 60 + (components.minute ?? 0)
@@ -187,13 +246,14 @@ struct SleepAlarmEditorSection: View {
     @ViewBuilder
     private func alarmModule(at date: Date) -> some View {
         let components = Calendar.current.dateComponents([.hour, .minute], from: date)
-        let nowMinutes = (components.hour ?? 0) * 60 + (components.minute ?? 0)
+        let currentMinuteOfDay = (components.hour ?? 0) * 60 + (components.minute ?? 0)
         let plan = displayedPlan
         let selected = wakeModes.first { $0.id == alarmMode.mode.rawValue }
         let windowMinutes = selected?.windowMinutes ?? 0
         let schedule = SleepAlarmEditorSupport.schedule(at: date, behavior: behavior)
-        let wake = schedule?.continuousMinutes ?? SleepAlarmTime.nextOccurrence(
-            now: nowMinutes, timeOfDay: behavior.smartAlarmMinutes)
+        let wake = schedule?.wakeAxisMinutes ?? SleepAlarmTime.nextOccurrence(
+            now: currentMinuteOfDay, timeOfDay: behavior.smartAlarmMinutes)
+        let now = schedule?.nowAxisMinutes ?? currentMinuteOfDay
         let asleepBy = SleepAlarmTime.asleepByMinutes(
             wakeMinutes: wake,
             windowMinutes: windowMinutes,
@@ -206,7 +266,7 @@ struct SleepAlarmEditorSection: View {
                 modes: wakeModes,
                 selectedModeId: SleepAlarmEditorSupport.modeBinding(alarmMode),
                 wakeMinutes: SleepAlarmEditorSupport.wakeBinding(behavior, now: date),
-                nowMinutes: nowMinutes,
+                nowMinutes: now,
                 needMinutes: plan.minutes,
                 wakeDayLabel: schedule?.dayLabel ?? String(localized: "No enabled day"),
                 deliveryStatus: alarmRuntime.deliveryStatus,
@@ -222,7 +282,7 @@ struct SleepAlarmEditorSection: View {
 
             if behavior.smartAlarmEnabled, schedule?.isUpcomingSleepPeriod == true {
                 SleepPlanTimeline(
-                    now: nowMinutes,
+                    now: now,
                     asleepBy: asleepBy,
                     windowStart: wake - windowMinutes,
                     alarm: wake

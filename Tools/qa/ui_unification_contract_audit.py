@@ -30,11 +30,21 @@ def forbid(rel: str, *needles: str) -> None:
 try:
     require(
         "Strand/Screens/TrendsView.swift",
+        ".task(id: repo.refreshSeq)",
+        ".task(id: screenSnapshotKey)",
+        "currentScreenSnapshot",
+    )
+    require(
+        "Strand/Screens/TrendsView+SelectedRange.swift",
         "selectedRange.summarySubtitle",
+        "TrendDeltaTone",
+    )
+    require(
+        "Strand/Screens/TrendsView+WeeklyReview.swift",
         "paperMoverRows",
         'Text("Weekly readout")',
-        "TrendDeltaTone",
         "WeeklyDigestSource.digest",
+        "Sleep score variability ±",
     )
     forbid(
         "Strand/Screens/TrendsView.swift",
@@ -67,6 +77,30 @@ try:
         "SmartAlarmAdaptiveModeStore",
         "SmartAlarmRuntimeController",
         "sameOccurrenceMinute",
+        "let endpoint: Date",
+        "endpoint.timeIntervalSince(now)",
+        "let endpointComponents",
+        "let wakeAxisMinutes",
+        "let nowAxisMinutes",
+        "let civilDayOffset",
+        "voiceOverWakeTimeValue",
+        "Calendar.current.isDate(proposedDate, inSameDayAs: presentation.endpoint)",
+    )
+    forbid(
+        "Strand/Screens/SleepAlarmEditorSection.swift",
+        "nowMinuteOfDay + elapsedMinutes",
+        "let continuousMinutes",
+        "presentation.continuousMinutes",
+    )
+    require(
+        "StrandiOSTests/AlarmPresentationTests.swift",
+        "testSpringForwardPresentationUsesEndpointClockAndRealElapsedTime",
+        "testFallBackPresentationUsesEndpointClockAndRealElapsedTime",
+        "testSameDayAlarmKeepsTodayIdentity",
+        "testTomorrowAlarmKeepsTomorrowIdentity",
+        "testWeekdaySeveralDaysAwayUsesCalendarDayIdentity",
+        "testMidnightBoundaryNudgeStaysWithinRecurringOccurrence",
+        "testVoiceOverWakeTimeValueUsesEndpointClock",
     )
     require(
         "StrandiOS/App/SmartAlarmRuntimeController.swift",
