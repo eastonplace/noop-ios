@@ -8,12 +8,11 @@ enum SmartAlarmBackgroundRequestLoadResult: Equatable, Sendable {
     case loaded(SmartAlarmBackgroundRequest)
 }
 
-/// Registers the production BGTask launch handler before the legacy scheduler enum attempts registration.
-/// iOS accepts only one handler per identifier in a process, so the legacy registration becomes a harmless
-/// `false` return while its request persistence/scheduling helpers remain the single storage seam.
+/// Owns the single production BGTask launch handler for the smart-alarm identifier. The scheduler enum
+/// retains only request persistence and submission helpers, so expiration and every other terminal path
+/// flow through the same exactly-once completion gate.
 @MainActor
 enum SmartAlarmBackgroundTaskRegistrar {
-    private static let requestKey = "smartAlarm.runtime.backgroundRequest"
     private static weak var runtime: SmartAlarmRuntimeController?
     private static var registered = false
 
@@ -41,6 +40,7 @@ enum SmartAlarmBackgroundTaskRegistrar {
                     completion.complete(.missingRequest)
                     return
                 case .malformed:
+                    clearStoredRequest()
                     completion.complete(.malformedRequest)
                     return
                 case .loaded(let loaded):
@@ -81,10 +81,16 @@ enum SmartAlarmBackgroundTaskRegistrar {
     static func loadRequest(
         defaults: UserDefaults = .standard
     ) -> SmartAlarmBackgroundRequestLoadResult {
-        guard let data = defaults.data(forKey: requestKey) else { return .missing }
+        guard let data = defaults.data(
+            forKey: SmartAlarmRuntimeBackgroundScheduler.requestKey
+        ) else { return .missing }
         guard let request = try? JSONDecoder().decode(SmartAlarmBackgroundRequest.self, from: data)
         else { return .malformed }
         return .loaded(request)
+    }
+
+    static func clearStoredRequest(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: SmartAlarmRuntimeBackgroundScheduler.requestKey)
     }
 
     private static func evaluate(
