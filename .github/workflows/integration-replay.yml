@@ -1,0 +1,32 @@
+name: Integration cleanup replay
+
+on:
+  push:
+    branches:
+      - qa/integrated-physical-qa-2026-07-22
+    paths:
+      - .github/workflows/integration-replay.yml
+
+permissions:
+  contents: write
+
+jobs:
+  replay-cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out integration branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Reapply iPhone-only cleanup and remove transport workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git merge-base --is-ancestor adf3a406859166acb33d89c6d294cf5e9fe845fe HEAD; then
+            git cherry-pick adf3a406859166acb33d89c6d294cf5e9fe845fe
+          fi
+          git rm .github/workflows/integration-replay.yml
+          git commit -m "chore(ci): remove one-shot integration transport"
+          git push origin HEAD:qa/integrated-physical-qa-2026-07-22
