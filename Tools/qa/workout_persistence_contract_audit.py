@@ -33,12 +33,20 @@ try:
         "ActiveWorkoutSampleJournalCodec",
         "bytesPerSample = MemoryLayout<Int64>.size + MemoryLayout<Int32>.size",
         "ActiveWorkoutJournalPlanner",
-        "active-workout-samples-v2.bin",
+        "active-workout-\\(generation.uuidString.lowercased()).bin",
         "ProductionJournalWriter",
         "case append(expectedCount: Int, expectedLast: HRSample?, suffix: [HRSample])",
         "let candidate = snapshot.samples[fromIndex...]",
         "suffix: suffix",
         "completeFileProtectionUntilFirstUserAuthentication",
+        "let generation: UUID",
+        "let sessionID: UUID",
+        "let checksum: UInt64",
+        "private var committedCursor: Cursor?",
+        "private var pendingCursor: Cursor?",
+        "try handle.synchronize()",
+        "defaults.synchronize()",
+        "faultInjector(.beforeMetadataCommit)",
         "productionWriter.store(",
         "epoch &+= 1",
     )
@@ -51,6 +59,11 @@ try:
         "testBinaryJournalRoundTripsLargeSampleSetAtFixedWidth",
         "testJournalPlannerAppendsOnlyNewSuffixForCompatibleSession",
         "testJournalPlannerRewritesOnReplacementShrinkOrPrefixCorrection",
+        "testGenerationJournalCommitsMetadataPointerAndChecksum",
+        "testSynchronousWriteReportsFailureBeforeCommitAndRelaunchKeepsPreviousGeneration",
+        "testRelaunchUsesNewGenerationWhenProcessDiesAfterPointerSwap",
+        "testChecksumMismatchRejectsJournalInsteadOfCombiningWrongSessionBytes",
+        "testLegacyV2PairMigratesToGenerationJournalOnLoad",
     )
 except AssertionError as error:
     print(f"Workout persistence contract audit: FAIL\n{error}", file=sys.stderr)

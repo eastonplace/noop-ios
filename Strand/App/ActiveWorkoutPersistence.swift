@@ -94,6 +94,7 @@ enum ActiveWorkoutJournalPlanner {
 /// and legacy state, preventing a delayed checkpoint from resurrecting a finished session.
 enum ActiveWorkoutPersistence {
     struct Snapshot: Codable, Equatable, Sendable {
+        var sessionID: UUID
         var startSec: Int
         var sport: String
         var samples: [HRSample]
@@ -102,10 +103,11 @@ enum ActiveWorkoutPersistence {
         var liveStrainState: LiveStrainState
 
         private enum CodingKeys: String, CodingKey {
-            case startSec, sport, samples, avgHr, peakHr, liveStrainState, liveStrain
+            case sessionID, startSec, sport, samples, avgHr, peakHr, liveStrainState, liveStrain
         }
 
         init(
+            sessionID: UUID = UUID(),
             startSec: Int,
             sport: String,
             samples: [HRSample],
@@ -113,6 +115,7 @@ enum ActiveWorkoutPersistence {
             peakHr: Int,
             liveStrainState: LiveStrainState
         ) {
+            self.sessionID = sessionID
             self.startSec = startSec
             self.sport = sport
             self.samples = samples
@@ -123,6 +126,7 @@ enum ActiveWorkoutPersistence {
 
         init(from decoder: Decoder) throws {
             let values = try decoder.container(keyedBy: CodingKeys.self)
+            sessionID = try values.decodeIfPresent(UUID.self, forKey: .sessionID) ?? UUID()
             startSec = try values.decode(Int.self, forKey: .startSec)
             sport = try values.decode(String.self, forKey: .sport)
             samples = try values.decode([HRSample].self, forKey: .samples)
@@ -139,6 +143,7 @@ enum ActiveWorkoutPersistence {
 
         func encode(to encoder: Encoder) throws {
             var values = encoder.container(keyedBy: CodingKeys.self)
+            try values.encode(sessionID, forKey: .sessionID)
             try values.encode(startSec, forKey: .startSec)
             try values.encode(sport, forKey: .sport)
             try values.encode(samples, forKey: .samples)
@@ -148,39 +153,51 @@ enum ActiveWorkoutPersistence {
         }
     }
 
-    private struct JournalMetadata: Codable, Equatable, Sendable {
-        static let currentVersion = 2
+    struct JournalMetadata: Codable, Equatable, Sendable {
+        static let currentVersion = 3
 
         let version: Int
+        let generation: UUID
+        let sessionID: UUID
         let startSec: Int
         let sport: String
         let sampleCount: Int
+        let checksum: UInt64
         let avgHr: Int
         let peakHr: Int
         let liveStrainState: LiveStrainState
 
         init(
+            generation: UUID,
+            sessionID: UUID,
             startSec: Int,
             sport: String,
             sampleCount: Int,
+            checksum: UInt64,
             avgHr: Int,
             peakHr: Int,
             liveStrainState: LiveStrainState
         ) {
             version = Self.currentVersion
+            self.generation = generation
+            self.sessionID = sessionID
             self.startSec = startSec
             self.sport = sport
             self.sampleCount = sampleCount
+            self.checksum = checksum
             self.avgHr = avgHr
             self.peakHr = peakHr
             self.liveStrainState = liveStrainState
         }
 
-        init(snapshot: Snapshot) {
+        init(snapshot: Snapshot, generation: UUID, checksum: UInt64) {
             self.init(
+                generation: generation,
+                sessionID: snapshot.sessionID,
                 startSec: snapshot.startSec,
                 sport: snapshot.sport,
                 sampleCount: snapshot.samples.count,
+                checksum: checksum,
                 avgHr: snapshot.avgHr,
                 peakHr: snapshot.peakHr,
                 liveStrainState: snapshot.liveStrainState
@@ -190,6 +207,7 @@ enum ActiveWorkoutPersistence {
 
     static let defaultsKey = "noop.activeWorkout"
     static let metadataKey = "noop.activeWorkout.v2.metadata"
+    static let legacyJournalName = "active-workout-samples-v2.bin"
     private static let legacyWriter = SnapshotWriter()
     private static let productionWriter = ProductionJournalWriter()
 
@@ -233,6 +251,7 @@ enum ActiveWorkoutPersistence {
         guard raw.startSec > 0 else { return nil }
         let samples = raw.samples.filter { $0.ts > 0 && (1...300).contains($0.bpm) }
         return Snapshot(
+            sessionID: raw.sessionID,
             startSec: raw.startSec,
             sport: raw.sport,
             samples: samples,
@@ -243,11 +262,12 @@ enum ActiveWorkoutPersistence {
     }
 
     @MainActor
-    static func store(_ snapshot: Snapshot, synchronously: Bool = false) {
+    @discardableResult
+    static func store(_ snapshot: Snapshot, synchronously: Bool = false) -> Bool {
         let isFirstSnapshot = !productionSnapshotEstablished
         if isFirstSnapshot { productionSnapshotEstablished = true }
         let applicationRequiresImmediateFlush = UIApplication.shared.applicationState != .active
-        productionWriter.store(
+        return productionWriter.store(
             snapshot,
             synchronously: synchronously || isFirstSnapshot || applicationRequiresImmediateFlush
         )
@@ -296,7 +316,7 @@ enum ActiveWorkoutPersistence {
         legacyWriter.clear(from: defaults)
     }
 
-    private static func productionJournalURL(fileManager: FileManager = .default) throws -> URL {
+    private static func productionJournalDirectory(fileManager: FileManager = .default) throws -> URL {
         guard let applicationSupport = fileManager.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
@@ -305,11 +325,19 @@ enum ActiveWorkoutPersistence {
         }
         let directory = applicationSupport.appendingPathComponent("NOOP", isDirectory: true)
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        return directory.appendingPathComponent("active-workout-samples-v2.bin", isDirectory: false)
+        return directory
     }
 
-    private final class ProductionJournalWriter: @unchecked Sendable {
+    enum JournalFaultPhase: CaseIterable, Sendable {
+        case beforeFileWrite
+        case afterFileSync
+        case beforeMetadataCommit
+        case afterMetadataCommit
+    }
+
+    final class ProductionJournalWriter: @unchecked Sendable {
         private struct Cursor: Sendable {
+            let sessionID: UUID
             let startSec: Int
             let sport: String
             let acceptedCount: Int
@@ -323,41 +351,67 @@ enum ActiveWorkoutPersistence {
 
         private struct Request: @unchecked Sendable {
             let epoch: UInt64
-            let metadata: JournalMetadata
+            let snapshot: Snapshot
             let mutation: Mutation
+        }
+
+        private struct LegacyJournalMetadata: Codable {
+            let version: Int
+            let startSec: Int
+            let sport: String
+            let sampleCount: Int
+            let avgHr: Int
+            let peakHr: Int
+            let liveStrainState: LiveStrainState
         }
 
         private let queue = DispatchQueue(label: "com.noop.active-workout-journal", qos: .utility)
         private let queueKey = DispatchSpecificKey<UInt8>()
         private let lock = NSLock()
+        private let defaults: UserDefaults
+        private let directory: URL?
+        private let faultInjector: @Sendable (JournalFaultPhase) throws -> Void
         private var epoch: UInt64 = 0
-        private var cursor: Cursor?
+        // `pendingCursor` is only a suffix-planning hint. Recovery authority is always the metadata
+        // pointer and `committedCursor`, which advance only after the generation file is durable.
+        private var committedCursor: Cursor?
+        private var pendingCursor: Cursor?
 
-        init() {
+        init(
+            defaults: UserDefaults = .standard,
+            directory: URL? = try? ActiveWorkoutPersistence.productionJournalDirectory(),
+            faultInjector: @escaping @Sendable (JournalFaultPhase) throws -> Void = { _ in }
+        ) {
+            self.defaults = defaults
+            self.directory = directory
+            self.faultInjector = faultInjector
             queue.setSpecific(key: queueKey, value: 1)
         }
 
         /// Reduce the full value to a small suffix before returning to AppModel. A rewrite force-copies the
         /// samples (`filter` creates a new buffer); normal checkpoints retain only the ~five new samples.
-        func store(_ snapshot: Snapshot, synchronously: Bool) {
-            guard snapshot.startSec > 0 else { return }
+        @discardableResult
+        func store(_ snapshot: Snapshot, synchronously: Bool) -> Bool {
+            guard snapshot.startSec > 0, directory != nil else { return false }
 
             let request: Request
             lock.lock()
-            let sameSession = cursor?.startSec == snapshot.startSec && cursor?.sport == snapshot.sport
+            let sameSession = pendingCursor?.sessionID == snapshot.sessionID
             if !sameSession {
                 epoch &+= 1
-                cursor = nil
+                committedCursor = nil
+                pendingCursor = nil
             }
             let requestEpoch = epoch
             let strategy = ActiveWorkoutJournalPlanner.strategy(
-                persistedStartSec: cursor?.startSec,
-                persistedSport: cursor?.sport,
-                persistedCount: cursor?.acceptedCount ?? -1,
-                persistedLastSample: cursor?.lastSample,
+                persistedStartSec: pendingCursor?.startSec,
+                persistedSport: pendingCursor?.sport,
+                persistedCount: pendingCursor?.acceptedCount ?? -1,
+                persistedLastSample: pendingCursor?.lastSample,
                 next: snapshot
             )
 
+            let sanitizedSnapshot: Snapshot
             switch strategy {
             case .rewrite:
                 let copied = snapshot.samples.filter { $0.ts > 0 && (1...300).contains($0.bpm) }
@@ -365,16 +419,18 @@ enum ActiveWorkoutPersistence {
                     snapshot.liveStrainState,
                     sampleCount: copied.count
                 )
-                let metadata = JournalMetadata(
+                sanitizedSnapshot = Snapshot(
+                    sessionID: snapshot.sessionID,
                     startSec: snapshot.startSec,
                     sport: snapshot.sport,
-                    sampleCount: copied.count,
+                    samples: copied,
                     avgHr: max(0, snapshot.avgHr),
                     peakHr: max(0, snapshot.peakHr),
                     liveStrainState: state
                 )
-                request = Request(epoch: requestEpoch, metadata: metadata, mutation: .rewrite(copied))
-                cursor = Cursor(
+                request = Request(epoch: requestEpoch, snapshot: sanitizedSnapshot, mutation: .rewrite(copied))
+                pendingCursor = Cursor(
+                    sessionID: snapshot.sessionID,
                     startSec: snapshot.startSec,
                     sport: snapshot.sport,
                     acceptedCount: copied.count,
@@ -392,16 +448,18 @@ enum ActiveWorkoutPersistence {
                         snapshot.liveStrainState,
                         sampleCount: copied.count
                     )
-                    let metadata = JournalMetadata(
+                    sanitizedSnapshot = Snapshot(
+                        sessionID: snapshot.sessionID,
                         startSec: snapshot.startSec,
                         sport: snapshot.sport,
-                        sampleCount: copied.count,
+                        samples: copied,
                         avgHr: max(0, snapshot.avgHr),
                         peakHr: max(0, snapshot.peakHr),
                         liveStrainState: state
                     )
-                    request = Request(epoch: requestEpoch, metadata: metadata, mutation: .rewrite(copied))
-                    cursor = Cursor(
+                    request = Request(epoch: requestEpoch, snapshot: sanitizedSnapshot, mutation: .rewrite(copied))
+                    pendingCursor = Cursor(
+                        sessionID: snapshot.sessionID,
                         startSec: snapshot.startSec,
                         sport: snapshot.sport,
                         acceptedCount: copied.count,
@@ -413,37 +471,40 @@ enum ActiveWorkoutPersistence {
                         snapshot.liveStrainState,
                         sampleCount: nextCount
                     )
-                    let metadata = JournalMetadata(
+                    sanitizedSnapshot = Snapshot(
+                        sessionID: snapshot.sessionID,
                         startSec: snapshot.startSec,
                         sport: snapshot.sport,
-                        sampleCount: nextCount,
+                        samples: [], // suffix transaction does not retain the growing source array
                         avgHr: max(0, snapshot.avgHr),
                         peakHr: max(0, snapshot.peakHr),
                         liveStrainState: state
                     )
                     request = Request(
                         epoch: requestEpoch,
-                        metadata: metadata,
+                        snapshot: sanitizedSnapshot,
                         mutation: .append(
                             expectedCount: fromIndex,
-                            expectedLast: cursor?.lastSample,
+                            expectedLast: pendingCursor?.lastSample,
                             suffix: suffix
                         )
                     )
-                    cursor = Cursor(
+                    pendingCursor = Cursor(
+                        sessionID: snapshot.sessionID,
                         startSec: snapshot.startSec,
                         sport: snapshot.sport,
                         acceptedCount: nextCount,
-                        lastSample: suffix.last ?? cursor?.lastSample
+                        lastSample: suffix.last ?? pendingCursor?.lastSample
                     )
                 }
             }
             lock.unlock()
 
             if synchronously {
-                syncOnQueue { [self] in write(request) }
+                return syncOnQueue { [self] in write(request) }
             } else {
-                queue.async { [self] in write(request) }
+                queue.async { [self] in _ = write(request) }
+                return true
             }
         }
 
@@ -451,12 +512,14 @@ enum ActiveWorkoutPersistence {
             let snapshot = syncOnQueue { [self] in loadOnQueue() }
             if let snapshot {
                 lock.lock()
-                cursor = Cursor(
+                committedCursor = Cursor(
+                    sessionID: snapshot.sessionID,
                     startSec: snapshot.startSec,
                     sport: snapshot.sport,
                     acceptedCount: snapshot.samples.count,
                     lastSample: snapshot.samples.last
                 )
+                pendingCursor = committedCursor
                 lock.unlock()
             }
             return snapshot
@@ -465,14 +528,17 @@ enum ActiveWorkoutPersistence {
         func clear() {
             lock.lock()
             epoch &+= 1
-            cursor = nil
+            committedCursor = nil
+            pendingCursor = nil
             lock.unlock()
 
             syncOnQueue {
-                let defaults = UserDefaults.standard
                 defaults.removeObject(forKey: ActiveWorkoutPersistence.metadataKey)
                 defaults.removeObject(forKey: ActiveWorkoutPersistence.defaultsKey)
-                if let url = try? ActiveWorkoutPersistence.productionJournalURL() {
+                guard let directory else { return }
+                let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+                for url in files where url.lastPathComponent.hasPrefix("active-workout-")
+                    || url.lastPathComponent == ActiveWorkoutPersistence.legacyJournalName {
                     try? FileManager.default.removeItem(at: url)
                 }
             }
@@ -482,78 +548,130 @@ enum ActiveWorkoutPersistence {
             syncOnQueue { }
         }
 
-        private func write(_ request: Request) {
-            guard isCurrent(request.epoch),
-                  let url = try? ActiveWorkoutPersistence.productionJournalURL()
-            else { return }
+        @discardableResult
+        private func write(_ request: Request) -> Bool {
+            guard isCurrent(request.epoch), directory != nil else { return false }
 
             do {
+                let previous = loadMetadata(defaults)
+                let data: Data
                 switch request.mutation {
                 case .rewrite(let samples):
-                    try rewrite(samples: samples, to: url)
+                    data = ActiveWorkoutSampleJournalCodec.encode(samples)
                 case .append(let expectedCount, let expectedLast, let suffix):
-                    guard validatePersistedPrefix(
-                        metadata: request.metadata,
+                    guard let previous,
+                          validatePersistedPrefix(
+                        next: request.snapshot,
                         expectedCount: expectedCount,
                         expectedLast: expectedLast,
-                        url: url
+                        metadata: previous
                     ) else {
                         invalidate(epoch: request.epoch)
-                        return
+                        return false
                     }
-                    try append(samples: suffix[...], persistedCount: expectedCount, to: url)
+                    let old = try Data(contentsOf: journalURL(for: previous.generation), options: .mappedIfSafe)
+                    data = old + ActiveWorkoutSampleJournalCodec.encode(suffix)
                 }
+                let generation = UUID()
+                let metadata = JournalMetadata(
+                    generation: generation,
+                    sessionID: request.snapshot.sessionID,
+                    startSec: request.snapshot.startSec,
+                    sport: request.snapshot.sport,
+                    sampleCount: data.count / ActiveWorkoutSampleJournalCodec.bytesPerSample,
+                    checksum: Self.checksum(data),
+                    avgHr: request.snapshot.avgHr,
+                    peakHr: request.snapshot.peakHr,
+                    liveStrainState: request.snapshot.liveStrainState
+                )
+                try faultInjector(.beforeFileWrite)
+                try writeDurably(data, to: journalURL(for: generation))
+                try faultInjector(.afterFileSync)
+                guard isCurrent(request.epoch) else { return false }
+                try faultInjector(.beforeMetadataCommit)
+                let metadataData = try JSONEncoder().encode(metadata)
+                defaults.set(metadataData, forKey: ActiveWorkoutPersistence.metadataKey)
+                guard defaults.synchronize() else { throw CocoaError(.fileWriteUnknown) }
+                defaults.removeObject(forKey: ActiveWorkoutPersistence.defaultsKey)
+
+                lock.lock()
+                committedCursor = Cursor(
+                    sessionID: metadata.sessionID,
+                    startSec: metadata.startSec,
+                    sport: metadata.sport,
+                    acceptedCount: metadata.sampleCount,
+                    lastSample: ActiveWorkoutSampleJournalCodec.decode(
+                        Data(data.suffix(ActiveWorkoutSampleJournalCodec.bytesPerSample))
+                    ).last
+                )
+                lock.unlock()
+                try faultInjector(.afterMetadataCommit)
+                // Cleanup is intentionally one transaction behind. The previous generation remains a
+                // recovery artifact until a later successful pointer swap proves it is no longer current.
+                cleanupStaleGenerations(keeping: [generation, previous?.generation].compactMap { $0 })
+                return true
             } catch {
                 NSLog("ActiveWorkoutPersistence: journal write failed: \(error)")
                 invalidate(epoch: request.epoch)
-                return
+                return false
             }
-
-            guard isCurrent(request.epoch),
-                  let metadataData = try? JSONEncoder().encode(request.metadata)
-            else { return }
-            let defaults = UserDefaults.standard
-            defaults.set(metadataData, forKey: ActiveWorkoutPersistence.metadataKey)
-            defaults.removeObject(forKey: ActiveWorkoutPersistence.defaultsKey)
         }
 
         private func validatePersistedPrefix(
-            metadata next: JournalMetadata,
+            next: Snapshot,
             expectedCount: Int,
             expectedLast: HRSample?,
-            url: URL
+            metadata current: JournalMetadata
         ) -> Bool {
-            let defaults = UserDefaults.standard
-            guard let current = loadMetadata(defaults),
-                  current.startSec == next.startSec,
+            guard current.startSec == next.startSec,
+                  current.sessionID == next.sessionID,
                   current.sport == next.sport,
                   current.sampleCount == expectedCount
             else { return false }
             if expectedCount == 0 { return true }
-            return readPersistedLastSample(url: url, count: expectedCount) == expectedLast
+            return readPersistedLastSample(url: journalURL(for: current.generation), count: expectedCount) == expectedLast
         }
 
         private func loadOnQueue() -> Snapshot? {
-            let defaults = UserDefaults.standard
-            guard let metadata = loadMetadata(defaults),
+            if let metadata = loadMetadata(defaults),
                   metadata.version == JournalMetadata.currentVersion,
                   metadata.startSec > 0,
                   metadata.sampleCount >= 0,
-                  let url = try? ActiveWorkoutPersistence.productionJournalURL()
-            else { return nil }
-
-            let samples: [HRSample]
-            if metadata.sampleCount == 0 {
-                samples = []
-            } else {
-                guard let data = try? Data(contentsOf: url, options: .mappedIfSafe),
-                      data.count >= metadata.sampleCount * ActiveWorkoutSampleJournalCodec.bytesPerSample
-                else { return nil }
-                samples = ActiveWorkoutSampleJournalCodec.decode(data, count: metadata.sampleCount)
-                guard samples.count == metadata.sampleCount else { return nil }
+                  let snapshot = load(metadata: metadata) {
+                return snapshot
             }
 
+            // v2 used a shared mutable file plus metadata. Read only a self-consistent pair, then migrate
+            // it through the v3 transaction before returning it to AppModel.
+            guard let legacyData = defaults.data(forKey: ActiveWorkoutPersistence.metadataKey),
+                  let legacy = try? JSONDecoder().decode(LegacyJournalMetadata.self, from: legacyData),
+                  legacy.version == 2,
+                  let directory
+            else { return nil }
+            let url = directory.appendingPathComponent(ActiveWorkoutPersistence.legacyJournalName)
+            guard let data = try? Data(contentsOf: url, options: .mappedIfSafe),
+                  data.count >= legacy.sampleCount * ActiveWorkoutSampleJournalCodec.bytesPerSample
+            else { return nil }
+            let samples = ActiveWorkoutSampleJournalCodec.decode(data, count: legacy.sampleCount)
+            guard samples.count == legacy.sampleCount else { return nil }
+            let snapshot = Snapshot(startSec: legacy.startSec, sport: legacy.sport, samples: samples,
+                                    avgHr: legacy.avgHr, peakHr: legacy.peakHr,
+                                    liveStrainState: legacy.liveStrainState)
+            _ = write(Request(epoch: epoch, snapshot: snapshot, mutation: .rewrite(samples)))
+            return ActiveWorkoutPersistence.sanitized(snapshot)
+        }
+
+        private func load(metadata: JournalMetadata) -> Snapshot? {
+            let url = journalURL(for: metadata.generation)
+            guard let data = try? Data(contentsOf: url, options: .mappedIfSafe),
+                  data.count == metadata.sampleCount * ActiveWorkoutSampleJournalCodec.bytesPerSample,
+                  Self.checksum(data) == metadata.checksum
+            else { return nil }
+            let samples = ActiveWorkoutSampleJournalCodec.decode(data, count: metadata.sampleCount)
+            guard samples.count == metadata.sampleCount else { return nil }
+
             return ActiveWorkoutPersistence.sanitized(Snapshot(
+                sessionID: metadata.sessionID,
                 startSec: metadata.startSec,
                 sport: metadata.sport,
                 samples: samples,
@@ -566,6 +684,33 @@ enum ActiveWorkoutPersistence {
         private func loadMetadata(_ defaults: UserDefaults) -> JournalMetadata? {
             guard let data = defaults.data(forKey: ActiveWorkoutPersistence.metadataKey) else { return nil }
             return try? JSONDecoder().decode(JournalMetadata.self, from: data)
+        }
+
+        private func journalURL(for generation: UUID) -> URL {
+            directory!.appendingPathComponent("active-workout-\(generation.uuidString.lowercased()).bin")
+        }
+
+        private func writeDurably(_ data: Data, to url: URL) throws {
+            try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            let handle = try FileHandle(forUpdating: url)
+            defer { try? handle.close() }
+            try handle.synchronize()
+        }
+
+        private func cleanupStaleGenerations(keeping: [UUID]) {
+            guard let directory else { return }
+            let keep = Set(keeping.map { $0.uuidString.lowercased() })
+            let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+            for url in files where url.lastPathComponent.hasPrefix("active-workout-") {
+                guard !keep.contains(where: { url.lastPathComponent.contains($0) }) else { continue }
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+
+        private static func checksum(_ data: Data) -> UInt64 {
+            data.reduce(UInt64(1_469_598_103_934_665_603)) { hash, byte in
+                (hash ^ UInt64(byte)) &* 1_099_511_628_211
+            }
         }
 
         private func readPersistedLastSample(url: URL, count: Int) -> HRSample? {
@@ -585,30 +730,6 @@ enum ActiveWorkoutPersistence {
             }
         }
 
-        private func rewrite(samples: [HRSample], to url: URL) throws {
-            let data = ActiveWorkoutSampleJournalCodec.encode(samples)
-            try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-        }
-
-        private func append(samples: ArraySlice<HRSample>, persistedCount: Int, to url: URL) throws {
-            let expectedPrefixBytes = persistedCount * ActiveWorkoutSampleJournalCodec.bytesPerSample
-            if !FileManager.default.fileExists(atPath: url.path) {
-                guard persistedCount == 0 else { throw CocoaError(.fileReadNoSuchFile) }
-                try Data().write(
-                    to: url,
-                    options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
-                )
-            }
-
-            let handle = try FileHandle(forUpdating: url)
-            defer { try? handle.close() }
-            try handle.truncate(atOffset: UInt64(expectedPrefixBytes))
-            _ = try handle.seekToEnd()
-            let suffix = ActiveWorkoutSampleJournalCodec.encode(samples)
-            if !suffix.isEmpty { try handle.write(contentsOf: suffix) }
-            try handle.synchronize()
-        }
-
         private func isCurrent(_ requestEpoch: UInt64) -> Bool {
             lock.lock()
             let current = epoch == requestEpoch
@@ -620,7 +741,8 @@ enum ActiveWorkoutPersistence {
             lock.lock()
             if epoch == requestEpoch {
                 epoch &+= 1
-                cursor = nil
+                committedCursor = nil
+                pendingCursor = nil
             }
             lock.unlock()
         }

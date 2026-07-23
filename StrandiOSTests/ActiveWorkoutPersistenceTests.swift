@@ -5,6 +5,8 @@ import XCTest
 
 #if os(iOS)
 final class ActiveWorkoutPersistenceTests: XCTestCase {
+    private enum InjectedFailure: Error { case crash }
+
     private func sample(_ timestamp: Int, _ bpm: Int) -> HRSample {
         HRSample(ts: timestamp, bpm: bpm)
     }
@@ -35,6 +37,15 @@ final class ActiveWorkoutPersistenceTests: XCTestCase {
         let defaults = UserDefaults(suiteName: name)!
         defaults.removePersistentDomain(forName: name)
         return defaults
+    }
+
+    private func freshJournalEnvironment() throws -> (UserDefaults, URL) {
+        let defaults = freshDefaults()
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("active-workout-journal-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        return (defaults, directory)
     }
 
     func testEncodeDecodeRoundTripsEveryField() {
@@ -269,6 +280,129 @@ final class ActiveWorkoutPersistenceTests: XCTestCase {
                 )
             ),
             .rewrite
+        )
+    }
+
+    func testGenerationJournalCommitsMetadataPointerAndChecksum() throws {
+        let (defaults, directory) = try freshJournalEnvironment()
+        let writer = ActiveWorkoutPersistence.ProductionJournalWriter(
+            defaults: defaults,
+            directory: directory
+        )
+        let value = snapshot()
+        XCTAssertTrue(writer.store(value, synchronously: true))
+        XCTAssertEqual(writer.load(), value)
+
+        let metadataData = try XCTUnwrap(defaults.data(forKey: ActiveWorkoutPersistence.metadataKey))
+        let metadata = try JSONDecoder().decode(
+            ActiveWorkoutPersistence.JournalMetadata.self,
+            from: metadataData
+        )
+        XCTAssertEqual(metadata.sampleCount, value.samples.count)
+        XCTAssertFalse(metadata.generation.uuidString.isEmpty)
+        let journal = directory.appendingPathComponent(
+            "active-workout-\(metadata.generation.uuidString.lowercased()).bin"
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: journal.path))
+    }
+
+    func testSynchronousWriteReportsFailureBeforeCommitAndRelaunchKeepsPreviousGeneration() throws {
+        for phase in [
+            ActiveWorkoutPersistence.JournalFaultPhase.beforeFileWrite,
+            .afterFileSync,
+            .beforeMetadataCommit,
+        ] {
+            let (defaults, directory) = try freshJournalEnvironment()
+            let initial = snapshot(samples: [sample(100, 110)], avgHr: 110, peakHr: 110)
+            let replacement = snapshot(samples: [sample(100, 110), sample(101, 120)], avgHr: 115, peakHr: 120)
+            let seed = ActiveWorkoutPersistence.ProductionJournalWriter(defaults: defaults, directory: directory)
+            XCTAssertTrue(seed.store(initial, synchronously: true))
+
+            let failing = ActiveWorkoutPersistence.ProductionJournalWriter(
+                defaults: defaults,
+                directory: directory,
+                faultInjector: { if $0 == phase { throw InjectedFailure.crash } }
+            )
+            XCTAssertFalse(failing.store(replacement, synchronously: true), "phase: \(phase)")
+
+            let relaunched = ActiveWorkoutPersistence.ProductionJournalWriter(defaults: defaults, directory: directory)
+            XCTAssertEqual(relaunched.load(), initial, "phase: \(phase)")
+        }
+    }
+
+    func testRelaunchUsesNewGenerationWhenProcessDiesAfterPointerSwap() throws {
+        let (defaults, directory) = try freshJournalEnvironment()
+        let initial = snapshot(samples: [sample(100, 110)], avgHr: 110, peakHr: 110)
+        let replacement = snapshot(samples: [sample(100, 110), sample(101, 120)], avgHr: 115, peakHr: 120)
+        let seed = ActiveWorkoutPersistence.ProductionJournalWriter(defaults: defaults, directory: directory)
+        XCTAssertTrue(seed.store(initial, synchronously: true))
+
+        let failing = ActiveWorkoutPersistence.ProductionJournalWriter(
+            defaults: defaults,
+            directory: directory,
+            faultInjector: { if $0 == .afterMetadataCommit { throw InjectedFailure.crash } }
+        )
+        XCTAssertFalse(failing.store(replacement, synchronously: true))
+
+        let relaunched = ActiveWorkoutPersistence.ProductionJournalWriter(defaults: defaults, directory: directory)
+        XCTAssertEqual(relaunched.load(), replacement)
+    }
+
+    func testChecksumMismatchRejectsJournalInsteadOfCombiningWrongSessionBytes() throws {
+        let (defaults, directory) = try freshJournalEnvironment()
+        let writer = ActiveWorkoutPersistence.ProductionJournalWriter(defaults: defaults, directory: directory)
+        XCTAssertTrue(writer.store(snapshot(), synchronously: true))
+        let metadataData = try XCTUnwrap(defaults.data(forKey: ActiveWorkoutPersistence.metadataKey))
+        let metadata = try JSONDecoder().decode(ActiveWorkoutPersistence.JournalMetadata.self, from: metadataData)
+        let journal = directory.appendingPathComponent(
+            "active-workout-\(metadata.generation.uuidString.lowercased()).bin"
+        )
+        var bytes = try Data(contentsOf: journal)
+        bytes[0] ^= 0xff
+        try bytes.write(to: journal)
+
+        let relaunched = ActiveWorkoutPersistence.ProductionJournalWriter(defaults: defaults, directory: directory)
+        XCTAssertNil(relaunched.load())
+    }
+
+    func testLegacyV2PairMigratesToGenerationJournalOnLoad() throws {
+        struct LegacyMetadata: Codable {
+            let version: Int
+            let startSec: Int
+            let sport: String
+            let sampleCount: Int
+            let avgHr: Int
+            let peakHr: Int
+            let liveStrainState: LiveStrainState
+        }
+        let (defaults, directory) = try freshJournalEnvironment()
+        let value = snapshot()
+        try ActiveWorkoutSampleJournalCodec.encode(value.samples).write(
+            to: directory.appendingPathComponent(ActiveWorkoutPersistence.legacyJournalName)
+        )
+        let legacy = LegacyMetadata(
+            version: 2,
+            startSec: value.startSec,
+            sport: value.sport,
+            sampleCount: value.samples.count,
+            avgHr: value.avgHr,
+            peakHr: value.peakHr,
+            liveStrainState: value.liveStrainState
+        )
+        defaults.set(try JSONEncoder().encode(legacy), forKey: ActiveWorkoutPersistence.metadataKey)
+
+        let writer = ActiveWorkoutPersistence.ProductionJournalWriter(defaults: defaults, directory: directory)
+        let migrated = try XCTUnwrap(writer.load())
+        XCTAssertEqual(migrated.startSec, value.startSec)
+        XCTAssertEqual(migrated.sport, value.sport)
+        XCTAssertEqual(migrated.samples, value.samples)
+        XCTAssertEqual(migrated.avgHr, value.avgHr)
+        XCTAssertEqual(migrated.peakHr, value.peakHr)
+        XCTAssertEqual(migrated.liveStrainState, value.liveStrainState)
+        let migratedData = try XCTUnwrap(defaults.data(forKey: ActiveWorkoutPersistence.metadataKey))
+        XCTAssertEqual(
+            try JSONDecoder().decode(ActiveWorkoutPersistence.JournalMetadata.self, from: migratedData).version,
+            ActiveWorkoutPersistence.JournalMetadata.currentVersion
         )
     }
 }

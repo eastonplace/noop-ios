@@ -163,6 +163,7 @@ final class AppModel: ObservableObject {
     /// Reference-owned live session. The sample buffer grows in place so each accepted HR reading does
     /// not copy the entire retained workout before publishing the next UI update.
     final class ActiveWorkout: ObservableObject {
+        let sessionID: UUID
         let start: Date
         /// The named sport chosen at start (e.g. "Tennis", "Padel") , persisted as the saved row's
         /// `sport` so a live-tracked session keeps its label instead of the old generic "Workout".
@@ -178,7 +179,8 @@ final class AppModel: ObservableObject {
         private var chartAccumulator = WorkoutHeartChartAccumulator()
         private let maxHR: Double
 
-        init(start: Date, sport: String, maxHR: Double) {
+        init(sessionID: UUID = UUID(), start: Date, sport: String, maxHR: Double) {
+            self.sessionID = sessionID
             self.start = start
             self.sport = sport
             self.maxHR = maxHR
@@ -760,6 +762,7 @@ final class AppModel: ObservableObject {
         lastWorkoutSnapshotAt = now
         ActiveWorkoutPersistence.store(
             ActiveWorkoutPersistence.Snapshot(
+                sessionID: w.sessionID,
                 startSec: Int(w.start.timeIntervalSince1970),
                 sport: w.sport,
                 samples: w.samples,
@@ -774,7 +777,8 @@ final class AppModel: ObservableObject {
     /// session wins over a stale snapshot) or nothing is stored. Called once from `init`.
     private func rehydrateActiveWorkout() {
         guard activeWorkout == nil, let snap = ActiveWorkoutPersistence.load() else { return }
-        let w = ActiveWorkout(start: Date(timeIntervalSince1970: TimeInterval(snap.startSec)),
+        let w = ActiveWorkout(sessionID: snap.sessionID,
+                              start: Date(timeIntervalSince1970: TimeInterval(snap.startSec)),
                               sport: snap.sport, maxHR: Double(profile.hrMax))
         w.restore(samples: snap.samples)
         activeWorkout = w
