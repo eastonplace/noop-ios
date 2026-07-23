@@ -50,7 +50,6 @@ enum DataBackup {
         let dbPath: String
         do { dbPath = try StorePaths.defaultDatabasePath() }
         catch { return .failure(String(localized: "Couldn't locate the NOOP database. \(error.localizedDescription)")) }
-
         let dbURL = URL(fileURLWithPath: dbPath)
         guard FileManager.default.fileExists(atPath: dbPath) else {
             return .failure(String(localized: "There's no NOOP data to export yet. Import or record some first."))
@@ -70,9 +69,8 @@ enum DataBackup {
         guard panel.runModal() == .OK, let dest = panel.url else { return .cancelled }
         let scoped = dest.startAccessingSecurityScopedResource()
         defer { if scoped { dest.stopAccessingSecurityScopedResource() } }
-        let fm = FileManager.default
         do {
-            if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
+            if FileManager.default.fileExists(atPath: dest.path) { try FileManager.default.removeItem(at: dest) }
             try await Task.detached(priority: .utility) {
                 try writeVerifiedBackupZip(dbURL: dbURL, to: dest, settingsJSON: currentSettingsJSON())
             }.value
@@ -81,10 +79,9 @@ enum DataBackup {
             return .failure(String(localized: "Export failed: \(error.localizedDescription)"))
         }
         #else
-        let fm = FileManager.default
-        let staged = fm.temporaryDirectory.appendingPathComponent(defaultBackupName())
+        let staged = FileManager.default.temporaryDirectory.appendingPathComponent(defaultBackupName())
         do {
-            if fm.fileExists(atPath: staged.path) { try fm.removeItem(at: staged) }
+            if FileManager.default.fileExists(atPath: staged.path) { try FileManager.default.removeItem(at: staged) }
             try await Task.detached(priority: .utility) {
                 try writeVerifiedBackupZip(dbURL: dbURL, to: staged, settingsJSON: currentSettingsJSON())
             }.value
@@ -114,10 +111,10 @@ enum DataBackup {
         let archive = try Archive(url: dest, accessMode: .create)
         try archive.addEntry(with: backupEntryName, fileURL: dbURL, compressionMethod: .deflate)
         guard let settingsJSON else { return }
-        let fm = FileManager.default
-        let tmpJSON = fm.temporaryDirectory.appendingPathComponent("noop-settings-\(UUID().uuidString).json")
+        let tmpJSON = FileManager.default.temporaryDirectory
+            .appendingPathComponent("noop-settings-\(UUID().uuidString).json")
         try settingsJSON.write(to: tmpJSON)
-        defer { try? fm.removeItem(at: tmpJSON) }
+        defer { try? FileManager.default.removeItem(at: tmpJSON) }
         try archive.addEntry(with: BackupSettings.entryName, fileURL: tmpJSON, compressionMethod: .deflate)
     }
 
@@ -137,8 +134,7 @@ enum DataBackup {
             return .failure(String(localized: "Couldn't safely back up right now. Recent changes are still in the write-ahead log."))
         }
         do {
-            let fm = FileManager.default
-            if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
+            if FileManager.default.fileExists(atPath: dest.path) { try FileManager.default.removeItem(at: dest) }
             try writeVerifiedBackupZip(dbURL: dbURL, to: dest, settingsJSON: currentSettingsJSON())
             return .exported(dest)
         } catch {
@@ -148,8 +144,7 @@ enum DataBackup {
 
     static func writeBackupForTesting(databaseAt dbURL: URL, to dest: URL,
                                       settings: [String: Any]? = nil) throws {
-        let fm = FileManager.default
-        if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
+        if FileManager.default.fileExists(atPath: dest.path) { try FileManager.default.removeItem(at: dest) }
         try writeBackupZip(dbURL: dbURL, to: dest,
                            settingsJSON: settings.flatMap { BackupSettings.encode($0) })
     }
@@ -245,7 +240,8 @@ enum DataBackup {
         let extractedDir: URL?
 
         if isZipFile(at: pickedSource) {
-            let tmpExtract = fm.temporaryDirectory.appendingPathComponent("noop-import-\(UUID().uuidString)", isDirectory: true)
+            let tmpExtract = fm.temporaryDirectory
+                .appendingPathComponent("noop-import-\(UUID().uuidString)", isDirectory: true)
             do {
                 if fm.fileExists(atPath: tmpExtract.path) { try fm.removeItem(at: tmpExtract) }
                 try fm.createDirectory(at: tmpExtract, withIntermediateDirectories: true)
@@ -265,7 +261,7 @@ enum DataBackup {
             source = pickedSource
             extractedDir = nil
         }
-        defer { if let d = extractedDir { try? fm.removeItem(at: d) } }
+        defer { if let extractedDir { try? fm.removeItem(at: extractedDir) } }
 
         guard isSQLiteFile(at: source) else {
             return .failure(String(localized: "That file isn't a NOOP backup. It doesn't look like a SQLite database."))
@@ -288,14 +284,17 @@ enum DataBackup {
         do {
             try preflightRestoreCapacity(source: source, pickedSource: pickedSource, databaseURL: dbURL,
                                          extractedDirectory: extractedDir, fileManager: fm)
-            var sidecar = dbURL.deletingLastPathComponent().appendingPathComponent("whoop-replaced-\(timestamp()).sqlite")
+            var sidecar = dbURL.deletingLastPathComponent()
+                .appendingPathComponent("whoop-replaced-\(timestamp()).sqlite")
             if fm.fileExists(atPath: dbURL.path) {
                 if fm.fileExists(atPath: sidecar.path) { try fm.removeItem(at: sidecar) }
                 try onlineBackup(fromDatabaseAt: dbURL.path, to: sidecar.path)
             } else {
                 sidecar = dbURL
             }
-            let incoming = dbURL.deletingLastPathComponent().appendingPathComponent(".noop-restore-\(UUID().uuidString).sqlite")
+
+            let incoming = dbURL.deletingLastPathComponent()
+                .appendingPathComponent(".noop-restore-\(UUID().uuidString).sqlite")
             defer { removeIfPresent(incoming) }
             if fault == .replacementCopy { throw RestoreFailure.simulatedReplacementCopy }
             try fm.copyItem(at: source, to: incoming)
@@ -305,6 +304,7 @@ enum DataBackup {
             removeIfPresent(URL(fileURLWithPath: dbPath + "-wal"))
             removeIfPresent(URL(fileURLWithPath: dbPath + "-shm"))
             try atomicInstall(incoming, at: dbURL)
+
             let forcedComplaint = fault == .postSwapValidation ? "simulated post-swap failure" : nil
             if let complaint = forcedComplaint ?? DatabaseIntegrity.quickCheckFailure(atPath: dbURL.path) {
                 if sidecar != dbURL, fm.fileExists(atPath: sidecar.path) {
@@ -313,6 +313,7 @@ enum DataBackup {
                 }
                 return .failure(String(localized: "Import failed its post-restore integrity check (SQLite reports: \(complaint))."))
             }
+
             if extractedDir == nil {
                 restoreSidecar(from: source, toMainPath: dbPath, suffix: "-wal")
                 restoreSidecar(from: source, toMainPath: dbPath, suffix: "-shm")
@@ -338,9 +339,12 @@ enum DataBackup {
 
         var errorDescription: String? {
             switch self {
-            case .simulatedReplacementCopy: return "Simulated replacement-copy failure."
-            case .invalidReplacement(let complaint): return "The staged replacement failed its integrity check: \(complaint)"
-            case .sqliteBackup(let complaint): return "The pre-restore safety snapshot failed: \(complaint)"
+            case .simulatedReplacementCopy:
+                return "Simulated replacement-copy failure."
+            case .invalidReplacement(let complaint):
+                return "The staged replacement failed its integrity check: \(complaint)"
+            case .sqliteBackup(let complaint):
+                return "The pre-restore safety snapshot failed: \(complaint)"
             case .insufficientCapacity(let required, let available):
                 return "Not enough free storage to restore safely. Required \(required.formatted(.byteCount(style: .file))), available \(available.formatted(.byteCount(style: .file)))."
             }
@@ -374,17 +378,18 @@ enum DataBackup {
     }
 
     private static func atomicInstall(_ staged: URL, at destination: URL) throws {
-        let fm = FileManager.default
-        if fm.fileExists(atPath: destination.path) {
-            _ = try fm.replaceItemAt(destination, withItemAt: staged, backupItemName: nil, options: [])
+        if FileManager.default.fileExists(atPath: destination.path) {
+            _ = try FileManager.default.replaceItemAt(destination, withItemAt: staged,
+                                                      backupItemName: nil, options: [])
         } else {
-            try fm.moveItem(at: staged, to: destination)
+            try FileManager.default.moveItem(at: staged, to: destination)
         }
     }
 
     private static func rollback(from safetyCopy: URL, toDatabaseAt dbPath: String) throws {
         let destination = URL(fileURLWithPath: dbPath)
-        let staged = destination.deletingLastPathComponent().appendingPathComponent(".noop-rollback-\(UUID().uuidString).sqlite")
+        let staged = destination.deletingLastPathComponent()
+            .appendingPathComponent(".noop-rollback-\(UUID().uuidString).sqlite")
         defer { removeIfPresent(staged) }
         try FileManager.default.copyItem(at: safetyCopy, to: staged)
         removeIfPresent(URL(fileURLWithPath: dbPath + "-wal"))
@@ -404,31 +409,49 @@ enum DataBackup {
     }
 
     private enum BackupArchiveError: LocalizedError {
-        case compressedInputTooLarge, tooManyEntries, totalTooLarge
-        case duplicateName(String), unexpectedEntry(String), entryTooLarge(String)
-        case suspiciousExpansion(String), extractedSizeMismatch(String)
+        case compressedInputTooLarge
+        case tooManyEntries
+        case duplicateName(String)
+        case unexpectedEntry(String)
+        case entryTooLarge(String)
+        case totalTooLarge
+        case suspiciousExpansion(String)
+        case extractedSizeMismatch(String)
+
         var errorDescription: String? {
             switch self {
-            case .compressedInputTooLarge: return "The selected archive is larger than NOOP's backup limit."
-            case .tooManyEntries: return "A NOOP backup can contain only noop-backup.sqlite and settings.json."
-            case .duplicateName(let name): return "The archive contains duplicate or ambiguous entries named \(name)."
-            case .unexpectedEntry(let path): return "The archive contains an unexpected entry: \(path)."
-            case .entryTooLarge(let path): return "The archive entry \(path) exceeds NOOP's restore limit."
-            case .totalTooLarge: return "The archive expands beyond NOOP's restore limit."
-            case .suspiciousExpansion(let path): return "The archive entry \(path) has a suspicious compression ratio."
-            case .extractedSizeMismatch(let path): return "The archive entry \(path) expanded beyond its declared size."
+            case .compressedInputTooLarge:
+                return "The selected archive is larger than NOOP's backup limit."
+            case .tooManyEntries:
+                return "A NOOP backup can contain only noop-backup.sqlite and settings.json."
+            case .duplicateName(let name):
+                return "The archive contains duplicate or ambiguous entries named \(name)."
+            case .unexpectedEntry(let path):
+                return "The archive contains an unexpected entry: \(path)."
+            case .entryTooLarge(let path):
+                return "The archive entry \(path) exceeds NOOP's restore limit."
+            case .totalTooLarge:
+                return "The archive expands beyond NOOP's restore limit."
+            case .suspiciousExpansion(let path):
+                return "The archive entry \(path) has a suspicious compression ratio."
+            case .extractedSizeMismatch(let path):
+                return "The archive entry \(path) expanded beyond its declared size."
             }
         }
     }
 
     private static func defaultBackupName() -> String {
-        let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "yyyy-MM-dd"
-        return "NOOP-backup-\(f.string(from: Date())).noopbak"
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return "NOOP-backup-\(formatter.string(from: Date())).noopbak"
     }
 
     private static func timestamp() -> String {
-        let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "yyyy-MM-dd-HHmmss"
-        return f.string(from: Date())
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd-HHmmss"
+        return formatter.string(from: Date())
     }
 
     private static func backupContentTypes() -> [UTType] {
@@ -436,27 +459,37 @@ enum DataBackup {
         if let noopbak = UTType(filenameExtension: "noopbak") { types.append(noopbak) }
         types.append(.zip)
         if let sqlite = UTType(filenameExtension: "sqlite") { types.append(sqlite) }
-        types.append(.database); types.append(.data)
+        types.append(.database)
+        types.append(.data)
         return types
     }
 
     enum BackupOrigin: Equatable { case mac, android, unknown }
+
     static func backupOrigin(of tableNames: Set<String>) -> BackupOrigin {
         if tableNames.contains("grdb_migrations") { return .mac }
         if tableNames.contains("room_master_table") { return .android }
-        if tableNames.contains("android_metadata") && tableNames.contains("sqlite_sequence") { return .android }
+        if tableNames.contains("android_metadata") && tableNames.contains("sqlite_sequence") {
+            return .android
+        }
         return .unknown
     }
 
     private static func sqliteTableNames(at url: URL) -> Set<String> {
         var db: OpaquePointer?
-        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else { sqlite3_close(db); return [] }
+        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
+            sqlite3_close(db)
+            return []
+        }
         defer { sqlite3_close(db) }
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, "SELECT name FROM sqlite_master WHERE type = 'table'", -1, &stmt, nil) == SQLITE_OK else { return [] }
+        let sql = "SELECT name FROM sqlite_master WHERE type = 'table'"
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
         defer { sqlite3_finalize(stmt) }
         var names = Set<String>()
-        while sqlite3_step(stmt) == SQLITE_ROW, let c = sqlite3_column_text(stmt, 0) { names.insert(String(cString: c)) }
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            if let c = sqlite3_column_text(stmt, 0) { names.insert(String(cString: c)) }
+        }
         return names
     }
 
@@ -471,31 +504,47 @@ enum DataBackup {
                                  limits: ArchiveRestoreLimits = ArchiveRestoreLimits()) throws {
         let attributes = try FileManager.default.attributesOfItem(atPath: zipURL.path)
         let archiveBytes = (attributes[.size] as? NSNumber)?.uint64Value ?? 0
-        guard archiveBytes <= limits.maxArchiveCompressedBytes else { throw BackupArchiveError.compressedInputTooLarge }
+        guard archiveBytes <= limits.maxArchiveCompressedBytes else {
+            throw BackupArchiveError.compressedInputTooLarge
+        }
+
         let archive = try Archive(url: zipURL, accessMode: .read)
         var entries: [Entry] = []
         entries.reserveCapacity(limits.maxEntryCount)
         var flattenedNames = Set<String>()
         var declaredTotal: UInt64 = 0
+
         for entry in archive {
-            guard entries.count < limits.maxEntryCount else { throw BackupArchiveError.tooManyEntries }
+            guard entries.count < limits.maxEntryCount else {
+                throw BackupArchiveError.tooManyEntries
+            }
             let flattened = (entry.path as NSString).lastPathComponent
-            guard flattenedNames.insert(flattened).inserted else { throw BackupArchiveError.duplicateName(flattened) }
+            guard flattenedNames.insert(flattened).inserted else {
+                throw BackupArchiveError.duplicateName(flattened)
+            }
             guard entry.type == .file,
                   entry.path == backupEntryName || entry.path == BackupSettings.entryName else {
                 throw BackupArchiveError.unexpectedEntry(entry.path)
             }
-            let perEntryLimit = entry.path == backupEntryName ? limits.maxDatabaseBytes : limits.maxSettingsBytes
-            guard entry.uncompressedSize <= perEntryLimit else { throw BackupArchiveError.entryTooLarge(entry.path) }
-            guard declaredTotal <= limits.maxTotalUncompressedBytes - min(entry.uncompressedSize, limits.maxTotalUncompressedBytes),
-                  declaredTotal + entry.uncompressedSize <= limits.maxTotalUncompressedBytes else {
+            let perEntryLimit = entry.path == backupEntryName
+                ? limits.maxDatabaseBytes : limits.maxSettingsBytes
+            guard entry.uncompressedSize <= perEntryLimit else {
+                throw BackupArchiveError.entryTooLarge(entry.path)
+            }
+            guard declaredTotal <= limits.maxTotalUncompressedBytes - min(
+                entry.uncompressedSize, limits.maxTotalUncompressedBytes
+            ), declaredTotal + entry.uncompressedSize <= limits.maxTotalUncompressedBytes else {
                 throw BackupArchiveError.totalTooLarge
             }
             declaredTotal += entry.uncompressedSize
             if entry.uncompressedSize > 0 {
-                guard entry.compressedSize > 0,
-                      entry.uncompressedSize <= entry.compressedSize.multipliedReportingOverflow(by: limits.maxExpansionRatio).partialValue,
-                      !entry.compressedSize.multipliedReportingOverflow(by: limits.maxExpansionRatio).overflow else {
+                guard entry.compressedSize > 0 else {
+                    throw BackupArchiveError.suspiciousExpansion(entry.path)
+                }
+                let product = entry.compressedSize.multipliedReportingOverflow(
+                    by: limits.maxExpansionRatio
+                )
+                guard !product.overflow, entry.uncompressedSize <= product.partialValue else {
                     throw BackupArchiveError.suspiciousExpansion(entry.path)
                 }
             }
@@ -523,15 +572,18 @@ enum DataBackup {
                           entryBytes + chunkBytes <= entry.uncompressedSize else {
                         throw BackupArchiveError.extractedSizeMismatch(entry.path)
                     }
-                    guard extractedTotal <= limits.maxTotalUncompressedBytes - min(chunkBytes, limits.maxTotalUncompressedBytes),
-                          extractedTotal + chunkBytes <= limits.maxTotalUncompressedBytes else {
+                    guard extractedTotal <= limits.maxTotalUncompressedBytes - min(
+                        chunkBytes, limits.maxTotalUncompressedBytes
+                    ), extractedTotal + chunkBytes <= limits.maxTotalUncompressedBytes else {
                         throw BackupArchiveError.totalTooLarge
                     }
                     try handle.write(contentsOf: chunk)
                     entryBytes += chunkBytes
                     extractedTotal += chunkBytes
                 }
-                guard entryBytes == entry.uncompressedSize else { throw BackupArchiveError.extractedSizeMismatch(entry.path) }
+                guard entryBytes == entry.uncompressedSize else {
+                    throw BackupArchiveError.extractedSizeMismatch(entry.path)
+                }
             } catch {
                 try? FileManager.default.removeItem(at: out)
                 throw error
@@ -543,10 +595,29 @@ enum DataBackup {
                                                  extractedDirectory: URL?, fileManager: FileManager) throws {
         let sourceBytes = fileSize(source, fileManager: fileManager)
         let liveBytes = fileSize(databaseURL, fileManager: fileManager)
-        let archiveBytes = extractedDirectory == nil ? 0 : fileSize(pickedSource, fileManager: fileManager)
-        let required = sourceBytes &* 2 &+ liveBytes &* 2 &+ archiveBytes
+        let archiveBytes = extractedDirectory == nil
+            ? 0 : fileSize(pickedSource, fileManager: fileManager)
+        let required = saturatingAdd(
+            saturatingMultiply(sourceBytes, by: 2),
+            saturatingMultiply(liveBytes, by: 2),
+            archiveBytes
+        )
         let available = availableCapacity(at: databaseURL.deletingLastPathComponent())
-        guard available >= required else { throw RestoreFailure.insufficientCapacity(required: required, available: available) }
+        guard available >= required else {
+            throw RestoreFailure.insufficientCapacity(required: required, available: available)
+        }
+    }
+
+    private static func saturatingMultiply(_ value: UInt64, by factor: UInt64) -> UInt64 {
+        let result = value.multipliedReportingOverflow(by: factor)
+        return result.overflow ? .max : result.partialValue
+    }
+
+    private static func saturatingAdd(_ values: UInt64...) -> UInt64 {
+        values.reduce(0) { total, value in
+            let result = total.addingReportingOverflow(value)
+            return result.overflow ? .max : result.partialValue
+        }
     }
 
     private static func fileSize(_ url: URL, fileManager: FileManager) -> UInt64 {
@@ -554,10 +625,17 @@ enum DataBackup {
     }
 
     private static func availableCapacity(at url: URL) -> UInt64 {
-        let values = try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey])
-        if let important = values?.volumeAvailableCapacityForImportantUsage, important > 0 { return UInt64(important) }
-        if let ordinary = values?.volumeAvailableCapacity, ordinary > 0 { return UInt64(ordinary) }
-        return UInt64.max
+        let values = try? url.resourceValues(forKeys: [
+            .volumeAvailableCapacityForImportantUsageKey,
+            .volumeAvailableCapacityKey,
+        ])
+        if let important = values?.volumeAvailableCapacityForImportantUsage, important > 0 {
+            return UInt64(important)
+        }
+        if let ordinary = values?.volumeAvailableCapacity, ordinary > 0 {
+            return UInt64(ordinary)
+        }
+        return .max
     }
 
     private static func isSQLiteFile(at url: URL) -> Bool {
@@ -568,15 +646,16 @@ enum DataBackup {
     }
 
     private static func removeIfPresent(_ url: URL) {
-        if FileManager.default.fileExists(atPath: url.path) { try? FileManager.default.removeItem(at: url) }
+        if FileManager.default.fileExists(atPath: url.path) {
+            try? FileManager.default.removeItem(at: url)
+        }
     }
 
     private static func restoreSidecar(from source: URL, toMainPath dbPath: String, suffix: String) {
-        let fm = FileManager.default
         let src = URL(fileURLWithPath: source.path + suffix)
-        guard fm.fileExists(atPath: src.path) else { return }
+        guard FileManager.default.fileExists(atPath: src.path) else { return }
         let dst = URL(fileURLWithPath: dbPath + suffix)
-        if fm.fileExists(atPath: dst.path) { try? fm.removeItem(at: dst) }
-        try? fm.copyItem(at: src, to: dst)
+        if FileManager.default.fileExists(atPath: dst.path) { try? FileManager.default.removeItem(at: dst) }
+        try? FileManager.default.copyItem(at: src, to: dst)
     }
 }
