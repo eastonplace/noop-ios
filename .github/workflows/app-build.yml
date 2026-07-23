@@ -1,8 +1,8 @@
 # iPhone-only compile and test verification.
 #
-# The repository intentionally targets iOS only. This workflow performs cheap source-contract audits,
-# generates the Xcode project, builds the app and WidgetKit/Live Activity extension, and runs the complete
-# iOS test target. Signing is disabled; no credentials or release artifacts are used.
+# Cheap source-contract audits run independently on Linux so macOS runner allocation cannot hide static
+# regressions. The Xcode job starts only after every audit passes, then generates the project, builds the app
+# and WidgetKit/Live Activity extension, and runs the complete iOS and retained-package test suites.
 name: iOS build and tests
 
 on:
@@ -36,52 +36,89 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  source-audits:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run all focused source audits
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p qa-artifacts/audits
+          status=0
+          audits=(
+            source_contract_audit.py
+            ui_unification_contract_audit.py
+            workout_runtime_contract_audit.py
+            workout_persistence_contract_audit.py
+            trends_snapshot_contract_audit.py
+            accessibility_localization_contract_audit.py
+            healthkit_sync_contract_audit.py
+          )
+          for audit in "${audits[@]}"; do
+            echo "::group::$audit"
+            python3 "Tools/qa/$audit" 2>&1 | tee "qa-artifacts/audits/${audit%.py}.txt"
+            rc=${PIPESTATUS[0]}
+            echo "::endgroup::"
+            if (( rc != 0 )); then status=1; fi
+          done
+          exit "$status"
+
+      - name: Upload source-audit logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-audit-logs-${{ github.sha }}
+          path: qa-artifacts/audits
+          if-no-files-found: error
+          retention-days: 30
+
   build-and-test:
+    needs: source-audits
     runs-on: macos-26
     timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Audit iPhone source contracts
-        run: python3 Tools/qa/source_contract_audit.py
-
-      - name: Audit unified Trends, alarm, Settings, and More contracts
-        run: python3 Tools/qa/ui_unification_contract_audit.py
-
-      - name: Audit active-workout runtime contracts
-        run: python3 Tools/qa/workout_runtime_contract_audit.py
-
-      - name: Audit active-workout recovery persistence
-        run: python3 Tools/qa/workout_persistence_contract_audit.py
-
-      - name: Audit Trends snapshot freshness
-        run: python3 Tools/qa/trends_snapshot_contract_audit.py
-
-      - name: Audit accessibility and localization contracts
-        run: python3 Tools/qa/accessibility_localization_contract_audit.py
-
-      - name: Audit HealthKit synchronization contracts
-        run: python3 Tools/qa/healthkit_sync_contract_audit.py
+      - name: Record toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p qa-artifacts
+          xcodebuild -version | tee qa-artifacts/xcode-version.txt
+          swift --version | tee qa-artifacts/swift-version.txt
 
       - name: Install XcodeGen
         run: brew install xcodegen
 
       - name: Generate Xcode project
-        run: xcodegen generate
+        shell: bash
+        run: |
+          set -o pipefail
+          xcodegen generate 2>&1 | tee qa-artifacts/xcodegen.txt
 
       - name: Build iPhone app and extensions
-        run: >-
-          xcodebuild -scheme NOOPiOS -configuration Debug
-          -destination 'generic/platform=iOS Simulator'
-          CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
-          build
+        shell: bash
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -scheme NOOPiOS \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build 2>&1 | tee qa-artifacts/xcodebuild-build.txt
 
       - name: Select an available iPhone simulator
         id: simulator
         shell: bash
         run: |
           set -euo pipefail
+          xcrun simctl list devices available | tee qa-artifacts/available-simulators.txt
           udid=$(xcrun simctl list devices available -j | python3 -c '
           import json, sys
           data = json.load(sys.stdin)
@@ -95,20 +132,40 @@ jobs:
           raise SystemExit("No available iPhone simulator found")
           ')
           echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          xcrun simctl list devices | grep -F "$udid" | tee qa-artifacts/selected-simulator.txt
 
       - name: Run NOOPiOSTests
-        run: >-
-          xcodebuild -scheme NOOPiOS -configuration Debug
-          -destination 'platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}'
-          CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
-          test
-
-      - name: Run Swift package tests
         shell: bash
         run: |
-          set -euo pipefail
+          set -o pipefail
+          xcodebuild \
+            -scheme NOOPiOS \
+            -configuration Debug \
+            -destination 'platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            test 2>&1 | tee qa-artifacts/xcodebuild-test.txt
+
+      - name: Run retained Swift package tests
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p qa-artifacts/packages
+          status=0
           for package in WhoopProtocol OuraProtocol WhoopStore StrandAnalytics StrandImport StrandDesign NoopLocalAccess; do
             echo "::group::$package"
-            swift test --package-path "Packages/$package"
+            swift test --package-path "Packages/$package" 2>&1 | tee "qa-artifacts/packages/$package.txt"
+            rc=${PIPESTATUS[0]}
             echo "::endgroup::"
+            if (( rc != 0 )); then status=1; fi
           done
+          exit "$status"
+
+      - name: Upload Xcode and package logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-build-test-logs-${{ github.sha }}
+          path: qa-artifacts
+          if-no-files-found: warn
+          retention-days: 30
