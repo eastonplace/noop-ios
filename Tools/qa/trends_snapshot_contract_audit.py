@@ -54,15 +54,30 @@ try:
         "Packages/StrandAnalytics/Sources/StrandAnalytics/StableStatistics.swift",
         "public static func roundedInt",
         "Int(exactly: value.rounded())",
+        "private static func scaledFinite",
     )
     require(
         "Packages/StrandAnalytics/Tests/StrandAnalyticsTests/StableStatisticsTests.swift",
         "testRoundedIntRejectsFloatingPointBoundaryAboveIntMax",
         "testRoundedIntRoundsOnlyRepresentableFiniteValues",
+        "testFiniteExtremeStatisticsSaturateInsteadOfBecomingNilOrZero",
+    )
+    require(
+        "Packages/StrandAnalytics/Sources/StrandAnalytics/ComparisonEngine.swift",
+        "guard !sorted.isEmpty else { return 0 }",
+    )
+    require(
+        "Packages/StrandAnalytics/Tests/StrandAnalyticsTests/ComparisonEngineEdgeTests.swift",
+        "testMedianReturnsZeroWhenAllInputsAreNonFinite",
+        "testStatDropsAllNonFiniteInputsWithoutIndexingAnEmptyMedian",
     )
     require(
         "Packages/StrandDesign/Sources/StrandDesign/ComponentLibraryAPI.swift",
         'value.isFinite ? value.formatted(.number.precision(.fractionLength(0))) : "—"',
+    )
+    forbid(
+        "Packages/StrandDesign/Sources/StrandDesign/ComponentLibraryAPI.swift",
+        "Int($0.rounded())",
     )
     require(
         "Packages/StrandDesign/Tests/StrandDesignTests/ComponentValueFormatTests.swift",
