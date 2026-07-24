@@ -18,6 +18,8 @@ public struct HealthKitObjectIdentity: Equatable, Codable, Sendable {
 }
 
 extension WhoopStore {
+    private static let appleHealthWorkoutSource = "apple-health"
+
     /// Returns the conservative historical window for each UUID. A corrected object may have occupied
     /// several windows over time; the index retains their union so replay after a crash can still retract
     /// the original local projection before the correction is applied.
@@ -80,7 +82,7 @@ extension WhoopStore {
                 """, arguments: [deviceId, deviceId, deviceId])
             let workout = try Int.fetchOne(db, sql: """
                 SELECT MIN(startTs) FROM workout WHERE deviceId = ? AND source = ?
-                """, arguments: [deviceId, "apple_health"])
+                """, arguments: [deviceId, Self.appleHealthWorkoutSource])
             let dayTimestamp = day.flatMap { Self.dayTimestamp($0) }
             switch (dayTimestamp, workout) {
             case let (day?, workout?): return min(day, workout)
@@ -103,7 +105,7 @@ extension WhoopStore {
         toDay: String,
         fromTimestamp: Int,
         toTimestamp: Int,
-        workoutSource: String = "apple_health"
+        workoutSource: String = Self.appleHealthWorkoutSource
     ) async throws {
         try syncWrite { db in
             // `DatabaseWriter.write` already opens the outer transaction. Starting a nested GRDB
