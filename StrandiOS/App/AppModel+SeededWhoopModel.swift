@@ -2,7 +2,7 @@
 import Foundation
 import WhoopStore
 
-enum SeededWhoopModelResolver {
+nonisolated enum SeededWhoopModelResolver {
     static func correctedModel(current: String, whoop5Detected: Bool) -> String? {
         guard current.trimmingCharacters(in: .whitespacesAndNewlines)
             .caseInsensitiveCompare("WHOOP") == .orderedSame
