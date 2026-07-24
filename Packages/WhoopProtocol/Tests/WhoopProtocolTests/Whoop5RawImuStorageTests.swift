@@ -42,9 +42,14 @@ final class Whoop5RawImuStorageTests: XCTestCase {
         XCTAssertEqual(columns[500], 82)
     }
 
-    func testBaseTimestampReadsWithoutFullDecode() {
+    func testBaseTimestampRequiresTheCompleteImuShape() {
         XCTAssertEqual(Whoop5RawImu.baseTs(frame()), 1_800_000_000)
         XCTAssertNil(Whoop5RawImu.baseTs([0, 1, 2]))
+
+        var unrelatedLongFrame = frame()
+        unrelatedLongFrame[24] = 0
+        unrelatedLongFrame[25] = 0
+        XCTAssertNil(Whoop5RawImu.baseTs(unrelatedLongFrame))
     }
 
     func testDecodeAndRawColumnsRejectTrailingOrTruncatedBytes() {
