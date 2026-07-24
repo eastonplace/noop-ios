@@ -105,7 +105,7 @@ extension WhoopStore {
         toDay: String,
         fromTimestamp: Int,
         toTimestamp: Int,
-        workoutSource: String = Self.appleHealthWorkoutSource
+        workoutSource: String = "apple-health"
     ) async throws {
         try syncWrite { db in
             // `DatabaseWriter.write` already opens the outer transaction. Starting a nested GRDB
