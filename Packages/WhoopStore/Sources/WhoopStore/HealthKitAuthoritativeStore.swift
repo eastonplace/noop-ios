@@ -19,28 +19,50 @@ public struct HealthKitObjectIdentity: Equatable, Codable, Sendable {
 
 extension WhoopStore {
     private static let appleHealthWorkoutSource = "apple-health"
+    /// Leaves headroom below SQLite's host-parameter limit for device/source arguments and future clauses.
+    private static let healthKitIdentityQueryChunkSize = 400
 
-    /// Returns the conservative historical window for each UUID. A corrected object may have occupied
-    /// several windows over time; the index retains their union so replay after a crash can still retract
-    /// the original local projection before the correction is applied.
+    /// Returns the conservative historical window for each requested UUID. A corrected object may have
+    /// occupied several windows over time; the index retains their union so replay after a crash can still
+    /// retract the original local projection before the correction is applied. Requests are chunked so a
+    /// large HealthKit deletion event cannot exceed SQLite's host-parameter limit. Duplicate request UUIDs
+    /// intentionally produce duplicate results, allowing the caller's known/unknown count comparison to
+    /// remain correct even if an anchored scan reports the same deletion more than once.
     public func healthKitObjectIdentities(
         sampleType: String,
         objectUUIDs: [String],
         deviceId: String
     ) async throws -> [HealthKitObjectIdentity] {
-        let identifiers = Array(Set(objectUUIDs.filter { !$0.isEmpty }))
+        let requested = objectUUIDs.filter { !$0.isEmpty }
+        let identifiers = Array(Set(requested))
         guard !identifiers.isEmpty else { return [] }
         return try syncRead { db in
-            let placeholders = Array(repeating: "?", count: identifiers.count).joined(separator: ",")
-            let rows = try Row.fetchAll(db, sql: """
-                SELECT sampleType, objectUUID, startTs, endTs
-                FROM healthKitObjectIndex
-                WHERE deviceId = ? AND sampleType = ? AND objectUUID IN (\(placeholders))
-                """, arguments: StatementArguments([deviceId, sampleType] + identifiers))
-            return rows.map {
-                HealthKitObjectIdentity(sampleType: $0["sampleType"], objectUUID: $0["objectUUID"],
-                                        startTs: $0["startTs"], endTs: $0["endTs"])
+            var byIdentifier: [String: HealthKitObjectIdentity] = [:]
+            byIdentifier.reserveCapacity(identifiers.count)
+            for start in stride(
+                from: 0,
+                to: identifiers.count,
+                by: Self.healthKitIdentityQueryChunkSize
+            ) {
+                let end = min(start + Self.healthKitIdentityQueryChunkSize, identifiers.count)
+                let chunk = Array(identifiers[start..<end])
+                let placeholders = Array(repeating: "?", count: chunk.count).joined(separator: ",")
+                let rows = try Row.fetchAll(db, sql: """
+                    SELECT sampleType, objectUUID, startTs, endTs
+                    FROM healthKitObjectIndex
+                    WHERE deviceId = ? AND sampleType = ? AND objectUUID IN (\(placeholders))
+                    """, arguments: StatementArguments([deviceId, sampleType] + chunk))
+                for row in rows {
+                    let identity = HealthKitObjectIdentity(
+                        sampleType: row["sampleType"],
+                        objectUUID: row["objectUUID"],
+                        startTs: row["startTs"],
+                        endTs: row["endTs"]
+                    )
+                    byIdentifier[identity.objectUUID] = identity
+                }
             }
+            return requested.compactMap { byIdentifier[$0] }
         }
     }
 
