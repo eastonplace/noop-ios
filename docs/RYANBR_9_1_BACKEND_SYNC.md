@@ -1,8 +1,8 @@
 # RyanBR NOOP v9.1 backend sync
 
-This document is the compatibility contract for **Noop iOS 2.1**.
+This document is the compatibility contract and implementation inventory for **Noop iOS 2.1**.
 
-The release line is syncing the retained iPhone protocol, storage, import, and analytics backend with the relevant behavior in [`ryanbr/noop`](https://github.com/ryanbr/noop) **v9.1.0**. It is not a wholesale code import and it does not replace NOOP iOS's product architecture.
+The release line selectively synchronizes the retained iPhone protocol, storage, import, and analytics backend with relevant behavior from [`ryanbr/noop`](https://github.com/ryanbr/noop) **v9.1.0**. It is not a wholesale source import and it does not replace NOOP iOS's product architecture.
 
 ## Upstream reference
 
@@ -11,6 +11,7 @@ The release line is syncing the retained iPhone protocol, storage, import, and a
 - Release commit: `3679751`
 - Integration branch: `release/noop-ios-2.1`
 - Stacked base: `release/noop-ios-2.0`
+- Review PR: `#20`
 
 ## Compatibility rules
 
@@ -22,44 +23,98 @@ The release line is syncing the retained iPhone protocol, storage, import, and a
 6. The v18 byte-82 SpO₂ candidate remains **instrumentation only**. It must not populate `spo2Pct`, HealthKit, Recovery, illness detection, or any user-facing oxygen metric.
 7. Keep all biometric processing local and on-device.
 8. Keep this repository iPhone-only. Do not restore Android, watchOS, or the retired macOS app.
+9. GitHub Actions is not used as evidence for this release line.
 
-## v9.1 inventory
+## Implemented end to end
 
-### Adopt in Noop iOS 2.1
+### Real WHOOP journal Boolean compatibility
 
-- Heart-rate recovery at 1, 2, and 5 minutes after an eligible workout, derived from the existing local HR stream.
-- Missing-field backfill for a manually entered workout when the detector already computed HR, peak, calories, or Strain for the overlapping bout.
-- Real WHOOP journal export support for the `Answered yes` column.
-- Seeded paired-device model correction so WHOOP 4.0 and WHOOP 5.0/MG use the correct device-family behavior and temperature scale.
-- WHOOP 5.0 v18 byte-82 SpO₂ candidate decode as diagnostic instrumentation only.
-- WHOOP 5.0 raw-IMU storage helpers added upstream in v9.1.
-- Relevant GATT-family and data-range diagnostics that can be added without speculative commands.
-- Oura feature-status/wear diagnostics where they remain read-only and do not invent offline measurements.
+The import coordinator now recognizes the real WHOOP `Answered yes` column (`answered_yes` after header normalization) for both explicit and auto-detected WHOOP imports. TRUE/FALSE values remain verbatim and flow through the existing local journal persistence and correlation path.
 
-### Already present or independently superseded
+### Seeded WHOOP generation correction
+
+Older stores seeded a generic `model = "WHOOP"` registry row. After a real WHOOP connection settles and the existing transport has selected the hardware family, the app corrects only that generic row to either `WHOOP 4.0` or `WHOOP 5.0 / MG`. Specific model labels are never overwritten. This repairs downstream generation-sensitive interpretation, including skin-temperature scaling, without sending a command or changing the active device.
+
+### WHOOP 5 raw-IMU storage helpers
+
+The existing verified 100 Hz 6-axis decoder now also exposes the exact six signed i16 wire columns and a timestamp-only read. The helpers preserve lossless raw values for later storage or analysis and reject wrong-length buffers.
+
+## Implemented metric and integration seams
+
+These components are production-quality pure logic with focused tests. They are intentionally isolated so a local integration pass can wire them into the moving PR #19 base without replacing whole app files through GitHub's contents API.
+
+### Heart-rate recovery
+
+`HeartRateRecovery` calculates signed heart-rate drops at 1, 2, and 5 minutes from the local HR stream. It requires sustained Zone-3-or-higher effort near cessation, one canonical reading per stored second, continuous coverage, and at least three distinct seconds around each measurement. Missing coverage remains nil.
+
+A repository read seam and reusable SwiftUI card are included. The remaining app-file integration is one placement of `WorkoutHeartRateRecoveryCard` in the workout-detail overview after PR #20 is refreshed onto the current PR #19 head.
+
+### Missing-field workout backfill
+
+`WorkoutDetectedBackfill` fills only absent average HR, peak HR, calories, and Strain from a computed overlapping bout. Existing manual/imported facts, natural-key identity, route metadata, notes, zones, and score-version ownership remain untouched.
+
+The remaining production integration is a narrow call from the existing detected-versus-real collision branch in `IntelligenceEngine`; the pure merge and non-overwrite behavior are already tested.
+
+### Bounded GET_CLOCK recovery policy
+
+`StrapClockRecoveryPlanner` models at most three GET_CLOCK retries followed by an explicitly approximate Data Range fallback when the newest banked timestamp exists. A precise clock correlation always wins. Actual BLE command scheduling and `ClockRef` installation remain a transport-layer wiring task and require a physical strap that drops GET_CLOCK responses.
+
+## Implemented diagnostic-only protocol support
+
+### WHOOP 5 v18 byte-82 SpO₂ candidate
+
+The protocol package classifies byte 82 as absent, plausible percentage, high-bit sentinel, or diagnostic code. It is deliberately not referenced by the app targets. No candidate value reaches HealthKit, Recovery, illness detection, Trends, exports, or any user-facing oxygen surface.
+
+### Additional WHOOP GATT families
+
+The v9.1 Puffin-1150, Monument, and Symphony service/characteristic families are represented as metadata with a fail-closed scan decision. They have no `DeviceFamily`, CLIENT_HELLO, command builder, or write path. A future broadened diagnostic scan may log them, but must never connect or command them without independently validated framing.
+
+### Oura feature status
+
+Read-only SpO₂ and real-steps feature-status query builders use the `0x20` read verb. The diagnostic decoder excludes the existing daytime-HR acknowledgement from new status output. No server-gated feature is enabled or represented as an offline measurement.
+
+### Oura wear/charger inference
+
+A pure tracker infers worn, charging, off, or unknown from real live-HR pulses and charger state strings. Banked overnight IBI records are explicitly excluded from current-wear evidence.
+
+### Oura IBI timestamp policy
+
+The policy persists IBI only at a ring-time-derived Unix timestamp when an anchor exists; otherwise it parks the event. It never stamps a banked overnight event at drain-arrival wall time. Transport queue/cursor wiring remains device-gated.
+
+## Already present or independently superseded
 
 - HRV readiness.
 - WHOOP 5.0 raw IMU decoding and feature extraction.
 - Wrap-aware step-counter derivation.
 - Motion-aware wake refinement.
 - Coarse workout-type classification.
-- NOOP iOS's newer Strain, Sleep, Trends, alarm, workout-runtime, and local persistence architecture.
+- NOOP iOS's newer Strain, Sleep, Trends, alarm, workout-runtime, HealthKit, and local persistence architecture.
+- Existing iPhone notification permission handling and silent strap-alarm honesty.
+- Existing second-strap workout HR routing and source-aware workout detail reads.
 
-### Intentionally not copied
+## Intentionally not copied
 
 - Upstream Android, watchOS, and retired macOS application work.
 - Upstream UI rewrites that conflict with the retained iPhone interface.
-- Upstream Recovery/Strain/Sleep formula replacements where NOOP iOS already has a newer authoritative model.
+- Upstream Recovery, Strain, or Sleep formula replacements where NOOP iOS already has a newer authoritative model.
 - Configurable bundle/team infrastructure unrelated to backend metric compatibility.
 - Any production SpO₂ metric sourced from the contested WHOOP 5.0 byte-82 candidate.
+- Any command for a newly observed WHOOP GATT family whose framing is not independently validated.
+- Android-only Sleep Schedule rendering fixes; NOOP iOS does not use that rendering path.
 
-### Deferred or device-gated
+## Deferred or device-gated
 
-- Physical verification of WHOOP 4.0 and WHOOP 5.0/MG family detection.
-- Cross-device validation of the SpO₂ candidate against the official app.
-- Oura ring feature-status and IBI behavior on real hardware.
+- Refreshing the feature branch onto the latest moving `release/noop-ios-2.0` head before build qualification.
+- Inserting the HR-recovery card into the current workout-detail composition.
+- Calling the missing-field workout merge from the current `IntelligenceEngine` collision branch.
+- Wiring the clock recovery planner to BLE retries and approximate clock installation.
+- Wiring broadened WHOOP service discovery for diagnostic logging only.
+- Wiring Oura status, wear, and anchored IBI queues into the iPhone transport.
+- Physical verification of WHOOP 4.0 and WHOOP 5.0/MG family correction.
+- Cross-device validation of the byte-82 candidate against official-app readings; instrumentation-only regardless of result.
+- Oura feature-status, IBI, wear, and charger behavior on owned hardware.
 - Background execution and post-workout HR coverage on a physical iPhone.
 
 ## Verification policy
 
-GitHub Actions is not used as evidence for this release line. Verification is performed from an exact checked-out head with the repository audits, XcodeGen, iOS simulator build/tests, retained Swift-package tests, and physical-device checks where hardware is required.
+Run the existing seven iPhone audits plus `Tools/qa/ryanbr_9_1_backend_contract_audit.py`, regenerate with XcodeGen, build and test on an available iPhone simulator, and run all retained Swift packages locally. Exact commands and evidence requirements are in [`docs/qa/noop-ios-2.1-local-verification.md`](qa/noop-ios-2.1-local-verification.md).
