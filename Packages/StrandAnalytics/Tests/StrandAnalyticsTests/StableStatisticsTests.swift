@@ -14,4 +14,25 @@ final class StableStatisticsTests: XCTestCase {
         XCTAssertNil(StableStatistics.roundedInt(.infinity))
         XCTAssertNil(StableStatistics.roundedInt(.nan))
     }
+
+    func testFiniteExtremeStatisticsSaturateInsteadOfBecomingNilOrZero() throws {
+        let maximum = Double.greatestFiniteMagnitude
+        XCTAssertEqual(StableStatistics.mean([maximum, -maximum]), 0)
+        XCTAssertEqual(
+            try XCTUnwrap(StableStatistics.sampleStandardDeviation([maximum, -maximum], mean: 0)),
+            maximum
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(StableStatistics.difference(maximum, -maximum)),
+            maximum
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(StableStatistics.difference(-maximum, maximum)),
+            -maximum
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(StableStatistics.leastSquaresSlope([-maximum, maximum])),
+            maximum
+        )
+    }
 }
