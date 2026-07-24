@@ -77,8 +77,10 @@ public enum WhoopGattServiceFamily: String, Equatable, Sendable, CaseIterable {
     }
 
     public static func forServiceUUIDString(_ uuid: String?) -> Self? {
-        guard let normalized = uuid?.lowercased() else { return nil }
-        return allCases.first { $0.serviceUUIDString == normalized }
+        guard let normalized = uuid?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !normalized.isEmpty
+        else { return nil }
+        return allCases.first { $0.serviceUUIDString.lowercased() == normalized }
     }
 
     public static func firstUnsupported(in serviceUUIDStrings: [String]) -> Self? {
@@ -112,15 +114,27 @@ public struct WhoopGattScanDecision: Equatable, Sendable {
 
 /// Decide whether an advertisement found by a broadened diagnostic scan may enter GATT.
 ///
-/// Empty advertised-service lists preserve the existing connect path because some CoreBluetooth callbacks
-/// omit service UUIDs even when the service-filtered scan matched. When UUIDs are present, only the selected
-/// supported family connects; an unsupported family is returned solely for logging.
+/// The selected family must itself be a known, established connectable family. This guard comes before
+/// the CoreBluetooth empty-service-list exception, so selecting a diagnostic-only or unknown UUID can never
+/// accidentally open a command path. Once the selected family is proven safe, an empty advertised-service
+/// list preserves the existing connection path because some CoreBluetooth callbacks omit service UUIDs even
+/// when the service-filtered scan matched. When UUIDs are present, only the selected supported family connects;
+/// an unsupported advertised family is returned solely for logging.
 public func whoopGattScanDecision(
     selectedServiceUUIDString: String,
     advertisedServiceUUIDStrings: [String]
 ) -> WhoopGattScanDecision {
-    let advertised = Set(advertisedServiceUUIDStrings.map { $0.lowercased() })
-    if advertised.isEmpty || advertised.contains(selectedServiceUUIDString.lowercased()) {
+    guard let selected = WhoopGattServiceFamily.forServiceUUIDString(selectedServiceUUIDString) else {
+        return WhoopGattScanDecision(shouldConnect: false)
+    }
+    guard selected.isConnectable else {
+        return WhoopGattScanDecision(shouldConnect: false, unsupportedFamily: selected)
+    }
+
+    let advertised = Set(advertisedServiceUUIDStrings.map {
+        $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    })
+    if advertised.isEmpty || advertised.contains(selected.serviceUUIDString.lowercased()) {
         return WhoopGattScanDecision(shouldConnect: true)
     }
     return WhoopGattScanDecision(
