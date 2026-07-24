@@ -33,11 +33,15 @@ final class Whoop5ExperimentalSpO2PipelineTests: XCTestCase {
         return frame
     }
 
-    func testSleepingInBandCandidateReachesCompactSpO2Stream() {
-        let frame = parseFrame(
-            crcValidFrame(sleepStateByte: 0x20, candidateByte: 96),
+    private func parsedCandidate(_ value: UInt8, sleepStateByte: UInt8 = 0x20) -> ParsedFrame {
+        parseFrame(
+            crcValidFrame(sleepStateByte: sleepStateByte, candidateByte: value),
             family: .whoop5
         )
+    }
+
+    func testSleepingInBandCandidateReachesCompactSpO2Stream() {
+        let frame = parsedCandidate(96)
         XCTAssertEqual(frame.crcOK, true)
         XCTAssertEqual(frame.parsed["sleep_state"]?.intValue, 2)
         XCTAssertEqual(frame.parsed["aux_byte_82"]?.intValue, 96)
@@ -58,15 +62,34 @@ final class Whoop5ExperimentalSpO2PipelineTests: XCTestCase {
         ])
     }
 
+    func testSameMinuteCandidatesProduceOneOrderIndependentMean() {
+        let values: [UInt8] = [70, 100, 90]
+        let forward = extractHistoricalStreams(
+            values.map(parsedCandidate),
+            deviceClockRef: 1_780_916_150,
+            wallClockRef: 1_780_916_150
+        ).spo2
+        let reverse = extractHistoricalStreams(
+            values.reversed().map(parsedCandidate),
+            deviceClockRef: 1_780_916_150,
+            wallClockRef: 1_780_916_150
+        ).spo2
+
+        let expected = [
+            SpO2Sample(
+                ts: 1_780_916_100,
+                red: 87,
+                ir: Whoop5V18SpO2Candidate.persistedMarkerIR,
+                unit: "experimental_pct"
+            ),
+        ]
+        XCTAssertEqual(forward, expected)
+        XCTAssertEqual(reverse, expected)
+    }
+
     func testAwakeOrSentinelValuesNeverReachExperimentalStream() {
-        let awake = parseFrame(
-            crcValidFrame(sleepStateByte: 0x00, candidateByte: 96),
-            family: .whoop5
-        )
-        let sentinel = parseFrame(
-            crcValidFrame(sleepStateByte: 0x20, candidateByte: 0x80),
-            family: .whoop5
-        )
+        let awake = parsedCandidate(96, sleepStateByte: 0x00)
+        let sentinel = parsedCandidate(0x80)
 
         XCTAssertTrue(extractHistoricalStreams(
             [awake],
