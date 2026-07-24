@@ -124,6 +124,10 @@ struct StrandiOSApp: App {
                 .chartStyle(chartStyleRaw)
                 .onReceive(model.live.$heartRate) { _ in driveLiveActivity() }
                 .onReceive(model.live.$connected) { driveLiveActivity(connected: $0) }
+                .onReceive(model.live.$connectSettled.removeDuplicates().dropFirst()) { settled in
+                    guard settled else { return }
+                    Task { await model.correctSeededWhoopModelIfNeeded() }
+                }
                 .onReceive(
                     model.$activeWorkout
                         .map(WorkoutLifecycleProjection.identity)
