@@ -63,6 +63,30 @@ final class HeartRateRecoveryTests: XCTestCase {
         ))
     }
 
+    func testDenseHighIntensityBurstsDoNotAddTogetherAcrossLowHeartRateBreaks() {
+        var samples = (end - 300...end).map { HRSample(ts: $0, bpm: 120) }
+        let burstRanges = [
+            (end - 300)...(end - 270),
+            (end - 220)...(end - 190),
+            (end - 140)...(end - 110),
+            (end - 40)...end,
+        ]
+        for range in burstRanges {
+            for ts in range {
+                let index = ts - (end - 300)
+                samples[index] = HRSample(ts: ts, bpm: 170)
+            }
+        }
+        samples += window(minutes: 1, values: [140, 140, 140])
+
+        XCTAssertNil(HeartRateRecovery.calculate(
+            samples: samples,
+            workoutStart: end - 300,
+            workoutEnd: end,
+            maxHR: 200
+        ))
+    }
+
     func testDoesNotCreditPreWorkoutHeartRateTowardEligibility() {
         let samples = denseEligible() + window(minutes: 1, values: [140, 140, 140])
 
