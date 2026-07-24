@@ -44,8 +44,37 @@ struct WorkoutHeartRateRecoveryCard: View {
             }
         }
         .task(id: taskKey) {
-            result = nil
-            loaded = false
+            await loadAsCoverageArrives()
+        }
+    }
+
+    /// Query immediately, then once after each still-pending recovery window. A detail screen opened right
+    /// after Finish must not permanently cache “no data” before the 1/2/5-minute samples have had time to land.
+    /// The task is identity-cancelled by SwiftUI when the workout/source/HRmax changes or the card disappears.
+    private func loadAsCoverageArrives() async {
+        result = nil
+        loaded = false
+
+        let tolerance = HeartRateRecovery.measurementToleranceSeconds
+        let deadlines = [
+            workout.endTs,
+            workout.endTs + 60 + tolerance,
+            workout.endTs + 2 * 60 + tolerance,
+            workout.endTs + 5 * 60 + tolerance,
+        ]
+
+        for deadline in deadlines {
+            let now = Int(Date().timeIntervalSince1970)
+            if deadline > now {
+                let nanoseconds = UInt64(deadline - now) * 1_000_000_000
+                do {
+                    try await Task.sleep(nanoseconds: nanoseconds)
+                } catch {
+                    return
+                }
+            }
+            guard !Task.isCancelled else { return }
+
             let next = await repo.workoutHeartRateRecovery(for: workout, maxHR: maxHR)
             guard !Task.isCancelled else { return }
             result = next
@@ -70,7 +99,7 @@ struct WorkoutHeartRateRecoveryCard: View {
     }
 
     private var taskKey: String {
-        "\(workout.startTs):\(workout.endTs):\(workout.sport):\(maxHR)"
+        "\(workout.startTs):\(workout.endTs):\(workout.sport):\(workout.source):\(maxHR.bitPattern)"
     }
 
     private func recoveryToken(_ label: LocalizedStringKey, _ value: Int?) -> some View {
