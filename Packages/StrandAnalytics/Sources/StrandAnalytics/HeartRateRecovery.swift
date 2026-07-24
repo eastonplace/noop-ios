@@ -31,7 +31,7 @@ public enum HeartRateRecovery {
 
     /// Zone 3 starts at 70% HRmax in NOOP's display-zone model.
     public static let eligibilityFractionOfMaxHR = 0.70
-    /// The high-intensity effort must be sustained, not a single optical spike.
+    /// The high-intensity effort must be one continuous run, not a sum of disconnected optical fragments.
     public static let minimumHighIntensitySeconds = 120
     /// Eligibility is tied to the end of the workout; a long cool-down must not own the recovery clock.
     public static let eligibilityLookbackSeconds = 300
@@ -65,7 +65,7 @@ public enum HeartRateRecovery {
 
         let beforeEnd = canonical.filter { $0.ts <= workoutEnd }
         let threshold = maxHR * eligibilityFractionOfMaxHR
-        guard sustainedSeconds(atOrAbove: threshold, in: beforeEnd) >= minimumHighIntensitySeconds else {
+        guard longestSustainedSeconds(atOrAbove: threshold, in: beforeEnd) >= minimumHighIntensitySeconds else {
             return nil
         }
 
@@ -101,6 +101,7 @@ public enum HeartRateRecovery {
     /// the conservative cessation-peak policy while leaving ordinary one-Hz streams unchanged.
     private static func canonicalSeconds(_ samples: [HRSample]) -> [HRSample] {
         var output: [HRSample] = []
+        output.reserveCapacity(samples.count)
         for sample in samples.sorted(by: {
             $0.ts == $1.ts ? $0.bpm < $1.bpm : $0.ts < $1.ts
         }) {
@@ -113,19 +114,28 @@ public enum HeartRateRecovery {
         return output
     }
 
-    private static func sustainedSeconds(atOrAbove threshold: Double, in samples: [HRSample]) -> Int {
+    /// Length of the single longest continuous high-intensity run. A low endpoint or a gap larger than the
+    /// continuity allowance resets the run; separated bursts can never add together to satisfy eligibility.
+    private static func longestSustainedSeconds(atOrAbove threshold: Double, in samples: [HRSample]) -> Int {
         guard samples.count >= 2 else { return 0 }
-        var seconds = 0
+        var currentRun = 0
+        var longestRun = 0
         for index in 0..<(samples.count - 1) {
             let current = samples[index]
             let next = samples[index + 1]
             let gap = next.ts - current.ts
-            guard gap > 0, gap <= maximumContinuousGapSeconds else { continue }
-            if Double(current.bpm) >= threshold, Double(next.bpm) >= threshold {
-                seconds += gap
+            guard gap > 0,
+                  gap <= maximumContinuousGapSeconds,
+                  Double(current.bpm) >= threshold,
+                  Double(next.bpm) >= threshold
+            else {
+                currentRun = 0
+                continue
             }
+            currentRun += gap
+            longestRun = max(longestRun, currentRun)
         }
-        return seconds
+        return longestRun
     }
 
     private static func median(_ values: [Int]) -> Int? {
