@@ -5,7 +5,7 @@ import Foundation
 /// Only WHOOP 4.0 and the fd4b WHOOP 5.0/MG family are connectable. The other v9.1 service families
 /// remain diagnostic-only until their framing is mapped and validated on owned hardware. No command,
 /// CLIENT_HELLO, or characteristic write is provided for an unsupported family.
-public enum WhoopGattServiceFamily: String, Sendable, CaseIterable {
+public enum WhoopGattServiceFamily: String, Equatable, Sendable, CaseIterable {
     case whoop4
     case maverickGooseFD4B
     case puffin1150
