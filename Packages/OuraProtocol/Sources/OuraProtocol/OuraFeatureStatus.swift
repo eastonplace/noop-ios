@@ -22,7 +22,7 @@ public extension OuraCommands {
     /// Real-steps feature id. The offline ring may report this as server-subscription gated.
     static var featureRealSteps: UInt8 { 0x0b }
 
-    /// Read the SpO₂ feature status. `0x20` is the read verb; this never sends the `0x22` enable verb.
+    /// Read the SpO₂ feature status. `0x20` is the read verb; no feature-enable command is emitted.
     static func spo2ReadStatus() -> OuraCommand {
         OuraCommand(label: "spo2_status", bytes: [0x2f, 0x02, 0x20, featureSpO2])
     }
