@@ -31,9 +31,12 @@ struct BodyVitalReading: Identifiable {
         value.map { "\(format($0)) \(unit)" }
     }
 
-    /// Colour communicates state: in-range = the metric's category colour,
-    /// out-of-range = warning amber, no data = tertiary.
+    /// Colour communicates state for validated vitals. The experimental candidate is deliberately neutral:
+    /// it has no physiological range judgement and must never look like a reassuring in-range result.
     var accent: Color {
+        if key == BodyVitalSigns.experimentalSpO2CandidateKey {
+            return StrandPalette.textTertiary
+        }
         switch banding.band {
         case .noData:     return StrandPalette.textTertiary
         case .inRange:    return metricColor
@@ -46,8 +49,11 @@ struct BodyVitalReading: Identifiable {
     var stateCaption: String {
         if key == BodyVitalSigns.experimentalSpO2CandidateKey {
             guard let day else { return missingCaption }
-            return [Self.dayLabel(day), String(localized: "WHOOP 5/MG"), String(localized: "Experimental beta")]
-                .joined(separator: " · ")
+            return [
+                Self.dayLabel(day),
+                String(localized: "WHOOP 5/MG"),
+                String(localized: "Experimental; may be inaccurate"),
+            ].joined(separator: " · ")
         }
         guard let day else { return missingCaption }
         var parts = [Self.dayLabel(day)]
@@ -130,7 +136,7 @@ enum BodyVitalSigns {
             var byDay: [String: VitalPoint] = [:]
             for source in allowedSources {
                 for row in sourceRows where row.source == source {
-                    guard let v = value(row.metric), byDay[row.metric.day] == nil else { continue }
+                    guard let v = value(row.metric), v.isFinite, byDay[row.metric.day] == nil else { continue }
                     byDay[row.metric.day] = VitalPoint(day: row.metric.day, value: v, source: row.source)
                 }
             }
@@ -296,7 +302,9 @@ enum BodyVitalSigns {
         ]
 
         // Never place the candidate into the canonical Blood O₂ tile. It gets its own explicitly-beta tile
-        // only when a nightly value exists; there is no clinical range judgement and no empty placeholder.
+        // only when a nightly value exists. `noData` is intentional presentation metadata here: unlike a
+        // validated vital, this candidate has no clinical/personal range judgement and must not display as
+        // "in range" merely because a byte happened to decode between 70 and 100.
         if let candidateSpO2Row {
             readings.insert(
                 BodyVitalReading(
@@ -304,13 +312,13 @@ enum BodyVitalSigns {
                     label: String(localized: "SpO₂ Candidate (Beta)"),
                     unit: "%",
                     value: candidateSpO2Row.value,
-                    format: { String(format: "%.0f", $0) },
-                    banding: VitalBands.Result(band: .inRange, basis: .population, nights: 0),
-                    metricColor: StrandPalette.metricCyan,
+                    format: { String(format: "≈%.0f", $0) },
+                    banding: VitalBands.Result(band: .noData, basis: .population, nights: 0),
+                    metricColor: StrandPalette.textTertiary,
                     day: candidateSpO2Row.day,
                     source: candidateSpO2Row.source,
                     missingCaption: String(localized: "No experimental WHOOP 5/MG candidate"),
-                    sparkline: trail(candidateSpO2Points)
+                    sparkline: nil
                 ),
                 at: min(2, readings.count)
             )
