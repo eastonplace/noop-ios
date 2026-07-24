@@ -7,6 +7,10 @@ import WhoopStore
 /// route metadata, notes, zones, and NOOP iOS's Strain-version marker are preserved verbatim.
 public enum WorkoutDetectedBackfill {
     public struct ComputedValues: Equatable, Sendable {
+        /// Conservative operational ceiling that rejects corrupt/extreme finite values without clipping any
+        /// plausible single-session estimate. A rejected value remains nil; it is never silently clamped.
+        public static let maximumCaloriesKcal = 100_000.0
+
         public let averageHeartRate: Int?
         public let peakHeartRate: Int?
         public let caloriesKcal: Double?
@@ -31,7 +35,7 @@ public enum WorkoutDetectedBackfill {
                 self.peakHeartRate = peak
             }
 
-            self.caloriesKcal = Self.validNonnegative(caloriesKcal)
+            self.caloriesKcal = Self.validCalories(caloriesKcal)
 
             let validStrain = Self.validStoredStrain(strain)
             let validVersion = strainVersion.flatMap { $0 > 0 ? $0 : nil }
@@ -50,8 +54,10 @@ public enum WorkoutDetectedBackfill {
             value.flatMap { (30...250).contains($0) ? $0 : nil }
         }
 
-        private static func validNonnegative(_ value: Double?) -> Double? {
-            value.flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
+        private static func validCalories(_ value: Double?) -> Double? {
+            value.flatMap {
+                $0.isFinite && (0...maximumCaloriesKcal).contains($0) ? $0 : nil
+            }
         }
 
         private static func validStoredStrain(_ value: Double?) -> Double? {
