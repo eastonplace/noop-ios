@@ -18,7 +18,9 @@ public struct HealthKitObjectIdentity: Equatable, Codable, Sendable {
 }
 
 extension WhoopStore {
-    /// Returns the historical windows before callers overwrite the same UUID with a corrected sample.
+    /// Returns the conservative historical window for each UUID. A corrected object may have occupied
+    /// several windows over time; the index retains their union so replay after a crash can still retract
+    /// the original local projection before the correction is applied.
     public func healthKitObjectIdentities(
         sampleType: String,
         objectUUIDs: [String],
@@ -53,10 +55,10 @@ extension WhoopStore {
                     INSERT INTO healthKitObjectIndex (deviceId, sampleType, objectUUID, startTs, endTs)
                     VALUES (?, ?, ?, ?, ?)
                     ON CONFLICT(deviceId, sampleType, objectUUID) DO UPDATE SET
-                        startTs = excluded.startTs,
-                        endTs = excluded.endTs
-                    WHERE healthKitObjectIndex.startTs IS NOT excluded.startTs
-                       OR healthKitObjectIndex.endTs IS NOT excluded.endTs
+                        startTs = MIN(healthKitObjectIndex.startTs, excluded.startTs),
+                        endTs = MAX(healthKitObjectIndex.endTs, excluded.endTs)
+                    WHERE excluded.startTs < healthKitObjectIndex.startTs
+                       OR excluded.endTs > healthKitObjectIndex.endTs
                     """, arguments: [deviceId, identity.sampleType, identity.objectUUID,
                                      identity.startTs, identity.endTs])
                 changed += db.changesCount
@@ -119,41 +121,41 @@ extension WhoopStore {
                     """, arguments: [deviceId, workoutSource, fromTimestamp, toTimestamp])
 
             for row in appleDaily {
-                    try db.execute(sql: """
-                        INSERT INTO appleDaily
-                            (deviceId, day, steps, activeKcal, basalKcal, vo2max, avgHr, maxHr, walkingHr, weightKg)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, arguments: [deviceId, row.day, row.steps, row.activeKcal, row.basalKcal,
-                                         row.vo2max, row.avgHr, row.maxHr, row.walkingHr, row.weightKg])
+                try db.execute(sql: """
+                    INSERT INTO appleDaily
+                        (deviceId, day, steps, activeKcal, basalKcal, vo2max, avgHr, maxHr, walkingHr, weightKg)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, arguments: [deviceId, row.day, row.steps, row.activeKcal, row.basalKcal,
+                                     row.vo2max, row.avgHr, row.maxHr, row.walkingHr, row.weightKg])
             }
             for row in dailyMetrics {
-                    try db.execute(sql: """
-                        INSERT INTO dailyMetric
-                            (deviceId, day, totalSleepMin, efficiency, deepMin, remMin, lightMin,
-                             disturbances, restingHr, avgHrv, recovery, strain, exerciseCount,
-                             spo2Pct, skinTempDevC, respRateBpm, steps, activeKcalEst,
-                             spo2Red, spo2Ir, strainVersion)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, arguments: [deviceId, row.day, row.totalSleepMin, row.efficiency, row.deepMin,
-                                         row.remMin, row.lightMin, row.disturbances, row.restingHr, row.avgHrv,
-                                         row.recovery, row.strain, row.exerciseCount, row.spo2Pct,
-                                         row.skinTempDevC, row.respRateBpm, row.steps, row.activeKcalEst,
-                                         row.spo2Red, row.spo2Ir, row.strainVersion])
+                try db.execute(sql: """
+                    INSERT INTO dailyMetric
+                        (deviceId, day, totalSleepMin, efficiency, deepMin, remMin, lightMin,
+                         disturbances, restingHr, avgHrv, recovery, strain, exerciseCount,
+                         spo2Pct, skinTempDevC, respRateBpm, steps, activeKcalEst,
+                         spo2Red, spo2Ir, strainVersion)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, arguments: [deviceId, row.day, row.totalSleepMin, row.efficiency, row.deepMin,
+                                     row.remMin, row.lightMin, row.disturbances, row.restingHr, row.avgHrv,
+                                     row.recovery, row.strain, row.exerciseCount, row.spo2Pct,
+                                     row.skinTempDevC, row.respRateBpm, row.steps, row.activeKcalEst,
+                                     row.spo2Red, row.spo2Ir, row.strainVersion])
             }
             for point in metricPoints {
-                    try db.execute(sql: "INSERT INTO metricSeries (deviceId, day, key, value) VALUES (?, ?, ?, ?)",
-                                   arguments: [deviceId, point.day, point.key, point.value])
+                try db.execute(sql: "INSERT INTO metricSeries (deviceId, day, key, value) VALUES (?, ?, ?, ?)",
+                               arguments: [deviceId, point.day, point.key, point.value])
             }
             for workout in workouts {
-                    try db.execute(sql: """
-                        INSERT INTO workout
-                            (deviceId, startTs, endTs, sport, source, durationS, energyKcal,
-                             avgHr, maxHr, strain, distanceM, zonesJSON, notes, strainVersion)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, arguments: [deviceId, workout.startTs, workout.endTs, workout.sport,
-                                         workout.source, workout.durationS, workout.energyKcal,
-                                         workout.avgHr, workout.maxHr, workout.strain, workout.distanceM,
-                                         workout.zonesJSON, workout.notes, workout.strainVersion])
+                try db.execute(sql: """
+                    INSERT INTO workout
+                        (deviceId, startTs, endTs, sport, source, durationS, energyKcal,
+                         avgHr, maxHr, strain, distanceM, zonesJSON, notes, strainVersion)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, arguments: [deviceId, workout.startTs, workout.endTs, workout.sport,
+                                     workout.source, workout.durationS, workout.energyKcal,
+                                     workout.avgHr, workout.maxHr, workout.strain, workout.distanceM,
+                                     workout.zonesJSON, workout.notes, workout.strainVersion])
             }
         }
     }
