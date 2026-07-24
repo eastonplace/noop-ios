@@ -5,7 +5,7 @@ import Foundation
 // step or SpO₂ measurement.
 
 /// The ring's wear / charge state for a live indicator.
-public enum OuraWearState: String, Sendable, Codable, CaseIterable {
+public enum OuraWearState: String, Equatable, Sendable, Codable, CaseIterable {
     case worn
     case charging
     case off
