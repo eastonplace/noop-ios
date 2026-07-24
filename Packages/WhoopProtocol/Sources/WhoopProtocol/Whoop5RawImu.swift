@@ -58,7 +58,7 @@ public enum Whoop5RawImu {
     /// Decode a raw-IMU buffer, or nil if it isn't one. Gates on the exact length + the two in-packet
     /// sample counts (=100) rather than the type byte, so it can't misfire on a same-type non-IMU frame.
     public static func decode(_ f: [UInt8]) -> Whoop5ImuFrame? {
-        guard f.count >= bufferLength,
+        guard f.count == bufferLength,
               u16(f, countAOff) == sampleCount, u16(f, countBOff) == sampleCount,
               gzOff + 2 * sampleCount <= f.count else { return nil }
         let baseTs = Int(u32(f, tsOff))
@@ -75,6 +75,32 @@ public enum Whoop5RawImu {
                 gz: Double(i16(f, gzOff + o)) * gyroScale))
         }
         return Whoop5ImuFrame(baseTs: baseTs, sampleRateHz: sampleCount, samples: samples)
+    }
+
+    /// The raw i16 columns exactly as they sit on the wire — [ax×100, ay×100, az×100, gx×100, gy×100,
+    /// gz×100] — for faithful, compact storage. Same length + sample-count gate and offsets as `decode`;
+    /// nil if `f` isn't a valid IMU buffer. Scales stay documented constants applied at read time, so
+    /// nothing lossy is baked into the stored bytes.
+    public static func rawColumns(_ f: [UInt8]) -> [Int16]? {
+        guard f.count == bufferLength,
+              u16(f, countAOff) == sampleCount, u16(f, countBOff) == sampleCount,
+              gzOff + 2 * sampleCount <= f.count else { return nil }
+        let columns = [axOff, ayOff, azOff, gxOff, gyOff, gzOff]
+        var output = [Int16](repeating: 0, count: 6 * sampleCount)
+        for column in 0..<6 {
+            for index in 0..<sampleCount {
+                output[column * sampleCount + index] = Int16(
+                    truncatingIfNeeded: i16(f, columns[column] + 2 * index)
+                )
+            }
+        }
+        return output
+    }
+
+    /// The strap unix-second stamp of this one-second buffer, or nil if the frame is too short.
+    public static func baseTs(_ f: [UInt8]) -> Int? {
+        guard f.count > tsOff + 3 else { return nil }
+        return Int(u32(f, tsOff))
     }
 
     // MARK: - Little-endian readers (frame-absolute)
