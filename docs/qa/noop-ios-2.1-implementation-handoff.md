@@ -29,6 +29,19 @@ Do not resolve conflicts by dropping PR #19 HealthKit, workout-persistence, audi
 
 `Whoop5RawImu.rawColumns` and `baseTs` are available to the current raw-capture/store pipeline. No existing decoder behavior was replaced.
 
+### WHOOP 5/MG byte-82 experimental SpO₂ candidate
+
+The extraction and presentation path is now connected:
+
+1. `HistoricalStreams` reads the existing decoded `aux_byte_82` field.
+2. It accepts only values `70...100` while that record reports `sleep_state == 2`.
+3. It keeps at most one candidate per minute and writes an experimental `SpO2Sample` through the existing local store.
+4. The candidate percentage is encoded in the red channel; `ir == -82` is the impossible marker separating it from normal WHOOP 4 raw red/IR ADC rows.
+5. The existing nightly cache averages the compact candidate rows into the computed `DailyMetric` while preserving the marker.
+6. `BodyVitalSigns` shows a separate **SpO₂ Candidate (Beta)** tile only for a marked value.
+
+The canonical `spo2Pct` / Blood O₂ tile is untouched. No candidate reaches HealthKit, Recovery, illness detection, or medical alerts. Device comparison and exact-head local compilation remain mandatory.
+
 ## Narrow local wiring still required
 
 ### Workout heart-rate recovery card
@@ -95,19 +108,25 @@ File: `Strand/BLE/OuraLiveSource.swift` and/or the existing Oura driver integrat
 - Feed `OuraWearTracker.notePulse()` only from the live daytime-HR stream. Feed charger state strings through `note(state:)`. Apply a watchdog to call `noteLivePulseTimeout()`; banked IBI must not mark the ring currently worn.
 - For each IBI, map ring time through the current anchor. Apply `OuraIBITimestampPolicy`: persist only `.persist`; queue `.park` until an anchor arrives. Do not advance a historical resume cursor merely because a live beat was observed.
 
-### WHOOP v18 byte-82 diagnostic correlation
+## Experimental SpO₂ local follow-up
 
-The decoder is intentionally absent from app targets. A future explicit diagnostic tool may call `Whoop5V18SpO2Candidate.decode` and export only raw/candidate correlation evidence. It must not write a health row, metric series, HealthKit sample, Recovery input, illness input, or UI value.
+After rebasing, verify these existing production seams rather than reimplementing the pipeline:
+
+- `AnalyticsEngine.nightlySpo2RawMeans` must retain the `-82` marker when averaging candidate rows.
+- The normal WHOOP 4 raw-red/raw-IR behavior must remain unchanged.
+- Raw CSV output should describe marked rows as experimental candidates, not calibrated blood oxygen. The current durable marker makes them distinguishable even before that presentation polish.
+- Review the Health tile at maximum Dynamic Type and VoiceOver. The full uncertainty warning must remain discoverable even if compact visual copy is shortened.
+- Compare across multiple WHOOP 5/MG devices and firmware versions. A single apparent match does not promote the metric out of beta.
 
 ## Static and local QA sequence
 
 1. Refresh onto the current stacked base.
 2. Run all eight audits in `noop-ios-2.1-local-verification.md`.
-3. Run the focused package tests while iterating.
+3. Run the focused package tests while iterating, including `Whoop5ExperimentalSpO2PipelineTests`.
 4. Run all seven retained package suites.
 5. Regenerate with XcodeGen.
 6. Build warning-clean and run the complete iOS simulator suite.
-7. Perform the manual simulator checks.
+7. Perform the manual simulator checks, including canonical Blood O₂ versus beta-candidate separation.
 8. Keep PR #20 draft until device-only WHOOP/Oura/background gates are recorded.
 
 No GitHub Actions result is release evidence for this PR.
