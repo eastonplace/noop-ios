@@ -12,7 +12,7 @@ import SwiftUI
 
 // MARK: - Ranges
 
-public enum TrendRange: String, CaseIterable, Identifiable {
+public enum TrendRange: String, CaseIterable, Identifiable, Sendable {
     case week = "W"
     case month = "M"
     case quarter = "3M"
@@ -31,6 +31,10 @@ public enum TrendRange: String, CaseIterable, Identifiable {
 
     public var averageHeading: String {
         "AVERAGE · LAST \(days) DAYS"
+    }
+
+    public var summarySubtitle: String {
+        "Last \(days) days · vs prior \(days)"
     }
 
     public var startLabel: String {
@@ -52,7 +56,38 @@ public enum TrendRange: String, CaseIterable, Identifiable {
 
 // MARK: - TrendPanelChart
 
+/// A scale that never computes an overflowing raw span. Chart coordinates are
+/// derived in a normalized domain, so finite imported extremes cannot become NaN.
+public struct FiniteChartScale: Sendable {
+    private let magnitude: Double
+    private let lowerNormalized: Double
+    private let spanNormalized: Double
+
+    public init?(values: [Double]) {
+        let finite = values.filter(\.isFinite)
+        guard let lower = finite.min(), let upper = finite.max() else { return nil }
+        magnitude = max(abs(lower), abs(upper), 1)
+        let low = lower / magnitude
+        let high = upper / magnitude
+        if high > low {
+            lowerNormalized = low
+            spanNormalized = high - low
+        } else {
+            lowerNormalized = low - 0.5
+            spanNormalized = 1
+        }
+    }
+
+    public func normalized(_ value: Double) -> Double? {
+        guard value.isFinite else { return nil }
+        let result = (value / magnitude - lowerNormalized) / spanNormalized
+        guard result.isFinite else { return nil }
+        return min(max(result, 0), 1)
+    }
+}
+
 public struct TrendPanelChart: View {
+    public enum Direction: Sendable { case higherIsBetter, lowerIsBetter, contextual }
     /// One fixed slot per calendar day. Nil values stay selectable as honest gaps.
     let days: [CalendarMetricDay]
     let dateDomain: ClosedRange<Date>
@@ -64,8 +99,9 @@ public struct TrendPanelChart: View {
     let typical: ClosedRange<Double>
     let tint: Color
     let unit: String
-    var valueFormat: (Double) -> String = { "\(Int($0.rounded()))" }
+    var valueFormat: (Double) -> String = { ComponentValueFormat.rounded($0) }
     let range: TrendRange
+    let direction: Direction
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var revealed = false
@@ -105,8 +141,12 @@ public struct TrendPanelChart: View {
     }
 
     private var deltaColor: Color {
-        abs(delta) < 0.001 ? StrandPalette.textTertiary
-            : (delta >= 0 ? StrandPalette.statusPositive : StrandPalette.metricRose)
+        guard abs(delta) >= 0.001 else { return StrandPalette.textTertiary }
+        switch direction {
+        case .higherIsBetter: return delta >= 0 ? StrandPalette.statusPositive : StrandPalette.metricRose
+        case .lowerIsBetter: return delta <= 0 ? StrandPalette.statusPositive : StrandPalette.metricRose
+        case .contextual: return StrandPalette.textSecondary
+        }
     }
 
     private var header: some View {
@@ -140,11 +180,9 @@ public struct TrendPanelChart: View {
         .animation(StrandMotion.fade, value: scrubDay)
     }
 
-    private var yRange: ClosedRange<Double> {
+    private var yScale: FiniteChartScale {
         let all = values + [baseline, typical.lowerBound, typical.upperBound]
-        guard let lo = all.min(), let hi = all.max(), hi > lo else { return 0...1 }
-        let pad = (hi - lo) * 0.16
-        return (lo - pad)...(hi + pad)
+        return FiniteChartScale(values: all) ?? FiniteChartScale(values: [0, 1])!
     }
 
     private var plot: some View {
@@ -158,16 +196,32 @@ public struct TrendPanelChart: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilitySummary)
+        .accessibilityValue(selectedDayAccessibilityValue)
+        .accessibilityAdjustableAction { direction in
+            guard !days.isEmpty else { return }
+            let current = scrubDay.flatMap { selected in
+                days.firstIndex(where: { calendar.isDate($0.date, inSameDayAs: selected.date) })
+            } ?? max(days.count - 1, 0)
+            switch direction {
+            case .increment:
+                scrubDay = days[min(current + 1, days.count - 1)]
+            case .decrement:
+                scrubDay = days[max(current - 1, 0)]
+            default:
+                break
+            }
+        }
     }
 
     @ViewBuilder
     private func plotLayers(size: CGSize) -> some View {
-        let yr = yRange
-        let ySpan = max(yr.upperBound - yr.lowerBound, 0.0001)
+        let scale = yScale
         let xOf: (Date) -> CGFloat = {
             size.width * CGFloat(TrendCalendar.unitPosition(of: $0, in: dateDomain))
         }
-        let yOf: (Double) -> CGFloat = { size.height - size.height * CGFloat(($0 - yr.lowerBound) / ySpan) }
+        let yOf: (Double) -> CGFloat = { value in
+            size.height - size.height * CGFloat(scale.normalized(value) ?? 0.5)
+        }
         let rendered = points.map { (xOf($0.date), yOf($0.value)) }
 
         ZStack {
@@ -336,6 +390,12 @@ public struct TrendPanelChart: View {
         "Trend, latest \(valueFormat(last))\(unitSuffix), baseline \(valueFormat(baseline)), typical \(valueFormat(typical.lowerBound)) to \(valueFormat(typical.upperBound)), \(points.count) scored days and \(days.filter { $0.value == nil }.count) missing days shown from \(Self.axisFormatter.string(from: dateDomain.lowerBound)) to \(Self.axisFormatter.string(from: dateDomain.upperBound))."
     }
 
+    private var selectedDayAccessibilityValue: String {
+        guard let day = scrubDay ?? days.last else { return "No trend data" }
+        let value = day.value.map { "\(valueFormat($0))\(unitSuffix)" } ?? "No data"
+        return "\(TrendCalendar.relativeLabel(for: day.date, relativeTo: referenceDate, calendar: calendar)), \(value)"
+    }
+
     private static let axisFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = .current
@@ -426,7 +486,7 @@ public enum TrendCalendar {
 
     public static func mean(of days: [CalendarMetricDay]) -> Double? {
         let values = days.compactMap(\.value)
-        return values.isEmpty ? nil : values.reduce(0, +) / Double(values.count)
+        return stableMean(values)
     }
 
     public static func dateDomain(
@@ -437,6 +497,23 @@ public enum TrendCalendar {
         guard count > 0 else { return nil }
         let end = calendar.startOfDay(for: referenceDate)
         guard let start = calendar.date(byAdding: .day, value: -(count - 1), to: end) else { return nil }
+        return start...end
+    }
+
+    /// A calendar-day range whose offset is measured in whole periods. Offset
+    /// zero ends on the reference day; -1 is the immediately preceding,
+    /// non-overlapping period of exactly the same length.
+    public static func equalLengthPeriod(
+        through referenceDate: Date,
+        count: Int,
+        periodOffset: Int,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> ClosedRange<Date>? {
+        guard count > 0 else { return nil }
+        let reference = calendar.startOfDay(for: referenceDate)
+        guard let end = calendar.date(byAdding: .day, value: periodOffset * count, to: reference),
+              let start = calendar.date(byAdding: .day, value: -(count - 1), to: end)
+        else { return nil }
         return start...end
     }
 
@@ -473,6 +550,12 @@ public enum TrendCalendar {
         let fraction = min(max(position, 0), 1)
         let index = Int((fraction * Double(days.count - 1)).rounded())
         return days[index]
+    }
+
+    /// Maps a horizontal touch to one of seven Monday-first weekday slots.
+    public static func weekdayIndex(atUnitPosition position: Double) -> Int {
+        let fraction = min(max(position, 0), 1)
+        return min(Int(fraction * 7), 6)
     }
 
     /// Maps a normalized grid touch to its exact row-major calendar cell.
@@ -557,8 +640,25 @@ public enum TrendCalendar {
             values[mondayFirstIndex].append(value)
         }
         return values.map { bucket in
-            bucket.isEmpty ? nil : bucket.reduce(0, +) / Double(bucket.count)
+            stableMean(bucket)
         }
+    }
+
+    static func stableMean(_ values: [Double]) -> Double? {
+        let values = values.filter(\.isFinite)
+        guard !values.isEmpty else { return nil }
+        let scale = values.reduce(0.0) { max($0, abs($1)) }
+        guard scale > 0, scale.isFinite else { return scale == 0 ? 0 : nil }
+        if scale <= Double.greatestFiniteMagnitude / Double(values.count) {
+            let direct = values.reduce(0, +) / Double(values.count)
+            if direct.isFinite { return direct }
+        }
+        var result = 0.0
+        for (index, value) in values.enumerated() {
+            result += (value / scale - result) / Double(index + 1)
+        }
+        let mean = result * scale
+        return mean.isFinite ? mean : nil
     }
 
     private static func slots(
@@ -621,13 +721,20 @@ public struct TrendMonthHeat: View {
         .onAppear { revealed = true }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilitySummary)
+        .accessibilityValue(selectedAccessibilityValue)
+        .accessibilityAdjustableAction { direction in
+            let current = scrubIndex ?? max(days.count - 1, 0)
+            switch direction {
+            case .increment: scrubIndex = min(current + 1, max(days.count - 1, 0))
+            case .decrement: scrubIndex = max(current - 1, 0)
+            default: break
+            }
+        }
     }
 
     private var grid: some View {
         let values = days.compactMap(\.value)
-        let lo = values.min() ?? 0
-        let hi = values.max() ?? 1
-        let span = max(hi - lo, 0.0001)
+        let scale = FiniteChartScale(values: values) ?? FiniteChartScale(values: [0, 1])!
         let today = calendar.startOfDay(for: referenceDate)
 
         return GeometryReader { proxy in
@@ -636,7 +743,7 @@ public struct TrendMonthHeat: View {
                     ForEach(days) { day in
                         let index = days.firstIndex(where: { $0.id == day.id }) ?? 0
                         RoundedRectangle(cornerRadius: 4, style: .continuous)
-                            .fill(cellColor(for: day, low: lo, span: span))
+                            .fill(cellColor(for: day, scale: scale))
                             .frame(height: 22)
                             .overlay {
                                 if calendar.isDate(today, inSameDayAs: day.date) || scrubIndex == index {
@@ -708,18 +815,18 @@ public struct TrendMonthHeat: View {
         .frame(height: 126)
     }
 
-    private func cellColor(for day: TrendCalendarDay, low: Double, span: Double) -> Color {
+    private func cellColor(for day: TrendCalendarDay, scale: FiniteChartScale) -> Color {
         switch TrendCalendar.cellState(for: day, today: referenceDate, calendar: calendar) {
-        case .value(let value): cellColor(for: value, low: low, span: span)
+        case .value(let value): cellColor(for: value, scale: scale)
         case .missing: StrandPalette.surfaceInset
         case .future: StrandPalette.surfaceInset.opacity(0.35)
         }
     }
 
-    private func cellColor(for value: Double, low: Double, span: Double) -> Color {
+    private func cellColor(for value: Double, scale: FiniteChartScale) -> Color {
         switch colorScale {
         case .intensity:
-            return tint.opacity(0.12 + 0.78 * (value - low) / span)
+            return tint.opacity(0.12 + 0.78 * (scale.normalized(value) ?? 0.5))
         case .recoveryBands:
             return RecoveryBands.color(for: value)
         }
@@ -728,25 +835,47 @@ public struct TrendMonthHeat: View {
     private var accessibilitySummary: String {
         let values = days.compactMap(\.value)
         guard let best = values.max() else { return "No month data yet." }
-        let average = values.reduce(0, +) / Double(max(values.count, 1))
+        let average = TrendCalendar.stableMean(values) ?? 0
         let states = days.map { TrendCalendar.cellState(for: $0, today: referenceDate, calendar: calendar) }
         let missing = states.filter { $0 == .missing }.count
         let future = states.filter { $0 == .future }.count
         return "Last 35 calendar days, \(values.count) scored, \(missing) missing, \(future) upcoming, average \(valueFormat(average)), best \(valueFormat(best))."
     }
+
+    private var selectedAccessibilityValue: String {
+        guard let index = scrubIndex, days.indices.contains(index) else {
+            return String(localized: "No day selected", bundle: .module)
+        }
+        let day = days[index]
+        return "\(TrendCalendar.relativeLabel(for: day.date, relativeTo: referenceDate, calendar: calendar)), \(day.value.map(valueFormat) ?? String(localized: "No data", bundle: .module))"
+    }
 }
 
 // MARK: - TrendDeltaRow
 
-/// One metric's compact trend read: label, production Sparkline, latest value, delta chip.
+public enum TrendDeltaTone: Sendable {
+    case positive
+    case negative
+    case neutral
+}
+
+/// One metric's compact trend read: range-wide sparkline, latest value, prior-period delta.
 public struct TrendDeltaRow: View {
     let label: String
     let subtitle: String
     let values: [Double]
     let latest: String
     let delta: String
-    let positive: Bool
+    let tone: TrendDeltaTone
     let tint: Color
+
+    private var deltaColor: Color {
+        switch tone {
+        case .positive: StrandPalette.statusPositive
+        case .negative: StrandPalette.metricRose
+        case .neutral: StrandPalette.textSecondary
+        }
+    }
 
     public var body: some View {
         HStack(spacing: 12) {
@@ -756,20 +885,35 @@ public struct TrendDeltaRow: View {
                     .tracking(StrandFont.overlineTracking)
                     .foregroundStyle(StrandPalette.textPrimary)
                 Text(subtitle)
-                    .font(StrandFont.footnote)
+                    .font(StrandFont.micro)
                     .foregroundStyle(StrandPalette.textTertiary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
             }
             Spacer(minLength: 8)
-            Sparkline(
-                values: values,
-                gradient: Gradient(colors: [tint.opacity(0.55), tint]),
-                lineWidth: 1.8,
-                showsArea: false,
-                showsHead: false,
-                showsHover: false
-            )
-            .frame(width: 64, height: 22)
-            .accessibilityHidden(true)
+            if values.count > 1 {
+                Sparkline(
+                    values: values,
+                    gradient: Gradient(colors: [tint.opacity(0.40), tint]),
+                    lineWidth: 2,
+                    showsArea: true,
+                    showsHead: true,
+                    showsHover: false
+                )
+                .frame(width: 78, height: 26)
+                .accessibilityHidden(true)
+            } else {
+                ZStack {
+                    Capsule(style: .continuous)
+                        .fill(StrandPalette.surfaceInset)
+                        .frame(height: 2)
+                    if !values.isEmpty {
+                        Circle().fill(tint).frame(width: 6, height: 6)
+                    }
+                }
+                .frame(width: 78, height: 26)
+                .accessibilityHidden(true)
+            }
             VStack(alignment: .trailing, spacing: 2) {
                 Text(latest)
                     .font(StrandFont.number(17, weight: .semibold))
@@ -778,11 +922,14 @@ public struct TrendDeltaRow: View {
                 Text(delta)
                     .font(StrandFont.micro.weight(.semibold))
                     .monospacedDigit()
-                    .foregroundStyle(positive ? StrandPalette.statusPositive : StrandPalette.metricRose)
+                    .foregroundStyle(deltaColor)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
+            .frame(minWidth: 58, alignment: .trailing)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(label) \(latest), \(delta)")
+        .accessibilityLabel("\(label), \(latest), \(delta), \(subtitle)")
     }
 }
 
@@ -798,83 +945,161 @@ public struct TrendWeekdayBars: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var revealed = false
+    @State private var scrubIndex: Int? = nil
 
     private static let labels = ["M", "T", "W", "T", "F", "S", "S"]
+    private static let fullLabels = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
     public var body: some View {
-        GeometryReader { proxy in
-            let count = 7
-            let slot = proxy.size.width / CGFloat(count)
-            let barWidth = max(6, slot * 0.42)
-            let scored = values.compactMap { $0 }
-            let top = scored.max() ?? 1
-            let bottom = scored.min() ?? 0
-            let span = max(top - bottom, 0.0001)
-            let average = scored.isEmpty ? 0 : scored.reduce(0, +) / Double(scored.count)
-            let currentWeekday = TrendCalendar.mondayFirstWeekdayIndex(
-                for: referenceDate, calendar: calendar
-            )
-            let plotHeight = proxy.size.height - 30
-            let heightOf: (Double) -> CGFloat = { value in
-                max(6, CGFloat(0.25 + 0.75 * (value - bottom) / span) * plotHeight)
-            }
-
-            ZStack(alignment: .topLeading) {
-                // Average rule across the bars.
-                let avgY = 12 + plotHeight - heightOf(average)
-                Path { path in
-                    path.move(to: CGPoint(x: 0, y: avgY))
-                    path.addLine(to: CGPoint(x: proxy.size.width, y: avgY))
-                }
-                .stroke(
-                    StrandPalette.hairlineStrong.opacity(0.9),
-                    style: StrokeStyle(lineWidth: 0.7, dash: [3, 4])
+        VStack(alignment: .leading, spacing: 6) {
+            GeometryReader { proxy in
+                let count = 7
+                let slot = proxy.size.width / CGFloat(count)
+                let barWidth = max(6, slot * 0.42)
+                let scored = values.compactMap { $0 }
+                let scale = FiniteChartScale(values: scored) ?? FiniteChartScale(values: [0, 1])!
+                let average = TrendCalendar.stableMean(scored) ?? 0
+                let currentWeekday = TrendCalendar.mondayFirstWeekdayIndex(
+                    for: referenceDate, calendar: calendar
                 )
-                Text("avg \(valueFormat(average))")
-                    .font(StrandFont.micro)
-                    .monospacedDigit()
-                    .foregroundStyle(StrandPalette.textTertiary)
-                    .position(x: 24, y: max(7, avgY - 8))
-
-                ForEach(0..<7, id: \.self) { index in
-                    let value = values[index]
-                    let height = value.map(heightOf) ?? 6
-                    let x = slot * CGFloat(index) + slot / 2
-                    Capsule(style: .continuous)
-                        .fill(barColor(value: value, isCurrent: index == currentWeekday))
-                        .frame(width: barWidth, height: revealed ? height : 6)
-                        .position(x: x, y: 12 + plotHeight - (revealed ? height : 6) / 2)
-                        .animation(
-                            reduceMotion ? nil : StrandMotion.value.delay(Double(index) * 0.03),
-                            value: revealed
-                        )
-                    Text(Self.labels[index % 7])
-                        .font(StrandFont.micro)
-                        .foregroundStyle(index == currentWeekday
-                            ? StrandPalette.textPrimary : StrandPalette.textTertiary)
-                        .position(x: x, y: 12 + plotHeight + 10)
+                let plotHeight = max(54, proxy.size.height - 30)
+                let heightOf: (Double) -> CGFloat = { value in
+                    max(6, CGFloat(0.25 + 0.75 * (scale.normalized(value) ?? 0.5)) * plotHeight)
                 }
+
+                ZStack(alignment: .topLeading) {
+                    let avgY = 12 + plotHeight - heightOf(average)
+                    Path { path in
+                        path.move(to: CGPoint(x: 0, y: avgY))
+                        path.addLine(to: CGPoint(x: proxy.size.width, y: avgY))
+                    }
+                    .stroke(
+                        StrandPalette.hairlineStrong.opacity(0.9),
+                        style: StrokeStyle(lineWidth: 0.7, dash: [3, 4])
+                    )
+                    if scrubIndex == nil {
+                        Text("avg \(valueFormat(average))")
+                            .font(StrandFont.micro)
+                            .monospacedDigit()
+                            .foregroundStyle(StrandPalette.textTertiary)
+                            .position(x: 28, y: max(7, avgY - 8))
+                    }
+
+                    ForEach(0..<7, id: \.self) { index in
+                        let value = values[index]
+                        let height = value.map(heightOf) ?? 6
+                        let x = slot * CGFloat(index) + slot / 2
+                        let isSelected = scrubIndex == index
+                        Capsule(style: .continuous)
+                            .fill(barColor(value: value, isCurrent: index == currentWeekday, isSelected: isSelected))
+                            .frame(width: barWidth, height: revealed ? height : 6)
+                            .overlay {
+                                if isSelected {
+                                    Capsule(style: .continuous)
+                                        .stroke(StrandPalette.textPrimary.opacity(0.9), lineWidth: 1.5)
+                                }
+                            }
+                            .position(x: x, y: 12 + plotHeight - (revealed ? height : 6) / 2)
+                            .animation(
+                                reduceMotion ? nil : StrandMotion.value.delay(Double(index) * 0.03),
+                                value: revealed
+                            )
+                        Text(Self.labels[index])
+                            .font(StrandFont.micro.weight(isSelected ? .semibold : .regular))
+                            .foregroundStyle(isSelected || index == currentWeekday
+                                ? StrandPalette.textPrimary : StrandPalette.textTertiary)
+                            .position(x: x, y: 12 + plotHeight + 10)
+                    }
+
+                    if let scrubIndex, values.indices.contains(scrubIndex) {
+                        let value = values[scrubIndex]
+                        let height = value.map(heightOf) ?? 6
+                        let x = slot * CGFloat(scrubIndex) + slot / 2
+                        let anchor = CGPoint(x: x, y: 12 + plotHeight - height)
+                        ChartTooltip(
+                            value: value.map(valueFormat) ?? "No data",
+                            label: Self.fullLabels[scrubIndex],
+                            accent: value == nil ? nil : tint
+                        )
+                        .position(
+                            ChartTooltipPlacement.position(
+                                anchor: anchor,
+                                tooltipSize: CGSize(width: 104, height: 40),
+                                in: proxy.size
+                            )
+                        )
+                    }
+                }
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { drag in
+                            guard proxy.size.width > 0 else { return }
+                            let fraction = Double(drag.location.x / proxy.size.width)
+                            let index = TrendCalendar.weekdayIndex(atUnitPosition: fraction)
+                            if index != scrubIndex {
+                                var transaction = Transaction()
+                                transaction.disablesAnimations = true
+                                withTransaction(transaction) { scrubIndex = index }
+                                StrandHaptic.selection.play()
+                            }
+                        }
+                        .onEnded { _ in
+                            withAnimation(StrandMotion.interactive) { scrubIndex = nil }
+                        }
+                )
             }
+            HStack(spacing: 7) {
+                Image(systemName: "hand.draw")
+                    .font(StrandFont.micro.weight(.semibold))
+                if let scrubIndex, values.indices.contains(scrubIndex) {
+                    Text("\(Self.fullLabels[scrubIndex]) · \(values[scrubIndex].map(valueFormat) ?? "No data")")
+                        .monospacedDigit()
+                } else {
+                    Text("Touch and drag to read a weekday")
+                }
+                Spacer(minLength: 0)
+            }
+            .font(StrandFont.footnote)
+            .foregroundStyle(StrandPalette.textTertiary)
         }
-        .frame(height: 104)
         .onAppear { revealed = true }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilitySummary)
+        .accessibilityValue(selectedWeekdayAccessibilityValue)
+        .accessibilityAdjustableAction { direction in
+            let current = scrubIndex ?? TrendCalendar.mondayFirstWeekdayIndex(
+                for: referenceDate, calendar: calendar)
+            switch direction {
+            case .increment: scrubIndex = min(current + 1, 6)
+            case .decrement: scrubIndex = max(current - 1, 0)
+            default: break
+            }
+        }
     }
 
-    private func barColor(value: Double?, isCurrent: Bool) -> Color {
+    private func barColor(value: Double?, isCurrent: Bool, isSelected: Bool) -> Color {
         guard value != nil else {
-            return isCurrent ? StrandPalette.textPrimary.opacity(0.16) : StrandPalette.surfaceInset
+            return isSelected || isCurrent
+                ? StrandPalette.textPrimary.opacity(0.16)
+                : StrandPalette.surfaceInset
         }
-        return tint.opacity(isCurrent ? 1 : 0.5)
+        if isSelected { return tint }
+        return tint.opacity(isCurrent ? 0.82 : 0.46)
     }
 
     private var accessibilitySummary: String {
-        let names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
         let current = TrendCalendar.mondayFirstWeekdayIndex(for: referenceDate, calendar: calendar)
-        let summary = zip(names, values).map { name, value in
+        let summary = zip(Self.fullLabels, values).map { name, value in
             "\(name) \(value.map(valueFormat) ?? "missing")"
         }.joined(separator: ", ")
-        return "Average by weekday. Today is \(names[current]). \(summary)."
+        return "Average by weekday. Today is \(Self.fullLabels[current]). \(summary). Touch and drag to inspect each weekday."
+    }
+
+    private var selectedWeekdayAccessibilityValue: String {
+        guard let index = scrubIndex else {
+            return String(localized: "No weekday selected", bundle: .module)
+        }
+        return "\(Self.fullLabels[index]), \(values[index].map(valueFormat) ?? String(localized: "No data", bundle: .module))"
     }
 }

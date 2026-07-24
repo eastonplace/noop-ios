@@ -54,7 +54,8 @@ public struct Sparkline: View {
 
     /// Default value formatting: integer when whole, else one decimal.
     public static func defaultValueString(_ v: Double) -> String {
-        v == v.rounded() ? String(Int(v)) : String(format: "%.1f", v)
+        guard v.isFinite else { return "—" }
+        return v == v.rounded() ? ComponentValueFormat.rounded(v) : ComponentValueFormat.oneDecimal(v)
     }
 
     private var bounds: (min: Double, max: Double) {
@@ -210,7 +211,7 @@ private func sampleHR() -> [Double] {
             Spacer()
             Sparkline(
                 values: sampleHR(),
-                valueFormat: { "\(Int($0.rounded())) bpm" },
+                valueFormat: { "\(ComponentValueFormat.rounded($0)) bpm" },
                 indexLabel: { "\($0)s ago" }
             )
             .frame(width: 160, height: 44)

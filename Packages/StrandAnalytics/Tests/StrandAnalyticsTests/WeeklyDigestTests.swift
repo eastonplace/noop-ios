@@ -3,6 +3,20 @@ import XCTest
 
 final class WeeklyDigestTests: XCTestCase {
 
+    func testOpposingFiniteExtremesDoNotReachFocalPointFormatting() {
+        let high = Double.greatestFiniteMagnitude
+        var charge: [String: Double] = [:]
+        for day in 8...14 { charge[String(format: "2026-06-%02d", day)] = high }
+        for day in 1...7 { charge[String(format: "2026-06-%02d", day)] = -high }
+
+        let digest = WeeklyDigestEngine.build(byMetric: [.charge: charge], anchorDay: "2026-06-10")
+        let summary = try! XCTUnwrap(digest.summary(.charge))
+        XCTAssertTrue(summary.thisWeek.mean.isFinite)
+        XCTAssertEqual(summary.weekOverWeek.delta, 0)
+        XCTAssertFalse(digest.focalPoints.joined().localizedCaseInsensitiveContains("inf"))
+        XCTAssertFalse(digest.focalPoints.joined().localizedCaseInsensitiveContains("nan"))
+    }
+
     // MARK: - Pure week math
 
     func testMondayOfWeek() {

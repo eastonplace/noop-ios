@@ -29,6 +29,7 @@ enum WeeklyDigestSource {
     /// it to the pure engine.
     static func digest(from days: [DailyMetric],
                        anchorDay: String,
+                       sleepByDay: [String: Double],
                        effortDisplayFactor: Double = UnitPrefs.currentEffortDisplayFactor()) -> WeeklyDigest {
         var charge: [String: Double] = [:]
         var effort: [String: Double] = [:]
@@ -36,12 +37,11 @@ enum WeeklyDigestSource {
         var rhr: [String: Double] = [:]
         var hrv: [String: Double] = [:]
         for d in days {
-            if let v = d.recovery { charge[d.day] = v }
-            if let v = d.strain   { effort[d.day] = v }
-            // Sleep = the sleep-performance composite, recomputed on the persisted day.
-            if let r = restScore(for: d) { rest[d.day] = r }
+            if let v = d.recovery, v.isFinite { charge[d.day] = v }
+            if let v = d.strain, v.isFinite { effort[d.day] = v }
+            if let value = sleepByDay[d.day], value.isFinite { rest[d.day] = value }
             if let v = d.restingHr { rhr[d.day] = Double(v) }
-            if let v = d.avgHrv    { hrv[d.day] = v }
+            if let v = d.avgHrv, v.isFinite { hrv[d.day] = v }
         }
         return WeeklyDigestEngine.build(
             byMetric: [.charge: charge, .effort: effort, .rest: rest, .rhr: rhr, .hrv: hrv],
@@ -49,13 +49,6 @@ enum WeeklyDigestSource {
             effortDisplayFactor: effortDisplayFactor)
     }
 
-    /// The 0–100 Sleep composite for a persisted day, via AnalyticsEngine's display-path
-    /// helper (duration-vs-need / efficiency / restorative / consistency). Returns nil
-    /// for a day with no in-bed sleep / missing efficiency, so non-sleep days are simply
-    /// absent from the Sleep series.
-    private static func restScore(for d: DailyMetric) -> Double? {
-        AnalyticsEngine.Rest.composite(daily: d)
-    }
 }
 
 // MARK: - Embeddable card
@@ -64,18 +57,28 @@ enum WeeklyDigestSource {
 /// (an empty view) when there's no data this week, so it's safe to always place.
 struct WeeklyDigestCard: View {
     @EnvironmentObject var repo: Repository
+    @State private var sleepByDay: [String: Double] = [:]
 
     var body: some View {
         let digest = WeeklyDigestSource.digest(from: repo.canonicalDays,
-                                               anchorDay: Repository.localDayKey(Date()))
-        if digest.isEmpty {
-            EmptyView()
-        } else {
-            // Content owns its own frosted cards (the domain score row + the signals
-            // card), so it's no longer wrapped in an outer NoopCard — that would double
-            // the frost. The compact flag trims it to the three headline scores.
-            WeeklyDigestContent(digest: digest, compact: true)
+                                               anchorDay: Repository.localDayKey(Date()),
+                                               sleepByDay: sleepByDay)
+        Group {
+            if digest.isEmpty {
+                EmptyView()
+            } else {
+                // Content owns its own frosted cards (the domain score row + the signals
+                // card), so it's no longer wrapped in an outer NoopCard — that would double
+                // the frost. The compact flag trims it to the three headline scores.
+                WeeklyDigestContent(digest: digest, compact: true)
+            }
         }
+        .task(id: repo.refreshSeq) { await loadCanonicalSleep() }
+    }
+
+    private func loadCanonicalSleep() async {
+        let rows = await repo.exploreSeries(key: "sleep_performance", source: "my-whoop")
+        sleepByDay = Dictionary(rows.map { ($0.day, $0.value) }, uniquingKeysWith: { _, latest in latest })
     }
 }
 
@@ -84,6 +87,7 @@ struct WeeklyDigestCard: View {
 /// The weekly digest as a full screen (for a sidebar `.digest` case).
 struct WeeklyDigestView: View {
     @EnvironmentObject var repo: Repository
+    @State private var sleepByDay: [String: Double] = [:]
 
     var body: some View {
         ScreenScaffold(title: "Week in review",
@@ -100,7 +104,8 @@ struct WeeklyDigestView: View {
                     : "Loading your history…")
             } else {
                 let digest = WeeklyDigestSource.digest(from: repo.canonicalDays,
-                                                       anchorDay: Repository.localDayKey(Date()))
+                                                       anchorDay: Repository.localDayKey(Date()),
+                                                       sleepByDay: sleepByDay)
                 if digest.isEmpty {
                     DataPendingNote(
                         title: "No readings this week yet",
@@ -111,6 +116,10 @@ struct WeeklyDigestView: View {
                     }
                 }
             }
+        }
+        .task(id: repo.refreshSeq) {
+            let rows = await repo.exploreSeries(key: "sleep_performance", source: "my-whoop")
+            sleepByDay = Dictionary(rows.map { ($0.day, $0.value) }, uniquingKeysWith: { _, latest in latest })
         }
     }
 }
@@ -305,7 +314,7 @@ struct WeeklyDigestContent: View {
         VStack(alignment: .leading, spacing: 6) {
             Divider().overlay(StrandPalette.hairline)
             if let sd = digest.sleepConsistencySD {
-                Text("Sleep steadiness: Sleep varied ±\(fmt1(sd)) pts night to night.")
+                Text("Sleep score variability: ±\(fmt1(sd)) points night to night.")
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textTertiary)
             }

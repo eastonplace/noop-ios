@@ -125,7 +125,8 @@ public struct WeeklyMetricSummary: Equatable, Sendable {
     public var normalisedMove: Double {
         guard weekOverWeek.current.n > 0, weekOverWeek.previous.n > 0 else { return 0 }
         let s = metric.typicalSpread
-        return s > 0 ? wowDelta / s : 0
+        let result = s > 0 ? wowDelta / s : 0
+        return result.isFinite ? result : 0
     }
 
     /// True when the week-over-week comparison rests on a sparse side: both weeks
@@ -258,9 +259,8 @@ public enum WeeklyDigestEngine {
 
             let thisStat = ComparisonEngine.stat(thisVals)
             let wow = ComparisonEngine.compare(current: thisVals, previous: lastVals)
-            let baseMean: Double? = baseVals.isEmpty ? nil
-                : baseVals.reduce(0, +) / Double(baseVals.count)
-            let vsBase: Double? = baseMean.map { thisStat.mean - $0 }
+            let baseMean = StableStatistics.mean(baseVals)
+            let vsBase = baseMean.flatMap { StableStatistics.difference(thisStat.mean, $0) }
 
             summaries.append(WeeklyMetricSummary(
                 metric: metric, thisWeek: thisStat, weekOverWeek: wow,
@@ -297,7 +297,7 @@ public enum WeeklyDigestEngine {
             effort.n >= minDaysForFocus, charge.n >= minDaysForFocus
         else { return .insufficient }
 
-        let gap = effort.mean - charge.mean
+        guard let gap = StableStatistics.difference(effort.mean, charge.mean) else { return .insufficient }
         if gap > balanceBand { return .overreaching }
         if gap < -balanceBand { return .underloaded }
         return .balanced
@@ -381,10 +381,12 @@ public enum WeeklyDigestEngine {
         let f = s.metric == .effort ? effortDisplayFactor : 1.0
         let directionWord = s.wowDelta > 0 ? "up" : (s.wowDelta < 0 ? "down" : "flat")
         let magnitude: String
-        if let pct = s.weekOverWeek.pctChange, abs(pct) >= 1 {
-            magnitude = "\(roundedInt(abs(pct)))%"
+        if let pct = s.weekOverWeek.pctChange, abs(pct) >= 1,
+           let rounded = StableStatistics.roundedInt(abs(pct)) {
+            magnitude = "\(rounded)%"
         } else {
-            magnitude = "\(round1(abs(s.wowDelta) * f))\(s.metric.unit.isEmpty ? " pts" : " " + s.metric.unit)"
+            let value = StableStatistics.rounded1(abs(s.wowDelta) * f) ?? 0
+            magnitude = "\(value)\(s.metric.unit.isEmpty ? " pts" : " " + s.metric.unit)"
         }
         let frame: String
         switch s.wowGoodness {
@@ -392,8 +394,8 @@ public enum WeeklyDigestEngine {
         case -1: frame = ", worth a look"
         default: frame = ""
         }
-        let thisAvg = roundedInt(s.thisWeek.mean * f)
-        let lastAvg = roundedInt(s.weekOverWeek.previous.mean * f)
+        let thisAvg = StableStatistics.roundedInt(s.thisWeek.mean * f) ?? 0
+        let lastAvg = StableStatistics.roundedInt(s.weekOverWeek.previous.mean * f) ?? 0
         return "\(s.metric.label) is \(directionWord) \(magnitude) week over week"
             + " (avg \(thisAvg) vs \(lastAvg))\(frame)."
     }
@@ -406,7 +408,7 @@ public enum WeeklyDigestEngine {
     /// that carried a value are recorded into it (pass `&someNilOptional` to skip).
     static func valuesInRange(_ series: [String: Double], start: String, end: String,
                               daysSeen: inout Set<String>?) -> [Double] {
-        let inRange = series.filter { $0.key >= start && $0.key <= end }
+        let inRange = series.filter { $0.key >= start && $0.key <= end && $0.value.isFinite }
         if daysSeen != nil {
             for k in inRange.keys { daysSeen?.insert(k) }
         }
@@ -513,6 +515,6 @@ public enum WeeklyDigestEngine {
 
     // MARK: - Formatting helpers (mirror BehaviorInsights)
 
-    static func roundedInt(_ x: Double) -> Int { Int(x.rounded()) }
-    static func round1(_ x: Double) -> Double { (x * 10).rounded() / 10 }
+    static func roundedInt(_ x: Double) -> Int { StableStatistics.roundedInt(x) ?? 0 }
+    static func round1(_ x: Double) -> Double { StableStatistics.rounded1(x) ?? 0 }
 }

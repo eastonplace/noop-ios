@@ -17,12 +17,10 @@ and the migration history that produced the current schema.
 
 The persistence layer is the `WhoopStore` Swift package
 (`Packages/WhoopStore`), built on [GRDB](https://github.com/groue/GRDB.swift) over SQLite. Like
-every package in the repo, it declares both platforms — `.iOS(.v16)` and `.macOS(.v13)`
-(`Packages/WhoopStore/Package.swift`) — and is UI-framework agnostic, so the same schema and
-storage code back both the macOS app and the iOS app (the latter build-from-source only — see
-`docs/IOS.md`).
+every package in the repo, it declares iOS and a macOS SwiftPM test host
+(`Packages/WhoopStore/Package.swift`). It is UI-framework agnostic and backs the iPhone app.
 
-The macOS app target opens the database at a fixed, per-user location
+The iPhone app opens the database inside its Application Support container
 (`Strand/Collect/StorePaths.swift`):
 
 ```
@@ -41,8 +39,7 @@ static func defaultDatabasePath() throws -> String {
 }
 ```
 
-On a typical macOS install that resolves to
-`~/Library/Application Support/OpenWhoop/whoop.sqlite`. Tests use an in-memory database via
+The concrete root is the app's iOS container. Tests use an in-memory database via
 `WhoopStore.inMemory()`.
 
 ### Connection configuration

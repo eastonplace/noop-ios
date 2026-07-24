@@ -36,7 +36,6 @@ body:
     attributes:
       label: Platform
       options:
-        - macOS
         - iOS
     validations:
       required: true
@@ -44,7 +43,7 @@ body:
     id: os_version
     attributes:
       label: OS version
-      description: e.g. macOS 14.5 · iOS 18.5
+      description: e.g. iOS 18.5
     validations:
       required: true
   - type: dropdown

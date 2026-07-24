@@ -39,10 +39,6 @@ Polar H10 / Verity Sense / OH1 the user owns, account-free, on top of the standa
 - **Per-model streams:** **H10** = ECG (130 Hz) + ACC + HR + RR (no PPG); **Verity Sense / OH1** =
   PPG + PPI + ACC + GYRO + HR (no ECG).
 
-**Open item — #421** ("Polar H10 paired, no live data", Android): the generic-HR plumbing is correct
-(CCCD write + both notification callbacks); the leading theory is the WHOOP auto-reconnect reclaiming
-the radio while the strap is active. Needs the reporter's detail + an H10 in hand to verify a fix.
-
 ## Xiaomi Smart Band (Mi Band) — shipped import lane
 
 NOOP imports a Mi Band's full history **without Bluetooth, a Xiaomi account, or any
@@ -52,7 +48,7 @@ and it's fully offline.
 
 - **What the user does:** on the iPhone, *Files → On My iPhone → Mi Fitness*, long-press
   the folder → *Compress*, then bring that `.zip` to NOOP (*Data Sources → Xiaomi Smart
-  Band*). The bare `<user_id>.db` or an unzipped folder (macOS) also work.
+  Band*). A bare `<user_id>.db` also works through the iPhone document picker.
 - **Where the data is:** `DataBase/<user_id>/de/<user_id>.db` — one SQLite row per sample
   with a JSON `value` column. NOOP opens it **read-only** (GRDB) and never writes to it.
 - **Tables read** (`deleted = 0` only):

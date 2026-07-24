@@ -2,6 +2,16 @@ import XCTest
 @testable import StrandDesign
 
 final class TrendCalendarTests: XCTestCase {
+
+    func testFiniteChartScaleNormalizesOpposingFiniteExtremes() throws {
+        let maximum = Double.greatestFiniteMagnitude
+        let scale = try XCTUnwrap(FiniteChartScale(values: [-maximum, maximum]))
+        for value in [-maximum, 0, maximum] {
+            let normalized = try XCTUnwrap(scale.normalized(value))
+            XCTAssertTrue(normalized.isFinite)
+            XCTAssertTrue((0...1).contains(normalized))
+        }
+    }
     private var calendar: Calendar {
         var calendar = Calendar(identifier: .gregorian)
         calendar.locale = Locale(identifier: "en_US_POSIX")
@@ -165,6 +175,32 @@ final class TrendCalendarTests: XCTestCase {
         XCTAssertEqual(TrendCalendar.relativeLabel(for: try date(2026, 7, 15), relativeTo: today, calendar: calendar), "Wed, Jul 15")
     }
 
+    func testEqualLengthPeriodsAreAdjacentAndDoNotOverlap() throws {
+        let today = try date(2026, 7, 19)
+        let current = try XCTUnwrap(TrendCalendar.equalLengthPeriod(
+            through: today, count: 30, periodOffset: 0, calendar: calendar
+        ))
+        let previous = try XCTUnwrap(TrendCalendar.equalLengthPeriod(
+            through: today, count: 30, periodOffset: -1, calendar: calendar
+        ))
+
+        XCTAssertEqual(calendar.dateComponents([.day], from: current.lowerBound, to: current.upperBound).day, 29)
+        XCTAssertEqual(calendar.dateComponents([.day], from: previous.lowerBound, to: previous.upperBound).day, 29)
+        XCTAssertEqual(calendar.date(byAdding: .day, value: 1, to: previous.upperBound), current.lowerBound)
+        XCTAssertLessThan(previous.upperBound, current.lowerBound)
+    }
+
+    func testEqualLengthPeriodUsesCalendarDaysAcrossDST() throws {
+        let today = try date(2026, 3, 15)
+        let period = try XCTUnwrap(TrendCalendar.equalLengthPeriod(
+            through: today, count: 14, periodOffset: 0, calendar: calendar
+        ))
+
+        XCTAssertEqual(calendar.dateComponents([.day], from: period.lowerBound, to: period.upperBound).day, 13)
+        XCTAssertEqual(calendar.component(.hour, from: period.lowerBound), 0)
+        XCTAssertEqual(calendar.component(.hour, from: period.upperBound), 0)
+    }
+
     func testDatePositionPreservesCalendarGap() throws {
         let start = try date(2026, 7, 13)
         let end = try date(2026, 7, 19)
@@ -218,6 +254,23 @@ final class TrendCalendarTests: XCTestCase {
         XCTAssertEqual(TrendRange.month.averageHeading, "AVERAGE · LAST 30 DAYS")
         XCTAssertEqual(TrendRange.quarter.averageHeading, "AVERAGE · LAST 90 DAYS")
         XCTAssertEqual(TrendRange.half.averageHeading, "AVERAGE · LAST 180 DAYS")
+        XCTAssertEqual(TrendRange.week.summarySubtitle, "Last 7 days · vs prior 7")
+        XCTAssertEqual(TrendRange.month.summarySubtitle, "Last 30 days · vs prior 30")
+    }
+
+    func testWeekdayScrubIndexUsesSevenEqualHitRegions() {
+        XCTAssertEqual(TrendCalendar.weekdayIndex(atUnitPosition: -1), 0)
+        XCTAssertEqual(TrendCalendar.weekdayIndex(atUnitPosition: 0), 0)
+        XCTAssertEqual(TrendCalendar.weekdayIndex(atUnitPosition: 0.10), 0)
+        XCTAssertEqual(TrendCalendar.weekdayIndex(atUnitPosition: 0.90), 6)
+        XCTAssertEqual(TrendCalendar.weekdayIndex(atUnitPosition: 0.5), 3)
+        XCTAssertEqual(TrendCalendar.weekdayIndex(atUnitPosition: 1), 6)
+        XCTAssertEqual(TrendCalendar.weekdayIndex(atUnitPosition: 2), 6)
+        for boundary in 1...6 {
+            let value = Double(boundary) / 7
+            XCTAssertEqual(TrendCalendar.weekdayIndex(atUnitPosition: value.nextDown), boundary - 1)
+            XCTAssertEqual(TrendCalendar.weekdayIndex(atUnitPosition: value), boundary)
+        }
     }
 
     private func date(_ year: Int, _ month: Int, _ day: Int) throws -> Date {

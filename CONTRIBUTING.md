@@ -1,102 +1,46 @@
 # Contributing to NOOP
 
-Thanks for your interest in contributing. NOOP is a standalone, fully **offline**
-companion app for WHOOP 4.0 and 5.0 / MG straps — it pairs over Bluetooth, stores
-everything on-device in SQLite, and computes recovery / strain / HRV / sleep
-locally. No servers, no accounts, no data leaving the device.
+NOOP is an iPhone-only, local-first companion app for supported WHOOP straps. It connects over Bluetooth, stores data on-device, and computes its own health and workout metrics. There are no Android, macOS app, or watchOS targets in the current repository.
 
-This file is a quick orientation. The **full contributing guide** —
-repository layout, the design-system rules, the BLE safety contract, how to add a
-metric / screen / command / migration, and the commit conventions — lives in
-[`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md). Read that before opening a
-non-trivial PR.
-
-> NOOP is not affiliated with, endorsed by, or connected to WHOOP, Inc., and is
-> not a medical device. See [`DISCLAIMER.md`](DISCLAIMER.md).
-
----
+Read the full [contributing guide](docs/CONTRIBUTING.md) before opening a non-trivial pull request. NOOP is not affiliated with WHOOP and is not a medical device; see [DISCLAIMER.md](DISCLAIMER.md).
 
 ## Quick start
 
-The codebase is reusable Swift packages (`Packages/`) plus a thin macOS app
-(`Strand/`) and a full Android app (`android/`). The fastest feedback loop is the
-packages — they build and test on their own, no Xcode project and no strap needed.
-
-### Swift packages
-
-```bash
-# Test just the package you touched (substitute the name):
-cd Packages/WhoopProtocol && swift build && swift test
-```
-
-The five packages are `WhoopProtocol` (BLE framing / decode), `WhoopStore`
-(SQLite persistence), `StrandAnalytics` (recovery / strain / HRV / sleep math),
-`StrandImport` (WHOOP CSV + Apple Health importers), and `StrandDesign` (the
-SwiftUI design system).
-
-### macOS app
-
-The Xcode project is generated from `project.yml` and is **not** committed.
+The Xcode project is generated from `project.yml`:
 
 ```bash
 brew install xcodegen
-xcodegen generate         # regenerate after any project.yml or file add/remove
-open Strand.xcodeproj     # build and run from Xcode
+xcodegen generate
+xcodebuild \
+  -scheme NOOPiOS \
+  -configuration Debug \
+  -destination 'generic/platform=iOS Simulator' \
+  CODE_SIGNING_ALLOWED=NO \
+  CODE_SIGNING_REQUIRED=NO \
+  build
 ```
 
-For a runnable, ad-hoc-signed `NOOP.app` without an Apple ID, see
-[`docs/BUILD.md`](docs/BUILD.md).
-
-### Android app
+For fast package-level feedback:
 
 ```bash
-cd android
-./gradlew assembleFullDebug      # the real app (full flavour); JDK 17 required
-./gradlew assembleDemoDebug      # demo flavour — 120 days of synthetic data, no strap
-./gradlew testFullDebugUnitTest  # unit tests
+swift test --package-path Packages/WhoopProtocol
 ```
 
----
+Substitute the package you changed. Reusable packages intentionally retain macOS declarations so SwiftPM tests can run on a Mac; those declarations do not define a macOS application.
 
-## What CI checks
+## Pull requests
 
-Two GitHub Actions workflows run on every PR and push to `main`. They compile and
-run unit tests only — no code signing, no secrets, no release.
+1. Keep one concern per PR where practical.
+2. Regenerate the project after changing `project.yml` or source membership.
+3. Add deterministic tests for analytics, persistence, and protocol changes.
+4. For BLE changes, report the exact physical strap and iPhone coverage. A green build is not hardware proof.
+5. For UI changes, use `StrandDesign` tokens and include iPhone screenshot QA.
+6. Never commit real health exports, unsanitized captures, databases, signing credentials, API keys, or generated build products.
 
-| Workflow | Trigger | What it does |
-|---|---|---|
-| **Swift Packages CI** (`.github/workflows/swift-packages.yml`) | changes under `Packages/**` | `swift build` + `swift test` for each package |
-| **Android CI** (`.github/workflows/android.yml`) | changes under `android/**` | `assembleFullDebug` + `testFullDebugUnitTest` (JDK 17) |
+GitHub Actions builds the iPhone app and tests the reusable Swift packages. Fix failures rather than weakening the checks.
 
-If CI fails on your PR, fix the cause rather than working around it. Never commit
-generated output (`Strand.xcodeproj/`) or any secrets, keystores, or `local.properties`.
+## Issues and conduct
 
----
-
-## Submitting a PR
-
-1. One concern per PR where practical (keep protocol, schema, UI, and Android
-   changes separate).
-2. Fill in the [PR template](.github/PULL_REQUEST_TEMPLATE.md).
-3. For anything on the BLE path, state what you tested **on real hardware** and on
-   which strap. A green build is not proof a command behaves correctly.
-4. For analytics changes, add a test and cite the method.
-5. For UI changes, use `StrandDesign` tokens only — no hardcoded colors, fonts,
-   or spacing.
-
-By opening a pull request you agree your contribution is licensed under the same
-terms as the project — see [`LICENSE`](LICENSE).
-
----
-
-## Reporting issues
-
-- **Bugs and feature requests:** open an issue using the templates in
-  [`.github/ISSUE_TEMPLATE`](.github/ISSUE_TEMPLATE). NOOP is on-device, so please
-  leave out anything that identifies you.
-- **Security issues:** see [`SECURITY.md`](SECURITY.md).
-
-## Code of conduct
-
-This project follows a [Code of Conduct](CODE_OF_CONDUCT.md). Be respectful and
-keep discussion focused on the technical work.
+- Use [.github/ISSUE_TEMPLATE](.github/ISSUE_TEMPLATE) for bugs and feature requests.
+- Follow [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+- By contributing, you license your work under [LICENSE](LICENSE).

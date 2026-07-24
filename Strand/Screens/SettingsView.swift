@@ -159,12 +159,8 @@ struct SettingsView: View {
     @StateObject private var updateChecker = UpdateChecker()
     @Environment(\.openURL) private var openURL
 
-    /// Whether the "Advanced" disclosure (Recovery, Test Centre, experimental probes, Backup &
-    /// restore) is expanded. Default FALSE so a first-run user lands on the handful of everyday
-    /// sections (profile, units, appearance, strap, features) instead of the full wall of 11 cards
-    /// (S3). Nothing is removed; every section below stays one tap away by expanding this group.
-    /// Persisted so it remembers the user's choice; mirrors the Android `noop.settingsAdvancedOpen` key.
-    @AppStorage(SettingsDisclosureDefaults.advancedOpenKey) private var advancedOpen = SettingsDisclosureDefaults.advancedOpenDefault
+    /// Profile header navigation is explicit instead of expanding a giant inline wall of cards.
+    @State private var showProfileSettings = false
 
     var body: some View {
         ScreenScaffold(title: "Settings",
@@ -175,7 +171,7 @@ struct SettingsView: View {
                     name: profileDisplayName,
                     subtitle: memberSinceLine,
                     recovery: model.repo.today?.recovery,
-                    action: { advancedOpen = true }
+                    action: { showProfileSettings = true }
                 ),
                 sections: settingsSections,
                 versionLine: "NOOP \(bundleVersionString) · build \(bundleBuildString) · local & private"
@@ -211,6 +207,9 @@ struct SettingsView: View {
             DiagnosticsSheet(onClose: { showDiagnostics = false })
         }
         #endif
+        .navigationDestination(isPresented: $showProfileSettings) {
+            profileSettingsDetail
+        }
     }
 
     private var profileInitials: String {
@@ -222,8 +221,9 @@ struct SettingsView: View {
         (Bundle.main.infoDictionary?["CFBundleVersion"] as? String) ?? "—"
     }
 
-    /// Standard rows use the promoted binding grammar. Large, specialised tools stay byte-for-byte
-    /// intact in a custom row until they have a truthful standard representation.
+    /// Standard rows use the promoted binding grammar. Specialised tools keep their
+    /// proven production controls, but each now lives behind a focused destination instead
+    /// of one giant disclosure card.
     private var settingsSections: [SettingsSectionModel] {
         let unitSelection = Binding<String>(
             get: { unitSystem == .imperial ? "US" : "Metric" },
@@ -236,62 +236,212 @@ struct SettingsView: View {
                     ?? AppearanceMode.system.rawValue
             }
         )
+
         return [
             SettingsSectionModel(
                 id: "preferences",
                 header: "Preferences",
                 rows: [
-                    .segmented(id: "units", icon: "ruler", tint: StrandPalette.accent,
-                               title: "Units", options: ["US", "Metric"], selection: unitSelection),
-                    .segmented(id: "appearance", icon: "circle.lefthalf.filled",
-                               tint: StrandPalette.textSecondary, title: "Appearance",
-                               options: AppearanceMode.allCases.map(\.label), selection: appearanceSelection),
-                    .info(id: "notifications", icon: "bell", tint: StrandPalette.metricAmber,
-                          title: "Notifications", value: "System")
+                    .segmented(
+                        id: "units",
+                        icon: "ruler",
+                        tint: StrandPalette.accent,
+                        title: "Units",
+                        options: ["US", "Metric"],
+                        selection: unitSelection
+                    ),
+                    .segmented(
+                        id: "appearance",
+                        icon: "circle.lefthalf.filled",
+                        tint: StrandPalette.textSecondary,
+                        title: "Appearance",
+                        options: AppearanceMode.allCases.map(\.label),
+                        selection: appearanceSelection
+                    ),
+                    .navDetail(
+                        id: "display-and-units",
+                        icon: "paintbrush.pointed.fill",
+                        tint: StrandPalette.metricPurple,
+                        title: "Display & units",
+                        subtitle: "Temperature, Strain scale, app icon, charts, and day-cycle scene"
+                    ) { displaySettingsDetail },
+                    .navDetail(
+                        id: "notifications",
+                        icon: "bell.fill",
+                        tint: StrandPalette.metricAmber,
+                        title: "Alerts & reminders",
+                        subtitle: "Wrist alerts, coaching, inactivity, stress, illness, and battery"
+                    ) { AutomationsView() },
+                ]
+            ),
+            SettingsSectionModel(
+                id: "profile-and-device",
+                header: "Profile & Device",
+                rows: [
+                    .navDetail(
+                        id: "profile",
+                        icon: "person.crop.circle.fill",
+                        tint: StrandPalette.recoveryData,
+                        title: "Profile",
+                        subtitle: "Identity, age, body measurements, zones, and personal baselines"
+                    ) { profileSettingsDetail },
+                    .navDetail(
+                        id: "strap-and-collection",
+                        icon: "sensor.tag.radiowaves.forward.fill",
+                        tint: StrandPalette.metricCyan,
+                        title: "Strap & collection",
+                        subtitle: "Connection, naming, background capture, and low-battery behavior"
+                    ) { strapSettingsDetail },
+                ]
+            ),
+            SettingsSectionModel(
+                id: "experience-and-scoring",
+                header: "Experience & Scoring",
+                rows: [
+                    .navDetail(
+                        id: "features-and-workouts",
+                        icon: "figure.run.circle.fill",
+                        tint: StrandPalette.strainAccent,
+                        title: "Features & workouts",
+                        subtitle: "Live Activity, hydration, workout detection, and screen behavior"
+                    ) { featureSettingsDetail },
+                    .navDetail(
+                        id: "recovery-and-scoring",
+                        icon: "waveform.path.ecg.rectangle.fill",
+                        tint: StrandPalette.recoveryData,
+                        title: "Recovery & scoring",
+                        subtitle: "Baseline calibration and score-specific controls"
+                    ) { recoverySettingsDetail },
                 ]
             ),
             SettingsSectionModel(
                 id: "data-and-support",
                 header: "Data & Support",
-                footer: "Everything stays on this device. Exports are files you hold.",
+                footer: "Your health data stays local. Exports are files you control.",
                 rows: [
-                    .nav(id: "data-sources", icon: "externaldrive.fill", tint: StrandPalette.metricCyan,
-                         title: "Data Management") { DataSourcesView() },
-                    .nav(id: "backup-sync", icon: "externaldrive.fill.badge.icloud", tint: StrandPalette.sleepAccent,
-                         title: "Export Your Data") { BackupSyncView() },
-                    .nav(id: "support", icon: "heart.fill", tint: StrandPalette.metricRose,
-                         title: "Support & Donation") { SupportView() }
+                    .navDetail(
+                        id: "data-sources",
+                        icon: "externaldrive.fill",
+                        tint: StrandPalette.metricCyan,
+                        title: "Data management",
+                        subtitle: "Imports, Apple Health, source priority, storage, and cleanup"
+                    ) { DataSourcesView() },
+                    .navDetail(
+                        id: "export-data",
+                        icon: "square.and.arrow.up.fill",
+                        tint: StrandPalette.sleepAccent,
+                        title: "Export your data",
+                        subtitle: "Create portable backups and files for analysis"
+                    ) { BackupSyncView() },
+                    .navDetail(
+                        id: "backup-restore",
+                        icon: "arrow.triangle.2.circlepath.circle.fill",
+                        tint: StrandPalette.metricAmber,
+                        title: "Backup & restore",
+                        subtitle: "Local database checkpoint, restore, and recovery tools"
+                    ) { backupSettingsDetail },
+                    .navDetail(
+                        id: "support",
+                        icon: "heart.fill",
+                        tint: StrandPalette.metricRose,
+                        title: "Support & donation",
+                        subtitle: "Help, diagnostics guidance, and project support"
+                    ) { SupportView() },
                 ]
             ),
             SettingsSectionModel(
-                id: "all-settings",
-                header: "All Settings",
-                footer: "Every production tool remains available here.",
+                id: "advanced",
+                header: "Advanced",
+                footer: "Technical tools are separated from everyday preferences so the main screen stays scannable.",
                 rows: [
-                    .custom(id: "detailed-settings") {
-                        SettingsDisclosureGroup(
-                            title: "Detailed settings",
-                            subtitle: "Profile, device, scoring, experiments, backup, and app information.",
-                            isExpanded: $advancedOpen
-                        ) {
-                            profilePhotoCard
-                            profileCard
-                            unitsCard
-                            appearanceCard
-                            strapCard
-                            powerSavingCard
-                            featuresCard
-                            recoveryCard
-                            testCentreCard
-                            experimentalCard
-                            backupCard
-                            aboutCard
-                        }
-                        .padding(13)
-                    }
+                    .navDetail(
+                        id: "test-centre",
+                        icon: "stethoscope",
+                        tint: StrandPalette.metricCyan,
+                        title: "Test Centre",
+                        subtitle: "Connection, sensor, notification, and scoring diagnostics"
+                    ) { TestCentreView() },
+                    .navDetail(
+                        id: "experimental",
+                        icon: "flask.fill",
+                        tint: StrandPalette.metricPurple,
+                        title: "Experimental",
+                        subtitle: "WHOOP 5/MG probes, raw capture, and opt-in data features"
+                    ) { experimentalSettingsDetail },
+                    .navDetail(
+                        id: "about",
+                        icon: "info.circle.fill",
+                        tint: StrandPalette.textSecondary,
+                        title: "About NOOP",
+                        subtitle: "Version, diagnostics, updates, explainers, and legal information"
+                    ) { aboutSettingsDetail },
                 ]
-            )
+            ),
         ]
+    }
+
+    private var profileSettingsDetail: some View {
+        settingsDetail("Profile", subtitle: "Personal inputs used by zones, calories, Sleep, and Recovery") {
+            profilePhotoCard
+            profileCard
+        }
+    }
+
+    private var displaySettingsDetail: some View {
+        settingsDetail("Display & units", subtitle: "Choose how NOOP looks and formats measurements") {
+            unitsCard
+            appearanceCard
+        }
+    }
+
+    private var strapSettingsDetail: some View {
+        settingsDetail("Strap & collection", subtitle: "Connection and on-device collection behavior") {
+            strapCard
+            powerSavingCard
+        }
+    }
+
+    private var featureSettingsDetail: some View {
+        settingsDetail("Features & workouts", subtitle: "Optional experiences and workout behavior") {
+            featuresCard
+        }
+    }
+
+    private var recoverySettingsDetail: some View {
+        settingsDetail("Recovery & scoring", subtitle: "Calibrate and understand your scoring inputs") {
+            recoveryCard
+        }
+    }
+
+    private var experimentalSettingsDetail: some View {
+        settingsDetail("Experimental", subtitle: "Opt-in technical features with explicit tradeoffs") {
+            experimentalCard
+        }
+    }
+
+    private var backupSettingsDetail: some View {
+        settingsDetail("Backup & restore", subtitle: "Protect or recover the local NOOP database") {
+            backupCard
+        }
+    }
+
+    private var aboutSettingsDetail: some View {
+        settingsDetail("About NOOP", subtitle: "Version, updates, documentation, and diagnostics") {
+            aboutCard
+        }
+    }
+
+    private func settingsDetail<Content: View>(
+        _ title: LocalizedStringKey,
+        subtitle: LocalizedStringKey,
+        @ViewBuilder content: @escaping () -> Content
+    ) -> some View {
+        ScreenScaffold(title: title, subtitle: subtitle, lazy: true, topBackground: nil) {
+            LazyVStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+                content()
+            }
+        }
+        .environment(\.screenScaffoldNavigationRole, .detail)
     }
 
     // MARK: - Strap power saving (#477)
@@ -1194,34 +1344,6 @@ struct SettingsView: View {
         showBackupAlert = true
     }
 
-    // MARK: - Test Centre (the diagnostic home, #507/#509)
-
-    /// A nav row into the Test Centre, the single home for the diagnostic, log and test controls (spec
-    /// section 7). The strap log, recalibrate, scheduled export and experimental toggles also live there
-    /// on the same bindings, so this is a faster door to the full set without growing this screen.
-    private var testCentreCard: some View {
-        SettingsSection(
-            icon: "testtube.2",
-            title: "Test Centre",
-            blurb: "Turn on a test for the thing that's wrong, wear the strap, then tap Report. Your strap log, recalibrate, scheduled export and experimental probes all live here too."
-        ) {
-            NavigationLink(destination: TestCentreView()) {
-                HStack {
-                    Text("Open Test Centre")
-                        .font(StrandFont.body)
-                        .foregroundStyle(StrandPalette.textPrimary)
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(StrandPalette.textTertiary)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(PaperPressStyle())
-            .accessibilityLabel("Open Test Centre")
-        }
-    }
-
     // MARK: - Features (opt-in trackers)
 
     /// Opt-in, manual-first feature toggles (default OFF). Hydration tracking gates the water-log card on
@@ -1808,7 +1930,7 @@ struct SettingsView: View {
                         .foregroundStyle(StrandPalette.textTertiary)
                         .font(.system(size: 13))
                         .accessibilityHidden(true)
-                    Text("Importing overwrites everything currently on \(Platform.deviceNounPhrase). Your old data is kept in a side file just in case, and NOOP reopens the restored database automatically. Export CSV writes a WHOOP-format zip of your days, sleeps, workouts and journal that re-imports into NOOP on Mac, iPhone, or Android. On-device computed rows are marked APPROXIMATE in its Source column; the full backup stays the lossless restore path.")
+                    Text("Importing overwrites everything currently on \(Platform.deviceNounPhrase). Your old data is kept in a side file just in case, and NOOP reopens the restored database automatically. A .noopbak is an unencrypted copy of your health database; anyone with access to the file can read it, including through a cloud-synced folder. Export CSV writes a WHOOP-format zip of your days, sleeps, workouts and journal. On-device computed rows are marked APPROXIMATE in its Source column; the full backup stays the lossless restore path.")
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -2356,66 +2478,6 @@ struct SettingsView: View {
             .fill(StrandPalette.hairline)
             .frame(height: 1)
             .padding(.vertical, 4)
-    }
-}
-
-// MARK: - Advanced disclosure (S3)
-
-/// The persisted defaults for the Settings "Advanced" disclosure. Pulled out so the one fact that must
-/// never regress, that a fresh install lands COLLAPSED, is a single testable constant. The key matches
-/// the Android `SettingsDisclosurePrefs.KEY` suffix so a backup/restore round-trip carries the choice.
-enum SettingsDisclosureDefaults {
-    static let advancedOpenKey = "settingsAdvancedOpen"
-    static let advancedOpenDefault = false
-}
-
-/// A collapsible group that tucks the lower-frequency settings sections behind one tap. It is NOT a
-/// section card itself (the cards it wraps keep their own `SettingsSection` chrome). It's just a
-/// header row + a default-collapsed reveal, modelled on the Test Centre "Advanced" group. Nothing is
-/// removed: collapsed simply means the wrapped sections aren't drawn until the row is tapped open.
-/// A custom header (not SwiftUI's `DisclosureGroup`) is used so it matches NOOP's near-black
-/// instrument look, which the system control's tint and inset don't.
-private struct SettingsDisclosureGroup<Content: View>: View {
-    let title: LocalizedStringKey
-    let subtitle: LocalizedStringKey
-    @Binding var isExpanded: Bool
-    @ViewBuilder var content: () -> Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
-            } label: {
-                HStack(alignment: .center, spacing: NoopMetrics.space3) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(title)
-                            .font(StrandFont.title2)
-                            .foregroundStyle(StrandPalette.textPrimary)
-                        Text(subtitle)
-                            .font(StrandFont.subhead)
-                            .foregroundStyle(StrandPalette.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .multilineTextAlignment(.leading)
-                    }
-                    Spacer(minLength: NoopMetrics.space2)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(StrandPalette.textTertiary)
-                        .rotationEffect(.degrees(isExpanded ? 0 : -90))
-                        .accessibilityHidden(true)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(PaperPressStyle())
-            .accessibilityLabel(title)
-            .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
-            .accessibilityHint("Shows the advanced settings sections")
-            .accessibilityAddTraits(.isButton)
-
-            if isExpanded {
-                content()
-            }
-        }
     }
 }
 

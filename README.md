@@ -100,7 +100,7 @@ Packages/               Reusable protocol, storage, analytics, import, and desig
 
 ## Privacy
 
-Biometric data is stored and processed locally. The optional AI Coach is the only feature designed to make a network request, and only when configured by the user with their own provider credentials. See [`PRIVACY.md`](PRIVACY.md) and [`DISCLAIMER.md`](DISCLAIMER.md).
+Biometric data is stored and processed locally. The optional AI Coach is the only feature designed to make a network request, and only when configured by the user with their own provider credentials. See [`docs/PRIVACY_SECURITY.md`](docs/PRIVACY_SECURITY.md) and [`DISCLAIMER.md`](DISCLAIMER.md).
 
 ## Protocol and contribution notes
 

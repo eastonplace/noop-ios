@@ -117,4 +117,25 @@ final class SmartAlarmWeekdayTests: XCTestCase {
         // Mixed set lists Monday-first short names.
         XCTAssertEqual(SmartAlarmView.alarmWeekdaySummary(Set([2, 4])), "Mon, Wed")
     }
+
+    func testWindDownLabelUsesLocaleAwareAlarmClockFormatter() {
+        let utc = TimeZone(identifier: "UTC")!
+        let us = SmartAlarmView.windDownTimeLabel(
+            18 * 60 + 40,
+            locale: Locale(identifier: "en_US"),
+            calendar: cal,
+            timeZone: utc
+        )
+        let gb = SmartAlarmView.windDownTimeLabel(
+            18 * 60 + 40,
+            locale: Locale(identifier: "en_GB"),
+            calendar: cal,
+            timeZone: utc
+        )
+
+        XCTAssertTrue(us.contains("6:40"))
+        XCTAssertTrue(us.localizedCaseInsensitiveContains("PM"))
+        XCTAssertTrue(gb.contains("18:40"))
+        XCTAssertFalse(gb.localizedCaseInsensitiveContains("PM"))
+    }
 }

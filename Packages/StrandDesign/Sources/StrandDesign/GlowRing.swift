@@ -21,7 +21,7 @@ public struct ScoreRing: View {
         accent: Color,
         size: CGFloat,
         lineWidth: CGFloat? = nil,
-        format: @escaping (Double) -> String = { "\(Int($0.rounded()))" },
+        format: @escaping (Double) -> String = { ComponentValueFormat.rounded($0) },
         centerCaption: String? = nil,
         showsValue: Bool = true
     ) {
@@ -82,7 +82,7 @@ public struct ScoreRing: View {
         .frame(width: size, height: size)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(format(value)))
-        .accessibilityValue(Text("\(Int((targetProgress * 100).rounded())) percent"))
+        .accessibilityValue(Text("\(ComponentValueFormat.rounded(Double(targetProgress) * 100)) percent"))
         .onAppear { animate(to: targetProgress) }
         .onChangeCompat(of: value) { _ in animate(to: targetProgress) }
     }

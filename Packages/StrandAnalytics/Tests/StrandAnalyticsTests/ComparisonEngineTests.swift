@@ -3,6 +3,19 @@ import XCTest
 
 final class ComparisonEngineTests: XCTestCase {
 
+    func testOpposingFiniteExtremesNeverProduceNonFiniteComparison() {
+        let high = Double.greatestFiniteMagnitude
+        let comparison = ComparisonEngine.compare(
+            current: [high, high, high], previous: [-high, -high, -high]
+        )
+
+        XCTAssertTrue(comparison.current.mean.isFinite)
+        XCTAssertTrue(comparison.previous.mean.isFinite)
+        XCTAssertEqual(comparison.delta, 0)
+        XCTAssertNil(comparison.pctChange)
+        XCTAssertEqual(comparison.direction, 0)
+    }
+
     func testStatHandComputed() {
         // [10,12,14,16,18]: mean 14, median 14, min 10, max 18,
         // sample SD = 3.16227766…, OLS slope vs index 0..4 = 2.0.

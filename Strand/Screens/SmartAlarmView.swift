@@ -2,27 +2,21 @@ import SwiftUI
 import StrandDesign
 import StrandAnalytics
 
-/// Smart alarm (#207) — the iOS/macOS surface.
-///
-/// HONEST by design: a sideloaded, backgrounded app on iOS can't fire a dependable LOUD wake alarm
-/// (that needs the critical-alert entitlement, which a non-App-Store build doesn't have), so this
-/// platform deliberately does NOT offer a wake alarm. The dependable phone wake lives on Android,
-/// which has the exact-alarm primitive. Here we offer the cross-platform WIND-DOWN nudge — a gentle
-/// evening reminder — and we say plainly why there's no wake alarm, rather than promising one we
-/// can't keep.
+/// Alarm controls: a strap-firmware endpoint plus best-effort adaptive evaluation and phone backup.
+/// The UI owns no BLE/notification side effects; every editor writes shared state and the app-root
+/// `SmartAlarmRuntimeController` reconciles one generation-safe configuration.
 struct SmartAlarmView: View {
-    // #766: this is now the ONE alarm surface. The strap's silent firmware wake-alarm used to live in a
-    // separate card over in Automations, which let users conflate it with the wind-down reminder; it's
-    // moved here so every wake/wind-down control sits together. Needs the model (to arm/disarm the strap
-    // alarm over BLE) and the behavior store (the alarm's persisted on/time/weekdays).
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var behavior: BehaviorStore
-    // T702: the promoted hero needs the canonical dynamic Sleep Need (repo) and enough Recovery
-    // history to say honestly whether "In the green" can forecast tonight (intelligence).
     @EnvironmentObject private var repo: Repository
     @EnvironmentObject private var intelligence: IntelligenceEngine
+    @EnvironmentObject private var alarmMode: SmartAlarmAdaptiveModeStore
+    @EnvironmentObject private var alarmRuntime: SmartAlarmRuntimeController
 
     @State private var windDownOn = WindDownNudge.isEnabled
+    @State private var windDownPermissionDenied = false
     /// Earliest wake time the nudge is derived from (minutes since midnight). Seeded from the store.
     @State private var wakeMinutes = WindDownNudge.wakeMinutes
 
@@ -34,21 +28,13 @@ struct SmartAlarmView: View {
     /// Calendar weekday numbers laid out Monday-first (Mon…Sun → 2,3,4,5,6,7,1), matching AutomationsView.
     nonisolated private static let weekdayOrder = [2, 3, 4, 5, 6, 7, 1]
 
-    // MARK: - T702: promoted SleepAlarmModuleCard hero
-    //
-    // The canonical dynamic Sleep Need, resolved once per appearance: repo.latestNoopSleepNeedV2 →
-    // the Sleep page's own personal-mean fallback (byte-for-byte the same rule SleepView.sleepNeedMin
-    // and CoupledView.sleepNeedMin already use) → the SleepNeedV2 default. WindDownNudge is pushed
-    // the SAME resolved value (plan doc G6) so the wind-down nudge and the alarm's "be asleep by"
-    // never plan off two different numbers.
+    // MARK: - Promoted SleepAlarmModuleCard hero
+
     @State private var needMinutes: Double = SleepNeedV2.Config.production.defaultBaselineMinutes
     @State private var needIsStartingEstimate = true
-    @State private var evidence: SmartAlarmEvidence?
     @State private var scheduleToolsExpanded = false
 
     var body: some View {
-        // #766: retitled to "Alarms" because it now holds BOTH the strap's silent wake-alarm and the
-        // evening wind-down reminder, so naming it "Wind-Down" undersold it. One surface, clearly labelled.
         ScreenScaffold(title: "Alarms",
                        subtitle: "Wake and wind-down controls.") {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
@@ -60,90 +46,24 @@ struct SmartAlarmView: View {
         }
         .task {
             await resolveCanonicalNeed()
-            SmartAlarmEvidenceStore.refreshCorrelation()
-            evidence = SmartAlarmEvidenceStore.latest
+            alarmRuntime.refreshStatus()
         }
-        // Wiring for the NEW mode picker (T702): the other three properties the hero also edits
-        // (enabled / minutes / weekdays) already re-arm via the identical `.onChangeCompat` on
-        // the screen below — mode had no editor before this kit, so it gets its own.
-        .onChangeCompat(of: behavior.smartAlarmMode) { _ in model.applySmartAlarm() }
-        .onChangeCompat(of: behavior.smartAlarmEnabled) { _ in model.applySmartAlarm() }
-        .onChangeCompat(of: behavior.smartAlarmMinutes) { _ in model.applySmartAlarm() }
-        .onChangeCompat(of: behavior.smartAlarmWeekdays) { _ in model.applySmartAlarm() }
+        .alert("Notifications are off", isPresented: $windDownPermissionDenied) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Allow notifications in Settings before enabling the wind-down nudge.")
+        }
     }
 
-    // MARK: - T702 hero: real clock, real modes, real canonical need
+    private var recoveryHistoryCount: Int {
+        intelligence.results.compactMap(\.recovery).count
+    }
 
-    /// The Sleep goal / In the green / Exact time modes, mapped to the REAL conditional-alarm system
-    /// (`SmartAlarmEvaluator.Mode`, already implemented and hardened in `AppModel`). "Exact time" arms
-    /// the strap firmware alarm at the set endpoint; the two smart modes are best-effort early wake —
-    /// the endpoint stays armed as the fail-safe, and early wake needs a live, connected phone, so it
-    /// is never promised as guaranteed on iOS.
     private var wakeModes: [SleepAlarmWakeMode] {
-        [
-            SleepAlarmWakeMode(
-                id: SmartAlarmEvaluator.Mode.exactTime.rawValue,
-                title: String(localized: "Exact time"),
-                explanation: String(localized: "Wakes you with the strap's firmware alarm at exactly the time you set — no window."),
-                windowMinutes: 0
-            ),
-            SleepAlarmWakeMode(
-                id: SmartAlarmEvaluator.Mode.sleepGoal.rawValue,
-                title: String(localized: "Sleep goal"),
-                explanation: String(localized: "Best-effort early wake once tonight's Sleep Need is banked, inside a \(SmartAlarmEvaluator.adaptiveWindowMinutes)-minute window. The strap's exact-time alarm stays armed as the fail-safe; early wake is best-effort on iOS, never guaranteed."),
-                windowMinutes: SmartAlarmEvaluator.adaptiveWindowMinutes
-            ),
-            SleepAlarmWakeMode(
-                id: SmartAlarmEvaluator.Mode.inTheGreen.rawValue,
-                title: String(localized: "In the green"),
-                explanation: String(localized: "Best-effort early wake once tomorrow's Recovery is projected to land in the green, inside a \(SmartAlarmEvaluator.adaptiveWindowMinutes)-minute window. Same fail-safe endpoint and same iOS best-effort caveat as Sleep goal."),
-                windowMinutes: SmartAlarmEvaluator.adaptiveWindowMinutes,
-                availability: inTheGreenAvailability
-            )
-        ]
+        SleepAlarmEditorSupport.wakeModes(recoveryHistoryCount: recoveryHistoryCount)
     }
 
-    /// Scored Recovery nights on hand — the same `RecoveryForecaster.minBaselineNights` gate the
-    /// forecast itself enforces, so "In the green" never claims availability the forecast would
-    /// immediately refuse.
-    private var recoveryHistoryCount: Int { intelligence.results.compactMap(\.recovery).count }
-
-    private var inTheGreenAvailability: SleepAlarmWakeMode.Availability {
-        recoveryHistoryCount >= RecoveryForecaster.minBaselineNights
-            ? .available
-            : .unavailable(reason: String(localized: "Needs a few more scored nights of Recovery to forecast tonight (\(recoveryHistoryCount) of \(RecoveryForecaster.minBaselineNights) so far)."))
-    }
-
-    private var smartAlarmModeBinding: Binding<String> {
-        Binding(
-            get: { behavior.smartAlarmMode.rawValue },
-            set: { raw in
-                guard let mode = SmartAlarmEvaluator.Mode(rawValue: raw) else { return }
-                behavior.smartAlarmMode = mode
-            }
-        )
-    }
-
-    /// Bridges the real time-of-day store (`behavior.smartAlarmMinutes`, 0..<1440) onto the module's
-    /// continuous wake axis for a given "now" — resolves to later today or tomorrow, whichever is the
-    /// actual next occurrence, and writes any nudge straight back to the same store the DatePicker
-    /// below edits (one binding, two controls).
-    private func wakeContinuousBinding(nowMinutes: Int) -> Binding<Int> {
-        Binding(
-            get: { SleepAlarmTime.nextOccurrence(now: nowMinutes, timeOfDay: behavior.smartAlarmMinutes) },
-            set: { newContinuous in
-                behavior.smartAlarmMinutes = ((newContinuous % 1_440) + 1_440) % 1_440
-            }
-        )
-    }
-
-    /// Resolve tonight's canonical dynamic Sleep Need, three tiers, honest about which one landed:
-    /// 1) the real V2 point at/before today (`repo.latestNoopSleepNeedV2`);
-    /// 2) else the Sleep page's own personal-mean fallback — byte-for-byte `SleepView.sleepNeedMin`
-    ///    (CoupledView.sleepNeedMin already mirrors the same rule, so all three screens agree);
-    /// 3) else the SleepNeedV2 default (480 min), labelled a starting estimate, never silently.
-    /// Pushes the resolved value into `WindDownNudge` (plan doc G6) so wind-down times off the same
-    /// number the alarm module's "be asleep by" does.
+    /// Resolve tonight's canonical dynamic Sleep Need, three tiers, honest about which one landed.
     private func resolveCanonicalNeed() async {
         let today = Repository.localDayKey(Date())
         let plan = await repo.canonicalSleepNeedPlan(onOrBefore: today)
@@ -152,29 +72,37 @@ struct SmartAlarmView: View {
         WindDownNudge.updateCanonicalNeedMinutes(needMinutes)
     }
 
-    /// The hero: the promoted module (real clock via `TimelineView`, real modes, real need) plus the
-    /// quiet last-evaluation evidence row and tonight's real plan timeline. A 60 s tick is plenty for
-    /// a "be asleep by" countdown; the module itself still recomputes instantly on every user edit.
+    /// The promoted module plus last-evaluation evidence and tonight's real plan timeline.
     private var alarmHeroSection: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
-            let comps = Calendar.current.dateComponents([.hour, .minute], from: context.date)
-            let nowMinutes = (comps.hour ?? 0) * 60 + (comps.minute ?? 0)
+            let components = Calendar.current.dateComponents([.hour, .minute], from: context.date)
+            let wallClockNowMinutes = (components.hour ?? 0) * 60 + (components.minute ?? 0)
             let modes = wakeModes
-            let selected = modes.first { $0.id == behavior.smartAlarmMode.rawValue }
+            let selected = modes.first { $0.id == alarmMode.mode.rawValue }
             let windowMinutes = selected?.windowMinutes ?? 0
-            let wake = SleepAlarmTime.nextOccurrence(now: nowMinutes, timeOfDay: behavior.smartAlarmMinutes)
+            let schedule = SleepAlarmEditorSupport.schedule(at: context.date, behavior: behavior)
+            let wake = schedule?.wakeAxisMinutes ?? SleepAlarmTime.nextOccurrence(
+                now: wallClockNowMinutes, timeOfDay: behavior.smartAlarmMinutes)
+            let now = schedule?.nowAxisMinutes ?? wallClockNowMinutes
             let windowStart = wake - windowMinutes
             let asleepBy = SleepAlarmTime.asleepByMinutes(wakeMinutes: wake, windowMinutes: windowMinutes,
                                                            needMinutes: needMinutes)
+            let clockLabel: (Int) -> String = { minute in
+                schedule?.clockLabel(for: minute) ?? SleepAlarmTime.clock(minute)
+            }
 
             VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
                 SleepAlarmModuleCard(
                     armed: $behavior.smartAlarmEnabled,
                     modes: modes,
-                    selectedModeId: smartAlarmModeBinding,
-                    wakeMinutes: wakeContinuousBinding(nowMinutes: nowMinutes),
-                    nowMinutes: nowMinutes,
-                    needMinutes: needMinutes
+                    selectedModeId: SleepAlarmEditorSupport.modeBinding(alarmMode),
+                    wakeMinutes: SleepAlarmEditorSupport.wakeBinding(behavior, now: context.date),
+                    nowMinutes: now,
+                    needMinutes: needMinutes,
+                    wakeDayLabel: schedule?.dayLabel ?? String(localized: "No enabled day"),
+                    deliveryStatus: alarmRuntime.deliveryStatus,
+                    showsBedtimePlan: schedule?.isUpcomingSleepPeriod == true,
+                    clockLabel: clockLabel
                 )
                 if needIsStartingEstimate {
                     Text("Starting estimate — NOOP hasn't computed your personal Sleep Need yet.")
@@ -182,19 +110,23 @@ struct SmartAlarmView: View {
                         .foregroundStyle(StrandPalette.textTertiary)
                         .padding(.horizontal, 4)
                 }
-                if let evidence {
+                if let evidence = alarmRuntime.evidence {
                     evaluationEvidenceRow(evidence)
                 }
-                if behavior.smartAlarmEnabled {
-                    SleepPlanTimeline(now: nowMinutes, asleepBy: asleepBy, windowStart: windowStart, alarm: wake)
+                if behavior.smartAlarmEnabled, schedule?.isUpcomingSleepPeriod == true {
+                    SleepPlanTimeline(
+                        now: now,
+                        asleepBy: asleepBy,
+                        windowStart: windowStart,
+                        alarm: wake,
+                        clockLabel: clockLabel
+                    )
                 }
             }
         }
     }
 
-    /// Quiet "last evaluation" evidence row (T702): decision, reason, and the correlated strap
-    /// armed/fired times when the strap has confirmed them. Read-only, no controls — a diagnostic
-    /// trace of the SAME hardened evaluator/actuation path in `AppModel`, never re-derived here.
+    /// Read-only diagnostic trace of the exact runtime generation that produced the current endpoint.
     private func evaluationEvidenceRow(_ e: SmartAlarmEvidence) -> some View {
         PaperCard(padding: 14) {
             VStack(alignment: .leading, spacing: 6) {
@@ -228,18 +160,13 @@ struct SmartAlarmView: View {
     private static func decisionWord(_ d: SmartAlarmEvaluator.Decision) -> String {
         switch d {
         case .wait:        return String(localized: "Waiting")
-        case .wakeNow:      return String(localized: "Woke early")
-        case .endpoint:     return String(localized: "Endpoint reached")
-        case .unavailable:  return String(localized: "Unavailable")
+        case .wakeNow:     return String(localized: "Woke early")
+        case .endpoint:    return String(localized: "Endpoint reached")
+        case .unavailable: return String(localized: "Unavailable")
         }
     }
 
-    /// Kit 47 is the only primary alarm editor. The former production screen repeated enable/time
-    /// controls in two more legacy cards underneath it, which made the adoption visually false and
-    /// created competing bindings for the same store. The tools that are not part of the promoted
-    /// module remain reachable here: the exact time picker, weekday schedule, test buzz, and backup
-    /// status. Collapsing them keeps the accepted lab module intact above the fold without dropping a
-    /// production capability.
+    /// The exact time picker, weekday schedule, test buzz, and actual backup-notification status.
     private var scheduleAndStrapTools: some View {
         PaperCard(padding: 14) {
             VStack(alignment: .leading, spacing: 0) {
@@ -301,120 +228,18 @@ struct SmartAlarmView: View {
                         SettingsRow(icon: "iphone", title: "Backup notification",
                                     subtitle: "Phone fallback when the strap alarm is armed",
                                     showsChevron: false) {
-                            Text(behavior.smartAlarmEnabled ? "On" : "Off")
+                            Text(alarmRuntime.backupStatus)
                         }
 
                         NoteCard("Alarms use your strap's vibration. Keep it charged and within range.",
                                  style: .warning)
-                        PrimaryButton("Test alarm") { model.buzz(loops: 2) }
+                        PrimaryButton("Test alarm") { model.buzzStrapOnce() }
                     }
                 }
             }
         }
     }
 
-    private var paperAlarmSummary: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
-            VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
-                SectionHeader("Strap wake alarm")
-                PaperCard(padding: 14) {
-                    VStack(spacing: 0) {
-                        SettingsRow(icon: "bell", title: "Smart Wake",
-                                    subtitle: "Silent strap vibration", showsChevron: false) {
-                            Toggle("", isOn: $behavior.smartAlarmEnabled)
-                                .labelsHidden().tint(StrandPalette.ink)
-                        }
-                        Divider().overlay(StrandPalette.hairline)
-                        SettingsRow(title: "Target time", showsChevron: false) {
-                            Text(timeLabel(behavior.smartAlarmMinutes))
-                        }
-                        Divider().overlay(StrandPalette.hairline)
-                        Text("Your strap will vibrate gently to wake you. Keep a reliable backup alarm.")
-                            .font(StrandFont.caption)
-                            .foregroundStyle(StrandPalette.textSecondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.vertical, 10)
-                    }
-                }
-            }
-            VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
-                SectionHeader("Evening wind-down reminder")
-                PaperCard(padding: 14) {
-                    VStack(spacing: 0) {
-                        SettingsRow(icon: "moon", title: "Wind-down reminder",
-                                    subtitle: "Help build a consistent bedtime", showsChevron: false) {
-                            Toggle("", isOn: $windDownOn)
-                                .labelsHidden().tint(StrandPalette.ink)
-                                .onChangeCompat(of: windDownOn) { on in WindDownNudge.setEnabled(on) }
-                        }
-                        Divider().overlay(StrandPalette.hairline)
-                        SettingsRow(title: "Start time", showsChevron: false) {
-                            Text(timeLabel(WindDownNudge.nudgeMinuteOfDay()))
-                        }
-                    }
-                }
-            }
-            PaperCard(padding: 14) {
-                SettingsRow(icon: "iphone", title: "Backup notification",
-                            subtitle: "Phone fallback when the strap alarm is armed", showsChevron: false) {
-                    Text(behavior.smartAlarmEnabled ? "On" : "Off")
-                }
-            }
-            NoteCard("Alarms use your strap's vibration. Keep it charged and within range.", style: .warning)
-            PrimaryButton("Test alarm") { model.buzz(loops: 2) }
-        }
-    }
-
-    // A small Sleep-tinted hero — the wind-down readout as a clean time pairing (wind-down → wake)
-    // over a scenic Sleep backdrop, so a glance gives the night's shape. It's about winding down to
-    // sleep, so it reads in the Sleep world (indigo) rather than the brand-green chrome below.
-    private var windowHero: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous)
-                .fill(StrandPalette.card)
-                .overlay(
-                    RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous)
-                        .strokeBorder(StrandPalette.cardBorder, lineWidth: 1)
-                )
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Tonight").strandOverline()
-                HStack(alignment: .firstTextBaseline, spacing: 14) {
-                    heroTime(label: "Wind down",
-                             time: windDownOn ? timeLabel(WindDownNudge.nudgeMinuteOfDay()) : "—",
-                             tint: StrandPalette.restColor)
-                    Image(systemName: "arrow.right")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(StrandPalette.textTertiary)
-                        .accessibilityHidden(true)
-                    heroTime(label: "Wake",
-                             time: timeLabel(wakeMinutes),
-                             tint: StrandPalette.restBright)
-                    Spacer(minLength: 0)
-                }
-                Text(windDownOn
-                     ? "A calm nudge \(WindDownNudge.sleepNeedMinutes / 60)h \(WindDownNudge.leadMinutes)m before your wake time."
-                     : "Turn on the wind-down reminder below to land at your wake time rested.")
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(20)
-        }
-        .accessibilityElement(children: .combine)
-    }
-
-    private func heroTime(label: LocalizedStringKey, time: String, tint: Color) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(label).strandOverline()
-            Text(time)
-                .font(StrandFont.number(28))
-                .foregroundStyle(StrandPalette.textPrimary)
-        }
-    }
-
-    // The up-front, honest note about the difference between the strap's silent buzz (above) and a loud
-    // phone wake. The strap alarm is real, but it's a gentle wrist buzz, not a sound, so we say plainly
-    // to keep a backup, and that the louder smart wake lives on Android.
     private var honestyCard: some View {
         StrandCard(padding: 20) {
             HStack(alignment: .top, spacing: 12) {
@@ -425,7 +250,7 @@ struct SmartAlarmView: View {
                     Text("The strap alarm is a silent buzz, not a sound")
                         .font(StrandFont.headline)
                         .foregroundStyle(StrandPalette.textPrimary)
-                    Text("The wake-alarm above buzzes your wrist from the strap's own firmware. It can't sound a loud alarm. We also schedule a backup notification at your wake time, but a sideloaded app can't sound a guaranteed wake on this device (that needs a critical-alert permission this build doesn't have), so Focus or silent mode can still mute it. Keep your phone's built-in Clock alarm as your real backup. NOOP's phone-based smart wake (light-sleep detection) is available on the Android app.")
+                    Text("The wake alarm can buzz your wrist from the strap's firmware after the strap confirms it is armed. A phone backup notification is best-effort: Focus, silent mode, or denied notification permission can prevent it from alerting you. Keep your phone's built-in Clock alarm as your dependable backup.")
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -434,92 +259,7 @@ struct SmartAlarmView: View {
         }
     }
 
-    // MARK: - Strap silent wake-alarm (#766, moved here from Automations)
-
-    // The strap's own firmware alarm: a silent wrist buzz at the chosen time, armed over BLE so it fires
-    // even if the phone is asleep or NOOP is closed. Lifted verbatim (behaviour intact) out of
-    // AutomationsView.alarmCard so users stop conflating it with the wind-down reminder below.
-    private var strapAlarmCard: some View {
-        StrandCard(padding: 20, tint: behavior.smartAlarmEnabled ? StrandPalette.accent : nil) {
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Morning").strandOverline()
-                    HStack(spacing: 10) {
-                        Image(systemName: "alarm.fill")
-                            .foregroundStyle(StrandPalette.accent)
-                            .accessibilityHidden(true)
-                        Text("Strap wake-alarm")
-                            .font(StrandFont.title2)
-                            .foregroundStyle(StrandPalette.textPrimary)
-                    }
-                }
-
-                HStack(alignment: .center, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Wake me with a strap buzz")
-                            .font(StrandFont.body)
-                            .foregroundStyle(StrandPalette.textPrimary)
-                        Text("Arms the strap to buzz at your wake time, even if NOOP is closed. Sends the exact alarm command the official app sends, confirmed buzzing on a real WHOOP 4.0 (community wire capture + on-device test, #535). Keep a backup alarm for anything you truly can't miss.")
-                            .font(StrandFont.footnote)
-                            .foregroundStyle(StrandPalette.textTertiary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer()
-                    Toggle("", isOn: $behavior.smartAlarmEnabled)
-                        .labelsHidden().toggleStyle(.switch).tint(StrandPalette.ink)
-                        .accessibilityLabel("Wake me with a strap buzz")
-                }
-                .frame(minHeight: 42)
-
-                if behavior.smartAlarmEnabled {
-                    Divider().overlay(StrandPalette.hairline)
-                    HStack {
-                        Text("Wake at").font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
-                        Spacer()
-                        DatePicker("", selection: alarmTimeBinding, displayedComponents: .hourAndMinute)
-                            .labelsHidden().datePickerStyle(.compact)
-                            .accessibilityLabel("Wake time")
-                    }
-                    .frame(minHeight: 42)
-                    Divider().overlay(StrandPalette.hairline)
-                    alarmWeekdayPicker
-                    // #864: a WHOOP 5/MG only arms its firmware alarm when Experimental is on (see
-                    // BLEManager.armStrapAlarm, which logs "not armed" and returns otherwise). Without this
-                    // branch the card claimed "Armed on the strap itself" to a 5/MG owner whose strap was
-                    // NOT armed, an honest-data violation (reporter: 5/MG, Experimental off, never buzzed).
-                    // Mirrors the Android SmartAlarmScreen StrapAlarmCard wording exactly. The else copy
-                    // was truth-synced once a real 4.0 wake was confirmed (PR #535: official-app wire
-                    // capture + on-device buzz by the capture author); 5/MG remains unconfirmed, so this
-                    // gated branch keeps its honesty wording.
-                    if model.whoop5Detected && !PuffinExperiment.isEnabled {
-                        Text("Your WHOOP 5/MG won't arm this until Experimental mode is on (Settings, Experimental). Right now your wake time is saved but the strap is NOT armed. Even with Experimental on, a 5/MG strap-driven wake is still unconfirmed on our side, so keep a backup alarm.")
-                            .font(StrandFont.footnote)
-                            .foregroundStyle(StrandPalette.textPrimary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    } else if model.whoop5Detected {
-                        // 5/MG with Experimental ON: the strap IS armed (the rev-4 puffin payload), but a
-                        // strap-driven wake has NEVER been captured on 5/MG - so the "confirmed on 4.0" copy
-                        // must NOT show here (#864 honesty). Keep the 5/MG-unconfirmed caveat.
-                        Text("Armed on the strap itself with the experimental 5/MG command. A strap-driven wake is still unconfirmed on 5/MG on our side (confirmed only on WHOOP 4.0), so keep a backup alarm for anything you truly can't miss.")
-                            .font(StrandFont.footnote)
-                            .foregroundStyle(StrandPalette.textTertiary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    } else {
-                        Text("Armed on the strap itself, so it can buzz at your wake time even if your phone is asleep or NOOP is closed. Sends the exact alarm command the official app sends, confirmed buzzing on a real WHOOP 4.0 (community wire capture + on-device test, #535). Keep a backup alarm for anything you truly can't miss.")
-                            .font(StrandFont.footnote)
-                            .foregroundStyle(StrandPalette.textTertiary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-            }
-            .onChangeCompat(of: behavior.smartAlarmEnabled) { _ in model.applySmartAlarm() }
-            .onChangeCompat(of: behavior.smartAlarmMinutes) { _ in model.applySmartAlarm() }
-            .onChangeCompat(of: behavior.smartAlarmWeekdays) { _ in model.applySmartAlarm() }
-        }
-    }
-
     private var windDownCard: some View {
-        // Sleep-tinted when armed so the active state reads in the sleep world; neutral when off.
         StrandCard(padding: 20, tint: windDownOn ? StrandPalette.restColor : nil) {
             VStack(alignment: .leading, spacing: 16) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -548,27 +288,38 @@ struct SmartAlarmView: View {
                     Toggle("", isOn: $windDownOn)
                         .labelsHidden().toggleStyle(.switch).tint(StrandPalette.ink)
                         .accessibilityLabel("Remind me to wind down")
-                        .onChangeCompat(of: windDownOn) { on in WindDownNudge.setEnabled(on) }
+                        .onChangeCompat(of: windDownOn) { on in
+                            WindDownNudge.setEnabled(on) { outcome in
+                                switch outcome {
+                                case .scheduled, .off:
+                                    windDownOn = WindDownNudge.isEnabled
+                                case .denied:
+                                    windDownOn = false
+                                    windDownPermissionDenied = true
+                                }
+                            }
+                        }
                 }
                 .frame(minHeight: 42)
 
                 if windDownOn {
                     Divider().overlay(StrandPalette.hairline)
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Wake time")
-                                .font(StrandFont.body)
-                                .foregroundStyle(StrandPalette.textPrimary)
-                            Text("The nudge fires \(WindDownNudge.sleepNeedMinutes / 60)h \(WindDownNudge.leadMinutes)m before this.")
-                                .font(StrandFont.footnote)
-                                .foregroundStyle(StrandPalette.textTertiary)
+                    ViewThatFits(in: .horizontal) {
+                        HStack {
+                            windDownWakeTimeCopy
+                            Spacer(minLength: 12)
+                            DatePicker("Wake time", selection: wakeBinding, displayedComponents: .hourAndMinute)
+                                .labelsHidden()
+                                .accessibilityLabel("Wake time")
                         }
-                        Spacer()
-                        DatePicker("", selection: wakeBinding, displayedComponents: .hourAndMinute)
-                            .labelsHidden()
-                            .accessibilityLabel("Wake time")
+                        VStack(alignment: .leading, spacing: 10) {
+                            windDownWakeTimeCopy
+                            DatePicker("Wake time", selection: wakeBinding, displayedComponents: .hourAndMinute)
+                                .labelsHidden()
+                                .accessibilityLabel("Wake time")
+                        }
                     }
-                    Text("You'll be reminded around \(timeLabel(WindDownNudge.nudgeMinuteOfDay())).")
+                    Text("You'll be reminded around \(Self.windDownTimeLabel(WindDownNudge.nudgeMinuteOfDay())).")
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textSecondary)
 
@@ -579,34 +330,31 @@ struct SmartAlarmView: View {
         }
     }
 
-    // PR#554 — per-day wake overrides. A toggle reveals a per-weekday wake-time editor; with it off (or no
-    // override set) every evening uses the single wake time above. Each weekday row shows the effective wake
-    // (override or the default) and lets the user set or clear that day's time.
-    @ViewBuilder private var perDaySection: some View {
-        HStack(alignment: .center, spacing: 16) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Different wake time per day")
-                    .font(StrandFont.body)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                Text("Set a wake time for specific days (a lie-in at the weekend, say). Days you leave alone use the time above.")
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer()
-            Toggle("", isOn: $perDayOn)
-                .labelsHidden().toggleStyle(.switch).tint(StrandPalette.ink)
-                .accessibilityLabel("Different wake time per day")
-                .onChangeCompat(of: perDayOn) { on in
-                    // Turning the section OFF clears every override (so the nudge reverts to the single time);
-                    // turning it ON just reveals the editor — no override is created until the user sets one.
-                    if !on {
-                        for weekday in 1...7 { WindDownNudge.setWakeOverride(weekday: weekday, minutes: nil) }
-                        overrides = [:]
-                    }
-                }
+    private var windDownWakeTimeCopy: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Wake time")
+                .font(StrandFont.body)
+                .foregroundStyle(StrandPalette.textPrimary)
+            Text("The nudge fires \(SleepAlarmTime.duration(WindDownNudge.sleepNeedMinutes + WindDownNudge.leadMinutes)) before this.")
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(minHeight: 42)
+    }
+
+    @ViewBuilder private var perDaySection: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: 16) {
+                perDayCopy
+                Spacer(minLength: 12)
+                perDayToggle
+            }
+            VStack(alignment: .leading, spacing: 10) {
+                perDayCopy
+                perDayToggle
+            }
+        }
+        .frame(minHeight: 44)
 
         if perDayOn {
             VStack(spacing: 8) {
@@ -618,17 +366,55 @@ struct SmartAlarmView: View {
         }
     }
 
-    /// One weekday's override row: the day name, the effective wake time (override or default), a picker to
-    /// set it, and a clear control shown only when an override exists for that day.
+    private var perDayCopy: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Different wake time per day")
+                .font(StrandFont.body)
+                .foregroundStyle(StrandPalette.textPrimary)
+            Text("Set a wake time for specific days (a lie-in at the weekend, say). Days you leave alone use the time above.")
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var perDayToggle: some View {
+        Toggle("Different wake time per day", isOn: $perDayOn)
+            .labelsHidden().toggleStyle(.switch).tint(StrandPalette.ink)
+            .accessibilityLabel("Different wake time per day")
+            .onChangeCompat(of: perDayOn) { on in
+                if !on {
+                    WindDownNudge.setWakeOverrides([:])
+                    overrides = [:]
+                }
+            }
+    }
+
     private func weekdayOverrideRow(_ weekday: Int) -> some View {
         let effective = overrides[weekday] ?? wakeMinutes
         let hasOverride = overrides[weekday] != nil
-        return HStack(spacing: 12) {
-            Text(Self.weekdayName(weekday))
-                .font(StrandFont.subhead)
-                .foregroundStyle(hasOverride ? StrandPalette.textPrimary : StrandPalette.textSecondary)
-                .frame(width: 96, alignment: .leading)
-            Spacer(minLength: 0)
+        return ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) {
+                weekdayOverrideLabel(weekday, hasOverride: hasOverride)
+                Spacer(minLength: 0)
+                weekdayOverrideControls(weekday, effective: effective, hasOverride: hasOverride)
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                weekdayOverrideLabel(weekday, hasOverride: hasOverride)
+                weekdayOverrideControls(weekday, effective: effective, hasOverride: hasOverride)
+            }
+        }
+    }
+
+    private func weekdayOverrideLabel(_ weekday: Int, hasOverride: Bool) -> some View {
+        Text(Self.weekdayName(weekday))
+            .font(StrandFont.subhead)
+            .foregroundStyle(hasOverride ? StrandPalette.textPrimary : StrandPalette.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func weekdayOverrideControls(_ weekday: Int, effective: Int, hasOverride: Bool) -> some View {
+        HStack(spacing: 8) {
             if hasOverride {
                 Button {
                     WindDownNudge.setWakeOverride(weekday: weekday, minutes: nil)
@@ -637,21 +423,21 @@ struct SmartAlarmView: View {
                     Image(systemName: "arrow.uturn.backward")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(StrandPalette.textTertiary)
-                        .padding(6)
+                        .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Clear \(Self.weekdayName(weekday)) override, use the default wake time")
+                .accessibilityLabel("Clear \(Self.weekdayName(weekday)) override")
+                .accessibilityHint("Uses the default wake time")
             }
-            DatePicker("", selection: overrideBinding(weekday, effective: effective),
+            DatePicker("\(Self.weekdayName(weekday)) wake time",
+                       selection: overrideBinding(weekday, effective: effective),
                        displayedComponents: .hourAndMinute)
                 .labelsHidden()
                 .accessibilityLabel("\(Self.weekdayName(weekday)) wake time")
         }
     }
 
-    /// A binding for one weekday's wake override — reads the effective minute, writes a NEW override (a pick
-    /// always sets that day's override) into both the store and the local mirror, rescheduling via the store.
     private func overrideBinding(_ weekday: Int, effective: Int) -> Binding<Date> {
         Binding(
             get: {
@@ -669,7 +455,6 @@ struct SmartAlarmView: View {
         )
     }
 
-    /// Full weekday name for a Calendar weekday number (1=Sun…7=Sat).
     private static func weekdayName(_ dow: Int) -> String {
         let names = [String(localized: "Sunday"), String(localized: "Monday"), String(localized: "Tuesday"),
                      String(localized: "Wednesday"), String(localized: "Thursday"), String(localized: "Friday"),
@@ -677,7 +462,6 @@ struct SmartAlarmView: View {
         return (1...7).contains(dow) ? names[dow - 1] : String(localized: "Day \(dow)")
     }
 
-    // Bridges the minutes-since-midnight store to a DatePicker's Date, persisting + rescheduling.
     private var wakeBinding: Binding<Date> {
         Binding(
             get: {
@@ -695,26 +479,37 @@ struct SmartAlarmView: View {
         )
     }
 
-    private func timeLabel(_ minutes: Int) -> String {
-        String(format: "%02d:%02d", minutes / 60, minutes % 60)
+    nonisolated static func windDownTimeLabel(
+        _ minutes: Int,
+        locale: Locale = .autoupdatingCurrent,
+        calendar: Calendar = .autoupdatingCurrent,
+        timeZone: TimeZone = .autoupdatingCurrent
+    ) -> String {
+        SleepAlarmTime.clock(minutes, locale: locale, calendar: calendar, timeZone: timeZone)
     }
-
-    // MARK: - Strap alarm weekday picker (#766, moved here from Automations, behaviour intact)
 
     private var alarmWeekdayPicker: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
+            LazyVGrid(columns: alarmWeekdayColumns, spacing: 6) {
                 ForEach(Self.weekdayOrder, id: \.self) { dow in
                     let selected = Self.alarmWeekdayIsSelected(dow, in: behavior.smartAlarmWeekdays)
-                    Text(Self.alarmWeekdayInitial(dow))
-                        .font(StrandFont.caption)
-                        .foregroundStyle(selected ? StrandPalette.surfaceBase : StrandPalette.textSecondary)
-                        .frame(width: 30, height: 30)
-                        .background(selected ? StrandPalette.accent : StrandPalette.surfaceInset, in: Circle())
-                        .contentShape(Circle())
-                        .onTapGesture { behavior.smartAlarmWeekdays = Self.alarmToggledWeekday(dow, in: behavior.smartAlarmWeekdays) }
+                    Button {
+                            behavior.smartAlarmWeekdays = Self.alarmToggledWeekday(
+                                dow, in: behavior.smartAlarmWeekdays
+                            )
+                    } label: {
+                        Text(Self.alarmWeekdayInitial(dow))
+                            .font(StrandFont.caption)
+                            .foregroundStyle(selected ? StrandPalette.surfaceBase : StrandPalette.textSecondary)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .background(selected ? StrandPalette.accent : StrandPalette.surfaceInset,
+                                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
                         .accessibilityLabel(Self.weekdayName(dow))
+                        .accessibilityValue(selected ? "Selected" : "Not selected")
                         .accessibilityAddTraits(selected ? .isSelected : [])
+                        .accessibilityHint("Double-tap to \(selected ? "exclude" : "include") this day")
                 }
             }
             Text(Self.alarmWeekdaySummary(behavior.smartAlarmWeekdays))
@@ -724,7 +519,13 @@ struct SmartAlarmView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// Bridges the strap alarm's minutes-since-midnight store to a DatePicker's Date.
+    private var alarmWeekdayColumns: [GridItem] {
+        Array(
+            repeating: GridItem(.flexible(minimum: 44), spacing: 6),
+            count: dynamicTypeSize.isAccessibilitySize ? 4 : 7
+        )
+    }
+
     private var alarmTimeBinding: Binding<Date> {
         Binding(
             get: {
@@ -740,16 +541,10 @@ struct SmartAlarmView: View {
         )
     }
 
-    // The strap-alarm weekday rules: pure + nonisolated so they stay unit-testable. Kept byte-identical
-    // to the originals in AutomationsView (only renamed with an `alarm` prefix to avoid colliding with
-    // this view's full-name `weekdayName`).
-
-    /// A day reads as "on" when the set is empty (= every day) or explicitly contains it.
     nonisolated static func alarmWeekdayIsSelected(_ dow: Int, in days: Set<Int>) -> Bool {
         days.isEmpty || days.contains(dow)
     }
 
-    /// Toggle one weekday, normalising "every day" at both ends so the empty set always means every day.
     nonisolated static func alarmToggledWeekday(_ dow: Int, in days: Set<Int>) -> Set<Int> {
         var next: Set<Int>
         if days.isEmpty {
@@ -765,7 +560,6 @@ struct SmartAlarmView: View {
         return next.count == 7 ? [] : next
     }
 
-    /// Human-readable summary of the selection.
     nonisolated static func alarmWeekdaySummary(_ days: Set<Int>) -> String {
         if days.isEmpty || days.count == 7 { return String(localized: "Every day") }
         if days == Set(2...6) { return String(localized: "Weekdays") }
@@ -773,9 +567,6 @@ struct SmartAlarmView: View {
         return weekdayOrder.filter { days.contains($0) }.map { alarmWeekdayShort($0) }.joined(separator: ", ")
     }
 
-    /// One-letter day chip. Derived from the localized short name so the initials follow the
-    /// language (and Tue/Thu or Sat/Sun never share a single collision-prone key). English output
-    /// is byte-identical to the old hardcoded initials.
     private static func alarmWeekdayInitial(_ dow: Int) -> String {
         let short = alarmWeekdayShort(dow)
         return short == "?" ? "?" : String(short.prefix(1))

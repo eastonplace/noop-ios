@@ -1,7 +1,7 @@
 # NOOP — System Architecture
 
 NOOP is a standalone, fully **offline** companion app for WHOOP straps (4.0 and 5.0). It talks
-directly to the strap over Bluetooth Low Energy, stores everything on-device in SQLite (GRDB on Mac/iOS, Room on Android), and computes
+directly to the strap over Bluetooth Low Energy, stores everything on the iPhone in SQLite through GRDB, and computes
 recovery, strain, HRV, and sleep locally. There is no WHOOP cloud, no account —
 the app interoperates with **your own device and your own data**. It can also import data you already
 own: WHOOP CSV exports and Apple Health exports.
@@ -60,7 +60,7 @@ through `Repository`.
 ## 2. Repository layout
 
 ```
-Strand/                         macOS SwiftUI app target (the reference implementation)
+Strand/                         shared iPhone application implementation
 ├── App/                        Composition root + window/scene
 │   ├── StrandApp.swift         @main App scene; owns AppModel, wires environment objects
 │   ├── AppModel.swift          @MainActor root state — owns BLE, Repository, profiles
@@ -89,8 +89,12 @@ Strand/                         macOS SwiftUI app target (the reference implemen
 │   ├── Profile.swift           user profile (age/sex/body/HRmax)
 │   └── BehaviorStore.swift     toggles for automations/coaching
 ├── Screens/                    SwiftUI feature screens (Today, Live, Sleep, Trends…)
-├── MenuBar/                    glanceable menu-bar extra
-└── System/                     macOS integrations (lock screen, Shortcuts)
+└── System/                     iOS-safe system integrations
+
+StrandiOS/                      iPhone entry point and iOS integrations
+StrandiOSShared/                app/extension shared models
+StrandiOSWidgets/               WidgetKit and Live Activity extension
+StrandiOSTests/                 iOS-specific tests
 
 Packages/                       Cross-platform Swift packages (iOS 16+ / macOS 13+)
 ├── WhoopProtocol/              BLE frame parsing, CRC, command/event/packet decode
@@ -102,11 +106,9 @@ Packages/                       Cross-platform Swift packages (iOS 16+ / macOS 1
 Tools/Backfill/                 CLI offload/replay tool
 ```
 
-The app target (`Strand/`) is the **macOS reference implementation**. The same five packages back the
-**iOS** app (`StrandiOS/`, `StrandiOSShared/`, `StrandiOSWidgets/` — **build-from-source only**, no
-App Store/TestFlight; see [`IOS.md`](./IOS.md)) and the **Android** app (`android/`, Room/Kotlin). The
-packages already declare `.iOS(.v16)` and `.macOS(.v13)` and keep all UI-framework code behind
-`#if canImport(UIKit)` / `#if canImport(AppKit)` guards so the cores port unchanged.
+`project.yml` combines these sources into the `NOOPiOS`, `NOOPiOSWidgets`, and `NOOPiOSTests`
+targets. Reusable packages retain iOS/macOS platform declarations and framework guards so SwiftPM
+tests can run on a Mac; the repository does not define a macOS application target.
 
 ---
 

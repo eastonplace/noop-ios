@@ -74,7 +74,7 @@ public struct TrendChart: View {
         showsArea: Bool = true,
         height: CGFloat = NoopMetrics.chartHeight,
         showsHover: Bool = true,
-        valueFormat: @escaping (Double) -> String = { String(Int($0.rounded())) },
+        valueFormat: @escaping (Double) -> String = { ComponentValueFormat.rounded($0) },
         dateFormat: @escaping (Date) -> String = { TrendChart.defaultDateString($0) },
         accessibilityLabel: String? = nil,
         nowCapColor: Color? = nil,
@@ -436,7 +436,7 @@ private func sampleTrend(days: Int, base: Double, swing: Double) -> [TrendPoint]
             gradient: StrandPalette.recoveryGradient,
             valueRange: 20...100,
             showsArea: true,
-            valueFormat: { "\(Int($0.rounded())) ms" }
+            valueFormat: { "\(ComponentValueFormat.rounded($0)) ms" }
         )
     }
     .padding(28)

@@ -224,8 +224,8 @@ struct SleepView: View {
                         )
                         .staggeredAppear(index: 0)
                         SleepMarkCard().staggeredAppear(index: 1)
-                        // Same stored alarm and shared canonical need as the Alarms screen.
-                        SleepAlarmPlanSection().staggeredAppear(index: 2)
+                        // Full editor, bound to the same BehaviorStore and actuation lane as Alarms.
+                        SleepAlarmEditorSection().staggeredAppear(index: 2)
                         paperSleepStages(
                             night: displayedNight.night,
                             intervals: displayedNight.intervals
@@ -257,7 +257,10 @@ struct SleepView: View {
                         durationTrend(resolved).staggeredAppear(index: 9)
                     }
                 } else {
-                    emptyState
+                    LazyVStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+                        SleepAlarmEditorSection()
+                        emptyState
+                    }
                 }
             }
             // Persist the freshly-built model so subsequent renders with the same inputs hit
@@ -2941,68 +2944,6 @@ private struct SleepNeedBreakdownSection: View {
 
     private static func accessibilitySummary(_ b: SleepNeedBreakdown) -> String {
         String(localized: "Tonight's sleep need \(SleepAlarmTime.duration(Int(b.totalMinutes.rounded()))): baseline \(SleepAlarmTime.hoursMinutes(b.baselineMinutes)), yesterday's Effort \(SleepAlarmTime.hoursMinutes(b.strainAdjustmentMinutes, signed: true)), sleep debt repayment \(SleepAlarmTime.hoursMinutes(b.debtRepaymentMinutes, signed: true)), nap credit \(SleepAlarmTime.hoursMinutes(-b.napCreditMinutes, signed: true))")
-    }
-}
-
-/// Read-only mirror of tonight's armed alarm path. Alarms owns editing; Sleep uses the exact same
-/// BehaviorStore fields and Repository need resolver, so asleep-by and wake-window values cannot drift.
-private struct SleepAlarmPlanSection: View {
-    @EnvironmentObject private var repo: Repository
-    @EnvironmentObject private var behavior: BehaviorStore
-    @State private var needPlan: CanonicalSleepNeedPlan?
-
-    var body: some View {
-        Group {
-            if behavior.smartAlarmEnabled {
-                let displayedPlan = needPlan ?? CanonicalSleepNeedPlan(
-                    minutes: Double(WindDownNudge.sleepNeedMinutes),
-                    isStartingEstimate: !WindDownNudge.hasCachedCanonicalNeed
-                )
-                TimelineView(.periodic(from: .now, by: 60)) { context in
-                    let components = Calendar.current.dateComponents([.hour, .minute], from: context.date)
-                    let now = (components.hour ?? 0) * 60 + (components.minute ?? 0)
-                    let wake = SleepAlarmTime.nextOccurrence(now: now, timeOfDay: behavior.smartAlarmMinutes)
-                    let window = behavior.smartAlarmMode == .exactTime
-                        ? 0
-                        : SmartAlarmEvaluator.adaptiveWindowMinutes
-                    let asleepBy = SleepAlarmTime.asleepByMinutes(
-                        wakeMinutes: wake,
-                        windowMinutes: window,
-                        needMinutes: displayedPlan.minutes
-                    )
-
-                    VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-                        SleepPlanTimeline(
-                            now: now,
-                            asleepBy: asleepBy,
-                            windowStart: wake - window,
-                            alarm: wake
-                        )
-                        if displayedPlan.isStartingEstimate {
-                            Text("Starting estimate — NOOP hasn't computed your personal Sleep Need yet.")
-                                .font(StrandFont.micro)
-                                .foregroundStyle(StrandPalette.textTertiary)
-                                .padding(.horizontal, 4)
-                        }
-                    }
-                }
-            }
-        }
-        .task(id: repo.refreshSeq) {
-            await reload(enabled: behavior.smartAlarmEnabled)
-        }
-        .onChangeCompat(of: behavior.smartAlarmEnabled) { enabled in
-            Task { await reload(enabled: enabled) }
-        }
-    }
-
-    @MainActor
-    private func reload(enabled: Bool) async {
-        guard enabled else {
-            needPlan = nil
-            return
-        }
-        needPlan = await repo.canonicalSleepNeedPlan(onOrBefore: Repository.localDayKey(Date()))
     }
 }
 

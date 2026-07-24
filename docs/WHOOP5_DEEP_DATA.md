@@ -58,8 +58,7 @@ Commands use the maverick/puffin envelope NOOP already implements
 One `SET_CONFIG` (cmd `0x78`) per flag; the 40-byte body is the flag name as ASCII NUL-padded to 32
 bytes, the value byte (an ASCII `'1'`/`'2'`) at offset 32, then 7 zeros. The exact ordered set, with
 values, is in [`Whoop5Config.swift`](../Packages/WhoopProtocol/Sources/WhoopProtocol/Whoop5Config.swift)
-and [`Whoop5Config.kt`](../android/app/src/main/java/com/noop/protocol/Whoop5Config.kt), golden-tested on
-both platforms. `enable_r22_packets` is the one that opens the type-`0x2F` biometric stream; the rest
+and is covered by Swift golden tests. `enable_r22_packets` is the one that opens the type-`0x2F` biometric stream; the rest
 tune channel selection, wear detection and sleep behaviour.
 
 ## How NOOP uses it (opt-in, reversible)
@@ -71,8 +70,8 @@ tune channel selection, wear detection and sleep behaviour.
 - The 15 flags are written with-response, ~80 ms apart.
 - It's **reversible** — it only changes which data the strap chooses to emit — and is the same thing the
   official app does on every connect.
-- **iOS / Android only on real hardware:** macOS CoreBluetooth can't complete the authenticated SMP bond
-  the command characteristic requires, so the write path is unavailable on Mac.
+- **Physical iPhone only:** the command requires an authenticated SMP bond and cannot be validated in
+  the simulator.
 
 ## Honest limits
 

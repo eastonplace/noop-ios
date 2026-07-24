@@ -138,6 +138,8 @@ final class AppModel: ObservableObject {
     /// The just-ended workout, for a brief inline confirmation on Live (cleared on the next start).
     @Published var lastWorkout: WorkoutRow?
     @Published private(set) var workoutFinishState: WorkoutFinishState = .recording
+    /// A visible, non-blocking warning whenever the active workout has data that is not yet durable.
+    @Published private(set) var workoutDurabilityWarning: String?
 
     /// Records the GPS route of an in-flight distance-type workout (run / ride / walk / hike) from
     /// CoreLocation (#524) , the Apple analogue of Android's `GpsSession` + foreground `LocationManager`.
@@ -155,29 +157,98 @@ final class AppModel: ObservableObject {
     private var pendingWorkoutEnd: Date?
     private var pendingWorkoutRoute: WorkoutRoute?
     private var pendingWorkoutWasGps = false
+    /// Queue admission and durable pointer commit are separate facts. A background writer may accept a
+    /// checkpoint then fail later because storage became unavailable or protected.
+    private var lastWorkoutSnapshotEnqueuedAt: Date = .distantPast
     private var lastWorkoutSnapshotAt: Date = .distantPast
+    private var latestWorkoutSnapshotAttempt: UInt64 = 0
     private var applicationIsActive = true
 
     /// A manual workout in progress. `samples` accumulate from the smoothed live `bpm`; `liveStrain`
     /// is updated by an O(1) accumulator so the active card can show strain building in real time.
     /// Reference-owned live session. The sample buffer grows in place so each accepted HR reading does
     /// not copy the entire retained workout before publishing the next UI update.
-    final class ActiveWorkout {
+    final class ActiveWorkout: ObservableObject {
+        let sessionID: UUID
         let start: Date
         /// The named sport chosen at start (e.g. "Tennis", "Padel") , persisted as the saved row's
         /// `sport` so a live-tracked session keeps its label instead of the old generic "Workout".
         /// Defaults to the catalogue default ("Other") when started without a pick. (#519)
         var sport: String = WorkoutCatalog.defaultSportName
-        var samples: [HRSample] = []
-        var liveStrainState: LiveStrainState = .building(readings: 0, coverageSeconds: 0)
-        var avgHr: Int = 0
-        var peakHr: Int = 0
+        private(set) var samples: [HRSample] = []
+        @Published private(set) var liveStrainState: LiveStrainState = .building(readings: 0, coverageSeconds: 0)
+        @Published private(set) var avgHr: Int = 0
+        @Published private(set) var peakHr: Int = 0
+        @Published private(set) var currentBPM: Int?
+        @Published private(set) var chartProjection = WorkoutHeartChartProjection.make(samples: [])
         var strainAccumulator: StrainScorerV2.ActivityAccumulator
+        private var chartAccumulator = WorkoutHeartChartAccumulator()
+        private let maxHR: Double
 
-        init(start: Date, sport: String, maxHR: Double) {
+        init(sessionID: UUID = UUID(), start: Date, sport: String, maxHR: Double) {
+            self.sessionID = sessionID
             self.start = start
             self.sport = sport
+            self.maxHR = maxHR
             self.strainAccumulator = .init(maxHR: maxHR)
+        }
+
+        @discardableResult
+        func ingest(_ sample: HRSample) -> Bool {
+            guard sample.ts > 0, (30...240).contains(sample.bpm) else { return false }
+            if let last = samples.last {
+                guard sample.ts >= last.ts else { return false }
+                if sample.ts == last.ts {
+                    samples[samples.count - 1] = sample
+                    guard strainAccumulator.replaceCurrentSecond(with: sample),
+                          chartAccumulator.ingest(sample) else { return false }
+                } else {
+                    samples.append(sample)
+                    strainAccumulator.append(sample)
+                    guard chartAccumulator.ingest(sample) else { return false }
+                }
+            } else {
+                samples.append(sample)
+                strainAccumulator.append(sample)
+                guard chartAccumulator.ingest(sample) else { return false }
+            }
+            publishLiveState(sample: sample)
+            return true
+        }
+
+        func restore(samples restoredSamples: [HRSample]) {
+            var canonical: [HRSample] = []
+            for sample in restoredSamples.sorted(by: { $0.ts < $1.ts })
+                where sample.ts > 0 && (30...240).contains(sample.bpm) {
+                if canonical.last?.ts == sample.ts { canonical[canonical.count - 1] = sample }
+                else { canonical.append(sample) }
+            }
+            samples = canonical
+            strainAccumulator = .init(samples: canonical, maxHR: maxHR)
+            chartAccumulator = WorkoutHeartChartAccumulator(samples: canonical)
+            chartProjection = chartAccumulator.projection
+            currentBPM = canonical.last?.bpm
+            avgHr = strainAccumulator.averageHR ?? 0
+            peakHr = strainAccumulator.peakHR ?? 0
+            if let strain = strainAccumulator.strain {
+                liveStrainState = .scored(storedValue: strain)
+            } else {
+                liveStrainState = .building(readings: strainAccumulator.readingCount,
+                                            coverageSeconds: strainAccumulator.coverageSeconds)
+            }
+        }
+
+        private func publishLiveState(sample: HRSample) {
+            currentBPM = sample.bpm
+            chartProjection = chartAccumulator.projection
+            peakHr = strainAccumulator.peakHR ?? sample.bpm
+            avgHr = strainAccumulator.averageHR ?? sample.bpm
+            if let strain = strainAccumulator.strain {
+                liveStrainState = .scored(storedValue: strain)
+            } else {
+                liveStrainState = .building(readings: strainAccumulator.readingCount,
+                                            coverageSeconds: strainAccumulator.coverageSeconds)
+            }
         }
     }
     /// Illness/strain early-warning (recent RHR up + HRV down + skin-temp up vs baseline). nil = clear.
@@ -257,8 +328,6 @@ final class AppModel: ObservableObject {
     /// session. Mirrors how `SourceCoordinator` drives the WRITE side off the same publisher. Retained for
     /// the app's lifetime (the registry outlives the session); `removeDuplicates` collapses redundant emits.
     private var readSpineCancellable: AnyCancellable?
-    /// Daily re-arm timer for the single-instant firmware smart alarm (see scheduleDailySmartAlarmRearm).
-    private var smartAlarmRearmTimer: Timer?
 
     init() {
         let live = LiveState()
@@ -302,17 +371,6 @@ final class AppModel: ObservableObject {
         // Physical-input + wear hooks (fired live by FrameRouter).
         live.onDoubleTap = { [weak self] in self?.handleDoubleTap() }
         live.onWristChange = { [weak self] worn in self?.handleWristChange(worn) }
-        // Re-arm the next day's firmware alarm the moment the strap reports it fired (if/when the
-        // firmware pushes STRAP_DRIVEN_ALARM_EXECUTED). Gated on enabled inside applySmartAlarm.
-        live.onSmartAlarmFired = { [weak self] in
-            guard let self, self.behavior.smartAlarmEnabled else { return }
-            // Correlate the fired instant into the evidence record BEFORE re-arming rewrites state.
-            SmartAlarmEvidenceStore.refreshCorrelation()
-            // PR #577 (iOS): mirror the strap's wake buzz to a local notification so a phone-in-pocket
-            // user still gets woken; no-op on macOS / when wrist alerts are off.
-            AppModel.postSmartAlarm()
-            self.applySmartAlarm()
-        }
         // Strap battery alerts (#368): low-battery warning + full-charge note. The notifier self-gates
         // on the user's setting and the OS authorization, and carries its own persisted once-per-
         // crossing state, so feeding it every battery reading is safe.
@@ -333,31 +391,6 @@ final class AppModel: ObservableObject {
         $bpm.sink { [weak self] hr in self?.coachZone(hr) }.store(in: &hrCancellables)
         // Illness/strain early-warning recomputes when the daily history changes.
         repo.$days.sink { [weak self] days in self?.evaluateIllness(days) }.store(in: &hrCancellables)
-        // Re-arm the strap's firmware alarm once the connection has SETTLED — not the instant it (re)bonds.
-        // A smart-alarm time changed while the strap was away never reached it , the send is gated on bond
-        // , so the strap kept the OLD time and fired at it (#59).
-        //
-        // #34: keyed off `connectSettled` (a monotonic counter BLEManager bumps once the connect handshake
-        // has both run AND the cmd-notify characteristic has confirmed subscribed — see LiveState.swift /
-        // BLEManager.maybeSignalConnectSettled), NOT off raw `bonded`. `state.bonded` publishes from
-        // INSIDE BLEManager's connect-handshake continuation (the bonding-confirm write's
-        // didWriteValueFor), and Combine delivered to a `$bonded` sink SYNCHRONOUSLY on that same call
-        // stack — arming there nested the alarm's SET_CLOCK/SET_ALARM_TIME/GET_ALARM_TIME burst in the
-        // MIDDLE of the handshake, ahead of its own clock-set and before the cmd-notify channel was
-        // confirmed subscribed. A strap log (#34 v8.6.2) confirmed the result: the alarm's GET_ALARM_TIME
-        // readback got no reply at all — the strap's answer had nowhere confirmed-subscribed to land.
-        // `connectSettled` only bumps once that channel is confirmed live, so the readback (and the arm
-        // itself) always goes out on a link that's actually ready. `dropFirst()` skips the initial
-        // published value (0) at subscribe time, so this doesn't fire on app launch before any connection.
-        live.$connectSettled.dropFirst().sink { [weak self] _ in
-            guard let self, self.behavior.smartAlarmEnabled else { return }
-            self.applySmartAlarm()
-        }.store(in: &hrCancellables)
-        // The firmware alarm is a single absolute instant with no recurrence, and was re-armed ONLY on
-        // a (re)bond or a settings change. A strap that stays continuously bonded (a Mac in range) would
-        // fire once and never re-arm , silent from day two. Re-arm daily so an always-on session keeps
-        // waking the user.
-        scheduleDailySmartAlarmRearm()
         // Re-apply "Continuous HRV capture" on every (re)bond: if on, the strap should hold the dense
         // realtime stream armed even with no Live screen open, so it banks beat-to-beat R-R 24/7 for
         // better overnight HRV/recovery/sleep. The BLE reconciler arms it on the off→on edge; pushing it
@@ -681,7 +714,11 @@ final class AppModel: ObservableObject {
         }
         // Make the session durable from the first instant (#529): persist it now so an OS kill right
         // after Start , before any HR sample lands , can still be rehydrated + ended on relaunch.
-        persistActiveWorkout(force: true)
+        let initialSnapshotCommitted = persistActiveWorkout(force: true, synchronously: true)
+            || persistActiveWorkout(force: true, synchronously: true)
+        if !initialSnapshotCommitted {
+            workoutDurabilityWarning = String(localized: "This workout is recording, but it is not safely recoverable if NOOP closes. Keep the app open and free storage before continuing.")
+        }
         // Workouts & GPS test mode (Test Centre): one session-start line tagged `.workouts`. Zero-cost when
         // off (the gate is one UserDefaults bool read), so the lifecycle of a missing workout is visible.
         emitWorkoutsTrace(WorkoutsTrace.sessionLine(
@@ -728,19 +765,54 @@ final class AppModel: ObservableObject {
     /// session (#529). Called on start + each captured sample. A no-op when nothing is running. Apple has
     /// no GPS-route session, so every manual workout is the "non-GPS" case and gets this durability ,
     /// the Apple analogue of Android's `persistNonGpsWorkout`.
-    private func persistActiveWorkout(force: Bool = false) {
-        guard let w = activeWorkout else { return }
+    @discardableResult
+    private func persistActiveWorkout(
+        force: Bool = false,
+        synchronously: Bool = false
+    ) -> Bool {
+        guard let w = activeWorkout else { return true }
         let now = Date()
-        guard force || now.timeIntervalSince(lastWorkoutSnapshotAt) >= 5 else { return }
-        lastWorkoutSnapshotAt = now
-        ActiveWorkoutPersistence.store(
+        guard force || now.timeIntervalSince(lastWorkoutSnapshotEnqueuedAt) >= 5 else { return true }
+        latestWorkoutSnapshotAttempt &+= 1
+        let attempt = latestWorkoutSnapshotAttempt
+        let sessionID = w.sessionID
+        let accepted = ActiveWorkoutPersistence.store(
             ActiveWorkoutPersistence.Snapshot(
+                sessionID: sessionID,
                 startSec: Int(w.start.timeIntervalSince1970),
                 sport: w.sport,
                 samples: w.samples,
                 avgHr: w.avgHr,
                 peakHr: w.peakHr,
-                liveStrainState: w.liveStrainState))
+                liveStrainState: w.liveStrainState),
+            synchronously: synchronously,
+            onCommit: { [weak self] committed in
+                guard let self,
+                      self.activeWorkout?.sessionID == sessionID,
+                      self.latestWorkoutSnapshotAttempt == attempt
+                else { return }
+                if committed {
+                    self.lastWorkoutSnapshotAt = now
+                    self.workoutDurabilityWarning = nil
+                } else {
+                    self.lastWorkoutSnapshotEnqueuedAt = .distantPast
+                    self.workoutDurabilityWarning = String(localized: "This workout is recording, but recent changes are not safely recoverable if NOOP closes. Keep the app open and free storage before continuing.")
+                }
+            }
+        )
+        if accepted {
+            lastWorkoutSnapshotEnqueuedAt = now
+            // Synchronous callers have received the actual metadata-commit result, so their durable
+            // timestamp can advance immediately. Asynchronous callers wait for `onCommit` above.
+            if synchronously {
+                lastWorkoutSnapshotAt = now
+                workoutDurabilityWarning = nil
+            }
+        } else {
+            lastWorkoutSnapshotEnqueuedAt = .distantPast
+            workoutDurabilityWarning = String(localized: "This workout is recording, but recent changes are not safely recoverable if NOOP closes. Keep the app open and free storage before continuing.")
+        }
+        return accepted
     }
 
     /// If a manual workout was in flight when iOS killed the app, rebuild `activeWorkout` from the durable
@@ -749,30 +821,26 @@ final class AppModel: ObservableObject {
     /// session wins over a stale snapshot) or nothing is stored. Called once from `init`.
     private func rehydrateActiveWorkout() {
         guard activeWorkout == nil, let snap = ActiveWorkoutPersistence.load() else { return }
-        let w = ActiveWorkout(start: Date(timeIntervalSince1970: TimeInterval(snap.startSec)),
+        let w = ActiveWorkout(sessionID: snap.sessionID,
+                              start: Date(timeIntervalSince1970: TimeInterval(snap.startSec)),
                               sport: snap.sport, maxHR: Double(profile.hrMax))
-        w.samples = snap.samples
-        w.strainAccumulator = .init(samples: snap.samples, maxHR: Double(profile.hrMax))
-        w.avgHr = snap.avgHr
-        w.peakHr = snap.peakHr
-        if let strain = w.strainAccumulator.strain {
-            w.liveStrainState = .scored(storedValue: strain)
-        } else {
-            w.liveStrainState = .building(readings: w.strainAccumulator.readingCount,
-                                          coverageSeconds: w.strainAccumulator.coverageSeconds)
-        }
+        w.restore(samples: snap.samples)
         activeWorkout = w
     }
 
     /// Flushes the in-flight workout before iOS suspends the process.
-    func flushActiveWorkoutSnapshot() {
-        persistActiveWorkout(force: true)
+    @discardableResult
+    func flushActiveWorkoutSnapshot() -> Bool {
+        if persistActiveWorkout(force: true, synchronously: true) { return true }
+        return persistActiveWorkout(force: true, synchronously: true)
     }
 
     func setApplicationActive(_ active: Bool) {
         applicationIsActive = active
         if !active {
-            flushActiveWorkoutSnapshot()
+            if !flushActiveWorkoutSnapshot(), activeWorkout != nil {
+                workoutDurabilityWarning = String(localized: "This workout is recording, but recent changes are not safely recoverable if NOOP closes. Keep the app open and free storage before continuing.")
+            }
         } else {
             Task { [weak self] in
                 guard let self else { return }
@@ -827,9 +895,11 @@ final class AppModel: ObservableObject {
             return .failure(.insufficientEvidence)
         }
         let end = pendingWorkoutEnd ?? Date()
-        let avg = samples.isEmpty ? nil
-            : Int((Double(samples.map(\.bpm).reduce(0, +)) / Double(samples.count)).rounded())
-        let peak = samples.map(\.bpm).max()
+        // ActiveWorkout already maintains these values exactly as canonical same-second samples
+        // are appended or replaced. Reuse them instead of allocating and scanning the full
+        // three-hour sample array twice on the main actor during Finish.
+        let avg = samples.isEmpty ? nil : w.avgHr
+        let peak = samples.isEmpty ? nil : w.peakHr
         let strain = samples.count >= 2
             ? StrainScorerV2.strain(samples, maxHR: Double(profile.hrMax), mode: .activity) : nil
         // Estimate calories from the captured HR window (same Keytel/Harris–Benedict model the
@@ -892,17 +962,7 @@ final class AppModel: ObservableObject {
     private func captureWorkoutSample() {
         guard pendingWorkoutSnapshot == nil, let w = activeWorkout, let hr = bpm else { return }
         let sample = HRSample(ts: Int(Date().timeIntervalSince1970), bpm: hr)
-        w.samples.append(sample)
-        w.strainAccumulator.append(sample)
-        w.peakHr = w.strainAccumulator.peakHR ?? hr
-        w.avgHr = w.strainAccumulator.averageHR ?? hr
-        if let strain = w.strainAccumulator.strain {
-            w.liveStrainState = .scored(storedValue: strain)
-        } else {
-            w.liveStrainState = .building(readings: w.strainAccumulator.readingCount,
-                                          coverageSeconds: w.strainAccumulator.coverageSeconds)
-        }
-        activeWorkout = w
+        guard w.ingest(sample) else { return }
         // Re-snapshot the durable session so a kill keeps the latest accumulated HR window (#529).
         persistActiveWorkout()
     }
@@ -1220,293 +1280,6 @@ final class AppModel: ObservableObject {
     }
     #endif
 
-    /// Stable identifier base for the smart-alarm BACKUP wake notification(s). The every-day case uses
-    /// this id directly; the per-weekday case fans out to "<base>-d<weekday>" so a re-arm replaces by id
-    /// and never stacks. Kept separate from "smart-alarm-wake" (the strap-confirmed mirror) so the two
-    /// never collide.
-    private static let smartAlarmBackupId = "smart-alarm-wake-backup"
-    private static var smartAlarmBackupIds: [String] {
-        [smartAlarmBackupId] + (1...7).map { "\(smartAlarmBackupId)-d\($0)" }
-    }
-
-    /// Schedule a BEST-EFFORT repeating daily backup wake notification for the smart alarm (#4 + #6).
-    ///
-    /// The strap firmware alarm is one absolute instant and the mirror in `postSmartAlarm` only posts
-    /// AFTER the strap reports it fired, so if the buzz fails or the phone is suspended past day one there
-    /// was previously no OS-level wake at all. This adds a repeating `UNCalendarNotificationTrigger` that
-    /// "lives in the notification center, not our process" (the WindDownNudge idiom), so it survives
-    /// relaunch and keeps firing each chosen morning even with the app killed.
-    ///
-    /// HONEST: this is NOT a guaranteed loud alarm. A sideloaded build has no critical-alert entitlement,
-    /// so iOS Focus / silent mode can still suppress the sound. The UI copy says to keep a real backup.
-    ///
-    /// Gated on the ALARM being enabled (its sole caller `applySmartAlarm()` already enforces that) plus
-    /// notification permission — NOT the wrist-alerts master (#34): a wake backup must not depend on the
-    /// unrelated HR/strain-alerts switch. When permission is undetermined the user is prompted here (they
-    /// just enabled the alarm) and scheduled on grant, so the FIRST night is covered. Always removes the
-    /// prior set first, so a re-arm replaces rather than stacks. `weekdays` empty = every day (single daily
-    /// trigger); a non-empty set fans out to one weekday-pinned trigger per selected day. No-op on macOS.
-    /// `log` (optional): strap-log sink for the not-authorized bail (#401 close-out) — a silent no-op left a
-    /// user whose backup never fired with nothing in the log. The caller wraps the sink in a main-actor hop
-    /// (the auth check completes off-main). Diagnostic only.
-    static func scheduleSmartAlarmBackupNotification(minutes: Int, weekdays: Set<Int>,
-                                                     log: ((String) -> Void)? = nil) {
-        #if os(iOS)
-        // #34: the backup follows THE ALARM, not the wrist-alerts master. This is only reached from
-        // applySmartAlarm() with the alarm enabled, so the alarm being on IS the correct gate — a user who
-        // sets a smart alarm but never turned on the separate wrist HR/strain alerts must still get a backup
-        // wake. The old `notif.masterEnabled` guard suppressed it for exactly those users, so a strap that
-        // couldn't arm left them with nothing.
-        let valid = weekdays.filter { (1...7).contains($0) }
-        // A non-empty selection that filters to nothing (only out-of-range numbers) has no day to fire on.
-        if !weekdays.isEmpty && valid.isEmpty { return }
-
-        Task { @MainActor in
-            let center = UNUserNotificationCenter.current()
-            // Always clear BOTH the single and the per-day ids so switching modes (or editing the weekday set)
-            // never leaves an orphaned trigger or double-fires.
-            center.removePendingNotificationRequests(withIdentifiers: smartAlarmBackupIds)
-
-            let settings = await center.notificationSettings()
-            switch settings.authorizationStatus {
-            case .authorized, .provisional, .ephemeral:
-                break
-            case .notDetermined:
-                // The user just enabled the alarm but was never asked for notification permission (nothing
-                // else prompted — wrist alerts, which used to, may be off). Ask now, then schedule on grant
-                // so the FIRST night is covered rather than only after some later re-arm.
-                let granted = (try? await center.requestAuthorization(options: [.alert, .sound])) ?? false
-                guard granted else {
-                    log?("Smart alarm: backup notification NOT scheduled (notification permission denied)")
-                    return
-                }
-            default:
-                log?("Smart alarm: backup notification NOT scheduled (notifications not authorized)")
-                return
-            }
-
-            let content = UNMutableNotificationContent()
-            content.title = String(localized: "Smart alarm")
-            content.body = String(localized: "Backup wake: your smart alarm time is here.")
-            content.sound = .default
-            let hour = minutes / 60
-            let minute = minutes % 60
-            if weekdays.isEmpty {
-                var comps = DateComponents()
-                comps.hour = hour
-                comps.minute = minute
-                let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: true)
-                try? await center.add(
-                    UNNotificationRequest(identifier: smartAlarmBackupId, content: content, trigger: trigger)
-                )
-            } else {
-                for weekday in valid {
-                    var comps = DateComponents()
-                    comps.weekday = weekday   // Calendar weekday 1=Sun…7=Sat , fires weekly on that day
-                    comps.hour = hour
-                    comps.minute = minute
-                    let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: true)
-                    try? await center.add(
-                        UNNotificationRequest(
-                            identifier: "\(smartAlarmBackupId)-d\(weekday)",
-                            content: content,
-                            trigger: trigger
-                        )
-                    )
-                }
-            }
-        }
-        #endif
-    }
-
-    /// Cancel the smart-alarm backup wake notification(s). Called on disarm. No-op on macOS.
-    static func cancelSmartAlarmBackupNotification() {
-        #if os(iOS)
-        UNUserNotificationCenter.current()
-            .removePendingNotificationRequests(withIdentifiers: smartAlarmBackupIds)
-        #endif
-    }
-
-    /// Arm (or clear) the strap's firmware alarm from the smart-alarm settings. The firmware alarm
-    /// fires even if the Mac is asleep / NOOP is closed. No-op until bonded (send is gated on bond).
-    ///
-    /// On iOS this ALSO (dis)arms the best-effort backup wake notification (#4 + #6): a repeating daily
-    /// `UNCalendarNotificationTrigger` that survives suspend/relaunch, so a missed strap buzz still gets
-    /// an OS-level wake. macOS keeps just the firmware alarm (the static helpers are no-ops there).
-    func applySmartAlarm() {
-        guard behavior.smartAlarmEnabled else {
-            ble.disableStrapAlarm()
-            Self.cancelSmartAlarmBackupNotification()
-            SmartAlarmScheduler.cancel()
-            return
-        }
-        guard let next = Self.nextSmartAlarmDate(minutes: behavior.smartAlarmMinutes,
-                                                 weekdays: behavior.smartAlarmWeekdays) else {
-            // No enabled weekday in the next week (only possible from a corrupted set) , disarm rather
-            // than arm a misleading time the user never asked for.
-            ble.disableStrapAlarm()
-            Self.cancelSmartAlarmBackupNotification()
-            return
-        }
-        let arm = ble.armStrapAlarm(at: next)
-        persistSmartAlarmEndpointEvidence(endpoint: next, arm: arm)
-        if behavior.smartAlarmMode != .exactTime {
-            SmartAlarmScheduler.schedule(windowStart: next.addingTimeInterval(
-                -Double(SmartAlarmEvaluator.adaptiveWindowMinutes * 60)))
-            Task { await evaluateConditionalSmartAlarm(trigger: .configured, endpoint: next) }
-        } else {
-            SmartAlarmScheduler.cancel()
-        }
-        // Replace (remove + re-add by stable identifier) on every re-arm so the backup never stacks.
-        // The log sink hops to the main actor because the auth check completes off-main and LiveState is
-        // @MainActor - the same Task hop the importTraceSink uses.
-        Self.scheduleSmartAlarmBackupNotification(minutes: behavior.smartAlarmMinutes,
-                                                  weekdays: behavior.smartAlarmWeekdays,
-                                                  log: { [weak self] line in
-                                                      Task { @MainActor in self?.live.append(log: line) }
-                                                  })
-    }
-
-    /// Evaluate an adaptive mode against real, current store data. iOS delivery is best-effort; the
-    /// firmware endpoint above remains the no-later-than fail-safe and is never replaced by this path.
-    func evaluateConditionalSmartAlarm(trigger: SmartAlarmEvaluator.Trigger,
-                                       endpoint suppliedEndpoint: Date? = nil) async {
-        guard behavior.smartAlarmEnabled, behavior.smartAlarmMode != .exactTime,
-              let endpoint = suppliedEndpoint ?? Self.nextSmartAlarmDate(
-                minutes: behavior.smartAlarmMinutes, weekdays: behavior.smartAlarmWeekdays)
-        else { return }
-        let now = Date()
-        let windowStart = endpoint.addingTimeInterval(
-            -Double(SmartAlarmEvaluator.adaptiveWindowMinutes * 60))
-        guard let store = await repo.storeHandle() else {
-            persistUnavailableAlarmEvidence(trigger: trigger, endpoint: endpoint,
-                                            reason: "storeUnavailable", evaluatedAt: now)
-            return
-        }
-
-        let from = Int(now.timeIntervalSince1970) - 18 * 3_600
-        let to = Int(now.timeIntervalSince1970)
-        let bundle = try? await store.analysisDayBundle(deviceId: repo.deviceId, from: from, to: to,
-                                                        limit: 200_000)
-        let sessions = bundle.map {
-            SleepStager.detectSleep(hr: $0.hr, rr: $0.rr, resp: $0.resp, gravity: $0.gravity,
-                                    tzOffsetSeconds: TimeZone.current.secondsFromGMT())
-        } ?? []
-        let bankedMinutes = sessions.max(by: { ($0.end - $0.start) < ($1.end - $1.start) }).map { session in
-            session.stages.filter { $0.stage != "wake" }
-                .reduce(0.0) { $0 + Double(max(0, $1.end - $1.start)) } / 60.0
-        }
-        let observedEpoch = [bundle?.hr.last?.ts, bundle?.rr.last?.ts, bundle?.resp.last?.ts,
-                             bundle?.gravity.last?.ts].compactMap { $0 }.max()
-        let observedAt = observedEpoch.map { Date(timeIntervalSince1970: TimeInterval($0)) }
-
-        let planningDay = Self.smartAlarmDayKey(endpoint)
-        let needPoint = await repo.latestNoopSleepNeedV2(onOrBefore: planningDay)
-        let needMinutes = needPoint?.value ?? RecoveryForecaster.defaultNeedHours * 60
-        let recentCharge = Array(intelligence.results.compactMap(\.recovery).reversed())
-        let recentEffort = Array(intelligence.results.compactMap(\.strain).reversed())
-        let forecast = bankedMinutes.flatMap { banked in
-            RecoveryForecaster.forecast(recentCharge: recentCharge, recentEffort: recentEffort,
-                                        todayEffort: intelligence.results.first?.strain,
-                                        plannedSleepHours: banked / 60, needHours: needMinutes / 60,
-                                        needNights: needPoint == nil ? 0 : RecoveryForecaster.solidNeedNights)
-        }
-        let evaluation = SmartAlarmEvaluator.evaluate(.init(
-            mode: behavior.smartAlarmMode, now: now, windowStart: windowStart, windowEnd: endpoint,
-            bankedSleepMinutes: bankedMinutes, sleepNeedMinutes: needMinutes,
-            recoveryForecastLow: forecast?.low, inputObservedAt: observedAt))
-
-        var actuation: SmartAlarmEvidence.Actuation = .notRequested
-        var requestedWake = endpoint
-        if evaluation.decision == .wakeNow {
-            let previous = SmartAlarmEvidenceStore.latest
-            if previous?.windowEndpoint == endpoint, previous?.actuation == .sentToConnectedStrap {
-                // One early actuation per window: the strap already carries the earlier arm.
-                actuation = .sentToConnectedStrap
-                requestedWake = previous?.requestedWakeAt ?? endpoint
-            } else {
-                let context: SmartAlarmEvaluator.ExecutionContext =
-                    trigger == .backgroundRefresh ? .backgroundBestEffort : .foreground
-                switch SmartAlarmEvaluator.actuationPlan(for: evaluation, linkReady: live.connected,
-                                                         context: context) {
-                case .rearmEarlier:
-                    // The REAL early wake: re-arm the firmware alarm to fire now. The firmware
-                    // alarm's graduated buzz is the confirmed wake mechanism; a one-shot buzz
-                    // rides along so a light sleeper wakes even if the re-arm is rejected.
-                    let earlier = now.addingTimeInterval(SmartAlarmEvaluator.actuationLeadSeconds)
-                    switch ble.armStrapAlarm(at: earlier) {
-                    case .sentAwaitingReadback:
-                        actuation = .sentToConnectedStrap
-                        requestedWake = earlier
-                        ble.buzzStrapOnce()
-                    case .queuedForReconnect: actuation = .queuedForReconnect
-                    case .experimentalDisabled: actuation = .experimentalDisabled
-                    }
-                case .queueForReconnect:
-                    // No link: don't queue an instant that will be stale by reconnect. The
-                    // connect-settled hook re-evaluates with fresh data; the endpoint fail-safe
-                    // stays armed on the strap.
-                    actuation = .queuedForReconnect
-                case .none: break
-                }
-            }
-        }
-        SmartAlarmEvidenceStore.save(.init(
-            mode: behavior.smartAlarmMode, trigger: trigger, decision: evaluation.decision,
-            reason: evaluation.reason, evaluatedAt: evaluation.evaluatedAt,
-            inputObservedAt: observedAt, sleepSource: "noop-live-stager",
-            sleepModelVersion: SleepPerformanceV2.modelVersion,
-            forecastSource: forecast == nil ? nil : "noop-recovery-forecast",
-            forecastModelVersion: forecast == nil ? nil : RecoveryForecaster.modelVersion,
-            requestedWakeAt: requestedWake, windowEndpoint: endpoint,
-            strapReportedArmedAt: nil, observedStrapWakeAt: nil,
-            actuation: actuation, evaluatorModelVersion: evaluation.modelVersion))
-        SmartAlarmEvidenceStore.refreshCorrelation(now: now)
-        live.append(log: "Smart alarm: mode=\(behavior.smartAlarmMode.rawValue) decision=\(evaluation.decision.rawValue) reason=\(evaluation.reason) actuation=\(actuation.rawValue)")
-    }
-
-    private func persistSmartAlarmEndpointEvidence(endpoint: Date, arm: BLEManager.AlarmCommandResult) {
-        // Don't clobber an already-actuated record for the SAME window: a mid-window re-apply
-        // (connect settled, daily re-arm) would erase the dedupe key and re-fire the early wake.
-        if let previous = SmartAlarmEvidenceStore.latest,
-           previous.windowEndpoint == endpoint, previous.actuation == .sentToConnectedStrap {
-            SmartAlarmEvidenceStore.refreshCorrelation()
-            return
-        }
-        let actuation: SmartAlarmEvidence.Actuation
-        switch arm {
-        case .sentAwaitingReadback: actuation = .endpointArmed
-        case .queuedForReconnect: actuation = .queuedForReconnect
-        case .experimentalDisabled: actuation = .experimentalDisabled
-        }
-        SmartAlarmEvidenceStore.save(.init(
-            mode: behavior.smartAlarmMode, trigger: .configured, decision: .wait,
-            reason: "latestEndpointFailSafe", evaluatedAt: Date(), inputObservedAt: nil,
-            sleepSource: nil, sleepModelVersion: nil, forecastSource: nil,
-            forecastModelVersion: nil, requestedWakeAt: endpoint, windowEndpoint: endpoint,
-            strapReportedArmedAt: nil, observedStrapWakeAt: nil,
-            actuation: actuation, evaluatorModelVersion: SmartAlarmEvaluator.modelVersion))
-    }
-
-    private func persistUnavailableAlarmEvidence(trigger: SmartAlarmEvaluator.Trigger, endpoint: Date,
-                                                 reason: String, evaluatedAt: Date) {
-        SmartAlarmEvidenceStore.save(.init(
-            mode: behavior.smartAlarmMode, trigger: trigger, decision: .unavailable, reason: reason,
-            evaluatedAt: evaluatedAt, inputObservedAt: nil, sleepSource: nil,
-            sleepModelVersion: nil, forecastSource: nil, forecastModelVersion: nil,
-            requestedWakeAt: endpoint, windowEndpoint: endpoint,
-            strapReportedArmedAt: nil, observedStrapWakeAt: nil, actuation: .notRequested,
-            evaluatorModelVersion: SmartAlarmEvaluator.modelVersion))
-    }
-
-    private nonisolated static func smartAlarmDayKey(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: date)
-    }
-
     /// Compute the next fire date for the smart alarm, honouring the weekday selection.
     /// - `minutes`: target wake time, minutes since local midnight.
     /// - `weekdays`: Calendar weekday numbers (1 = Sun … 7 = Sat) the alarm may fire on. Empty = every
@@ -1518,42 +1291,7 @@ final class AppModel: ObservableObject {
                                                weekdays: Set<Int>,
                                                from now: Date = Date(),
                                                calendar cal: Calendar = .current) -> Date? {
-        let valid = weekdays.filter { (1...7).contains($0) }
-        // An empty input means "every day" (backward compatible). A non-empty selection that filters to
-        // nothing (only out-of-range numbers) has no valid day to fire on, so it's nil, not a daily alarm.
-        if !weekdays.isEmpty && valid.isEmpty { return nil }
-        let hour = minutes / 60
-        let minute = minutes % 60
-        // Scan today (offset 0) through +7 days so a once-a-week alarm picked for "today, already
-        // passed" still resolves to the same weekday next week.
-        for offset in 0...7 {
-            guard let day = cal.date(byAdding: .day, value: offset, to: now),
-                  let fire = cal.date(bySettingHour: hour, minute: minute, second: 0, of: day)
-            else { continue }
-            if fire <= now { continue }
-            if weekdays.isEmpty { return fire }
-            if valid.contains(cal.component(.weekday, from: fire)) { return fire }
-        }
-        return nil
-    }
-
-    /// Re-arms the single-instant firmware alarm once per day (just after local midnight) so a
-    /// continuously-bonded strap keeps waking the user past the first fire. macOS stays running so this
-    /// fires reliably; iOS additionally re-arms on foreground (it can't run timers while suspended).
-    /// `applySmartAlarm` self-gates on `smartAlarmEnabled`, so this is a no-op when the alarm is off.
-    private func scheduleDailySmartAlarmRearm() {
-        smartAlarmRearmTimer?.invalidate()
-        let cal = Calendar.current
-        guard let firstFire = cal.nextDate(after: Date(),
-                                           matching: DateComponents(hour: 0, minute: 1, second: 0),
-                                           matchingPolicy: .nextTime) else { return }
-        let timer = Timer(fire: firstFire, interval: 24 * 60 * 60, repeats: true) { [weak self] _ in
-            // Timer fires on the main run loop; hop to the main actor for the @MainActor model.
-            // applySmartAlarm self-gates on smartAlarmEnabled (and re-asserts the disarmed state if off).
-            Task { @MainActor in self?.applySmartAlarm() }
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        smartAlarmRearmTimer = timer
+        SmartAlarmSchedule.nextDate(minutes: minutes, weekdays: weekdays, after: now, calendar: cal)
     }
 
     // MARK: - Physical inputs / wear automation

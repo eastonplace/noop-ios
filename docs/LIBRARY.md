@@ -8,7 +8,7 @@ and sleep locally.
 
 This document is the reference for the **reusable, cross-platform Swift
 packages** that make that possible. They are designed to be vendored and reused
-independently of the reference macOS app.
+independently of the iPhone app.
 
 > **Not affiliated with WHOOP.** "WHOOP" is used nominatively only to identify
 > the hardware these packages interoperate with. NOOP contains no WHOOP
@@ -63,12 +63,11 @@ StrandImport   ──► WhoopProtocol, WhoopStore   (+ ZIPFoundation)
 StrandDesign   (standalone — SwiftUI only, no internal deps)
 ```
 
-The reference app target (`Strand/`, macOS SwiftUI) is the integration layer: it
+The `NOOPiOS` target (`Strand/` + `StrandiOS/`) is the integration layer: it
 owns the CoreBluetooth transport, wraps the protocol library's UUID *strings* in
-`CBUUID`, and wires the pure packages together. The macOS and iOS reference apps
-(the iOS target is build-from-source only) consume these packages directly, and
-an Android app ships alongside them; the pure packages run unchanged across macOS
-and iOS.
+`CBUUID`, and wires the pure packages together. macOS declarations in package
+manifests support development and headless SwiftPM tests; they do not define a
+shipped macOS app.
 
 ---
 
