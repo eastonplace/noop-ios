@@ -150,19 +150,24 @@ final class HeartRateRecoveryTests: XCTestCase {
         XCTAssertEqual(result?.after1Minute, -5)
     }
 
-    func testRejectsNonFiniteOrInvalidMaxHeartRate() {
+    func testRejectsNonFiniteOrImplausibleMaxHeartRate() {
         let samples = denseEligible() + window(minutes: 1, values: [140, 140, 140])
+        for maxHR in [Double.nan, 0, 29, 301] {
+            XCTAssertNil(HeartRateRecovery.calculate(
+                samples: samples,
+                workoutStart: end - 300,
+                workoutEnd: end,
+                maxHR: maxHR
+            ))
+        }
+    }
+
+    func testExtremeWorkoutTimestampsFailClosedWithoutArithmeticOverflow() {
         XCTAssertNil(HeartRateRecovery.calculate(
-            samples: samples,
-            workoutStart: end - 300,
-            workoutEnd: end,
-            maxHR: .nan
-        ))
-        XCTAssertNil(HeartRateRecovery.calculate(
-            samples: samples,
-            workoutStart: end - 300,
-            workoutEnd: end,
-            maxHR: 0
+            samples: [],
+            workoutStart: Int.max - 100,
+            workoutEnd: Int.max - 1,
+            maxHR: 200
         ))
     }
 }
