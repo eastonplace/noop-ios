@@ -41,6 +41,17 @@ final class WhoopV91JournalCompatibilityTests: XCTestCase {
         XCTAssertEqual(result.journal.map(\.answer), ["TRUE", "FALSE"])
     }
 
+    func testCanonicalJournalWinsOverAnotherAnsweredYesCSV() throws {
+        try Data("Question text,Answered yes\nWrong file,TRUE\n".utf8).write(
+            to: directory.appendingPathComponent("other.csv")
+        )
+        try writeJournal()
+
+        let result = try ImportCoordinator().importWhoopExport(from: directory)
+        XCTAssertEqual(result.journal.map(\.question), ["Alcohol", "Late meal"])
+        XCTAssertEqual(result.journal.map(\.answer), ["TRUE", "FALSE"])
+    }
+
     private func writeJournal() throws {
         let csv = """
         Question text,Answered yes,Notes
