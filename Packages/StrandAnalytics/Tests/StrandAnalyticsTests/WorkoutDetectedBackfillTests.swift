@@ -78,17 +78,28 @@ final class WorkoutDetectedBackfillTests: XCTestCase {
 
     func testMissingComputedOptionalsStayMissing() {
         let unavailable = WorkoutDetectedBackfill.ComputedValues(
-            averageHeartRate: 145,
-            peakHeartRate: 170,
+            averageHeartRate: nil,
+            peakHeartRate: nil,
             caloriesKcal: nil,
             strain: nil,
-            strainVersion: nil
+            strainVersion: 99
         )
         let result = WorkoutDetectedBackfill.applying(unavailable, to: row())
-        XCTAssertEqual(result.avgHr, 145)
-        XCTAssertEqual(result.maxHr, 170)
+        XCTAssertNil(result.avgHr)
+        XCTAssertNil(result.maxHr)
         XCTAssertNil(result.energyKcal)
         XCTAssertNil(result.strain)
         XCTAssertNil(result.strainVersion)
+    }
+
+    func testInvalidComputedValuesFailClosedInsteadOfPollutingARealWorkout() {
+        let invalid = WorkoutDetectedBackfill.ComputedValues(
+            averageHeartRate: 0,
+            peakHeartRate: 999,
+            caloriesKcal: .infinity,
+            strain: -.infinity,
+            strainVersion: 2
+        )
+        XCTAssertEqual(WorkoutDetectedBackfill.applying(invalid, to: row()), row())
     }
 }
