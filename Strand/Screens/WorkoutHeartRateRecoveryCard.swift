@@ -50,23 +50,24 @@ struct WorkoutHeartRateRecoveryCard: View {
 
     /// Query immediately, then once after each still-pending recovery window. A detail screen opened right
     /// after Finish must not permanently cache “no data” before the 1/2/5-minute samples have had time to land.
-    /// The task is identity-cancelled by SwiftUI when the workout/source/HRmax changes or the card disappears.
+    /// A mature workout performs exactly one read; past milestones are not re-read in a tight loop.
     private func loadAsCoverageArrives() async {
         result = nil
         loaded = false
 
         let tolerance = HeartRateRecovery.measurementToleranceSeconds
-        let deadlines = [
-            workout.endTs,
+        let now = Int(Date().timeIntervalSince1970)
+        let futureDeadlines = [
             workout.endTs + 60 + tolerance,
             workout.endTs + 2 * 60 + tolerance,
             workout.endTs + 5 * 60 + tolerance,
-        ]
+        ].filter { $0 > now }
+        let queryDeadlines = [now] + futureDeadlines
 
-        for deadline in deadlines {
-            let now = Int(Date().timeIntervalSince1970)
-            if deadline > now {
-                let nanoseconds = UInt64(deadline - now) * 1_000_000_000
+        for deadline in queryDeadlines {
+            let current = Int(Date().timeIntervalSince1970)
+            if deadline > current {
+                let nanoseconds = UInt64(deadline - current) * 1_000_000_000
                 do {
                     try await Task.sleep(nanoseconds: nanoseconds)
                 } catch {
