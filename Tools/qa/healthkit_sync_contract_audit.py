@@ -60,6 +60,8 @@ try:
         "earliestAppleHealthTimestamp",
         "replaceAppleHealthRange",
         "Empty inputs are meaningful",
+        "MIN(healthKitObjectIndex.startTs, excluded.startTs)",
+        "MAX(healthKitObjectIndex.endTs, excluded.endTs)",
     )
     forbid(
         "StrandiOS/Health/HealthKitBridge.swift",
@@ -77,7 +79,7 @@ try:
     )
     require(
         "Packages/WhoopStore/Tests/WhoopStoreTests/HealthKitAuthoritativeStoreTests.swift",
-        "testObjectIndexPreservesPriorWindowBeforeCorrection",
+        "testObjectIndexRetainsHistoricalWindowUnionAcrossCorrections",
         "testEmptyAuthoritativeWindowRetractsAppleRowsAndWorkouts",
     )
 except AssertionError as error:
