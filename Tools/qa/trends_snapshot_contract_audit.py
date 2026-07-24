@@ -61,6 +61,14 @@ try:
         "testRoundedIntRoundsOnlyRepresentableFiniteValues",
     )
     require(
+        "Packages/StrandDesign/Sources/StrandDesign/ComponentLibraryAPI.swift",
+        'value.isFinite ? value.formatted(.number.precision(.fractionLength(0))) : "—"',
+    )
+    require(
+        "Packages/StrandDesign/Tests/StrandDesignTests/ComponentValueFormatTests.swift",
+        "testPublicChartDefaultsRejectNonFiniteValuesWithoutIntegerConversion",
+    )
+    require(
         "Strand/Screens/TrendsSnapshotModels.swift",
         "struct TrendsScreenSnapshotKey",
         "struct TrendsScreenSnapshot",
