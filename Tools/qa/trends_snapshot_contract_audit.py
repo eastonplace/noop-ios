@@ -55,12 +55,14 @@ try:
         "public static func roundedInt",
         "Int(exactly: value.rounded())",
         "private static func scaledFinite",
+        "Compute the ratio before rescaling",
     )
     require(
         "Packages/StrandAnalytics/Tests/StrandAnalyticsTests/StableStatisticsTests.swift",
         "testRoundedIntRejectsFloatingPointBoundaryAboveIntMax",
         "testRoundedIntRoundsOnlyRepresentableFiniteValues",
         "testFiniteExtremeStatisticsSaturateInsteadOfBecomingNilOrZero",
+        "testPercentChangeUsesNormalizedRatioBeforeAbsoluteDeltaSaturates",
     )
     require(
         "Packages/StrandAnalytics/Sources/StrandAnalytics/ComparisonEngine.swift",
