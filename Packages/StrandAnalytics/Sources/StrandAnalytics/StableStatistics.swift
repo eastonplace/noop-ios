@@ -69,10 +69,11 @@ public enum StableStatistics {
     }
 
     public static func roundedInt(_ value: Double) -> Int? {
-        guard value.isFinite,
-              value >= Double(Int.min), value <= Double(Int.max)
-        else { return nil }
-        return Int(value.rounded())
+        guard value.isFinite else { return nil }
+        // `Double(Int.max)` rounds to 2^63 on 64-bit platforms, which is one past Int.max.
+        // Bounds comparisons therefore still admit a value that traps in `Int(...)`. Exact
+        // conversion after rounding is the only reliable representability check.
+        return Int(exactly: value.rounded())
     }
 
     public static func rounded1(_ value: Double) -> Double? {
