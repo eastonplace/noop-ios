@@ -102,4 +102,70 @@ final class WorkoutDetectedBackfillTests: XCTestCase {
         )
         XCTAssertEqual(WorkoutDetectedBackfill.applying(invalid, to: row()), row())
     }
+
+    func testOutOfRangeOrUnversionedStrainIsNotBackfilled() {
+        let tooLarge = WorkoutDetectedBackfill.ComputedValues(
+            averageHeartRate: nil,
+            peakHeartRate: nil,
+            caloriesKcal: nil,
+            strain: 101,
+            strainVersion: 2
+        )
+        let unversioned = WorkoutDetectedBackfill.ComputedValues(
+            averageHeartRate: nil,
+            peakHeartRate: nil,
+            caloriesKcal: nil,
+            strain: 38,
+            strainVersion: nil
+        )
+
+        XCTAssertNil(WorkoutDetectedBackfill.applying(tooLarge, to: row()).strain)
+        XCTAssertNil(WorkoutDetectedBackfill.applying(tooLarge, to: row()).strainVersion)
+        XCTAssertNil(WorkoutDetectedBackfill.applying(unversioned, to: row()).strain)
+        XCTAssertNil(WorkoutDetectedBackfill.applying(unversioned, to: row()).strainVersion)
+    }
+
+    func testContradictoryComputedHeartRatesAreRejectedTogether() {
+        let contradictory = WorkoutDetectedBackfill.ComputedValues(
+            averageHeartRate: 181,
+            peakHeartRate: 152,
+            caloriesKcal: 245,
+            strain: 38,
+            strainVersion: 2
+        )
+        let result = WorkoutDetectedBackfill.applying(contradictory, to: row())
+
+        XCTAssertNil(result.avgHr)
+        XCTAssertNil(result.maxHr)
+        XCTAssertEqual(result.energyKcal, 245)
+        XCTAssertEqual(result.strain, 38)
+    }
+
+    func testComputedPeerCannotContradictExistingRealHeartRate() {
+        let resultWithRealAverage = WorkoutDetectedBackfill.applying(
+            WorkoutDetectedBackfill.ComputedValues(
+                averageHeartRate: nil,
+                peakHeartRate: 170,
+                caloriesKcal: nil,
+                strain: nil,
+                strainVersion: nil
+            ),
+            to: row(average: 180)
+        )
+        XCTAssertEqual(resultWithRealAverage.avgHr, 180)
+        XCTAssertNil(resultWithRealAverage.maxHr)
+
+        let resultWithRealPeak = WorkoutDetectedBackfill.applying(
+            WorkoutDetectedBackfill.ComputedValues(
+                averageHeartRate: 150,
+                peakHeartRate: nil,
+                caloriesKcal: nil,
+                strain: nil,
+                strainVersion: nil
+            ),
+            to: row(peak: 140)
+        )
+        XCTAssertNil(resultWithRealPeak.avgHr)
+        XCTAssertEqual(resultWithRealPeak.maxHr, 140)
+    }
 }
