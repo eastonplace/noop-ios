@@ -21,10 +21,16 @@ struct ExternalSurfaceDayProjection: Equatable {
     let effort: Double?
 
     static func recoveryValue(_ value: Double?) -> Int? {
-        guard let value, value.isFinite, (0...100).contains(value),
-              value >= Double(Int.min), value <= Double(Int.max)
-        else { return nil }
-        return Int(value.rounded())
+        guard let value, value.isFinite, (0...100).contains(value) else { return nil }
+        // A bounds comparison against Double(Int.max) is insufficient on 64-bit platforms because
+        // Double(Int.max) rounds to 2^63. Exact conversion is the only non-trapping representability gate.
+        return Int(exactly: value.rounded())
+    }
+
+    static func effortValue(_ storedValue: Double?) -> Double? {
+        guard let storedValue, storedValue.isFinite else { return nil }
+        let display = StrainScale.displayValue(fromStored: storedValue)
+        return display.isFinite ? display : nil
     }
 
     @MainActor
@@ -33,9 +39,7 @@ struct ExternalSurfaceDayProjection: Equatable {
         return Self(
             logicalDayKey: Repository.logicalDayKey(now),
             recovery: recoveryValue(day?.recovery),
-            effort: day
-                .flatMap { repository.canonicalStrain(for: $0.day)?.storedValue }
-                .map { StrainScale.displayValue(fromStored: $0) }
+            effort: effortValue(day.flatMap { repository.canonicalStrain(for: $0.day)?.storedValue })
         )
     }
 }
