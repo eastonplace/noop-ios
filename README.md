@@ -38,6 +38,12 @@ There is no Android application, macOS application, watchOS companion applicatio
 - Historical migrations analyze in resumable chunks and perform one final repository refresh.
 - SQLite and local files remain compatible with existing iOS data.
 
+## Upstream backend baseline
+
+**Noop iOS 2.1** synchronizes the relevant retained backend behavior with [`ryanbr/noop`](https://github.com/ryanbr/noop) **v9.1.0** while keeping this repository's newer iPhone interface and authoritative Strain and Sleep models.
+
+This is a selective compatibility sync, not a wholesale fork update. Experimental upstream signals stay experimental: in particular, the WHOOP 5.0 v18 byte-82 SpO₂ candidate is diagnostic instrumentation only and is not exposed as a health metric. See [`docs/RYANBR_9_1_BACKEND_SYNC.md`](docs/RYANBR_9_1_BACKEND_SYNC.md) for the adopted, already-present, excluded, and device-gated inventory.
+
 ## Build from source
 
 Requirements:
@@ -107,6 +113,7 @@ Biometric data is stored and processed locally. The optional AI Coach is the onl
 - Protocol documentation: [`docs/PROTOCOL.md`](docs/PROTOCOL.md)
 - iOS notes: [`docs/IOS.md`](docs/IOS.md)
 - Performance roadmap: [`docs/PERFORMANCE_STABILIZATION_PLAN.md`](docs/PERFORMANCE_STABILIZATION_PLAN.md)
+- RyanBR v9.1 backend compatibility: [`docs/RYANBR_9_1_BACKEND_SYNC.md`](docs/RYANBR_9_1_BACKEND_SYNC.md)
 - License: [`LICENSE`](LICENSE)
 
 Do not commit real health exports, captures containing personal identifiers, databases, signing credentials, API keys, or generated build products.
