@@ -44,6 +44,34 @@ final class WhoopGattServiceFamilyTests: XCTestCase {
         XCTAssertEqual(decision.unsupportedFamily, .monument)
     }
 
+    func testUnsupportedSelectedFamilyNeverConnectsEvenWhenAdvertisedOrServicesAreOmitted() {
+        let selected = WhoopGattServiceFamily.puffin1150.serviceUUIDString
+        XCTAssertEqual(
+            whoopGattScanDecision(
+                selectedServiceUUIDString: selected,
+                advertisedServiceUUIDStrings: [selected]
+            ),
+            WhoopGattScanDecision(shouldConnect: false, unsupportedFamily: .puffin1150)
+        )
+        XCTAssertEqual(
+            whoopGattScanDecision(
+                selectedServiceUUIDString: selected,
+                advertisedServiceUUIDStrings: []
+            ),
+            WhoopGattScanDecision(shouldConnect: false, unsupportedFamily: .puffin1150)
+        )
+    }
+
+    func testUnknownSelectedFamilyFailsClosedEvenWhenServicesAreOmitted() {
+        XCTAssertEqual(
+            whoopGattScanDecision(
+                selectedServiceUUIDString: "0000180d-0000-1000-8000-00805f9b34fb",
+                advertisedServiceUUIDStrings: []
+            ),
+            WhoopGattScanDecision(shouldConnect: false)
+        )
+    }
+
     func testSelectedAndOmittedServiceListsPreserveExistingConnectPath() {
         XCTAssertEqual(
             whoopGattScanDecision(
