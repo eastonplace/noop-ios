@@ -35,6 +35,9 @@ extension AppModel {
         let registry = DeviceRegistryStore(dbQueue: store.registryWriter)
         guard let activeId = try? registry.activeDeviceId(),
               let active = try? registry.all().first(where: { $0.id == activeId }),
+              active.brand.caseInsensitiveCompare("WHOOP") == .orderedSame,
+              active.peripheralId == nil
+                || active.peripheralId?.caseInsensitiveCompare(expectedPeripheral) == .orderedSame,
               let corrected = SeededWhoopModelResolver.correctedModel(
                 current: active.model,
                 whoop5Detected: expectedWhoop5
