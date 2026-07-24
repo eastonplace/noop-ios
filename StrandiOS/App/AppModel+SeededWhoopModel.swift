@@ -34,11 +34,14 @@ extension AppModel {
 
         let registry = DeviceRegistryStore(dbQueue: store.registryWriter)
         guard let activeId = try? registry.activeDeviceId(),
-              let active = try? registry.all().first(where: { $0.id == activeId }),
-              active.brand.caseInsensitiveCompare("WHOOP") == .orderedSame,
-              active.peripheralId.map {
-                  $0.caseInsensitiveCompare(expectedPeripheral) == .orderedSame
-              } ?? true,
+              let active = try? registry.all().first(where: { $0.id == activeId })
+        else { return }
+
+        let peripheralMatches = active.peripheralId.map({
+            $0.caseInsensitiveCompare(expectedPeripheral) == .orderedSame
+        }) ?? true
+        guard active.brand.caseInsensitiveCompare("WHOOP") == .orderedSame,
+              peripheralMatches,
               let corrected = SeededWhoopModelResolver.correctedModel(
                 current: active.model,
                 whoop5Detected: expectedWhoop5
