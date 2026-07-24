@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Static compatibility contract for the selective RyanBR NOOP v9.1 backend sync.
+"""Static contract for the WHOOP-only RyanBR NOOP v9.1 compatibility sync.
 
-This audit is intentionally run locally. It is not wired into GitHub Actions.
+This audit is intentionally local-only. It checks durable source boundaries and focused
+regression tests; it does not use GitHub Actions as build or compiler evidence.
 """
 from pathlib import Path
 import sys
@@ -44,9 +45,7 @@ try:
     require(
         "docs/RYANBR_9_1_BACKEND_SYNC.md",
         "Release tag: `v9.1.0`",
-        "## Implemented end to end",
-        "## Implemented metric and integration seams",
-        "## Implemented diagnostic-only protocol support",
+        "WHOOP",
         "Preserve NOOP iOS's current authoritative Strain implementation",
         "Preserve NOOP iOS's current Sleep scoring",
         "SpO₂ Candidate (Beta)",
@@ -54,7 +53,8 @@ try:
         "GitHub Actions is not used as evidence",
     )
 
-    # Heart-rate recovery: local HR only, eligibility-gated, missing coverage stays nil.
+    # Heart-rate recovery: one contiguous effort run, deterministic same-second collapse,
+    # real post-workout coverage only, and progressive UI refresh while samples arrive.
     require(
         "Packages/StrandAnalytics/Sources/StrandAnalytics/HeartRateRecovery.swift",
         "public enum HeartRateRecovery",
@@ -64,7 +64,8 @@ try:
         "minimumSamplesPerReading = 3",
         "maximumContinuousGapSeconds = 10",
         "private static func canonicalSeconds",
-        "Double(current.bpm) >= threshold, Double(next.bpm) >= threshold",
+        "private static func longestSustainedSeconds",
+        "currentRun = 0",
         "return result.hasMeasurement ? result : nil",
     )
     require(
@@ -72,6 +73,7 @@ try:
         "testCalculatesOneTwoAndFiveMinuteDropsFromRobustReadings",
         "testRequiresSustainedHighIntensityRatherThanOnePeak",
         "testRejectsDisconnectedHighIntensityFragments",
+        "testDenseHighIntensityBurstsDoNotAddTogetherAcrossLowHeartRateBreaks",
         "testDoesNotCreditPreWorkoutHeartRateTowardEligibility",
         "testReturnsOnlyMeasurementsWithRealCoverage",
         "testDuplicateCallbacksAtOneSecondDoNotFakeCoverage",
@@ -86,7 +88,9 @@ try:
     require(
         "Strand/Screens/WorkoutHeartRateRecoveryCard.swift",
         "struct WorkoutHeartRateRecoveryCard",
-        "Checking heart-rate recovery",
+        "loadAsCoverageArrives",
+        "futureDeadlines",
+        "workout.source",
         "NOOP does not interpolate it",
     )
 
@@ -110,14 +114,16 @@ try:
         "Question text,Answered yes,Notes",
     )
 
-    # Existing/imported workout facts always win; only nil computed fields may be filled.
+    # Existing/imported workout facts always win; only valid, non-contradictory nil fields may be filled.
     require(
         "Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutDetectedBackfill.swift",
         "public enum WorkoutDetectedBackfill",
-        "real.energyKcal ?? computed.caloriesKcal",
-        "real.avgHr ?? computed.averageHeartRate",
-        "real.maxHr ?? computed.peakHeartRate",
-        "real.strain ?? computed.strain",
+        "private static func validStoredStrain",
+        "(0...100).contains($0)",
+        "average > peak",
+        "let averageFill",
+        "let peakFill",
+        "computed.strainVersion != nil",
         "strainVersion: fillsStrain ? computed.strainVersion : real.strainVersion",
     )
     require(
@@ -125,20 +131,35 @@ try:
         "testFillsOnlyMissingComputedFields",
         "testNeverOverwritesUserOrImportedValues",
         "testExistingStrainKeepsItsVersionWhileOtherFieldsFill",
+        "testOutOfRangeOrUnversionedStrainIsNotBackfilled",
+        "testContradictoryComputedHeartRatesAreRejectedTogether",
+        "testComputedPeerCannotContradictExistingRealHeartRate",
     )
 
-    # Seeded WHOOP rows are repaired only after the connected family is known.
+    # Seeded WHOOP rows are repaired only under stable connection evidence and an atomic generic-row predicate.
+    require(
+        "Packages/WhoopStore/Sources/WhoopStore/DeviceRegistryStore+Model.swift",
+        "setModelIfGenericWhoop",
+        "lower(trim(model)) = 'whoop'",
+        "return db.changesCount == 1",
+    )
     require(
         "StrandiOS/App/AppModel+SeededWhoopModel.swift",
         "SeededWhoopModelResolver",
         'return whoop5Detected ? "WHOOP 5.0 / MG" : "WHOOP 4.0"',
-        "guard live.connected",
-        "registry.setModel",
+        "expectedPeripheral",
+        "expectedWhoop5",
+        "ble.connectedPeripheralUUID == expectedPeripheral",
+        "registry.setModelIfGenericWhoop",
     )
     require(
         "StrandiOS/App/StrandiOSApp.swift",
         "model.live.$connectSettled.removeDuplicates().dropFirst()",
         "await model.correctSeededWhoopModelIfNeeded()",
+    )
+    require(
+        "Packages/WhoopStore/Tests/WhoopStoreTests/DeviceRegistryStoreTests.swift",
+        "testGenericWhoopModelRepairIsAtomicAndNeverOverwritesSpecificModels",
     )
     require(
         "StrandiOSTests/SeededWhoopModelTests.swift",
@@ -164,9 +185,10 @@ try:
     require(
         "Packages/WhoopProtocol/Sources/WhoopProtocol/HistoricalStreams.swift",
         'p["aux_byte_82"]?.intValue',
-        "experimentalSpO2Minutes",
-        "at most one accepted sleeping candidate per minute",
+        "experimentalSpO2Minutes: [Int: (sum: Int, count: Int)]",
+        "one order-independent minute mean",
         "Whoop5V18SpO2Candidate.experimentalSample(",
+        "Double(aggregate.sum) / Double(aggregate.count)",
         "out.spo2.append(sample)",
     )
     require(
@@ -180,18 +202,22 @@ try:
     require(
         "Packages/WhoopProtocol/Tests/WhoopProtocolTests/Whoop5ExperimentalSpO2PipelineTests.swift",
         "testSleepingInBandCandidateReachesCompactSpO2Stream",
+        "testSameMinuteCandidatesProduceOneOrderIndependentMean",
         "testAwakeOrSentinelValuesNeverReachExperimentalStream",
         "persistedMarkerIR",
     )
     require(
         "Strand/Screens/VitalSignsSummary.swift",
         "SpO₂ Candidate (Beta)",
-        "Experimental beta",
+        "Experimental; may be inaccurate",
         "WHOOP 5/MG",
         "Whoop5V18SpO2Candidate.persistedPercentage",
         "It may be inaccurate and is not used for scoring, HealthKit, or medical decisions",
+        "band: .noData",
+        'format: { String(format: "≈%.0f", $0) }',
         "Never place the candidate into the canonical Blood O₂ tile",
     )
+
     # App references are allowed only in the single presentation resolver. No scoring, HealthKit, widget,
     # Trends, or other surface may quietly treat the candidate as validated physiology.
     allowed_candidate_app_path = Path("Strand/Screens/VitalSignsSummary.swift")
@@ -213,23 +239,27 @@ try:
     forbid(
         "Strand/Screens/VitalSignsSummary.swift",
         "spo2Pct: candidate",
-        "label: String(localized: \"Blood O₂\"),\n                    unit: \"%\",\n                    value: candidateSpO2Row",
+        'label: String(localized: "Blood O₂"),\n                    unit: "%",\n                    value: candidateSpO2Row',
+        "banding: VitalBands.Result(band: .inRange",
     )
 
-    # Raw IMU helpers preserve exact wire columns; no lossy display conversion is stored.
+    # Raw IMU helpers share one full-shape gate; a long unrelated frame cannot yield an IMU timestamp.
     require(
         "Packages/WhoopProtocol/Sources/WhoopProtocol/Whoop5RawImu.swift",
         "public static func rawColumns",
         "public static func baseTs",
+        "private static func isValidBuffer",
+        "guard isValidBuffer(f) else { return nil }",
         "output[column * sampleCount + index]",
     )
     require(
         "Packages/WhoopProtocol/Tests/WhoopProtocolTests/Whoop5RawImuStorageTests.swift",
         "testRawColumnsPreserveWireOrderAndSignedValues",
+        "testBaseTimestampRequiresTheCompleteImuShape",
         "testDecodeAndRawColumnsRejectTrailingOrTruncatedBytes",
     )
 
-    # Unsupported WHOOP services are metadata only and deliberately have no DeviceFamily/commands.
+    # Unsupported WHOOP services are metadata only and the selected family itself must be connectable.
     require(
         "Packages/WhoopProtocol/Sources/WhoopProtocol/WhoopGattServiceFamily.swift",
         "case puffin1150",
@@ -237,74 +267,39 @@ try:
         "case symphony",
         "case .puffin1150, .monument, .symphony: return nil",
         "will not connect or send commands",
+        "guard selected.isConnectable else",
         "whoopGattScanDecision",
     )
     require(
         "Packages/WhoopProtocol/Tests/WhoopProtocolTests/WhoopGattServiceFamilyTests.swift",
         "testUnsupportedFamiliesHaveNoConnectableDeviceFamily",
         "testUnsupportedAdvertisementIsRejectedBeforeGatt",
+        "testUnsupportedSelectedFamilyNeverConnectsEvenWhenAdvertisedOrServicesAreOmitted",
+        "testUnknownSelectedFamilyFailsClosedEvenWhenServicesAreOmitted",
         "testUnknownDifferentServiceIsIgnoredWithoutInventingAFamily",
     )
 
-    # GET_CLOCK retry and Data Range fallback stay bounded and never displace a precise correlation.
+    # GET_CLOCK retry and Data Range fallback stay bounded, plausible, and one-shot.
     require(
         "Packages/WhoopProtocol/Sources/WhoopProtocol/StrapClockRecoveryPlanner.swift",
         "defaultMaximumRetries = 3",
-        "case retryGetClock",
-        "case installDataRangeFallback",
+        "maximumFutureSkewSeconds = 300",
+        "fallbackIssued",
+        "guard !fallbackIssued",
+        "newestBankedUnix <= wallUnix + Self.maximumFutureSkewSeconds",
+        "fallbackIssued = true",
         "guard !hasPreciseCorrelation else { return .none }",
-        "retryCount < maximumRetries",
     )
     require(
         "Packages/WhoopProtocol/Tests/WhoopProtocolTests/StrapClockRecoveryPlannerTests.swift",
-        "testRetriesAreBoundedThenDataRangeFallbackInstalls",
+        "testRetriesAreBoundedThenDataRangeFallbackInstallsOnce",
         "testPreciseCorrelationSuppressesRetriesAndFallback",
         "testFallbackFailsClosedWithoutValidDataRange",
+        "testFutureDataRangeMarkerFailsClosed",
+        "testResetRearmsFirstRetryAndFallback",
     )
 
-    # Oura probes are read-only. The feature-enable verb must not enter these diagnostic commands.
-    require(
-        "Packages/OuraProtocol/Sources/OuraProtocol/OuraFeatureStatus.swift",
-        "OuraFeatureStatus",
-        'bytes: [0x2f, 0x02, 0x20, featureSpO2]',
-        'bytes: [0x2f, 0x02, 0x20, featureRealSteps]',
-        "status.feature != Int(OuraCommands.featureDaytimeHR)",
-    )
-    forbid(
-        "Packages/OuraProtocol/Sources/OuraProtocol/OuraFeatureStatus.swift",
-        "0x22",
-    )
-    require(
-        "Packages/OuraProtocol/Sources/OuraProtocol/OuraWear.swift",
-        "public enum OuraWearState",
-        "public final class OuraWearTracker",
-        "noteLivePulseTimeout",
-    )
-    require(
-        "Packages/OuraProtocol/Tests/OuraProtocolTests/OuraFeatureStatusTests.swift",
-        "testStatusQueryCommandsUseReadVerbOnly",
-        "testProbeKeepsDaytimeHeartRateAckOutOfDiagnostics",
-    )
-    require(
-        "Packages/OuraProtocol/Tests/OuraProtocolTests/OuraWearTests.swift",
-        "testLiveTrackerPulseMeansWorn",
-        "testLivePulseTimeoutDowngradesOnlyWornState",
-    )
-
-    # Banked IBI must use ring-time correlation or remain parked, never drain-arrival wall time.
-    require(
-        "Packages/OuraProtocol/Sources/OuraProtocol/OuraIBITimestampPolicy.swift",
-        "case persist(unixSeconds: Int)",
-        "case park(ringTimestamp: UInt32)",
-        "guard let anchoredUnixSeconds, anchoredUnixSeconds > 0",
-    )
-    require(
-        "Packages/OuraProtocol/Tests/OuraProtocolTests/OuraIBITimestampPolicyTests.swift",
-        "testAnchoredBeatPersistsAtRingTimeDerivedUnixTimestamp",
-        "testUnanchoredBeatParksInsteadOfUsingDrainArrivalTime",
-    )
-
-    # The sync is additive and remains iPhone-only.
+    # The 2.1 delta remains additive and iPhone-only. Oura is not a release requirement for this PR.
     for forbidden_path in (
         "StrandAndroid",
         "StrandWatch",
@@ -317,7 +312,7 @@ try:
             raise AssertionError(f"retired application target restored: {forbidden_path}")
 
 except AssertionError as error:
-    print(f"RyanBR v9.1 backend compatibility audit: FAIL\n{error}", file=sys.stderr)
+    print(f"RyanBR v9.1 WHOOP compatibility audit: FAIL\n{error}", file=sys.stderr)
     raise SystemExit(1)
 
-print("RyanBR v9.1 backend compatibility audit: PASS")
+print("RyanBR v9.1 WHOOP compatibility audit: PASS")
