@@ -54,14 +54,16 @@ public enum HeartRateRecovery {
 
         let lowerBound = max(workoutStart, workoutEnd - eligibilityLookbackSeconds)
         let upperBound = workoutEnd + 5 * 60 + measurementToleranceSeconds
-        let sorted = samples
-            .filter { $0.ts >= lowerBound && $0.ts <= upperBound && (30...250).contains($0.bpm) }
-            .sorted { lhs, rhs in
-                lhs.ts == rhs.ts ? lhs.bpm < rhs.bpm : lhs.ts < rhs.ts
+        let canonical = canonicalSeconds(
+            samples.filter {
+                $0.ts >= lowerBound
+                    && $0.ts <= upperBound
+                    && (30...250).contains($0.bpm)
             }
-        guard sorted.count >= minimumSamplesPerReading else { return nil }
+        )
+        guard canonical.count >= minimumSamplesPerReading else { return nil }
 
-        let beforeEnd = sorted.filter { $0.ts <= workoutEnd }
+        let beforeEnd = canonical.filter { $0.ts <= workoutEnd }
         let threshold = maxHR * eligibilityFractionOfMaxHR
         guard sustainedSeconds(atOrAbove: threshold, in: beforeEnd) >= minimumHighIntensitySeconds else {
             return nil
@@ -76,7 +78,7 @@ public enum HeartRateRecovery {
 
         func recovery(at minutes: Int) -> Int? {
             let target = workoutEnd + minutes * 60
-            let values = sorted
+            let values = canonical
                 .filter { abs($0.ts - target) <= measurementToleranceSeconds }
                 .map(\.bpm)
             guard values.count >= minimumSamplesPerReading,
@@ -94,14 +96,34 @@ public enum HeartRateRecovery {
         return result.hasMeasurement ? result : nil
     }
 
+    /// Keep one deterministic reading per stored second. Callback duplicates must not satisfy the
+    /// coverage gate or overweight a median. The higher value wins only for a duplicate timestamp, matching
+    /// the conservative cessation-peak policy while leaving ordinary one-Hz streams unchanged.
+    private static func canonicalSeconds(_ samples: [HRSample]) -> [HRSample] {
+        var output: [HRSample] = []
+        for sample in samples.sorted(by: {
+            $0.ts == $1.ts ? $0.bpm < $1.bpm : $0.ts < $1.ts
+        }) {
+            if output.last?.ts == sample.ts {
+                output[output.count - 1] = sample
+            } else {
+                output.append(sample)
+            }
+        }
+        return output
+    }
+
     private static func sustainedSeconds(atOrAbove threshold: Double, in samples: [HRSample]) -> Int {
         guard samples.count >= 2 else { return 0 }
         var seconds = 0
         for index in 0..<(samples.count - 1) {
             let current = samples[index]
-            let gap = samples[index + 1].ts - current.ts
+            let next = samples[index + 1]
+            let gap = next.ts - current.ts
             guard gap > 0, gap <= maximumContinuousGapSeconds else { continue }
-            if Double(current.bpm) >= threshold { seconds += gap }
+            if Double(current.bpm) >= threshold, Double(next.bpm) >= threshold {
+                seconds += gap
+            }
         }
         return seconds
     }
