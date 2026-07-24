@@ -40,12 +40,15 @@ public struct StrapClockRecoveryPlanner: Equatable, Sendable {
             retryCount += 1
             return .retryGetClock(attempt: retryCount, maximum: maximumRetries)
         }
+
         guard !fallbackIssued,
               let newestBankedUnix,
               newestBankedUnix > 0,
-              wallUnix > 0,
-              newestBankedUnix <= wallUnix + Self.maximumFutureSkewSeconds
+              wallUnix > 0
         else { return .none }
+
+        let (latestAllowedUnix, overflow) = wallUnix.addingReportingOverflow(Self.maximumFutureSkewSeconds)
+        guard !overflow, newestBankedUnix <= latestAllowedUnix else { return .none }
 
         fallbackIssued = true
         return .installDataRangeFallback(
