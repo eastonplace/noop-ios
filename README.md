@@ -40,9 +40,9 @@ There is no Android application, macOS application, watchOS companion applicatio
 
 ## Upstream backend baseline
 
-**Noop iOS 2.1** synchronizes the relevant retained backend behavior with [`ryanbr/noop`](https://github.com/ryanbr/noop) **v9.1.0** while keeping this repository's newer iPhone interface and authoritative Strain and Sleep models.
+**Noop iOS 2.1** selectively synchronizes relevant **WHOOP backend behavior** with [`ryanbr/noop`](https://github.com/ryanbr/noop) **v9.1.0** while keeping this repository's newer iPhone interface and authoritative Strain and Sleep models. Oura transport work is not part of the Noop iOS 2.1 release gate.
 
-This is a selective compatibility sync, not a wholesale fork update. The WHOOP 5.0/MG v18 byte-82 SpO₂ candidate is now pulled into a **separate, explicitly labelled experimental beta tile** when sleeping candidate data exists. It remains unvalidated across devices and never populates canonical Blood O₂, HealthKit, Recovery, illness detection, or any medical decision path. See [`docs/RYANBR_9_1_BACKEND_SYNC.md`](docs/RYANBR_9_1_BACKEND_SYNC.md) for the adopted, already-present, excluded, and device-gated inventory.
+This is a compatibility sync, not a wholesale fork update. The WHOOP 5.0/MG v18 byte-82 SpO₂ candidate is pulled into a **separate, explicitly labelled experimental beta tile** when sleeping candidate data exists. It remains unvalidated across devices and never populates canonical Blood O₂, HealthKit, Recovery, illness detection, or any medical decision path. See [`docs/RYANBR_9_1_BACKEND_SYNC.md`](docs/RYANBR_9_1_BACKEND_SYNC.md) for the adopted, already-present, excluded, and device-gated inventory.
 
 ## Build from source
 
@@ -113,7 +113,7 @@ Biometric data is stored and processed locally. The optional AI Coach is the onl
 - Protocol documentation: [`docs/PROTOCOL.md`](docs/PROTOCOL.md)
 - iOS notes: [`docs/IOS.md`](docs/IOS.md)
 - Performance roadmap: [`docs/PERFORMANCE_STABILIZATION_PLAN.md`](docs/PERFORMANCE_STABILIZATION_PLAN.md)
-- RyanBR v9.1 backend compatibility: [`docs/RYANBR_9_1_BACKEND_SYNC.md`](docs/RYANBR_9_1_BACKEND_SYNC.md)
+- RyanBR v9.1 WHOOP compatibility: [`docs/RYANBR_9_1_BACKEND_SYNC.md`](docs/RYANBR_9_1_BACKEND_SYNC.md)
 - License: [`LICENSE`](LICENSE)
 
 Do not commit real health exports, captures containing personal identifiers, databases, signing credentials, API keys, or generated build products.
