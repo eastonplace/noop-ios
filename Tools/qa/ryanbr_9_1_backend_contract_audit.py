@@ -30,12 +30,6 @@ def forbid(relative: str, *markers: str) -> None:
             raise AssertionError(f"{relative}: forbidden marker {marker!r}")
 
 
-def require_paths(*paths: str) -> None:
-    for relative in paths:
-        if not (ROOT / relative).exists():
-            raise AssertionError(f"missing required path: {relative}")
-
-
 try:
     require(
         "README.md",
@@ -49,6 +43,9 @@ try:
     require(
         "docs/RYANBR_9_1_BACKEND_SYNC.md",
         "Release tag: `v9.1.0`",
+        "## Implemented end to end",
+        "## Implemented metric and integration seams",
+        "## Implemented diagnostic-only protocol support",
         "Preserve NOOP iOS's current authoritative Strain implementation",
         "Preserve NOOP iOS's current Sleep scoring",
         "must not populate `spo2Pct`, HealthKit, Recovery, illness detection",
@@ -64,6 +61,8 @@ try:
         "measurementToleranceSeconds = 15",
         "minimumSamplesPerReading = 3",
         "maximumContinuousGapSeconds = 10",
+        "private static func canonicalSeconds",
+        "Double(current.bpm) >= threshold, Double(next.bpm) >= threshold",
         "return result.hasMeasurement ? result : nil",
     )
     require(
@@ -73,6 +72,7 @@ try:
         "testRejectsDisconnectedHighIntensityFragments",
         "testDoesNotCreditPreWorkoutHeartRateTowardEligibility",
         "testReturnsOnlyMeasurementsWithRealCoverage",
+        "testDuplicateCallbacksAtOneSecondDoNotFakeCoverage",
         "testAHeartRateRiseRemainsSignedInsteadOfBeingClamped",
     )
     require(
@@ -163,8 +163,6 @@ try:
     )
     for root in ("Strand", "StrandiOS", "StrandiOSShared", "StrandiOSWidgets"):
         for path in (ROOT / root).rglob("*.swift"):
-            if path.name == "Whoop5V18SpO2Candidate.swift":
-                continue
             source = path.read_text(encoding="utf-8")
             if "Whoop5V18SpO2Candidate" in source:
                 raise AssertionError(
@@ -201,7 +199,23 @@ try:
         "testUnknownDifferentServiceIsIgnoredWithoutInventingAFamily",
     )
 
-    # Oura probes are read-only. The 0x22 enable verb must not enter these diagnostic commands.
+    # GET_CLOCK retry and Data Range fallback stay bounded and never displace a precise correlation.
+    require(
+        "Packages/WhoopProtocol/Sources/WhoopProtocol/StrapClockRecoveryPlanner.swift",
+        "defaultMaximumRetries = 3",
+        "case retryGetClock",
+        "case installDataRangeFallback",
+        "guard !hasPreciseCorrelation else { return .none }",
+        "retryCount < maximumRetries",
+    )
+    require(
+        "Packages/WhoopProtocol/Tests/WhoopProtocolTests/StrapClockRecoveryPlannerTests.swift",
+        "testRetriesAreBoundedThenDataRangeFallbackInstalls",
+        "testPreciseCorrelationSuppressesRetriesAndFallback",
+        "testFallbackFailsClosedWithoutValidDataRange",
+    )
+
+    # Oura probes are read-only. The feature-enable verb must not enter these diagnostic commands.
     require(
         "Packages/OuraProtocol/Sources/OuraProtocol/OuraFeatureStatus.swift",
         "OuraFeatureStatus",
@@ -228,6 +242,19 @@ try:
         "Packages/OuraProtocol/Tests/OuraProtocolTests/OuraWearTests.swift",
         "testLiveTrackerPulseMeansWorn",
         "testLivePulseTimeoutDowngradesOnlyWornState",
+    )
+
+    # Banked IBI must use ring-time correlation or remain parked, never drain-arrival wall time.
+    require(
+        "Packages/OuraProtocol/Sources/OuraProtocol/OuraIBITimestampPolicy.swift",
+        "case persist(unixSeconds: Int)",
+        "case park(ringTimestamp: UInt32)",
+        "guard let anchoredUnixSeconds, anchoredUnixSeconds > 0",
+    )
+    require(
+        "Packages/OuraProtocol/Tests/OuraProtocolTests/OuraIBITimestampPolicyTests.swift",
+        "testAnchoredBeatPersistsAtRingTimeDerivedUnixTimestamp",
+        "testUnanchoredBeatParksInsteadOfUsingDrainArrivalTime",
     )
 
     # The sync is additive and remains iPhone-only.
