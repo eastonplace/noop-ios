@@ -191,6 +191,10 @@ public func extractHistoricalStreams(_ parsed: [ParsedFrame],
     // The SAME (ts, samples) are also appended to `out.ppgWaveform` below (issue #156 follow-up) so the
     // raw waveform is durable too, not just the derived estimate this local buffer exists to produce.
     var ppgRecords: [(ts: Int, samples: [Int])] = []
+    // Byte 82 exists at one-second cadence. Persist at most one accepted sleeping candidate per minute;
+    // the daily cache then averages these minute samples. This keeps a full night to hundreds of rows,
+    // not tens of thousands, while preserving enough resolution to inspect drift and bad-device behavior.
+    var experimentalSpO2Minutes = Set<Int>()
     for r in parsed {
         if !r.ok || r.crcOK == false { continue }
         let p = r.parsed
@@ -217,6 +221,21 @@ public func extractHistoricalStreams(_ parsed: [ParsedFrame],
             }
             if let red = p["spo2_red"]?.intValue {
                 out.spo2.append(SpO2Sample(ts: ts, red: red, ir: p["spo2_ir"]?.intValue ?? 0))
+            }
+            // WHOOP 5/MG v18 @82 experimental candidate. This is intentionally a separate encoded shape
+            // inside the existing raw SpO₂ stream: red carries the candidate percentage and ir carries the
+            // impossible negative marker. It therefore reaches the nightly cache and an explicitly-beta UI
+            // without touching canonical `spo2Pct`, HealthKit, Recovery, Sleep, or illness detection.
+            if let rawValue = p["aux_byte_82"]?.intValue,
+               let raw = UInt8(exactly: rawValue) {
+                let minuteTs = ts - ts % 60
+                if let sample = Whoop5V18SpO2Candidate.experimentalSample(
+                    minuteTimestamp: minuteTs,
+                    raw: raw,
+                    sleepState: p["sleep_state"]?.intValue
+                ), experimentalSpO2Minutes.insert(minuteTs).inserted {
+                    out.spo2.append(sample)
+                }
             }
             if let raw = p["skin_temp_raw"]?.intValue {
                 out.skinTemp.append(SkinTempSample(ts: ts, raw: raw))
