@@ -130,13 +130,17 @@ enum BodyVitalSigns {
         let logicalDay = logicalDayKey(now)
 
         // Resolve one metric to a per-day series, taking the FIRST source (by precedence) that carries
-        // a value for each day — imported wins over computed wins over Apple, per `vitalPrecedence`.
+        // a plausible value for each day. Imported wins over computed wins over Apple, per `vitalPrecedence`.
+        // A finite-but-corrupt SQLite value must not reach integer formatting, chart geometry, or band math.
         func points(key: String, _ value: (DailyMetric) -> Double?) -> [VitalPoint] {
             let allowedSources = DailyMetricSource.vitalPrecedence(for: key)
             var byDay: [String: VitalPoint] = [:]
             for source in allowedSources {
                 for row in sourceRows where row.source == source {
-                    guard let v = value(row.metric), v.isFinite, byDay[row.metric.day] == nil else { continue }
+                    guard let v = value(row.metric),
+                          Self.isPlausibleVital(v, key: key),
+                          byDay[row.metric.day] == nil
+                    else { continue }
                     byDay[row.metric.day] = VitalPoint(day: row.metric.day, value: v, source: row.source)
                 }
             }
@@ -253,7 +257,7 @@ enum BodyVitalSigns {
                 label: String(localized: "Resting HR"),
                 unit: "bpm",
                 value: rhrRow?.value,
-                format: { String(Int($0.rounded())) },
+                format: Self.wholeNumber,
                 banding: VitalBands.band(
                     value: rhrRow?.value,
                     history: history(before: rhrRow?.day, rhrPoints),
@@ -271,7 +275,7 @@ enum BodyVitalSigns {
                 label: String(localized: "HRV"),
                 unit: "ms",
                 value: hrvRow?.value,
-                format: { String(Int($0.rounded())) },
+                format: Self.wholeNumber,
                 banding: VitalBands.band(
                     value: hrvRow?.value,
                     history: history(before: hrvRow?.day, hrvPoints),
@@ -335,6 +339,31 @@ enum BodyVitalSigns {
     /// and independent of the @MainActor Repository — same boundary, mirrored here for the readings build.
     static func logicalDayKey(_ now: Date, rolloverHour: Int = 4) -> String {
         localDayFormatter.string(from: now.addingTimeInterval(-Double(rolloverHour) * 3_600))
+    }
+
+    private static func isPlausibleVital(_ value: Double, key: String) -> Bool {
+        guard value.isFinite else { return false }
+        switch key {
+        case "resp":
+            return (1...100).contains(value)
+        case "spo2":
+            return (0...100).contains(value)
+        case experimentalSpO2CandidateKey:
+            return (70...100).contains(value)
+        case "rhr":
+            return (20...250).contains(value)
+        case "hrv":
+            return (0...2_000).contains(value)
+        case "skin":
+            // Covers both absolute wrist temperature and the signed deviation representation.
+            return (-20...60).contains(value)
+        default:
+            return false
+        }
+    }
+
+    private static func wholeNumber(_ value: Double) -> String {
+        Int(exactly: value.rounded()).map(String.init) ?? "—"
     }
 
     private static let localDayFormatter: DateFormatter = {
