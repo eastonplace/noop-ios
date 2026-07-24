@@ -47,9 +47,14 @@ public struct ImportCoordinator {
         return try AppleHealthImporter(retainRawSamples: retainRawSamples).import(from: url)
     }
 
-    /// Parse a Whoop CSV export (`.zip` or folder).
+    /// Parse a Whoop CSV export (`.zip` or folder), including the real WHOOP v9.1
+    /// `Answered yes` journal header that older NOOP exports did not emit.
     public func importWhoopExport(from url: URL) throws -> WhoopImportResult {
-        try whoop.import(from: url)
+        let result = try whoop.import(from: url)
+        return try WhoopV91JournalCompatibility.applyingIfNeeded(
+            to: result,
+            sourceURL: url
+        )
     }
 
     /// Parse a Xiaomi / Mi Band export (the Mi Fitness sandbox folder, a `.zip` of it,
@@ -115,7 +120,7 @@ public struct ImportCoordinator {
         case .appleHealth:
             return .appleHealth(try appleHealth.import(from: url))
         case .whoopExport:
-            return .whoopExport(try whoop.import(from: url))
+            return .whoopExport(try importWhoopExport(from: url))
         case .xiaomiBand:
             return .xiaomiBand(try xiaomi.import(from: url))
         // detectKind never returns the wearable-import kinds (it has no marker for them) — the wearable
