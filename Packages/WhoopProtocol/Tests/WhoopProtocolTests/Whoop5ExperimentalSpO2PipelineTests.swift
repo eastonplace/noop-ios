@@ -65,12 +65,12 @@ final class Whoop5ExperimentalSpO2PipelineTests: XCTestCase {
     func testSameMinuteCandidatesProduceOneOrderIndependentMean() {
         let values: [UInt8] = [70, 100, 90]
         let forward = extractHistoricalStreams(
-            values.map(parsedCandidate),
+            values.map { parsedCandidate($0) },
             deviceClockRef: 1_780_916_150,
             wallClockRef: 1_780_916_150
         ).spo2
         let reverse = extractHistoricalStreams(
-            values.reversed().map(parsedCandidate),
+            values.reversed().map { parsedCandidate($0) },
             deviceClockRef: 1_780_916_150,
             wallClockRef: 1_780_916_150
         ).spo2
