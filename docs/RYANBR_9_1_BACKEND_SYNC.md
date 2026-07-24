@@ -20,7 +20,7 @@ The release line selectively synchronizes the retained iPhone protocol, storage,
 3. Import new independent metrics and protocol facts only when they do not silently change those authorities.
 4. Keep WHOOP 5.0/MG behavior explicitly experimental where the upstream evidence is experimental.
 5. A sent command is never presented as confirmed device state without readback evidence.
-6. The v18 byte-82 SpO₂ candidate remains **instrumentation only**. It must not populate `spo2Pct`, HealthKit, Recovery, illness detection, or any user-facing oxygen metric.
+6. The v18 byte-82 SpO₂ candidate may appear only in a **separate, explicitly labelled experimental beta surface**. It must never populate canonical `spo2Pct`, HealthKit, Recovery, illness detection, or an unqualified medical/health claim.
 7. Keep all biometric processing local and on-device.
 8. Keep this repository iPhone-only. Do not restore Android, watchOS, or the retired macOS app.
 9. GitHub Actions is not used as evidence for this release line.
@@ -38,6 +38,20 @@ Older stores seeded a generic `model = "WHOOP"` registry row. After a real WHOOP
 ### WHOOP 5 raw-IMU storage helpers
 
 The existing verified 100 Hz 6-axis decoder now also exposes the exact six signed i16 wire columns and a timestamp-only read. The helpers preserve lossless raw values for later storage or analysis and reject wrong-length buffers.
+
+### WHOOP 5/MG byte-82 experimental SpO₂ candidate
+
+The v18 parser already exposes raw byte 82. The historical-stream path now classifies it through `Whoop5V18SpO2Candidate` and, only when the same record reports the band asleep and the byte is 70–100, keeps at most one candidate per minute.
+
+The compact row reuses the existing raw SpO₂ storage shape without changing the database schema:
+
+- `red` carries the candidate percentage.
+- `ir = -82` is an impossible marker that cannot collide with ordinary non-negative WHOOP 4 red/IR ADC channels.
+- the normal nightly cache averages those minute samples into `DailyMetric.spo2Red` while preserving the `-82` marker in `spo2Ir`.
+
+The Health vitals grid then adds a distinct **“SpO₂ Candidate (Beta)”** tile only when such a nightly value exists. Its caption identifies WHOOP 5/MG and says Experimental beta. It is not banded against a clinical range, does not replace the normal Blood O₂ tile, and its VoiceOver description says it may be inaccurate and is not used for scoring, HealthKit, or medical decisions.
+
+This is an intentional product decision to expose the data honestly rather than hide it, while keeping the uncertainty impossible to miss.
 
 ## Implemented metric and integration seams
 
@@ -60,10 +74,6 @@ The remaining production integration is a narrow call from the existing detected
 `StrapClockRecoveryPlanner` models at most three GET_CLOCK retries followed by an explicitly approximate Data Range fallback when the newest banked timestamp exists. A precise clock correlation always wins. Actual BLE command scheduling and `ClockRef` installation remain a transport-layer wiring task and require a physical strap that drops GET_CLOCK responses.
 
 ## Implemented diagnostic-only protocol support
-
-### WHOOP 5 v18 byte-82 SpO₂ candidate
-
-The protocol package classifies byte 82 as absent, plausible percentage, high-bit sentinel, or diagnostic code. It is deliberately not referenced by the app targets. No candidate value reaches HealthKit, Recovery, illness detection, Trends, exports, or any user-facing oxygen surface.
 
 ### Additional WHOOP GATT families
 
@@ -98,7 +108,7 @@ The policy persists IBI only at a ring-time-derived Unix timestamp when an ancho
 - Upstream UI rewrites that conflict with the retained iPhone interface.
 - Upstream Recovery, Strain, or Sleep formula replacements where NOOP iOS already has a newer authoritative model.
 - Configurable bundle/team infrastructure unrelated to backend metric compatibility.
-- Any production SpO₂ metric sourced from the contested WHOOP 5.0 byte-82 candidate.
+- Any canonical or medically presented SpO₂ value sourced from the contested WHOOP 5.0 byte-82 candidate.
 - Any command for a newly observed WHOOP GATT family whose framing is not independently validated.
 - Android-only Sleep Schedule rendering fixes; NOOP iOS does not use that rendering path.
 
@@ -111,7 +121,7 @@ The policy persists IBI only at a ring-time-derived Unix timestamp when an ancho
 - Wiring broadened WHOOP service discovery for diagnostic logging only.
 - Wiring Oura status, wear, and anchored IBI queues into the iPhone transport.
 - Physical verification of WHOOP 4.0 and WHOOP 5.0/MG family correction.
-- Cross-device validation of the byte-82 candidate against official-app readings; instrumentation-only regardless of result.
+- Cross-device comparison of the byte-82 beta tile against official-app readings. The tile remains experimental regardless of a single-device match.
 - Oura feature-status, IBI, wear, and charger behavior on owned hardware.
 - Background execution and post-workout HR coverage on a physical iPhone.
 
