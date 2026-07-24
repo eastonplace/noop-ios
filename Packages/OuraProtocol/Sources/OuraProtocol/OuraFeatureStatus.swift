@@ -20,7 +20,7 @@ public struct OuraFeatureStatus: Equatable, Sendable, Codable {
 
 public extension OuraCommands {
     /// Real-steps feature id. The offline ring may report this as server-subscription gated.
-    static let featureRealSteps: UInt8 = 0x0b
+    static var featureRealSteps: UInt8 { 0x0b }
 
     /// Read the SpO₂ feature status. `0x20` is the read verb; this never sends the `0x22` enable verb.
     static func spo2ReadStatus() -> OuraCommand {
