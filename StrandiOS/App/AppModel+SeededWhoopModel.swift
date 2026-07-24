@@ -2,7 +2,7 @@
 import Foundation
 import WhoopStore
 
-nonisolated enum SeededWhoopModelResolver {
+enum SeededWhoopModelResolver {
     static func correctedModel(current: String, whoop5Detected: Bool) -> String? {
         guard current.trimmingCharacters(in: .whitespacesAndNewlines)
             .caseInsensitiveCompare("WHOOP") == .orderedSame
@@ -36,8 +36,9 @@ extension AppModel {
         guard let activeId = try? registry.activeDeviceId(),
               let active = try? registry.all().first(where: { $0.id == activeId }),
               active.brand.caseInsensitiveCompare("WHOOP") == .orderedSame,
-              active.peripheralId == nil
-                || active.peripheralId?.caseInsensitiveCompare(expectedPeripheral) == .orderedSame,
+              active.peripheralId.map {
+                  $0.caseInsensitiveCompare(expectedPeripheral) == .orderedSame
+              } ?? true,
               let corrected = SeededWhoopModelResolver.correctedModel(
                 current: active.model,
                 whoop5Detected: expectedWhoop5
