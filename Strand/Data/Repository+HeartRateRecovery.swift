@@ -16,26 +16,31 @@ extension Repository {
     ) async -> HeartRateRecovery.Result? {
         guard workout.endTs > workout.startTs,
               maxHR.isFinite,
-              maxHR > 0,
-              let store = await storeHandle()
+              HeartRateRecovery.plausibleMaxHeartRateRange.contains(maxHR)
         else { return nil }
 
-        let readFrom = max(
-            workout.startTs,
-            workout.endTs - HeartRateRecovery.eligibilityLookbackSeconds
+        let (eligibilityFloor, lowerOverflow) = workout.endTs.subtractingReportingOverflow(
+            HeartRateRecovery.eligibilityLookbackSeconds
         )
-        let readTo = workout.endTs
-            + 5 * 60
-            + HeartRateRecovery.measurementToleranceSeconds
+        let (readTo, upperOverflow) = workout.endTs.addingReportingOverflow(
+            5 * 60 + HeartRateRecovery.measurementToleranceSeconds
+        )
+        guard !lowerOverflow, !upperOverflow, let store = await storeHandle() else { return nil }
+
+        let readFrom = max(workout.startTs, eligibilityFloor)
         let hrDeviceId = Self.workoutHrDeviceId(
             source: workout.source,
             activeStrapId: deviceId
         )
+        // The logical window is ~10 minutes. A 2,000-row cap could truncate the 5-minute recovery tail on
+        // a multi-callback-per-second source because the store returns oldest first. Ten thousand remains
+        // tightly bounded while covering >16 callbacks/s across the whole window; the pure engine then
+        // canonicalizes to one deterministic sample per stored second.
         let samples = (try? await store.hrSamples(
             deviceId: hrDeviceId,
             from: readFrom,
             to: readTo,
-            limit: 2_000
+            limit: 10_000
         )) ?? []
 
         return HeartRateRecovery.calculate(
