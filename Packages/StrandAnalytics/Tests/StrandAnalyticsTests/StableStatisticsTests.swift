@@ -35,4 +35,16 @@ final class StableStatisticsTests: XCTestCase {
             maximum
         )
     }
+
+    func testPercentChangeUsesNormalizedRatioBeforeAbsoluteDeltaSaturates() throws {
+        let maximum = Double.greatestFiniteMagnitude
+        XCTAssertEqual(
+            try XCTUnwrap(StableStatistics.percentChange(current: maximum, previous: -maximum)),
+            200
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(StableStatistics.percentChange(current: -maximum, previous: maximum)),
+            -200
+        )
+    }
 }
