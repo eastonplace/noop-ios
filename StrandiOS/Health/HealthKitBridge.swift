@@ -356,15 +356,6 @@ final class HealthKitBridge: ObservableObject {
 
     // MARK: - Live delivery (continuous ingestion)
 
-    /// The scored read types we want a live observer + hourly background delivery on. This is the
-    /// subset of `quantityReadIds` (plus sleep) that actually feeds Charge/Sleep/Strain/Fitness Age, so
-    /// a watch-only user's numbers refresh on their own rather than only when the app is foregrounded.
-    /// We deliberately do NOT observe the body-composition reads (weight/BMI/etc.) — those don't move a
-    /// score and a manual weigh-in shouldn't wake the app every hour.
-    private static let liveQuantityIds: [HKQuantityTypeIdentifier] = [
-        .heartRateVariabilitySDNN, .restingHeartRate, .activeEnergyBurned, .heartRate, .vo2Max
-    ]
-
     /// Long-lived observer queries, retained so HealthKit doesn't tear them down. Keyed by the sample
     /// type's identifier so a second `enableLiveDelivery()` call replaces rather than duplicates.
     private var observerQueries: [String: HKObserverQuery] = [:]
@@ -377,11 +368,9 @@ final class HealthKitBridge: ObservableObject {
     func enableLiveDelivery() {
         guard auth == .authorized, HKHealthStore.isHealthDataAvailable() else { return }
 
-        var types: [HKSampleType] = []
-        for id in HealthKitBridge.liveQuantityIds {
-            if let t = HKObjectType.quantityType(forIdentifier: id) { types.append(t) }
-        }
-        if let sleep = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) { types.append(sleep) }
+        // Deletion reconciliation must observe every imported type, not only the score-moving subset:
+        // a deleted body-composition or sleep object still has to retract its local Apple projection.
+        let types = readTypes.compactMap { $0 as? HKSampleType }
 
         for type in types {
             let key = type.identifier
@@ -442,6 +431,11 @@ final class HealthKitBridge: ObservableObject {
         await acquireObserverScanLease()
         defer { releaseObserverScanLease() }
 
+        guard let cache = await repo.storeHandle() else {
+            lastError = String(localized: "Apple Health observer sync failed: \(BridgeError.storeUnavailable.localizedDescription)")
+            return
+        }
+
         let key = HealthKitBridge.anchorDefaultsKey(for: type)
         let priorAnchor = Self.loadAnchor(forKey: key)
 
@@ -449,7 +443,31 @@ final class HealthKitBridge: ObservableObject {
             let scan = try await anchorPager.scan(
                 type: type,
                 predicate: Self.notNoopAuthored,
-                priorAnchor: priorAnchor
+                priorAnchor: priorAnchor,
+                handlePage: { [appleDeviceId] page in
+                    let sampleIDs = page.samples.map { $0.uuid.uuidString }
+                    let historical = try await cache.healthKitObjectIdentities(
+                        sampleType: type.identifier,
+                        objectUUIDs: sampleIDs + page.deletedObjectUUIDs,
+                        deviceId: appleDeviceId
+                    )
+                    let current = page.samples.map {
+                        HealthKitObjectIdentity(
+                            sampleType: type.identifier,
+                            objectUUID: $0.uuid.uuidString,
+                            startTs: Int($0.startDate.timeIntervalSince1970),
+                            endTs: Int($0.endDate.timeIntervalSince1970)
+                        )
+                    }
+                    try await cache.upsertHealthKitObjectIdentities(current, deviceId: appleDeviceId)
+                    let dates = page.samples.flatMap { [$0.startDate, $0.endDate] }
+                        + historical.flatMap {
+                            [Date(timeIntervalSince1970: TimeInterval($0.startTs)),
+                             Date(timeIntervalSince1970: TimeInterval($0.endTs))]
+                        }
+                    guard let first = dates.min(), let last = dates.max() else { return nil }
+                    return HealthKitSyncWindow(start: first, end: last)
+                }
             )
 
             let changedObjects = scan.sampleCount + scan.deletedCount
@@ -461,11 +479,24 @@ final class HealthKitBridge: ObservableObject {
             let now = Date()
             let fallbackStart = Calendar.current.date(byAdding: .day, value: -31, to: now) ?? now
             var start = scan.oldestSampleDate ?? fallbackStart
+            // A database created before v31 has no UUID mapping for historic objects. Do the expensive
+            // but correct thing once: widen to the oldest locally projected Apple Health row rather than
+            // pretending a deletion-only delta happened in the last month.
+            let knownDeleted = try await cache.healthKitObjectIdentities(
+                sampleType: type.identifier,
+                objectUUIDs: scan.deletedObjectUUIDs,
+                deviceId: appleDeviceId
+            )
+            let hasUnknownHistoricalDeletion = knownDeleted.count < scan.deletedObjectUUIDs.count
+            if hasUnknownHistoricalDeletion,
+               let earliest = try await cache.earliestAppleHealthTimestamp(deviceId: appleDeviceId) {
+                start = min(start, Date(timeIntervalSince1970: TimeInterval(earliest)))
+            }
             // Establishing the first cursor may page through years of history. Foreground/manual sync
             // already owns deep import; the initial live-delivery catch-up intentionally covers only
             // the latest month. Later deltas retain their exact old dates, so an edited historical
             // sample is never silently clamped away after the cursor exists.
-            if scan.wasInitialScan { start = max(start, fallbackStart) }
+            if scan.wasInitialScan && !hasUnknownHistoricalDeletion { start = max(start, fallbackStart) }
             let window = HealthKitSyncWindow(
                 start: Calendar.current.startOfDay(for: start),
                 end: max(now, scan.newestSampleDate ?? now)
@@ -654,15 +685,21 @@ final class HealthKitBridge: ObservableObject {
         // HealthKit read of workouts NOOP did NOT author, never any cloud/3rd-party API. (#835)
         let workoutRows = try await collectWorkouts(start: start, end: end)
 
-        // Persist all the apple-health rows AND write back, advancing lastSync only when the WHOLE
-        // round-trip succeeds. The three read-side upserts used to be swallowed by `try?`, so a failed
-        // import (e.g. a disk-full GRDB write) dropped rows yet still cleared lastError and advanced
-        // lastSync — a false "success", and the next delta sync skipped the window. (Reimplemented
-        // from @vulnix0x4's PR #375.)
-            try await store.upsertAppleDaily(appleRows, deviceId: appleDeviceId)
-            try await store.upsertDailyMetrics(dmRows, deviceId: appleDeviceId)
-            try await store.upsertMetricSeries(points, deviceId: appleDeviceId)
-            if !workoutRows.isEmpty { try await store.upsertWorkouts(workoutRows, deviceId: appleDeviceId) }
+        // The queried window is authoritative. Replacing it (including an empty result) removes an old
+        // deleted/corrected HealthKit value, its derived daily metrics, and deleted Apple workouts in one
+        // store transaction. Upserts alone could never remove the final value for a day.
+            try await store.replaceAppleHealthRange(
+                appleDaily: appleRows,
+                dailyMetrics: dmRows,
+                metricPoints: points,
+                workouts: workoutRows,
+                deviceId: appleDeviceId,
+                fromDay: Self.dayString(start),
+                toDay: Self.dayString(end),
+                fromTimestamp: Int(start.timeIntervalSince1970),
+                toTimestamp: Int(end.timeIntervalSince1970),
+                workoutSource: Self.appleWorkoutSource
+            )
             try await writeBack(whoopStore: store)
             lastSync = Date()
             lastError = nil

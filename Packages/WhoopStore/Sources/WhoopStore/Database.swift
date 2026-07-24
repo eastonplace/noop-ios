@@ -615,6 +615,22 @@ extension WhoopStore {
                 try db.execute(sql: "ALTER TABLE rrInterval_v30 RENAME TO rrInterval")
             }
         }
+        // v31: HealthKit anchored queries report deletion UUIDs but deliberately omit the original
+        // sample dates. Preserve the source UUID-to-window mapping locally so an old deletion or a
+        // moved sample can re-aggregate the correct civil days instead of guessing a recent window.
+        migrator.registerMigration("v31-healthkit-object-index") { db in
+            try db.create(table: "healthKitObjectIndex") { t in
+                t.column("deviceId", .text).notNull()
+                t.column("sampleType", .text).notNull()
+                t.column("objectUUID", .text).notNull()
+                t.column("startTs", .integer).notNull()
+                t.column("endTs", .integer).notNull()
+                t.primaryKey(["deviceId", "sampleType", "objectUUID"])
+            }
+            try db.create(index: "idx_healthKitObjectIndex_window",
+                          on: "healthKitObjectIndex",
+                          columns: ["deviceId", "sampleType", "startTs", "endTs"])
+        }
         return migrator
     }
 }

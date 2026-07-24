@@ -37,6 +37,8 @@ try:
         "static let defaultPageLimit = 500",
         "oldestSampleDate",
         "maximumPageCount",
+        "deletedObjectUUIDs",
+        "handlePage: PageHandler? = nil",
     )
     require(
         "StrandiOS/Health/HealthKitBridge.swift",
@@ -46,6 +48,18 @@ try:
         "await syncCoordinator.runAndWait()",
         "await acquireObserverScanLease()",
         "defer { releaseObserverScanLease() }",
+        "healthKitObjectIdentities",
+        "upsertHealthKitObjectIdentities",
+        "replaceAppleHealthRange",
+        "readTypes.compactMap { $0 as? HKSampleType }",
+    )
+    require(
+        "Packages/WhoopStore/Sources/WhoopStore/HealthKitAuthoritativeStore.swift",
+        "struct HealthKitObjectIdentity",
+        "healthKitObjectIndex",
+        "earliestAppleHealthTimestamp",
+        "replaceAppleHealthRange",
+        "Empty inputs are meaningful",
     )
     forbid(
         "StrandiOS/Health/HealthKitBridge.swift",
@@ -60,6 +74,11 @@ try:
         "testPendingPersistenceFailureDoesNotStartOrLoseInMemoryWork",
         "testInitialLargeHistoryIsPagedInBoundedBatches",
         "testPagingFailureDoesNotProduceACommittableFinalAnchor",
+    )
+    require(
+        "Packages/WhoopStore/Tests/WhoopStoreTests/HealthKitAuthoritativeStoreTests.swift",
+        "testObjectIndexPreservesPriorWindowBeforeCorrection",
+        "testEmptyAuthoritativeWindowRetractsAppleRowsAndWorkouts",
     )
 except AssertionError as error:
     print(f"HealthKit sync contract audit: FAIL\n{error}", file=sys.stderr)

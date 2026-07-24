@@ -42,6 +42,13 @@ try:
         "let generation: UUID",
         "let sessionID: UUID",
         "let checksum: UInt64",
+        "struct JournalSegment",
+        "static let currentVersion = 4",
+        "let segments: [JournalSegment]",
+        "retainedSegments",
+        "writesNewSegment = !suffix.isEmpty",
+        "Self.checksum(segmentData, seed: previous.checksum)",
+        "onCommit: (@Sendable (Bool) -> Void)? = nil",
         "previousMetadataKey",
         "encodedByteCount(for sampleCount: Int)",
         "private var committedCursor: Cursor?",
@@ -56,6 +63,9 @@ try:
         "Strand/App/AppModel.swift",
         "if accepted {",
         "lastWorkoutSnapshotAt = now",
+        "lastWorkoutSnapshotEnqueuedAt",
+        "latestWorkoutSnapshotAttempt",
+        "onCommit: { [weak self] committed in",
         "workoutDurabilityWarning = nil",
         "persistActiveWorkout(force: true, synchronously: true)",
         "func flushActiveWorkoutSnapshot() -> Bool",
@@ -63,6 +73,7 @@ try:
     forbid(
         "Strand/App/ActiveWorkoutPersistence.swift",
         "private static let writer = SnapshotWriter()",
+        "let old = try Data(contentsOf: journalURL(for: previous.generation)",
     )
     require(
         "StrandiOSTests/ActiveWorkoutPersistenceTests.swift",
@@ -70,10 +81,13 @@ try:
         "testJournalPlannerAppendsOnlyNewSuffixForCompatibleSession",
         "testJournalPlannerRewritesOnReplacementShrinkOrPrefixCorrection",
         "testGenerationJournalCommitsMetadataPointerAndChecksum",
+        "testIncrementalCheckpointsPersistOnlyImmutableSuffixSegments",
+        "testAsynchronousCheckpointPublishesActualCommitFailure",
         "testSynchronousWriteReportsFailureBeforeCommitAndRelaunchKeepsPreviousGeneration",
         "testRelaunchUsesNewGenerationWhenProcessDiesAfterPointerSwap",
         "testEncodedByteCountRejectsOverflow",
         "testChecksumMismatchRecoversPreviousCommittedGeneration",
+        "testV3GenerationJournalMigratesToImmutableSuffixSegments",
         "testLegacyV2PairMigratesToGenerationJournalOnLoad",
     )
 except AssertionError as error:

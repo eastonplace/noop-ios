@@ -130,8 +130,26 @@ final class HealthKitSyncCoordinator {
 
 struct HealthKitAnchorPage {
     let samples: [HKSample]
+    /// HealthKit supplies only UUIDs for deleted objects. They are resolved through the persisted
+    /// source-object index before the observer's aggregation window is chosen.
+    let deletedObjectUUIDs: [String]
     let deletedCount: Int
     let newAnchor: HKQueryAnchor?
+
+    init(samples: [HKSample], deletedObjectUUIDs: [String], newAnchor: HKQueryAnchor?) {
+        self.samples = samples
+        self.deletedObjectUUIDs = deletedObjectUUIDs
+        deletedCount = deletedObjectUUIDs.count
+        self.newAnchor = newAnchor
+    }
+
+    /// Compatibility seam for deterministic pager tests where a synthetic HKDeletedObject is not available.
+    init(samples: [HKSample], deletedCount: Int, newAnchor: HKQueryAnchor?) {
+        self.samples = samples
+        deletedObjectUUIDs = []
+        self.deletedCount = deletedCount
+        self.newAnchor = newAnchor
+    }
 
     var resultCount: Int { samples.count + deletedCount }
 }
@@ -172,7 +190,7 @@ final class HealthKitAnchoredPageLoader: HealthKitAnchoredPageLoading {
                 } else {
                     continuation.resume(returning: HealthKitAnchorPage(
                         samples: samples ?? [],
-                        deletedCount: deleted?.count ?? 0,
+                        deletedObjectUUIDs: (deleted ?? []).map { $0.uuid.uuidString },
                         newAnchor: newAnchor
                     ))
                 }
@@ -187,6 +205,7 @@ struct HealthKitAnchorScanResult {
     let newestSampleDate: Date?
     let sampleCount: Int
     let deletedCount: Int
+    let deletedObjectUUIDs: [String]
     let pageCount: Int
     let finalAnchor: HKQueryAnchor
     let wasInitialScan: Bool
@@ -206,6 +225,7 @@ final class HealthKitAnchorPager {
 
     private let loader: any HealthKitAnchoredPageLoading
     private let pageLimit: Int
+    typealias PageHandler = @MainActor (HealthKitAnchorPage) async throws -> HealthKitSyncWindow?
 
     init(loader: any HealthKitAnchoredPageLoading, pageLimit: Int = defaultPageLimit) {
         self.loader = loader
@@ -215,13 +235,15 @@ final class HealthKitAnchorPager {
     func scan(
         type: HKSampleType,
         predicate: NSPredicate?,
-        priorAnchor: HKQueryAnchor?
+        priorAnchor: HKQueryAnchor?,
+        handlePage: PageHandler? = nil
     ) async throws -> HealthKitAnchorScanResult {
         var cursor = priorAnchor
         var oldest: Date?
         var newest: Date?
         var sampleCount = 0
         var deletedCount = 0
+        var deletedObjectUUIDs: [String] = []
         var pageCount = 0
         var finalAnchor: HKQueryAnchor?
 
@@ -237,9 +259,14 @@ final class HealthKitAnchorPager {
             pageCount += 1
             sampleCount += page.samples.count
             deletedCount += page.deletedCount
+            deletedObjectUUIDs.append(contentsOf: page.deletedObjectUUIDs)
             for sample in page.samples {
                 oldest = oldest.map { min($0, sample.startDate) } ?? sample.startDate
                 newest = newest.map { max($0, sample.endDate) } ?? sample.endDate
+            }
+            if let handledWindow = try await handlePage?(page) {
+                oldest = oldest.map { min($0, handledWindow.start) } ?? handledWindow.start
+                newest = newest.map { max($0, handledWindow.end) } ?? handledWindow.end
             }
             finalAnchor = nextAnchor
             cursor = nextAnchor
@@ -252,6 +279,7 @@ final class HealthKitAnchorPager {
             newestSampleDate: newest,
             sampleCount: sampleCount,
             deletedCount: deletedCount,
+            deletedObjectUUIDs: deletedObjectUUIDs,
             pageCount: pageCount,
             finalAnchor: finalAnchor,
             wasInitialScan: priorAnchor == nil

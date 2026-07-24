@@ -7,6 +7,23 @@ import XCTest
 final class ActiveWorkoutPersistenceTests: XCTestCase {
     private enum InjectedFailure: Error { case crash }
 
+    private final class CommitRecorder: @unchecked Sendable {
+        private let lock = NSLock()
+        private var committed: Bool?
+
+        func record(_ value: Bool) {
+            lock.lock()
+            committed = value
+            lock.unlock()
+        }
+
+        func value() -> Bool? {
+            lock.lock()
+            defer { lock.unlock() }
+            return committed
+        }
+    }
+
     private func sample(_ timestamp: Int, _ bpm: Int) -> HRSample {
         HRSample(ts: timestamp, bpm: bpm)
     }
@@ -315,6 +332,56 @@ final class ActiveWorkoutPersistenceTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: journal.path))
     }
 
+    func testIncrementalCheckpointsPersistOnlyImmutableSuffixSegments() throws {
+        let (defaults, directory) = try freshJournalEnvironment()
+        let writer = ActiveWorkoutPersistence.ProductionJournalWriter(defaults: defaults, directory: directory)
+        let sessionID = UUID()
+        var first = snapshot(samples: [sample(100, 110)], avgHr: 110, peakHr: 110)
+        first.sessionID = sessionID
+        var second = first
+        second.samples.append(sample(101, 120))
+        second.avgHr = 115
+        second.peakHr = 120
+        var third = second
+        third.samples.append(sample(102, 130))
+        third.avgHr = 120
+        third.peakHr = 130
+
+        XCTAssertTrue(writer.store(first, synchronously: true))
+        XCTAssertTrue(writer.store(second, synchronously: true))
+        XCTAssertTrue(writer.store(third, synchronously: true))
+        XCTAssertEqual(writer.load(), third)
+
+        let metadataData = try XCTUnwrap(defaults.data(forKey: ActiveWorkoutPersistence.metadataKey))
+        let metadata = try JSONDecoder().decode(
+            ActiveWorkoutPersistence.JournalMetadata.self,
+            from: metadataData
+        )
+        XCTAssertEqual(metadata.segments.map(\.sampleCount), [1, 1, 1])
+        let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.fileSizeKey])
+            .filter { $0.lastPathComponent.hasPrefix("active-workout-") && $0.pathExtension == "bin" }
+        let storedBytes = try files.reduce(into: 0) { total, file in
+            total += try file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+        }
+        XCTAssertEqual(storedBytes, 3 * ActiveWorkoutSampleJournalCodec.bytesPerSample)
+    }
+
+    func testAsynchronousCheckpointPublishesActualCommitFailure() throws {
+        let (defaults, directory) = try freshJournalEnvironment()
+        let writer = ActiveWorkoutPersistence.ProductionJournalWriter(
+            defaults: defaults,
+            directory: directory,
+            faultInjector: { phase in
+                if phase == .beforeFileWrite { throw InjectedFailure.crash }
+            }
+        )
+        let recorder = CommitRecorder()
+        XCTAssertTrue(writer.store(snapshot(), synchronously: false, onCommit: recorder.record))
+        writer.flush()
+        XCTAssertEqual(recorder.value(), false)
+        XCTAssertNil(writer.load())
+    }
+
     func testSynchronousWriteReportsFailureBeforeCommitAndRelaunchKeepsPreviousGeneration() throws {
         for phase in [
             ActiveWorkoutPersistence.JournalFaultPhase.beforeFileWrite,
@@ -388,6 +455,57 @@ final class ActiveWorkoutPersistenceTests: XCTestCase {
             directory: directory
         )
         XCTAssertEqual(relaunched.load(), initial)
+    }
+
+    func testV3GenerationJournalMigratesToImmutableSuffixSegments() throws {
+        struct V3Metadata: Codable {
+            let version: Int
+            let generation: UUID
+            let sessionID: UUID
+            let startSec: Int
+            let sport: String
+            let sampleCount: Int
+            let checksum: UInt64
+            let avgHr: Int
+            let peakHr: Int
+            let liveStrainState: LiveStrainState
+        }
+        func checksum(_ data: Data) -> UInt64 {
+            data.reduce(UInt64(1_469_598_103_934_665_603)) { hash, byte in
+                (hash ^ UInt64(byte)) &* 1_099_511_628_211
+            }
+        }
+
+        let (defaults, directory) = try freshJournalEnvironment()
+        let sessionID = UUID()
+        let original = ActiveWorkoutPersistence.Snapshot(
+            sessionID: sessionID, startSec: 100, sport: "Run", samples: [sample(101, 110)],
+            avgHr: 110, peakHr: 110, liveStrainState: .building(readings: 1, coverageSeconds: 1)
+        )
+        let generation = UUID()
+        let data = ActiveWorkoutSampleJournalCodec.encode(original.samples)
+        try data.write(to: directory.appendingPathComponent("active-workout-\(generation.uuidString.lowercased()).bin"))
+        defaults.set(try JSONEncoder().encode(V3Metadata(
+            version: 3, generation: generation, sessionID: original.sessionID, startSec: original.startSec,
+            sport: original.sport, sampleCount: original.samples.count, checksum: checksum(data),
+            avgHr: original.avgHr, peakHr: original.peakHr, liveStrainState: original.liveStrainState
+        )), forKey: ActiveWorkoutPersistence.metadataKey)
+
+        let writer = ActiveWorkoutPersistence.ProductionJournalWriter(defaults: defaults, directory: directory)
+        XCTAssertEqual(writer.load(), original)
+        var replacement = original
+        replacement.samples.append(sample(102, 120))
+        replacement.avgHr = 115
+        replacement.peakHr = 120
+        XCTAssertTrue(writer.store(replacement, synchronously: true))
+        XCTAssertEqual(writer.load(), replacement)
+
+        let metadata = try JSONDecoder().decode(
+            ActiveWorkoutPersistence.JournalMetadata.self,
+            from: try XCTUnwrap(defaults.data(forKey: ActiveWorkoutPersistence.metadataKey))
+        )
+        XCTAssertEqual(metadata.version, ActiveWorkoutPersistence.JournalMetadata.currentVersion)
+        XCTAssertEqual(metadata.segments.map(\.sampleCount), [1, 1])
     }
 
     func testLegacyV2PairMigratesToGenerationJournalOnLoad() throws {
