@@ -37,7 +37,8 @@ try:
         "Noop iOS 2.1",
         "v9.1.0",
         "authoritative Strain and Sleep models",
-        "WHOOP 5.0 v18 byte-82 SpO₂ candidate is diagnostic instrumentation only",
+        "separate, explicitly labelled experimental beta tile",
+        "never populates canonical Blood O₂, HealthKit, Recovery, illness detection",
         "docs/RYANBR_9_1_BACKEND_SYNC.md",
     )
     require(
@@ -48,7 +49,8 @@ try:
         "## Implemented diagnostic-only protocol support",
         "Preserve NOOP iOS's current authoritative Strain implementation",
         "Preserve NOOP iOS's current Sleep scoring",
-        "must not populate `spo2Pct`, HealthKit, Recovery, illness detection",
+        "SpO₂ Candidate (Beta)",
+        "must never populate canonical `spo2Pct`, HealthKit, Recovery, illness detection",
         "GitHub Actions is not used as evidence",
     )
 
@@ -145,29 +147,74 @@ try:
         "testSpecificModelIsNeverOverwritten",
     )
 
-    # WHOOP 5 byte 82 remains a diagnostic classification, never a production oxygen metric.
+    # WHOOP 5 byte 82 is a separate explicitly-beta surface, never the canonical/medical metric.
     require(
         "Packages/WhoopProtocol/Sources/WhoopProtocol/Whoop5V18SpO2Candidate.swift",
-        "instrumentation only",
+        "separate from the canonical blood-oxygen metric",
         "case percentage(Int)",
         "case saturationSentinel(UInt8)",
         "case diagnosticCode(UInt8)",
         "public static let frameOffset = 82",
-        "must never populate `spo2Pct`, HealthKit, Recovery, illness detection",
+        "public static let persistedMarkerIR = -82",
+        "public static func experimentalSample(",
+        "sleepState == 2",
+        "public static func persistedPercentage",
+        "must never populate `spo2Pct`",
+    )
+    require(
+        "Packages/WhoopProtocol/Sources/WhoopProtocol/HistoricalStreams.swift",
+        'p["aux_byte_82"]?.intValue',
+        "experimentalSpO2Minutes",
+        "at most one accepted sleeping candidate per minute",
+        "Whoop5V18SpO2Candidate.experimentalSample(",
+        "out.spo2.append(sample)",
     )
     require(
         "Packages/WhoopProtocol/Tests/WhoopProtocolTests/Whoop5V18SpO2CandidateTests.swift",
         "testClassifiesInBandPercentagesWithoutPromotingOtherValues",
         "testShortFrameFailsClosed",
         "testNonPercentageCasesNeverExposeCandidatePercentage",
+        "testExperimentalSampleRequiresAsleepStateAndInBandValue",
+        "testPersistedMarkerNeverLooksLikeOrdinaryRawChannels",
     )
+    require(
+        "Packages/WhoopProtocol/Tests/WhoopProtocolTests/Whoop5ExperimentalSpO2PipelineTests.swift",
+        "testSleepingInBandCandidateReachesCompactSpO2Stream",
+        "testAwakeOrSentinelValuesNeverReachExperimentalStream",
+        "persistedMarkerIR",
+    )
+    require(
+        "Strand/Screens/VitalSignsSummary.swift",
+        "SpO₂ Candidate (Beta)",
+        "Experimental beta",
+        "WHOOP 5/MG",
+        "Whoop5V18SpO2Candidate.persistedPercentage",
+        "It may be inaccurate and is not used for scoring, HealthKit, or medical decisions",
+        "Never place the candidate into the canonical Blood O₂ tile",
+    )
+    # App references are allowed only in the single presentation resolver. No scoring, HealthKit, widget,
+    # Trends, or other surface may quietly treat the candidate as validated physiology.
+    allowed_candidate_app_path = Path("Strand/Screens/VitalSignsSummary.swift")
     for root in ("Strand", "StrandiOS", "StrandiOSShared", "StrandiOSWidgets"):
-        for path in (ROOT / root).rglob("*.swift"):
+        base = ROOT / root
+        if not base.exists():
+            continue
+        for path in base.rglob("*.swift"):
             source = path.read_text(encoding="utf-8")
-            if "Whoop5V18SpO2Candidate" in source:
+            relative = path.relative_to(ROOT)
+            if "Whoop5V18SpO2Candidate" in source and relative != allowed_candidate_app_path:
                 raise AssertionError(
-                    f"{path.relative_to(ROOT)} promotes the experimental byte-82 candidate into app code"
+                    f"{relative} promotes the experimental byte-82 candidate outside its beta presentation boundary"
                 )
+            if "spo2_candidate_82" in source and relative != allowed_candidate_app_path:
+                raise AssertionError(
+                    f"{relative} consumes the experimental candidate outside its beta presentation boundary"
+                )
+    forbid(
+        "Strand/Screens/VitalSignsSummary.swift",
+        "spo2Pct: candidate",
+        "label: String(localized: \"Blood O₂\"),\n                    unit: \"%\",\n                    value: candidateSpO2Row",
+    )
 
     # Raw IMU helpers preserve exact wire columns; no lossy display conversion is stored.
     require(
