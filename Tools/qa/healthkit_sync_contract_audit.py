@@ -63,6 +63,8 @@ try:
         "MIN(healthKitObjectIndex.startTs, excluded.startTs)",
         "MAX(healthKitObjectIndex.endTs, excluded.endTs)",
         'appleHealthWorkoutSource = "apple-health"',
+        "healthKitIdentityQueryChunkSize = 400",
+        "return requested.compactMap",
     )
     forbid(
         "StrandiOS/Health/HealthKitBridge.swift",
@@ -81,6 +83,7 @@ try:
     require(
         "Packages/WhoopStore/Tests/WhoopStoreTests/HealthKitAuthoritativeStoreTests.swift",
         "testObjectIndexRetainsHistoricalWindowUnionAcrossCorrections",
+        "testObjectIndexChunksMassDeletionLookupsAndPreservesDuplicateRequests",
         "testEarliestAppleHealthTimestampIncludesHyphenatedWorkoutSource",
         "testEmptyAuthoritativeWindowRetractsAppleRowsAndWorkouts",
     )
