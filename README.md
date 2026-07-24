@@ -42,7 +42,7 @@ There is no Android application, macOS application, watchOS companion applicatio
 
 **Noop iOS 2.1** synchronizes the relevant retained backend behavior with [`ryanbr/noop`](https://github.com/ryanbr/noop) **v9.1.0** while keeping this repository's newer iPhone interface and authoritative Strain and Sleep models.
 
-This is a selective compatibility sync, not a wholesale fork update. Experimental upstream signals stay experimental: in particular, the WHOOP 5.0 v18 byte-82 SpO₂ candidate is diagnostic instrumentation only and is not exposed as a health metric. See [`docs/RYANBR_9_1_BACKEND_SYNC.md`](docs/RYANBR_9_1_BACKEND_SYNC.md) for the adopted, already-present, excluded, and device-gated inventory.
+This is a selective compatibility sync, not a wholesale fork update. The WHOOP 5.0/MG v18 byte-82 SpO₂ candidate is now pulled into a **separate, explicitly labelled experimental beta tile** when sleeping candidate data exists. It remains unvalidated across devices and never populates canonical Blood O₂, HealthKit, Recovery, illness detection, or any medical decision path. See [`docs/RYANBR_9_1_BACKEND_SYNC.md`](docs/RYANBR_9_1_BACKEND_SYNC.md) for the adopted, already-present, excluded, and device-gated inventory.
 
 ## Build from source
 
