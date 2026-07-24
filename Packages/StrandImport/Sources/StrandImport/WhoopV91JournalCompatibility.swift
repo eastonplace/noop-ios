@@ -9,15 +9,20 @@ import ZIPFoundation
 /// reads only the journal CSV and replaces that array without touching cycle, sleep, workout, or summary
 /// semantics. TRUE/FALSE casing is preserved verbatim for the existing store mapping.
 enum WhoopV91JournalCompatibility {
-    private static let maximumJournalBytes = 256 << 20
+    /// Real journal exports are small. A 32 MiB ceiling is generous while avoiding a second 256 MiB
+    /// materialization on top of the main importer's retained CSV bundle.
+    private static let maximumJournalBytes = 32 << 20
+    private static let maximumCSVEntriesToInspect = 64
+    private static let canonicalFilename = "journal_entries.csv"
 
     static func applyingIfNeeded(
         to result: WhoopImportResult,
         sourceURL: URL
     ) throws -> WhoopImportResult {
-        guard let data = try journalData(from: sourceURL) else { return result }
-        let table = CSVTable(data: data)
-        guard table.normalizedHeaders.contains("answered_yes") else { return result }
+        guard let table = try journalTable(from: sourceURL),
+              table.normalizedHeaders.contains("answered_yes")
+        else { return result }
+
         let journal = parse(table)
         guard !journal.isEmpty else { return result }
 
@@ -55,46 +60,69 @@ enum WhoopV91JournalCompatibility {
         return rows
     }
 
-    private static func journalData(from url: URL) throws -> Data? {
+    private static func journalTable(from url: URL) throws -> CSVTable? {
         let fileManager = FileManager.default
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
             return nil
         }
         return isDirectory.boolValue
-            ? journalData(inFolder: url, fileManager: fileManager)
-            : try journalData(inArchive: url)
+            ? journalTable(inFolder: url, fileManager: fileManager)
+            : try journalTable(inArchive: url)
     }
 
-    private static func journalData(
+    private static func journalTable(
         inFolder folder: URL,
         fileManager: FileManager
-    ) -> Data? {
+    ) -> CSVTable? {
         guard let enumerator = fileManager.enumerator(
             at: folder,
             includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey],
             options: [.skipsHiddenFiles]
         ) else { return nil }
 
+        var fallback: CSVTable?
+        var inspected = 0
         for case let file as URL in enumerator where file.pathExtension.lowercased() == "csv" {
+            guard inspected < maximumCSVEntriesToInspect else { break }
+            inspected += 1
+
             let values = try? file.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
             guard values?.isRegularFile == true,
                   let size = values?.fileSize,
+                  size >= 0,
                   size <= maximumJournalBytes,
-                  let data = try? Data(contentsOf: file),
-                  isAnsweredYesJournal(data)
+                  let data = try? Data(contentsOf: file)
             else { continue }
-            return data
+
+            let table = CSVTable(data: data)
+            guard isAnsweredYesJournal(table) else { continue }
+            if file.lastPathComponent.lowercased() == canonicalFilename {
+                return table
+            }
+            if fallback == nil { fallback = table }
         }
-        return nil
+        return fallback
     }
 
-    private static func journalData(inArchive archiveURL: URL) throws -> Data? {
+    private static func journalTable(inArchive archiveURL: URL) throws -> CSVTable? {
         guard let archive = try? Archive(url: archiveURL, accessMode: .read) else { return nil }
-        for entry in archive where entry.type == .file && entry.path.lowercased().hasSuffix(".csv") {
+
+        let candidates = archive.lazy
+            .filter { $0.type == .file && $0.path.lowercased().hasSuffix(".csv") }
+            .prefix(maximumCSVEntriesToInspect)
+            .sorted {
+                let lhsExact = ($0.path as NSString).lastPathComponent.lowercased() == canonicalFilename
+                let rhsExact = ($1.path as NSString).lastPathComponent.lowercased() == canonicalFilename
+                return lhsExact && !rhsExact
+            }
+
+        for entry in candidates {
             guard let declared = Int(exactly: entry.uncompressedSize),
+                  declared >= 0,
                   declared <= maximumJournalBytes
             else { continue }
+
             var data = Data()
             data.reserveCapacity(min(declared, 1 << 20))
             var written = 0
@@ -107,13 +135,15 @@ enum WhoopV91JournalCompatibility {
             } catch {
                 continue
             }
-            if isAnsweredYesJournal(data) { return data }
+
+            let table = CSVTable(data: data)
+            if isAnsweredYesJournal(table) { return table }
         }
         return nil
     }
 
-    private static func isAnsweredYesJournal(_ data: Data) -> Bool {
-        let headers = Set(CSVTable(data: data).normalizedHeaders)
+    private static func isAnsweredYesJournal(_ table: CSVTable) -> Bool {
+        let headers = Set(table.normalizedHeaders)
         return headers.contains("answered_yes")
             && (headers.contains("question_text") || headers.contains("question"))
     }
