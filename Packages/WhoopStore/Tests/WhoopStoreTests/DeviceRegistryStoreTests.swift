@@ -5,7 +5,7 @@ import GRDB
 final class DeviceRegistryStoreTests: XCTestCase {
     private func makeDB() throws -> DatabaseQueue {
         let dbq = try DatabaseQueue()
-        try WhoopStore.makeMigrator().migrate(dbq)   // applies through v15, seeds 'my-whoop' active
+        try WhoopStore.makeMigrator().migrate(dbq)   // applies through the current schema, seeds 'my-whoop' active
         return dbq
     }
 
@@ -73,6 +73,18 @@ final class DeviceRegistryStoreTests: XCTestCase {
         try store.setPeripheralId("my-whoop", peripheralId: pid)
         XCTAssertEqual(try store.device(forPeripheralId: pid)?.id, "my-whoop")
         XCTAssertNil(try store.device(forPeripheralId: "no-such-peripheral"))
+    }
+
+    func testGenericWhoopModelRepairIsAtomicAndNeverOverwritesSpecificModels() throws {
+        let store = DeviceRegistryStore(dbQueue: try makeDB())
+        XCTAssertEqual(try store.all().first?.model, "WHOOP")
+
+        XCTAssertTrue(try store.setModelIfGenericWhoop("my-whoop", model: "WHOOP 5.0 / MG"))
+        XCTAssertEqual(try store.all().first?.model, "WHOOP 5.0 / MG")
+
+        XCTAssertFalse(try store.setModelIfGenericWhoop("my-whoop", model: "WHOOP 4.0"))
+        XCTAssertEqual(try store.all().first?.model, "WHOOP 5.0 / MG")
+        XCTAssertFalse(try store.setModelIfGenericWhoop("missing", model: "WHOOP 4.0"))
     }
 
     // ah-delete (#616): deleteAllData(deviceId: "apple-health") clears every row stored under the
