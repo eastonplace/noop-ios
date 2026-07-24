@@ -2,7 +2,7 @@ import XCTest
 @testable import WhoopStore
 
 final class HealthKitAuthoritativeStoreTests: XCTestCase {
-    func testObjectIndexPreservesPriorWindowBeforeCorrection() async throws {
+    func testObjectIndexRetainsHistoricalWindowUnionAcrossCorrections() async throws {
         let store = try await WhoopStore.inMemory()
         let original = HealthKitObjectIdentity(
             sampleType: "HKQuantityTypeIdentifierHeartRate",
@@ -30,7 +30,12 @@ final class HealthKitAuthoritativeStoreTests: XCTestCase {
             objectUUIDs: [original.objectUUID],
             deviceId: "apple-health"
         )
-        XCTAssertEqual(indexedCorrected, [corrected])
+        XCTAssertEqual(indexedCorrected, [HealthKitObjectIdentity(
+            sampleType: original.sampleType,
+            objectUUID: original.objectUUID,
+            startTs: original.startTs,
+            endTs: corrected.endTs
+        )])
     }
 
     func testEmptyAuthoritativeWindowRetractsAppleRowsAndWorkouts() async throws {
