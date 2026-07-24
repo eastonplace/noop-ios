@@ -51,6 +51,16 @@ try:
         "result.append(last)",
     )
     require(
+        "Packages/StrandAnalytics/Sources/StrandAnalytics/StableStatistics.swift",
+        "public static func roundedInt",
+        "Int(exactly: value.rounded())",
+    )
+    require(
+        "Packages/StrandAnalytics/Tests/StrandAnalyticsTests/StableStatisticsTests.swift",
+        "testRoundedIntRejectsFloatingPointBoundaryAboveIntMax",
+        "testRoundedIntRoundsOnlyRepresentableFiniteValues",
+    )
+    require(
         "Strand/Screens/TrendsSnapshotModels.swift",
         "struct TrendsScreenSnapshotKey",
         "struct TrendsScreenSnapshot",
@@ -79,7 +89,7 @@ try:
     require(
         "Strand/Screens/TrendsView.swift",
         "@State private var loadedData = TrendsLoadedData.empty",
-        "repo.refreshSeq)-\\(civilContext.localDay)-\\(civilContext.timeZoneIdentifier)",
+        "repo.refreshSeq)-\(civilContext.localDay)-\(civilContext.timeZoneIdentifier)",
         "TimelineView(.periodic(from: .now, by: 60))",
         "NSSystemTimeZoneDidChange",
         ".task(id: screenSnapshotKey)",
