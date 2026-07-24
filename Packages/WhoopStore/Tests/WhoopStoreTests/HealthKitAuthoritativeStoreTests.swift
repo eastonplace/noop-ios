@@ -38,6 +38,30 @@ final class HealthKitAuthoritativeStoreTests: XCTestCase {
         )])
     }
 
+    func testEarliestAppleHealthTimestampIncludesHyphenatedWorkoutSource() async throws {
+        let store = try await WhoopStore.inMemory()
+        let start = 1_700_000_000
+        _ = try await store.upsertWorkouts([WorkoutRow(
+            startTs: start,
+            endTs: start + 3_600,
+            sport: "Running",
+            source: "apple-health",
+            durationS: 3_600,
+            energyKcal: 400,
+            avgHr: 140,
+            maxHr: 168,
+            strain: nil,
+            distanceM: 8_000,
+            zonesJSON: nil,
+            notes: nil
+        )], deviceId: "apple-health")
+
+        XCTAssertEqual(
+            try await store.earliestAppleHealthTimestamp(deviceId: "apple-health"),
+            start
+        )
+    }
+
     func testEmptyAuthoritativeWindowRetractsAppleRowsAndWorkouts() async throws {
         let store = try await WhoopStore.inMemory()
         let day = "2026-07-20"
