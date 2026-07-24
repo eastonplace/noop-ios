@@ -39,6 +39,7 @@ public enum HeartRateRecovery {
     public static let measurementToleranceSeconds = 15
     public static let minimumSamplesPerReading = 3
     public static let maximumContinuousGapSeconds = 10
+    public static let plausibleMaxHeartRateRange = 30.0...300.0
 
     public static func calculate(
         samples: [HRSample],
@@ -49,11 +50,13 @@ public enum HeartRateRecovery {
         guard workoutStart > 0,
               workoutEnd > workoutStart,
               maxHR.isFinite,
-              maxHR > 0
+              plausibleMaxHeartRateRange.contains(maxHR),
+              let eligibilityFloor = subtracting(eligibilityLookbackSeconds, from: workoutEnd),
+              let upperBound = adding(5 * 60 + measurementToleranceSeconds, to: workoutEnd),
+              let cessationFloor = subtracting(cessationWindowSeconds, from: workoutEnd)
         else { return nil }
 
-        let lowerBound = max(workoutStart, workoutEnd - eligibilityLookbackSeconds)
-        let upperBound = workoutEnd + 5 * 60 + measurementToleranceSeconds
+        let lowerBound = max(workoutStart, eligibilityFloor)
         let canonical = canonicalSeconds(
             samples.filter {
                 $0.ts >= lowerBound
@@ -70,14 +73,14 @@ public enum HeartRateRecovery {
         }
 
         let cessation = beforeEnd
-            .filter { $0.ts >= workoutEnd - cessationWindowSeconds }
+            .filter { $0.ts >= cessationFloor }
             .map(\.bpm)
         guard cessation.count >= minimumSamplesPerReading,
               let endHR = cessation.max()
         else { return nil }
 
         func recovery(at minutes: Int) -> Int? {
-            let target = workoutEnd + minutes * 60
+            guard let target = Self.adding(minutes * 60, to: workoutEnd) else { return nil }
             let values = canonical
                 .filter { abs($0.ts - target) <= measurementToleranceSeconds }
                 .map(\.bpm)
@@ -136,6 +139,16 @@ public enum HeartRateRecovery {
             longestRun = max(longestRun, currentRun)
         }
         return longestRun
+    }
+
+    private static func adding(_ delta: Int, to value: Int) -> Int? {
+        let (result, overflow) = value.addingReportingOverflow(delta)
+        return overflow ? nil : result
+    }
+
+    private static func subtracting(_ delta: Int, from value: Int) -> Int? {
+        let (result, overflow) = value.subtractingReportingOverflow(delta)
+        return overflow ? nil : result
     }
 
     private static func median(_ values: [Int]) -> Int? {
