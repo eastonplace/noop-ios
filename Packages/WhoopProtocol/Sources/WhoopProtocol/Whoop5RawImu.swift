@@ -58,9 +58,7 @@ public enum Whoop5RawImu {
     /// Decode a raw-IMU buffer, or nil if it isn't one. Gates on the exact length + the two in-packet
     /// sample counts (=100) rather than the type byte, so it can't misfire on a same-type non-IMU frame.
     public static func decode(_ f: [UInt8]) -> Whoop5ImuFrame? {
-        guard f.count == bufferLength,
-              u16(f, countAOff) == sampleCount, u16(f, countBOff) == sampleCount,
-              gzOff + 2 * sampleCount <= f.count else { return nil }
+        guard isValidBuffer(f) else { return nil }
         let baseTs = Int(u32(f, tsOff))
         var samples = [RawImuSample]()
         samples.reserveCapacity(sampleCount)
@@ -82,9 +80,7 @@ public enum Whoop5RawImu {
     /// nil if `f` isn't a valid IMU buffer. Scales stay documented constants applied at read time, so
     /// nothing lossy is baked into the stored bytes.
     public static func rawColumns(_ f: [UInt8]) -> [Int16]? {
-        guard f.count == bufferLength,
-              u16(f, countAOff) == sampleCount, u16(f, countBOff) == sampleCount,
-              gzOff + 2 * sampleCount <= f.count else { return nil }
+        guard isValidBuffer(f) else { return nil }
         let columns = [axOff, ayOff, azOff, gxOff, gyOff, gzOff]
         var output = [Int16](repeating: 0, count: 6 * sampleCount)
         for column in 0..<6 {
@@ -97,10 +93,20 @@ public enum Whoop5RawImu {
         return output
     }
 
-    /// The strap unix-second stamp of this one-second buffer, or nil if the frame is too short.
+    /// The strap unix-second stamp of this one-second buffer, or nil when the complete IMU frame shape is
+    /// invalid. A long unrelated frame must not be accepted merely because it happens to contain four bytes
+    /// at the timestamp offset.
     public static func baseTs(_ f: [UInt8]) -> Int? {
-        guard f.count > tsOff + 3 else { return nil }
+        guard isValidBuffer(f) else { return nil }
         return Int(u32(f, tsOff))
+    }
+
+    /// One shared, constant-time shape gate for every public interpretation of the buffer.
+    private static func isValidBuffer(_ f: [UInt8]) -> Bool {
+        f.count == bufferLength
+            && u16(f, countAOff) == sampleCount
+            && u16(f, countBOff) == sampleCount
+            && gzOff + 2 * sampleCount <= f.count
     }
 
     // MARK: - Little-endian readers (frame-absolute)
