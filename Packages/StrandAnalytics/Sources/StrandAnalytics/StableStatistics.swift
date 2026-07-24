@@ -58,10 +58,13 @@ public enum StableStatistics {
     }
 
     public static func percentChange(current: Double, previous: Double) -> Double? {
-        guard previous.isFinite, current.isFinite, previous != 0,
-              let delta = difference(current, previous)
-        else { return nil }
-        let result = (delta / abs(previous)) * 100
+        guard previous.isFinite, current.isFinite, previous != 0 else { return nil }
+        // Compute the ratio before rescaling. A saturated absolute difference would understate
+        // opposite-sign extremes (for example +max vs -max is +200%, not +100%).
+        let scale = max(abs(current), abs(previous), 1)
+        let normalizedPrevious = previous / scale
+        guard normalizedPrevious != 0 else { return nil }
+        let result = ((current / scale - normalizedPrevious) / abs(normalizedPrevious)) * 100
         return result.isFinite ? result : nil
     }
 
