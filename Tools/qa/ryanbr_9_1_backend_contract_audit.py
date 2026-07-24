@@ -36,6 +36,8 @@ try:
         "README.md",
         "## Upstream backend baseline",
         "Noop iOS 2.1",
+        "WHOOP backend behavior",
+        "Oura transport work is not part of the Noop iOS 2.1 release gate",
         "v9.1.0",
         "authoritative Strain and Sleep models",
         "separate, explicitly labelled experimental beta tile",
@@ -46,6 +48,7 @@ try:
         "docs/RYANBR_9_1_BACKEND_SYNC.md",
         "Release tag: `v9.1.0`",
         "WHOOP",
+        "Oura work is explicitly **out of scope for the 2.1 release gate**",
         "Preserve NOOP iOS's current authoritative Strain implementation",
         "Preserve NOOP iOS's current Sleep scoring",
         "SpO₂ Candidate (Beta)",
@@ -54,7 +57,7 @@ try:
     )
 
     # Heart-rate recovery: one contiguous effort run, deterministic same-second collapse,
-    # real post-workout coverage only, and progressive UI refresh while samples arrive.
+    # plausible profile/timestamp bounds, real post-workout coverage, and bounded progressive refresh.
     require(
         "Packages/StrandAnalytics/Sources/StrandAnalytics/HeartRateRecovery.swift",
         "public enum HeartRateRecovery",
@@ -63,9 +66,12 @@ try:
         "measurementToleranceSeconds = 15",
         "minimumSamplesPerReading = 3",
         "maximumContinuousGapSeconds = 10",
+        "plausibleMaxHeartRateRange = 30.0...300.0",
         "private static func canonicalSeconds",
         "private static func longestSustainedSeconds",
         "currentRun = 0",
+        "addingReportingOverflow",
+        "subtractingReportingOverflow",
         "return result.hasMeasurement ? result : nil",
     )
     require(
@@ -78,28 +84,40 @@ try:
         "testReturnsOnlyMeasurementsWithRealCoverage",
         "testDuplicateCallbacksAtOneSecondDoNotFakeCoverage",
         "testAHeartRateRiseRemainsSignedInsteadOfBeingClamped",
+        "testRejectsNonFiniteOrImplausibleMaxHeartRate",
+        "testExtremeWorkoutTimestampsFailClosedWithoutArithmeticOverflow",
     )
     require(
         "Strand/Data/Repository+HeartRateRecovery.swift",
         "func workoutHeartRateRecovery(",
         "HeartRateRecovery.calculate(",
         "Self.workoutHrDeviceId(",
+        "addingReportingOverflow",
+        "subtractingReportingOverflow",
+        "limit: 10_000",
     )
     require(
         "Strand/Screens/WorkoutHeartRateRecoveryCard.swift",
         "struct WorkoutHeartRateRecoveryCard",
         "loadAsCoverageArrives",
-        "futureDeadlines",
+        "maximumRefreshHorizon = 6 * 60",
+        "addingReportingOverflow",
+        "subtractingReportingOverflow",
         "workout.source",
+        "maxHR.bitPattern",
         "NOOP does not interpolate it",
     )
 
-    # Real WHOOP journal exports use `Answered yes`, not NOOP's older yes/no header.
+    # Real WHOOP journal exports use `Answered yes`, not NOOP's older yes/no header. The compatibility
+    # pass stays bounded, prefers the canonical file, and builds the selected CSV table only once.
     require(
         "Packages/StrandImport/Sources/StrandImport/WhoopV91JournalCompatibility.swift",
         '"answered_yes"',
         '"answered_yes_no"',
-        "maximumJournalBytes",
+        "maximumJournalBytes = 32 << 20",
+        "maximumCSVEntriesToInspect = 64",
+        'canonicalFilename = "journal_entries.csv"',
+        "let table = CSVTable(data: data)",
         "WhoopImportResult(",
     )
     require(
@@ -111,6 +129,7 @@ try:
         "Packages/StrandImport/Tests/StrandImportTests/WhoopV91JournalCompatibilityTests.swift",
         "testExplicitWhoopImportReadsAnsweredYesHeaderVerbatim",
         "testAutoDetectedWhoopImportUsesTheSameCompatibilityPass",
+        "testCanonicalJournalWinsOverAnotherAnsweredYesCSV",
         "Question text,Answered yes,Notes",
     )
 
@@ -118,6 +137,8 @@ try:
     require(
         "Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutDetectedBackfill.swift",
         "public enum WorkoutDetectedBackfill",
+        "maximumCaloriesKcal = 100_000.0",
+        "private static func validCalories",
         "private static func validStoredStrain",
         "(0...100).contains($0)",
         "average > peak",
@@ -131,12 +152,13 @@ try:
         "testFillsOnlyMissingComputedFields",
         "testNeverOverwritesUserOrImportedValues",
         "testExistingStrainKeepsItsVersionWhileOtherFieldsFill",
+        "testExtremeFiniteCaloriesAreRejectedRatherThanClamped",
         "testOutOfRangeOrUnversionedStrainIsNotBackfilled",
         "testContradictoryComputedHeartRatesAreRejectedTogether",
         "testComputedPeerCannotContradictExistingRealHeartRate",
     )
 
-    # Seeded WHOOP rows are repaired only under stable connection evidence and an atomic generic-row predicate.
+    # Seeded WHOOP rows are repaired only under stable physical/family evidence and an atomic generic-row predicate.
     require(
         "Packages/WhoopStore/Sources/WhoopStore/DeviceRegistryStore+Model.swift",
         "setModelIfGenericWhoop",
@@ -150,6 +172,8 @@ try:
         "expectedPeripheral",
         "expectedWhoop5",
         "ble.connectedPeripheralUUID == expectedPeripheral",
+        'active.brand.caseInsensitiveCompare("WHOOP")',
+        "active.peripheralId.map",
         "registry.setModelIfGenericWhoop",
     )
     require(
@@ -215,6 +239,8 @@ try:
         "It may be inaccurate and is not used for scoring, HealthKit, or medical decisions",
         "band: .noData",
         'format: { String(format: "≈%.0f", $0) }',
+        "private static func isPlausibleVital",
+        "private static func wholeNumber",
         "Never place the candidate into the canonical Blood O₂ tile",
     )
 
@@ -241,6 +267,7 @@ try:
         "spo2Pct: candidate",
         'label: String(localized: "Blood O₂"),\n                    unit: "%",\n                    value: candidateSpO2Row',
         "banding: VitalBands.Result(band: .inRange",
+        "String(Int($0.rounded()))",
     )
 
     # Raw IMU helpers share one full-shape gate; a long unrelated frame cannot yield an IMU timestamp.
@@ -279,14 +306,15 @@ try:
         "testUnknownDifferentServiceIsIgnoredWithoutInventingAFamily",
     )
 
-    # GET_CLOCK retry and Data Range fallback stay bounded, plausible, and one-shot.
+    # GET_CLOCK retry and Data Range fallback stay bounded, plausible, overflow-safe, and one-shot.
     require(
         "Packages/WhoopProtocol/Sources/WhoopProtocol/StrapClockRecoveryPlanner.swift",
         "defaultMaximumRetries = 3",
         "maximumFutureSkewSeconds = 300",
         "fallbackIssued",
         "guard !fallbackIssued",
-        "newestBankedUnix <= wallUnix + Self.maximumFutureSkewSeconds",
+        "addingReportingOverflow(Self.maximumFutureSkewSeconds)",
+        "newestBankedUnix <= latestAllowedUnix",
         "fallbackIssued = true",
         "guard !hasPreciseCorrelation else { return .none }",
     )
@@ -296,10 +324,12 @@ try:
         "testPreciseCorrelationSuppressesRetriesAndFallback",
         "testFallbackFailsClosedWithoutValidDataRange",
         "testFutureDataRangeMarkerFailsClosed",
+        "testExtremeWallClockFailsClosedWithoutIntegerOverflow",
         "testResetRearmsFirstRetryAndFallback",
     )
 
-    # The 2.1 delta remains additive and iPhone-only. Oura is not a release requirement for this PR.
+    # The 2.1 delta remains additive and iPhone-only. Oura-specific v9.1 additions are deliberately absent;
+    # the retained Oura package itself remains because it is part of the 2.0 repository and test matrix.
     for forbidden_path in (
         "StrandAndroid",
         "StrandWatch",
@@ -307,9 +337,15 @@ try:
         "NoopAndroid",
         "NoopWatch",
         "NoopMac",
+        "Packages/OuraProtocol/Sources/OuraProtocol/OuraFeatureStatus.swift",
+        "Packages/OuraProtocol/Sources/OuraProtocol/OuraIBITimestampPolicy.swift",
+        "Packages/OuraProtocol/Sources/OuraProtocol/OuraWear.swift",
+        "Packages/OuraProtocol/Tests/OuraProtocolTests/OuraFeatureStatusTests.swift",
+        "Packages/OuraProtocol/Tests/OuraProtocolTests/OuraIBITimestampPolicyTests.swift",
+        "Packages/OuraProtocol/Tests/OuraProtocolTests/OuraWearTests.swift",
     ):
         if (ROOT / forbidden_path).exists():
-            raise AssertionError(f"retired application target restored: {forbidden_path}")
+            raise AssertionError(f"out-of-scope or retired path restored: {forbidden_path}")
 
 except AssertionError as error:
     print(f"RyanBR v9.1 WHOOP compatibility audit: FAIL\n{error}", file=sys.stderr)
