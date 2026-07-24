@@ -14,7 +14,7 @@ let package = Package(
         .target(name: "StrandAnalytics", dependencies: ["WhoopProtocol", "WhoopStore"]),
         .testTarget(
             name: "StrandAnalyticsTests",
-            dependencies: ["StrandAnalytics", "WhoopProtocol"]
+            dependencies: ["StrandAnalytics", "WhoopProtocol", "WhoopStore"]
         ),
     ]
 )
