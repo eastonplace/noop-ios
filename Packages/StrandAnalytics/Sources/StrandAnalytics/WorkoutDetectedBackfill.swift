@@ -20,11 +20,30 @@ public enum WorkoutDetectedBackfill {
             strain: Double?,
             strainVersion: Int? = nil
         ) {
-            self.averageHeartRate = Self.validHeartRate(averageHeartRate)
-            self.peakHeartRate = Self.validHeartRate(peakHeartRate)
+            let average = Self.validHeartRate(averageHeartRate)
+            let peak = Self.validHeartRate(peakHeartRate)
+            if let average, let peak, average > peak {
+                // A contradictory detector result must not manufacture an impossible real-workout row.
+                self.averageHeartRate = nil
+                self.peakHeartRate = nil
+            } else {
+                self.averageHeartRate = average
+                self.peakHeartRate = peak
+            }
+
             self.caloriesKcal = Self.validNonnegative(caloriesKcal)
-            self.strain = Self.validNonnegative(strain)
-            self.strainVersion = strain == nil ? nil : strainVersion
+
+            let validStrain = Self.validStoredStrain(strain)
+            let validVersion = strainVersion.flatMap { $0 > 0 ? $0 : nil }
+            // A computed score without provenance is not safe to attach to a real/imported row. The current
+            // NOOP scorer supplies its explicit version, so this fails closed only for malformed callers.
+            if validStrain != nil, validVersion != nil {
+                self.strain = validStrain
+                self.strainVersion = validVersion
+            } else {
+                self.strain = nil
+                self.strainVersion = nil
+            }
         }
 
         private static func validHeartRate(_ value: Int?) -> Int? {
@@ -34,13 +53,31 @@ public enum WorkoutDetectedBackfill {
         private static func validNonnegative(_ value: Double?) -> Double? {
             value.flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
         }
+
+        private static func validStoredStrain(_ value: Double?) -> Double? {
+            value.flatMap { $0.isFinite && (0...100).contains($0) ? $0 : nil }
+        }
     }
 
     public static func applying(
         _ computed: ComputedValues,
         to real: WorkoutRow
     ) -> WorkoutRow {
-        let fillsStrain = real.strain == nil && computed.strain != nil
+        let averageFill: Int? = {
+            guard real.avgHr == nil, let candidate = computed.averageHeartRate else { return nil }
+            let upperBound = real.maxHr ?? computed.peakHeartRate ?? Int.max
+            return candidate <= upperBound ? candidate : nil
+        }()
+        let peakFill: Int? = {
+            guard real.maxHr == nil, let candidate = computed.peakHeartRate else { return nil }
+            let lowerBound = real.avgHr ?? averageFill ?? computed.averageHeartRate ?? Int.min
+            return candidate >= lowerBound ? candidate : nil
+        }()
+
+        let fillsStrain = real.strain == nil
+            && computed.strain != nil
+            && computed.strainVersion != nil
+
         return WorkoutRow(
             startTs: real.startTs,
             endTs: real.endTs,
@@ -48,9 +85,9 @@ public enum WorkoutDetectedBackfill {
             source: real.source,
             durationS: real.durationS,
             energyKcal: real.energyKcal ?? computed.caloriesKcal,
-            avgHr: real.avgHr ?? computed.averageHeartRate,
-            maxHr: real.maxHr ?? computed.peakHeartRate,
-            strain: real.strain ?? computed.strain,
+            avgHr: real.avgHr ?? averageFill,
+            maxHr: real.maxHr ?? peakFill,
+            strain: fillsStrain ? computed.strain : real.strain,
             distanceM: real.distanceM,
             zonesJSON: real.zonesJSON,
             notes: real.notes,
