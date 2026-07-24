@@ -103,6 +103,17 @@ final class WorkoutDetectedBackfillTests: XCTestCase {
         XCTAssertEqual(WorkoutDetectedBackfill.applying(invalid, to: row()), row())
     }
 
+    func testExtremeFiniteCaloriesAreRejectedRatherThanClamped() {
+        let invalid = WorkoutDetectedBackfill.ComputedValues(
+            averageHeartRate: nil,
+            peakHeartRate: nil,
+            caloriesKcal: WorkoutDetectedBackfill.ComputedValues.maximumCaloriesKcal + 1,
+            strain: nil,
+            strainVersion: nil
+        )
+        XCTAssertNil(WorkoutDetectedBackfill.applying(invalid, to: row()).energyKcal)
+    }
+
     func testOutOfRangeOrUnversionedStrainIsNotBackfilled() {
         let tooLarge = WorkoutDetectedBackfill.ComputedValues(
             averageHeartRate: nil,
