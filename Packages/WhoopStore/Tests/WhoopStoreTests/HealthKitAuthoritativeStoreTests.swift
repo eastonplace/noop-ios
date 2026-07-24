@@ -81,10 +81,8 @@ final class HealthKitAuthoritativeStoreTests: XCTestCase {
             notes: nil
         )], deviceId: "apple-health")
 
-        XCTAssertEqual(
-            try await store.earliestAppleHealthTimestamp(deviceId: "apple-health"),
-            start
-        )
+        let earliest = try await store.earliestAppleHealthTimestamp(deviceId: "apple-health")
+        XCTAssertEqual(earliest, start)
     }
 
     func testEmptyAuthoritativeWindowRetractsAppleRowsAndWorkouts() async throws {

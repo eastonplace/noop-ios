@@ -107,14 +107,28 @@ public enum ComparisonEngine {
         let cur = stat(current)
         let prev = stat(previous)
 
-        let delta = StableStatistics.difference(cur.mean, prev.mean) ?? 0
+        // Keep the stable helper's saturated value useful for aggregate summaries,
+        // but refuse to publish a period change whose true subtraction is outside
+        // Double's domain. A saturated delta would manufacture a direction and a
+        // percentage for corrupt extreme data.
+        let finiteDelta: Double?
+        if cur.mean.isFinite, prev.mean.isFinite, (cur.mean - prev.mean).isFinite {
+            finiteDelta = StableStatistics.difference(cur.mean, prev.mean)
+        } else {
+            finiteDelta = nil
+        }
+        let delta = finiteDelta ?? 0
 
         let pct: Double?
-        pct = prev.n > 0 ? StableStatistics.percentChange(current: cur.mean, previous: prev.mean) : nil
+        pct = finiteDelta != nil && prev.n > 0
+            ? StableStatistics.percentChange(current: cur.mean, previous: prev.mean)
+            : nil
 
         // Direction is meaningful only when both periods carry data.
         let direction: Int
         if cur.n == 0 || prev.n == 0 {
+            direction = 0
+        } else if finiteDelta == nil {
             direction = 0
         } else if delta > 0 {
             direction = 1

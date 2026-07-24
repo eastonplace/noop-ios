@@ -76,7 +76,7 @@ public struct MetricDetailConfig {
         baseline: Double? = nil,
         stats: (low: MetricDetailStat, average: MetricDetailStat, high: MetricDetailStat)? = nil,
         about: String? = nil,
-        format: @escaping (Double) -> String = { "\(Int($0.rounded()))" }
+        format: @escaping (Double) -> String = { ComponentValueFormat.rounded($0) }
     ) {
         self.id = id
         self.title = title
@@ -346,7 +346,7 @@ public struct CompareSeries {
         unit: String,
         tint: Color,
         points: [ComparePoint],
-        format: @escaping (Double) -> String = { "\(Int($0.rounded()))" }
+        format: @escaping (Double) -> String = { ComponentValueFormat.rounded($0) }
     ) {
         self.title = title
         self.unit = unit

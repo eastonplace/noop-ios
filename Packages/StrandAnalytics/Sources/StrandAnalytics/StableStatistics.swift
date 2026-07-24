@@ -82,9 +82,9 @@ public enum StableStatistics {
         return result.isFinite ? result : nil
     }
 
-    /// Rescale a finite normalized result without turning a mathematically valid extreme
-    /// into infinity. Values beyond Double's representable range saturate with their sign;
-    /// downstream ranking and direction remain honest instead of silently becoming zero.
+    /// Rescale a finite normalized summary statistic without turning it into
+    /// infinity. Extremes are saturated so a finite imported value never leaks a
+    /// non-finite summary into downstream rendering.
     private static func scaledFinite(_ normalized: Double, by scale: Double) -> Double? {
         guard normalized.isFinite, scale.isFinite, scale >= 0 else { return nil }
         guard normalized != 0, scale != 0 else { return 0 }

@@ -99,7 +99,7 @@ public struct TrendPanelChart: View {
     let typical: ClosedRange<Double>
     let tint: Color
     let unit: String
-    var valueFormat: (Double) -> String = { "\(Int($0.rounded()))" }
+    var valueFormat: (Double) -> String = { ComponentValueFormat.rounded($0) }
     let range: TrendRange
     let direction: Direction
 

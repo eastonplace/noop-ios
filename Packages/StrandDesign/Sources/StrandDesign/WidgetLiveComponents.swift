@@ -437,7 +437,7 @@ public struct NOOPAccessoryCircularGaugeView: View {
     }
 
     private func format(_ value: Double) -> String {
-        decimal ? String(format: "%.1f", value) : String(Int(value.rounded()))
+        decimal ? ComponentValueFormat.oneDecimal(value) : ComponentValueFormat.rounded(value)
     }
 }
 

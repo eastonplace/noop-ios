@@ -22,8 +22,9 @@ final class ComponentValueFormatTests: XCTestCase {
         )
         let heat = TrendMonthHeat(days: [], tint: .blue)
         let weekdays = TrendWeekdayBars(values: [], tint: .blue)
+        let overview = OverviewHRChart(points: [])
 
-        for format in [timeline.valueFormat, panel.valueFormat, heat.valueFormat, weekdays.valueFormat] {
+        for format in [timeline.valueFormat, panel.valueFormat, heat.valueFormat, weekdays.valueFormat, overview.valueFormat] {
             XCTAssertEqual(format(.nan), "—")
             XCTAssertEqual(format(.infinity), "—")
             XCTAssertFalse(format(Double(Int.max)).isEmpty)

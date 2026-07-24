@@ -205,14 +205,14 @@ struct HealthKitAnchorScanResult {
     let newestSampleDate: Date?
     let sampleCount: Int
     let deletedCount: Int
-    let deletedObjectUUIDs: [String]
     let pageCount: Int
     let finalAnchor: HKQueryAnchor
     let wasInitialScan: Bool
 }
 
-/// Pages anchored deltas in fixed-size batches. Even a first run with years of heart-rate samples
-/// retains only one page plus two Date extrema, never a lifetime-sized `[HKSample]`.
+/// Pages anchored deltas in fixed-size batches. The page handler resolves deleted UUIDs while that
+/// bounded page is still alive; the pager deliberately retains only counts and date extrema, never a
+/// lifetime-sized `[HKSample]` or `[UUID]`.
 @MainActor
 final class HealthKitAnchorPager {
     enum PagingError: Error {
@@ -243,7 +243,6 @@ final class HealthKitAnchorPager {
         var newest: Date?
         var sampleCount = 0
         var deletedCount = 0
-        var deletedObjectUUIDs: [String] = []
         var pageCount = 0
         var finalAnchor: HKQueryAnchor?
 
@@ -259,7 +258,6 @@ final class HealthKitAnchorPager {
             pageCount += 1
             sampleCount += page.samples.count
             deletedCount += page.deletedCount
-            deletedObjectUUIDs.append(contentsOf: page.deletedObjectUUIDs)
             for sample in page.samples {
                 oldest = oldest.map { min($0, sample.startDate) } ?? sample.startDate
                 newest = newest.map { max($0, sample.endDate) } ?? sample.endDate
@@ -279,7 +277,6 @@ final class HealthKitAnchorPager {
             newestSampleDate: newest,
             sampleCount: sampleCount,
             deletedCount: deletedCount,
-            deletedObjectUUIDs: deletedObjectUUIDs,
             pageCount: pageCount,
             finalAnchor: finalAnchor,
             wasInitialScan: priorAnchor == nil

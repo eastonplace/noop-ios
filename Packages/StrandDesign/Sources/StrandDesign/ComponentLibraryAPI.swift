@@ -1,6 +1,25 @@
 import Foundation
 import SwiftUI
 
+/// Fail-closed presentation helpers for component defaults. Components are public building blocks, so
+/// their own defaults must be safe even when a preview or a future caller bypasses app-level sanitation.
+public enum ComponentValueFormat {
+    public static func rounded(_ value: Double) -> String {
+        guard value.isFinite else { return "—" }
+        return value.formatted(.number.precision(.fractionLength(0)))
+    }
+
+    public static func oneDecimal(_ value: Double) -> String {
+        guard value.isFinite else { return "—" }
+        return value.formatted(.number.precision(.fractionLength(1)))
+    }
+
+    public static func percentage(_ value: Double) -> String {
+        guard value.isFinite else { return "—" }
+        return "\(rounded(value))%"
+    }
+}
+
 /// Outer-container treatment for production components. Flat is the iOS app default;
 /// card remains available for bounded previews and excluded surfaces.
 public enum ComponentSurfaceStyle: Sendable {

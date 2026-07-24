@@ -51,6 +51,11 @@ try:
         "healthKitObjectIdentities",
         "upsertHealthKitObjectIdentities",
         "replaceAppleHealthRange",
+        "var hasUnknownHistoricalDeletion = false",
+        "historyQueryChunkDays = 1",
+        "streamWorkouts",
+        "roundedInt(_ value: Double, in domain: ClosedRange<Int>)",
+        "Live HealthKit import owns daily Apple projections and Apple workouts only",
         "readTypes.compactMap { $0 as? HKSampleType }",
     )
     require(
@@ -71,6 +76,7 @@ try:
         "guard auth == .authorized, !syncing else { return }",
         "anchor: priorAnchor, limit: HKObjectQueryNoLimit",
         "fetchTouchedDayWindow",
+        "objectUUIDs: scan.deletedObjectUUIDs",
     )
     require(
         "StrandiOSTests/HealthKitSyncCoordinatorTests.swift",

@@ -332,7 +332,7 @@ final class ActiveWorkoutPersistenceTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: journal.path))
     }
 
-    func testIncrementalCheckpointsPersistOnlyImmutableSuffixSegments() throws {
+    func testIncrementalCheckpointsUseBoundedAppendOnlyJournalAndReplaceableTail() throws {
         let (defaults, directory) = try freshJournalEnvironment()
         let writer = ActiveWorkoutPersistence.ProductionJournalWriter(defaults: defaults, directory: directory)
         let sessionID = UUID()
@@ -357,13 +357,50 @@ final class ActiveWorkoutPersistenceTests: XCTestCase {
             ActiveWorkoutPersistence.JournalMetadata.self,
             from: metadataData
         )
-        XCTAssertEqual(metadata.segments.map(\.sampleCount), [1, 1, 1])
+        XCTAssertEqual(metadata.version, ActiveWorkoutPersistence.JournalMetadata.currentVersion)
+        XCTAssertEqual(metadata.journalSampleCount, 2)
+        XCTAssertEqual(metadata.tailSample, sample(102, 130))
+        XCTAssertEqual(metadata.segments.map(\.sampleCount), [2])
         let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.fileSizeKey])
             .filter { $0.lastPathComponent.hasPrefix("active-workout-") && $0.pathExtension == "bin" }
         let storedBytes = try files.reduce(into: 0) { total, file in
             total += try file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
         }
-        XCTAssertEqual(storedBytes, 3 * ActiveWorkoutSampleJournalCodec.bytesPerSample)
+        XCTAssertEqual(storedBytes, 2 * ActiveWorkoutSampleJournalCodec.bytesPerSample)
+    }
+
+    func testSameSecondReplacementStaysInMetadataUntilThatSecondFinalizes() throws {
+        let (defaults, directory) = try freshJournalEnvironment()
+        let writer = ActiveWorkoutPersistence.ProductionJournalWriter(defaults: defaults, directory: directory)
+        let sessionID = UUID()
+        var first = snapshot(samples: [sample(100, 110)], avgHr: 110, peakHr: 110)
+        first.sessionID = sessionID
+        var replacement = first
+        replacement.samples = [sample(100, 128)]
+        replacement.avgHr = 128
+        replacement.peakHr = 128
+        var nextSecond = replacement
+        nextSecond.samples.append(sample(101, 130))
+        nextSecond.avgHr = 129
+        nextSecond.peakHr = 130
+
+        XCTAssertTrue(writer.store(first, synchronously: true))
+        XCTAssertTrue(writer.store(replacement, synchronously: true))
+        var metadata = try JSONDecoder().decode(
+            ActiveWorkoutPersistence.JournalMetadata.self,
+            from: try XCTUnwrap(defaults.data(forKey: ActiveWorkoutPersistence.metadataKey))
+        )
+        XCTAssertEqual(metadata.journalSampleCount, 0)
+        XCTAssertEqual(metadata.tailSample, sample(100, 128))
+
+        XCTAssertTrue(writer.store(nextSecond, synchronously: true))
+        metadata = try JSONDecoder().decode(
+            ActiveWorkoutPersistence.JournalMetadata.self,
+            from: try XCTUnwrap(defaults.data(forKey: ActiveWorkoutPersistence.metadataKey))
+        )
+        XCTAssertEqual(metadata.journalSampleCount, 1)
+        XCTAssertEqual(metadata.tailSample, sample(101, 130))
+        XCTAssertEqual(writer.load(), nextSecond)
     }
 
     func testAsynchronousCheckpointPublishesActualCommitFailure() throws {
@@ -505,7 +542,9 @@ final class ActiveWorkoutPersistenceTests: XCTestCase {
             from: try XCTUnwrap(defaults.data(forKey: ActiveWorkoutPersistence.metadataKey))
         )
         XCTAssertEqual(metadata.version, ActiveWorkoutPersistence.JournalMetadata.currentVersion)
-        XCTAssertEqual(metadata.segments.map(\.sampleCount), [1, 1])
+        XCTAssertEqual(metadata.version, ActiveWorkoutPersistence.JournalMetadata.currentVersion)
+        XCTAssertEqual(metadata.segments.map(\.sampleCount), [1])
+        XCTAssertEqual(metadata.tailSample, sample(102, 120))
     }
 
     func testLegacyV2PairMigratesToGenerationJournalOnLoad() throws {
