@@ -25,11 +25,7 @@ struct WorkoutHeartRateRecoveryCard: View {
                                 .foregroundStyle(StrandPalette.textSecondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
-                        HStack(spacing: 8) {
-                            recoveryToken("1 MIN", result.after1Minute)
-                            recoveryToken("2 MIN", result.after2Minutes)
-                            recoveryToken("5 MIN", result.after5Minutes)
-                        }
+                        recoveryTokens(result)
                         Text("Calculated on-device from recorded post-workout heart rate. A missing value means the strap did not record enough nearby samples; NOOP does not interpolate it.")
                             .font(StrandFont.micro)
                             .foregroundStyle(StrandPalette.textTertiary)
@@ -48,10 +44,28 @@ struct WorkoutHeartRateRecoveryCard: View {
             }
         }
         .task(id: taskKey) {
+            result = nil
+            loaded = false
             let next = await repo.workoutHeartRateRecovery(for: workout, maxHR: maxHR)
             guard !Task.isCancelled else { return }
             result = next
             loaded = true
+        }
+    }
+
+    @ViewBuilder
+    private func recoveryTokens(_ result: HeartRateRecovery.Result) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                recoveryToken("1 MIN", result.after1Minute)
+                recoveryToken("2 MIN", result.after2Minutes)
+                recoveryToken("5 MIN", result.after5Minutes)
+            }
+            VStack(spacing: 8) {
+                recoveryToken("1 MIN", result.after1Minute)
+                recoveryToken("2 MIN", result.after2Minutes)
+                recoveryToken("5 MIN", result.after5Minutes)
+            }
         }
     }
 
