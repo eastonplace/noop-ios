@@ -68,6 +68,19 @@ final class StrapClockRecoveryPlannerTests: XCTestCase {
         XCTAssertFalse(planner.fallbackIssued)
     }
 
+    func testExtremeWallClockFailsClosedWithoutIntegerOverflow() {
+        var planner = StrapClockRecoveryPlanner(maximumRetries: 0)
+        XCTAssertEqual(
+            planner.nextAction(
+                hasPreciseCorrelation: false,
+                newestBankedUnix: Int.max,
+                wallUnix: Int.max
+            ),
+            .none
+        )
+        XCTAssertFalse(planner.fallbackIssued)
+    }
+
     func testResetRearmsFirstRetryAndFallback() {
         var planner = StrapClockRecoveryPlanner(retryCount: 3, fallbackIssued: true)
         planner.reset()
