@@ -50,8 +50,8 @@ struct WorkoutHeartRateRecoveryCard: View {
 
     /// Query immediately, then once after each still-pending recovery window. A detail screen opened right
     /// after Finish must not permanently cache “no data” before the 1/2/5-minute samples have had time to land.
-    /// A mature workout performs exactly one read; corrupt far-future timestamps never create an unbounded
-    /// task sleep because only deadlines inside the metric's six-minute observation horizon are retained.
+    /// A mature workout performs exactly one read; corrupt timestamps cannot overflow deadline arithmetic or
+    /// create an unbounded task sleep because only deadlines inside the six-minute observation horizon survive.
     private func loadAsCoverageArrives() async {
         result = nil
         loaded = false
@@ -59,19 +59,28 @@ struct WorkoutHeartRateRecoveryCard: View {
         let tolerance = HeartRateRecovery.measurementToleranceSeconds
         let now = Int(Date().timeIntervalSince1970)
         let maximumRefreshHorizon = 6 * 60
+
+        func deadline(after seconds: Int) -> Int? {
+            let (offset, offsetOverflow) = seconds.addingReportingOverflow(tolerance)
+            guard !offsetOverflow else { return nil }
+            let (value, overflow) = workout.endTs.addingReportingOverflow(offset)
+            return overflow ? nil : value
+        }
+
         let futureDeadlines = [
-            workout.endTs + 60 + tolerance,
-            workout.endTs + 2 * 60 + tolerance,
-            workout.endTs + 5 * 60 + tolerance,
-        ].filter {
-            let delay = $0 - now
-            return delay > 0 && delay <= maximumRefreshHorizon
+            deadline(after: 60),
+            deadline(after: 2 * 60),
+            deadline(after: 5 * 60),
+        ].compactMap { $0 }.filter {
+            let (delay, overflow) = $0.subtractingReportingOverflow(now)
+            return !overflow && delay > 0 && delay <= maximumRefreshHorizon
         }
         let queryDeadlines = [now] + futureDeadlines
 
         for deadline in queryDeadlines {
             let current = Int(Date().timeIntervalSince1970)
-            let delay = deadline - current
+            let (delay, overflow) = deadline.subtractingReportingOverflow(current)
+            guard !overflow else { continue }
             if delay > 0 {
                 // `delay` is bounded above before entering the loop, so this multiplication cannot overflow.
                 let nanoseconds = UInt64(delay) * 1_000_000_000
