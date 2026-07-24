@@ -38,6 +38,31 @@ final class HealthKitAuthoritativeStoreTests: XCTestCase {
         )])
     }
 
+    func testObjectIndexChunksMassDeletionLookupsAndPreservesDuplicateRequests() async throws {
+        let store = try await WhoopStore.inMemory()
+        let sampleType = "HKQuantityTypeIdentifierHeartRate"
+        let identities = (0..<1_205).map { index in
+            HealthKitObjectIdentity(
+                sampleType: sampleType,
+                objectUUID: "sample-\(index)",
+                startTs: 1_700_000_000 + index,
+                endTs: 1_700_000_001 + index
+            )
+        }
+        try await store.upsertHealthKitObjectIdentities(identities, deviceId: "apple-health")
+        let requested = identities.map(\.objectUUID) + [identities[0].objectUUID, "unknown"]
+
+        let loaded = try await store.healthKitObjectIdentities(
+            sampleType: sampleType,
+            objectUUIDs: requested,
+            deviceId: "apple-health"
+        )
+
+        XCTAssertEqual(loaded.count, identities.count + 1)
+        XCTAssertEqual(loaded.first, identities[0])
+        XCTAssertEqual(loaded[identities.count], identities[0])
+    }
+
     func testEarliestAppleHealthTimestampIncludesHyphenatedWorkoutSource() async throws {
         let store = try await WhoopStore.inMemory()
         let start = 1_700_000_000
