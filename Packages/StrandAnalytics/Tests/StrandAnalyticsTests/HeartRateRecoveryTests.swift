@@ -91,6 +91,19 @@ final class HeartRateRecoveryTests: XCTestCase {
         )
     }
 
+    func testDuplicateCallbacksAtOneSecondDoNotFakeCoverage() {
+        let oneMinute = end + 60
+        let duplicated = [140, 141, 142, 143].map {
+            HRSample(ts: oneMinute, bpm: $0)
+        }
+        XCTAssertNil(HeartRateRecovery.calculate(
+            samples: denseEligible() + duplicated,
+            workoutStart: end - 300,
+            workoutEnd: end,
+            maxHR: 200
+        ))
+    }
+
     func testNoPostWorkoutCoverageReturnsNil() {
         XCTAssertNil(HeartRateRecovery.calculate(
             samples: denseEligible(),
