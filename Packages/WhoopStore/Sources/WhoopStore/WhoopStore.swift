@@ -89,14 +89,6 @@ public actor WhoopStore {
             // `DatabasePool` puts the database in WAL mode itself (reads run as concurrent snapshots
             // alongside the single writer, #755), so there is no explicit `PRAGMA journal_mode = WAL`.
             // Bulk-write/read tuning. NORMAL is the durable, recommended pairing with WAL (only an
-            // OS crash/power loss can lose the last transaction — acceptable here). Bigger Open + migrate runs through `StoreOpenGate` so two concurrent openers of the SAME file never
-    /// run their GRDB migrators at once (#261) — see that actor's note for the failure it prevents.
-    public init(path: String) async throws {
-        var config = Configuration()
-        config.prepareDatabase { db in
-            // `DatabasePool` puts the database in WAL mode itself (reads run as concurrent snapshots
-            // alongside the single writer, #755), so there is no explicit `PRAGMA journal_mode = WAL`.
-            // Bulk-write/read tuning. NORMAL is the durable, recommended pairing with WAL (only an
             // OS crash/power loss can lose the last transaction — acceptable here). Bigger page cache
             // + mmap + in-memory temp tables speed the multi-thousand-row import/backfill writes.
             try db.execute(sql: "PRAGMA synchronous = NORMAL")
@@ -154,7 +146,23 @@ public actor WhoopStore {
     // GRDB 6 marks its sync read/write overloads @_disfavoredOverload so that in an async
     // context Swift would otherwise pick the async overloads. These thin wrappers are
     // regular (non-async) functions, so overload resolution always selects the synchronous
-    // GRDB API — which then `wal_checkpoint`
+    // GRDB API — which then blocks on the actor's serial executor (off main thread).
+
+    @inline(__always)
+    func syncRead<T>(_ block: (Database) throws -> T) throws -> T {
+        try dbWriter.read(block)
+    }
+
+    @inline(__always)
+    func syncWrite<T>(_ block: (Database) throws -> T) throws -> T {
+        try dbWriter.write(block)
+    }
+
+    // MARK: - Maintenance
+
+    /// Fully checkpoint the WAL into the main database file and truncate the -wal file.
+    /// Used before a file-level backup so the single `whoop.sqlite` carries all committed data
+    /// (the -wal/-shm siblings can then be ignored). Runs outside a transaction — `wal_checkpoint`
     /// must. Best-effort: throws on a hard SQLite error so callers can fall back to a plain copy.
     public func checkpointWAL() async throws {
         try checkpointWALImpl()
@@ -189,14 +197,6 @@ public actor WhoopStore {
     /// thread. Builds the synchronous registry wrapper over the same GRDB writer the store owns.
     private func deleteAllDataImpl(deviceId: String) throws {
         try DeviceRegistryStore(dbQueue: dbWriter).deleteAllData(deviceId: deviceId)
-    }
-
-    /// Total on-disk size of the database — the main file plus its `-wal`/`-shm` siblings — in bytes.
-    /// Drives the iOS Storage diagnostics screen (#590). `nil` for an in-memory store (no path). Runs
-    /// on the actor's executor, off the main thread. Note (#755): under the `DatabasePool` the `-wal`
-    /// component can stay non-zero while a reader connection holds an open snapshot, so a `checkpointWAL`
-    /// may not fully truncate it; this total stays correct (it always includes the sidecars) but can
-    /// read a littleStore(dbQueue: dbWriter).deleteAllData(deviceId: deviceId)
     }
 
     /// Total on-disk size of the database — the main file plus its `-wal`/`-shm` siblings — in bytes.
