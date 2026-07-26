@@ -152,7 +152,11 @@ public enum SleepWindowRecovery {
                 confidence: 0, start: start, end: end, evidence: evidence)
         }
 
-        guard !hrWindow.isEmpty || !rrWindow.isEmpty || !respWindow.isEmpty || !gravityWindow.isEmpty else {
+        // Gravity alone is not evidence that the strap was worn: an off-wrist device can
+        // be perfectly still for hours. Require at least one physiological stream before
+        // the user's bounds may create a session. Motion remains the staging signal, not
+        // the wear proof.
+        guard !hrWindow.isEmpty || !rrWindow.isEmpty || !respWindow.isEmpty else {
             return result(
                 source: source, outcome: .insufficientData, reason: .noPhysiology,
                 confidence: 0, start: start, end: end, evidence: evidence)
