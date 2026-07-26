@@ -77,6 +77,10 @@ public struct DeviceRegistryStore: Sendable {
     /// `Database.swift`. The `pairedDevice` registry row itself is NOT here (a delete-data operation
     /// empties the device's recordings; archiving/removing the registry entry is a separate op).
     static let deviceScopedTables = [
+        // Recovery overlays must be removed before dailyMetric/sleepSession. Their protection
+        // triggers intentionally restore derived rows while an overlay exists; deleting the
+        // overlay first makes a privacy delete truly final.
+        "sleepRecoveryDailyOverride", "sleepRecoveryAttempt",
         "hrSample", "rrInterval", "spo2Sample", "skinTempSample", "respSample", "gravitySample",
         "stepSample", "ppgHrSample", "event", "battery", "dailyMetric", "sleepSession",
         "journal", "workout", "appleDaily", "metricSeries", "dayOwnership",
@@ -91,7 +95,7 @@ public struct DeviceRegistryStore: Sendable {
         // deviceId-keyed exactly like every other per-second stream above — must be cleared too, or a
         // "delete all of this device's data" leaves the raw waveform behind (the same privacy defect
         // this list exists to close).
-        "ppgWaveformSample", "strainV2Shadow", "sleepRecoveryAttempt", "sleepRecoveryDailyOverride",
+        "ppgWaveformSample", "strainV2Shadow",
     ]
 
     /// Permanently delete every recorded sample/derived row belonging to one device, across all
