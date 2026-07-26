@@ -1,14 +1,39 @@
 import Foundation
 import WhoopStore
 
+/// The baseline-normalized Charge terms that do not depend on Rest. Persisting this
+/// small summary lets a later sleep-boundary edit recompute Charge from a freshly
+/// re-staged Rest score without duplicating the personal-baseline fold in storage.
+public struct ManualSleepChargeContext: Equatable, Sendable {
+    public let weightedSumWithoutSleep: Double?
+    public let weightWithoutSleep: Double?
+    public let baselineUsable: Bool
+
+    public init(
+        weightedSumWithoutSleep: Double?,
+        weightWithoutSleep: Double?,
+        baselineUsable: Bool
+    ) {
+        self.weightedSumWithoutSleep = weightedSumWithoutSleep
+        self.weightWithoutSleep = weightWithoutSleep
+        self.baselineUsable = baselineUsable
+    }
+}
+
 /// One recovered night's daily result, ready to persist beside the corrected session.
 public struct ManualSleepDailyScore: Equatable, Sendable {
     public let daily: DailyMetric
     public let restScore: Double?
+    public let chargeContext: ManualSleepChargeContext
 
-    public init(daily: DailyMetric, restScore: Double?) {
+    public init(
+        daily: DailyMetric,
+        restScore: Double?,
+        chargeContext: ManualSleepChargeContext
+    ) {
         self.daily = daily
         self.restScore = restScore
+        self.chargeContext = chargeContext
     }
 }
 
@@ -98,6 +123,49 @@ public enum ManualSleepDailyScorer {
             cfg: Baselines.respCfg,
             baselineEpoch: recoveryBaselineEpoch)
 
+        let chargeContext: ManualSleepChargeContext = {
+            guard hrvBaseline.usable, let hrv = avgHrv, let rhr = restingHr else {
+                return ManualSleepChargeContext(
+                    weightedSumWithoutSleep: nil,
+                    weightWithoutSleep: nil,
+                    baselineUsable: false)
+            }
+
+            var weightedSum = 0.0
+            var weight = 0.0
+
+            weightedSum += RecoveryScorer.zScore(
+                hrv,
+                mean: hrvBaseline.baseline,
+                spread: hrvBaseline.spread) * RecoveryScorer.wHRV
+            weight += RecoveryScorer.wHRV
+
+            weightedSum += RecoveryScorer.zScore(
+                rhrBaseline.baseline,
+                mean: Double(rhr),
+                spread: rhrBaseline.spread) * RecoveryScorer.wRHR
+            weight += RecoveryScorer.wRHR
+
+            if let resp = existing?.respRateBpm, respFold.usable {
+                weightedSum += RecoveryScorer.zScore(
+                    respFold.baseline,
+                    mean: resp,
+                    spread: respFold.spread) * RecoveryScorer.wResp
+                weight += RecoveryScorer.wResp
+            }
+
+            if let skinTempDev = existing?.skinTempDevC {
+                weightedSum += (-abs(skinTempDev) / RecoveryScorer.skinTempScaleC)
+                    * RecoveryScorer.wSkinTemp
+                weight += RecoveryScorer.wSkinTemp
+            }
+
+            return ManualSleepChargeContext(
+                weightedSumWithoutSleep: weightedSum,
+                weightWithoutSleep: weight,
+                baselineUsable: true)
+        }()
+
         let recovery: Double? = {
             guard let hrv = avgHrv, let rhr = restingHr else { return nil }
             return RecoveryScorer.recovery(
@@ -132,7 +200,10 @@ public enum ManualSleepDailyScorer {
             spo2Red: provisional.spo2Red,
             spo2Ir: provisional.spo2Ir,
             strainVersion: provisional.strainVersion)
-        return ManualSleepDailyScore(daily: daily, restScore: restScore)
+        return ManualSleepDailyScore(
+            daily: daily,
+            restScore: restScore,
+            chargeContext: chargeContext)
     }
 
     private static func stageSummary(
