@@ -73,9 +73,9 @@ public struct DeviceRegistryStore: Sendable {
     }
 
     /// Every table whose rows are keyed by `deviceId` (the per-device sample/derived tables). This is
-    /// the authoritative list `deleteAllData` clears — kept in sync with the `deviceId`-keyed tables in
-    /// `Database.swift`. The `pairedDevice` registry row itself is NOT here (a delete-data operation
-    /// empties the device's recordings; archiving/removing the registry entry is a separate op).
+    /// the authoritative list `deleteAllData` clears — kept in sync with the full production schema.
+    /// The `pairedDevice` registry row itself is NOT here (a delete-data operation empties the device's
+    /// recordings; archiving/removing the registry entry is a separate op).
     static let deviceScopedTables = [
         // Recovery overlays must be removed before dailyMetric/sleepSession. Their protection
         // triggers intentionally restore derived rows while an overlay exists; deleting the
@@ -99,13 +99,18 @@ public struct DeviceRegistryStore: Sendable {
     ]
 
     /// Permanently delete every recorded sample/derived row belonging to one device, across all
-    /// `deviceId`-keyed tables, in a single transaction (all-or-nothing). The `pairedDevice` registry
-    /// row is left intact — the caller archives/removes that separately. Tables are deleted defensively
-    /// with `DELETE FROM <table> WHERE deviceId = ?`; a missing table would throw, but every table here
-    /// is created unconditionally by the migrator, so the set is stable.
+    /// currently-present device-scoped tables, in a single transaction (all-or-nothing). Some focused
+    /// feature migrations are intentionally registered beside their feature rather than in the legacy
+    /// monolithic migrator; tests and recovery tools may open a legacy-only schema. We therefore inspect
+    /// `sqlite_master` once and skip tables not present in that concrete database. Production opens run
+    /// every migrator, so all production tables are still cleared. The ordered list remains important:
+    /// recovery overlays are deleted before the rows their protection triggers guard.
     public func deleteAllData(deviceId: String) throws {
         try dbQueue.write { db in
-            for table in Self.deviceScopedTables {
+            let existing = Set(try String.fetchAll(
+                db,
+                sql: "SELECT name FROM sqlite_master WHERE type = 'table'"))
+            for table in Self.deviceScopedTables where existing.contains(table) {
                 try db.execute(sql: "DELETE FROM \(table) WHERE deviceId = ?", arguments: [deviceId])
             }
         }
