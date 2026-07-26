@@ -170,4 +170,22 @@ final class HeartRateRecoveryTests: XCTestCase {
             maxHR: 200
         ))
     }
+
+    func testExtremeSampleTimestampsFailClosedWithoutArithmeticOverflow() {
+        let samples = denseEligible()
+            + window(minutes: 1, values: [140, 140, 140])
+            + [
+                HRSample(ts: Int.min, bpm: 140),
+                HRSample(ts: Int.max, bpm: 140),
+            ]
+
+        let result = HeartRateRecovery.calculate(
+            samples: samples,
+            workoutStart: end - 300,
+            workoutEnd: end,
+            maxHR: 200
+        )
+
+        XCTAssertEqual(result?.after1Minute, 30)
+    }
 }
