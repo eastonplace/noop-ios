@@ -184,8 +184,8 @@ extension WhoopStore {
                 END;
                 """)
 
-            // Deleting the corrected sleep is the explicit escape hatch: release its daily
-            // overlay in the same transaction so the next normal analysis owns the day again.
+            // The cleanup migration below replaces this first version. Keeping it here
+            // preserves deterministic migration history for databases that already ran it.
             try db.execute(sql: """
                 CREATE TRIGGER sleepRecoveryDailyOverride_after_session_delete
                 AFTER DELETE ON sleepSession
@@ -195,6 +195,80 @@ extension WhoopStore {
                 END;
                 """)
         }
+
+        // Editing or deleting a recovered session must never leave the prior derived
+        // Rest/Charge behind. Null the protected overlay first (so its own protection
+        // triggers cannot restore stale values), clear the visible derived fields, then
+        // release the overlay. The normal edit/delete flow immediately runs analytics and
+        // may repopulate whatever remains defensible from the corrected session/raw data.
+        migrator.registerMigration("sleep-window-recovery-invalidation-v1") { db in
+            try db.execute(sql: "DROP TRIGGER IF EXISTS sleepRecoveryDailyOverride_after_session_delete")
+
+            let invalidate = """
+                UPDATE sleepRecoveryDailyOverride
+                SET totalSleepMin = NULL,
+                    efficiency = NULL,
+                    deepMin = NULL,
+                    remMin = NULL,
+                    lightMin = NULL,
+                    disturbances = NULL,
+                    restingHr = NULL,
+                    avgHrv = NULL,
+                    recovery = NULL,
+                    restScore = NULL,
+                    updatedAt = CAST(strftime('%s','now') AS INTEGER)
+                WHERE deviceId = OLD.deviceId AND sessionStartTs = OLD.startTs;
+
+                UPDATE dailyMetric
+                SET totalSleepMin = NULL,
+                    efficiency = NULL,
+                    deepMin = NULL,
+                    remMin = NULL,
+                    lightMin = NULL,
+                    disturbances = NULL,
+                    restingHr = NULL,
+                    avgHrv = NULL,
+                    recovery = NULL
+                WHERE deviceId = OLD.deviceId
+                  AND day = (SELECT day FROM sleepRecoveryDailyOverride
+                             WHERE deviceId = OLD.deviceId AND sessionStartTs = OLD.startTs);
+
+                DELETE FROM metricSeries
+                WHERE deviceId = OLD.deviceId
+                  AND day = (SELECT day FROM sleepRecoveryDailyOverride
+                             WHERE deviceId = OLD.deviceId AND sessionStartTs = OLD.startTs)
+                  AND key = 'sleep_performance';
+
+                DELETE FROM sleepRecoveryDailyOverride
+                WHERE deviceId = OLD.deviceId AND sessionStartTs = OLD.startTs;
+                """
+
+            try db.execute(sql: """
+                CREATE TRIGGER sleepRecoveryDailyOverride_after_session_delete
+                AFTER DELETE ON sleepSession
+                WHEN EXISTS (
+                    SELECT 1 FROM sleepRecoveryDailyOverride o
+                    WHERE o.deviceId = OLD.deviceId AND o.sessionStartTs = OLD.startTs
+                )
+                BEGIN
+                    \(invalidate)
+                END;
+                """)
+
+            try db.execute(sql: """
+                CREATE TRIGGER sleepRecoveryDailyOverride_after_session_bounds_update
+                AFTER UPDATE OF startTsAdjusted, endTs ON sleepSession
+                WHEN EXISTS (
+                    SELECT 1 FROM sleepRecoveryDailyOverride o
+                    WHERE o.deviceId = OLD.deviceId AND o.sessionStartTs = OLD.startTs
+                )
+                AND (NEW.startTsAdjusted IS NOT OLD.startTsAdjusted OR NEW.endTs IS NOT OLD.endTs)
+                BEGIN
+                    \(invalidate)
+                END;
+                """)
+        }
+
         try migrator.migrate(writer)
     }
 }
