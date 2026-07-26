@@ -61,6 +61,10 @@ public enum ManualSleepRecoveryWriteResult: Equatable, Sendable {
     case conflict(CachedSleepSession)
 }
 
+enum SleepRecoveryStoreError: Error, Equatable {
+    case incompleteDailyOverride
+}
+
 extension WhoopStore {
     /// Atomically replaces overlapping auto-detected computed rows with one user-bounded
     /// session and banks its audit record. When supplied, the corrected daily row and
@@ -73,7 +77,13 @@ extension WhoopStore {
         dailyOverride: SleepRecoveryDailyOverride? = nil,
         daily: DailyMetric? = nil
     ) async throws -> ManualSleepRecoveryWriteResult {
-        try syncWrite { db in
+        // A daily row without its durable overlay (or vice versa) would be erased by
+        // the next analytics pass. Reject the programmer error before opening a write.
+        guard (dailyOverride == nil) == (daily == nil) else {
+            throw SleepRecoveryStoreError.incompleteDailyOverride
+        }
+
+        return try syncWrite { db in
             let overlaps = try Row.fetchAll(db, sql: """
                 SELECT startTs, endTs, efficiency, restingHr, avgHrv, stagesJSON,
                        userEdited, startTsAdjusted
@@ -136,18 +146,9 @@ extension WhoopStore {
 
             try Self.upsertSleepRecoveryAudit(db, deviceId: deviceId, audit: audit)
 
-            switch (dailyOverride, daily) {
-            case let (.some(override), .some(dailyRow)):
+            if let override = dailyOverride, let dailyRow = daily {
                 try Self.persistSleepRecoveryDailyOverride(
                     db, override: override, daily: dailyRow, deviceId: deviceId)
-            case (nil, nil):
-                break
-            default:
-                // Programmer error: a score row without its durable overlay (or vice versa)
-                // would be erased by the next analytics pass. Fail the entire transaction.
-                throw DatabaseError(
-                    resultCode: .SQLITE_MISUSE,
-                    message: "sleep recovery daily and override must be supplied together")
             }
 
             return existed
