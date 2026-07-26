@@ -2,10 +2,18 @@ import SwiftUI
 import StrandDesign
 
 /// "What's New" — a proper in-app changelog, shown automatically after an update and reachable any
-/// time from Settings. It also restates, up top, what NOOP is and what to expect, so people who never
-/// open GitHub still understand the experimental footing and the WHOOP 5/MG status.
+/// time from Settings. The release-candidate card is intentionally maintained here, separate from the
+/// historical changelog model, so repository release-line names never overwrite the public bundle version.
 struct WhatsNewView: View {
     let onClose: () -> Void
+
+    private let ios21Highlights = [
+        "Recover a missed night by retrying automatic detection or setting an approximate sleep window. NOOP reprocesses the recorded physiology instead of inventing stages or vitals.",
+        "Improved WHOOP 5/MG compatibility, connection recovery, device identification, and fail-closed handling for unsupported protocol families.",
+        "New workout heart-rate recovery analysis and safer backfilling of missing workout metrics without overwriting measured or user-entered data.",
+        "A clearly separated SpO₂ Candidate (Beta) surface for experimental WHOOP 5/MG evidence. It never feeds Blood Oxygen, Apple Health, Charge, illness detection, or medical claims.",
+        "Additional local-data integrity, privacy deletion, persistence, accessibility, and performance hardening across sleep, workouts, imports, widgets, and background processing."
+    ]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -13,15 +21,11 @@ struct WhatsNewView: View {
                 .background(StrandPalette.card)
             Divider().overlay(StrandPalette.hairline)
             ScrollView {
-                // PERF: the changelog grows with every release, so this is an ever-lengthening column.
-                // LazyVStack (byte-identical layout to VStack inside a ScrollView — same leading
-                // alignment + sectionGap spacing) builds the off-screen release cards on demand instead
-                // of constructing the entire history up-front each time the sheet opens.
+                // PERF: the changelog grows with every release, so build off-screen cards lazily.
                 LazyVStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
+                    ios21ReleaseCard
                     expectationsCard
                     ForEach(Array(AppChangelog.releases.enumerated()), id: \.element.id) { index, release in
-                        // The newest release is the headline — give it the brand-green wash; the
-                        // rest stay frosted-neutral so the latest stands out at a glance.
                         releaseCard(release, isLatest: index == 0)
                     }
                 }
@@ -30,14 +34,10 @@ struct WhatsNewView: View {
             Divider().overlay(StrandPalette.hairline)
             footer
         }
-        // A fixed 560×640 is right for the macOS sheet window, but on iPhone it's wider than the
-        // screen, so the content (and the "Got it" button) ran off the right edge (#185). iOS fills
-        // the presented sheet instead.
         #if os(macOS)
         .frame(width: 560, height: 640)
         #else
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // A long changelog scroll → open full-height, with a grabber for swipe-to-dismiss.
         .noopSheetPresentation(largeFirst: true)
         #endif
         .background(StrandPalette.surfaceBase)
@@ -52,7 +52,8 @@ struct WhatsNewView: View {
                 Text("NOOP \(AppChangelog.currentVersion)")
                     .font(StrandFont.rounded(26, weight: .bold))
                     .foregroundStyle(StrandPalette.textPrimary)
-                Text("Release notes").font(StrandFont.caption)
+                Text("iOS 2.1 release candidate")
+                    .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textSecondary)
             }
             Spacer()
@@ -67,22 +68,63 @@ struct WhatsNewView: View {
         .padding(20)
     }
 
+    private var ios21ReleaseCard: some View {
+        PaperCard {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 8) {
+                    SourceBadge("iOS 2.1")
+                    Text("More reliable data, recovery, and workouts")
+                        .font(StrandFont.headline)
+                        .foregroundStyle(StrandPalette.textPrimary)
+                    Spacer()
+                    Text("Release candidate")
+                        .font(StrandFont.caption)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                }
+
+                Text("This update combines the WHOOP backend compatibility work and missed-sleep recovery into one local-first iPhone release.")
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                ForEach(Array(ios21Highlights.enumerated()), id: \.offset) { _, item in
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(StrandPalette.accent)
+                            .padding(.top, 2)
+                        Text(item)
+                            .font(StrandFont.subhead)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                Text("Experimental features remain opt-in and clearly labelled. NOOP is not a medical device, and this build should complete simulator and physical-device QA before release.")
+                    .font(StrandFont.caption)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
     private var expectationsCard: some View {
         PaperCard {
             VStack(alignment: .leading, spacing: 14) {
                 Text("WHAT TO EXPECT").font(StrandFont.overline)
                     .tracking(StrandFont.overlineTracking)
                     .foregroundStyle(StrandPalette.textSecondary)
-                ForEach(AppChangelog.expectations) { e in
+                ForEach(AppChangelog.expectations) { expectation in
                     HStack(alignment: .top, spacing: 12) {
-                        Image(systemName: e.icon)
+                        Image(systemName: expectation.icon)
                             .foregroundStyle(StrandPalette.accent)
                             .frame(width: 22)
                             .padding(.top, 2)
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(e.title).font(StrandFont.headline)
+                            Text(expectation.title).font(StrandFont.headline)
                                 .foregroundStyle(StrandPalette.textPrimary)
-                            Text(e.body).font(StrandFont.subhead)
+                            Text(expectation.body).font(StrandFont.subhead)
                                 .foregroundStyle(StrandPalette.textSecondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
