@@ -2,46 +2,45 @@
 
 Branch: `release/noop-ios-2.1-rc`
 
-Status: **Draft release candidate. Do not merge until simulator and physical-device QA pass.**
+Status: **Draft release candidate. Do not merge until remaining integration, simulator, and physical-device QA pass.**
 
 ## Release purpose
 
 NOOP iOS 2.1 combines two previously stacked workstreams into one review and qualification line:
 
-1. WHOOP backend compatibility and protocol hardening from the former PR #20.
-2. Bounded missed-sleep recovery from the former PR #21.
+1. WHOOP backend compatibility and protocol hardening from former PR #20.
+2. Bounded missed-sleep recovery from former PR #21.
 
-The unified branch contains both histories and targets the NOOP iOS 2.0 release line directly. It does not require either former PR to merge first.
+The unified branch includes the qualified `main`/iOS 2.0 head and both 2.1 histories. It has no stacked PR dependency.
 
-## User-visible changes
+## Live user-visible changes
 
 ### Recover a missed night
 
-When NOOP cannot confidently detect a night, the Sleep empty state now offers:
+When NOOP cannot confidently detect a night, the Sleep empty state offers:
 
 - **Retry automatic detection** to run a fresh normal analysis pass.
-- **Set the sleep window** to give NOOP approximate bedtime and wake boundaries.
+- **Set the sleep window** to provide approximate bedtime and wake boundaries.
 
-The selected interval is a search constraint, not a declaration that every minute was sleep. NOOP derives stages, resting HR, HRV, Rest, and Charge only from recorded evidence. Sparse motion can preserve real overnight vitals while leaving stages and Rest unavailable.
-
-### Workout heart-rate recovery
-
-Qualified workouts can surface signed 1-, 2-, and 5-minute heart-rate recovery calculated from local raw HR. The calculation requires a contiguous elevated-effort segment and adequate post-effort coverage; missing evidence remains unavailable rather than interpolated.
+The interval is a search constraint, not a declaration that every minute was sleep. NOOP derives stages, resting HR, HRV, Rest, and Charge only from recorded evidence. Sparse motion can preserve real overnight vitals while leaving stages and Rest unavailable.
 
 ### WHOOP 5/MG compatibility
 
-The release adds stricter family detection, safer timestamp and clock recovery, model correction, raw-frame validation, and opt-in experimental controls. Unsupported or unknown protocol families fail closed.
+The live release candidate includes stricter family detection, model correction, raw-frame validation, bounded journal compatibility, and opt-in experimental controls. Unsupported or unknown protocol families fail closed.
 
 ### SpO₂ Candidate (Beta)
 
-Selected WHOOP 5/MG sleep records can produce a separately labelled approximate candidate value. This experimental value is intentionally isolated from:
+Selected WHOOP 5/MG sleep records can produce a separately labelled approximate candidate value. It is isolated from canonical Blood Oxygen, Apple Health, Charge, Rest, illness detection, widgets, Trends, alerts, and medical claims.
 
-- canonical Blood Oxygen;
-- Apple Health;
-- Charge and Rest;
-- illness detection;
-- widgets and Trends;
-- alerts or medical claims.
+## Included foundations still requiring live integration
+
+The branch contains tested engines and presentation foundations for:
+
+- signed 1-, 2-, and 5-minute workout heart-rate recovery;
+- conservative missing-field workout backfill;
+- bounded strap clock-recovery planning.
+
+The complete-diff audit found that their final production call sites are not all wired. They are therefore not described as shipped user features and remain explicit release gates.
 
 ## Data integrity and privacy
 
@@ -79,8 +78,10 @@ Selected WHOOP 5/MG sleep records can produce a separately labelled approximate 
 - sparse motion without fabricated stages;
 - motion-only rejection;
 - no-data and invalid-window behavior;
-- DST spring-forward elapsed-time behavior;
-- stage totals, Rest, and baseline readiness.
+- DST spring-forward behavior;
+- stage totals, Rest, and baseline readiness;
+- heart-rate recovery fixtures;
+- missing-workout-field merge validation.
 
 ### WhoopStore
 
@@ -97,7 +98,16 @@ Selected WHOOP 5/MG sleep records can produce a separately labelled approximate 
 ### iOS
 
 - missed-sleep empty-state routing;
-- default last-night time seed.
+- default last-night time seed;
+- seeded WHOOP model safeguards.
+
+## Remaining integration gates
+
+1. Place `WorkoutHeartRateRecoveryCard` in the live workout-detail hierarchy.
+2. Invoke `WorkoutDetectedBackfill` from the detected-versus-real collision path using the real row's owning namespace.
+3. Wire `StrapClockRecoveryPlanner` into the BLE timeout and clock-correlation lifecycle per connection generation.
+4. Complete the remaining app-level protocol diagnostics listed in `docs/qa/noop-ios-2.1-implementation-handoff.md`.
+5. Reconcile or remove compatibility helpers once equivalent logic is folded into moving core files.
 
 ## Required simulator QA
 
@@ -112,15 +122,15 @@ Selected WHOOP 5/MG sleep records can produce a separately labelled approximate 
 9. Validate invalid, future, shorter-than-30-minute, and longer-than-16-hour windows are blocked.
 10. Validate repeated submission is idempotent and edited-session overlap is refused.
 11. Edit and delete a recovered session, force a rescore, and confirm persistence/cleanup behavior.
-12. Relaunch the app and verify the recovered result survives.
-13. Review the SpO₂ Candidate (Beta) presentation and confirm it does not appear in canonical health surfaces.
-14. Review workout heart-rate recovery with complete, incomplete, and duplicate-callback fixtures.
+12. Relaunch and verify the recovered result survives.
+13. Confirm SpO₂ Candidate (Beta) never appears in canonical health surfaces.
+14. After live wiring, validate workout HR recovery, workout backfill, and clock recovery end-to-end.
 
 ## Required physical-device QA
 
-- WHOOP 4.0 and WHOOP 5/MG connect, reconnect, background, clock-recovery, and backfill behavior.
+- WHOOP 4.0 and WHOOP 5/MG connect, reconnect, background, clock, and backfill behavior.
 - Real missed-night recovery with recorded strap data.
-- Long workout ingestion and post-workout HR recovery.
+- Long workout ingestion and post-workout HR recovery after integration.
 - Locked/background/killed app behavior and Live Activity lifecycle.
 - HealthKit read/write boundaries and deletion reconciliation.
 - Backup, restore, export, and delete-all-data.
