@@ -82,7 +82,10 @@ public enum HeartRateRecovery {
         func recovery(at minutes: Int) -> Int? {
             guard let target = Self.adding(minutes * 60, to: workoutEnd) else { return nil }
             let values = canonical
-                .filter { abs($0.ts - target) <= measurementToleranceSeconds }
+                .filter {
+                    guard let distance = absoluteDistance($0.ts, target) else { return false }
+                    return distance <= measurementToleranceSeconds
+                }
                 .map(\.bpm)
             guard values.count >= minimumSamplesPerReading,
                   let reading = median(values)
@@ -126,8 +129,9 @@ public enum HeartRateRecovery {
         for index in 0..<(samples.count - 1) {
             let current = samples[index]
             let next = samples[index + 1]
-            let gap = next.ts - current.ts
-            guard gap > 0,
+            let (gap, overflow) = next.ts.subtractingReportingOverflow(current.ts)
+            guard !overflow,
+                  gap > 0,
                   gap <= maximumContinuousGapSeconds,
                   Double(current.bpm) >= threshold,
                   Double(next.bpm) >= threshold
@@ -135,7 +139,12 @@ public enum HeartRateRecovery {
                 currentRun = 0
                 continue
             }
-            currentRun += gap
+            let (extendedRun, runOverflow) = currentRun.addingReportingOverflow(gap)
+            guard !runOverflow else {
+                currentRun = 0
+                continue
+            }
+            currentRun = extendedRun
             longestRun = max(longestRun, currentRun)
         }
         return longestRun
@@ -151,12 +160,21 @@ public enum HeartRateRecovery {
         return overflow ? nil : result
     }
 
+    private static func absoluteDistance(_ lhs: Int, _ rhs: Int) -> Int? {
+        if lhs >= rhs {
+            let (distance, overflow) = lhs.subtractingReportingOverflow(rhs)
+            return overflow ? nil : distance
+        }
+        let (distance, overflow) = rhs.subtractingReportingOverflow(lhs)
+        return overflow ? nil : distance
+    }
+
     private static func median(_ values: [Int]) -> Int? {
         guard !values.isEmpty else { return nil }
         let sorted = values.sorted()
         let middle = sorted.count / 2
         if sorted.count.isMultiple(of: 2) {
-            return Int((Double(sorted[middle - 1] + sorted[middle]) / 2).rounded())
+            return Int((Double(sorted[middle - 1]) + Double(sorted[middle])) / 2.0).rounded()
         }
         return sorted[middle]
     }
