@@ -45,14 +45,18 @@ public enum ManualSleepDailyScorer {
         let restingHr = analysis.restingHR ?? existing?.restingHr
         let avgHrv = analysis.avgHRV ?? existing?.avgHrv
 
+        // The recovered window owns the sleep fields for this wake day. If motion was
+        // too sparse to defend staging, those fields stay nil rather than inheriting a
+        // stale detector total from the row being repaired. Non-sleep activity fields
+        // remain owned by the existing daily row.
         let provisional = DailyMetric(
             day: day,
-            totalSleepMin: summary?.totalSleepMin ?? existing?.totalSleepMin,
-            efficiency: summary?.efficiency ?? existing?.efficiency,
-            deepMin: summary?.deepMin ?? existing?.deepMin,
-            remMin: summary?.remMin ?? existing?.remMin,
-            lightMin: summary?.lightMin ?? existing?.lightMin,
-            disturbances: summary?.disturbances ?? existing?.disturbances,
+            totalSleepMin: summary?.totalSleepMin,
+            efficiency: summary?.efficiency,
+            deepMin: summary?.deepMin,
+            remMin: summary?.remMin,
+            lightMin: summary?.lightMin,
+            disturbances: summary?.disturbances,
             restingHr: restingHr,
             avgHrv: avgHrv,
             recovery: nil,
