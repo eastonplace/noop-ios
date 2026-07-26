@@ -37,6 +37,8 @@ try:
         "static let defaultPageLimit = 500",
         "oldestSampleDate",
         "maximumPageCount",
+        "deletedObjectUUIDs",
+        "handlePage: PageHandler? = nil",
     )
     require(
         "StrandiOS/Health/HealthKitBridge.swift",
@@ -46,12 +48,35 @@ try:
         "await syncCoordinator.runAndWait()",
         "await acquireObserverScanLease()",
         "defer { releaseObserverScanLease() }",
+        "healthKitObjectIdentities",
+        "upsertHealthKitObjectIdentities",
+        "replaceAppleHealthRange",
+        "var hasUnknownHistoricalDeletion = false",
+        "historyQueryChunkDays = 1",
+        "streamWorkouts",
+        "roundedInt(_ value: Double, in domain: ClosedRange<Int>)",
+        "Live HealthKit import owns daily Apple projections and Apple workouts only",
+        "readTypes.compactMap { $0 as? HKSampleType }",
+    )
+    require(
+        "Packages/WhoopStore/Sources/WhoopStore/HealthKitAuthoritativeStore.swift",
+        "struct HealthKitObjectIdentity",
+        "healthKitObjectIndex",
+        "earliestAppleHealthTimestamp",
+        "replaceAppleHealthRange",
+        "Empty inputs are meaningful",
+        "MIN(healthKitObjectIndex.startTs, excluded.startTs)",
+        "MAX(healthKitObjectIndex.endTs, excluded.endTs)",
+        'appleHealthWorkoutSource = "apple-health"',
+        "healthKitIdentityQueryChunkSize = 400",
+        "return requested.compactMap",
     )
     forbid(
         "StrandiOS/Health/HealthKitBridge.swift",
         "guard auth == .authorized, !syncing else { return }",
         "anchor: priorAnchor, limit: HKObjectQueryNoLimit",
         "fetchTouchedDayWindow",
+        "objectUUIDs: scan.deletedObjectUUIDs",
     )
     require(
         "StrandiOSTests/HealthKitSyncCoordinatorTests.swift",
@@ -60,6 +85,13 @@ try:
         "testPendingPersistenceFailureDoesNotStartOrLoseInMemoryWork",
         "testInitialLargeHistoryIsPagedInBoundedBatches",
         "testPagingFailureDoesNotProduceACommittableFinalAnchor",
+    )
+    require(
+        "Packages/WhoopStore/Tests/WhoopStoreTests/HealthKitAuthoritativeStoreTests.swift",
+        "testObjectIndexRetainsHistoricalWindowUnionAcrossCorrections",
+        "testObjectIndexChunksMassDeletionLookupsAndPreservesDuplicateRequests",
+        "testEarliestAppleHealthTimestampIncludesHyphenatedWorkoutSource",
+        "testEmptyAuthoritativeWindowRetractsAppleRowsAndWorkouts",
     )
 except AssertionError as error:
     print(f"HealthKit sync contract audit: FAIL\n{error}", file=sys.stderr)

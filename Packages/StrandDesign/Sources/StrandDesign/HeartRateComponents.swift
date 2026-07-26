@@ -94,7 +94,7 @@ public struct HRTimelineChart: View {
     /// nil = the HR zone ramp; a flat metric tint otherwise (the Deep Timeline colour contract).
     var tint: Color? = nil
     var unit: String = "bpm"
-    var valueFormat: (Double) -> String = { "\(Int($0.rounded()))" }
+    var valueFormat: (Double) -> String = { ComponentValueFormat.rounded($0) }
     /// The zone legend only speaks for the zone-ramped HR track.
     var showsZoneLegend: Bool = true
 

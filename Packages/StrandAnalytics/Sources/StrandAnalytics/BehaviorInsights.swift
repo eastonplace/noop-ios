@@ -209,8 +209,8 @@ public enum BehaviorInsights {
     // MARK: - Formatting helpers
 
     /// Round to nearest integer, returned as Int (for clean display).
-    static func roundedInt(_ x: Double) -> Int { Int((x).rounded()) }
+    static func roundedInt(_ x: Double) -> Int { StableStatistics.roundedInt(x) ?? 0 }
 
     /// Round to one decimal place.
-    static func round1(_ x: Double) -> Double { (x * 10).rounded() / 10 }
+    static func round1(_ x: Double) -> Double { StableStatistics.rounded1(x) ?? 0 }
 }

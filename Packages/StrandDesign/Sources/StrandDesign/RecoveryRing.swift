@@ -51,7 +51,7 @@ public struct RecoveryRing: View {
         showsLabel: Bool = true,
         showsWordmark: Bool = true,
         showsHover: Bool = true,
-        valueFormat: @escaping (Double) -> String = { "Recovery \(Int($0.rounded()))" }
+        valueFormat: @escaping (Double) -> String = { "Recovery \(ComponentValueFormat.rounded($0))" }
     ) {
         self.score = score
         self.supporting = supporting
@@ -84,7 +84,7 @@ public struct RecoveryRing: View {
                 accent: RecoveryBands.color(for: score),
                 size: diameter,
                 lineWidth: lineWidth,
-                format: { "\(Int($0.rounded()))" },
+                format: { ComponentValueFormat.rounded($0) },
                 centerCaption: showsLabel ? stateWord : nil,
                 showsValue: showsLabel
             )
@@ -118,7 +118,7 @@ public struct RecoveryRing: View {
     }
 
     private var numberString: String {
-        String(Int(score.rounded()))
+        ComponentValueFormat.rounded(score)
     }
 
     // MARK: Brand layers

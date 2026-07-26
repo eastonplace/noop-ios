@@ -48,7 +48,7 @@ public struct YearHeatStrip: View {
         spacing: CGFloat = 3,
         showsMonthLabels: Bool = true,
         showsHover: Bool = true,
-        valueFormat: @escaping (Double) -> String = { "Recovery \(Int($0.rounded()))" }
+        valueFormat: @escaping (Double) -> String = { "Recovery \(ComponentValueFormat.rounded($0))" }
     ) {
         let sorted = days.sorted { $0.date < $1.date }
         self.days = sorted

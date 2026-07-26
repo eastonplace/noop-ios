@@ -159,8 +159,14 @@ enum ActiveWorkoutPersistence {
         }
     }
 
+    struct JournalSegment: Codable, Equatable, Sendable {
+        let generation: UUID
+        let sampleCount: Int
+        let checksum: UInt64
+    }
+
     struct JournalMetadata: Codable, Equatable, Sendable {
-        static let currentVersion = 3
+        static let currentVersion = 5
 
         let version: Int
         let generation: UUID
@@ -172,6 +178,20 @@ enum ActiveWorkoutPersistence {
         let avgHr: Int
         let peakHr: Int
         let liveStrainState: LiveStrainState
+        /// Version 4 records immutable journal suffixes. Version 3 decoded as one full-generation
+        /// segment so an installed app can resume a workout without rewriting its existing journal.
+        let segments: [JournalSegment]
+        /// Version 5 uses one append-only immutable journal plus an in-metadata replaceable current-second
+        /// tail. Keeping the tail out of the journal prevents normal same-second callback replacement from
+        /// turning a five-second checkpoint into a full workout rewrite.
+        let journalSampleCount: Int?
+        let journalChecksum: UInt64?
+        let tailSample: HRSample?
+
+        private enum CodingKeys: String, CodingKey {
+            case version, generation, sessionID, startSec, sport, sampleCount, checksum
+            case avgHr, peakHr, liveStrainState, segments, journalSampleCount, journalChecksum, tailSample
+        }
 
         init(
             generation: UUID,
@@ -182,7 +202,11 @@ enum ActiveWorkoutPersistence {
             checksum: UInt64,
             avgHr: Int,
             peakHr: Int,
-            liveStrainState: LiveStrainState
+            liveStrainState: LiveStrainState,
+            segments: [JournalSegment]? = nil,
+            journalSampleCount: Int? = nil,
+            journalChecksum: UInt64? = nil,
+            tailSample: HRSample? = nil
         ) {
             version = Self.currentVersion
             self.generation = generation
@@ -194,6 +218,14 @@ enum ActiveWorkoutPersistence {
             self.avgHr = avgHr
             self.peakHr = peakHr
             self.liveStrainState = liveStrainState
+            self.segments = segments ?? [JournalSegment(
+                generation: generation,
+                sampleCount: sampleCount,
+                checksum: checksum
+            )]
+            self.journalSampleCount = journalSampleCount
+            self.journalChecksum = journalChecksum
+            self.tailSample = tailSample
         }
 
         init(snapshot: Snapshot, generation: UUID, checksum: UInt64) {
@@ -208,6 +240,33 @@ enum ActiveWorkoutPersistence {
                 peakHr: snapshot.peakHr,
                 liveStrainState: snapshot.liveStrainState
             )
+        }
+
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            let decodedVersion = try values.decode(Int.self, forKey: .version)
+            let decodedGeneration = try values.decode(UUID.self, forKey: .generation)
+            let decodedSampleCount = try values.decode(Int.self, forKey: .sampleCount)
+            let decodedChecksum = try values.decode(UInt64.self, forKey: .checksum)
+            version = decodedVersion
+            generation = decodedGeneration
+            sessionID = try values.decode(UUID.self, forKey: .sessionID)
+            startSec = try values.decode(Int.self, forKey: .startSec)
+            sport = try values.decode(String.self, forKey: .sport)
+            sampleCount = decodedSampleCount
+            checksum = decodedChecksum
+            avgHr = try values.decode(Int.self, forKey: .avgHr)
+            peakHr = try values.decode(Int.self, forKey: .peakHr)
+            liveStrainState = try values.decode(LiveStrainState.self, forKey: .liveStrainState)
+            segments = try values.decodeIfPresent([JournalSegment].self, forKey: .segments)
+                ?? [JournalSegment(
+                    generation: decodedGeneration,
+                    sampleCount: decodedSampleCount,
+                    checksum: decodedChecksum
+                )]
+            journalSampleCount = try values.decodeIfPresent(Int.self, forKey: .journalSampleCount)
+            journalChecksum = try values.decodeIfPresent(UInt64.self, forKey: .journalChecksum)
+            tailSample = try values.decodeIfPresent(HRSample.self, forKey: .tailSample)
         }
     }
 
@@ -270,13 +329,28 @@ enum ActiveWorkoutPersistence {
 
     @MainActor
     @discardableResult
-    static func store(_ snapshot: Snapshot, synchronously: Bool = false) -> Bool {
+    static func store(
+        _ snapshot: Snapshot,
+        synchronously: Bool = false,
+        onCommit: (@MainActor @Sendable (Bool) -> Void)? = nil
+    ) -> Bool {
         let isFirstSnapshot = !productionSnapshotEstablished
         let applicationRequiresImmediateFlush = UIApplication.shared.applicationState != .active
         let requiresSynchronousCommit = synchronously || isFirstSnapshot || applicationRequiresImmediateFlush
+        let commitObserver: (@Sendable (Bool) -> Void)?
+        if let onCommit {
+            commitObserver = { committed in
+                Task { @MainActor in
+                    onCommit(committed)
+                }
+            }
+        } else {
+            commitObserver = nil
+        }
         let accepted = productionWriter.store(
             snapshot,
-            synchronously: requiresSynchronousCommit
+            synchronously: requiresSynchronousCommit,
+            onCommit: commitObserver
         )
         if isFirstSnapshot, requiresSynchronousCommit, accepted {
             productionSnapshotEstablished = true
@@ -353,17 +427,24 @@ enum ActiveWorkoutPersistence {
             let sport: String
             let acceptedCount: Int
             let lastSample: HRSample?
+            let finalizedCount: Int
+            let supportsReplaceableTail: Bool
         }
 
         private enum Mutation: @unchecked Sendable {
             case rewrite([HRSample])
-            case append(expectedCount: Int, expectedLast: HRSample?, suffix: [HRSample])
+            case appendFinalized(expectedCount: Int, expectedLast: HRSample?, suffix: [HRSample], tail: HRSample?)
         }
 
         private struct Request: @unchecked Sendable {
             let epoch: UInt64
             let snapshot: Snapshot
             let mutation: Mutation
+        }
+
+        private struct PendingAsync: @unchecked Sendable {
+            var request: Request
+            var observers: [(@Sendable (Bool) -> Void)]
         }
 
         private struct LegacyJournalMetadata: Codable {
@@ -387,6 +468,8 @@ enum ActiveWorkoutPersistence {
         // pointer and `committedCursor`, which advance only after the generation file is durable.
         private var committedCursor: Cursor?
         private var pendingCursor: Cursor?
+        private var pendingAsync: PendingAsync?
+        private var asyncWorkerScheduled = false
 
         init(
             defaults: UserDefaults = .standard,
@@ -402,8 +485,15 @@ enum ActiveWorkoutPersistence {
         /// Reduce the full value to a small suffix before returning to AppModel. A rewrite force-copies the
         /// samples (`filter` creates a new buffer); normal checkpoints retain only the ~five new samples.
         @discardableResult
-        func store(_ snapshot: Snapshot, synchronously: Bool) -> Bool {
-            guard snapshot.startSec > 0, directory != nil else { return false }
+        func store(
+            _ snapshot: Snapshot,
+            synchronously: Bool,
+            onCommit: (@Sendable (Bool) -> Void)? = nil
+        ) -> Bool {
+            guard snapshot.startSec > 0, directory != nil else {
+                onCommit?(false)
+                return false
+            }
 
             let request: Request
             lock.lock()
@@ -414,121 +504,136 @@ enum ActiveWorkoutPersistence {
                 pendingCursor = nil
             }
             let requestEpoch = epoch
-            let strategy = ActiveWorkoutJournalPlanner.strategy(
-                persistedStartSec: pendingCursor?.startSec,
-                persistedSport: pendingCursor?.sport,
-                persistedCount: pendingCursor?.acceptedCount ?? -1,
-                persistedLastSample: pendingCursor?.lastSample,
-                next: snapshot
+            let copied = snapshot.samples.filter { $0.ts > 0 && (1...300).contains($0.bpm) }
+            let state = ActiveWorkoutPersistence.normalizedState(snapshot.liveStrainState, sampleCount: copied.count)
+            let metadataSnapshot = Snapshot(
+                sessionID: snapshot.sessionID,
+                startSec: snapshot.startSec,
+                sport: snapshot.sport,
+                samples: [],
+                avgHr: max(0, snapshot.avgHr),
+                peakHr: max(0, snapshot.peakHr),
+                liveStrainState: state
             )
-
-            let sanitizedSnapshot: Snapshot
-            switch strategy {
-            case .rewrite:
-                let copied = snapshot.samples.filter { $0.ts > 0 && (1...300).contains($0.bpm) }
-                let state = ActiveWorkoutPersistence.normalizedState(
-                    snapshot.liveStrainState,
-                    sampleCount: copied.count
+            let finalizedCount = max(0, copied.count - 1)
+            let tail = copied.last
+            // A V3/V4 cursor has no replaceable metadata tail. Promote it synchronously once so a later
+            // asynchronous V5 append can never be queued behind an incompatible rewrite.
+            let requiresSynchronousMigration = pendingCursor?.sessionID == snapshot.sessionID
+                && pendingCursor?.supportsReplaceableTail == false
+            if let cursor = pendingCursor,
+               cursor.supportsReplaceableTail,
+               cursor.startSec == snapshot.startSec,
+               cursor.sport == snapshot.sport,
+               finalizedCount >= cursor.finalizedCount,
+               (cursor.finalizedCount == 0 || copied[cursor.finalizedCount - 1] == cursor.lastSample) {
+                let suffix = Array(copied[cursor.finalizedCount..<finalizedCount])
+                request = Request(
+                    epoch: requestEpoch,
+                    snapshot: metadataSnapshot,
+                    mutation: .appendFinalized(
+                        expectedCount: cursor.finalizedCount,
+                        expectedLast: cursor.lastSample,
+                        suffix: suffix,
+                        tail: tail
+                    )
                 )
-                sanitizedSnapshot = Snapshot(
-                    sessionID: snapshot.sessionID,
-                    startSec: snapshot.startSec,
-                    sport: snapshot.sport,
-                    samples: copied,
-                    avgHr: max(0, snapshot.avgHr),
-                    peakHr: max(0, snapshot.peakHr),
-                    liveStrainState: state
-                )
-                request = Request(epoch: requestEpoch, snapshot: sanitizedSnapshot, mutation: .rewrite(copied))
-                pendingCursor = Cursor(
-                    sessionID: snapshot.sessionID,
-                    startSec: snapshot.startSec,
-                    sport: snapshot.sport,
-                    acceptedCount: copied.count,
-                    lastSample: copied.last
-                )
-
-            case .append(let fromIndex):
-                let candidate = snapshot.samples[fromIndex...]
-                let suffix = candidate.filter { $0.ts > 0 && (1...300).contains($0.bpm) }
-                // A bad sample inside the new suffix changes the index relationship. Rewrite safely rather
-                // than allowing cursor/file counts to diverge.
-                if suffix.count != candidate.count {
-                    let copied = snapshot.samples.filter { $0.ts > 0 && (1...300).contains($0.bpm) }
-                    let state = ActiveWorkoutPersistence.normalizedState(
-                        snapshot.liveStrainState,
-                        sampleCount: copied.count
-                    )
-                    sanitizedSnapshot = Snapshot(
-                        sessionID: snapshot.sessionID,
-                        startSec: snapshot.startSec,
-                        sport: snapshot.sport,
-                        samples: copied,
-                        avgHr: max(0, snapshot.avgHr),
-                        peakHr: max(0, snapshot.peakHr),
-                        liveStrainState: state
-                    )
-                    request = Request(epoch: requestEpoch, snapshot: sanitizedSnapshot, mutation: .rewrite(copied))
-                    pendingCursor = Cursor(
-                        sessionID: snapshot.sessionID,
-                        startSec: snapshot.startSec,
-                        sport: snapshot.sport,
-                        acceptedCount: copied.count,
-                        lastSample: copied.last
-                    )
-                } else {
-                    let nextCount = fromIndex + suffix.count
-                    let state = ActiveWorkoutPersistence.normalizedState(
-                        snapshot.liveStrainState,
-                        sampleCount: nextCount
-                    )
-                    sanitizedSnapshot = Snapshot(
-                        sessionID: snapshot.sessionID,
-                        startSec: snapshot.startSec,
-                        sport: snapshot.sport,
-                        samples: [], // suffix transaction does not retain the growing source array
-                        avgHr: max(0, snapshot.avgHr),
-                        peakHr: max(0, snapshot.peakHr),
-                        liveStrainState: state
-                    )
-                    request = Request(
-                        epoch: requestEpoch,
-                        snapshot: sanitizedSnapshot,
-                        mutation: .append(
-                            expectedCount: fromIndex,
-                            expectedLast: pendingCursor?.lastSample,
-                            suffix: suffix
-                        )
-                    )
-                    pendingCursor = Cursor(
-                        sessionID: snapshot.sessionID,
-                        startSec: snapshot.startSec,
-                        sport: snapshot.sport,
-                        acceptedCount: nextCount,
-                        lastSample: suffix.last ?? pendingCursor?.lastSample
-                    )
-                }
+            } else {
+                request = Request(epoch: requestEpoch, snapshot: metadataSnapshot, mutation: .rewrite(copied))
             }
+            pendingCursor = Cursor(
+                sessionID: snapshot.sessionID,
+                startSec: snapshot.startSec,
+                sport: snapshot.sport,
+                acceptedCount: copied.count,
+                lastSample: finalizedCount > 0 ? copied[finalizedCount - 1] : nil,
+                finalizedCount: finalizedCount,
+                supportsReplaceableTail: true
+            )
             lock.unlock()
 
-            if synchronously {
-                return syncOnQueue { [self] in write(request) }
+            if synchronously || requiresSynchronousMigration {
+                let committed = syncOnQueue { [self] in write(request) }
+                onCommit?(committed)
+                return committed
             } else {
-                queue.async { [self] in _ = write(request) }
+                enqueueLatest(request, observer: onCommit)
                 return true
+            }
+        }
+
+        /// Normal checkpoints are latest-wins without losing the immutable suffix between them. Adjacent
+        /// requests merge their suffixes into one bounded write; same-second changes only replace `tail`.
+        private func enqueueLatest(_ request: Request, observer: (@Sendable (Bool) -> Void)?) {
+            lock.lock()
+            let observers = observer.map { [$0] } ?? []
+            if var pending = pendingAsync,
+               let merged = merge(pending.request, request) {
+                pending.request = merged
+                pending.observers.append(contentsOf: observers)
+                pendingAsync = pending
+            } else {
+                pendingAsync = PendingAsync(request: request, observers: observers)
+            }
+            let shouldSchedule = !asyncWorkerScheduled
+            if shouldSchedule { asyncWorkerScheduled = true }
+            lock.unlock()
+            if shouldSchedule {
+                queue.async { [self] in drainLatest() }
+            }
+        }
+
+        private func merge(_ earlier: Request, _ later: Request) -> Request? {
+            guard earlier.epoch == later.epoch,
+                  earlier.snapshot.sessionID == later.snapshot.sessionID,
+                  earlier.snapshot.startSec == later.snapshot.startSec,
+                  earlier.snapshot.sport == later.snapshot.sport
+            else { return nil }
+            guard case let .appendFinalized(expectedCount, expectedLast, earlierSuffix, _) = earlier.mutation,
+                  case let .appendFinalized(laterExpectedCount, _, laterSuffix, laterTail) = later.mutation,
+                  laterExpectedCount == expectedCount + earlierSuffix.count
+            else { return nil }
+            return Request(
+                epoch: later.epoch,
+                snapshot: later.snapshot,
+                mutation: .appendFinalized(
+                    expectedCount: expectedCount,
+                    expectedLast: expectedLast,
+                    suffix: earlierSuffix + laterSuffix,
+                    tail: laterTail
+                )
+            )
+        }
+
+        private func drainLatest() {
+            while true {
+                let pending: PendingAsync?
+                lock.lock()
+                pending = pendingAsync
+                pendingAsync = nil
+                if pending == nil { asyncWorkerScheduled = false }
+                lock.unlock()
+                guard let pending else { return }
+                let committed = write(pending.request)
+                pending.observers.forEach { $0(committed) }
             }
         }
 
         func load() -> Snapshot? {
             let snapshot = syncOnQueue { [self] in loadOnQueue() }
             if let snapshot {
+                let metadata = loadMetadata(defaults)
+                let isV5 = metadata?.version == JournalMetadata.currentVersion
+                let finalizedCount = isV5 ? (metadata?.journalSampleCount ?? 0) : snapshot.samples.count
                 lock.lock()
                 committedCursor = Cursor(
                     sessionID: snapshot.sessionID,
                     startSec: snapshot.startSec,
                     sport: snapshot.sport,
                     acceptedCount: snapshot.samples.count,
-                    lastSample: snapshot.samples.last
+                    lastSample: finalizedCount > 0 ? snapshot.samples[finalizedCount - 1] : nil,
+                    finalizedCount: finalizedCount,
+                    supportsReplaceableTail: isV5
                 )
                 pendingCursor = committedCursor
                 lock.unlock()
@@ -564,47 +669,86 @@ enum ActiveWorkoutPersistence {
         private func write(_ request: Request) -> Bool {
             guard isCurrent(request.epoch), directory != nil else { return false }
             var newGenerationURL: URL?
+            var appendedURL: URL?
+            var appendRollbackBytes: Int?
             var metadataCommitted = false
 
             do {
                 let previous = loadMetadata(defaults)
-                let data: Data
+                let generation: UUID
+                let priorJournalCount: Int
+                let priorJournalChecksum: UInt64
+                let suffix: [HRSample]
+                let tail: HRSample?
+                let createsNewJournal: Bool
                 switch request.mutation {
                 case .rewrite(let samples):
-                    data = ActiveWorkoutSampleJournalCodec.encode(samples)
-                case .append(let expectedCount, let expectedLast, let suffix):
+                    generation = UUID()
+                    priorJournalCount = 0
+                    priorJournalChecksum = Self.checksumSeed
+                    suffix = Array(samples.dropLast())
+                    tail = samples.last
+                    createsNewJournal = true
+                case .appendFinalized(let expectedCount, let expectedLast, let samples, let currentTail):
                     guard let previous,
-                          validatePersistedPrefix(
-                        next: request.snapshot,
-                        expectedCount: expectedCount,
-                        expectedLast: expectedLast,
-                        metadata: previous
-                    ) else {
+                          previous.version == JournalMetadata.currentVersion,
+                          validateAppendOnlyPrefix(
+                            next: request.snapshot,
+                            expectedCount: expectedCount,
+                            expectedLast: expectedLast,
+                            metadata: previous
+                          ) else {
                         invalidate(epoch: request.epoch)
                         return false
                     }
-                    let old = try Data(contentsOf: journalURL(for: previous.generation), options: .mappedIfSafe)
-                    data = old + ActiveWorkoutSampleJournalCodec.encode(suffix)
+                    generation = previous.generation
+                    priorJournalCount = previous.journalSampleCount ?? 0
+                    priorJournalChecksum = previous.journalChecksum ?? Self.checksumSeed
+                    suffix = samples
+                    tail = currentTail
+                    createsNewJournal = false
                 }
-                let generation = UUID()
+
+                let suffixData = ActiveWorkoutSampleJournalCodec.encode(suffix)
+                let count = priorJournalCount.addingReportingOverflow(suffix.count)
+                guard !count.overflow else { return false }
+                let journalCount = count.partialValue
+                let journalChecksum = Self.checksum(suffixData, seed: priorJournalChecksum)
+                let tailChecksum = tail.map {
+                    Self.checksum(ActiveWorkoutSampleJournalCodec.encode([$0]), seed: journalChecksum)
+                } ?? journalChecksum
+                let totalSampleCount = journalCount + (tail == nil ? 0 : 1)
                 let metadata = JournalMetadata(
                     generation: generation,
                     sessionID: request.snapshot.sessionID,
                     startSec: request.snapshot.startSec,
                     sport: request.snapshot.sport,
-                    sampleCount: data.count / ActiveWorkoutSampleJournalCodec.bytesPerSample,
-                    checksum: Self.checksum(data),
+                    sampleCount: totalSampleCount,
+                    checksum: tailChecksum,
                     avgHr: request.snapshot.avgHr,
                     peakHr: request.snapshot.peakHr,
-                    liveStrainState: request.snapshot.liveStrainState
+                    liveStrainState: request.snapshot.liveStrainState,
+                    segments: [JournalSegment(generation: generation, sampleCount: journalCount, checksum: journalChecksum)],
+                    journalSampleCount: journalCount,
+                    journalChecksum: journalChecksum,
+                    tailSample: tail
                 )
                 try faultInjector(.beforeFileWrite)
                 let generationURL = journalURL(for: generation)
-                newGenerationURL = generationURL
-                try writeDurably(data, to: generationURL)
+                if createsNewJournal {
+                    newGenerationURL = generationURL
+                    try writeDurably(suffixData, to: generationURL)
+                } else if !suffixData.isEmpty {
+                    appendRollbackBytes = try journalByteCount(for: priorJournalCount)
+                    appendedURL = generationURL
+                    try appendDurably(suffixData, to: generationURL, truncatingTo: appendRollbackBytes!)
+                }
                 try faultInjector(.afterFileSync)
                 guard isCurrent(request.epoch) else {
-                    try? FileManager.default.removeItem(at: generationURL)
+                    if let newGenerationURL {
+                        try? FileManager.default.removeItem(at: newGenerationURL)
+                    }
+                    if let appendedURL, let appendRollbackBytes { try? truncate(appendedURL, to: appendRollbackBytes) }
                     return false
                 }
                 try faultInjector(.beforeMetadataCommit)
@@ -630,19 +774,23 @@ enum ActiveWorkoutPersistence {
                     startSec: metadata.startSec,
                     sport: metadata.sport,
                     acceptedCount: metadata.sampleCount,
-                    lastSample: ActiveWorkoutSampleJournalCodec.decode(
-                        Data(data.suffix(ActiveWorkoutSampleJournalCodec.bytesPerSample))
-                    ).last
+                    lastSample: journalCount > 0 ? readPersistedLastSample(metadata: metadata) : nil,
+                    finalizedCount: journalCount,
+                    supportsReplaceableTail: true
                 )
                 lock.unlock()
                 try faultInjector(.afterMetadataCommit)
-                // Cleanup is intentionally one transaction behind. The previous generation remains a
-                // recovery artifact until a later successful pointer swap proves it is no longer current.
-                cleanupStaleGenerations(keeping: [generation, previous?.generation].compactMap { $0 })
+                // Keep both metadata pointers' journal files. Metadata is O(1): one append-only file plus
+                // one replaceable tail, so cleanup scans a bounded set instead of N suffix generations.
+                cleanupStaleGenerations(keeping: metadata.segments.map(\.generation)
+                    + (previous?.segments.map(\.generation) ?? []))
                 return true
             } catch {
                 if !metadataCommitted, let newGenerationURL {
                     try? FileManager.default.removeItem(at: newGenerationURL)
+                }
+                if !metadataCommitted, let appendedURL, let appendRollbackBytes {
+                    try? truncate(appendedURL, to: appendRollbackBytes)
                 }
                 NSLog("ActiveWorkoutPersistence: journal write failed: \(error)")
                 invalidate(epoch: request.epoch)
@@ -650,7 +798,7 @@ enum ActiveWorkoutPersistence {
             }
         }
 
-        private func validatePersistedPrefix(
+        private func validateAppendOnlyPrefix(
             next: Snapshot,
             expectedCount: Int,
             expectedLast: HRSample?,
@@ -659,22 +807,22 @@ enum ActiveWorkoutPersistence {
             guard current.startSec == next.startSec,
                   current.sessionID == next.sessionID,
                   current.sport == next.sport,
-                  current.sampleCount == expectedCount
+                  current.journalSampleCount == expectedCount
             else { return false }
             if expectedCount == 0 { return true }
-            return readPersistedLastSample(url: journalURL(for: current.generation), count: expectedCount) == expectedLast
+            return readPersistedLastSample(metadata: current) == expectedLast
         }
 
         private func loadOnQueue() -> Snapshot? {
             if let metadata = loadMetadata(defaults, key: ActiveWorkoutPersistence.metadataKey),
-                  metadata.version == JournalMetadata.currentVersion,
+                  (3...JournalMetadata.currentVersion).contains(metadata.version),
                   metadata.startSec > 0,
                   metadata.sampleCount >= 0,
                   let snapshot = load(metadata: metadata) {
                 return snapshot
             }
             if let previous = loadMetadata(defaults, key: ActiveWorkoutPersistence.previousMetadataKey),
-               previous.version == JournalMetadata.currentVersion,
+               (3...JournalMetadata.currentVersion).contains(previous.version),
                previous.startSec > 0,
                previous.sampleCount >= 0,
                let snapshot = load(metadata: previous),
@@ -708,15 +856,59 @@ enum ActiveWorkoutPersistence {
         }
 
         private func load(metadata: JournalMetadata) -> Snapshot? {
-            let url = journalURL(for: metadata.generation)
-            guard let expectedBytes = ActiveWorkoutSampleJournalCodec.encodedByteCount(
-                for: metadata.sampleCount
-            ),
-                  let data = try? Data(contentsOf: url, options: .mappedIfSafe),
-                  data.count == expectedBytes,
-                  Self.checksum(data) == metadata.checksum
+            if metadata.version == JournalMetadata.currentVersion {
+                guard let journalCount = metadata.journalSampleCount,
+                      let journalChecksum = metadata.journalChecksum,
+                      journalCount >= 0,
+                      metadata.sampleCount == journalCount + (metadata.tailSample == nil ? 0 : 1),
+                      let expectedBytes = ActiveWorkoutSampleJournalCodec.encodedByteCount(for: journalCount),
+                      let data = readJournalData(journalURL(for: metadata.generation), count: expectedBytes),
+                      data.count == expectedBytes,
+                      Self.checksum(data) == journalChecksum
+                else { return nil }
+                let decoded = ActiveWorkoutSampleJournalCodec.decode(data, count: journalCount)
+                guard decoded.count == journalCount else { return nil }
+                var samples = decoded
+                if let tail = metadata.tailSample {
+                    guard tail.ts > 0, (1...300).contains(tail.bpm) else { return nil }
+                    samples.append(tail)
+                }
+                let fullChecksum = metadata.tailSample.map {
+                    Self.checksum(ActiveWorkoutSampleJournalCodec.encode([$0]), seed: journalChecksum)
+                } ?? journalChecksum
+                guard fullChecksum == metadata.checksum else { return nil }
+                return ActiveWorkoutPersistence.sanitized(Snapshot(
+                    sessionID: metadata.sessionID,
+                    startSec: metadata.startSec,
+                    sport: metadata.sport,
+                    samples: samples,
+                    avgHr: metadata.avgHr,
+                    peakHr: metadata.peakHr,
+                    liveStrainState: metadata.liveStrainState
+                ))
+            }
+            guard metadata.sampleCount >= 0,
+                  Self.segmentSampleCount(metadata.segments) == metadata.sampleCount
             else { return nil }
-            let samples = ActiveWorkoutSampleJournalCodec.decode(data, count: metadata.sampleCount)
+
+            var samples: [HRSample] = []
+            samples.reserveCapacity(metadata.sampleCount)
+            var rollingChecksum = Self.checksumSeed
+            for segment in metadata.segments {
+                guard segment.sampleCount >= 0,
+                      let expectedBytes = ActiveWorkoutSampleJournalCodec.encodedByteCount(
+                        for: segment.sampleCount
+                      ),
+                      let data = try? Data(contentsOf: journalURL(for: segment.generation), options: .mappedIfSafe),
+                      data.count == expectedBytes,
+                      Self.checksum(data) == segment.checksum
+                else { return nil }
+                let decoded = ActiveWorkoutSampleJournalCodec.decode(data, count: segment.sampleCount)
+                guard decoded.count == segment.sampleCount else { return nil }
+                samples.append(contentsOf: decoded)
+                rollingChecksum = Self.checksum(data, seed: rollingChecksum)
+            }
+            guard rollingChecksum == metadata.checksum else { return nil }
             guard samples.count == metadata.sampleCount else { return nil }
 
             return ActiveWorkoutPersistence.sanitized(Snapshot(
@@ -749,6 +941,36 @@ enum ActiveWorkoutPersistence {
             try handle.synchronize()
         }
 
+        private func journalByteCount(for sampleCount: Int) throws -> Int {
+            guard let bytes = ActiveWorkoutSampleJournalCodec.encodedByteCount(for: sampleCount) else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+            return bytes
+        }
+
+        private func appendDurably(_ data: Data, to url: URL, truncatingTo byteCount: Int) throws {
+            let handle = try FileHandle(forUpdating: url)
+            defer { try? handle.close() }
+            try handle.truncate(atOffset: UInt64(byteCount))
+            try handle.seek(toOffset: UInt64(byteCount))
+            try handle.write(contentsOf: data)
+            try handle.synchronize()
+        }
+
+        private func truncate(_ url: URL, to byteCount: Int) throws {
+            let handle = try FileHandle(forUpdating: url)
+            defer { try? handle.close() }
+            try handle.truncate(atOffset: UInt64(byteCount))
+            try handle.synchronize()
+        }
+
+        private func readJournalData(_ url: URL, count: Int) -> Data? {
+            if count == 0 { return Data() }
+            guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+            defer { try? handle.close() }
+            return try? handle.read(upToCount: count)
+        }
+
         private func cleanupStaleGenerations(keeping: [UUID]) {
             guard let directory else { return }
             let keep = Set(keeping.map { $0.uuidString.lowercased() })
@@ -759,19 +981,32 @@ enum ActiveWorkoutPersistence {
             }
         }
 
-        private static func checksum(_ data: Data) -> UInt64 {
-            data.reduce(UInt64(1_469_598_103_934_665_603)) { hash, byte in
+        private static let checksumSeed = UInt64(1_469_598_103_934_665_603)
+
+        private static func segmentSampleCount(_ segments: [JournalSegment]) -> Int? {
+            var total = 0
+            for segment in segments {
+                guard segment.sampleCount >= 0 else { return nil }
+                let next = total.addingReportingOverflow(segment.sampleCount)
+                guard !next.overflow else { return nil }
+                total = next.partialValue
+            }
+            return total
+        }
+
+        private static func checksum(_ data: Data, seed: UInt64 = checksumSeed) -> UInt64 {
+            data.reduce(seed) { hash, byte in
                 (hash ^ UInt64(byte)) &* 1_099_511_628_211
             }
         }
 
-        private func readPersistedLastSample(url: URL, count: Int) -> HRSample? {
-            guard count > 0,
-                  let handle = try? FileHandle(forReadingFrom: url)
+        private func readPersistedLastSample(metadata: JournalMetadata) -> HRSample? {
+            guard let segment = metadata.segments.last(where: { $0.sampleCount > 0 }) else { return nil }
+            let url = journalURL(for: segment.generation)
+            guard let handle = try? FileHandle(forReadingFrom: url),
+                  let byteOffset = ActiveWorkoutSampleJournalCodec.encodedByteCount(for: segment.sampleCount - 1)
             else { return nil }
             defer { try? handle.close() }
-            guard let byteOffset = ActiveWorkoutSampleJournalCodec.encodedByteCount(for: count - 1)
-            else { return nil }
             let offset = UInt64(byteOffset)
             do {
                 try handle.seek(toOffset: offset)

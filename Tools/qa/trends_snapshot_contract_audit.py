@@ -51,6 +51,41 @@ try:
         "result.append(last)",
     )
     require(
+        "Packages/StrandAnalytics/Sources/StrandAnalytics/StableStatistics.swift",
+        "public static func roundedInt",
+        "Int(exactly: value.rounded())",
+        "private static func scaledFinite",
+        "Compute the ratio before rescaling",
+    )
+    require(
+        "Packages/StrandAnalytics/Tests/StrandAnalyticsTests/StableStatisticsTests.swift",
+        "testRoundedIntRejectsFloatingPointBoundaryAboveIntMax",
+        "testRoundedIntRoundsOnlyRepresentableFiniteValues",
+        "testFiniteExtremeStatisticsSaturateInsteadOfBecomingNilOrZero",
+        "testPercentChangeUsesNormalizedRatioBeforeAbsoluteDeltaSaturates",
+    )
+    require(
+        "Packages/StrandAnalytics/Sources/StrandAnalytics/ComparisonEngine.swift",
+        "guard !sorted.isEmpty else { return 0 }",
+    )
+    require(
+        "Packages/StrandAnalytics/Tests/StrandAnalyticsTests/ComparisonEngineEdgeTests.swift",
+        "testMedianReturnsZeroWhenAllInputsAreNonFinite",
+        "testStatDropsAllNonFiniteInputsWithoutIndexingAnEmptyMedian",
+    )
+    require(
+        "Packages/StrandDesign/Sources/StrandDesign/ComponentLibraryAPI.swift",
+        'value.isFinite ? value.formatted(.number.precision(.fractionLength(0))) : "—"',
+    )
+    forbid(
+        "Packages/StrandDesign/Sources/StrandDesign/ComponentLibraryAPI.swift",
+        "Int($0.rounded())",
+    )
+    require(
+        "Packages/StrandDesign/Tests/StrandDesignTests/ComponentValueFormatTests.swift",
+        "testPublicChartDefaultsRejectNonFiniteValuesWithoutIntegerConversion",
+    )
+    require(
         "Strand/Screens/TrendsSnapshotModels.swift",
         "struct TrendsScreenSnapshotKey",
         "struct TrendsScreenSnapshot",
@@ -79,7 +114,7 @@ try:
     require(
         "Strand/Screens/TrendsView.swift",
         "@State private var loadedData = TrendsLoadedData.empty",
-        "repo.refreshSeq)-\\(civilContext.localDay)-\\(civilContext.timeZoneIdentifier)",
+        "repo.refreshSeq)-\(civilContext.localDay)-\(civilContext.timeZoneIdentifier)",
         "TimelineView(.periodic(from: .now, by: 60))",
         "NSSystemTimeZoneDidChange",
         ".task(id: screenSnapshotKey)",

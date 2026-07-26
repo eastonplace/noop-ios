@@ -138,7 +138,7 @@ final class AppModel: ObservableObject {
     /// The just-ended workout, for a brief inline confirmation on Live (cleared on the next start).
     @Published var lastWorkout: WorkoutRow?
     @Published private(set) var workoutFinishState: WorkoutFinishState = .recording
-    /// A visible, non-blocking warning when the initial crash-recovery snapshot could not commit.
+    /// A visible, non-blocking warning whenever the active workout has data that is not yet durable.
     @Published private(set) var workoutDurabilityWarning: String?
 
     /// Records the GPS route of an in-flight distance-type workout (run / ride / walk / hike) from
@@ -157,7 +157,11 @@ final class AppModel: ObservableObject {
     private var pendingWorkoutEnd: Date?
     private var pendingWorkoutRoute: WorkoutRoute?
     private var pendingWorkoutWasGps = false
+    /// Queue admission and durable pointer commit are separate facts. A background writer may accept a
+    /// checkpoint then fail later because storage became unavailable or protected.
+    private var lastWorkoutSnapshotEnqueuedAt: Date = .distantPast
     private var lastWorkoutSnapshotAt: Date = .distantPast
+    private var latestWorkoutSnapshotAttempt: UInt64 = 0
     private var applicationIsActive = true
 
     /// A manual workout in progress. `samples` accumulate from the smoothed live `bpm`; `liveStrain`
@@ -768,21 +772,45 @@ final class AppModel: ObservableObject {
     ) -> Bool {
         guard let w = activeWorkout else { return true }
         let now = Date()
-        guard force || now.timeIntervalSince(lastWorkoutSnapshotAt) >= 5 else { return true }
+        guard force || now.timeIntervalSince(lastWorkoutSnapshotEnqueuedAt) >= 5 else { return true }
+        latestWorkoutSnapshotAttempt &+= 1
+        let attempt = latestWorkoutSnapshotAttempt
+        let sessionID = w.sessionID
         let accepted = ActiveWorkoutPersistence.store(
             ActiveWorkoutPersistence.Snapshot(
-                sessionID: w.sessionID,
+                sessionID: sessionID,
                 startSec: Int(w.start.timeIntervalSince1970),
                 sport: w.sport,
                 samples: w.samples,
                 avgHr: w.avgHr,
                 peakHr: w.peakHr,
                 liveStrainState: w.liveStrainState),
-            synchronously: synchronously
+            synchronously: synchronously,
+            onCommit: { [weak self] committed in
+                guard let self,
+                      self.activeWorkout?.sessionID == sessionID,
+                      self.latestWorkoutSnapshotAttempt == attempt
+                else { return }
+                if committed {
+                    self.lastWorkoutSnapshotAt = now
+                    self.workoutDurabilityWarning = nil
+                } else {
+                    self.lastWorkoutSnapshotEnqueuedAt = .distantPast
+                    self.workoutDurabilityWarning = String(localized: "This workout is recording, but recent changes are not safely recoverable if NOOP closes. Keep the app open and free storage before continuing.")
+                }
+            }
         )
         if accepted {
-            lastWorkoutSnapshotAt = now
-            workoutDurabilityWarning = nil
+            lastWorkoutSnapshotEnqueuedAt = now
+            // Synchronous callers have received the actual metadata-commit result, so their durable
+            // timestamp can advance immediately. Asynchronous callers wait for `onCommit` above.
+            if synchronously {
+                lastWorkoutSnapshotAt = now
+                workoutDurabilityWarning = nil
+            }
+        } else {
+            lastWorkoutSnapshotEnqueuedAt = .distantPast
+            workoutDurabilityWarning = String(localized: "This workout is recording, but recent changes are not safely recoverable if NOOP closes. Keep the app open and free storage before continuing.")
         }
         return accepted
     }
@@ -810,7 +838,9 @@ final class AppModel: ObservableObject {
     func setApplicationActive(_ active: Bool) {
         applicationIsActive = active
         if !active {
-            _ = flushActiveWorkoutSnapshot()
+            if !flushActiveWorkoutSnapshot(), activeWorkout != nil {
+                workoutDurabilityWarning = String(localized: "This workout is recording, but recent changes are not safely recoverable if NOOP closes. Keep the app open and free storage before continuing.")
+            }
         } else {
             Task { [weak self] in
                 guard let self else { return }

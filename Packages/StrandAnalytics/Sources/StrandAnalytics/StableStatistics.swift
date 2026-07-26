@@ -1,6 +1,6 @@
 import Foundation
 
-/// Numerically defensive helpers for analytics fed by imported local data.  Every
+/// Numerically defensive helpers for analytics fed by imported local data. Every
 /// result is finite or nil: callers never need to turn an overflow into UI text.
 public enum StableStatistics {
     public static func mean(_ values: [Double]) -> Double? {
@@ -13,8 +13,7 @@ public enum StableStatistics {
         for (index, value) in values.enumerated() {
             running += (value / scale - running) / Double(index + 1)
         }
-        let result = running * scale
-        return result.isFinite ? result : nil
+        return scaledFinite(running, by: scale)
     }
 
     public static func sampleStandardDeviation(_ values: [Double], mean: Double) -> Double? {
@@ -29,8 +28,8 @@ public enum StableStatistics {
             let delta = value / scale - centre
             sumSquares += delta * delta
         }
-        let result = (sumSquares / Double(values.count - 1)).squareRoot() * scale
-        return result.isFinite ? result : nil
+        let normalized = (sumSquares / Double(values.count - 1)).squareRoot()
+        return scaledFinite(normalized, by: scale)
     }
 
     public static func leastSquaresSlope(_ values: [Double]) -> Double? {
@@ -49,35 +48,48 @@ public enum StableStatistics {
             denominator += dx * dx
         }
         guard denominator > 0 else { return 0 }
-        let result = numerator / denominator * scale
-        return result.isFinite ? result : nil
+        return scaledFinite(numerator / denominator, by: scale)
     }
 
     public static func difference(_ lhs: Double, _ rhs: Double) -> Double? {
         guard lhs.isFinite, rhs.isFinite else { return nil }
         let scale = max(abs(lhs), abs(rhs), 1)
-        let result = (lhs / scale - rhs / scale) * scale
-        return result.isFinite ? result : nil
+        return scaledFinite(lhs / scale - rhs / scale, by: scale)
     }
 
     public static func percentChange(current: Double, previous: Double) -> Double? {
-        guard previous.isFinite, current.isFinite, previous != 0,
-              let delta = difference(current, previous)
-        else { return nil }
-        let result = (delta / abs(previous)) * 100
+        guard previous.isFinite, current.isFinite, previous != 0 else { return nil }
+        // Compute the ratio before rescaling. A saturated absolute difference would understate
+        // opposite-sign extremes (for example +max vs -max is +200%, not +100%).
+        let scale = max(abs(current), abs(previous), 1)
+        let normalizedPrevious = previous / scale
+        guard normalizedPrevious != 0 else { return nil }
+        let result = ((current / scale - normalizedPrevious) / abs(normalizedPrevious)) * 100
         return result.isFinite ? result : nil
     }
 
     public static func roundedInt(_ value: Double) -> Int? {
-        guard value.isFinite,
-              value >= Double(Int.min), value <= Double(Int.max)
-        else { return nil }
-        return Int(value.rounded())
+        guard value.isFinite else { return nil }
+        // `Double(Int.max)` rounds to 2^63 on 64-bit platforms, which is one past Int.max.
+        // Bounds comparisons therefore still admit a value that traps in `Int(...)`. Exact
+        // conversion after rounding is the only reliable representability check.
+        return Int(exactly: value.rounded())
     }
 
     public static func rounded1(_ value: Double) -> Double? {
         guard value.isFinite, abs(value) <= Double.greatestFiniteMagnitude / 10 else { return nil }
         let result = (value * 10).rounded() / 10
         return result.isFinite ? result : nil
+    }
+
+    /// Rescale a finite normalized summary statistic without turning it into
+    /// infinity. Extremes are saturated so a finite imported value never leaks a
+    /// non-finite summary into downstream rendering.
+    private static func scaledFinite(_ normalized: Double, by scale: Double) -> Double? {
+        guard normalized.isFinite, scale.isFinite, scale >= 0 else { return nil }
+        guard normalized != 0, scale != 0 else { return 0 }
+        let result = normalized * scale
+        if result.isFinite { return result }
+        return normalized.sign == .minus ? -.greatestFiniteMagnitude : .greatestFiniteMagnitude
     }
 }

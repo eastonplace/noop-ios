@@ -70,10 +70,13 @@ try:
         ".removeDuplicates()",
         "ExternalSurfaceDayProjection",
         "externalSurfaceDay.effort",
+        "Int(exactly: value.rounded())",
+        "static func effortValue",
     )
     forbid(
         "StrandiOS/App/StrandiOSApp.swift",
         ".onReceive(model.$activeWorkout.dropFirst())",
+        "value >= Double(Int.min)",
     )
     require(
         "StrandiOSTests/WorkoutHeartChartProjectionTests.swift",
@@ -85,6 +88,11 @@ try:
         "testMinuteBucketReplacementUpdatesCurrentExtremaWithoutRetainingEverySecond",
         "testIntermediateMinuteKeepsFirstAndLastWhenTheyAreNotExtrema",
         "testBoundaryMinuteDropsExpiredExtremaInsteadOfRenderingOutsideWindow",
+    )
+    require(
+        "StrandiOSTests/ExternalSurfaceDayProjectionTests.swift",
+        "testRecoveryConversionRejectsUnrepresentableAndOutOfRangeValues",
+        "testEffortConversionRejectsNonFiniteStoredValues",
     )
     forbid(
         "StrandiOS/App/StrandiOSApp.swift",

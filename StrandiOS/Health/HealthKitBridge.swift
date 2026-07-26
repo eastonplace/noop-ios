@@ -356,15 +356,6 @@ final class HealthKitBridge: ObservableObject {
 
     // MARK: - Live delivery (continuous ingestion)
 
-    /// The scored read types we want a live observer + hourly background delivery on. This is the
-    /// subset of `quantityReadIds` (plus sleep) that actually feeds Charge/Sleep/Strain/Fitness Age, so
-    /// a watch-only user's numbers refresh on their own rather than only when the app is foregrounded.
-    /// We deliberately do NOT observe the body-composition reads (weight/BMI/etc.) — those don't move a
-    /// score and a manual weigh-in shouldn't wake the app every hour.
-    private static let liveQuantityIds: [HKQuantityTypeIdentifier] = [
-        .heartRateVariabilitySDNN, .restingHeartRate, .activeEnergyBurned, .heartRate, .vo2Max
-    ]
-
     /// Long-lived observer queries, retained so HealthKit doesn't tear them down. Keyed by the sample
     /// type's identifier so a second `enableLiveDelivery()` call replaces rather than duplicates.
     private var observerQueries: [String: HKObserverQuery] = [:]
@@ -377,11 +368,9 @@ final class HealthKitBridge: ObservableObject {
     func enableLiveDelivery() {
         guard auth == .authorized, HKHealthStore.isHealthDataAvailable() else { return }
 
-        var types: [HKSampleType] = []
-        for id in HealthKitBridge.liveQuantityIds {
-            if let t = HKObjectType.quantityType(forIdentifier: id) { types.append(t) }
-        }
-        if let sleep = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) { types.append(sleep) }
+        // Deletion reconciliation must observe every imported type, not only the score-moving subset:
+        // a deleted body-composition or sleep object still has to retract its local Apple projection.
+        let types = readTypes.compactMap { $0 as? HKSampleType }
 
         for type in types {
             let key = type.identifier
@@ -442,14 +431,52 @@ final class HealthKitBridge: ObservableObject {
         await acquireObserverScanLease()
         defer { releaseObserverScanLease() }
 
+        guard let cache = await repo.storeHandle() else {
+            lastError = String(localized: "Apple Health observer sync failed: \(BridgeError.storeUnavailable.localizedDescription)")
+            return
+        }
+
         let key = HealthKitBridge.anchorDefaultsKey(for: type)
         let priorAnchor = Self.loadAnchor(forKey: key)
 
         do {
+            // Keep this aggregate bit, not the deletion UUIDs. An anchored first-run can contain years
+            // of tombstones; each page resolves its own identities below and is then released.
+            var hasUnknownHistoricalDeletion = false
             let scan = try await anchorPager.scan(
                 type: type,
                 predicate: Self.notNoopAuthored,
-                priorAnchor: priorAnchor
+                priorAnchor: priorAnchor,
+                handlePage: { [appleDeviceId] page in
+                    let sampleIDs = page.samples.map { $0.uuid.uuidString }
+                    let historical = try await cache.healthKitObjectIdentities(
+                        sampleType: type.identifier,
+                        objectUUIDs: sampleIDs + page.deletedObjectUUIDs,
+                        deviceId: appleDeviceId
+                    )
+                    let deletedIDs = Set(page.deletedObjectUUIDs)
+                    let knownDeleted = historical.lazy.filter {
+                        deletedIDs.contains($0.objectUUID)
+                    }.count
+                    hasUnknownHistoricalDeletion = hasUnknownHistoricalDeletion
+                        || knownDeleted < page.deletedObjectUUIDs.count
+                    let current = page.samples.map {
+                        HealthKitObjectIdentity(
+                            sampleType: type.identifier,
+                            objectUUID: $0.uuid.uuidString,
+                            startTs: Int($0.startDate.timeIntervalSince1970),
+                            endTs: Int($0.endDate.timeIntervalSince1970)
+                        )
+                    }
+                    try await cache.upsertHealthKitObjectIdentities(current, deviceId: appleDeviceId)
+                    let dates = page.samples.flatMap { [$0.startDate, $0.endDate] }
+                        + historical.flatMap {
+                            [Date(timeIntervalSince1970: TimeInterval($0.startTs)),
+                             Date(timeIntervalSince1970: TimeInterval($0.endTs))]
+                        }
+                    guard let first = dates.min(), let last = dates.max() else { return nil }
+                    return HealthKitSyncWindow(start: first, end: last)
+                }
             )
 
             let changedObjects = scan.sampleCount + scan.deletedCount
@@ -461,11 +488,18 @@ final class HealthKitBridge: ObservableObject {
             let now = Date()
             let fallbackStart = Calendar.current.date(byAdding: .day, value: -31, to: now) ?? now
             var start = scan.oldestSampleDate ?? fallbackStart
+            // A database created before v31 has no UUID mapping for historic objects. Do the expensive
+            // but correct thing once: widen to the oldest locally projected Apple Health row rather than
+            // pretending a deletion-only delta happened in the last month.
+            if hasUnknownHistoricalDeletion,
+               let earliest = try await cache.earliestAppleHealthTimestamp(deviceId: appleDeviceId) {
+                start = min(start, Date(timeIntervalSince1970: TimeInterval(earliest)))
+            }
             // Establishing the first cursor may page through years of history. Foreground/manual sync
             // already owns deep import; the initial live-delivery catch-up intentionally covers only
             // the latest month. Later deltas retain their exact old dates, so an edited historical
             // sample is never silently clamped away after the cursor exists.
-            if scan.wasInitialScan { start = max(start, fallbackStart) }
+            if scan.wasInitialScan && !hasUnknownHistoricalDeletion { start = max(start, fallbackStart) }
             let window = HealthKitSyncWindow(
                 start: Calendar.current.startOfDay(for: start),
                 end: max(now, scan.newestSampleDate ?? now)
@@ -572,24 +606,24 @@ final class HealthKitBridge: ObservableObject {
         }
 
         // Quantity aggregates per day.
-        merge(try await collect(.restingHeartRate, unit: HKUnit.count().unitDivided(by: .minute()), start: start, end: end, op: .discreteAverage)) { $0.restingHr = $1 }
-        merge(try await collect(.heartRate, unit: HKUnit.count().unitDivided(by: .minute()), start: start, end: end, op: .discreteAverage)) { $0.avgHr = $1 }
-        merge(try await collect(.heartRate, unit: HKUnit.count().unitDivided(by: .minute()), start: start, end: end, op: .discreteMax)) { $0.maxHr = $1 }
-        merge(try await collect(.heartRateVariabilitySDNN, unit: .secondUnit(with: .milli), start: start, end: end, op: .discreteAverage)) { $0.hrv = $1 }
-        merge(try await collect(.oxygenSaturation, unit: .percent(), start: start, end: end, op: .discreteAverage)) { $0.spo2 = $1 * 100 }
-        merge(try await collect(.respiratoryRate, unit: HKUnit.count().unitDivided(by: .minute()), start: start, end: end, op: .discreteAverage)) { $0.respRate = $1 }
-        merge(try await collect(.stepCount, unit: .count(), start: start, end: end, op: .cumulativeSum)) { $0.steps = $1 }
-        merge(try await collect(.activeEnergyBurned, unit: .kilocalorie(), start: start, end: end, op: .cumulativeSum)) { $0.activeKcal = $1 }
-        merge(try await collect(.basalEnergyBurned, unit: .kilocalorie(), start: start, end: end, op: .cumulativeSum)) { $0.basalKcal = $1 }
-        merge(try await collect(.vo2Max, unit: HKUnit(from: "ml/kg*min"), start: start, end: end, op: .discreteAverage)) { $0.vo2max = $1 }
+        merge(try await collect(.restingHeartRate, unit: HKUnit.count().unitDivided(by: .minute()), start: start, end: end, op: .discreteAverage)) { $0.restingHr = Self.finite($1, in: 20...300) }
+        merge(try await collect(.heartRate, unit: HKUnit.count().unitDivided(by: .minute()), start: start, end: end, op: .discreteAverage)) { $0.avgHr = Self.finite($1, in: 20...300) }
+        merge(try await collect(.heartRate, unit: HKUnit.count().unitDivided(by: .minute()), start: start, end: end, op: .discreteMax)) { $0.maxHr = Self.finite($1, in: 20...300) }
+        merge(try await collect(.heartRateVariabilitySDNN, unit: .secondUnit(with: .milli), start: start, end: end, op: .discreteAverage)) { $0.hrv = Self.finite($1, in: 0...1_000) }
+        merge(try await collect(.oxygenSaturation, unit: .percent(), start: start, end: end, op: .discreteAverage)) { $0.spo2 = Self.finite($1 * 100, in: 0...100) }
+        merge(try await collect(.respiratoryRate, unit: HKUnit.count().unitDivided(by: .minute()), start: start, end: end, op: .discreteAverage)) { $0.respRate = Self.finite($1, in: 1...100) }
+        merge(try await collect(.stepCount, unit: .count(), start: start, end: end, op: .cumulativeSum)) { $0.steps = Self.finite($1, in: 0...10_000_000) }
+        merge(try await collect(.activeEnergyBurned, unit: .kilocalorie(), start: start, end: end, op: .cumulativeSum)) { $0.activeKcal = Self.finite($1, in: 0...100_000) }
+        merge(try await collect(.basalEnergyBurned, unit: .kilocalorie(), start: start, end: end, op: .cumulativeSum)) { $0.basalKcal = Self.finite($1, in: 0...100_000) }
+        merge(try await collect(.vo2Max, unit: HKUnit(from: "ml/kg*min"), start: start, end: end, op: .discreteAverage)) { $0.vo2max = Self.finite($1, in: 5...150) }
 
         // Body composition — READ-ONLY import under the apple-health source (#20). Weight, lean mass
         // and BMI are point-in-time readings, so take the latest-of-day; body-fat reads fine as a
         // daily average. Body-fat HealthKit gives a 0…1 fraction, scaled to percent like spo2 above.
-        merge(try await collect(.bodyMass, unit: .gramUnit(with: .kilo), start: start, end: end, op: .mostRecent)) { $0.weightKg = $1 }
-        merge(try await collect(.bodyFatPercentage, unit: .percent(), start: start, end: end, op: .discreteAverage)) { $0.bodyFatPct = $1 * 100 }
-        merge(try await collect(.leanBodyMass, unit: .gramUnit(with: .kilo), start: start, end: end, op: .mostRecent)) { $0.leanMassKg = $1 }
-        merge(try await collect(.bodyMassIndex, unit: .count(), start: start, end: end, op: .mostRecent)) { $0.bmi = $1 }
+        merge(try await collect(.bodyMass, unit: .gramUnit(with: .kilo), start: start, end: end, op: .mostRecent)) { $0.weightKg = Self.finite($1, in: 20...500) }
+        merge(try await collect(.bodyFatPercentage, unit: .percent(), start: start, end: end, op: .discreteAverage)) { $0.bodyFatPct = Self.finite($1 * 100, in: 1...80) }
+        merge(try await collect(.leanBodyMass, unit: .gramUnit(with: .kilo), start: start, end: end, op: .mostRecent)) { $0.leanMassKg = Self.finite($1, in: 10...300) }
+        merge(try await collect(.bodyMassIndex, unit: .count(), start: start, end: end, op: .mostRecent)) { $0.bmi = Self.finite($1, in: 10...80) }
 
         // Sleep minutes per day (asleep stages summed; attributed to wake day).
         for (day, sleep) in try await collectSleep(start: start, end: end) {
@@ -603,15 +637,15 @@ final class HealthKitBridge: ObservableObject {
 
         // Build + upsert the store rows under the apple-health source.
         let appleRows = byDay.map { (day, a) in
-            AppleDaily(day: day, steps: a.steps.map { Int($0) },
+            AppleDaily(day: day, steps: a.steps.flatMap { Self.roundedInt($0, in: 0...10_000_000) },
                        activeKcal: a.activeKcal, basalKcal: a.basalKcal, vo2max: a.vo2max,
-                       avgHr: a.avgHr.map { Int($0.rounded()) }, maxHr: a.maxHr.map { Int($0.rounded()) },
+                       avgHr: a.avgHr.flatMap { Self.roundedInt($0, in: 20...300) }, maxHr: a.maxHr.flatMap { Self.roundedInt($0, in: 20...300) },
                        walkingHr: nil, weightKg: a.weightKg)
         }
         let dmRows = byDay.map { (day, a) in
             DailyMetric(day: day, totalSleepMin: a.asleepMin, efficiency: nil,
                         deepMin: a.deepMin, remMin: a.remMin, lightMin: a.coreMin, disturbances: nil,
-                        restingHr: a.restingHr.map { Int($0.rounded()) }, avgHrv: a.hrv,
+                        restingHr: a.restingHr.flatMap { Self.roundedInt($0, in: 20...300) }, avgHrv: a.hrv,
                         recovery: nil, strain: nil, exerciseCount: nil,
                         spo2Pct: a.spo2, skinTempDevC: nil, respRateBpm: a.respRate)
         }
@@ -652,17 +686,26 @@ final class HealthKitBridge: ObservableObject {
         // imports these from a static Health export and Android reads them from Health Connect; iOS now
         // reads them live on-device too, so the platforms reach parity. ON-DEVICE ONLY: this is a plain
         // HealthKit read of workouts NOOP did NOT author, never any cloud/3rd-party API. (#835)
-        let workoutRows = try await collectWorkouts(start: start, end: end)
-
-        // Persist all the apple-health rows AND write back, advancing lastSync only when the WHOLE
-        // round-trip succeeds. The three read-side upserts used to be swallowed by `try?`, so a failed
-        // import (e.g. a disk-full GRDB write) dropped rows yet still cleared lastError and advanced
-        // lastSync — a false "success", and the next delta sync skipped the window. (Reimplemented
-        // from @vulnix0x4's PR #375.)
-            try await store.upsertAppleDaily(appleRows, deviceId: appleDeviceId)
-            try await store.upsertDailyMetrics(dmRows, deviceId: appleDeviceId)
-            try await store.upsertMetricSeries(points, deviceId: appleDeviceId)
-            if !workoutRows.isEmpty { try await store.upsertWorkouts(workoutRows, deviceId: appleDeviceId) }
+        // The queried window is authoritative. First replace daily projections and retract the entire
+        // Apple-workout range (an empty query is meaningful), then stream bounded workout batches back in.
+        // The pending-window journal remains uncleared until every batch succeeds, so a kill between
+        // batches reruns the same idempotent replacement instead of leaving a committed partial import.
+            try await store.replaceAppleHealthRange(
+                appleDaily: appleRows,
+                dailyMetrics: dmRows,
+                metricPoints: points,
+                workouts: [],
+                deviceId: appleDeviceId,
+                fromDay: Self.dayString(start),
+                toDay: Self.dayString(end),
+                fromTimestamp: Int(start.timeIntervalSince1970),
+                toTimestamp: Int(end.timeIntervalSince1970),
+                workoutSource: Self.appleWorkoutSource
+            )
+            try await streamWorkouts(start: start, end: end) { rows in
+                guard !rows.isEmpty else { return }
+                _ = try await store.upsertWorkouts(rows, deviceId: appleDeviceId)
+            }
             try await writeBack(whoopStore: store)
             lastSync = Date()
             lastError = nil
@@ -1073,6 +1116,22 @@ final class HealthKitBridge: ObservableObject {
         var asleepMin: Double?; var deepMin: Double?; var remMin: Double?; var coreMin: Double?
     }
 
+    /// HealthKit is an input boundary: third-party writers can store absurd but finite values. Keep
+    /// conversions exact and domain-aware so a malformed quantity cannot trap an `Int` conversion or
+    /// poison the local Apple Health projection.
+    private static func finite(_ value: Double, in domain: ClosedRange<Double>) -> Double? {
+        guard value.isFinite, domain.contains(value) else { return nil }
+        return value
+    }
+
+    private static func roundedInt(_ value: Double, in domain: ClosedRange<Int>) -> Int? {
+        guard value.isFinite,
+              let integer = Int(exactly: value.rounded()),
+              domain.contains(integer)
+        else { return nil }
+        return integer
+    }
+
     private struct SleepDayAgg: Sendable {
         var asleepMin: Double?
         var deepMin: Double?
@@ -1124,10 +1183,68 @@ final class HealthKitBridge: ObservableObject {
         }
     }
 
+    /// Live HealthKit import owns daily Apple projections and Apple workouts only. It deliberately never
+    /// writes `sleepSession` under `apple-health`; those rows remain static-import/strap-owned and therefore
+    /// are not claimed by this authoritative live replacement transaction. Reconciles one civil day at a
+    /// time so an unknown deletion spanning years cannot materialize the whole library in memory.
+    private static let historyQueryChunkDays = 1
+
+    private func queryWindows(start: Date, end: Date) -> [(start: Date, end: Date)] {
+        guard start < end else { return [] }
+        var result: [(start: Date, end: Date)] = []
+        var cursor = start
+        let calendar = Calendar.current
+        while cursor < end {
+            let next = calendar.date(byAdding: .day, value: Self.historyQueryChunkDays, to: cursor) ?? end
+            let boundary = min(next, end)
+            result.append((cursor, boundary))
+            cursor = boundary
+        }
+        return result
+    }
+
     private func collectSleep(start: Date, end: Date) async throws -> [String: SleepDayAgg] {
+        var merged: [String: SleepDayAgg] = [:]
+        for (index, window) in queryWindows(start: start, end: end).enumerated() {
+            let chunk = try await collectSleepChunk(
+                start: window.start,
+                end: window.end,
+                includesLeadingOverlap: index == 0
+            )
+            for (day, value) in chunk {
+                var total = merged[day] ?? SleepDayAgg(asleepMin: nil, deepMin: nil, remMin: nil, coreMin: nil)
+                total.asleepMin = Self.boundedSleepSum(total.asleepMin, value.asleepMin)
+                total.deepMin = Self.boundedSleepSum(total.deepMin, value.deepMin)
+                total.remMin = Self.boundedSleepSum(total.remMin, value.remMin)
+                total.coreMin = Self.boundedSleepSum(total.coreMin, value.coreMin)
+                merged[day] = total
+            }
+        }
+        return merged
+    }
+
+    private static func boundedSleepSum(_ lhs: Double?, _ rhs: Double?) -> Double? {
+        switch (lhs, rhs) {
+        case (nil, nil): return nil
+        case (let value?, nil), (nil, let value?): return value
+        case (let lhs?, let rhs?):
+            let sum = lhs + rhs
+            return sum.isFinite ? min(sum, 24 * 60) : nil
+        }
+    }
+
+    private func collectSleepChunk(
+        start: Date,
+        end: Date,
+        includesLeadingOverlap: Bool
+    ) async throws -> [String: SleepDayAgg] {
         guard let type = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) else { return [:] }
         let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
-            HKQuery.predicateForSamples(withStart: start, end: end, options: []),
+            HKQuery.predicateForSamples(
+                withStart: start,
+                end: end,
+                options: includesLeadingOverlap ? [] : .strictStartDate
+            ),
             Self.notNoopAuthored,
         ])
         return try await withCheckedThrowingContinuation {
@@ -1138,6 +1255,7 @@ final class HealthKitBridge: ObservableObject {
                 var rem: [String: Double] = [:], core: [String: Double] = [:]
                 for case let s as HKCategorySample in samples ?? [] {
                     let mins = s.endDate.timeIntervalSince(s.startDate) / 60
+                    guard mins.isFinite, mins > 0, mins <= 24 * 60 else { continue }
                     let day = HealthKitBridge.dayString(s.endDate)
                     switch s.value {
                     case HKCategoryValueSleepAnalysis.asleepDeep.rawValue:
@@ -1169,9 +1287,34 @@ final class HealthKitBridge: ObservableObject {
     /// the macOS export importer and the Android Health Connect importer, which already ingest workouts,
     /// closing the iOS gap. The upsert is idempotent on (deviceId, startTs), so re-running a sync window
     /// refreshes rather than duplicates.
-    private func collectWorkouts(start: Date, end: Date) async throws -> [WorkoutRow] {
+    /// Streams bounded one-day workout batches after the caller retracts the authoritative range. This
+    /// avoids retaining every historical HealthKit workout before the replacement transaction begins.
+    private func streamWorkouts(
+        start: Date,
+        end: Date,
+        consume: ([WorkoutRow]) async throws -> Void
+    ) async throws {
+        for (index, window) in queryWindows(start: start, end: end).enumerated() {
+            let rows = try await collectWorkoutChunk(
+                start: window.start,
+                end: window.end,
+                includesLeadingOverlap: index == 0
+            )
+            try await consume(rows)
+        }
+    }
+
+    private func collectWorkoutChunk(
+        start: Date,
+        end: Date,
+        includesLeadingOverlap: Bool
+    ) async throws -> [WorkoutRow] {
         let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
-            HKQuery.predicateForSamples(withStart: start, end: end, options: .strictStartDate),
+            HKQuery.predicateForSamples(
+                withStart: start,
+                end: end,
+                options: includesLeadingOverlap ? [] : .strictStartDate
+            ),
             Self.notNoopAuthored,
         ])
         return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<[WorkoutRow], Error>) in

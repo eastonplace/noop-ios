@@ -1,4 +1,24 @@
+import Foundation
 import SwiftUI
+
+/// Fail-closed presentation helpers for component defaults. Components are public building blocks, so
+/// their own defaults must be safe even when a preview or a future caller bypasses app-level sanitation.
+public enum ComponentValueFormat {
+    public static func rounded(_ value: Double) -> String {
+        guard value.isFinite else { return "—" }
+        return value.formatted(.number.precision(.fractionLength(0)))
+    }
+
+    public static func oneDecimal(_ value: Double) -> String {
+        guard value.isFinite else { return "—" }
+        return value.formatted(.number.precision(.fractionLength(1)))
+    }
+
+    public static func percentage(_ value: Double) -> String {
+        guard value.isFinite else { return "—" }
+        return "\(rounded(value))%"
+    }
+}
 
 /// Outer-container treatment for production components. Flat is the iOS app default;
 /// card remains available for bounded previews and excluded surfaces.
@@ -60,7 +80,9 @@ public extension HRTimelineChart {
         title: String = "Heart rate",
         tint: Color? = nil,
         unit: String = "bpm",
-        valueFormat: @escaping (Double) -> String = { "\(Int($0.rounded()))" },
+        valueFormat: @escaping (Double) -> String = { value in
+            value.isFinite ? value.formatted(.number.precision(.fractionLength(0))) : "—"
+        },
         showsZoneLegend: Bool = true,
         zoomDomain: Binding<ClosedRange<TimeInterval>?>? = nil,
         zoomBounds: ClosedRange<TimeInterval>? = nil,
@@ -289,7 +311,9 @@ public extension TrendPanelChart {
         typical: ClosedRange<Double>,
         tint: Color,
         unit: String,
-        valueFormat: @escaping (Double) -> String = { "\(Int($0.rounded()))" },
+        valueFormat: @escaping (Double) -> String = { value in
+            value.isFinite ? value.formatted(.number.precision(.fractionLength(0))) : "—"
+        },
         range: TrendRange,
         direction: TrendPanelChart.Direction = .contextual
     ) {
@@ -310,7 +334,9 @@ public extension TrendPanelChart {
 public extension TrendMonthHeat {
     init(_publicAPI: Void = (), days: [TrendCalendarDay], tint: Color,
          referenceDate: Date = Date(), calendar: Calendar = .autoupdatingCurrent,
-         valueFormat: @escaping (Double) -> String = { "\(Int($0.rounded()))" },
+         valueFormat: @escaping (Double) -> String = { value in
+             value.isFinite ? value.formatted(.number.precision(.fractionLength(0))) : "—"
+         },
          colorScale: TrendHeatColorScale = .intensity) {
         self.days = days
         self.tint = tint
@@ -346,7 +372,9 @@ public extension TrendDeltaRow {
 public extension TrendWeekdayBars {
     init(_publicAPI: Void = (), values: [Double?], tint: Color,
          referenceDate: Date = Date(), calendar: Calendar = .autoupdatingCurrent,
-         valueFormat: @escaping (Double) -> String = { "\(Int($0.rounded()))" }) {
+         valueFormat: @escaping (Double) -> String = { value in
+             value.isFinite ? value.formatted(.number.precision(.fractionLength(0))) : "—"
+         }) {
         self.values = Array(values.prefix(7)) + Array(repeating: nil, count: max(0, 7 - values.count))
         self.tint = tint
         self.referenceDate = referenceDate
