@@ -50,8 +50,96 @@ public struct SleepRecoveryDailyOverride: Equatable, Sendable {
 }
 
 extension WhoopStore {
-    /// Commit the recovered session's daily overlay, the visible daily row, and its Rest
-    /// metric-series point in one SQLite transaction. A crash cannot leave half a score.
+    /// Commit a recovered daily overlay and visible rows inside an existing store
+    /// transaction. Shared with the session+audit writer so the full recovery is atomic.
+    static func persistSleepRecoveryDailyOverride(
+        _ db: Database,
+        override: SleepRecoveryDailyOverride,
+        daily: DailyMetric,
+        deviceId: String
+    ) throws {
+        try db.execute(sql: """
+            INSERT INTO sleepRecoveryDailyOverride
+                (deviceId, day, sessionStartTs, totalSleepMin, efficiency,
+                 deepMin, remMin, lightMin, disturbances, restingHr, avgHrv,
+                 recovery, restScore, updatedAt)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(deviceId, day) DO UPDATE SET
+                sessionStartTs = excluded.sessionStartTs,
+                totalSleepMin = excluded.totalSleepMin,
+                efficiency = excluded.efficiency,
+                deepMin = excluded.deepMin,
+                remMin = excluded.remMin,
+                lightMin = excluded.lightMin,
+                disturbances = excluded.disturbances,
+                restingHr = excluded.restingHr,
+                avgHrv = excluded.avgHrv,
+                recovery = excluded.recovery,
+                restScore = excluded.restScore,
+                updatedAt = excluded.updatedAt
+            """, arguments: [
+                deviceId, override.day, override.sessionStartTs,
+                override.totalSleepMin, override.efficiency,
+                override.deepMin, override.remMin, override.lightMin,
+                override.disturbances, override.restingHr, override.avgHrv,
+                override.recovery, override.restScore, override.updatedAt,
+            ])
+
+        try db.execute(sql: """
+            INSERT INTO dailyMetric
+                (deviceId, day, totalSleepMin, efficiency, deepMin, remMin, lightMin,
+                 disturbances, restingHr, avgHrv, recovery, strain, exerciseCount,
+                 spo2Pct, skinTempDevC, respRateBpm, steps, activeKcalEst,
+                 spo2Red, spo2Ir, strainVersion)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(deviceId, day) DO UPDATE SET
+                totalSleepMin = excluded.totalSleepMin,
+                efficiency = excluded.efficiency,
+                deepMin = excluded.deepMin,
+                remMin = excluded.remMin,
+                lightMin = excluded.lightMin,
+                disturbances = excluded.disturbances,
+                restingHr = excluded.restingHr,
+                avgHrv = excluded.avgHrv,
+                recovery = excluded.recovery,
+                strain = excluded.strain,
+                exerciseCount = excluded.exerciseCount,
+                spo2Pct = excluded.spo2Pct,
+                skinTempDevC = excluded.skinTempDevC,
+                respRateBpm = excluded.respRateBpm,
+                steps = excluded.steps,
+                activeKcalEst = excluded.activeKcalEst,
+                spo2Red = excluded.spo2Red,
+                spo2Ir = excluded.spo2Ir,
+                strainVersion = excluded.strainVersion
+            """, arguments: [
+                deviceId, daily.day, daily.totalSleepMin, daily.efficiency,
+                daily.deepMin, daily.remMin, daily.lightMin, daily.disturbances,
+                daily.restingHr, daily.avgHrv, daily.recovery, daily.strain,
+                daily.exerciseCount, daily.spo2Pct, daily.skinTempDevC,
+                daily.respRateBpm, daily.steps, daily.activeKcalEst,
+                daily.spo2Red, daily.spo2Ir, daily.strainVersion,
+            ])
+
+        if let rest = override.restScore {
+            try db.execute(sql: """
+                INSERT INTO metricSeries (deviceId, day, key, value)
+                VALUES (?, ?, 'sleep_performance', ?)
+                ON CONFLICT(deviceId, day, key) DO UPDATE SET value = excluded.value
+                """, arguments: [deviceId, override.day, rest])
+        } else {
+            // Partial data may support real RHR/HRV without defensible stages/Rest.
+            // Remove any stale Rest point; the delete trigger deliberately does not
+            // restore it when the override's restScore is NULL.
+            try db.execute(sql: """
+                DELETE FROM metricSeries
+                WHERE deviceId = ? AND day = ? AND key = 'sleep_performance'
+                """, arguments: [deviceId, override.day])
+        }
+    }
+
+    /// Standalone writer used by repair/rebuild paths. The main user flow calls the
+    /// session+audit overload so all artifacts commit together.
     @discardableResult
     public func persistSleepRecoveryDailyOverride(
         _ override: SleepRecoveryDailyOverride,
@@ -59,84 +147,8 @@ extension WhoopStore {
         deviceId: String
     ) async throws -> Int {
         try syncWrite { db in
-            try db.execute(sql: """
-                INSERT INTO sleepRecoveryDailyOverride
-                    (deviceId, day, sessionStartTs, totalSleepMin, efficiency,
-                     deepMin, remMin, lightMin, disturbances, restingHr, avgHrv,
-                     recovery, restScore, updatedAt)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(deviceId, day) DO UPDATE SET
-                    sessionStartTs = excluded.sessionStartTs,
-                    totalSleepMin = excluded.totalSleepMin,
-                    efficiency = excluded.efficiency,
-                    deepMin = excluded.deepMin,
-                    remMin = excluded.remMin,
-                    lightMin = excluded.lightMin,
-                    disturbances = excluded.disturbances,
-                    restingHr = excluded.restingHr,
-                    avgHrv = excluded.avgHrv,
-                    recovery = excluded.recovery,
-                    restScore = excluded.restScore,
-                    updatedAt = excluded.updatedAt
-                """, arguments: [
-                    deviceId, override.day, override.sessionStartTs,
-                    override.totalSleepMin, override.efficiency,
-                    override.deepMin, override.remMin, override.lightMin,
-                    override.disturbances, override.restingHr, override.avgHrv,
-                    override.recovery, override.restScore, override.updatedAt,
-                ])
-
-            try db.execute(sql: """
-                INSERT INTO dailyMetric
-                    (deviceId, day, totalSleepMin, efficiency, deepMin, remMin, lightMin,
-                     disturbances, restingHr, avgHrv, recovery, strain, exerciseCount,
-                     spo2Pct, skinTempDevC, respRateBpm, steps, activeKcalEst,
-                     spo2Red, spo2Ir, strainVersion)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(deviceId, day) DO UPDATE SET
-                    totalSleepMin = excluded.totalSleepMin,
-                    efficiency = excluded.efficiency,
-                    deepMin = excluded.deepMin,
-                    remMin = excluded.remMin,
-                    lightMin = excluded.lightMin,
-                    disturbances = excluded.disturbances,
-                    restingHr = excluded.restingHr,
-                    avgHrv = excluded.avgHrv,
-                    recovery = excluded.recovery,
-                    strain = excluded.strain,
-                    exerciseCount = excluded.exerciseCount,
-                    spo2Pct = excluded.spo2Pct,
-                    skinTempDevC = excluded.skinTempDevC,
-                    respRateBpm = excluded.respRateBpm,
-                    steps = excluded.steps,
-                    activeKcalEst = excluded.activeKcalEst,
-                    spo2Red = excluded.spo2Red,
-                    spo2Ir = excluded.spo2Ir,
-                    strainVersion = excluded.strainVersion
-                """, arguments: [
-                    deviceId, daily.day, daily.totalSleepMin, daily.efficiency,
-                    daily.deepMin, daily.remMin, daily.lightMin, daily.disturbances,
-                    daily.restingHr, daily.avgHrv, daily.recovery, daily.strain,
-                    daily.exerciseCount, daily.spo2Pct, daily.skinTempDevC,
-                    daily.respRateBpm, daily.steps, daily.activeKcalEst,
-                    daily.spo2Red, daily.spo2Ir, daily.strainVersion,
-                ])
-
-            if let rest = override.restScore {
-                try db.execute(sql: """
-                    INSERT INTO metricSeries (deviceId, day, key, value)
-                    VALUES (?, ?, 'sleep_performance', ?)
-                    ON CONFLICT(deviceId, day, key) DO UPDATE SET value = excluded.value
-                    """, arguments: [deviceId, override.day, rest])
-            } else {
-                // Partial data may support real RHR/HRV without defensible stages/Rest.
-                // Remove any stale Rest point; the delete trigger deliberately does not
-                // restore it when the override's restScore is NULL.
-                try db.execute(sql: """
-                    DELETE FROM metricSeries
-                    WHERE deviceId = ? AND day = ? AND key = 'sleep_performance'
-                    """, arguments: [deviceId, override.day])
-            }
+            try Self.persistSleepRecoveryDailyOverride(
+                db, override: override, daily: daily, deviceId: deviceId)
             return db.changesCount
         }
     }
