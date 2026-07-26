@@ -1,5 +1,6 @@
 import Foundation
 import StrandAnalytics
+import WhoopProtocol
 import WhoopStore
 
 enum MissedSleepRecoveryStatus: Equatable {
@@ -26,10 +27,23 @@ struct MissedSleepRecoverySaveResult: Equatable {
     }
 }
 
+private struct SleepRecoveryRawWindow: Sendable {
+    let gravity: [GravitySample]
+    let hr: [HRSample]
+    let rr: [RRInterval]
+    let resp: [RespSample]
+}
+
 extension Repository {
     /// Recover a detector-missed night from a user-supplied search interval. The user
     /// supplies boundaries only; staging, RHR and HRV are re-derived from raw local data.
-    func recoverMissedSleep(startTs: Int, endTs: Int) async -> MissedSleepRecoverySaveResult {
+    /// `replacingStartTs` is set only when the existing editor moves a previously recovered
+    /// session; the store then re-keys that same correction atomically after analysis succeeds.
+    func recoverMissedSleep(
+        startTs: Int,
+        endTs: Int,
+        replacingStartTs: Int? = nil
+    ) async -> MissedSleepRecoverySaveResult {
         guard let safeWindow = SleepEditGuard.clampedEditWindow(
             start: startTs,
             end: endTs,
@@ -72,19 +86,7 @@ extension Repository {
 
         let lo = safeStart - 3_600
         let hi = safeEnd + 3_600
-        async let gravityRead = store.gravitySamples(
-            deviceId: deviceId, from: lo, to: hi, limit: 200_000)
-        async let hrRead = store.hrSamples(
-            deviceId: deviceId, from: lo, to: hi, limit: 200_000)
-        async let rrRead = store.rrIntervals(
-            deviceId: deviceId, from: lo, to: hi, limit: 200_000)
-        async let respRead = store.respSamples(
-            deviceId: deviceId, from: lo, to: hi, limit: 200_000)
-
-        let gravity = (try? await gravityRead) ?? []
-        let hr = (try? await hrRead) ?? []
-        let rr = (try? await rrRead) ?? []
-        let resp = (try? await respRead) ?? []
+        let raw = await sleepRecoveryRawWindow(store: store, from: lo, to: hi)
         let useV2 = PuffinExperiment.experimentalSleepV2Enabled
 
         let analysis = await Task.detached(priority: .utility) {
@@ -92,10 +94,10 @@ extension Repository {
                 start: safeStart,
                 end: safeEnd,
                 source: .manualWindow,
-                hr: hr,
-                rr: rr,
-                resp: resp,
-                gravity: gravity,
+                hr: raw.hr,
+                rr: raw.rr,
+                resp: raw.resp,
+                gravity: raw.gravity,
                 useSleepStagerV2: useV2)
         }.value
 
@@ -179,12 +181,14 @@ extension Repository {
             uniquingKeysWith: { _, newest in newest })
         for row in importedHistory { mergedByDay[row.day] = row }
         let priorHistory = mergedByDay.values.sorted { $0.day < $1.day }
+        let personalNeed = await canonicalSleepNeedPlan(onOrBefore: day)
 
         let scored = ManualSleepDailyScorer.score(
             day: day,
             analysis: analysis,
             existing: existing,
-            priorHistory: priorHistory)
+            priorHistory: priorHistory,
+            sleepNeedHours: max(0.1, personalNeed.minutes / 60.0))
         let dailyOverride = SleepRecoveryDailyOverride(
             day: day,
             sessionStartTs: safeStart,
@@ -206,7 +210,8 @@ extension Repository {
                 deviceId: computedId,
                 audit: audit,
                 dailyOverride: dailyOverride,
-                daily: scored.daily)
+                daily: scored.daily,
+                replacingStartTs: replacingStartTs)
             switch write {
             case .conflict:
                 return MissedSleepRecoverySaveResult(
@@ -250,6 +255,51 @@ extension Repository {
                 sessionStart: nil,
                 sessionEnd: nil)
         }
+    }
+
+    /// Read every raw stream across the active/canonical strap union. Active data wins
+    /// an exact timestamp tie; the canonical source fills history after a device re-add.
+    /// Reads and the large dedup/sorts run off the MainActor because this is a user-initiated
+    /// multi-hour window and may contain hundreds of thousands of rows.
+    private func sleepRecoveryRawWindow(
+        store: WhoopStore,
+        from: Int,
+        to: Int
+    ) async -> SleepRecoveryRawWindow {
+        let ids = importedReadIds
+        return await Task.detached(priority: .utility) {
+            var gravityByTs: [Int: GravitySample] = [:]
+            var hrByTs: [Int: HRSample] = [:]
+            var rrByTs: [Int: RRInterval] = [:]
+            var respByTs: [Int: RespSample] = [:]
+
+            for id in ids {
+                async let gravityRead = store.gravitySamples(
+                    deviceId: id, from: from, to: to, limit: 200_000)
+                async let hrRead = store.hrSamples(
+                    deviceId: id, from: from, to: to, limit: 200_000)
+                async let rrRead = store.rrIntervals(
+                    deviceId: id, from: from, to: to, limit: 200_000)
+                async let respRead = store.respSamples(
+                    deviceId: id, from: from, to: to, limit: 200_000)
+
+                let gravity = (try? await gravityRead) ?? []
+                let hr = (try? await hrRead) ?? []
+                let rr = (try? await rrRead) ?? []
+                let resp = (try? await respRead) ?? []
+
+                for row in gravity where gravityByTs[row.ts] == nil { gravityByTs[row.ts] = row }
+                for row in hr where hrByTs[row.ts] == nil { hrByTs[row.ts] = row }
+                for row in rr where rrByTs[row.ts] == nil { rrByTs[row.ts] = row }
+                for row in resp where respByTs[row.ts] == nil { respByTs[row.ts] = row }
+            }
+
+            return SleepRecoveryRawWindow(
+                gravity: gravityByTs.values.sorted { $0.ts < $1.ts },
+                hr: hrByTs.values.sorted { $0.ts < $1.ts },
+                rr: rrByTs.values.sorted { $0.ts < $1.ts },
+                resp: respByTs.values.sorted { $0.ts < $1.ts })
+        }.value
     }
 
     /// Persist the outcome of the user explicitly asking the automatic detector to retry.
