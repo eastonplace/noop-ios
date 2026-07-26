@@ -22,16 +22,18 @@ NOOP is an independent iPhone app for reading supported WHOOP data directly over
 
 The unified iOS 2.1 release line combines the WHOOP backend compatibility work previously tracked in PR #20 with the missed-sleep recovery work previously tracked in PR #21. The consolidated release branch is `release/noop-ios-2.1-rc`.
 
-### What is new
+### Live release-candidate features
 
-- **Recover missed sleep:** retry automatic detection or set an approximate sleep window. NOOP reviews the recorded HR, R-R, respiration, and motion inside that window and keeps unsupported stages or vitals unknown.
-- **More resilient WHOOP 5/MG support:** stricter protocol-family validation, safer clock recovery, improved model identification, raw-frame protections, and opt-in deep-data experiments.
-- **Workout heart-rate recovery:** locally calculates signed 1-, 2-, and 5-minute recovery when the recorded workout provides sufficient coverage.
-- **Safer workout backfill:** fills only missing workout metrics and never overwrites measured, imported, or user-entered values.
+- **Recover missed sleep:** retry automatic detection or set an approximate sleep window. NOOP reviews recorded HR, R-R, respiration, and motion inside that window and keeps unsupported stages or vitals unknown.
+- **Stronger WHOOP 5/MG compatibility:** stricter protocol-family validation, improved model identification, raw-frame protections, bounded import compatibility, and opt-in deep-data experiments.
 - **Experimental SpO₂ Candidate:** a separate, explicitly labelled beta surface for selected WHOOP 5/MG evidence. It never feeds canonical Blood Oxygen, Apple Health, Charge, illness detection, widgets, or medical claims.
-- **Reliability and privacy hardening:** additional bounded processing, local persistence, migration, deletion, accessibility, and performance protections across sleep, workouts, imports, widgets, and background execution.
+- **Reliability and privacy hardening:** additional bounded processing, local persistence, migration, deletion, accessibility, and performance protections across sleep, imports, widgets, and background execution.
 
-The release remains a **draft release candidate** until warning-clean simulator compilation, complete test suites, and physical WHOOP/iPhone validation are recorded. See [`docs/releases/NOOP_IOS_2_1.md`](docs/releases/NOOP_IOS_2_1.md) for the complete scope, exclusions, and QA checklist.
+### Included foundations still requiring live app integration
+
+The branch also contains tested analytics foundations for workout heart-rate recovery, conservative missing-field workout backfill, and strap clock-recovery planning. These are **not presented as shipped user features yet** because their final live call-site wiring and simulator/device verification remain release gates.
+
+The release remains a **draft release candidate** until warning-clean simulator compilation, complete test suites, the remaining integration gates, and physical WHOOP/iPhone validation are recorded. See [`docs/releases/NOOP_IOS_2_1.md`](docs/releases/NOOP_IOS_2_1.md) for complete scope, exclusions, and QA requirements.
 
 ## Platform scope
 
