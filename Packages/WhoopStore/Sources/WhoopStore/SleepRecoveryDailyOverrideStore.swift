@@ -165,22 +165,42 @@ extension WhoopStore {
                 FROM sleepRecoveryDailyOverride
                 WHERE deviceId = ? AND day >= ? AND day <= ?
                 ORDER BY day ASC
-                """, arguments: [deviceId, from, to]).map { row in
-                    SleepRecoveryDailyOverride(
-                        day: row["day"],
-                        sessionStartTs: row["sessionStartTs"],
-                        totalSleepMin: row["totalSleepMin"],
-                        efficiency: row["efficiency"],
-                        deepMin: row["deepMin"],
-                        remMin: row["remMin"],
-                        lightMin: row["lightMin"],
-                        disturbances: row["disturbances"],
-                        restingHr: row["restingHr"],
-                        avgHrv: row["avgHrv"],
-                        recovery: row["recovery"],
-                        restScore: row["restScore"],
-                        updatedAt: row["updatedAt"])
-                }
+                """, arguments: [deviceId, from, to]).map(Self.decodeSleepRecoveryDailyOverride)
         }
+    }
+
+    /// Exact provenance lookup used by the existing sleep editor: when the edited row
+    /// is a bounded recovery, the repository re-runs the bounded analyzer and atomically
+    /// re-keys the same correction instead of treating it as a generic stage-only edit.
+    public func sleepRecoveryDailyOverride(
+        deviceId: String,
+        sessionStartTs: Int
+    ) async throws -> SleepRecoveryDailyOverride? {
+        try syncRead { db in
+            try Row.fetchOne(db, sql: """
+                SELECT day, sessionStartTs, totalSleepMin, efficiency, deepMin, remMin,
+                       lightMin, disturbances, restingHr, avgHrv, recovery, restScore, updatedAt
+                FROM sleepRecoveryDailyOverride
+                WHERE deviceId = ? AND sessionStartTs = ?
+                LIMIT 1
+                """, arguments: [deviceId, sessionStartTs]).map(Self.decodeSleepRecoveryDailyOverride)
+        }
+    }
+
+    private static func decodeSleepRecoveryDailyOverride(_ row: Row) -> SleepRecoveryDailyOverride {
+        SleepRecoveryDailyOverride(
+            day: row["day"],
+            sessionStartTs: row["sessionStartTs"],
+            totalSleepMin: row["totalSleepMin"],
+            efficiency: row["efficiency"],
+            deepMin: row["deepMin"],
+            remMin: row["remMin"],
+            lightMin: row["lightMin"],
+            disturbances: row["disturbances"],
+            restingHr: row["restingHr"],
+            avgHrv: row["avgHrv"],
+            recovery: row["recovery"],
+            restScore: row["restScore"],
+            updatedAt: row["updatedAt"])
     }
 }
