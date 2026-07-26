@@ -92,7 +92,7 @@ public enum ManualSleepDailyScorer {
             dayKeys: dayKeys,
             cfg: Baselines.restingHRCfg,
             baselineEpoch: recoveryBaselineEpoch)
-        let respBaseline = Baselines.foldHistory(
+        let respFold = Baselines.foldHistory(
             history.map(\.respRateBpm),
             dayKeys: dayKeys,
             cfg: Baselines.respCfg,
@@ -106,7 +106,7 @@ public enum ManualSleepDailyScorer {
                 resp: existing?.respRateBpm,
                 hrvBaseline: hrvBaseline,
                 rhrBaseline: rhrBaseline,
-                respBaseline: respBaseline,
+                respBaseline: respFold.usable ? respFold : nil,
                 sleepPerf: restScore.map { $0 / 100.0 },
                 skinTempDev: existing?.skinTempDevC)
         }()
