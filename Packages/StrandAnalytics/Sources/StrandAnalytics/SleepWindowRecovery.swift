@@ -212,7 +212,7 @@ public enum SleepWindowRecovery {
                 evidence: evidence)
         }
 
-        let efficiency = SleepStager.efficiency(stages: stages, start: start, end: end)
+        let efficiency = SleepStager.efficiency(start: start, end: end, stages: stages)
         let confidence = completeConfidence(evidence, efficiency: efficiency)
         return result(
             source: source,
