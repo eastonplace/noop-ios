@@ -91,7 +91,7 @@ public struct DeviceRegistryStore: Sendable {
         // deviceId-keyed exactly like every other per-second stream above — must be cleared too, or a
         // "delete all of this device's data" leaves the raw waveform behind (the same privacy defect
         // this list exists to close).
-        "ppgWaveformSample", "strainV2Shadow", "sleepRecoveryAttempt",
+        "ppgWaveformSample", "strainV2Shadow", "sleepRecoveryAttempt", "sleepRecoveryDailyOverride",
     ]
 
     /// Permanently delete every recorded sample/derived row belonging to one device, across all
