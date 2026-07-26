@@ -49,7 +49,8 @@ final class SleepRecoveryStoreTests: XCTestCase {
     func testSchemaCreatesSleepRecoveryAuditTableAndIndexes() async throws {
         let store = try await WhoopStore.inMemory()
         XCTAssertEqual(WhoopStoreInfo.schemaVersion, 31)
-        XCTAssertTrue(try await store.tableNames().contains("sleepRecoveryAttempt"))
+        let tables = try await store.tableNames()
+        XCTAssertTrue(tables.contains("sleepRecoveryAttempt"))
 
         let columns = Set(try await store.columnNamesForTest(table: "sleepRecoveryAttempt"))
         XCTAssertTrue([
@@ -102,10 +103,10 @@ final class SleepRecoveryStoreTests: XCTestCase {
             return XCTFail("expected the existing manual session to update in place")
         }
         XCTAssertEqual(removed, 0)
-        XCTAssertEqual(
-            try await store.sleepSessions(deviceId: device, from: 0, to: 10_000, limit: 10).count,
-            1)
-        XCTAssertEqual(try await store.sleepRecoveryAttempts(deviceId: device).count, 1)
+        let sessions = try await store.sleepSessions(deviceId: device, from: 0, to: 10_000, limit: 10)
+        let attempts = try await store.sleepRecoveryAttempts(deviceId: device)
+        XCTAssertEqual(sessions.count, 1)
+        XCTAssertEqual(attempts.count, 1)
     }
 
     func testOverlappingEditedSessionIsNeverSilentlyOverwritten() async throws {
@@ -124,9 +125,8 @@ final class SleepRecoveryStoreTests: XCTestCase {
             return XCTFail("expected an edited-overlap conflict")
         }
         XCTAssertEqual(conflicting, existing)
-        XCTAssertEqual(
-            try await store.sleepSessions(deviceId: device, from: 0, to: 10_000, limit: 10),
-            [existing])
+        let sessions = try await store.sleepSessions(deviceId: device, from: 0, to: 10_000, limit: 10)
+        XCTAssertEqual(sessions, [existing])
 
         let attempts = try await store.sleepRecoveryAttempts(deviceId: device)
         XCTAssertEqual(attempts.first?.outcome, "overlap_conflict")
@@ -162,12 +162,13 @@ final class SleepRecoveryStoreTests: XCTestCase {
 
         _ = try await store.replaceWithManualSleepRecovery(partial, deviceId: device, audit: record)
 
-        let saved = try XCTUnwrap(
-            try await store.sleepSessions(deviceId: device, from: 0, to: 10_000, limit: 10).first)
+        let sessions = try await store.sleepSessions(deviceId: device, from: 0, to: 10_000, limit: 10)
+        let saved = try XCTUnwrap(sessions.first)
+        let attempts = try await store.sleepRecoveryAttempts(deviceId: device)
         XCTAssertNil(saved.stagesJSON)
         XCTAssertNil(saved.efficiency)
         XCTAssertEqual(saved.restingHr, 49)
         XCTAssertEqual(saved.avgHrv, 57)
-        XCTAssertEqual(try await store.sleepRecoveryAttempts(deviceId: device).first?.outcome, "partial")
+        XCTAssertEqual(attempts.first?.outcome, "partial")
     }
 }
