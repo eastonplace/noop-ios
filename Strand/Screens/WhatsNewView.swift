@@ -8,11 +8,10 @@ struct WhatsNewView: View {
     let onClose: () -> Void
 
     private let ios21Highlights = [
-        "Recover a missed night by retrying automatic detection or setting an approximate sleep window. NOOP reprocesses the recorded physiology instead of inventing stages or vitals.",
-        "Improved WHOOP 5/MG compatibility, connection recovery, device identification, and fail-closed handling for unsupported protocol families.",
-        "New workout heart-rate recovery analysis and safer backfilling of missing workout metrics without overwriting measured or user-entered data.",
+        "Recover a missed night by retrying automatic detection or setting an approximate sleep window. NOOP reprocesses recorded physiology instead of inventing stages or vitals.",
+        "Improved WHOOP 5/MG compatibility, device identification, raw-frame validation, and fail-closed handling for unsupported protocol families.",
         "A clearly separated SpO₂ Candidate (Beta) surface for experimental WHOOP 5/MG evidence. It never feeds Blood Oxygen, Apple Health, Charge, illness detection, or medical claims.",
-        "Additional local-data integrity, privacy deletion, persistence, accessibility, and performance hardening across sleep, workouts, imports, widgets, and background processing."
+        "Additional local-data integrity, privacy deletion, persistence, accessibility, and performance hardening across sleep, imports, widgets, and background processing."
     ]
 
     var body: some View {
@@ -73,7 +72,7 @@ struct WhatsNewView: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 8) {
                     SourceBadge("iOS 2.1")
-                    Text("More reliable data, recovery, and workouts")
+                    Text("More reliable sleep and WHOOP data")
                         .font(StrandFont.headline)
                         .foregroundStyle(StrandPalette.textPrimary)
                     Spacer()
@@ -82,7 +81,7 @@ struct WhatsNewView: View {
                         .foregroundStyle(StrandPalette.textTertiary)
                 }
 
-                Text("This update combines the WHOOP backend compatibility work and missed-sleep recovery into one local-first iPhone release.")
+                Text("This update combines the live WHOOP compatibility work and missed-sleep recovery into one local-first iPhone release.")
                     .font(StrandFont.subhead)
                     .foregroundStyle(StrandPalette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
