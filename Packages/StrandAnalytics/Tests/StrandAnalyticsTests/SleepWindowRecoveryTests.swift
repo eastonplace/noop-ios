@@ -1,6 +1,7 @@
 import XCTest
 @testable import StrandAnalytics
 import WhoopProtocol
+import WhoopStore
 
 final class SleepWindowRecoveryTests: XCTestCase {
     private func stillGravity(start: Int, durationS: Int) -> [GravitySample] {
@@ -15,6 +16,43 @@ final class SleepWindowRecoveryTests: XCTestCase {
 
     private func hr(start: Int, durationS: Int, bpm: Int) -> [HRSample] {
         (0..<durationS).map { HRSample(ts: start + $0, bpm: bpm) }
+    }
+
+    private func evidence() -> SleepWindowEvidence {
+        SleepWindowEvidence(
+            gravitySamples: 10_000,
+            hrSamples: 10_000,
+            rrSamples: 2_000,
+            respSamples: 1_000,
+            gravityCoverage: 1,
+            hrCoverage: 1,
+            rrCoverage: 1,
+            respCoverage: 1)
+    }
+
+    private func daily(
+        day: String,
+        totalSleepMin: Double? = nil,
+        restingHr: Int? = nil,
+        avgHrv: Double? = nil,
+        strain: Double? = nil,
+        steps: Int? = nil
+    ) -> DailyMetric {
+        DailyMetric(
+            day: day,
+            totalSleepMin: totalSleepMin,
+            efficiency: totalSleepMin == nil ? nil : 0.85,
+            deepMin: totalSleepMin == nil ? nil : 60,
+            remMin: totalSleepMin == nil ? nil : 90,
+            lightMin: totalSleepMin.map { max(0, $0 - 150) },
+            disturbances: totalSleepMin == nil ? nil : 2,
+            restingHr: restingHr,
+            avgHrv: avgHrv,
+            recovery: nil,
+            strain: strain,
+            exerciseCount: strain == nil ? nil : 1,
+            steps: steps,
+            strainVersion: strain == nil ? nil : 2)
     }
 
     func testBoundedRecoveryCanRecoverHighHRNightRejectedByAutomaticDetector() {
@@ -120,5 +158,120 @@ final class SleepWindowRecoveryTests: XCTestCase {
 
         XCTAssertEqual(recovered.outcome, .complete)
         XCTAssertEqual(recovered.requestedEnd - recovered.requestedStart, 60 * 60)
+    }
+
+    func testDailyScorerUsesRecoveredStagesAndPreservesActivityFields() {
+        let start = 10_000
+        let end = start + 8 * 3_600
+        let analysis = SleepWindowRecoveryResult(
+            source: .manualWindow,
+            outcome: .complete,
+            reason: .boundedReanalysis,
+            confidence: 0.9,
+            requestedStart: start,
+            requestedEnd: end,
+            stages: [
+                StageSegment(start: start, end: start + 30 * 60, stage: "wake"),
+                StageSegment(start: start + 30 * 60, end: start + 4 * 3_600, stage: "light"),
+                StageSegment(start: start + 4 * 3_600, end: start + 5 * 3_600, stage: "deep"),
+                StageSegment(start: start + 5 * 3_600, end: start + 6 * 3_600, stage: "rem"),
+                StageSegment(start: start + 6 * 3_600, end: end, stage: "light"),
+            ],
+            efficiency: 0.9375,
+            restingHR: 49,
+            avgHRV: 68,
+            evidence: evidence())
+        let existing = daily(day: "2026-07-26", totalSleepMin: 300, restingHr: 58,
+                             avgHrv: 40, strain: 36, steps: 9_000)
+
+        let score = ManualSleepDailyScorer.score(
+            day: "2026-07-26",
+            analysis: analysis,
+            existing: existing,
+            priorHistory: [],
+            hrvBaselineEpoch: 0,
+            recoveryBaselineEpoch: 0)
+
+        XCTAssertEqual(score.daily.totalSleepMin ?? 0, 450, accuracy: 0.001)
+        XCTAssertEqual(score.daily.deepMin ?? 0, 60, accuracy: 0.001)
+        XCTAssertEqual(score.daily.remMin ?? 0, 60, accuracy: 0.001)
+        XCTAssertEqual(score.daily.lightMin ?? 0, 330, accuracy: 0.001)
+        XCTAssertEqual(score.daily.restingHr, 49)
+        XCTAssertEqual(score.daily.avgHrv, 68)
+        XCTAssertEqual(score.daily.strain, 36)
+        XCTAssertEqual(score.daily.steps, 9_000)
+        XCTAssertNotNil(score.restScore)
+        XCTAssertNil(score.daily.recovery, "Charge remains nil until the personal baseline is usable")
+    }
+
+    func testPartialDailyScoreClearsStaleSleepInsteadOfInventingIt() {
+        let analysis = SleepWindowRecoveryResult(
+            source: .manualWindow,
+            outcome: .partial,
+            reason: .sparseMotion,
+            confidence: 0.55,
+            requestedStart: 10_000,
+            requestedEnd: 30_000,
+            stages: [],
+            efficiency: nil,
+            restingHR: 50,
+            avgHRV: 62,
+            evidence: evidence())
+        let existing = daily(day: "2026-07-26", totalSleepMin: 420, restingHr: 57,
+                             avgHrv: 44, strain: 20, steps: 7_500)
+
+        let score = ManualSleepDailyScorer.score(
+            day: "2026-07-26",
+            analysis: analysis,
+            existing: existing,
+            priorHistory: [],
+            hrvBaselineEpoch: 0,
+            recoveryBaselineEpoch: 0)
+
+        XCTAssertNil(score.daily.totalSleepMin)
+        XCTAssertNil(score.daily.efficiency)
+        XCTAssertNil(score.daily.deepMin)
+        XCTAssertNil(score.daily.remMin)
+        XCTAssertNil(score.daily.lightMin)
+        XCTAssertNil(score.restScore)
+        XCTAssertEqual(score.daily.restingHr, 50)
+        XCTAssertEqual(score.daily.avgHrv, 62)
+        XCTAssertEqual(score.daily.strain, 20)
+        XCTAssertEqual(score.daily.steps, 7_500)
+    }
+
+    func testDailyScorerRegeneratesChargeOnceBaselineIsUsable() {
+        let start = 20_000
+        let end = start + 8 * 3_600
+        let analysis = SleepWindowRecoveryResult(
+            source: .manualWindow,
+            outcome: .complete,
+            reason: .boundedReanalysis,
+            confidence: 0.9,
+            requestedStart: start,
+            requestedEnd: end,
+            stages: [StageSegment(start: start, end: end, stage: "light")],
+            efficiency: 1,
+            restingHR: 49,
+            avgHRV: 70,
+            evidence: evidence())
+        let history = [
+            daily(day: "2026-07-21", totalSleepMin: 430, restingHr: 55, avgHrv: 55),
+            daily(day: "2026-07-22", totalSleepMin: 440, restingHr: 54, avgHrv: 56),
+            daily(day: "2026-07-23", totalSleepMin: 450, restingHr: 53, avgHrv: 57),
+            daily(day: "2026-07-24", totalSleepMin: 460, restingHr: 52, avgHrv: 58),
+        ]
+
+        let score = ManualSleepDailyScorer.score(
+            day: "2026-07-26",
+            analysis: analysis,
+            existing: nil,
+            priorHistory: history,
+            hrvBaselineEpoch: 0,
+            recoveryBaselineEpoch: 0)
+
+        XCTAssertNotNil(score.restScore)
+        XCTAssertNotNil(score.daily.recovery)
+        XCTAssertGreaterThan(score.daily.recovery ?? 0, 50)
     }
 }
