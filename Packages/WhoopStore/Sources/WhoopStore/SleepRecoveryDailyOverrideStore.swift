@@ -16,6 +16,14 @@ public struct SleepRecoveryDailyOverride: Equatable, Sendable {
     public let avgHrv: Double?
     public let recovery: Double?
     public let restScore: Double?
+    /// Weighted Charge z-sum and weight excluding the Rest term. These are baseline-
+    /// normalized summaries, not raw physiology, and let a later boundary edit fold in
+    /// its freshly re-staged Rest term without replaying historical baselines in storage.
+    public let chargeWeightedSumWithoutSleep: Double?
+    public let chargeWeightWithoutSleep: Double?
+    public let chargeBaselineUsable: Bool
+    public let sleepNeedHours: Double
+    public let sleepConsistency: Double?
     public let updatedAt: Int
 
     public init(
@@ -31,6 +39,11 @@ public struct SleepRecoveryDailyOverride: Equatable, Sendable {
         avgHrv: Double?,
         recovery: Double?,
         restScore: Double?,
+        chargeWeightedSumWithoutSleep: Double? = nil,
+        chargeWeightWithoutSleep: Double? = nil,
+        chargeBaselineUsable: Bool = false,
+        sleepNeedHours: Double = 8.0,
+        sleepConsistency: Double? = nil,
         updatedAt: Int
     ) {
         self.day = day
@@ -45,6 +58,11 @@ public struct SleepRecoveryDailyOverride: Equatable, Sendable {
         self.avgHrv = avgHrv
         self.recovery = recovery
         self.restScore = restScore
+        self.chargeWeightedSumWithoutSleep = chargeWeightedSumWithoutSleep
+        self.chargeWeightWithoutSleep = chargeWeightWithoutSleep
+        self.chargeBaselineUsable = chargeBaselineUsable
+        self.sleepNeedHours = sleepNeedHours
+        self.sleepConsistency = sleepConsistency
         self.updatedAt = updatedAt
     }
 }
@@ -62,8 +80,10 @@ extension WhoopStore {
             INSERT INTO sleepRecoveryDailyOverride
                 (deviceId, day, sessionStartTs, totalSleepMin, efficiency,
                  deepMin, remMin, lightMin, disturbances, restingHr, avgHrv,
-                 recovery, restScore, updatedAt)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 recovery, restScore, chargeWeightedSumWithoutSleep,
+                 chargeWeightWithoutSleep, chargeBaselineUsable,
+                 sleepNeedHours, sleepConsistency, updatedAt)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(deviceId, day) DO UPDATE SET
                 sessionStartTs = excluded.sessionStartTs,
                 totalSleepMin = excluded.totalSleepMin,
@@ -76,13 +96,23 @@ extension WhoopStore {
                 avgHrv = excluded.avgHrv,
                 recovery = excluded.recovery,
                 restScore = excluded.restScore,
+                chargeWeightedSumWithoutSleep = excluded.chargeWeightedSumWithoutSleep,
+                chargeWeightWithoutSleep = excluded.chargeWeightWithoutSleep,
+                chargeBaselineUsable = excluded.chargeBaselineUsable,
+                sleepNeedHours = excluded.sleepNeedHours,
+                sleepConsistency = excluded.sleepConsistency,
                 updatedAt = excluded.updatedAt
             """, arguments: [
                 deviceId, override.day, override.sessionStartTs,
                 override.totalSleepMin, override.efficiency,
                 override.deepMin, override.remMin, override.lightMin,
                 override.disturbances, override.restingHr, override.avgHrv,
-                override.recovery, override.restScore, override.updatedAt,
+                override.recovery, override.restScore,
+                override.chargeWeightedSumWithoutSleep,
+                override.chargeWeightWithoutSleep,
+                override.chargeBaselineUsable,
+                override.sleepNeedHours, override.sleepConsistency,
+                override.updatedAt,
             ])
 
         try db.execute(sql: """
@@ -161,7 +191,9 @@ extension WhoopStore {
         try syncRead { db in
             try Row.fetchAll(db, sql: """
                 SELECT day, sessionStartTs, totalSleepMin, efficiency, deepMin, remMin,
-                       lightMin, disturbances, restingHr, avgHrv, recovery, restScore, updatedAt
+                       lightMin, disturbances, restingHr, avgHrv, recovery, restScore,
+                       chargeWeightedSumWithoutSleep, chargeWeightWithoutSleep,
+                       chargeBaselineUsable, sleepNeedHours, sleepConsistency, updatedAt
                 FROM sleepRecoveryDailyOverride
                 WHERE deviceId = ? AND day >= ? AND day <= ?
                 ORDER BY day ASC
@@ -179,7 +211,9 @@ extension WhoopStore {
         try syncRead { db in
             try Row.fetchOne(db, sql: """
                 SELECT day, sessionStartTs, totalSleepMin, efficiency, deepMin, remMin,
-                       lightMin, disturbances, restingHr, avgHrv, recovery, restScore, updatedAt
+                       lightMin, disturbances, restingHr, avgHrv, recovery, restScore,
+                       chargeWeightedSumWithoutSleep, chargeWeightWithoutSleep,
+                       chargeBaselineUsable, sleepNeedHours, sleepConsistency, updatedAt
                 FROM sleepRecoveryDailyOverride
                 WHERE deviceId = ? AND sessionStartTs = ?
                 LIMIT 1
@@ -201,6 +235,11 @@ extension WhoopStore {
             avgHrv: row["avgHrv"],
             recovery: row["recovery"],
             restScore: row["restScore"],
+            chargeWeightedSumWithoutSleep: row["chargeWeightedSumWithoutSleep"],
+            chargeWeightWithoutSleep: row["chargeWeightWithoutSleep"],
+            chargeBaselineUsable: row["chargeBaselineUsable"],
+            sleepNeedHours: row["sleepNeedHours"],
+            sleepConsistency: row["sleepConsistency"],
             updatedAt: row["updatedAt"])
     }
 }
