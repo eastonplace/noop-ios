@@ -70,12 +70,17 @@ extension WhoopStore {
     /// session and banks its audit record. When supplied, the corrected daily row and
     /// Rest/Charge override commit in the SAME SQLite transaction. An overlapping
     /// user-edited row is never silently overwritten.
+    ///
+    /// `replacingStartTs` is the immutable key of the same recovered session before an
+    /// edit moved its onset. That one edited row may be re-keyed atomically; every other
+    /// overlapping edited row remains a hard conflict.
     public func replaceWithManualSleepRecovery(
         _ session: CachedSleepSession,
         deviceId: String,
         audit: SleepRecoveryAuditRecord,
         dailyOverride: SleepRecoveryDailyOverride? = nil,
-        daily: DailyMetric? = nil
+        daily: DailyMetric? = nil,
+        replacingStartTs: Int? = nil
     ) async throws -> ManualSleepRecoveryWriteResult {
         // A daily row without its durable overlay (or vice versa) would be erased by
         // the next analytics pass. Reject the programmer error before opening a write.
@@ -97,7 +102,9 @@ extension WhoopStore {
             if let conflictRow = overlaps.first(where: { row in
                 let start: Int = row["startTs"]
                 let edited: Bool = row["userEdited"]
-                return edited && start != session.startTs
+                return edited
+                    && start != session.startTs
+                    && start != replacingStartTs
             }) {
                 let conflict = Self.decodeSleepRecoverySession(conflictRow)
                 try Self.upsertSleepRecoveryAudit(
@@ -107,11 +114,33 @@ extension WhoopStore {
                 return .conflict(conflict)
             }
 
-            let existed = try Bool.fetchOne(db, sql: """
+            let existedAtNewKey = try Bool.fetchOne(db, sql: """
                 SELECT EXISTS(
                     SELECT 1 FROM sleepSession WHERE deviceId = ? AND startTs = ?
                 )
                 """, arguments: [deviceId, session.startTs]) ?? false
+            let existedAtOldKey: Bool
+            if let replacingStartTs, replacingStartTs != session.startTs {
+                existedAtOldKey = try Bool.fetchOne(db, sql: """
+                    SELECT EXISTS(
+                        SELECT 1 FROM sleepSession
+                        WHERE deviceId = ? AND startTs = ? AND userEdited = 1
+                    )
+                    """, arguments: [deviceId, replacingStartTs]) ?? false
+            } else {
+                existedAtOldKey = false
+            }
+            let existed = existedAtNewKey || existedAtOldKey
+
+            // A recovered edit may move the immutable key. Delete only the explicitly
+            // named old recovered row; its invalidation trigger clears the prior daily
+            // overlay inside this same transaction before the new one is written below.
+            if existedAtOldKey, let replacingStartTs {
+                try db.execute(sql: """
+                    DELETE FROM sleepSession
+                    WHERE deviceId = ? AND startTs = ? AND userEdited = 1
+                    """, arguments: [deviceId, replacingStartTs])
+            }
 
             try db.execute(sql: """
                 DELETE FROM sleepSession
