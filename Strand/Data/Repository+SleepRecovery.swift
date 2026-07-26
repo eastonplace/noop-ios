@@ -56,7 +56,7 @@ extension Repository {
                 sessionEnd: nil)
         }
 
-        guard let store = await ensureStore() else {
+        guard let store = await storeHandle() else {
             return MissedSleepRecoverySaveResult(
                 status: .storeUnavailable,
                 title: "Local data is unavailable",
@@ -65,6 +65,7 @@ extension Repository {
                 sessionStart: nil,
                 sessionEnd: nil)
         }
+        let computedId = deviceId + "-noop"
 
         let lo = safeStart - 3_600
         let hi = safeEnd + 3_600
@@ -97,7 +98,7 @@ extension Repository {
 
         let now = Int(Date().timeIntervalSince1970)
         let audit = SleepRecoveryAuditRecord(
-            id: "manual-window:\(computedDeviceId):\(safeStart):\(safeEnd)",
+            id: "manual-window:\(computedId):\(safeStart):\(safeEnd)",
             source: analysis.source.rawValue,
             requestedStartTs: safeStart,
             requestedEndTs: safeEnd,
@@ -114,7 +115,7 @@ extension Repository {
             updatedAt: now)
 
         guard analysis.canPersistSession else {
-            _ = try? await store.recordSleepRecoveryAttempt(audit, deviceId: computedDeviceId)
+            _ = try? await store.recordSleepRecoveryAttempt(audit, deviceId: computedId)
             switch analysis.outcome {
             case .invalidWindow:
                 return MissedSleepRecoverySaveResult(
@@ -158,7 +159,7 @@ extension Repository {
 
         do {
             let write = try await store.replaceWithManualSleepRecovery(
-                session, deviceId: computedDeviceId, audit: audit)
+                session, deviceId: computedId, audit: audit)
             switch write {
             case .conflict:
                 return MissedSleepRecoverySaveResult(
@@ -206,10 +207,11 @@ extension Repository {
         requestedEndTs: Int,
         recoveredSession: CachedSleepSession?
     ) async {
-        guard let store = await ensureStore() else { return }
+        guard let store = await storeHandle() else { return }
+        let computedId = deviceId + "-noop"
         let now = Int(Date().timeIntervalSince1970)
         let audit = SleepRecoveryAuditRecord(
-            id: "retry:\(computedDeviceId):\(requestedStartTs):\(requestedEndTs)",
+            id: "retry:\(computedId):\(requestedStartTs):\(requestedEndTs)",
             source: SleepWindowRecoverySource.retry.rawValue,
             requestedStartTs: requestedStartTs,
             requestedEndTs: requestedEndTs,
@@ -228,6 +230,6 @@ extension Repository {
             algorithmVersion: "sleep-detector-retry-v1",
             createdAt: now,
             updatedAt: now)
-        _ = try? await store.recordSleepRecoveryAttempt(audit, deviceId: computedDeviceId)
+        _ = try? await store.recordSleepRecoveryAttempt(audit, deviceId: computedId)
     }
 }
