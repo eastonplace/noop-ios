@@ -1,12 +1,12 @@
 import GRDB
 
 extension WhoopStore {
-    /// Focused v31 migration kept next to the feature's store API. It is invoked under
+    /// Focused feature migration kept next to the recovery store API. It is invoked under
     /// the same process-wide open gate as the main migrator, so concurrent cold launches
-    /// cannot race it. GRDB records the identifier in the shared `grdb_migrations` table.
+    /// cannot race it. GRDB records the stable identifier in `grdb_migrations`.
     static func migrateSleepRecoverySchema(_ writer: any DatabaseWriter) throws {
         var migrator = DatabaseMigrator()
-        migrator.registerMigration("v31-sleep-window-recovery") { db in
+        migrator.registerMigration("sleep-window-recovery-v1") { db in
             try db.create(table: "sleepRecoveryAttempt") { table in
                 table.column("id", .text).primaryKey()
                 table.column("deviceId", .text).notNull()
