@@ -65,7 +65,10 @@ extension Repository {
                 sessionStart: nil,
                 sessionEnd: nil)
         }
-        let computedId = deviceId + "-noop"
+        // IntelligenceEngine intentionally writes all canonical on-device calculations to
+        // `my-whoop-noop`, regardless of which physical strap is active. Use the same stable
+        // namespace so the normal merge, export and projection paths see this correction.
+        let computedId = Repository.whoopSource + "-noop"
 
         let lo = safeStart - 3_600
         let hi = safeEnd + 3_600
@@ -157,9 +160,53 @@ extension Repository {
             userEdited: true,
             startTsAdjusted: nil)
 
+        // Score the corrected wake day from the same personal baseline chain as the
+        // regular engine. Imported history wins on a same-day tie, matching Repository's
+        // normal source resolver; the corrected row itself remains canonical computed data.
+        let wakeDate = Date(timeIntervalSince1970: TimeInterval(safeEnd))
+        let offset = TimeZone.current.secondsFromGMT(for: wakeDate)
+        let day = AnalyticsEngine.dayString(safeEnd, offsetSec: offset)
+        let fromDay = AnalyticsEngine.dayString(safeEnd - 180 * 86_400, offsetSec: offset)
+        async let computedHistoryRead = store.dailyMetrics(
+            deviceId: computedId, from: fromDay, to: day)
+        async let importedHistoryRead = store.dailyMetrics(
+            deviceId: Repository.whoopSource, from: fromDay, to: day)
+        let computedHistory = (try? await computedHistoryRead) ?? []
+        let importedHistory = (try? await importedHistoryRead) ?? []
+        let existing = computedHistory.first { $0.day == day }
+        var mergedByDay = Dictionary(
+            computedHistory.map { ($0.day, $0) },
+            uniquingKeysWith: { _, newest in newest })
+        for row in importedHistory { mergedByDay[row.day] = row }
+        let priorHistory = mergedByDay.values.sorted { $0.day < $1.day }
+
+        let scored = ManualSleepDailyScorer.score(
+            day: day,
+            analysis: analysis,
+            existing: existing,
+            priorHistory: priorHistory)
+        let dailyOverride = SleepRecoveryDailyOverride(
+            day: day,
+            sessionStartTs: safeStart,
+            totalSleepMin: scored.daily.totalSleepMin,
+            efficiency: scored.daily.efficiency,
+            deepMin: scored.daily.deepMin,
+            remMin: scored.daily.remMin,
+            lightMin: scored.daily.lightMin,
+            disturbances: scored.daily.disturbances,
+            restingHr: scored.daily.restingHr,
+            avgHrv: scored.daily.avgHrv,
+            recovery: scored.daily.recovery,
+            restScore: scored.restScore,
+            updatedAt: now)
+
         do {
             let write = try await store.replaceWithManualSleepRecovery(
-                session, deviceId: computedId, audit: audit)
+                session,
+                deviceId: computedId,
+                audit: audit,
+                dailyOverride: dailyOverride,
+                daily: scored.daily)
             switch write {
             case .conflict:
                 return MissedSleepRecoverySaveResult(
@@ -172,18 +219,24 @@ extension Repository {
             case .inserted, .updated:
                 _ = await refresh(.recentDashboard(days: 120))
                 if analysis.outcome == .partial {
+                    let charge = scored.daily.recovery == nil
+                        ? " Charge will remain in calibration until its personal HRV baseline is usable."
+                        : " Charge was regenerated from those real vitals."
                     return MissedSleepRecoverySaveResult(
                         status: .partial,
                         title: "Sleep window recovered",
-                        message: "NOOP saved the real overnight vitals it could defend. Sleep stages remain unavailable because motion coverage was incomplete.",
+                        message: "NOOP saved the overnight vitals it could defend. Sleep stages and Rest remain unavailable because motion coverage was incomplete." + charge,
                         confidence: analysis.confidence,
                         sessionStart: safeStart,
                         sessionEnd: safeEnd)
                 }
+                let charge = scored.daily.recovery == nil
+                    ? " Rest is available; Charge will appear once the personal baseline finishes calibrating."
+                    : " Rest and Charge were regenerated from the corrected night."
                 return MissedSleepRecoverySaveResult(
                     status: .complete,
                     title: "Sleep recovered",
-                    message: "NOOP reprocessed the selected window from your recorded data. Rest and Charge will now be regenerated from this corrected night.",
+                    message: "NOOP reprocessed the selected window from your recorded data." + charge,
                     confidence: analysis.confidence,
                     sessionStart: safeStart,
                     sessionEnd: safeEnd)
@@ -208,7 +261,7 @@ extension Repository {
         recoveredSession: CachedSleepSession?
     ) async {
         guard let store = await storeHandle() else { return }
-        let computedId = deviceId + "-noop"
+        let computedId = Repository.whoopSource + "-noop"
         let now = Int(Date().timeIntervalSince1970)
         let audit = SleepRecoveryAuditRecord(
             id: "retry:\(computedId):\(requestedStartTs):\(requestedEndTs)",
