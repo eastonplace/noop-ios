@@ -63,12 +63,15 @@ public enum ManualSleepRecoveryWriteResult: Equatable, Sendable {
 
 extension WhoopStore {
     /// Atomically replaces overlapping auto-detected computed rows with one user-bounded
-    /// session and banks its audit record. An overlapping user-edited row is never silently
-    /// overwritten; the caller must ask the user to edit that existing correction instead.
+    /// session and banks its audit record. When supplied, the corrected daily row and
+    /// Rest/Charge override commit in the SAME SQLite transaction. An overlapping
+    /// user-edited row is never silently overwritten.
     public func replaceWithManualSleepRecovery(
         _ session: CachedSleepSession,
         deviceId: String,
-        audit: SleepRecoveryAuditRecord
+        audit: SleepRecoveryAuditRecord,
+        dailyOverride: SleepRecoveryDailyOverride? = nil,
+        daily: DailyMetric? = nil
     ) async throws -> ManualSleepRecoveryWriteResult {
         try syncWrite { db in
             let overlaps = try Row.fetchAll(db, sql: """
@@ -132,6 +135,21 @@ extension WhoopStore {
                 ])
 
             try Self.upsertSleepRecoveryAudit(db, deviceId: deviceId, audit: audit)
+
+            switch (dailyOverride, daily) {
+            case let (.some(override), .some(dailyRow)):
+                try Self.persistSleepRecoveryDailyOverride(
+                    db, override: override, daily: dailyRow, deviceId: deviceId)
+            case (nil, nil):
+                break
+            default:
+                // Programmer error: a score row without its durable overlay (or vice versa)
+                // would be erased by the next analytics pass. Fail the entire transaction.
+                throw DatabaseError(
+                    resultCode: .SQLITE_MISUSE,
+                    message: "sleep recovery daily and override must be supplied together")
+            }
+
             return existed
                 ? .updated(removedAutomaticSessions: removed)
                 : .inserted(removedAutomaticSessions: removed)
