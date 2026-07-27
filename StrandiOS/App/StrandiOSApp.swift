@@ -177,7 +177,9 @@ struct StrandiOSApp: App {
                     Task { await WidgetSnapshot.publish(from: model) }
                 }
                 .onReceive(
-                    NotificationCenter.default.publisher(for: HealthKitSyncPublication.name)
+                    NotificationCenter.default.publisher(
+                        for: HealthKitSyncPublication.name,
+                        object: HealthKitScoringCoordinator.shared)
                 ) { _ in
                     Task { @MainActor in
                         await drainCommittedHealthScoring()
