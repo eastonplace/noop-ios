@@ -16,6 +16,9 @@ enum PerformanceLifecycleOwnership {
 
 extension AppModel {
     func setApplicationActiveOptimized(_ active: Bool) {
+        // Presentation time has its own lifecycle. Re-arm on every active transition so a suspended app,
+        // timezone change, or wall-clock correction recomputes the next midnight/04:00 boundary correctly.
+        TodayDayBoundaryScheduler.shared.setActive(active, repository: repo)
         PerformanceLifecycleOwnership.apply(active) { [weak self] active in
             self?.setApplicationActive(active)
         }
