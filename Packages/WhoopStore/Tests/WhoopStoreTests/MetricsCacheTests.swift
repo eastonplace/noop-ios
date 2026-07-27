@@ -95,19 +95,17 @@ final class MetricsCacheTests: XCTestCase {
                        "preservation never promotes the row into scoring admission")
     }
 
-    func testOverlongPlausibleSleepSessionIsPreservedForRepair() async throws {
+    func testOverlongSleepSessionIsRejectedAtCacheBoundary() async throws {
         let store = try await WhoopStore.inMemory()
         let start = 100_000
-        let end = start + SleepSessionWindow.maximumDurationSeconds + 1
         let changed = try await store.upsertSleepSessions([
-            CachedSleepSession(startTs: start, endTs: end,
+            CachedSleepSession(startTs: start,
+                               endTs: start + SleepSessionWindow.maximumDurationSeconds + 1,
                                efficiency: nil, restingHr: nil, avgHrv: nil, stagesJSON: nil)
         ], deviceId: "devA")
-        XCTAssertEqual(changed, 1)
+        XCTAssertEqual(changed, 0)
         let rows = try await store.sleepSessions(deviceId: "devA", from: 0, to: 200_000, limit: 10)
-        XCTAssertEqual(rows.map(\.startTs), [start])
-        XCTAssertFalse(SleepSessionWindow.isValid(start: start, end: end),
-                       "an overlong cached row remains quarantined from scoring")
+        XCTAssertTrue(rows.isEmpty)
     }
 
     func testNonOrderedOrOverflowingSleepSessionIsRejectedAtCacheBoundary() async throws {
