@@ -147,6 +147,16 @@ struct StrandiOSApp: App {
                     refreshExternalSurfaceDay()
                     Task { await WidgetSnapshot.publish(from: model) }
                 }
+                .onReceive(TodayDayBoundaryScheduler.shared.$presentationGeneration.dropFirst()) { _ in
+                    guard scenePhase == .active else { return }
+                    // The midnight/04:00 transition can be purely temporal: no store
+                    // row needs to change for the Home, widget, and Live Activity day
+                    // labels to become stale. Publish from the same boundary source
+                    // that invalidated Today instead of waiting for the next sync.
+                    refreshExternalSurfaceDay()
+                    driveLiveActivity()
+                    Task { await WidgetSnapshot.publish(from: model) }
+                }
                 .onReceive(model.repo.$canonicalStrainByDay.dropFirst()) { _ in
                     guard scenePhase == .active else { return }
                     refreshExternalSurfaceDay()

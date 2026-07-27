@@ -1,4 +1,5 @@
 import XCTest
+import GRDB
 import WhoopProtocol
 @testable import WhoopStore
 
@@ -89,6 +90,52 @@ final class SleepRecoveryStoreTests: XCTestCase {
 
         let rows = try await store.sleepSessions(deviceId: "dev", from: 0, to: 1_000_000, limit: 10)
         XCTAssertTrue(rows.isEmpty)
+    }
+
+    func testManualRecoveryPreservesInvalidAutomaticLegacyOverlap() async throws {
+        let store = try await WhoopStore.inMemory()
+        let device = "my-whoop-noop"
+        let legacyStart = 11_000
+        try await store.registryWriter.write { db in
+            try db.execute(sql: """
+                INSERT INTO sleepSession (deviceId, startTs, endTs, userEdited)
+                VALUES (?, ?, ?, 0)
+                """, arguments: [device, legacyStart, legacyStart + 600])
+        }
+
+        let result = try await store.replaceWithManualSleepRecovery(
+            session(start: 10_000, end: 14_000, edited: true),
+            deviceId: device,
+            audit: audit(id: "invalid-auto-overlap", start: 10_000, end: 14_000))
+
+        XCTAssertEqual(result, .inserted(removedAutomaticSessions: 0))
+        let legacyStillExists = try await store.registryWriter.read { db in
+            try Bool.fetchOne(db, sql: """
+                SELECT EXISTS(
+                    SELECT 1 FROM sleepSession WHERE deviceId = ? AND startTs = ?
+                )
+                """, arguments: [device, legacyStart])
+        }
+        XCTAssertEqual(legacyStillExists, true)
+    }
+
+    func testManualRecoveryIgnoresInvalidEditedLegacyOverlap() async throws {
+        let store = try await WhoopStore.inMemory()
+        let device = "my-whoop-noop"
+        let legacyStart = 11_000
+        try await store.registryWriter.write { db in
+            try db.execute(sql: """
+                INSERT INTO sleepSession (deviceId, startTs, endTs, userEdited)
+                VALUES (?, ?, ?, 1)
+                """, arguments: [device, legacyStart, legacyStart + 600])
+        }
+
+        let result = try await store.replaceWithManualSleepRecovery(
+            session(start: 10_000, end: 14_000, edited: true),
+            deviceId: device,
+            audit: audit(id: "invalid-edited-overlap", start: 10_000, end: 14_000))
+
+        XCTAssertEqual(result, .inserted(removedAutomaticSessions: 0))
     }
 
     private func dailyOverride(

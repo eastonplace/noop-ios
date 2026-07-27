@@ -5,6 +5,8 @@ import XCTest
 final class IntelligenceAnalysisCoordinatorTests: XCTestCase {
     private final class Owner {}
 
+    private enum TestFailure: Error { case simulated }
+
     @MainActor
     private final class Gate {
         private var continuation: CheckedContinuation<Void, Never>?
@@ -60,6 +62,7 @@ final class IntelligenceAnalysisCoordinatorTests: XCTestCase {
             await coordinator.submit(owner: owner, request: history, run: runner)
         }
         try await waitUntil { coordinator.isRunning(for: owner) }
+        try await waitUntil { runs == [history] }
         let current = Task { @MainActor in
             await coordinator.submit(owner: owner, request: today, run: runner)
         }
@@ -67,10 +70,23 @@ final class IntelligenceAnalysisCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(runs, [history])
         gate.open()
-        await active.value
-        await current.value
+        _ = await active.value
+        _ = await current.value
 
         XCTAssertEqual(runs, [history, today])
+    }
+
+    func testFailedBatchDoesNotReportSuccessfulCompletion() async {
+        let coordinator = IntelligenceAnalysisCoordinator()
+        let owner = Owner()
+        let request = IntelligenceAnalysisRequest(
+            maxDays: 21, startOffset: 0, force: true, refreshRepository: false)
+
+        let completed = await coordinator.submit(owner: owner, request: request) { _ in
+            throw TestFailure.simulated
+        }
+
+        XCTAssertFalse(completed)
     }
 
     func testCurrentDayFastLaneRunsBeforeNextHistoricalChunk() async throws {
@@ -93,6 +109,7 @@ final class IntelligenceAnalysisCoordinatorTests: XCTestCase {
             await coordinator.submit(owner: owner, request: activeHistory, run: runner)
         }
         try await waitUntil { coordinator.isRunning(for: owner) }
+        try await waitUntil { runs == [activeHistory] }
         let later = Task { @MainActor in
             await coordinator.submit(owner: owner, request: laterHistory, run: runner)
         }
@@ -102,9 +119,9 @@ final class IntelligenceAnalysisCoordinatorTests: XCTestCase {
         try await waitUntil { coordinator.pendingBatchCount(for: owner) == 2 }
 
         gate.open()
-        await active.value
-        await later.value
-        await current.value
+        _ = await active.value
+        _ = await later.value
+        _ = await current.value
 
         XCTAssertEqual(runs, [activeHistory, today, laterHistory])
     }
@@ -131,6 +148,7 @@ final class IntelligenceAnalysisCoordinatorTests: XCTestCase {
             await coordinator.submit(owner: owner, request: blocker, run: runner)
         }
         try await waitUntil { coordinator.isRunning(for: owner) }
+        try await waitUntil { runs == [blocker] }
         let one = Task { @MainActor in
             await coordinator.submit(owner: owner, request: first, run: runner)
         }
@@ -143,9 +161,9 @@ final class IntelligenceAnalysisCoordinatorTests: XCTestCase {
         }
 
         gate.open()
-        await active.value
-        await one.value
-        await two.value
+        _ = await active.value
+        _ = await one.value
+        _ = await two.value
 
         XCTAssertEqual(runs, [blocker, expected])
     }
@@ -170,6 +188,7 @@ final class IntelligenceAnalysisCoordinatorTests: XCTestCase {
             await coordinator.submit(owner: owner, request: blocker, run: runner)
         }
         try await waitUntil { coordinator.isRunning(for: owner) }
+        try await waitUntil { runs == [blocker] }
         let one = Task { @MainActor in
             await coordinator.submit(owner: owner, request: refresh, run: runner)
         }
@@ -179,9 +198,9 @@ final class IntelligenceAnalysisCoordinatorTests: XCTestCase {
         try await waitUntil { coordinator.pendingBatchCount(for: owner) == 2 }
 
         gate.open()
-        await active.value
-        await one.value
-        await two.value
+        _ = await active.value
+        _ = await one.value
+        _ = await two.value
 
         XCTAssertEqual(runs, [blocker, noRefresh, refresh])
     }
@@ -204,12 +223,16 @@ final class IntelligenceAnalysisCoordinatorTests: XCTestCase {
             await coordinator.submit(owner: owner, request: forced, run: runner)
         }
         try await waitUntil { coordinator.isRunning(for: owner) }
+        // Queue ownership is visible before the runner reaches its first suspension.
+        // Wait for that runner edge so opening the gate below cannot race ahead of
+        // `Gate.wait()` and strand this test indefinitely.
+        try await waitUntil { runs == [forced] }
         await coordinator.submit(owner: owner, request: idle, run: runner)
 
         XCTAssertEqual(runs, [forced])
         XCTAssertEqual(coordinator.pendingBatchCount(for: owner), 0)
         gate.open()
-        await active.value
+        _ = await active.value
     }
 
     func testQueuedForcedWorkSurvivesCallerCancellation() async throws {
@@ -230,6 +253,7 @@ final class IntelligenceAnalysisCoordinatorTests: XCTestCase {
             await coordinator.submit(owner: owner, request: blocker, run: runner)
         }
         try await waitUntil { coordinator.isRunning(for: owner) }
+        try await waitUntil { runs == [blocker] }
         let queued = Task { @MainActor in
             await coordinator.submit(owner: owner, request: durable, run: runner)
         }
@@ -237,8 +261,8 @@ final class IntelligenceAnalysisCoordinatorTests: XCTestCase {
         queued.cancel()
 
         gate.open()
-        await active.value
-        await queued.value
+        _ = await active.value
+        _ = await queued.value
 
         XCTAssertEqual(runs, [blocker, durable])
     }

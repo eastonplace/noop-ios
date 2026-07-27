@@ -87,4 +87,13 @@ final class TodayDayBoundarySchedulerTests: XCTestCase {
         XCTAssertEqual(components.hour, 4)
         XCTAssertEqual(components.minute, 0)
     }
+
+    func testTodayLoadKeyChangesWhenOnlyPresentationDayChanges() {
+        let before = TodayLoadKey(seq: 42, offset: 0, presentationDay: "2026-07-27|2026-07-27|2026-07-27")
+        let afterMidnight = TodayLoadKey(seq: 42, offset: 0, presentationDay: "2026-07-28|2026-07-28|2026-07-28")
+        let afterLogicalRollover = TodayLoadKey(seq: 42, offset: 0, presentationDay: "2026-07-28|2026-07-28|2026-07-27")
+
+        XCTAssertNotEqual(before, afterMidnight)
+        XCTAssertNotEqual(afterMidnight, afterLogicalRollover)
+    }
 }

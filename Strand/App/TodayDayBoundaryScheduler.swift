@@ -14,6 +14,10 @@ final class TodayDayBoundaryScheduler {
     private weak var repository: Repository?
     private var task: Task<Void, Never>?
     private(set) var active = false
+    /// A boundary is a presentation-data event even when SQLite is unchanged. iOS
+    /// external surfaces subscribe to this counter to publish the new local/logical
+    /// day immediately instead of waiting for a later Repository refresh.
+    @Published private(set) var presentationGeneration = 0
 
     func setActive(
         _ active: Bool,
@@ -65,6 +69,7 @@ final class TodayDayBoundaryScheduler {
             // One presentation invalidation only. `displayDayKey` includes both local/logical keys, so its
             // existing onChange rebuilds the snapshot with no database contention and no fabricated row.
             repository.objectWillChange.send()
+            self.presentationGeneration &+= 1
             // Timers can wake late under load or after a brief suspension. Rebase on the actual wall clock,
             // not the planned boundary, or a midnight timer that wakes after 04:00 can schedule the next edge
             // hours late. Scene activation still cancels/re-arms separately for timezone and larger clock shifts.

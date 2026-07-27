@@ -18,17 +18,17 @@ final class IntelligenceTimestampSafetyTests: XCTestCase {
         XCTAssertNil(IntelligenceEngine.midnightLocal(Int.min, offsetSec: -1))
     }
 
-    func testBandSleepStateSamplesDropsExtremePersistedSessionAndKeepsValidSeries() async throws {
+    func testBandSleepStateSamplesKeepsValidSeriesWhenExtremeInputIsRejected() async throws {
         let store = try await WhoopStore.inMemory()
         let deviceId = "timestamp-test-noop"
         let validStart = 1_780_000_000
         let corruptStart = Int.max - 10
 
         try await store.upsertSleepSessions([
-            CachedSleepSession(startTs: validStart, endTs: validStart + 120, efficiency: 0.9,
+            CachedSleepSession(startTs: validStart, endTs: validStart + 1_800, efficiency: 0.9,
                                restingHr: nil, avgHrv: nil, stagesJSON: nil),
             CachedSleepSession(startTs: corruptStart, endTs: Int.max, efficiency: nil,
-                               restingHr: nil, avgHrv: nil, stagesJSON: nil)
+                               restingHr: nil, avgHrv: nil, stagesJSON: nil),
         ], deviceId: deviceId)
         try await store.persistSessionSleepState(deviceId: deviceId, sessionStart: validStart,
                                                  states: [1, 2, 3])
@@ -48,14 +48,14 @@ final class IntelligenceTimestampSafetyTests: XCTestCase {
         let start = 1_780_000_000
 
         try await store.upsertSleepSessions([
-            CachedSleepSession(startTs: start, endTs: start + 45, efficiency: 0.9,
+            CachedSleepSession(startTs: start, endTs: start + 1_800, efficiency: 0.9,
                                restingHr: nil, avgHrv: nil, stagesJSON: nil)
         ], deviceId: deviceId)
         try await store.persistSessionSleepState(deviceId: deviceId, sessionStart: start,
-                                                 states: [1, 2, 3])
+                                                 states: Array(repeating: 1, count: 62))
 
         let samples = await IntelligenceEngine.bandSleepStateSamples(
-            computedId: deviceId, from: start, to: start + 45, store: store)
+            computedId: deviceId, from: start, to: start + 1_800, store: store)
 
         XCTAssertTrue(samples.isEmpty)
     }

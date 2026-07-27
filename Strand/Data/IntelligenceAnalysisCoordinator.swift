@@ -58,6 +58,12 @@ struct BackfillAnalysisSnapshot: Equatable, Sendable {
     }
 }
 
+private enum IntelligenceAnalysisCoordinatorError: Error {
+    case ownerReleased
+    case deferred
+    case analysisDidNotComplete
+}
+
 /// Serial, completion-aware coordinator for the heavy intelligence pipeline.
 ///
 /// - A non-forced cadence tick is disposable while another pass runs.
@@ -73,11 +79,14 @@ struct BackfillAnalysisSnapshot: Equatable, Sendable {
 final class IntelligenceAnalysisCoordinator {
     static let shared = IntelligenceAnalysisCoordinator()
 
-    typealias Execute = @MainActor (IntelligenceAnalysisRequest) async -> Void
+    /// A runner must explicitly finish its requested analysis. Returning normally
+    /// means that the batch completed; throwing means its callers must *not*
+    /// publish the derived Home/Widget generation as though a rescore succeeded.
+    typealias Execute = @MainActor (IntelligenceAnalysisRequest) async throws -> Void
 
     private struct PendingBatch {
         var request: IntelligenceAnalysisRequest
-        var waiters: [CheckedContinuation<Void, Never>]
+        var waiters: [CheckedContinuation<Bool, Never>]
         let run: Execute
     }
 
@@ -100,15 +109,16 @@ final class IntelligenceAnalysisCoordinator {
         queues[ObjectIdentifier(owner)]?.pending.reduce(0) { $0 + $1.waiters.count } ?? 0
     }
 
+    @discardableResult
     func submit(
         owner: AnyObject,
         request: IntelligenceAnalysisRequest,
         run: @escaping Execute
-    ) async {
+    ) async -> Bool {
         let key = ObjectIdentifier(owner)
-        if queues[key] != nil, !request.force { return }
+        if queues[key] != nil, !request.force { return false }
 
-        await withCheckedContinuation { continuation in
+        return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
             let shouldStartRunner = queues[key] == nil
             var state = queues[key] ?? QueueState()
             state.pending.append(PendingBatch(
@@ -138,8 +148,14 @@ final class IntelligenceAnalysisCoordinator {
 
             let batch = state.pending.remove(at: index)
             queues[key] = state // existence continues to mark this owner as actively running
-            await batch.run(batch.request)
-            batch.waiters.forEach { $0.resume() }
+            let completed: Bool
+            do {
+                try await batch.run(batch.request)
+                completed = true
+            } catch {
+                completed = false
+            }
+            batch.waiters.forEach { $0.resume(returning: completed) }
         }
     }
 
@@ -191,36 +207,38 @@ extension IntelligenceEngine {
 
     /// The only route from shorthand production calls into the existing full implementation. Supplying all
     /// four labels below deliberately resolves to the class's original method, not to any overload here.
+    @discardableResult
     private func submitSerializedAnalysis(
         maxDays: Int,
         startOffset: Int,
         force: Bool,
         refreshRepository: Bool
-    ) async {
+    ) async -> Bool {
         let request = IntelligenceAnalysisRequest(
             maxDays: maxDays,
             startOffset: startOffset,
             force: force,
             refreshRepository: refreshRepository)
 
-        await IntelligenceAnalysisCoordinator.shared.submit(owner: self, request: request) { [weak self] queued in
-            guard let self else { return }
+        return await IntelligenceAnalysisCoordinator.shared.submit(owner: self, request: request) { [weak self] queued in
+            guard let self else { throw IntelligenceAnalysisCoordinatorError.ownerReleased }
 
             // Normal production calls are serialized here. A direct legacy/full-signature call or an old
             // in-engine re-arm task may nevertheless already own `computing`; forced work waits instead of
             // disappearing, while a disposable cadence tick still drops. Once forced work is queued it ignores
             // caller-task cancellation—the durable source change still needs to be scored and published.
             while self.computing {
-                guard queued.force else { return }
+                guard queued.force else { throw IntelligenceAnalysisCoordinatorError.deferred }
                 await Self.waitForAnalysisPoll()
             }
-            guard queued.force || !Task.isCancelled else { return }
+            guard queued.force || !Task.isCancelled else { throw IntelligenceAnalysisCoordinatorError.deferred }
 
-            await self.analyzeRecent(
+            guard await self.analyzeRecent(
                 maxDays: queued.maxDays,
                 startOffset: queued.startOffset,
                 force: queued.force,
                 refreshRepository: queued.refreshRepository)
+            else { throw IntelligenceAnalysisCoordinatorError.analysisDidNotComplete }
         }
     }
 
@@ -228,11 +246,10 @@ extension IntelligenceEngine {
     /// one explicit cache publication immediately after this call. Hold the call until one exact current-day
     /// pass begins and ends with the same quiescent durable-data generation. If a reconnect or periodic burst
     /// advances data during analysis, rerun before returning. Forced source work survives caller cancellation.
-    private func submitStablePostBackfillAnalysis() async {
+    private func submitStablePostBackfillAnalysis() async -> Bool {
         guard let live = AppModel.shared?.live else {
-            await submitSerializedAnalysis(
+            return await submitSerializedAnalysis(
                 maxDays: 21, startOffset: 0, force: true, refreshRepository: false)
-            return
         }
 
         while true {
@@ -244,13 +261,14 @@ extension IntelligenceEngine {
                 continue
             }
 
-            await submitSerializedAnalysis(
+            guard await submitSerializedAnalysis(
                 maxDays: 21, startOffset: 0, force: true, refreshRepository: false)
+            else { return false }
 
             let after = BackfillAnalysisSnapshot(
                 dataAvailableAt: live.backfillDataAvailableAt,
                 backfilling: live.backfilling)
-            if after.isSettledAndUnchanged(since: before) { return }
+            if after.isSettledAndUnchanged(since: before) { return true }
         }
     }
 
@@ -273,12 +291,13 @@ extension IntelligenceEngine {
         await submitSerializedAnalysis(maxDays: 21, startOffset: 0, force: force, refreshRepository: true)
     }
 
-    func analyzeRecent(refreshRepository: Bool) async {
+    @discardableResult
+    func analyzeRecent(refreshRepository: Bool) async -> Bool {
         if refreshRepository {
-            await submitSerializedAnalysis(
+            return await submitSerializedAnalysis(
                 maxDays: 21, startOffset: 0, force: true, refreshRepository: true)
         } else {
-            await submitStablePostBackfillAnalysis()
+            return await submitStablePostBackfillAnalysis()
         }
     }
 

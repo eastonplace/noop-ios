@@ -5,6 +5,10 @@ import XCTest
 final class IntelligenceAnalysisCallerCompletionTests: XCTestCase {
     private final class Owner {}
 
+    /// This test coordinates only main-actor work: `Execute` and the test tasks
+    /// are both main-actor isolated. Keeping the continuation on that same actor
+    /// avoids transferring a mutable reference across the runner's async boundary.
+    @MainActor
     private final class Gate {
         private var continuation: CheckedContinuation<Void, Never>?
 
@@ -76,8 +80,8 @@ final class IntelligenceAnalysisCallerCompletionTests: XCTestCase {
                        "later historical work is still running, but Today's caller must already be released")
 
         secondGate.open()
-        await todayTask.value
-        await historyTask.value
+        _ = await todayTask.value
+        _ = await historyTask.value
         XCTAssertTrue(historyReturned)
     }
 }

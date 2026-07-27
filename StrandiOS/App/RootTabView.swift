@@ -31,7 +31,12 @@ struct RootTabView: View {
             arguments.indices.contains(index + 1) ? arguments[index + 1] : nil
         }
         if let requested = (ProcessInfo.processInfo.environment["NOOP_DEMO_TAB"] ?? argumentTab)?.lowercased() {
-            initialTab = requested == "trends" ? 1 : 0
+            initialTab = switch requested {
+            case "trends": 1
+            case "sleep": 2
+            case "more": 3
+            default: 0
+            }
         }
         #endif
         _selectedTab = State(initialValue: initialTab)

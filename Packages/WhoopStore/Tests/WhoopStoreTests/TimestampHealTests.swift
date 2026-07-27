@@ -1,4 +1,5 @@
 import XCTest
+import GRDB
 import WhoopProtocol
 @testable import WhoopStore
 
@@ -51,9 +52,17 @@ final class TimestampHealTests: XCTestCase {
         _ = try await store.upsertSleepSessions([
             CachedSleepSession(startTs: now - 30_000, endTs: now - 1000, efficiency: nil,
                                restingHr: nil, avgHrv: nil, stagesJSON: nil),
-            CachedSleepSession(startTs: now + 30 * 86_400, endTs: now + 30 * 86_400 + 1000,
-                               efficiency: nil, restingHr: nil, avgHrv: nil, stagesJSON: nil),
         ], deviceId: "dev1-noop")
+        // Current writes reject malformed/too-short sessions. Inject the historical
+        // bad-clock row directly so this migration test still exercises the legacy
+        // database state it is responsible for repairing.
+        let futureStart = now + 30 * 86_400
+        try await store.registryWriter.write { db in
+            try db.execute(sql: """
+                INSERT INTO sleepSession (deviceId, startTs, endTs, userEdited)
+                VALUES (?, ?, ?, 0)
+                """, arguments: ["dev1-noop", futureStart, futureStart + 1000])
+        }
 
         let result = try await store.healImplausibleTimestamps(now: now, todayLocalDayKey: todayKey)
         XCTAssertEqual(result.computedRowsDeleted, 3, "2 bad daily + 1 future sleep session")

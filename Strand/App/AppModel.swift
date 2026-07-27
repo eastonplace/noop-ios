@@ -617,7 +617,11 @@ final class AppModel: ObservableObject {
         // analyzeRecent tick , otherwise a just-synced night's Charge / Effort / Rest can take up to
         // 15 minutes to appear on a strap-only (no-import) dashboard. analyzeRecent no-ops if a tick is
         // already running and refreshes the dashboard itself once the new scores persist. (PR #218)
-        await intelligence.analyzeRecent(refreshRepository: false)
+        let analysisCompleted = await intelligence.analyzeRecent(refreshRepository: false)
+        guard analysisCompleted else {
+            live.append(log: "Backfill: analysis did not complete; retaining the prior Home generation for retry.")
+            return
+        }
         // One post-analysis refresh publishes both the newly offloaded raw history and any computed
         // mutations. Refreshing before analysis made the same cache tree rebuild twice per backfill.
         _ = await repo.refresh(.postBackfill)

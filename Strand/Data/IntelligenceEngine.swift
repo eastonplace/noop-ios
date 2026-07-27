@@ -382,8 +382,9 @@ final class IntelligenceEngine: ObservableObject {
     /// Compute on-device scores for each of the last `maxDays` that actually has raw HR data.
     /// Personal baselines (HRV / resting HR) are folded from the imported history, so even the first
     /// live night can be scored against your norm.
+    @discardableResult
     func analyzeRecent(maxDays: Int = 21, startOffset: Int = 0, force: Bool = true,
-                       refreshRepository: Bool = true) async {
+                       refreshRepository: Bool = true) async -> Bool {
         let performanceTrace = PerformanceTrace.begin("analyze_recent")
         var performanceChangedRows = -1
         defer { PerformanceTrace.end(performanceTrace, changedRows: performanceChangedRows) }
@@ -391,12 +392,15 @@ final class IntelligenceEngine: ObservableObject {
         // in-flight pass already covers the same window). But a FORCED call is a real update path (a
         // post-backfill rescore after a sync) , dropping it would leave a freshly-synced night unscored
         // until the next cycle. Re-arm instead: flag it so the running pass's `defer` re-invokes once.
-        guard !computing else { if force { pendingForcedRescore = true }; return }
-        guard let store = await repo.storeHandle() else { note = String(localized: "No on-device store yet."); return }
+        guard !computing else { if force { pendingForcedRescore = true }; return false }
+        guard let store = await repo.storeHandle() else {
+            note = String(localized: "No on-device store yet.")
+            return false
+        }
         guard let hrvCfg = Baselines.metricCfg["hrv"],
               let rhrCfg = Baselines.metricCfg["resting_hr"],
               let respCfg = Baselines.metricCfg["resp"],
-              let skinCfg = Baselines.metricCfg["skin_temp"] else { return }
+              let skinCfg = Baselines.metricCfg["skin_temp"] else { return false }
 
         // #836 (idle-tick gate): re-scoring a 21-day window re-reads ~21×54 h of raw HR and re-runs
         // analyzeDay over it. After a big Apple Health import (a reporter's: 2.1 M rows, ~190 k HR/day) that
@@ -413,7 +417,7 @@ final class IntelligenceEngine: ObservableObject {
         if !force, !wmKey.isEmpty,
            UserDefaults.standard.string(forKey: Self.analyzeWatermarkKey) == wmKey {
             performanceChangedRows = 0
-            return
+            return false
         }
 
         computing = true
@@ -429,7 +433,7 @@ final class IntelligenceEngine: ObservableObject {
                 // Carry THIS pass's window into the re-pass: a heal firing during a wide one-shot pass
                 // must re-score the same width, not the default 21 days (Kotlin re-passes with the same
                 // maxDays; keep the platforms in lockstep).
-                Task { await self.analyzeRecent(maxDays: maxDays, startOffset: startOffset, force: true) }
+                Task { _ = await self.analyzeRecent(maxDays: maxDays, startOffset: startOffset, force: true) }
             }
         }
 
@@ -500,7 +504,7 @@ final class IntelligenceEngine: ObservableObject {
         guard let nowLocalMidnight = Self.midnightLocal(now, offsetSec: tzOffset) else {
             performanceChangedRows = 0
             note = String(localized: "Unable to establish a valid local-day window.")
-            return
+            return false
         }
 
         // ── Learned habitual midsleep (#547) ──────────────────────────────────
@@ -1593,6 +1597,7 @@ final class IntelligenceEngine: ObservableObject {
         // early guard-return), so an interrupted/failed run can't advance the watermark past unscored data.
         if !wmKey.isEmpty { UserDefaults.standard.set(wmKey, forKey: Self.analyzeWatermarkKey) }
         analysisCompletionSerial += 1
+        return true
     }
 
     /// UserDefaults key for the #836 idle-tick gate: the `(count:maxTs)` HR fingerprint the last completed

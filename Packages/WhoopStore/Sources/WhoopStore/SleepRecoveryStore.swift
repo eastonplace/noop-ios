@@ -101,8 +101,13 @@ extension WhoopStore {
                 WHERE deviceId = ?
                   AND COALESCE(startTsAdjusted, startTs) < ?
                   AND ? < endTs
+                  AND endTs - COALESCE(startTsAdjusted, startTs) BETWEEN ? AND ?
                 ORDER BY COALESCE(startTsAdjusted, startTs) ASC
-                """, arguments: [deviceId, session.endTs, session.effectiveStartTs])
+                """, arguments: [
+                    deviceId, session.endTs, session.effectiveStartTs,
+                    SleepSessionWindow.minimumDurationSeconds,
+                    SleepSessionWindow.maximumDurationSeconds,
+                ])
 
             if let conflictRow = overlaps.first(where: { row in
                 let start: Int = row["startTs"]
@@ -153,9 +158,13 @@ extension WhoopStore {
                   AND userEdited = 0
                   AND COALESCE(startTsAdjusted, startTs) < ?
                   AND ? < endTs
+                  AND endTs - COALESCE(startTsAdjusted, startTs) BETWEEN ? AND ?
                   AND startTs != ?
                 """, arguments: [
-                    deviceId, session.endTs, session.effectiveStartTs, session.startTs,
+                    deviceId, session.endTs, session.effectiveStartTs,
+                    SleepSessionWindow.minimumDurationSeconds,
+                    SleepSessionWindow.maximumDurationSeconds,
+                    session.startTs,
                 ])
             let removed = db.changesCount
 

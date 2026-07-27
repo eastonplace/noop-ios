@@ -615,6 +615,15 @@ struct TodayView: View {
             selectedDayKey: Repository.localDayKey(selectedDay))
     }
 
+    /// Stable value identity for the `.task(id:)` reload contract. A temporal
+    /// boundary changes one of these day keys even if the Repository's durable
+    /// projection is byte-identical, which is exactly when Today must rebuild
+    /// its day-scoped snapshot instead of retaining yesterday's cached fields.
+    private var presentationDayLoadKey: String {
+        let key = displayDayKey
+        return "\(key.logicalKey)|\(key.localKey)|\(key.selectedDayKey)"
+    }
+
     /// Pure selection policy behind the snapshot. The selected-day case remains a backward lookup, while
     /// Today delegates to the existing logical/local resolver so the #144 and #304 rollover guarantees are
     /// byte-for-byte shared with Repository.
@@ -1714,7 +1723,11 @@ struct TodayView: View {
         }
         // Reload when the data refreshes OR the selected day changes, the HR trend and Sleep score are
         // day-scoped, so navigating must re-fetch them for the newly selected window.
-        .task(id: TodayLoadKey(seq: repo.refreshSeq, offset: selectedDayOffset)) { await loadAll() }
+        .task(id: TodayLoadKey(
+            seq: repo.refreshSeq,
+            offset: selectedDayOffset,
+            presentationDay: presentationDayLoadKey
+        )) { await loadAll() }
         // #989: hydration writes don't bump refreshSeq, so the card needs its own triggers, a logged /
         // edited / deleted drink (hydrationSeq) and the Settings feature toggle both re-read just the two
         // hydration fields. Cheap (one metricSeries row), never re-runs the heavy loads.
@@ -4774,9 +4787,13 @@ private struct TodayHeaderBatteryStatus: View {
 
 /// `.task(id:)` key combining the data refresh sequence with the selected day so a reload runs on
 /// either a data change or a day-navigation change (the HR trend + Sleep score are day-scoped).
-private struct TodayLoadKey: Equatable {
+struct TodayLoadKey: Equatable {
     let seq: Int
     let offset: Int
+    /// This changes at both local midnight and the 04:00 logical-day rollover,
+    /// even when Repository's durable rows do not. Keeping it in `.task(id:)`
+    /// makes the day-scoped load and its cache key re-evaluate at the boundary.
+    let presentationDay: String
 }
 
 /// #849: an in-memory snapshot of everything `loadHistoryWide()` computes: the ~40 history-wide reads +

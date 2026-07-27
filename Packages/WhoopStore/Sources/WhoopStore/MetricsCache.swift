@@ -130,7 +130,11 @@ extension WhoopStore {
         return try syncWrite { db in
             var n = 0
             for s in sessions {
-                guard SleepSessionWindow.hasPlausibleBounds(start: s.effectiveStartTs, end: s.endTs) else {
+                // Every normal write shares the scoring contract. Legacy rows that
+                // predate this policy remain in SQLite for repair/diagnostics, but
+                // no current importer, recompute, or undo path can admit a short or
+                // overlong session that recovery would later need to quarantine.
+                guard SleepSessionWindow.isValid(start: s.effectiveStartTs, end: s.endTs) else {
                     continue
                 }
                 try db.execute(sql: """
@@ -473,15 +477,17 @@ extension WhoopStore {
 
     // MARK: - Reads
 
-    /// Cached sleep sessions overlapping [from, to] (by startTs), oldest first.
+    /// Cached sleep sessions overlapping [from, to] by their effective window, oldest first.
     public func sleepSessions(deviceId: String, from: Int, to: Int, limit: Int) async throws -> [CachedSleepSession] {
         try syncRead { db in
             try Row.fetchAll(db, sql: """
                 SELECT startTs, endTs, efficiency, restingHr, avgHrv, stagesJSON, userEdited,
                        startTsAdjusted FROM sleepSession
-                WHERE deviceId = ? AND startTs >= ? AND startTs <= ?
-                ORDER BY startTs ASC LIMIT ?
-                """, arguments: [deviceId, from, to, limit])
+                WHERE deviceId = ?
+                  AND COALESCE(startTsAdjusted, startTs) <= ?
+                  AND endTs >= ?
+                ORDER BY COALESCE(startTsAdjusted, startTs) ASC LIMIT ?
+                """, arguments: [deviceId, to, from, limit])
                 .map {
                     CachedSleepSession(startTs: $0["startTs"], endTs: $0["endTs"],
                                        efficiency: $0["efficiency"], restingHr: $0["restingHr"],
