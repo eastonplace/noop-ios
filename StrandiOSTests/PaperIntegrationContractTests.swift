@@ -92,6 +92,9 @@ final class PaperIntegrationContractTests: XCTestCase {
     }
 
     func testPaperLocalizationCatalogsContainNoLegacyPillarKeys() throws {
+        #if os(iOS)
+        throw XCTSkip("Raw .xcstrings source files are not bundled into the physical iOS test host; this is a source-contract test.")
+        #else
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -116,5 +119,30 @@ final class PaperIntegrationContractTests: XCTestCase {
                 )
             }
         }
+        #endif
+    }
+}
+
+final class SleepEfficiencyPresentationTests: XCTestCase {
+    func testZeroStoredEfficiencyDerivesFromMeasuredWindow() {
+        // Exact on-device shape: 5h49 asleep in 6h20 in bed. A legacy zero must
+        // not render as "0%" beside that measured window.
+        let value = SleepView.displayEfficiencyPercent(
+            stored: 0, asleepMinutes: 5 * 60 + 49, timeInBedMinutes: 6 * 60 + 20
+        )
+        XCTAssertEqual(value ?? .nan, 91.84, accuracy: 0.01)
+    }
+
+    func testPlausibleStoredFractionWins() {
+        let value = SleepView.displayEfficiencyPercent(stored: 0.88,
+                                                        asleepMinutes: 300,
+                                                        timeInBedMinutes: 360)
+        XCTAssertEqual(value, 88)
+    }
+
+    func testUnstagedZeroDoesNotFabricateEfficiency() {
+        XCTAssertNil(SleepView.displayEfficiencyPercent(stored: 0,
+                                                         asleepMinutes: 0,
+                                                         timeInBedMinutes: 360))
     }
 }

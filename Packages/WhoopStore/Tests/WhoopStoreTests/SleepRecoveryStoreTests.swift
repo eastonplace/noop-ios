@@ -1,4 +1,5 @@
 import XCTest
+import WhoopProtocol
 @testable import WhoopStore
 
 final class SleepRecoveryStoreTests: XCTestCase {
@@ -68,6 +69,26 @@ final class SleepRecoveryStoreTests: XCTestCase {
             exerciseCount: strain == nil ? nil : 1,
             steps: steps,
             strainVersion: strain == nil ? nil : 2)
+    }
+
+    func testOverlongRecoveryWindowIsRejectedBeforeAnyWrite() async throws {
+        let store = try await WhoopStore.inMemory()
+        let start = 100_000
+        let invalid = session(
+            start: start,
+            end: start + SleepSessionWindow.maximumDurationSeconds + 1,
+            edited: true)
+
+        do {
+            _ = try await store.replaceWithManualSleepRecovery(
+                invalid, deviceId: "dev", audit: audit(id: "invalid-window", start: start, end: invalid.endTs))
+            XCTFail("an overlong recovered sleep must not be persisted")
+        } catch let error as SleepRecoveryStoreError {
+            XCTAssertEqual(error, .invalidSleepWindow)
+        }
+
+        let rows = try await store.sleepSessions(deviceId: "dev", from: 0, to: 1_000_000, limit: 10)
+        XCTAssertTrue(rows.isEmpty)
     }
 
     private func dailyOverride(

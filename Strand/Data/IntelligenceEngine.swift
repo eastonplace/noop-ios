@@ -1967,7 +1967,7 @@ final class IntelligenceEngine: ObservableObject {
         // de-duplicator calculates overlap/duration so an Int.min/Int.max row cannot make a diagnostic
         // read trap before the valid sessions are considered.
         let sessions = SleepSessionDedup.dedupe(storedSessions.filter {
-            Self.representablePositiveDuration(start: $0.startTs, end: $0.endTs) != nil
+            SleepSessionWindow.isValid(start: $0.effectiveStartTs, end: $0.endTs)
         }).kept
         // One range read of the window's banked band state, keyed by startTs, instead of a single-row SELECT
         // per kept session. We still expand ONLY the kept (deduped) sessions, in order, so the output is
@@ -2014,12 +2014,13 @@ final class IntelligenceEngine: ObservableObject {
         // prevents an extreme row from reaching its overlap/duration ranking and taking down the entire
         // learned-timing pass.
         let validSessions = (imported + computed).filter {
-            Self.representablePositiveDuration(start: $0.effectiveStartTs, end: $0.endTs) != nil
+            SleepSessionWindow.isValid(start: $0.effectiveStartTs, end: $0.endTs)
         }
         let merged = SleepSessionDedup.dedupe(validSessions).kept
         let blocks = merged.compactMap { s -> SleepStageTotals.HistoryBlock? in
             let start = s.effectiveStartTs, end = s.endTs
-            guard let duration = Self.representablePositiveDuration(start: start, end: end) else { return nil }
+            guard SleepSessionWindow.isValid(start: start, end: end) else { return nil }
+            let duration = end - start
             let (mid, midpointOverflow) = start.addingReportingOverflow(duration / 2)
             guard !midpointOverflow else { return nil }
             let dayKey = AnalyticsEngine.dayString(mid, offsetSec: offsetSec)

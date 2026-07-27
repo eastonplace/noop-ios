@@ -400,27 +400,17 @@ final class AppModel: ObservableObject {
             self.ble.setKeepRealtimeForData(PuffinExperiment.keepRealtimeForDataEnabled)
             self.applyPowerSaving()
         }.store(in: &hrCancellables)
-        // A completed backfill has just written strap history. Refresh the dashboard cache,
-        // but leave heavyweight analysis to its own guarded/background-friendly path.
-        //
-        // #755 COALESCE: a strap whose firmware segments a deep offload into many small HISTORY_COMPLETE
-        // slices stamps `lastSyncedAt` once PER slice (BLEManager.exitBackfilling), seconds apart, for the
-        // whole multi-minute download. Without coalescing each slice fired refreshAfterCompletedBackfill()
-        // , a full repo.refresh (~50 store reads) + analyzeRecent , and every one re-fired TodayView's
-        // ~50-read loadAll, all contending with the backfill's bulk writes on the single-connection store.
-        // On a heavy + actively-syncing history that stacked into a ~10s freeze. `.debounce` collapses the
-        // slice storm: it suppresses the intermediate emissions and fires ONCE, 2s after the stream goes
-        // quiet , i.e. after the LAST slice lands (the backfill is done). Crucially it ALWAYS delivers the
-        // trailing edge, so the dashboard still refreshes with the newly-synced data , freshness is kept,
-        // we just stop re-doing it dozens of times mid-download. removeDuplicates() still drops a slice that
-        // stamped an identical second; the trailing refresh after a real change is never dropped.
-        live.$lastSyncedAt
+        // A backfill burst can end after a clean HISTORY_COMPLETE OR after the idle watchdog, because each
+        // chunk is committed before it is acknowledged. Only the burst-finalization signal means durable
+        // rows are ready and no auto-continued session remains. Keeping it separate from `lastSyncedAt`
+        // preserves honest sync status while preventing heavy analysis/refresh from racing the next slice.
+        live.$backfillDataAvailableAt
             .dropFirst()
             .compactMap { $0 }
             .removeDuplicates()
             .debounce(for: .seconds(2), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in
-                Task { [weak self] in await self?.refreshAfterCompletedBackfill() }
+                Task { [weak self] in await self?.refreshAfterBackfillBurst() }
             }
             .store(in: &hrCancellables)
 
@@ -619,7 +609,7 @@ final class AppModel: ObservableObject {
         await intelligence.analyzeRecent()
     }
 
-    private func refreshAfterCompletedBackfill() async {
+    private func refreshAfterBackfillBurst() async {
         let trace = PerformanceTrace.begin("backfill_finalize")
         defer { PerformanceTrace.end(trace) }
         live.append(log: "Backfill: refreshing dashboard cache from completed sync")
@@ -845,6 +835,13 @@ final class AppModel: ObservableObject {
             Task { [weak self] in
                 guard let self else { return }
                 await self.repo.refreshLiveDayStrain(maxHR: Double(self.profile.hrMax))
+            }
+            // The foreground edge needs the small live-strain refresh above right away, but a resumable
+            // 4,000-day migration must never inherit interactive UI priority. It is already serialized by
+            // `IntelligenceEngine.effortRescoreRunning`; scheduling it at utility keeps the first render
+            // and scene-update watchdog budget available while a deferred migration resumes.
+            Task(priority: .utility) { [weak self] in
+                guard let self else { return }
                 await self.intelligence.runEffortRescoreIfNeeded {
                     !self.applicationIsActive || self.hasActiveImport
                         || self.live.backfilling || self.activeWorkout != nil

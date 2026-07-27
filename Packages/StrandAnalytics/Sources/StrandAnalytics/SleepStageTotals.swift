@@ -842,7 +842,12 @@ public enum SleepStageTotals {
             let midSec = localSecOfDay(midpoint, offsetSec: offsetSec)
             return asleepMin + alignmentBonusMinutes(blockMidSec: midSec, targetMidSec: target)
         }
-        let eligible = blocks.indices.filter { score(blocks[$0]) != nil }
+        // A stage-less partial recovery retains useful vitals, but it must not out-rank any session with
+        // actual staged sleep merely because its clock time sits near the habitual midpoint. Keep the
+        // deterministic fallback for a day containing only stage-less/imported stubs.
+        let staged = blocks.indices.filter { minutes(fromStagesJSON: blocks[$0].stagesJSON) != nil }
+        let candidates = staged.isEmpty ? Array(blocks.indices) : staged
+        let eligible = candidates.filter { score(blocks[$0]) != nil }
         guard let first = eligible.first else { return nil }
         var bestIdx = first
         for i in eligible.dropFirst() {

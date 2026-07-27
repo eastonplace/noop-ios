@@ -463,6 +463,18 @@ struct TodayView: View {
     @State private var derived: TodayDerived?
     @State private var derivedKey: TodayInputKey?
 
+    // The dashboard is a large SwiftUI body and `Repository.today` resolves by scanning the complete
+    // day history. Re-entering that resolver from every Health Monitor tile made one scene update do the
+    // same 4,000-day walk repeatedly (the watchdog path captured on device). Keep the selected row as a
+    // presentation snapshot instead: rebuild it once when either the repository generation, the selected
+    // offset, or the logical/local day boundary changes, then hand the exact same row to every section.
+    //
+    // The key deliberately includes BOTH day keys. Around 00:00–04:00, the logical day and local calendar
+    // day differ and `Repository.resolveToday` has a special banked-sleep preference. A cache keyed only by
+    // refreshSeq would preserve a stale row across that boundary, so this keeps the existing rollover rule
+    // intact while making ordinary body updates O(1).
+    @State private var displayDaySnapshot: DisplayDaySnapshot?
+
     // Support sheet (donate + contact), opened from the home toolbar on macOS, and from an
     // in-content control on iOS (a primary tab has no NavigationStack, so a `.toolbar` item never
     // renders on iPhone, the affordance was dead there before this in-flow button + sheet, #185-class).
@@ -566,18 +578,79 @@ struct TodayView: View {
     /// non-UTC pre-04:00 case (#304) where Today is the LOCAL-calendar-day row, not the logical-day one.
     /// Falls back to the logical key when no row is banked yet. Past offsets use the logical key directly.
     private var selectedDayKey: String {
-        if selectedDayOffset == 0, let todayKey = repo.today?.day { return todayKey }
+        if selectedDayOffset == 0,
+           let snapshot = displayDaySnapshot,
+           snapshot.key == displayDayKey,
+           let todayKey = snapshot.day?.day {
+            return todayKey
+        }
         return Repository.localDayKey(selectedLogicalDay)
     }
 
-    /// The DailyMetric shown for the selected day. Offset 0 prefers the live `repo.today` (so the small
-    /// hours after midnight still show the logical day's banked row), past offsets look the stored row up
-    /// by key. nil when no row exists for that day, every read-out then renders its honest empty state.
-    private var displayDay: DailyMetric? {
+    /// The inputs that can change which row Today presents. `logicalKey` and `localKey` are both retained
+    /// because they intentionally differ during the rollover window.
+    private struct DisplayDayKey: Equatable {
+        let refreshSeq: Int
+        let offset: Int
+        let logicalKey: String
+        let localKey: String
+        let selectedDayKey: String
+    }
+
+    private struct DisplayDaySnapshot {
+        let key: DisplayDayKey
+        let day: DailyMetric?
+    }
+
+    private var displayDayKey: DisplayDayKey {
+        let now = Date()
+        let logicalDay = Repository.logicalDay(now)
+        let selectedDay = Calendar.current.date(byAdding: .day, value: -selectedDayOffset,
+                                                to: logicalDay) ?? logicalDay
+        return DisplayDayKey(
+            refreshSeq: repo.refreshSeq,
+            offset: selectedDayOffset,
+            logicalKey: Repository.logicalDayKey(now),
+            localKey: Repository.localDayKey(now),
+            selectedDayKey: Repository.localDayKey(selectedDay))
+    }
+
+    /// Pure selection policy behind the snapshot. The selected-day case remains a backward lookup, while
+    /// Today delegates to the existing logical/local resolver so the #144 and #304 rollover guarantees are
+    /// byte-for-byte shared with Repository.
+    nonisolated static func resolveDisplayDay(days: [DailyMetric], selectedDayOffset: Int,
+                                              logicalKey: String, localKey: String,
+                                              selectedDayKey: String) -> DailyMetric? {
         if selectedDayOffset == 0 {
-            return repo.today ?? repo.days.last(where: { $0.day == selectedDayKey })
+            return Repository.resolveToday(days: days, logicalKey: logicalKey, localKey: localKey)
         }
-        return repo.days.last(where: { $0.day == selectedDayKey })
+        return days.last(where: { $0.day == selectedDayKey })
+    }
+
+    /// The DailyMetric shown for the selected day. The normal path is the O(1) presentation snapshot. The
+    /// fallback only covers the single render before SwiftUI commits a changed key; it is deliberately pure
+    /// and has the identical resolver semantics, so a rollover or refresh never renders a stale row.
+    private var displayDay: DailyMetric? {
+        let key = displayDayKey
+        if let snapshot = displayDaySnapshot, snapshot.key == key {
+            return snapshot.day
+        }
+        return Self.resolveDisplayDay(days: repo.days,
+                                      selectedDayOffset: key.offset,
+                                      logicalKey: key.logicalKey,
+                                      localKey: key.localKey,
+                                      selectedDayKey: key.selectedDayKey)
+    }
+
+    private func refreshDisplayDaySnapshot() {
+        let key = displayDayKey
+        displayDaySnapshot = DisplayDaySnapshot(
+            key: key,
+            day: Self.resolveDisplayDay(days: repo.days,
+                                        selectedDayOffset: key.offset,
+                                        logicalKey: key.logicalKey,
+                                        localKey: key.localKey,
+                                        selectedDayKey: key.selectedDayKey))
     }
 
     /// Recovery cold-start: recovery is nil until the HRV baseline crosses the seed gate
@@ -1014,7 +1087,7 @@ struct TodayView: View {
             daysCount: repo.days.count,
             firstDay: repo.days.first?.day,
             lastDay: repo.days.last,
-            today: repo.today,
+            today: displayDay,
             offset: selectedDayOffset,
             refreshSeq: repo.refreshSeq)
     }
@@ -1034,7 +1107,7 @@ struct TodayView: View {
         guard selectedDayOffset == 0 else { return nil }
         return RecoveryScorer.calibrationNights(nightlyHrv: repo.days.map(\.avgHrv),
                                                 dayKeys: repo.days.map(\.day),
-                                                hasRecovery: repo.today?.recovery != nil)
+                                                hasRecovery: displayDay?.recovery != nil)
     }
 
     private func buildDerived() -> TodayDerived {
@@ -1098,7 +1171,7 @@ struct TodayView: View {
         // data on screen, including the pre-04:00 case where `repo.today` is still the logical day's row
         // but raw `selectedLogicalDay` formatting could read a calendar day ahead (#15). Past offsets, and
         // a not-yet-banked today, fall back to the logical day.
-        if selectedDayOffset == 0, let day = repo.today?.day, let date = Self.dayParser.date(from: day) {
+        if selectedDayOffset == 0, let day = displayDay?.day, let date = Self.dayParser.date(from: day) {
             return Self.navDayFmt.string(from: date)
         }
         return Self.navDayFmt.string(from: selectedLogicalDay)
@@ -1412,6 +1485,7 @@ struct TodayView: View {
     }
 
     private func loadDaytimeStressForRibbon() async {
+        let requestedDayKey = Repository.localDayKey(Date())
         let calendar = Calendar.current
         let start = Int(calendar.startOfDay(for: Date()).timeIntervalSince1970)
         let end = Int(Date().timeIntervalSince1970)
@@ -1422,8 +1496,12 @@ struct TodayView: View {
         }
         let rr = (try? await repo.storeHandle()?.rrIntervals(
             deviceId: repo.deviceId, from: start, to: end, limit: 200_000)) ?? []
-        daytimeStress = DaytimeStress.analyze(
-            hr: hr, rr: rr, tzOffsetSeconds: TimeZone.current.secondsFromGMT(for: Date()))
+        let offset = TimeZone.current.secondsFromGMT(for: Date())
+        let result = await Task.detached(priority: .utility) {
+            DaytimeStress.analyze(hr: hr, rr: rr, tzOffsetSeconds: offset)
+        }.value
+        guard !Task.isCancelled, requestedDayKey == Repository.localDayKey(Date()) else { return }
+        daytimeStress = result
     }
 
     /// 24 hour-slots for the ribbon: scored hours carry their 0–3 level and every
@@ -1469,8 +1547,12 @@ struct TodayView: View {
     }
 
     private var paperHealthMonitorCard: some View {
-        HealthDashboardCard(
-            tiles: enabledDashboardCards.map(healthDashboardTile),
+        // Resolve the presentation row ONCE and pass it through the complete tile build. The previous
+        // `map(healthDashboardTile)` had each tile re-enter `dashboardValue -> displayDay`, which multiplied
+        // a full repository scan by every enabled card during a single SwiftUI body update.
+        let day = displayDay
+        return HealthDashboardCard(
+            tiles: enabledDashboardCards.map { healthDashboardTile($0, day: day) },
             status: String(localized: "\(enabledDashboardCards.count) of 9 metrics selected"),
             onTile: { id in
                 guard let card = DashboardCard(rawValue: id) else { return }
@@ -1483,19 +1565,20 @@ struct TodayView: View {
         )
     }
 
-    private func healthDashboardTile(_ card: DashboardCard) -> HealthDashboardTileModel {
-        let fullValue = dashboardValue(card)
+    private func healthDashboardTile(_ card: DashboardCard, day: DailyMetric?) -> HealthDashboardTileModel {
+        let fullValue = dashboardValue(card, day: day)
         let unit = card.unit.isEmpty ? nil : card.unit
         let value = unit.map { fullValue.replacingOccurrences(of: " \($0)", with: "") } ?? fullValue
         return HealthDashboardTileModel(
             id: card.id, icon: card.icon, label: card.title, value: value, unit: unit,
-            spark: dashboardSpark(card), rail: dashboardRail(card), accent: dashboardTint(card)
+            spark: dashboardSpark(card), rail: dashboardRail(card, day: day), accent: dashboardTint(card)
         )
     }
 
     private var dashboardCatalogItems: [DashboardCatalogItem] {
-        DashboardCardPrefs.eligibleCards(hydrationEnabled: hydrationEnabled).map {
-            DashboardCatalogItem(card: $0, value: dashboardValue($0),
+        let day = displayDay
+        return DashboardCardPrefs.eligibleCards(hydrationEnabled: hydrationEnabled).map {
+            DashboardCatalogItem(card: $0, value: dashboardValue($0, day: day),
                                  spark: dashboardSpark($0), tint: dashboardTint($0))
         }
     }
@@ -1514,8 +1597,7 @@ struct TodayView: View {
         }
     }
 
-    private func dashboardRail(_ card: DashboardCard) -> HealthTileRail {
-        let day = displayDay
+    private func dashboardRail(_ card: DashboardCard, day: DailyMetric?) -> HealthTileRail {
         switch card {
         case .hrv:
             return vitalRail(value: day?.avgHrv, history: sparks["hrv"] ?? [],
@@ -1596,6 +1678,10 @@ struct TodayView: View {
                 AutoWorkoutCard()
                 DonationNudgeCard()
                 ActiveWorkoutIndicatorSection()
+                // Keep the Recovery empty state honest while a historical offload is still writing. The
+                // score can legitimately trail Sleep until the corresponding R-R frames land, so surface
+                // the in-progress sync instead of leaving a bare "Not rated" that looks final.
+                SyncingHistoryNoteIfBackfilling()
                 paperPillarCard
                 paperLiveHeartRateCard
                 paperStressCard
@@ -1637,7 +1723,8 @@ struct TodayView: View {
         // #755: NO per-edge safety net here, on purpose. A deep offload segments into many slices that each
         // flip `backfilling` false→true, so re-running the heavy history-wide reads on that edge would re-fire
         // them dozens of times mid-offload and re-create the very write-contention this fix removes. The
-        // deferred reads land via the SINGLE coalesced trigger instead: AppModel's debounced `lastSyncedAt`
+        // deferred reads land via the SINGLE coalesced trigger instead: AppModel's debounced
+        // `backfillDataAvailableAt`
         // sink fires one refresh ~2s after the offload quiesces, which bumps `refreshSeq` and re-fires the
         // task above with `backfilling` now settled false (and a return-to-tab re-fires it too). If that final
         // refresh diffs byte-identical, nothing new landed, so the already-shown history-wide data is correct.
@@ -1650,7 +1737,11 @@ struct TodayView: View {
             derived = buildDerived()
             derivedKey = newKey
         }
+        .onChangeCompat(of: displayDayKey) { _ in
+            refreshDisplayDaySnapshot()
+        }
         .onAppear {
+            refreshDisplayDaySnapshot()
             if !dashboardCardsNormalizedV2 {
                 dashboardCardsRaw = DashboardCardPrefs.encode(
                     DashboardCardPrefs.migratedSelection(dashboardCardsRaw,
@@ -2509,8 +2600,8 @@ struct TodayView: View {
     /// suffix appended. Returns ", " when the value isn't available yet, never a fabricated number. Reuses
     /// the same reads the Key-Metrics tiles use (displayDay vitals, restScore / sleep duration, the pinned
     /// Stress / Fitness age / Vitality, steps, calories).
-    private func dashboardValue(_ card: DashboardCard) -> String {
-        let d = displayDay
+    private func dashboardValue(_ card: DashboardCard, day: DailyMetric? = nil) -> String {
+        let d = day ?? displayDay
         func withUnit(_ s: String) -> String {
             guard s != "—" else { return "—" }
             return card.unit.isEmpty ? s : "\(s) \(card.unit)"
@@ -3952,7 +4043,7 @@ struct TodayView: View {
     /// history-wide reads are the bulk (~40 reads) and are DEFERRED while a multi-chunk backfill is actively
     /// writing to the single-connection store (`live.backfilling`), because running them then both stutters
     /// the screen and contends with the bulk writes. They are never permanently skipped: the coalesced
-    /// trailing refresh after the backfill quiesces (AppModel's debounced `lastSyncedAt` sink) bumps
+    /// trailing refresh after the backfill quiesces (AppModel's debounced `backfillDataAvailableAt` sink) bumps
     /// `refreshSeq`, which re-fires this task with `live.backfilling` false, and the deferred set runs then.
     /// Values + provenance are byte-identical to the old single-pass `loadAll` whenever each part runs.
     private func loadAll() async {

@@ -390,6 +390,66 @@ struct BackfillContinuation {
     }
 }
 
+/// Tracks whether one connected series of historical-offload sessions produced data that needs the
+/// post-backfill scoring/refresh pass. A deep backlog may span several 60-second sessions; publishing on
+/// every session makes the dashboard compete with the next session's writes, while publishing only on
+/// `HISTORY_COMPLETE` strands durable rows after an idle timeout. Consume exactly once when the burst
+/// actually stops, keeping the UI's "last synced" status truthful.
+struct BackfillBurstPublication: Equatable {
+    private(set) var needsPublication = false
+
+    mutating func record(rowsPersisted: Int, requiresTimestampHeal: Bool) {
+        needsPublication = needsPublication || rowsPersisted > 0 || requiresTimestampHeal
+    }
+
+    mutating func consume() -> Bool {
+        defer { needsPublication = false }
+        return needsPublication
+    }
+
+    mutating func reset() {
+        needsPublication = false
+    }
+}
+
+/// Coalesces the diagnostic history-chunk counter before it touches `LiveState`. The exact ACK count stays
+/// local for liveness decisions, while SwiftUI sees at most four whole-screen invalidations per second.
+struct HistoricalProgressThrottle: Equatable {
+    private(set) var acknowledged = 0
+    private var lastPublished = 0
+    private var lastPublishedAt: TimeInterval?
+    let minimumPublishInterval: TimeInterval
+
+    init(minimumPublishInterval: TimeInterval = 0.25) {
+        self.minimumPublishInterval = minimumPublishInterval
+    }
+
+    mutating func begin() {
+        acknowledged = 0
+        lastPublished = 0
+        lastPublishedAt = nil
+    }
+
+    mutating func acknowledge(now: TimeInterval) -> Int? {
+        acknowledged += 1
+        return publishIfDue(now: now)
+    }
+
+    mutating func flush(now: TimeInterval) -> Int? {
+        guard acknowledged != lastPublished else { return nil }
+        lastPublished = acknowledged
+        lastPublishedAt = now
+        return acknowledged
+    }
+
+    private mutating func publishIfDue(now: TimeInterval) -> Int? {
+        guard lastPublishedAt.map({ now - $0 >= minimumPublishInterval }) ?? true else { return nil }
+        lastPublished = acknowledged
+        lastPublishedAt = now
+        return acknowledged
+    }
+}
+
 /// #927: the "overnight only" schedule for Continuous HRV capture. When the user opts in, the dense
 /// R10/R11 + TOGGLE realtime R-R stream that continuous capture holds armed 24/7 is armed only inside a
 /// nightly window, roughly halving the battery cost (overnight is where the HRV/recovery/sleep value is;
@@ -655,6 +715,11 @@ public final class BLEManager: NSObject, ObservableObject {
     private var rawCaptureInFlight = false
     /// Ordered queue of frames awaiting drain through the serial Backfiller task.
     private var backfillFrameQueue: [[UInt8]] = []
+    /// Accumulates durable writes across an auto-continued history burst. The dashboard is notified once
+    /// only after `maybeAutoContinueBackfill` proves the burst has quiesced.
+    private var backfillBurstPublication = BackfillBurstPublication()
+    /// Exact ACK count plus a coalesced UI publication edge for a fast historical offload.
+    private var historicalProgress = HistoricalProgressThrottle()
     /// True while the drain task is running (prevents a second drain task from launching).
     private var backfillDraining = false
     /// Keep each main-actor drain slice small enough that SwiftUI can process input/paint between slices.
@@ -1550,10 +1615,11 @@ public final class BLEManager: NSObject, ObservableObject {
     /// the Backfiller; it is passed here only for logging.
     func ackHistoricalChunk(trim: UInt32, endData: [UInt8]) {
         send(.historicalDataResult, payload: [0x01] + endData, writeType: .withResponse)
-        // Progress signal for the "Syncing strap history…" UI (#77). Same main-queue delegate path as
-        // the other state mutations (e.g. lastSyncedAt in exitBackfilling). NOT historicalAckLogCounter
-        // — that's a puffin-write log throttle that never increments on WHOOP 4.
-        state.syncChunksThisSession += 1
+        // The exact counter remains local for liveness; publish no more than 4 Hz so a high-throughput
+        // backlog does not invalidate the entire Devices screen once per safe chunk ACK.
+        if let visible = historicalProgress.acknowledge(now: Date().timeIntervalSince1970) {
+            state.syncChunksThisSession = visible
+        }
     }
 
     // MARK: Backfill helpers
@@ -1588,6 +1654,7 @@ public final class BLEManager: NSObject, ObservableObject {
         backfiller.begin(family: selectedModel.deviceFamily, continuedAfterRows: consecutiveAutoContinues > 0)
         backfilling = true
         state.backfilling = true
+        historicalProgress.begin()
         state.syncChunksThisSession = 0
         state.rejectedFramesThisSession = 0
         state.rejectedFramesUnarchived = 0
@@ -1688,6 +1755,9 @@ public final class BLEManager: NSObject, ObservableObject {
         guard backfilling else { return }
         backfilling = false
         state.backfilling = false
+        if let visible = historicalProgress.flush(now: Date().timeIntervalSince1970) {
+            state.syncChunksThisSession = visible
+        }
         // #174: a backfill just ended. Start (or extend) the deep-packet cooldown from this instant so
         // any type-0x2F records the strap flushes in the seconds after the session aren't miscounted as
         // the live R22 stream — they're the offload's tail.
@@ -1738,9 +1808,14 @@ public final class BLEManager: NSObject, ObservableObject {
         // wandering clock and may have banked similar garbage on an OLDER build whose gate was weaker. Arm
         // a heal re-run so the next analyze tick purges any such pollution — not gated behind the one-shot
         // done flag. Pure UserDefaults set (no engine handle here); IntelligenceEngine honours it next tick.
-        if (backfiller?.sessionDroppedImplausible ?? 0) > 0 {
+        let sessionRowsPersisted = backfiller?.sessionRowsPersisted ?? 0
+        let sessionDroppedImplausible = backfiller?.sessionDroppedImplausible ?? 0
+        if sessionDroppedImplausible > 0 {
             IntelligenceEngine.requestTimestampReheal()
         }
+        backfillBurstPublication.record(
+            rowsPersisted: sessionRowsPersisted,
+            requiresTimestampHeal: sessionDroppedImplausible > 0)
         // #364 auto-continue spin-detector: did THIS session move the strap's trim cursor? Compare the
         // Backfiller's current high-water trim against where it stood when the previous session ended.
         // A frozen cursor (console-only / strap refusing to trim) ⇒ don't re-kick (it would spin forever).
@@ -1836,7 +1911,7 @@ public final class BLEManager: NSObject, ObservableObject {
             // 5/MG case isn't a failure — live HR is streaming fine over 0x2A37, the history offload is
             // just experimental/empty on that firmware. "Banked" = this offload made ANY offload progress
             // (chunks acked, rows persisted, or deep packets seen); an empty 5/MG offload has none.
-            let bankedThisOffload = state.syncChunksThisSession > 0
+            let bankedThisOffload = historicalProgress.acknowledged > 0
                 || (backfiller?.sessionRowsPersisted ?? 0) > 0
                 || state.deepPacketsThisSession > 0
             if selectedModel.deviceFamily == .whoop5 {
@@ -1875,8 +1950,19 @@ public final class BLEManager: NSObject, ObservableObject {
         // by the consecutive-cap and the spin-detector inside the pure predicate either way.
         if reason == "timeout" || reason == "HISTORY_COMPLETE" {
             maybeAutoContinueBackfill(trimAdvanced: trimAdvanced,
-                                      rowsPersisted: backfiller?.sessionRowsPersisted ?? 0)
+                                      rowsPersisted: sessionRowsPersisted)
+        } else {
+            publishBackfillBurstIfNeeded()
         }
+    }
+
+    /// Emit a data-availability edge only after the full burst stops. `lastSyncedAt` remains reserved for
+    /// formal `HISTORY_COMPLETE`, so an idle-timeout with durable rows refreshes the dashboard without
+    /// lying that the strap finished syncing.
+    private func publishBackfillBurstIfNeeded() {
+        guard backfillBurstPublication.consume() else { return }
+        state.backfillDataAvailableAt = Date().timeIntervalSince1970
+        log("Backfill: durable history is ready after the sync burst; scheduling one dashboard refresh.")
     }
 
     /// #364 / #25: evaluate (and, if warranted, fire) an immediate back-to-back backfill after a 60s
@@ -1893,7 +1979,10 @@ public final class BLEManager: NSObject, ObservableObject {
     private func maybeAutoContinueBackfill(trimAdvanced: Bool, rowsPersisted: Int) {
         // Cheap pre-checks first (no Task if we already know we won't continue): still connected, under
         // the cap, and the trim moved. The frontier read only happens when those already hold.
-        guard state.connected, state.bonded else { return }
+        guard state.connected, state.bonded else {
+            publishBackfillBurstIfNeeded()
+            return
+        }
         let newest = strapNewestTs
         let count = consecutiveAutoContinues
         Task { @MainActor in
@@ -1929,6 +2018,7 @@ public final class BLEManager: NSObject, ObservableObject {
                 if count < BackfillContinuation.defaultMaxAutoContinues {
                     consecutiveAutoContinues = 0
                 }
+                self.publishBackfillBurstIfNeeded()
                 return
             }
             // Guard against a race: a real backfill may already have re-started (periodic/connect) in the
@@ -1941,6 +2031,12 @@ public final class BLEManager: NSObject, ObservableObject {
             // requestSync still re-checks connected/bonded/not-backfilling before kicking, and the
             // consecutive-cap above is the runaway guard.
             requestSync(.autoContinue)
+            if !backfilling {
+                // The continuation could not start (for example, the store is briefly unavailable).
+                // The raw rows from the just-ended session are still durable and must not wait for a
+                // future clean completion before becoming visible.
+                publishBackfillBurstIfNeeded()
+            }
         }
     }
 
@@ -3359,9 +3455,23 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         // fresh budget of back-to-back re-kicks and starts its trim-advance comparison from scratch.
         consecutiveAutoContinues = 0
         lastSessionEndTrim = nil
+        // A disconnect terminates the current burst. `exitBackfilling` never ran for an in-flight offload,
+        // so first capture THIS session's committed rows before publishing the one deferred refresh edge.
+        if backfilling {
+            let rowsPersisted = backfiller?.sessionRowsPersisted ?? 0
+            let droppedImplausible = backfiller?.sessionDroppedImplausible ?? 0
+            if droppedImplausible > 0 { IntelligenceEngine.requestTimestampReheal() }
+            backfillBurstPublication.record(
+                rowsPersisted: rowsPersisted,
+                requiresTimestampHeal: droppedImplausible > 0)
+        }
+        // If earlier slices in this burst were durable, publish now rather than requiring a later clean
+        // HISTORY_COMPLETE to score/show them.
+        publishBackfillBurstIfNeeded()
         backfilling = false
         state.backfilling = false
         state.syncChunksThisSession = 0
+        historicalProgress.begin()
         // A mid-sync disconnect bypasses exitBackfilling, so clear the reject counters here too —
         // otherwise a stale non-zero count survives until the next beginBackfill. (#77/#91)
         state.rejectedFramesThisSession = 0

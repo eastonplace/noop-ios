@@ -415,7 +415,8 @@ final class Repository: ObservableObject {
     /// night both survive) and dropping only EXACT-duplicate blocks (same start+end) recorded under both
     /// union ids. The downstream `mergeSleep`/`userEditedDays` do the per-day collapse, exactly as before.
     private func unionSleepSessions(store: WhoopStore, from: Int, to: Int, limit: Int = 4000) async -> [CachedSleepSession] {
-        Self.dedupBlocks(await unionRawSleepBlocks(store: store, ids: importedReadIds, from: from, to: to, limit: limit))
+        Self.dedupBlocks(await unionRawSleepBlocks(store: store, ids: importedReadIds, from: from, to: to, limit: limit)
+            .filter(Self.hasValidSleepWindow))
     }
 
     /// Computed ("-noop") daily-metric rows across the computed union, DEDUPED per day (active strap's
@@ -433,7 +434,8 @@ final class Repository: ObservableObject {
     /// Computed ("-noop") sleep sessions across the computed union, keeping ALL sessions per day and dropping
     /// only EXACT-duplicate blocks recorded under both computed siblings.
     private func unionComputedSleepSessions(store: WhoopStore, from: Int, to: Int, limit: Int = 4000) async -> [CachedSleepSession] {
-        Self.dedupBlocks(await unionRawSleepBlocks(store: store, ids: computedReadIds, from: from, to: to, limit: limit))
+        Self.dedupBlocks(await unionRawSleepBlocks(store: store, ids: computedReadIds, from: from, to: to, limit: limit)
+            .filter(Self.hasValidSleepWindow))
     }
 
     /// ALL sleep blocks across `ids` for a ts range, concatenated (NOT collapsed to one per day, used by
@@ -456,6 +458,12 @@ final class Repository: ObservableObject {
             if seen.insert(key).inserted { out.append(b) }
         }
         return out
+    }
+
+    /// Legacy rows can pre-date the shared writer guard. Keep them in the database for explicit user review,
+    /// but never let a malformed duration participate in dashboard selection, recovery, or sleep timing.
+    nonisolated private static func hasValidSleepWindow(_ session: CachedSleepSession) -> Bool {
+        SleepSessionWindow.isValid(start: session.effectiveStartTs, end: session.endTs)
     }
 
     /// Drop workout rows that share a (startTs, endTs, sport, source) key, the same session recorded under
@@ -1293,8 +1301,10 @@ final class Repository: ObservableObject {
         // UNION the active strap + canonical (imported) and their computed siblings, keeping ALL blocks (not
         // one per day, this view expands split sleeps), but dropping any block that appears under BOTH union
         // ids (same start+end key) so a day present in both namespaces isn't double-listed.
-        let imported = Self.dedupBlocks(await unionRawSleepBlocks(store: store, ids: importedReadIds, from: lo, to: hi))
-        let computed = Self.dedupBlocks(await unionRawSleepBlocks(store: store, ids: computedReadIds, from: lo, to: hi))
+        let imported = Self.dedupBlocks(await unionRawSleepBlocks(store: store, ids: importedReadIds, from: lo, to: hi)
+            .filter(Self.hasValidSleepWindow))
+        let computed = Self.dedupBlocks(await unionRawSleepBlocks(store: store, ids: computedReadIds, from: lo, to: hi)
+            .filter(Self.hasValidSleepWindow))
         let cal = Calendar.current
         func endDay(_ s: CachedSleepSession) -> Date {
             cal.startOfDay(for: Date(timeIntervalSince1970: TimeInterval(s.endTs)))
@@ -1303,6 +1313,20 @@ final class Repository: ObservableObject {
         for s in imported { importedDays.insert(endDay(s)) }
         let computedKept = computed.filter { !importedDays.contains(endDay($0)) }
         return (imported + computedKept).sorted { $0.effectiveStartTs < $1.effectiveStartTs }
+    }
+
+    /// Rows that are deliberately quarantined from scores because their persisted bounds are implausible.
+    /// They remain visible through the Sleep screen's repair affordance; this method never mutates or deletes
+    /// user data.
+    func invalidSleepSessions(days: Int = 4000) async -> [CachedSleepSession] {
+        guard let store = await ensureStore() else { return [] }
+        let now = Int(Date().timeIntervalSince1970)
+        let lo = now - days * 86_400, hi = now + 86_400
+        let imported = await unionRawSleepBlocks(store: store, ids: importedReadIds, from: lo, to: hi)
+        let computed = await unionRawSleepBlocks(store: store, ids: computedReadIds, from: lo, to: hi)
+        return Self.dedupBlocks(imported + computed)
+            .filter { !Self.hasValidSleepWindow($0) }
+            .sorted { $0.effectiveStartTs < $1.effectiveStartTs }
     }
 
     /// The persisted per-epoch MOTION series for each of `starts` (detected session start keys), keyed by
@@ -1336,13 +1360,15 @@ final class Repository: ObservableObject {
         let lo = now - days * 86_400, hi = now + 86_400
         // UNION active strap + canonical (imported) and their computed siblings, de-duplicating identical
         // blocks recorded under both ids so a day present in both namespaces doesn't double-weight the learner.
-        let imported = Self.dedupBlocks(await unionRawSleepBlocks(store: store, ids: importedReadIds, from: lo, to: hi))
-        let computed = Self.dedupBlocks(await unionRawSleepBlocks(store: store, ids: computedReadIds, from: lo, to: hi))
+        let imported = Self.dedupBlocks(await unionRawSleepBlocks(store: store, ids: importedReadIds, from: lo, to: hi)
+            .filter(Self.hasValidSleepWindow))
+        let computed = Self.dedupBlocks(await unionRawSleepBlocks(store: store, ids: computedReadIds, from: lo, to: hi)
+            .filter(Self.hasValidSleepWindow))
         let offsetSec = TimeZone.current.secondsFromGMT()
         let blocks = (imported + computed).compactMap { s -> SleepStageTotals.HistoryBlock? in
             let start = s.effectiveStartTs, end = s.endTs
-            let (duration, durationOverflow) = end.subtractingReportingOverflow(start)
-            guard !durationOverflow, duration > 0 else { return nil }
+            guard Self.hasValidSleepWindow(s) else { return nil }
+            let duration = end - start
             let (mid, midpointOverflow) = start.addingReportingOverflow(duration / 2)
             guard !midpointOverflow else { return nil }
             let dayKey = AnalyticsEngine.dayString(mid, offsetSec: offsetSec)

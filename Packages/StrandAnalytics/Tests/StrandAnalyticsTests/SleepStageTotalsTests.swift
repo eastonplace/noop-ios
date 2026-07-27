@@ -43,6 +43,18 @@ final class SleepStageTotalsTests: XCTestCase {
         XCTAssertNil(SleepStageTotals.dailyAggregate([nil, "garbage"]))
     }
 
+    func testStageLessPartialCannotDisplaceStagedSleep() {
+        let alignedPartial = ts525("2026-06-15T03:30")
+        let stagedSleep = ts525("2026-06-15T12:00")
+        let blocks: [(startTs: Int, stagesJSON: String?)] = [
+            (alignedPartial, nil),
+            (stagedSleep, #"{"awake":0,"light":45,"deep":0,"rem":0}"#),
+        ]
+        XCTAssertEqual(
+            SleepStageTotals.mainNightIndexByStages(blocks, onsetByStart: [:], offsetSec: 0), 1,
+            "a stage-less partial retains its fallback role but cannot steal a day from staged sleep")
+    }
+
     func testExtremeSegmentTimestampsAreIgnoredWhileLegitimateStagesRemain() throws {
         let json = #"""
         [{"start":0,"end":600,"stage":"light"},

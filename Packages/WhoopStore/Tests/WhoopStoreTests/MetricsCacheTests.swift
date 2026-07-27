@@ -1,5 +1,6 @@
 import XCTest
 import GRDB
+import WhoopProtocol
 @testable import WhoopStore
 
 final class MetricsCacheTests: XCTestCase {
@@ -51,6 +52,33 @@ final class MetricsCacheTests: XCTestCase {
         ], deviceId: "devA")
         let rows = try await store.sleepSessions(deviceId: "devA", from: 400, to: 1000, limit: 100)
         XCTAssertEqual(rows.map { $0.startTs }, [500])
+    }
+
+    func testOverlongImportedSleepSessionIsNotPersisted() async throws {
+        let store = try await WhoopStore.inMemory()
+        let start = 100_000
+        let changed = try await store.upsertSleepSessions([
+            CachedSleepSession(startTs: start,
+                               endTs: start + SleepSessionWindow.maximumDurationSeconds + 1,
+                               efficiency: nil, restingHr: nil, avgHrv: nil, stagesJSON: nil)
+        ], deviceId: "devA")
+        XCTAssertEqual(changed, 0)
+        let rows = try await store.sleepSessions(deviceId: "devA", from: 0, to: 200_000, limit: 10)
+        XCTAssertTrue(rows.isEmpty)
+    }
+
+    func testInvalidManualSleepEditIsNoop() async throws {
+        let store = try await WhoopStore.inMemory()
+        try await store.upsertSleepSessions([
+            CachedSleepSession(startTs: 100_000, endTs: 130_000,
+                               efficiency: nil, restingHr: nil, avgHrv: nil, stagesJSON: nil)
+        ], deviceId: "devA")
+        let changed = try await store.applySleepEdit(
+            deviceId: "devA", detectedStartTs: 100_000, newStartTs: 100_000,
+            newEndTs: 100_000 + SleepSessionWindow.maximumDurationSeconds + 1)
+        XCTAssertEqual(changed, 0)
+        let row = try await store.sleepSessions(deviceId: "devA", from: 0, to: 200_000, limit: 10).first
+        XCTAssertEqual(row?.endTs, 130_000)
     }
 
     // MARK: - v13 user-edited sleep bounds (#367 parity: edits survive re-sync)

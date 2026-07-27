@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import WhoopProtocol
 
 // MARK: - Offline cache of SERVER-computed metrics (Task 3.1 → M0.4)
 // This file is purely a local cache of values computed by the server — the phone does NO metric
@@ -126,9 +127,12 @@ extension WhoopStore {
     /// Upsert cached sleep sessions. Natural key (deviceId, startTs). Returns rows changed.
     @discardableResult
     public func upsertSleepSessions(_ sessions: [CachedSleepSession], deviceId: String) async throws -> Int {
-        try syncWrite { db in
+        return try syncWrite { db in
             var n = 0
             for s in sessions {
+                guard SleepSessionWindow.hasPlausibleBounds(start: s.effectiveStartTs, end: s.endTs) else {
+                    continue
+                }
                 try db.execute(sql: """
                     INSERT INTO sleepSession
                         (deviceId, startTs, endTs, efficiency, restingHr, avgHrv, stagesJSON,
@@ -171,7 +175,8 @@ extension WhoopStore {
     @discardableResult
     public func applySleepEdit(deviceId: String, detectedStartTs: Int, newStartTs: Int, newEndTs: Int,
                                stagesJSON: String? = nil) async throws -> Int {
-        try syncWrite { db in
+        guard SleepSessionWindow.isValid(start: newStartTs, end: newEndTs) else { return 0 }
+        return try syncWrite { db in
             try db.execute(sql: """
                 UPDATE sleepSession
                 SET startTsAdjusted = ?, endTs = ?, stagesJSON = COALESCE(?, stagesJSON), userEdited = 1
@@ -212,7 +217,8 @@ extension WhoopStore {
     @discardableResult
     public func insertManualSleepSession(deviceId: String, startTs: Int, endTs: Int,
                                          efficiency: Double?, stagesJSON: String?) async throws -> Int {
-        try syncWrite { db in
+        guard SleepSessionWindow.isValid(start: startTs, end: endTs) else { return 0 }
+        return try syncWrite { db in
             try db.execute(sql: """
                 INSERT INTO sleepSession
                     (deviceId, startTs, endTs, efficiency, restingHr, avgHrv, stagesJSON,

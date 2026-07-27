@@ -57,6 +57,10 @@ public final class LiveState: ObservableObject {
     @Published public internal(set) var strapRange: StrapRange?
     @Published public var strapNeedsReboot = false
     @Published public var lastSyncedAt: TimeInterval?
+    /// A backfill burst ended with durable raw data (or a timestamp-heal request). This is deliberately
+    /// separate from `lastSyncedAt`: partial/offload-timeout data must become visible and get scored, but
+    /// must never be presented as a completed sync.
+    @Published public var backfillDataAvailableAt: TimeInterval?
     @Published public var lastSyncError: String?
     @Published public var backfilling = false
     @Published public var syncChunksThisSession = 0

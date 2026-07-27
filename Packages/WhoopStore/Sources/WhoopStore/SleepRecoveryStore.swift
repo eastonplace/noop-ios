@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import WhoopProtocol
 
 /// Durable provenance for a detector retry or a user-bounded sleep reprocessing attempt.
 /// It stores only summary metadata; the raw physiological samples remain in their source tables.
@@ -63,6 +64,7 @@ public enum ManualSleepRecoveryWriteResult: Equatable, Sendable {
 
 enum SleepRecoveryStoreError: Error, Equatable {
     case incompleteDailyOverride
+    case invalidSleepWindow
 }
 
 extension WhoopStore {
@@ -82,6 +84,9 @@ extension WhoopStore {
         daily: DailyMetric? = nil,
         replacingStartTs: Int? = nil
     ) async throws -> ManualSleepRecoveryWriteResult {
+        guard SleepSessionWindow.isValid(start: session.effectiveStartTs, end: session.endTs) else {
+            throw SleepRecoveryStoreError.invalidSleepWindow
+        }
         // A daily row without its durable overlay (or vice versa) would be erased by
         // the next analytics pass. Reject the programmer error before opening a write.
         guard (dailyOverride == nil) == (daily == nil) else {
