@@ -108,13 +108,14 @@ enum WearableImporter {
         // The numbers are the import's own parsed + persisted counts, so emission changes nothing saved.
         if let trace {
             let daysMapped = Set(result.days.map { $0.day }).count
+            let sleepRowsRejected = max(0, result.sleeps.count - sessions.count)
             let lines: [String] = [
                 ImportTrace.parserVersionLine(sourceKind: result.brand.dataSourceKind, importerVersion: importerVersion),
                 ImportTrace.stageLine(category: "days", rowsIn: result.days.count, rowsOut: metricsWritten),
                 ImportTrace.stageLine(category: "sleeps", rowsIn: sessions.count, rowsOut: sessionsWritten),
-                // The Oura/Fitbit/Garmin parser drops unusable rows upstream in StrandImport; the app map
-                // keeps every accepted day/sleep, so the reject signal at this seam is the day-delta below.
-                ImportTrace.rejectLine(droppedRows: 0, skippedSpans: result.summary.skippedSpans),
+                // Count map-boundary rejects honestly: invalid/unrepresentable or out-of-policy windows were
+                // deliberately excluded above and must not masquerade as “zero dropped rows” in a shared log.
+                ImportTrace.rejectLine(droppedRows: sleepRowsRejected, skippedSpans: result.summary.skippedSpans),
                 ImportTrace.dayDeltaLine(category: "days", daysMapped: daysMapped, daysPersisted: metricsWritten),
             ]
             trace(lines)
