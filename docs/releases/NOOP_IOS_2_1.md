@@ -103,7 +103,7 @@ Selected WHOOP 5/MG sleep records can produce a separately labelled approximate 
 1. Exercise WHOOP 4.0 and WHOOP 5/MG connection, reconnect, background, clock recovery, and backfill behavior on physical hardware.
 2. Exercise real missed-night recovery, post-workout recovery, and sleep-session editing/recovery with recorded strap data.
 3. Complete assistive-technology checks: VoiceOver, Switch Control, maximum Dynamic Type, Reduce Motion, and 12/24-hour time.
-4. Recheck the draft PR's hosted CI after the repaired head is published; no earlier failing run is evidence for this head.
+4. Restore hosted CI log/runner availability for this head. Both workflow runs and their reruns failed before any job step, and GitHub log retrieval returned `BlobNotFound`; no hosted test outcome is asserted.
 
 ## Automated and simulator qualification
 
@@ -130,4 +130,4 @@ Still required before release are the physical-device and assistive-technology c
 
 ## Qualification limitations
 
-The local clone still cannot resolve `github.com`, so the repaired head is published through the GitHub connector rather than `git push`. Physical-device/WHOOP and assistive-technology evidence is deliberately not inferred from simulator results.
+The local clone initially could not resolve `github.com`, so the repaired head was first prepared through the GitHub connector and then fast-forwarded once normal fetch/push access recovered. Hosted Actions is currently an external blocker: the two workflows and both reruns failed before any step started, while GitHub's job-log endpoint returned `BlobNotFound`. Physical-device/WHOOP and assistive-technology evidence is deliberately not inferred from simulator results.

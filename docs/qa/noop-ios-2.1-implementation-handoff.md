@@ -396,4 +396,4 @@ Required migration path:
 4. Perform manual simulator checks of the populated workout-recovery and Sleep flows in light and dark appearance.
 5. Keep PR #23 draft until Easton explicitly authorizes a merge; physical WHOOP/iPhone and assistive-technology gates remain outstanding.
 
-No earlier GitHub Actions result is release evidence for the repaired PR head. Do not merge PR #23, staging, or main during this work.
+No hosted GitHub Actions result is release evidence for the repaired PR head: both workflows and their reruns failed before any job step started, and the job-log endpoint returned `BlobNotFound`. Do not merge PR #23, staging, or main during this work.
