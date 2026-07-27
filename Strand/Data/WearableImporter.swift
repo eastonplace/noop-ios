@@ -48,12 +48,14 @@ enum WearableImporter {
 
         // Sleep sessions → CachedSleepSession. Oura/Garmin give duration breakdowns without a per-segment
         // hypnogram, so those sessions carry no stage JSON (we never synthesize a fake one); Fitbit's
-        // optional `levels.data` hypnogram is mapped when present.
+        // optional `levels.data` hypnogram is mapped when present. The app-level import boundary enforces
+        // the same 30-minute to 16-hour policy as edits, scoring and rendering; rejected source rows remain
+        // represented by their daily rollups but cannot become a poisoning session record.
         var sessions: [CachedSleepSession] = []
         for s in result.sleeps {
             guard let startTs = timestamp(s.start),
                   let endTs = timestamp(s.end),
-                  positiveDuration(start: startTs, end: endTs) != nil
+                  SleepImportWindowPolicy.accepts(start: startTs, end: endTs)
             else { continue }
             let segs: [[String: Any]] = s.stages.compactMap {
                 guard let start = timestamp($0.start),
@@ -111,7 +113,7 @@ enum WearableImporter {
                 ImportTrace.stageLine(category: "days", rowsIn: result.days.count, rowsOut: metricsWritten),
                 ImportTrace.stageLine(category: "sleeps", rowsIn: sessions.count, rowsOut: sessionsWritten),
                 // The Oura/Fitbit/Garmin parser drops unusable rows upstream in StrandImport; the app map
-                // keeps every day/sleep, so the reject signal at this seam is the day-delta below.
+                // keeps every accepted day/sleep, so the reject signal at this seam is the day-delta below.
                 ImportTrace.rejectLine(droppedRows: 0, skippedSpans: result.summary.skippedSpans),
                 ImportTrace.dayDeltaLine(category: "days", daysMapped: daysMapped, daysPersisted: metricsWritten),
             ]
