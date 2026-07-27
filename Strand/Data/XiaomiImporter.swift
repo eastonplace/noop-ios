@@ -101,13 +101,13 @@ enum XiaomiImporter {
         // The numbers are the import's own parsed + persisted counts, so emission changes nothing saved.
         if let trace {
             let daysMapped = Set(metrics.map { $0.day }).count
+            let sleepRowsRejected = max(0, result.sleeps.count - sessions.count)
             let lines: [String] = [
                 ImportTrace.parserVersionLine(sourceKind: .xiaomiBand, importerVersion: importerVersion),
                 ImportTrace.stageLine(category: "days", rowsIn: metrics.count, rowsOut: metricsWritten),
                 ImportTrace.stageLine(category: "sleeps", rowsIn: sessions.count, rowsOut: sessionsWritten),
-                // The Mi Fitness rollups already drop unusable rows upstream in StrandImport; the app map
-                // keeps every accepted day/sleep, so the only reject signal at this seam is the day-delta below.
-                ImportTrace.rejectLine(droppedRows: 0, skippedSpans: result.summary.skippedSpans),
+                // Count invalid/unrepresentable or out-of-policy session windows dropped by the app map.
+                ImportTrace.rejectLine(droppedRows: sleepRowsRejected, skippedSpans: result.summary.skippedSpans),
                 ImportTrace.dayDeltaLine(category: "days", daysMapped: daysMapped, daysPersisted: metricsWritten),
             ]
             trace(lines)
