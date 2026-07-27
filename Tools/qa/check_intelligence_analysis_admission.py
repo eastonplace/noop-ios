@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Fail when production code bypasses IntelligenceEngine's serialized analysis admission.
 
-The implementation keeps one four-argument `analyzeRecent` body in `IntelligenceEngine.swift`.
+The implementation keeps one four-argument ``analyzeRecent`` body in ``IntelligenceEngine.swift``.
 Every production call using one or more defaults must resolve through the admitted overloads in
-`IntelligenceAnalysisCoordinator.swift`. Exactly one full-signature invocation is allowed there: the
+``IntelligenceAnalysisCoordinator.swift``. Exactly one full-signature invocation is allowed there: the
 coordinator's private executor calling the original implementation. Any other full call can reintroduce the
 post-backfill missing-Recovery race.
 """
@@ -19,6 +19,10 @@ from typing import Iterator
 CALL_NAME = "analyzeRecent"
 REQUIRED_LABELS = ("maxDays", "startOffset", "force", "refreshRepository")
 ADMISSION = Path("Strand/Data/IntelligenceAnalysisCoordinator.swift")
+FORBIDDEN_DUPLICATES = (
+    Path("Strand/Data/IntelligenceAnalysisAdmission.swift"),
+    Path("Strand/Data/IntelligenceEngine+AnalysisAdmission.swift"),
+)
 SEARCH_ROOTS = (Path("Strand"), Path("StrandiOS"), Path("StrandiOSShared"))
 
 
@@ -131,7 +135,7 @@ def previous_word(masked: str, index: int) -> str | None:
     return match.group(1) if match else None
 
 
-def direct_full_calls(path: Path, repository_root: Path) -> Iterator[tuple[int, str]]:
+def direct_full_calls(path: Path) -> Iterator[tuple[int, str]]:
     source = path.read_text(encoding="utf-8")
     masked = mask_comments_and_strings(source)
     pattern = re.compile(rf"\b{CALL_NAME}\s*\(")
@@ -161,11 +165,16 @@ def swift_files(repository_root: Path) -> Iterator[Path]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    script_path = Path(__file__).resolve()
+    try:
+        default_root = script_path.parents[2]
+    except IndexError:
+        default_root = Path.cwd()
     parser.add_argument(
         "repository_root",
         nargs="?",
         type=Path,
-        default=Path(__file__).resolve().parents[2],
+        default=default_root,
     )
     args = parser.parse_args()
     repository_root = args.repository_root.resolve()
@@ -176,9 +185,12 @@ def main() -> int:
 
     if not admission_path.is_file():
         violations.append((ADMISSION, 0, "serialized admission source is missing"))
+    for forbidden in FORBIDDEN_DUPLICATES:
+        if (repository_root / forbidden).exists():
+            violations.append((forbidden, 0, "duplicate analysis coordinator/wrapper must not exist"))
 
     for path in swift_files(repository_root):
-        calls = list(direct_full_calls(path, repository_root))
+        calls = list(direct_full_calls(path))
         relative = path.relative_to(repository_root)
         if relative == ADMISSION:
             allowed_calls.extend(calls)
@@ -205,7 +217,9 @@ def main() -> int:
         )
         return 1
 
-    print("Intelligence analysis admission audit passed.")
+    print(
+        f"Intelligence analysis admission audit passed; raw call at {ADMISSION}:{allowed_calls[0][0]}."
+    )
     return 0
 
 
