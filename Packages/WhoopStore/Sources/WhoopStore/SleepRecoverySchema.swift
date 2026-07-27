@@ -323,9 +323,12 @@ extension WhoopStore {
         migrator.registerMigration("sleep-efficiency-integrity-v1") { db in
             let invalidEfficiency = "efficiency IS NOT NULL AND (efficiency <= 0 OR efficiency > 100 OR efficiency != efficiency)"
 
+            // Clear the protected overlay first. If dailyMetric were cleaned before the override, the existing
+            // protection trigger would immediately copy the legacy zero back into the visible row. Once the
+            // override is null, the daily cleanup is stable and the user's sleep/session row is preserved.
+            try db.execute(sql: "UPDATE sleepRecoveryDailyOverride SET efficiency = NULL WHERE \(invalidEfficiency)")
             try db.execute(sql: "UPDATE sleepSession SET efficiency = NULL WHERE \(invalidEfficiency)")
             try db.execute(sql: "UPDATE dailyMetric SET efficiency = NULL WHERE \(invalidEfficiency)")
-            try db.execute(sql: "UPDATE sleepRecoveryDailyOverride SET efficiency = NULL WHERE \(invalidEfficiency)")
 
             try db.execute(sql: """
                 CREATE TRIGGER IF NOT EXISTS sleepSession_efficiency_integrity_after_insert
