@@ -1,26 +1,39 @@
 import Foundation
 
-/// The app owns one IntelligenceEngine, but tests/previews may create more. Keep one coordinator per engine
-/// identity so unrelated instances do not serialize each other while every caller of one engine shares the
-/// same admission queue. MainActor isolation makes the registry race-free.
+/// The app owns one IntelligenceEngine, but tests/previews may create more. Keep one coordinator per live
+/// engine identity so unrelated instances do not serialize each other while every caller of one engine shares
+/// the same admission queue. Weak entries are pruned on access; previews/tests cannot leak coordinators for
+/// engines that have already been released. MainActor isolation makes the registry race-free.
 @MainActor
 private enum IntelligenceAnalysisCoordinatorRegistry {
-    static var coordinators: [ObjectIdentifier: IntelligenceAnalysisCoordinator] = [:]
+    private final class Entry {
+        weak var engine: IntelligenceEngine?
+        let coordinator = IntelligenceAnalysisCoordinator()
+
+        init(engine: IntelligenceEngine) {
+            self.engine = engine
+        }
+    }
+
+    static var entries: [ObjectIdentifier: Entry] = [:]
 
     static func coordinator(for engine: IntelligenceEngine) -> IntelligenceAnalysisCoordinator {
+        entries = entries.filter { $0.value.engine != nil }
         let key = ObjectIdentifier(engine)
-        if let existing = coordinators[key] { return existing }
-        let created = IntelligenceAnalysisCoordinator()
-        coordinators[key] = created
-        return created
+        if let existing = entries[key], existing.engine === engine {
+            return existing.coordinator
+        }
+        let created = Entry(engine: engine)
+        entries[key] = created
+        return created.coordinator
     }
 }
 
 extension IntelligenceEngine {
     /// A queued forced request represents durable source change and must survive cancellation of the UI task
     /// that happened to request it. DispatchQueue's deadline is cancellation-insensitive, unlike Task.sleep;
-    /// use it only while waiting for the legacy in-engine lock to clear.
-    private static func waitForLegacyAnalysisLockPoll() async {
+    /// use it while waiting for the legacy in-engine lock or an active historical writer to clear.
+    private static func waitForAnalysisPoll() async {
         await withCheckedContinuation { continuation in
             DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(20)) {
                 continuation.resume()
@@ -55,7 +68,7 @@ extension IntelligenceEngine {
             // cancellation—the durable source change still needs to be scored and published.
             while self.computing {
                 guard admitted.force else { return }
-                await Self.waitForLegacyAnalysisLockPoll()
+                await Self.waitForAnalysisPoll()
             }
             guard admitted.force || !Task.isCancelled else { return }
 
@@ -66,6 +79,38 @@ extension IntelligenceEngine {
                 startOffset: admitted.startOffset,
                 force: admitted.force,
                 refreshRepository: admitted.refreshRepository)
+        }
+    }
+
+    /// AppModel's post-backfill path intentionally asks analysis not to publish Repository itself; it performs
+    /// one explicit cache publication immediately after this call. The old implementation could finish a pass
+    /// while another offload slice had already started—or while a newer durable-data edge had arrived—and then
+    /// publish a final-looking blank Recovery state from the older generation. Hold this call until one exact
+    /// current-day pass begins and ends with the same quiescent generation. If data advances during analysis,
+    /// rerun before returning. Forced source work deliberately survives caller cancellation.
+    private func runStablePostBackfillAnalysis() async {
+        guard let live = AppModel.shared?.live else {
+            await runAdmittedAnalysis(
+                maxDays: 21, startOffset: 0, force: true, refreshRepository: false)
+            return
+        }
+
+        while true {
+            let before = BackfillAnalysisSnapshot(
+                dataAvailableAt: live.backfillDataAvailableAt,
+                backfilling: live.backfilling)
+            if before.backfilling {
+                await Self.waitForAnalysisPoll()
+                continue
+            }
+
+            await runAdmittedAnalysis(
+                maxDays: 21, startOffset: 0, force: true, refreshRepository: false)
+
+            let after = BackfillAnalysisSnapshot(
+                dataAvailableAt: live.backfillDataAvailableAt,
+                backfilling: live.backfilling)
+            if after.isSettledAndUnchanged(since: before) { return }
         }
     }
 
@@ -86,8 +131,12 @@ extension IntelligenceEngine {
     }
 
     func analyzeRecent(refreshRepository: Bool) async {
-        await runAdmittedAnalysis(maxDays: 21, startOffset: 0, force: true,
-                                  refreshRepository: refreshRepository)
+        if refreshRepository {
+            await runAdmittedAnalysis(maxDays: 21, startOffset: 0, force: true,
+                                      refreshRepository: true)
+        } else {
+            await runStablePostBackfillAnalysis()
+        }
     }
 
     func analyzeRecent(maxDays: Int, startOffset: Int) async {
