@@ -40,11 +40,17 @@ final class SleepEfficiencyStoreIntegrityTests: XCTestCase {
                 limit: 10).first?.efficiency
         }
 
-        XCTAssertNil(try await write(0), "legacy placeholder zero is missing data, not 0% physiology")
-        XCTAssertNil(try await write(-0.2))
-        XCTAssertNil(try await write(101))
-        XCTAssertEqual(try await write(0.91), 0.91, accuracy: 0.0001)
-        XCTAssertEqual(try await write(91), 91, accuracy: 0.0001,
+        let zero = try await write(0)
+        let negative = try await write(-0.2)
+        let tooHigh = try await write(101)
+        let fraction = try await write(0.91)
+        let percentage = try await write(91)
+
+        XCTAssertNil(zero, "legacy placeholder zero is missing data, not 0% physiology")
+        XCTAssertNil(negative)
+        XCTAssertNil(tooHigh)
+        XCTAssertEqual(fraction, 0.91, accuracy: 0.0001)
+        XCTAssertEqual(percentage, 91, accuracy: 0.0001,
                        "historical percentage-domain imports remain supported")
     }
 
@@ -53,17 +59,19 @@ final class SleepEfficiencyStoreIntegrityTests: XCTestCase {
         let device = "daily-efficiency-test"
 
         _ = try await store.upsertDailyMetrics([daily(day: "2026-07-26", efficiency: 0)], deviceId: device)
-        var row = try XCTUnwrap(try await store.dailyMetrics(
+        var rows = try await store.dailyMetrics(
             deviceId: device,
             from: "2026-07-26",
-            to: "2026-07-26").first)
+            to: "2026-07-26")
+        var row = try XCTUnwrap(rows.first)
         XCTAssertNil(row.efficiency)
 
         _ = try await store.upsertDailyMetrics([daily(day: "2026-07-26", efficiency: 0.88)], deviceId: device)
-        row = try XCTUnwrap(try await store.dailyMetrics(
+        rows = try await store.dailyMetrics(
             deviceId: device,
             from: "2026-07-26",
-            to: "2026-07-26").first)
+            to: "2026-07-26")
+        row = try XCTUnwrap(rows.first)
         XCTAssertEqual(row.efficiency, 0.88, accuracy: 0.0001)
     }
 
@@ -88,11 +96,12 @@ final class SleepEfficiencyStoreIntegrityTests: XCTestCase {
             newEndTs: start + 7 * 3_600,
             stagesJSON: #"{"awake":20,"light":210,"deep":65,"rem":75}"#)
 
-        let edited = try XCTUnwrap(try await store.sleepSessions(
+        let rows = try await store.sleepSessions(
             deviceId: device,
             from: start,
             to: start + 8 * 3_600,
-            limit: 10).first)
+            limit: 10)
+        let edited = try XCTUnwrap(rows.first)
         XCTAssertNil(edited.efficiency,
                      "a changed denominator cannot retain the previous window's efficiency")
     }
