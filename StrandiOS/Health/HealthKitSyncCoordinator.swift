@@ -16,10 +16,11 @@ struct HealthKitSyncWindow: Codable, Equatable, Sendable {
     }
 }
 
-/// Converts one committed HealthKit civil-time window into IntelligenceEngine's day-offset contract.
-/// Calendar arithmetic (not seconds/86,400) keeps spring/fall DST windows exact. The result is bounded to
-/// the same 10,000-day ceiling as IntelligenceAnalysisRequest, so a malformed historical cursor cannot ask
-/// the scorer for an unbounded pass.
+/// Converts one committed HealthKit civil-time window into IntelligenceEngine's forward dependency closure.
+/// A historical HRV/RHR/sleep edit is not day-local: it can change later personal baselines, Recovery,
+/// sleep-debt, and carry-dependent results. Recompute from the earliest changed civil day through today rather
+/// than rescoring only the changed slice and leaving newer outputs stale. Calendar arithmetic (not seconds /
+/// 86,400) keeps spring/fall DST windows exact; the range remains bounded to the engine's 10,000-day ceiling.
 struct HealthKitAnalysisRange: Equatable, Sendable {
     static let maximumWindowDays = 10_000
 
@@ -29,22 +30,18 @@ struct HealthKitAnalysisRange: Equatable, Sendable {
     init(window: HealthKitSyncWindow, now: Date = Date(), calendar input: Calendar = .current) {
         let calendar = input
         let today = calendar.startOfDay(for: now)
-        let rawStart = calendar.startOfDay(for: window.start)
-        let rawEnd = calendar.startOfDay(for: window.end)
-        let end = min(rawEnd, today)
-        let start = min(rawStart, end)
+        let changedStart = calendar.startOfDay(for: window.start)
+        let earliestAffected = min(changedStart, today)
+        let forwardSpan = max(
+            1,
+            (calendar.dateComponents([.day], from: earliestAffected, to: today).day ?? 0) + 1)
 
-        let rawOffset = max(0, calendar.dateComponents([.day], from: end, to: today).day ?? 0)
-        let boundedOffset = min(rawOffset, Self.maximumWindowDays - 1)
-        let rawSpan = max(1, (calendar.dateComponents([.day], from: start, to: end).day ?? 0) + 1)
-        let remaining = max(1, Self.maximumWindowDays - boundedOffset)
-
-        startOffset = boundedOffset
-        maxDays = min(rawSpan, remaining)
+        startOffset = 0
+        maxDays = min(forwardSpan, Self.maximumWindowDays)
     }
 
     var publicationDays: Int {
-        min(Self.maximumWindowDays, max(120, startOffset + maxDays))
+        min(Self.maximumWindowDays, max(120, maxDays))
     }
 }
 
