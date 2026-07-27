@@ -542,6 +542,12 @@ public final class BLEManager: NSObject, ObservableObject {
     /// update" report). Rotate between WHOOP families after a short miss and persist whichever family
     /// actually advertises. (PR#195)
     private var scanFallbackWorkItem: DispatchWorkItem?
+    /// True only while the normal connection scan was deliberately broadened under the explicit
+    /// Connection Test Centre diagnostic. CoreBluetooth can omit advertised service UUIDs, which is
+    /// tolerated for a production scan pinned to one known service but is unsafe once an unsupported
+    /// family is also in the scan filter: without an advertised UUID we cannot prove which family
+    /// woke this callback, so the diagnostic path fails closed before GATT.
+    private var diagnosticScanIncludesUnsupportedFamilies = false
     static let scanFallbackDelaySeconds: TimeInterval = 8
     /// Last time ANY notification arrived — drives the liveness watchdog.
     private var lastDataAt = Date()
@@ -2648,7 +2654,9 @@ public final class BLEManager: NSObject, ObservableObject {
         // The normal production scan stays pinned to the selected connectable family. A Connection
         // Test Centre capture can additionally SEE the v9.1 diagnostic-only service families, but the
         // decision gate in `didDiscover` below rejects them before any GATT discovery or command path.
-        let services = [model.scanService] + (TestCentre.active(.connection)
+        let includesUnsupportedFamilies = TestCentre.active(.connection)
+        diagnosticScanIncludesUnsupportedFamilies = includesUnsupportedFamilies
+        let services = [model.scanService] + (includesUnsupportedFamilies
             ? WhoopGattServiceFamily.unsupportedServiceUUIDStrings.map { CBUUID(string: $0) } : [])
         if services.count > 1 {
             log("Connection diagnostics: scanning unsupported WHOOP service metadata only")
@@ -3152,6 +3160,13 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         // families are metadata-only until their framing is proven on owned hardware.
         let advertisedServices = (advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID])?
             .map(\.uuidString) ?? []
+        // A normal selected-family scan may safely keep CoreBluetooth's empty-advertisement exception:
+        // the scan filter itself proves the selected service. A diagnostic-wide scan cannot make that
+        // proof because it also targets unsupported services, so never open GATT for an unidentified hit.
+        guard !diagnosticScanIncludesUnsupportedFamilies || !advertisedServices.isEmpty else {
+            log("Discovered \(name) during diagnostic-wide WHOOP scan without advertised services; ignoring unknown family")
+            return
+        }
         let scanDecision = whoopGattScanDecision(
             // `DeviceFamily` intentionally keeps its raw UUID detail inside WhoopProtocol; the
             // app's selected CBUUID is the production scan contract and normalizes identically.
@@ -3920,6 +3935,15 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
         clockRecoveryTimeout = nil
         clockRecovery.reset()
         clockRequested = false
+        // A fallback is only a same-connection best effort based on that link's Data Range marker.
+        // Never decode the next generation with this approximate reference while waiting for its own
+        // GET_CLOCK response; a precise reference retains the existing cross-reconnect behavior.
+        if clockRefIsApproximate {
+            clockRef = nil
+            clockRefIsApproximate = false
+            collector?.clockRef = nil
+            backfiller?.clockRef = nil
+        }
     }
 
     private func armClockRecoveryTimeout(for generation: Int) {
