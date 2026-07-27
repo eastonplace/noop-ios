@@ -84,6 +84,19 @@ final class IntelligenceAnalysisCoordinator {
 
     private var queues: [ObjectIdentifier: QueueState] = [:]
 
+    /// Test/diagnostic visibility only. These are pure queue counts and do not publish UI state.
+    func isRunning(for owner: AnyObject) -> Bool {
+        queues[ObjectIdentifier(owner)] != nil
+    }
+
+    func pendingBatchCount(for owner: AnyObject) -> Int {
+        queues[ObjectIdentifier(owner)]?.pending.count ?? 0
+    }
+
+    func waitingForcedCallerCount(for owner: AnyObject) -> Int {
+        queues[ObjectIdentifier(owner)]?.pending.reduce(0) { $0 + $1.waiters.count } ?? 0
+    }
+
     func submit(
         owner: AnyObject,
         request: IntelligenceAnalysisRequest,
@@ -161,8 +174,8 @@ final class IntelligenceAnalysisCoordinator {
 extension IntelligenceEngine {
     /// A queued forced request represents durable source change and must survive cancellation of the UI task
     /// that happened to request it. DispatchQueue's deadline is cancellation-insensitive, unlike Task.sleep;
-    /// use it only while waiting for the legacy in-engine lock to clear.
-    private static func waitForLegacyAnalysisLockPoll() async {
+    /// use it while waiting for the legacy in-engine lock or an active historical writer to clear.
+    private static func waitForAnalysisPoll() async {
         await withCheckedContinuation { continuation in
             DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(20)) {
                 continuation.resume()
@@ -193,7 +206,7 @@ extension IntelligenceEngine {
             // caller-task cancellation—the durable source change still needs to be scored and published.
             while self.computing {
                 guard queued.force else { return }
-                await Self.waitForLegacyAnalysisLockPoll()
+                await Self.waitForAnalysisPoll()
             }
             guard queued.force || !Task.isCancelled else { return }
 
@@ -205,10 +218,10 @@ extension IntelligenceEngine {
         }
     }
 
-    /// AppModel's post-backfill path intentionally asks analysis not to publish the Repository itself; it
-    /// performs one explicit publication immediately after this call. Keep that contract, but do not return
-    /// while another offload is writing or after a newer durable-data edge has appeared. This turns the old
-    /// two-second debounce from a timing guess into a generation-stable source-to-UI handoff.
+    /// AppModel's post-backfill path intentionally asks analysis not to publish Repository itself; it performs
+    /// one explicit cache publication immediately after this call. Hold the call until one exact current-day
+    /// pass begins and ends with the same quiescent durable-data generation. If a reconnect or periodic burst
+    /// advances data during analysis, rerun before returning. Forced source work survives caller cancellation.
     private func submitStablePostBackfillAnalysis() async {
         guard let live = AppModel.shared?.live else {
             await submitSerializedAnalysis(
@@ -216,22 +229,17 @@ extension IntelligenceEngine {
             return
         }
 
-        while !Task.isCancelled {
+        while true {
             let before = BackfillAnalysisSnapshot(
                 dataAvailableAt: live.backfillDataAvailableAt,
                 backfilling: live.backfilling)
             if before.backfilling {
-                do {
-                    try await Task.sleep(for: .milliseconds(250))
-                } catch {
-                    return
-                }
+                await Self.waitForAnalysisPoll()
                 continue
             }
 
             await submitSerializedAnalysis(
                 maxDays: 21, startOffset: 0, force: true, refreshRepository: false)
-            guard !Task.isCancelled else { return }
 
             let after = BackfillAnalysisSnapshot(
                 dataAvailableAt: live.backfillDataAvailableAt,
