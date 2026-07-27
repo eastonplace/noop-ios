@@ -39,6 +39,19 @@ private final class AsyncGate {
     }
 }
 
+private final class CommittedWindowRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [HealthKitSyncWindow] = []
+
+    func record(_ window: HealthKitSyncWindow) {
+        lock.withLock { storage.append(window) }
+    }
+
+    var windows: [HealthKitSyncWindow] {
+        lock.withLock { storage }
+    }
+}
+
 @MainActor
 private final class GeneratedHeartRatePageLoader: HealthKitAnchoredPageLoading {
     enum Failure: Error { case injected }
@@ -85,12 +98,48 @@ private final class GeneratedHeartRatePageLoader: HealthKitAnchoredPageLoading {
 }
 
 final class HealthKitSyncCoordinatorTests: XCTestCase {
+    private func newYorkCalendar() throws -> Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        return calendar
+    }
+
+    private func date(
+        _ calendar: Calendar,
+        year: Int,
+        month: Int,
+        day: Int,
+        hour: Int = 12
+    ) throws -> Date {
+        try XCTUnwrap(calendar.date(from: DateComponents(
+            year: year,
+            month: month,
+            day: day,
+            hour: hour)))
+    }
+
     @MainActor
     func testObserverBWidensPendingWindowWhileObserverAIsSyncing() async throws {
         let persistence = PendingWindowMemoryStore()
         let gate = AsyncGate()
+        let notificationCenter = NotificationCenter()
+        let recorder = CommittedWindowRecorder()
+        let token = notificationCenter.addObserver(
+            forName: HealthKitSyncPublication.name,
+            object: nil,
+            queue: nil
+        ) { notification in
+            if let window = HealthKitSyncPublication.window(from: notification) {
+                recorder.record(window)
+            }
+        }
+        defer { notificationCenter.removeObserver(token) }
+
         var calls: [HealthKitSyncWindow] = []
-        let coordinator = HealthKitSyncCoordinator(persistence: persistence) { window in
+        let coordinator = HealthKitSyncCoordinator(
+            persistence: persistence,
+            notificationCenter: notificationCenter
+        ) { window in
             calls.append(window)
             if calls.count == 1 { await gate.wait() }
             return true
@@ -114,30 +163,53 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
         await firstRun.value
 
         XCTAssertEqual(calls, [a, a.union(b)])
+        XCTAssertEqual(recorder.windows, [a.union(b)],
+                       "only the widest successfully cleared generation is published for scoring")
         XCTAssertNil(coordinator.pending)
         XCTAssertNil(persistence.value)
     }
 
     @MainActor
-    func testFailedAggregationSurvivesRelaunchAndRetries() async throws {
+    func testFailedAggregationSurvivesRelaunchAndPublishesOnlyAfterSuccess() async throws {
         let persistence = PendingWindowMemoryStore()
+        let notificationCenter = NotificationCenter()
+        let recorder = CommittedWindowRecorder()
+        let token = notificationCenter.addObserver(
+            forName: HealthKitSyncPublication.name,
+            object: nil,
+            queue: nil
+        ) { notification in
+            if let window = HealthKitSyncPublication.window(from: notification) {
+                recorder.record(window)
+            }
+        }
+        defer { notificationCenter.removeObserver(token) }
+
         let window = HealthKitSyncWindow(
             start: Date(timeIntervalSince1970: 100),
             end: Date(timeIntervalSince1970: 200)
         )
-        let failing = HealthKitSyncCoordinator(persistence: persistence) { _ in false }
+        let failing = HealthKitSyncCoordinator(
+            persistence: persistence,
+            notificationCenter: notificationCenter
+        ) { _ in false }
         try failing.offer(window)
         await failing.runAndWait()
         XCTAssertEqual(persistence.value, window)
+        XCTAssertTrue(recorder.windows.isEmpty)
 
         var recoveredCalls: [HealthKitSyncWindow] = []
-        let recovered = HealthKitSyncCoordinator(persistence: persistence) { candidate in
+        let recovered = HealthKitSyncCoordinator(
+            persistence: persistence,
+            notificationCenter: notificationCenter
+        ) { candidate in
             recoveredCalls.append(candidate)
             return true
         }
         await recovered.runAndWait()
 
         XCTAssertEqual(recoveredCalls, [window])
+        XCTAssertEqual(recorder.windows, [window])
         XCTAssertNil(persistence.value)
     }
 
@@ -160,6 +232,61 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
         XCTAssertEqual(operationCount, 0)
         XCTAssertNil(coordinator.pending)
         XCTAssertNil(persistence.value)
+    }
+
+    func testAnalysisRangeCoversRecentCommittedDays() throws {
+        let calendar = try newYorkCalendar()
+        let now = try date(calendar, year: 2026, month: 7, day: 27)
+        let window = HealthKitSyncWindow(
+            start: try date(calendar, year: 2026, month: 7, day: 25, hour: 8),
+            end: try date(calendar, year: 2026, month: 7, day: 27, hour: 10))
+
+        let range = HealthKitAnalysisRange(window: window, now: now, calendar: calendar)
+
+        XCTAssertEqual(range.startOffset, 0)
+        XCTAssertEqual(range.maxDays, 3)
+        XCTAssertEqual(range.publicationDays, 120)
+    }
+
+    func testAnalysisRangeTargetsHistoricalWindowWithoutRescoringNewerGap() throws {
+        let calendar = try newYorkCalendar()
+        let now = try date(calendar, year: 2026, month: 7, day: 27)
+        let window = HealthKitSyncWindow(
+            start: try date(calendar, year: 2026, month: 7, day: 10),
+            end: try date(calendar, year: 2026, month: 7, day: 12))
+
+        let range = HealthKitAnalysisRange(window: window, now: now, calendar: calendar)
+
+        XCTAssertEqual(range.startOffset, 15)
+        XCTAssertEqual(range.maxDays, 3)
+        XCTAssertEqual(range.publicationDays, 120)
+    }
+
+    func testAnalysisRangeUsesCalendarDaysAcrossSpringDST() throws {
+        let calendar = try newYorkCalendar()
+        let now = try date(calendar, year: 2026, month: 3, day: 9)
+        let window = HealthKitSyncWindow(
+            start: try date(calendar, year: 2026, month: 3, day: 7, hour: 23),
+            end: try date(calendar, year: 2026, month: 3, day: 9, hour: 1))
+
+        let range = HealthKitAnalysisRange(window: window, now: now, calendar: calendar)
+
+        XCTAssertEqual(range.startOffset, 0)
+        XCTAssertEqual(range.maxDays, 3,
+                       "the 23-hour DST day still counts as one civil day")
+    }
+
+    func testFutureOnlyWindowFailsClosedToToday() throws {
+        let calendar = try newYorkCalendar()
+        let now = try date(calendar, year: 2026, month: 7, day: 27)
+        let window = HealthKitSyncWindow(
+            start: try date(calendar, year: 2026, month: 7, day: 28),
+            end: try date(calendar, year: 2026, month: 7, day: 29))
+
+        let range = HealthKitAnalysisRange(window: window, now: now, calendar: calendar)
+
+        XCTAssertEqual(range.startOffset, 0)
+        XCTAssertEqual(range.maxDays, 1)
     }
 
     @MainActor
