@@ -253,8 +253,9 @@ final class SleepRecoveryStoreTests: XCTestCase {
             [MetricPoint(day: "2026-07-26", key: "sleep_performance", value: 12)],
             deviceId: device)
 
-        let row = try XCTUnwrap(
-            try await store.dailyMetrics(deviceId: device, from: "2026-07-26", to: "2026-07-26").first)
+        let dailyRows = try await store.dailyMetrics(
+            deviceId: device, from: "2026-07-26", to: "2026-07-26")
+        let row = try XCTUnwrap(dailyRows.first)
         XCTAssertEqual(row.totalSleepMin, 420)
         XCTAssertEqual(row.recovery, 77)
         XCTAssertEqual(row.strain, 43)
@@ -264,7 +265,8 @@ final class SleepRecoveryStoreTests: XCTestCase {
             deviceId: device, key: "sleep_performance",
             from: "2026-07-26", to: "2026-07-26")
         XCTAssertEqual(rest.first?.value, 88)
-        XCTAssertEqual(try await store.sleepRecoveryDailyOverrides(deviceId: device).count, 1)
+        let dailyOverrides = try await store.sleepRecoveryDailyOverrides(deviceId: device)
+        XCTAssertEqual(dailyOverrides.count, 1)
     }
 
     func testDailyDeleteDuringReconcileCannotEraseRecoveredNight() async throws {
@@ -294,9 +296,11 @@ final class SleepRecoveryStoreTests: XCTestCase {
             newEndTs: 4_800,
             stagesJSON: "[{\"start\":1100,\"end\":4800,\"stage\":\"light\"}]")
 
-        XCTAssertTrue(try await store.sleepRecoveryDailyOverrides(deviceId: device).isEmpty)
-        let row = try XCTUnwrap(
-            try await store.dailyMetrics(deviceId: device, from: "2026-07-26", to: "2026-07-26").first)
+        let dailyOverrides = try await store.sleepRecoveryDailyOverrides(deviceId: device)
+        XCTAssertTrue(dailyOverrides.isEmpty)
+        let dailyRows = try await store.dailyMetrics(
+            deviceId: device, from: "2026-07-26", to: "2026-07-26")
+        let row = try XCTUnwrap(dailyRows.first)
         XCTAssertNil(row.totalSleepMin)
         XCTAssertNil(row.restingHr)
         XCTAssertNil(row.avgHrv)
@@ -314,9 +318,11 @@ final class SleepRecoveryStoreTests: XCTestCase {
 
         _ = try await store.deleteSleepSession(deviceId: device, startTs: 1_000)
 
-        XCTAssertTrue(try await store.sleepRecoveryDailyOverrides(deviceId: device).isEmpty)
-        let row = try XCTUnwrap(
-            try await store.dailyMetrics(deviceId: device, from: "2026-07-26", to: "2026-07-26").first)
+        let dailyOverrides = try await store.sleepRecoveryDailyOverrides(deviceId: device)
+        XCTAssertTrue(dailyOverrides.isEmpty)
+        let dailyRows = try await store.dailyMetrics(
+            deviceId: device, from: "2026-07-26", to: "2026-07-26")
+        let row = try XCTUnwrap(dailyRows.first)
         XCTAssertNil(row.totalSleepMin)
         XCTAssertNil(row.recovery)
         let rest = try await store.metricSeries(
@@ -340,7 +346,9 @@ final class SleepRecoveryStoreTests: XCTestCase {
             XCTAssertEqual(error as? SleepRecoveryStoreError, .incompleteDailyOverride)
         }
 
-        XCTAssertTrue(try await store.sleepSessions(deviceId: device, from: 0, to: 10_000, limit: 10).isEmpty)
-        XCTAssertTrue(try await store.sleepRecoveryAttempts(deviceId: device).isEmpty)
+        let sessions = try await store.sleepSessions(deviceId: device, from: 0, to: 10_000, limit: 10)
+        let attempts = try await store.sleepRecoveryAttempts(deviceId: device)
+        XCTAssertTrue(sessions.isEmpty)
+        XCTAssertTrue(attempts.isEmpty)
     }
 }

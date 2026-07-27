@@ -174,7 +174,9 @@ public enum HeartRateRecovery {
         let sorted = values.sorted()
         let middle = sorted.count / 2
         if sorted.count.isMultiple(of: 2) {
-            return Int((Double(sorted[middle - 1]) + Double(sorted[middle])) / 2.0).rounded()
+            let lower = Double(sorted[middle - 1])
+            let upper = Double(sorted[middle])
+            return Int(((lower + upper) / 2.0).rounded())
         }
         return sorted[middle]
     }

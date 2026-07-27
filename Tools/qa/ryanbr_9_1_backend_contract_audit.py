@@ -35,13 +35,13 @@ try:
     require(
         "README.md",
         "## Upstream backend baseline",
-        "Noop iOS 2.1",
+        "NOOP iOS 2.1",
         "WHOOP backend behavior",
-        "Oura transport work is not part of the Noop iOS 2.1 release gate",
+        "Oura transport work is not part of the NOOP iOS 2.1 release gate",
         "v9.1.0",
         "authoritative Strain and Sleep models",
-        "separate, explicitly labelled experimental beta tile",
-        "never populates canonical Blood O₂, HealthKit, Recovery, illness detection",
+        "separate, explicitly labelled experimental beta value",
+        "never populates canonical Blood O₂, HealthKit, Charge, illness detection",
         "docs/RYANBR_9_1_BACKEND_SYNC.md",
     )
     require(

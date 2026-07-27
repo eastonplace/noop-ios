@@ -106,7 +106,11 @@ enum WhoopV91JournalCompatibility {
     }
 
     private static func journalTable(inArchive archiveURL: URL) throws -> CSVTable? {
-        guard let archive = try? Archive(url: archiveURL, accessMode: .read) else { return nil }
+        guard let archive = try? Archive(
+            url: archiveURL,
+            accessMode: .read,
+            pathEncoding: nil
+        ) else { return nil }
 
         let candidates = archive.lazy
             .filter { $0.type == .file && $0.path.lowercased().hasSuffix(".csv") }

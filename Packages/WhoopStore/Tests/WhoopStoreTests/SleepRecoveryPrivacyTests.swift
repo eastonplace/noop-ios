@@ -68,12 +68,19 @@ final class SleepRecoveryPrivacyTests: XCTestCase {
 
         try DeviceRegistryStore(dbQueue: store.registryWriter).deleteAllData(deviceId: device)
 
-        XCTAssertTrue(try await store.sleepSessions(deviceId: device, from: 0, to: 10_000, limit: 10).isEmpty)
-        XCTAssertTrue(try await store.dailyMetrics(deviceId: device, from: "0000-01-01", to: "9999-12-31").isEmpty)
-        XCTAssertTrue(try await store.metricSeries(
+        let sessions = try await store.sleepSessions(deviceId: device, from: 0, to: 10_000, limit: 10)
+        let dailyMetrics = try await store.dailyMetrics(
+            deviceId: device, from: "0000-01-01", to: "9999-12-31")
+        let sleepPerformance = try await store.metricSeries(
             deviceId: device, key: "sleep_performance",
-            from: "0000-01-01", to: "9999-12-31").isEmpty)
-        XCTAssertTrue(try await store.sleepRecoveryAttempts(deviceId: device).isEmpty)
-        XCTAssertTrue(try await store.sleepRecoveryDailyOverrides(deviceId: device).isEmpty)
+            from: "0000-01-01", to: "9999-12-31")
+        let attempts = try await store.sleepRecoveryAttempts(deviceId: device)
+        let dailyOverrides = try await store.sleepRecoveryDailyOverrides(deviceId: device)
+
+        XCTAssertTrue(sessions.isEmpty)
+        XCTAssertTrue(dailyMetrics.isEmpty)
+        XCTAssertTrue(sleepPerformance.isEmpty)
+        XCTAssertTrue(attempts.isEmpty)
+        XCTAssertTrue(dailyOverrides.isEmpty)
     }
 }

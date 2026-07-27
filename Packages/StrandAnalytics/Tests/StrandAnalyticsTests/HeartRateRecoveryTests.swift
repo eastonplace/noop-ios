@@ -37,6 +37,20 @@ final class HeartRateRecoveryTests: XCTestCase {
         )
     }
 
+    func testEvenSampleCountRoundsTheMiddlePairWithoutIntegerAddition() {
+        let samples = denseEligible()
+            + window(minutes: 1, values: [140, 140, 141, 141])
+
+        let result = HeartRateRecovery.calculate(
+            samples: samples,
+            workoutStart: end - 300,
+            workoutEnd: end,
+            maxHR: 200
+        )
+
+        XCTAssertEqual(result?.after1Minute, 29)
+    }
+
     func testRequiresSustainedHighIntensityRatherThanOnePeak() {
         var samples = (end - 300...end).map { HRSample(ts: $0, bpm: 120) }
         samples.append(HRSample(ts: end, bpm: 190))
@@ -171,7 +185,10 @@ final class HeartRateRecoveryTests: XCTestCase {
         ))
     }
 
-    func testExtremeSampleTimestampsFailClosedWithoutArithmeticOverflow() {
+    func testExtremeSampleTimestampsOutsideTheWorkoutWindowAreIgnored() {
+        // These malformed values are discarded by the bounded input window before recovery readings are
+        // calculated. This test proves that legitimate local data survives; it does not claim to exercise
+        // private distance arithmetic that bounded canonical samples cannot reach.
         let samples = denseEligible()
             + window(minutes: 1, values: [140, 140, 140])
             + [
