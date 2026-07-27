@@ -351,7 +351,7 @@ final class HealthKitAnchorPager {
     func scan(
         type: HKSampleType,
         predicate: NSPredicate?,
-        anchor: HKQueryAnchor?,
+        priorAnchor: HKQueryAnchor?,
         handlePage: PageHandler? = nil
     ) async throws -> HealthKitAnchorScanResult {
         var cursor = priorAnchor
