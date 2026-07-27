@@ -126,9 +126,9 @@ extension WhoopStore {
 
     /// Upsert cached sleep sessions. Natural key (deviceId, startTs). Returns rows changed.
     ///
-    /// This is the lossless cache boundary, not the scoring-admission boundary. Preserve every finite,
-    /// ordered provider/legacy span so repair and diagnostics can still inspect it; importers, manual edits,
-    /// dedupe and scoring apply the stricter shared 30-minute–16-hour policy before using a row as sleep.
+    /// This is the lossless cache boundary, not the scoring-admission boundary. Preserve ordered,
+    /// non-overlong provider spans — including short partial captures — so repair and diagnostics can inspect
+    /// them; importers, manual edits, dedupe and scoring still require the full 30-minute–16-hour policy.
     @discardableResult
     public func upsertSleepSessions(_ sessions: [CachedSleepSession], deviceId: String) async throws -> Int {
         return try syncWrite { db in
