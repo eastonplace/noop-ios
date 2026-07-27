@@ -1,46 +1,67 @@
 import Foundation
 
-/// One process owns one intelligence engine. Keep admission outside the engine's stored layout so this
-/// release-candidate fix can wrap every existing default-argument call without changing persistence or UI state.
+/// The app owns one IntelligenceEngine, but tests/previews may create more. Keep one coordinator per engine
+/// identity so unrelated instances do not serialize each other while every caller of one engine shares the
+/// same admission queue. MainActor isolation makes the registry race-free.
 @MainActor
-private enum IntelligenceAnalysisAdmissionRegistry {
-    static let shared = IntelligenceAnalysisAdmission()
+private enum IntelligenceAnalysisCoordinatorRegistry {
+    static var coordinators: [ObjectIdentifier: IntelligenceAnalysisCoordinator] = [:]
+
+    static func coordinator(for engine: IntelligenceEngine) -> IntelligenceAnalysisCoordinator {
+        let key = ObjectIdentifier(engine)
+        if let existing = coordinators[key] { return existing }
+        let created = IntelligenceAnalysisCoordinator()
+        coordinators[key] = created
+        return created
+    }
 }
 
 extension IntelligenceEngine {
-    /// The four-argument declaration in `IntelligenceEngine.swift` is the implementation entry point. Every
-    /// production call that uses one or more defaults resolves to one of the overloads below and therefore
-    /// passes through this admission lane. Supplying all four arguments outside this file would bypass the
-    /// lane and is intentionally forbidden by the source-contract test.
+    /// The four-argument declaration in `IntelligenceEngine.swift` remains the implementation entry point.
+    /// Every production call using one or more defaults resolves to an exact overload below and therefore
+    /// enters the completion-aware coordinator. The repository source audit forbids direct full-signature
+    /// calls anywhere except this wrapper.
     private func runAdmittedAnalysis(
         maxDays: Int,
         startOffset: Int,
         force: Bool,
         refreshRepository: Bool
     ) async {
-        guard await IntelligenceAnalysisAdmissionRegistry.shared.acquire(force: force) else { return }
-        defer { IntelligenceAnalysisAdmissionRegistry.shared.release() }
-
-        // Belt-and-braces for an already-running legacy/full-signature caller. Forced source changes wait;
-        // disposable cadence work drops. Once this branch has the shared admission, no wrapped caller can
-        // enter between this check and the four-argument implementation call.
-        while computing {
-            guard force, !Task.isCancelled else { return }
-            do {
-                try await Task.sleep(nanoseconds: 20_000_000)
-            } catch {
-                return
-            }
-        }
-        guard !Task.isCancelled else { return }
-
-        // Exact request preservation is the point: a post-backfill 21-day/current-window pass cannot be
-        // replaced by the 30-day historical migration chunk that happened to be active when it arrived.
-        await self.analyzeRecent(
+        let request = IntelligenceAnalysisRequest(
             maxDays: maxDays,
             startOffset: startOffset,
             force: force,
             refreshRepository: refreshRepository)
+        let coordinator = IntelligenceAnalysisCoordinatorRegistry.coordinator(for: self)
+
+        await coordinator.submit(request) { [weak self] admitted in
+            guard let self else { return }
+
+            // Defensive compatibility with the original implementation's internal `computing` lock. Normal
+            // production calls are serialized by the coordinator, but a direct legacy/full-signature call or
+            // an in-engine re-arm task may already own the old lock. Forced work waits instead of returning;
+            // a disposable cadence request still drops.
+            while self.computing {
+                guard admitted.force, !Task.isCancelled else { return }
+                do {
+                    try await Task.sleep(nanoseconds: 20_000_000)
+                } catch {
+                    // Cancellation of the waiting caller does not invalidate source data that already queued,
+                    // but this execute closure has not begun that work yet. A later durable-data edge or cadence
+                    // pass will retry; do not steal the old lock.
+                    return
+                }
+            }
+            guard !Task.isCancelled || admitted.force else { return }
+
+            // Preserve the exact admitted batch. A current-day request can no longer be substituted by the
+            // historical chunk that happened to be active when it arrived.
+            await self.analyzeRecent(
+                maxDays: admitted.maxDays,
+                startOffset: admitted.startOffset,
+                force: admitted.force,
+                refreshRepository: admitted.refreshRepository)
+        }
     }
 
     func analyzeRecent() async {
