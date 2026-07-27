@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Fail when production code bypasses IntelligenceEngine's serialized analysis admission.
 
-The implementation keeps one four-argument `analyzeRecent` entry point in
-`IntelligenceEngine.swift`. All production call sites must use one of the admitted overloads in
-`IntelligenceEngine+AnalysisAdmission.swift`; a direct call supplying all four labels would bypass
-that queue and can reintroduce the post-backfill missing-Recovery race.
+The implementation keeps one four-argument `analyzeRecent` body in `IntelligenceEngine.swift`.
+Every production call using one or more defaults must resolve through the admitted overloads in
+`IntelligenceAnalysisCoordinator.swift`. Exactly one full-signature invocation is allowed there: the
+coordinator's private executor calling the original implementation. Any other full call can reintroduce the
+post-backfill missing-Recovery race.
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from typing import Iterator
 
 CALL_NAME = "analyzeRecent"
 REQUIRED_LABELS = ("maxDays", "startOffset", "force", "refreshRepository")
-WRAPPER = Path("Strand/Data/IntelligenceEngine+AnalysisAdmission.swift")
+ADMISSION = Path("Strand/Data/IntelligenceAnalysisCoordinator.swift")
 SEARCH_ROOTS = (Path("Strand"), Path("StrandiOS"), Path("StrandiOSShared"))
 
 
@@ -131,10 +132,6 @@ def previous_word(masked: str, index: int) -> str | None:
 
 
 def direct_full_calls(path: Path, repository_root: Path) -> Iterator[tuple[int, str]]:
-    relative = path.relative_to(repository_root)
-    if relative == WRAPPER:
-        return
-
     source = path.read_text(encoding="utf-8")
     masked = mask_comments_and_strings(source)
     pattern = re.compile(rf"\b{CALL_NAME}\s*\(")
@@ -174,16 +171,36 @@ def main() -> int:
     repository_root = args.repository_root.resolve()
 
     violations: list[tuple[Path, int, str]] = []
+    allowed_calls: list[tuple[int, str]] = []
+    admission_path = repository_root / ADMISSION
+
+    if not admission_path.is_file():
+        violations.append((ADMISSION, 0, "serialized admission source is missing"))
+
     for path in swift_files(repository_root):
-        for line, reason in direct_full_calls(path, repository_root):
-            violations.append((path.relative_to(repository_root), line, reason))
+        calls = list(direct_full_calls(path, repository_root))
+        relative = path.relative_to(repository_root)
+        if relative == ADMISSION:
+            allowed_calls.extend(calls)
+        else:
+            violations.extend((relative, line, reason) for line, reason in calls)
+
+    if len(allowed_calls) != 1:
+        violations.append(
+            (
+                ADMISSION,
+                allowed_calls[0][0] if allowed_calls else 0,
+                f"expected exactly one original-engine invocation, found {len(allowed_calls)}",
+            )
+        )
 
     if violations:
         print("Intelligence analysis admission audit FAILED:", file=sys.stderr)
         for path, line, reason in violations:
-            print(f"  {path}:{line}: {reason}", file=sys.stderr)
+            where = f"{path}:{line}" if line > 0 else str(path)
+            print(f"  {where}: {reason}", file=sys.stderr)
         print(
-            f"Use an admitted overload, or route through {WRAPPER}.",
+            f"Use an admitted overload, or route the sole implementation call through {ADMISSION}.",
             file=sys.stderr,
         )
         return 1
