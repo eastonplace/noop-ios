@@ -10,7 +10,7 @@ func sleepRecoveryEmptyState(what: String) -> some View {
     if MissedSleepRecoveryRouting.shouldReplaceEmptyState(what) {
         MissedSleepRecoveryBridge()
     } else {
-        StrandDesign.ComingSoon(what: what)
+        ComingSoon(what: LocalizedStringKey(what))
     }
 }
 

@@ -129,7 +129,7 @@ struct StrandiOSApp: App {
                 .onReceive(model.live.$heartRate) { _ in driveLiveActivity() }
                 .onReceive(model.live.$connected) { driveLiveActivity(connected: $0) }
                 .onReceive(model.live.$connectSettled.removeDuplicates().dropFirst()) { settled in
-                    guard settled else { return }
+                    guard settled != 0 else { return }
                     Task { await model.correctSeededWhoopModelIfNeeded() }
                 }
                 .onReceive(
