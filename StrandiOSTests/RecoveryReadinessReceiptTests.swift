@@ -130,4 +130,19 @@ final class RecoveryReadinessReceiptTests: XCTestCase {
         XCTAssertFalse(receipt.publishedRecoveryPresent)
         XCTAssertEqual(receipt.repositoryRefreshSeq, repo.refreshSeq)
     }
+
+    func testInteractiveDebugExportIncludesRecoveryReceiptBeforeFunnelEarlyExit() async throws {
+        let store = try await WhoopStore.inMemory()
+        let repo = Repository(deviceId: Repository.whoopSource)
+        repo.setStoreForTesting(store)
+
+        let lines = await DebugDataDiagnostics.dynamicLines(repo: repo)
+        let header = try XCTUnwrap(lines.firstIndex(of: "Recovery readiness"))
+        let receipt = try XCTUnwrap(lines.firstIndex(where: { $0.hasPrefix("recoveryReceipt day=") }))
+        let funnel = try XCTUnwrap(lines.firstIndex(of: "Analytics funnels (latest night, best-effort)"))
+
+        XCTAssertLessThan(header, receipt)
+        XCTAssertLessThan(receipt, funnel,
+                          "the redacted receipt must survive a later no-sleep/no-store funnel return")
+    }
 }
