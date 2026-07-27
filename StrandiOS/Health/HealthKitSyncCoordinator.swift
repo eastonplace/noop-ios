@@ -97,6 +97,72 @@ final class HealthKitPendingWindowDefaultsStore: HealthKitPendingWindowPersistin
     }
 }
 
+/// Durable handoff from HealthKit ingestion to IntelligenceEngine scoring. The import coordinator writes this
+/// journal before it clears its own pending window. If iOS suspends or kills the process before the app-level
+/// scoring task runs, the next app mount drains the same union instead of waiting for the 15-minute cadence.
+@MainActor
+final class HealthKitScoringCoordinator {
+    typealias Operation = @MainActor (HealthKitSyncWindow) async -> Bool
+
+    static let shared = HealthKitScoringCoordinator(
+        persistence: HealthKitPendingWindowDefaultsStore(key: "healthKit.pendingScoringWindow.v1"))
+
+    private let persistence: any HealthKitPendingWindowPersisting
+    private let notificationCenter: NotificationCenter
+    private(set) var pending: HealthKitSyncWindow?
+    private(set) var isRunning = false
+    private var revision: UInt64 = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    init(
+        persistence: any HealthKitPendingWindowPersisting,
+        notificationCenter: NotificationCenter = .default
+    ) {
+        self.persistence = persistence
+        self.notificationCenter = notificationCenter
+        pending = persistence.load()
+    }
+
+    func offer(_ window: HealthKitSyncWindow) throws {
+        let widened = pending.map { $0.union(window) } ?? window
+        try persistence.save(widened)
+        pending = widened
+        revision &+= 1
+        notificationCenter.post(
+            name: HealthKitSyncPublication.name,
+            object: nil,
+            userInfo: [HealthKitSyncPublication.windowKey: widened])
+    }
+
+    func runAndWait(operation: @escaping Operation) async {
+        if isRunning {
+            await withCheckedContinuation { waiters.append($0) }
+            return
+        }
+        isRunning = true
+        defer {
+            isRunning = false
+            let continuations = waiters
+            waiters.removeAll()
+            continuations.forEach { $0.resume() }
+        }
+
+        while let snapshot = pending {
+            let snapshotRevision = revision
+            guard await operation(snapshot) else { return }
+            guard revision == snapshotRevision else { continue }
+            do {
+                try persistence.save(nil)
+                pending = nil
+            } catch {
+                // The derived publication may already be correct, but retaining the journal is conservative:
+                // the next mount repeats the idempotent analysis rather than losing the handoff.
+                return
+            }
+        }
+    }
+}
+
 /// Serializes every HealthKit aggregation and journals the widest outstanding civil-time window.
 /// A wake arriving while an aggregation is suspended widens the durable window; the worker then
 /// reruns that union before clearing the journal. A failed aggregation intentionally leaves the
@@ -107,7 +173,7 @@ final class HealthKitSyncCoordinator {
 
     private let persistence: any HealthKitPendingWindowPersisting
     private let operation: Operation
-    private let notificationCenter: NotificationCenter
+    private let scoringCoordinator: HealthKitScoringCoordinator
     private(set) var pending: HealthKitSyncWindow?
     private(set) var isRunning = false
     private var revision: UInt64 = 0
@@ -116,11 +182,11 @@ final class HealthKitSyncCoordinator {
 
     init(
         persistence: any HealthKitPendingWindowPersisting,
-        notificationCenter: NotificationCenter = .default,
+        scoringCoordinator: HealthKitScoringCoordinator = .shared,
         operation: @escaping Operation
     ) {
         self.persistence = persistence
-        self.notificationCenter = notificationCenter
+        self.scoringCoordinator = scoringCoordinator
         self.operation = operation
         pending = persistence.load()
     }
@@ -161,18 +227,17 @@ final class HealthKitSyncCoordinator {
             guard await operation(snapshot) else { return }
 
             // An overlapping wake widened/replaced the pending interval while the operation awaited.
-            // Keep the union and run it once more; only the exact successfully-processed revision may
-            // clear the durable journal and publish a committed scoring generation.
+            // Keep the union and run it once more; only the exact successfully-processed revision may hand
+            // off a scoring journal and clear the durable import window.
             guard revision == snapshotRevision else { continue }
             do {
+                // Ordering is the crash-safety contract: the derived-score work is durable before imported
+                // work is acknowledged. A kill at any later instruction leaves at least one journal to replay.
+                try scoringCoordinator.offer(snapshot)
                 try persistence.save(nil)
                 pending = nil
-                notificationCenter.post(
-                    name: HealthKitSyncPublication.name,
-                    object: nil,
-                    userInfo: [HealthKitSyncPublication.windowKey: snapshot])
             } catch {
-                // Clearing failure is conservative: repeat the idempotent aggregation on next wake.
+                // Clearing/handoff failure is conservative: repeat the idempotent aggregation on next wake.
                 return
             }
         }
