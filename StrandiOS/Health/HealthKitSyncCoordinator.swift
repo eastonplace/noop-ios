@@ -130,7 +130,7 @@ final class HealthKitScoringCoordinator {
         revision &+= 1
         notificationCenter.post(
             name: HealthKitSyncPublication.name,
-            object: nil,
+            object: self,
             userInfo: [HealthKitSyncPublication.windowKey: widened])
     }
 
@@ -351,7 +351,7 @@ final class HealthKitAnchorPager {
     func scan(
         type: HKSampleType,
         predicate: NSPredicate?,
-        priorAnchor: HKQueryAnchor?,
+        anchor: HKQueryAnchor?,
         handlePage: PageHandler? = nil
     ) async throws -> HealthKitAnchorScanResult {
         var cursor = priorAnchor
