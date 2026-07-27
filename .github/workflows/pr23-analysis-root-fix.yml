@@ -1,5 +1,6 @@
 name: Apply PR23 analysis root fix
 
+# Re-triggered after a concurrent diagnostic commit advanced the draft PR branch.
 on:
   push:
     branches:
