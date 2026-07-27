@@ -110,22 +110,25 @@ public final class LiveState: ObservableObject {
     }
     @Published public var lastSyncError: String?
     @Published public var backfilling = false
-    /// User-visible progress for the COMPLETE logical burst. BLEManager still assigns each session's local
-    /// ACK count here; the observer normalizes resets into a monotonic cumulative value before SwiftUI's next
-    /// render, so the existing Today/Sleep components need no high-frequency parent observation or duplicate
-    /// progress model.
-    @Published public var syncChunksThisSession = 0 {
-        didSet {
-            guard !normalizingHistoricalChunkCount else { return }
+
+    /// User-visible progress for the COMPLETE logical burst. BLEManager writes each session-local ACK count
+    /// through this setter; only the monotonic cumulative value is ever published. The previous `@Published`
+    /// `didSet` implementation emitted the raw zero first and corrected it in a second mutation, allowing the
+    /// UI to flash back to zero at every auto-continued slice—the exact UX regression this model is meant to
+    /// remove. Manual publication keeps the public property/API intact while guaranteeing one visible edge.
+    private var visibleSyncChunks = 0
+    public var syncChunksThisSession: Int {
+        get { visibleSyncChunks }
+        set {
             let cumulative = historicalBurstProgress.record(
-                sessionCount: syncChunksThisSession,
+                sessionCount: newValue,
                 at: Date().timeIntervalSince1970)
-            guard cumulative != syncChunksThisSession else { return }
-            normalizingHistoricalChunkCount = true
-            syncChunksThisSession = cumulative
-            normalizingHistoricalChunkCount = false
+            guard cumulative != visibleSyncChunks else { return }
+            objectWillChange.send()
+            visibleSyncChunks = cumulative
         }
     }
+
     @Published public var rejectedFramesThisSession = 0
     @Published public var rejectedFramesUnarchived = 0
     @Published public var decodedChunksThisSession = 0
@@ -148,7 +151,6 @@ public final class LiveState: ObservableObject {
     static let maxLogLines = 5_000
 
     private var historicalBurstProgress = HistoricalBurstProgress()
-    private var normalizingHistoricalChunkCount = false
 
     lazy var logTailPersistence = DebouncedLogTailPersistence(
         debounceInterval: 3,
