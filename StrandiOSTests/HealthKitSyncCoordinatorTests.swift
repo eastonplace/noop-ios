@@ -124,10 +124,13 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
         let scoringPersistence = PendingWindowMemoryStore()
         let gate = AsyncGate()
         let notificationCenter = NotificationCenter()
+        let scoring = HealthKitScoringCoordinator(
+            persistence: scoringPersistence,
+            notificationCenter: notificationCenter)
         let recorder = CommittedWindowRecorder()
         let token = notificationCenter.addObserver(
             forName: HealthKitSyncPublication.name,
-            object: nil,
+            object: scoring,
             queue: nil
         ) { notification in
             if let window = HealthKitSyncPublication.window(from: notification) {
@@ -136,9 +139,6 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
         }
         defer { notificationCenter.removeObserver(token) }
 
-        let scoring = HealthKitScoringCoordinator(
-            persistence: scoringPersistence,
-            notificationCenter: notificationCenter)
         var calls: [HealthKitSyncWindow] = []
         let coordinator = HealthKitSyncCoordinator(
             persistence: importPersistence,
@@ -180,6 +180,40 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
         XCTAssertEqual(scored, [a.union(b)])
         XCTAssertNil(scoring.pending)
         XCTAssertNil(scoringPersistence.value)
+    }
+
+    @MainActor
+    func testScoringNotificationIsScopedToOriginatingCoordinator() throws {
+        let notificationCenter = NotificationCenter()
+        let observed = HealthKitScoringCoordinator(
+            persistence: PendingWindowMemoryStore(),
+            notificationCenter: notificationCenter)
+        let unrelated = HealthKitScoringCoordinator(
+            persistence: PendingWindowMemoryStore(),
+            notificationCenter: notificationCenter)
+        let recorder = CommittedWindowRecorder()
+        let token = notificationCenter.addObserver(
+            forName: HealthKitSyncPublication.name,
+            object: observed,
+            queue: nil
+        ) { notification in
+            if let window = HealthKitSyncPublication.window(from: notification) {
+                recorder.record(window)
+            }
+        }
+        defer { notificationCenter.removeObserver(token) }
+        let first = HealthKitSyncWindow(
+            start: Date(timeIntervalSince1970: 100),
+            end: Date(timeIntervalSince1970: 200))
+        let second = HealthKitSyncWindow(
+            start: Date(timeIntervalSince1970: 300),
+            end: Date(timeIntervalSince1970: 400))
+
+        try unrelated.offer(first)
+        XCTAssertTrue(recorder.windows.isEmpty,
+                      "preview/test coordinators must not wake the production scoring observer")
+        try observed.offer(second)
+        XCTAssertEqual(recorder.windows, [second])
     }
 
     @MainActor
