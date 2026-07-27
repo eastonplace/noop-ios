@@ -87,9 +87,10 @@ struct RecoveryReadinessReceipt: Equatable, Sendable {
 
 extension DebugDataDiagnostics {
     /// Build the minimum redacted receipt needed to triage a missing Recovery. The raw read window and source
-    /// union mirror IntelligenceEngine's current-day scan closely enough to answer the operational question:
-    /// did source data exist, did it overlap a valid/staged sleep, were HRV/RHR and the baseline ready, did a
-    /// Recovery row persist, and did Repository publish that row to Home? No measurement values leave here.
+    /// selection mirror IntelligenceEngine's current-day path closely enough to answer the operational question:
+    /// did the selected owner have source data, did it overlap a valid/staged sleep, were HRV/RHR and the
+    /// baseline ready, did a Recovery row persist, and did Repository publish that row to Home? No measurement
+    /// values leave here.
     @MainActor
     static func recoveryReadinessReceipt(
         repo: Repository,
@@ -126,8 +127,13 @@ extension DebugDataDiagnostics {
                 repositoryRefreshSeq: repo.refreshSeq)
         }
 
-        var hrByTimestamp: [Int: HRSample] = [:]
-        var rrByTimestamp: [Int: RRInterval] = [:]
+        // IntelligenceEngine resolves one raw owner per day, with the active strap before the canonical
+        // fallback. Mirror that precedence instead of unioning beat rows across devices. In particular, do NOT
+        // key R-R rows only by second: multiple legitimate beat intervals can share one stored second, and
+        // collapsing them would make an adequately sampled night look sparse in the diagnostic itself.
+        var selectedHR: [HRSample] = []
+        var selectedRR: [RRInterval] = []
+        var selectedRawOwner = false
         var rawSourcesWithRows = 0
         for source in repo.importedReadIds {
             let bundle = try? await store.analysisDayBundle(
@@ -138,8 +144,27 @@ extension DebugDataDiagnostics {
             let hr = bundle?.hr ?? []
             let rr = bundle?.rr ?? []
             if !hr.isEmpty || !rr.isEmpty { rawSourcesWithRows += 1 }
-            for row in hr where hrByTimestamp[row.ts] == nil { hrByTimestamp[row.ts] = row }
-            for row in rr where rrByTimestamp[row.ts] == nil { rrByTimestamp[row.ts] = row }
+            if !selectedRawOwner, !hr.isEmpty {
+                selectedHR = hr
+                selectedRR = rr
+                selectedRawOwner = true
+            }
+        }
+        // An RR-only source cannot pass IntelligenceEngine's HR-row admission gate, but retaining its count
+        // when every source lacks HR makes the receipt distinguish "R-R arrived, HR did not" from no raw data.
+        if !selectedRawOwner {
+            for source in repo.importedReadIds {
+                let bundle = try? await store.analysisDayBundle(
+                    deviceId: source,
+                    from: bounds.from,
+                    to: bounds.to,
+                    limit: 200_000)
+                let rr = bundle?.rr ?? []
+                if !rr.isEmpty {
+                    selectedRR = rr
+                    break
+                }
+            }
         }
 
         var storedSessions: [CachedSleepSession] = []
@@ -158,23 +183,27 @@ extension DebugDataDiagnostics {
             guard let totals = SleepStageTotals.minutes(fromStagesJSON: session.stagesJSON) else { return false }
             return totals.asleep > 0 && totals.inBed > 0
         }
-        let rrInsideSleep = rrByTimestamp.values.filter { row in
+        let rrInsideSleep = selectedRR.filter { row in
             validSessions.contains { row.ts >= $0.effectiveStartTs && row.ts < $0.endTs }
         }.count
 
-        var computedRows: [DailyMetric] = []
-        var importedRows: [DailyMetric] = []
-        for source in repo.computedReadIds {
-            computedRows += (try? await store.dailyMetrics(
-                deviceId: source, from: "0000-01-01", to: targetDay)) ?? []
+        /// Union one source lane with Repository's active-first precedence. A same-day canonical fallback must
+        /// not overwrite the active strap's already-selected row merely because it was read second.
+        func unionDailyRows(_ sources: [String]) async -> [DailyMetric] {
+            var byDay: [String: DailyMetric] = [:]
+            for source in sources {
+                let rows = (try? await store.dailyMetrics(
+                    deviceId: source, from: "0000-01-01", to: targetDay)) ?? []
+                for row in rows where byDay[row.day] == nil { byDay[row.day] = row }
+            }
+            return byDay.values.sorted { $0.day < $1.day }
         }
-        for source in repo.importedReadIds {
-            importedRows += (try? await store.dailyMetrics(
-                deviceId: source, from: "0000-01-01", to: targetDay)) ?? []
-        }
+
+        async let computedRowsRead = unionDailyRows(repo.computedReadIds)
+        async let importedRowsRead = unionDailyRows(repo.importedReadIds)
         let mergedHistory = SleepRecoveryHistoryMerge.merge(
-            computed: computedRows,
-            imported: importedRows)
+            computed: await computedRowsRead,
+            imported: await importedRowsRead)
         let storedCurrent = mergedHistory.last(where: { $0.day == targetDay })
         let prior = mergedHistory.filter { $0.day < targetDay }
         let hrvBaseline = Baselines.foldHistory(
@@ -189,8 +218,8 @@ extension DebugDataDiagnostics {
             day: targetDay,
             storeAvailable: true,
             rawSourceCount: rawSourcesWithRows,
-            hrRows: hrByTimestamp.count,
-            rrRows: rrByTimestamp.count,
+            hrRows: selectedHR.count,
+            rrRows: selectedRR.count,
             validSleepSessions: validSessions.count,
             defensiblyStagedSessions: stagedSessions.count,
             rrRowsInsideSleep: rrInsideSleep,
