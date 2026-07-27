@@ -105,21 +105,23 @@ struct StrandiOSApp: App {
         externalSurfaceDay = ExternalSurfaceDayProjection.make(repository: model.repo)
     }
 
-    /// A HealthKit sync is not complete for product surfaces when SQLite alone has changed. Score the exact
-    /// committed civil-day window through the same serialized IntelligenceEngine admission used by strap
-    /// backfill, publish one Repository generation that includes both imported inputs and derived Recovery,
-    /// then update every external surface even if the app is backgrounded.
+    /// Drain the crash-safe HealthKit → Intelligence handoff. The scoring coordinator retains the widest
+    /// committed window until this operation completes, so observer delivery, foreground catch-up, suspension,
+    /// and process relaunch all converge on the same idempotent source-to-Home generation.
     @MainActor
-    private func publishCommittedHealthWindow(_ window: HealthKitSyncWindow) async {
-        let range = HealthKitAnalysisRange(window: window)
-        await model.intelligence.analyzeRecent(
-            maxDays: range.maxDays,
-            startOffset: range.startOffset,
-            refreshRepository: false)
-        _ = await model.repo.refresh(.recentDashboard(days: range.publicationDays))
-        refreshExternalSurfaceDay()
-        driveLiveActivity()
-        await WidgetSnapshot.publish(from: model)
+    private func drainCommittedHealthScoring() async {
+        await HealthKitScoringCoordinator.shared.runAndWait { window in
+            let range = HealthKitAnalysisRange(window: window)
+            await model.intelligence.analyzeRecent(
+                maxDays: range.maxDays,
+                startOffset: range.startOffset,
+                refreshRepository: false)
+            _ = await model.repo.refresh(.recentDashboard(days: range.publicationDays))
+            refreshExternalSurfaceDay()
+            driveLiveActivity()
+            await WidgetSnapshot.publish(from: model)
+            return true
+        }
     }
 
     var body: some Scene {
@@ -176,10 +178,9 @@ struct StrandiOSApp: App {
                 }
                 .onReceive(
                     NotificationCenter.default.publisher(for: HealthKitSyncPublication.name)
-                ) { notification in
-                    guard let window = HealthKitSyncPublication.window(from: notification) else { return }
+                ) { _ in
                     Task { @MainActor in
-                        await publishCommittedHealthWindow(window)
+                        await drainCommittedHealthScoring()
                     }
                 }
                 .onReceive(model.repo.$canonicalStrainByDay.dropFirst()) { _ in
@@ -213,6 +214,7 @@ struct StrandiOSApp: App {
                         repository: model.repo)
                     refreshExternalSurfaceDay()
                     alarmRuntime.start()
+                    await drainCommittedHealthScoring()
                     #if DEBUG
                     if CommandLine.arguments.contains("--component41-live-qa") {
                         await liveActivity.startComponent41QA()
