@@ -35,6 +35,23 @@ final class SleepEfficiencyIntegrityTests: XCTestCase {
             exerciseCount: nil)
     }
 
+    private func dailyOverride(day: String, start: Int, efficiency: Double?) -> SleepRecoveryDailyOverride {
+        SleepRecoveryDailyOverride(
+            day: day,
+            sessionStartTs: start,
+            totalSleepMin: 300,
+            efficiency: efficiency,
+            deepMin: 60,
+            remMin: 70,
+            lightMin: 170,
+            disturbances: 2,
+            restingHr: 52,
+            avgHrv: 61,
+            recovery: nil,
+            restScore: 80,
+            updatedAt: 10_000)
+    }
+
     private func audit(id: String, start: Int, end: Int) -> SleepRecoveryAuditRecord {
         SleepRecoveryAuditRecord(
             id: id,
@@ -112,8 +129,9 @@ final class SleepEfficiencyIntegrityTests: XCTestCase {
             newEndTs: start + 3_300,
             stagesJSON: editedStages)
 
-        var saved = try XCTUnwrap(try await store.sleepSessions(
-            deviceId: device, from: 0, to: 1_000_000, limit: 10).first)
+        var rows = try await store.sleepSessions(
+            deviceId: device, from: 0, to: 1_000_000, limit: 10)
+        var saved = try XCTUnwrap(rows.first)
         XCTAssertNil(saved.efficiency,
                      "the old denominator must not survive a user-edited sleep shape")
 
@@ -126,8 +144,9 @@ final class SleepEfficiencyIntegrityTests: XCTestCase {
             deviceId: device,
             detectedStartTs: start + 10_000,
             stagesJSON: editedStages)
-        saved = try XCTUnwrap(try await store.sleepSessions(
-            deviceId: device, from: start + 10_000, to: start + 10_000, limit: 10).first)
+        rows = try await store.sleepSessions(
+            deviceId: device, from: start + 10_000, to: start + 10_000, limit: 10)
+        saved = try XCTUnwrap(rows.first)
         XCTAssertNil(saved.efficiency)
     }
 
@@ -151,11 +170,39 @@ final class SleepEfficiencyIntegrityTests: XCTestCase {
             deviceId: device,
             audit: audit(id: "fresh-efficiency", start: start, end: start + 3_600))
 
-        let saved = try XCTUnwrap(try await store.sleepSessions(
-            deviceId: device, from: start, to: start, limit: 10).first)
+        let rows = try await store.sleepSessions(
+            deviceId: device, from: start, to: start, limit: 10)
+        let saved = try XCTUnwrap(rows.first)
         XCTAssertEqual(saved.efficiency, 0.75,
                        "an atomic reanalysis that supplies a distinct fresh value must retain it")
         XCTAssertEqual(saved.stagesJSON, freshStages)
+    }
+
+    func testManualRecoveryNormalizesInvalidSessionOverrideAndDailyEfficiency() async throws {
+        let store = try await WhoopStore.inMemory()
+        let device = "efficiency-recovery-placeholder"
+        let start = 300_000
+        let day = "2026-07-26"
+        let recovered = session(start: start, efficiency: 0, edited: true)
+
+        _ = try await store.replaceWithManualSleepRecovery(
+            recovered,
+            deviceId: device,
+            audit: audit(id: "placeholder-efficiency", start: start, end: start + 3_600),
+            dailyOverride: dailyOverride(day: day, start: start, efficiency: 0),
+            daily: daily(day: day, efficiency: 0))
+
+        let sessions = try await store.sleepSessions(
+            deviceId: device, from: start, to: start, limit: 10)
+        XCTAssertNil(try XCTUnwrap(sessions.first).efficiency)
+
+        let dailyRows = try await store.dailyMetrics(deviceId: device, from: day, to: day)
+        XCTAssertNil(try XCTUnwrap(dailyRows.first).efficiency)
+
+        let persistedOverride = try await store.sleepRecoveryDailyOverride(
+            deviceId: device,
+            sessionStartTs: start)
+        XCTAssertNil(try XCTUnwrap(persistedOverride).efficiency)
     }
 
     func testMigrationHealsLegacyRowsAndInstallsDurableGuards() async throws {
