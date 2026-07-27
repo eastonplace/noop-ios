@@ -4,8 +4,9 @@ import WhoopProtocol
 import WhoopStore
 
 /// Privacy-safe, source-to-score receipt for one Recovery day. It deliberately carries counts and Boolean
-/// gates only — no HR, R-R, HRV, RHR or Recovery values — so a user can share it without exporting raw
-/// health data. The receipt distinguishes missing source data from an analysis/persistence/publication bug.
+/// gates only—no HR, R-R, HRV, RHR or Recovery values—so a user can share it without exporting raw health
+/// data. Store and published-cache states are separate: `recovery=1 publishedRecovery=0` is a Repository/Home
+/// freshness defect, while `scorerInputsReady=1 recovery=0` isolates analysis or persistence.
 struct RecoveryReadinessReceipt: Equatable, Sendable {
     let day: String
     let storeAvailable: Bool
@@ -15,13 +16,59 @@ struct RecoveryReadinessReceipt: Equatable, Sendable {
     let validSleepSessions: Int
     let defensiblyStagedSessions: Int
     let rrRowsInsideSleep: Int
+    /// The merged daily row exists in durable storage.
     let dailyRowPresent: Bool
     let hrvPresent: Bool
     let restingHRPresent: Bool
     let hrvBaselineNights: Int
     let hrvBaselineUsable: Bool
     let scorerInputsReady: Bool
+    /// Recovery exists in the durable merged daily row.
     let recoveryPresent: Bool
+    /// The long-lived Repository cache currently exposes this day/Recovery to Home.
+    let publishedDailyRowPresent: Bool
+    let publishedRecoveryPresent: Bool
+    let repositoryRefreshSeq: Int
+
+    init(
+        day: String,
+        storeAvailable: Bool,
+        rawSourceCount: Int,
+        hrRows: Int,
+        rrRows: Int,
+        validSleepSessions: Int,
+        defensiblyStagedSessions: Int,
+        rrRowsInsideSleep: Int,
+        dailyRowPresent: Bool,
+        hrvPresent: Bool,
+        restingHRPresent: Bool,
+        hrvBaselineNights: Int,
+        hrvBaselineUsable: Bool,
+        scorerInputsReady: Bool,
+        recoveryPresent: Bool,
+        publishedDailyRowPresent: Bool = false,
+        publishedRecoveryPresent: Bool = false,
+        repositoryRefreshSeq: Int = -1
+    ) {
+        self.day = day
+        self.storeAvailable = storeAvailable
+        self.rawSourceCount = rawSourceCount
+        self.hrRows = hrRows
+        self.rrRows = rrRows
+        self.validSleepSessions = validSleepSessions
+        self.defensiblyStagedSessions = defensiblyStagedSessions
+        self.rrRowsInsideSleep = rrRowsInsideSleep
+        self.dailyRowPresent = dailyRowPresent
+        self.hrvPresent = hrvPresent
+        self.restingHRPresent = restingHRPresent
+        self.hrvBaselineNights = hrvBaselineNights
+        self.hrvBaselineUsable = hrvBaselineUsable
+        self.scorerInputsReady = scorerInputsReady
+        self.recoveryPresent = recoveryPresent
+        self.publishedDailyRowPresent = publishedDailyRowPresent
+        self.publishedRecoveryPresent = publishedRecoveryPresent
+        self.repositoryRefreshSeq = repositoryRefreshSeq
+    }
 
     var line: String {
         "recoveryReceipt day=\(day) store=\(token(storeAvailable)) "
@@ -30,7 +77,9 @@ struct RecoveryReadinessReceipt: Equatable, Sendable {
             + "rrInSleep=\(rrRowsInsideSleep) daily=\(token(dailyRowPresent)) "
             + "hrv=\(token(hrvPresent)) rhr=\(token(restingHRPresent)) "
             + "baselineN=\(hrvBaselineNights) baselineUsable=\(token(hrvBaselineUsable)) "
-            + "scorerInputsReady=\(token(scorerInputsReady)) recovery=\(token(recoveryPresent))"
+            + "scorerInputsReady=\(token(scorerInputsReady)) recovery=\(token(recoveryPresent)) "
+            + "publishedDaily=\(token(publishedDailyRowPresent)) "
+            + "publishedRecovery=\(token(publishedRecoveryPresent)) refreshSeq=\(repositoryRefreshSeq)"
     }
 
     private func token(_ value: Bool) -> Int { value ? 1 : 0 }
@@ -39,8 +88,8 @@ struct RecoveryReadinessReceipt: Equatable, Sendable {
 extension DebugDataDiagnostics {
     /// Build the minimum redacted receipt needed to triage a missing Recovery. The raw read window and source
     /// union mirror IntelligenceEngine's current-day scan closely enough to answer the operational question:
-    /// did source data exist, did it overlap a valid/staged sleep, were HRV/RHR and the baseline ready, and did
-    /// a Recovery row finally persist? No measurement values leave this method.
+    /// did source data exist, did it overlap a valid/staged sleep, were HRV/RHR and the baseline ready, did a
+    /// Recovery row persist, and did Repository publish that row to Home? No measurement values leave here.
     @MainActor
     static func recoveryReadinessReceipt(
         repo: Repository,
@@ -52,10 +101,10 @@ extension DebugDataDiagnostics {
         let targetDay = explicitDay
             ?? Repository.resolveToday(days: repo.days, logicalKey: logicalKey, localKey: localKey)?.day
             ?? logicalKey
+        let published = repo.days.last(where: { $0.day == targetDay })
 
         guard let store = await repo.storeHandle(),
               let bounds = recoveryAnalysisBounds(day: targetDay, now: now) else {
-            let published = repo.days.last(where: { $0.day == targetDay })
             return RecoveryReadinessReceipt(
                 day: targetDay,
                 storeAvailable: false,
@@ -65,13 +114,16 @@ extension DebugDataDiagnostics {
                 validSleepSessions: 0,
                 defensiblyStagedSessions: 0,
                 rrRowsInsideSleep: 0,
-                dailyRowPresent: published != nil,
-                hrvPresent: published?.avgHrv != nil,
-                restingHRPresent: published?.restingHr != nil,
+                dailyRowPresent: false,
+                hrvPresent: false,
+                restingHRPresent: false,
                 hrvBaselineNights: 0,
                 hrvBaselineUsable: false,
                 scorerInputsReady: false,
-                recoveryPresent: published?.recovery != nil)
+                recoveryPresent: false,
+                publishedDailyRowPresent: published != nil,
+                publishedRecoveryPresent: published?.recovery != nil,
+                repositoryRefreshSeq: repo.refreshSeq)
         }
 
         var hrByTimestamp: [Int: HRSample] = [:]
@@ -123,15 +175,14 @@ extension DebugDataDiagnostics {
         let mergedHistory = SleepRecoveryHistoryMerge.merge(
             computed: computedRows,
             imported: importedRows)
-        let current = mergedHistory.last(where: { $0.day == targetDay })
-            ?? repo.days.last(where: { $0.day == targetDay })
+        let storedCurrent = mergedHistory.last(where: { $0.day == targetDay })
         let prior = mergedHistory.filter { $0.day < targetDay }
         let hrvBaseline = Baselines.foldHistory(
             prior.map(\.avgHrv),
             dayKeys: prior.map(\.day),
             cfg: Baselines.hrvCfg)
-        let hrvPresent = current?.avgHrv != nil
-        let rhrPresent = current?.restingHr != nil
+        let hrvPresent = storedCurrent?.avgHrv != nil
+        let rhrPresent = storedCurrent?.restingHr != nil
         let inputsReady = hrvPresent && rhrPresent && hrvBaseline.usable
 
         return RecoveryReadinessReceipt(
@@ -143,13 +194,16 @@ extension DebugDataDiagnostics {
             validSleepSessions: validSessions.count,
             defensiblyStagedSessions: stagedSessions.count,
             rrRowsInsideSleep: rrInsideSleep,
-            dailyRowPresent: current != nil,
+            dailyRowPresent: storedCurrent != nil,
             hrvPresent: hrvPresent,
             restingHRPresent: rhrPresent,
             hrvBaselineNights: hrvBaseline.nValid,
             hrvBaselineUsable: hrvBaseline.usable,
             scorerInputsReady: inputsReady,
-            recoveryPresent: current?.recovery != nil)
+            recoveryPresent: storedCurrent?.recovery != nil,
+            publishedDailyRowPresent: published != nil,
+            publishedRecoveryPresent: published?.recovery != nil,
+            repositoryRefreshSeq: repo.refreshSeq)
     }
 
     @MainActor
