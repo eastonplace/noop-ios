@@ -22,13 +22,17 @@ final class RecoveryReadinessReceiptTests: XCTestCase {
             hrvBaselineNights: 4,
             hrvBaselineUsable: true,
             scorerInputsReady: true,
-            recoveryPresent: false)
+            recoveryPresent: true,
+            publishedDailyRowPresent: true,
+            publishedRecoveryPresent: false,
+            repositoryRefreshSeq: 9)
 
         XCTAssertEqual(
             receipt.line,
             "recoveryReceipt day=2026-07-26 store=1 rawSources=1 hrRows=12345 rrRows=9876 "
                 + "validSleep=1 stagedSleep=1 rrInSleep=8765 daily=1 hrv=1 rhr=1 "
-                + "baselineN=4 baselineUsable=1 scorerInputsReady=1 recovery=0")
+                + "baselineN=4 baselineUsable=1 scorerInputsReady=1 recovery=1 "
+                + "publishedDaily=1 publishedRecovery=0 refreshSeq=9")
         XCTAssertFalse(receipt.line.contains("bpm"))
         XCTAssertFalse(receipt.line.contains("milliseconds"))
         XCTAssertFalse(receipt.line.contains("percent"))
@@ -121,5 +125,9 @@ final class RecoveryReadinessReceiptTests: XCTestCase {
         XCTAssertTrue(receipt.scorerInputsReady)
         XCTAssertFalse(receipt.recoveryPresent,
                        "the receipt reports the missing persisted result; it never fabricates one")
+        XCTAssertFalse(receipt.publishedDailyRowPresent,
+                       "store and Repository publication are intentionally reported separately")
+        XCTAssertFalse(receipt.publishedRecoveryPresent)
+        XCTAssertEqual(receipt.repositoryRefreshSeq, repo.refreshSeq)
     }
 }
