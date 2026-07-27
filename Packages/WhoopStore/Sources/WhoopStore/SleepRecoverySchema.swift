@@ -5,6 +5,13 @@ extension WhoopStore {
     /// under the same process-wide open gate as the main migrator, so concurrent cold
     /// launches cannot race them. GRDB records the stable identifiers in `grdb_migrations`.
     static func migrateSleepRecoverySchema(_ writer: any DatabaseWriter) throws {
+        try makeSleepRecoveryMigrator().migrate(writer)
+    }
+
+    /// Kept separate from `migrateSleepRecoverySchema` so migration tests can construct
+    /// a pre-context override table and prove an already-shipped database upgrades in
+    /// place. Production callers still use the one-line entry point above.
+    static func makeSleepRecoveryMigrator() -> DatabaseMigrator {
         var migrator = DatabaseMigrator()
         migrator.registerMigration("sleep-window-recovery-v1") { db in
             try db.create(table: "sleepRecoveryAttempt") { table in
@@ -55,6 +62,11 @@ extension WhoopStore {
                 table.column("avgHrv", .double)
                 table.column("recovery", .double)
                 table.column("restScore", .double)
+                table.column("chargeWeightedSumWithoutSleep", .double)
+                table.column("chargeWeightWithoutSleep", .double)
+                table.column("chargeBaselineUsable", .boolean).notNull().defaults(to: false)
+                table.column("sleepNeedHours", .double).notNull().defaults(to: 8.0)
+                table.column("sleepConsistency", .double)
                 table.column("updatedAt", .integer).notNull()
                 table.primaryKey(["deviceId", "day"])
             }
@@ -269,6 +281,39 @@ extension WhoopStore {
                 """)
         }
 
-        try migrator.migrate(writer)
+        // These fields were added to the override value object and writer after the
+        // original table shipped. Keep the fresh-table definition complete above, and
+        // add a guarded follow-on migration so existing stores cannot fail every
+        // recovered-night write with "no column named …".
+        migrator.registerMigration("sleep-window-recovery-charge-context-v1") { db in
+            let columns = try Set(db.columns(in: "sleepRecoveryDailyOverride").map(\.name))
+            if !columns.contains("chargeWeightedSumWithoutSleep") {
+                try db.alter(table: "sleepRecoveryDailyOverride") { table in
+                    table.add(column: "chargeWeightedSumWithoutSleep", .double)
+                }
+            }
+            if !columns.contains("chargeWeightWithoutSleep") {
+                try db.alter(table: "sleepRecoveryDailyOverride") { table in
+                    table.add(column: "chargeWeightWithoutSleep", .double)
+                }
+            }
+            if !columns.contains("chargeBaselineUsable") {
+                try db.alter(table: "sleepRecoveryDailyOverride") { table in
+                    table.add(column: "chargeBaselineUsable", .boolean).notNull().defaults(to: false)
+                }
+            }
+            if !columns.contains("sleepNeedHours") {
+                try db.alter(table: "sleepRecoveryDailyOverride") { table in
+                    table.add(column: "sleepNeedHours", .double).notNull().defaults(to: 8.0)
+                }
+            }
+            if !columns.contains("sleepConsistency") {
+                try db.alter(table: "sleepRecoveryDailyOverride") { table in
+                    table.add(column: "sleepConsistency", .double)
+                }
+            }
+        }
+
+        return migrator
     }
 }

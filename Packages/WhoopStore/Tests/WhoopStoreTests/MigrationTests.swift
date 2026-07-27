@@ -69,7 +69,84 @@ final class MigrationTests: XCTestCase {
             let cols = try await store.columnNamesForTest(table: table)
             XCTAssertTrue(cols.contains("synced"), "\(table) missing synced column")
         }
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 30)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 31)
+    }
+
+    func testRecoveryChargeContextMigrationUpgradesExistingOverrideTable() async throws {
+        let dbQueue = try DatabaseQueue()
+        try WhoopStore.makeMigrator().migrate(dbQueue)
+
+        try await dbQueue.write { db in
+            // Model a database that already recorded the shipped recovery migrations,
+            // before this follow-on added its five score-context columns. Running the
+            // current `daily-v1` migration would create the modern fresh shape, so the
+            // historical table is intentionally assembled here.
+            try db.execute(sql: """
+                CREATE TABLE sleepRecoveryDailyOverride (
+                    deviceId TEXT NOT NULL,
+                    day TEXT NOT NULL,
+                    sessionStartTs INTEGER NOT NULL,
+                    totalSleepMin DOUBLE,
+                    efficiency DOUBLE,
+                    deepMin DOUBLE,
+                    remMin DOUBLE,
+                    lightMin DOUBLE,
+                    disturbances INTEGER,
+                    restingHr INTEGER,
+                    avgHrv DOUBLE,
+                    recovery DOUBLE,
+                    restScore DOUBLE,
+                    updatedAt INTEGER NOT NULL,
+                    PRIMARY KEY (deviceId, day)
+                )
+                """)
+            for identifier in [
+                "sleep-window-recovery-v1",
+                "sleep-window-recovery-daily-v1",
+                "sleep-window-recovery-invalidation-v1",
+            ] {
+                try db.execute(
+                    sql: "INSERT INTO grdb_migrations (identifier) VALUES (?)",
+                    arguments: [identifier])
+            }
+            let oldColumns = try Set(db.columns(in: "sleepRecoveryDailyOverride").map(\.name))
+            XCTAssertFalse(oldColumns.contains("chargeWeightedSumWithoutSleep"))
+            XCTAssertFalse(oldColumns.contains("chargeWeightWithoutSleep"))
+            XCTAssertFalse(oldColumns.contains("chargeBaselineUsable"))
+            XCTAssertFalse(oldColumns.contains("sleepNeedHours"))
+            XCTAssertFalse(oldColumns.contains("sleepConsistency"))
+            try db.execute(sql: """
+                INSERT INTO sleepRecoveryDailyOverride
+                    (deviceId, day, sessionStartTs, totalSleepMin, updatedAt)
+                VALUES ('my-whoop-noop', '2026-07-26', 1000, 420, 10000)
+                """)
+        }
+
+        try WhoopStore.makeSleepRecoveryMigrator().migrate(dbQueue)
+
+        try await dbQueue.read { db in
+            let columns = try Set(db.columns(in: "sleepRecoveryDailyOverride").map(\.name))
+            XCTAssertTrue([
+                "chargeWeightedSumWithoutSleep", "chargeWeightWithoutSleep",
+                "chargeBaselineUsable", "sleepNeedHours", "sleepConsistency",
+            ].allSatisfy(columns.contains))
+            XCTAssertEqual(
+                try Int.fetchOne(
+                    db,
+                    sql: "SELECT chargeBaselineUsable FROM sleepRecoveryDailyOverride"),
+                0)
+            XCTAssertEqual(
+                try Double.fetchOne(
+                    db,
+                    sql: "SELECT sleepNeedHours FROM sleepRecoveryDailyOverride"),
+                8.0)
+            XCTAssertEqual(
+                try Int.fetchOne(
+                    db,
+                    sql: "SELECT COUNT(*) FROM grdb_migrations WHERE identifier = ?",
+                    arguments: ["sleep-window-recovery-charge-context-v1"]),
+                1)
+        }
     }
 
     /// v13 adds the `userEdited` flag to sleepSession (user-corrected wake times survive re-sync).

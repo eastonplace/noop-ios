@@ -212,7 +212,10 @@ public enum ManualSleepDailyScorer {
         end: Int,
         statedEfficiency: Double?
     ) -> StageSummary? {
-        guard end > start, !stages.isEmpty else { return nil }
+        guard let inBedSeconds = SleepTimestampMath.nonnegativeDuration(start: start, end: end),
+              inBedSeconds > 0,
+              !stages.isEmpty
+        else { return nil }
         var deep = 0.0
         var rem = 0.0
         var light = 0.0
@@ -222,10 +225,19 @@ public enum ManualSleepDailyScorer {
         var priorWasWake = true
 
         for segment in stages.sorted(by: { $0.start < $1.start }) {
+            guard SleepTimestampMath.nonnegativeDuration(
+                start: segment.start,
+                end: segment.end
+            ) != nil else {
+                return nil
+            }
             let lo = max(start, segment.start)
             let hi = min(end, segment.end)
             guard hi > lo else { continue }
-            let seconds = Double(hi - lo)
+            guard let segmentSeconds = SleepTimestampMath.nonnegativeDuration(start: lo, end: hi) else {
+                return nil
+            }
+            let seconds = Double(segmentSeconds)
             let normalized = segment.stage.lowercased()
             let isWake = normalized == "wake" || normalized == "awake"
             if isWake {
@@ -243,7 +255,7 @@ public enum ManualSleepDailyScorer {
         }
 
         guard asleep > 0 else { return nil }
-        let inBed = Double(end - start)
+        let inBed = Double(inBedSeconds)
         let efficiency = min(1, max(0, statedEfficiency ?? (asleep / inBed)))
         return StageSummary(
             totalSleepMin: asleep / 60.0,

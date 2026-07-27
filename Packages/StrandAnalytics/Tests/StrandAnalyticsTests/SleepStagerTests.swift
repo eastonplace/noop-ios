@@ -413,6 +413,19 @@ final class SleepStagerTests: XCTestCase {
         XCTAssertEqual(eff, 0.9, accuracy: 1e-9)
     }
 
+    func testStagingAndEfficiencyFailClosedForExtremeTimestamps() {
+        XCTAssertEqual(
+            SleepStager.efficiency(
+                start: Int.min,
+                end: Int.max,
+                stages: [StageSegment(start: Int.min, end: Int.max, stage: "wake")]),
+            0)
+        XCTAssertTrue(SleepStager.stageSession(
+            start: Int.min,
+            end: Int.max,
+            grav: [], hr: [], rr: [], resp: []).isEmpty)
+    }
+
     // MARK: - Hypnogram metrics
 
     func testHypnogramMetricsAASM() {

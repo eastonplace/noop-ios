@@ -37,6 +37,10 @@ public enum SleepStagerV2 {
     /// WHOOP 4 and 5. The recipe stages "wake" naturally (no separate pre-onset / post-wake forcing).
     public static func stageSession(start: Int, end: Int, grav: [GravitySample],
                                     hr: [HRSample], rr: [RRInterval], resp: [RespSample]) -> [StageSegment] {
+        // Preserve the historical zero-span fallback for callers that encode a no-op
+        // edit this way. Wrapped or reversed spans below still fail closed.
+        if start == end { return [StageSegment(start: start, end: end, stage: "light")] }
+        guard let bounds = safeWindowBounds(start: start, end: end) else { return [] }
         // v7.0.2 perf (#707): stage each night AT MOST ONCE per (window, input-fingerprint). The post-sync
         // scoring loop and the self-heal restage call this with byte-identical streams across passes; without
         // the cache each call re-allocates the large per-second HR/gravity dictionaries below before
@@ -55,9 +59,9 @@ public enum SleepStagerV2 {
         // each to the read window BEFORE fingerprinting and BEFORE the uncached recipe. This is output-identical
         // (we drop only rows `features()` could never touch) and it also tightens the fingerprint to the rows
         // that matter. PAD_LO/PAD_HI are the SAME values the Android twin (R1) clips with.
-        let gravW = clipToWindow(grav, lo: start - Self.padLo, hi: end + Self.padHi, ts: { $0.ts })
-        let hrW = clipToWindow(hr, lo: start - Self.padLo, hi: end + Self.padHi, ts: { $0.ts })
-        let rrW = clipToWindow(rr, lo: start - Self.padLo, hi: end + Self.padHi, ts: { $0.ts })
+        let gravW = clipToWindow(grav, lo: bounds.lo, hi: bounds.hi, ts: { $0.ts })
+        let hrW = clipToWindow(hr, lo: bounds.lo, hi: bounds.hi, ts: { $0.ts })
+        let rrW = clipToWindow(rr, lo: bounds.lo, hi: bounds.hi, ts: { $0.ts })
         let key = V2Key(
             start: start, end: end,
             grav: StreamFingerprint.of(gravW, ts: { $0.ts }, quant: { Int(($0.x + $0.y + $0.z) * 1024) }),
@@ -79,6 +83,23 @@ public enum SleepStagerV2 {
     /// Slice a ts-sorted stream to `[lo, hi)` with a lower/upper-bound pair (O(log n) bounds + one copy of the
     /// kept rows). Returns a contiguous sub-slice as an `Array`. Loss-free for the recipe: every row outside
     /// the window is one `features()` provably never touches.
+    /// All epoch arithmetic stays inside this checked padded interval. The staging
+    /// recipe uses integer-second dictionary keys and then a Double epoch grid, so
+    /// malformed extremes must be rejected before either representation can wrap or
+    /// lose its wall-clock ordering.
+    private static func safeWindowBounds(start: Int, end: Int) -> (lo: Int, hi: Int, duration: Int)? {
+        let exactDoubleUnixLimit = 9_007_199_254_740_991
+        guard let duration = SleepTimestampMath.nonnegativeDuration(start: start, end: end),
+              duration > 0,
+              duration <= SleepStager.maxMainSleepSpanS,
+              start >= -exactDoubleUnixLimit,
+              end <= exactDoubleUnixLimit,
+              let lo = SleepTimestampMath.subtracting(padLo, from: start),
+              let hi = SleepTimestampMath.adding(padHi, to: end)
+        else { return nil }
+        return (lo, hi, duration)
+    }
+
     private static func clipToWindow<T>(_ samples: [T], lo: Int, hi: Int, ts: (T) -> Int) -> [T] {
         if samples.isEmpty { return samples }
         // Already inside the window in full → avoid the copy (the common single-night case).
@@ -203,8 +224,12 @@ public enum SleepStagerV2 {
     /// session edges exactly as before; only rows no window could touch were dropped.
     static func features(start: Int, end: Int, grav: [GravitySample],
                          hr: [HRSample], rr: [RRInterval]) -> [Epoch] {
-        if end <= start { return [] }
-        let span = Double(max(1, end - start))
+        guard let bounds = safeWindowBounds(start: start, end: end),
+              grav.allSatisfy({ $0.ts >= bounds.lo && $0.ts < bounds.hi }),
+              hr.allSatisfy({ $0.ts >= bounds.lo && $0.ts < bounds.hi }),
+              rr.allSatisfy({ $0.ts >= bounds.lo && $0.ts < bounds.hi })
+        else { return [] }
+        let span = Double(bounds.duration)
 
         // Per-second aggregation (one value per integer second; mean when a second carries several samples).
         var hrSum = [Int: Double](), hrCnt = [Int: Int]()
@@ -275,7 +300,8 @@ public enum SleepStagerV2 {
         }
         var raws: [Raw] = []
         var allJerks: [Double] = []
-        let firstE = ((start + 29) / 30) * 30
+        guard let roundedStart = SleepTimestampMath.adding(29, to: start) else { return [] }
+        let firstE = (roundedStart / 30) * 30
         var e = firstE
         while e < end {
             var hrs: [Double] = []

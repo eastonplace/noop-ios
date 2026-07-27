@@ -71,7 +71,12 @@ private struct MissedSleepRecoveryBridge: View {
         let recovered = sessions
             .filter { $0.effectiveStartTs < requestedEnd && requestedStart < $0.endTs }
             .max { lhs, rhs in
-                (lhs.endTs - lhs.effectiveStartTs) < (rhs.endTs - rhs.effectiveStartTs)
+                func defensibleDuration(_ session: CachedSleepSession) -> Int {
+                    let (duration, overflow) = session.endTs.subtractingReportingOverflow(
+                        session.effectiveStartTs)
+                    return overflow || duration < 0 ? 0 : duration
+                }
+                return defensibleDuration(lhs) < defensibleDuration(rhs)
             }
         await repo.recordSleepDetectionRetry(
             requestedStartTs: requestedStart,

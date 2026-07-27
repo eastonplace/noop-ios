@@ -73,21 +73,33 @@ final class SleepRecoveryStoreTests: XCTestCase {
     private func dailyOverride(
         day: String = "2026-07-26",
         sessionStart: Int = 1_000,
-        restScore: Double? = 88
+        totalSleepMin: Double? = 420,
+        recovery: Double? = 77,
+        restScore: Double? = 88,
+        chargeWeightedSumWithoutSleep: Double? = nil,
+        chargeWeightWithoutSleep: Double? = nil,
+        chargeBaselineUsable: Bool = false,
+        sleepNeedHours: Double = 8.0,
+        sleepConsistency: Double? = nil
     ) -> SleepRecoveryDailyOverride {
         SleepRecoveryDailyOverride(
             day: day,
             sessionStartTs: sessionStart,
-            totalSleepMin: 420,
-            efficiency: 0.88,
-            deepMin: 70,
-            remMin: 90,
-            lightMin: 260,
-            disturbances: 3,
-            restingHr: 50,
-            avgHrv: 64,
-            recovery: 77,
+            totalSleepMin: totalSleepMin,
+            efficiency: totalSleepMin == nil ? nil : 0.88,
+            deepMin: totalSleepMin == nil ? nil : 70,
+            remMin: totalSleepMin == nil ? nil : 90,
+            lightMin: totalSleepMin == nil ? nil : 260,
+            disturbances: totalSleepMin == nil ? nil : 3,
+            restingHr: totalSleepMin == nil ? nil : 50,
+            avgHrv: totalSleepMin == nil ? nil : 64,
+            recovery: recovery,
             restScore: restScore,
+            chargeWeightedSumWithoutSleep: chargeWeightedSumWithoutSleep,
+            chargeWeightWithoutSleep: chargeWeightWithoutSleep,
+            chargeBaselineUsable: chargeBaselineUsable,
+            sleepNeedHours: sleepNeedHours,
+            sleepConsistency: sleepConsistency,
             updatedAt: 10_000)
     }
 
@@ -107,7 +119,7 @@ final class SleepRecoveryStoreTests: XCTestCase {
 
     func testFeatureMigrationCreatesRecoveryTablesAndIndexes() async throws {
         let store = try await WhoopStore.inMemory()
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 30)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 31)
         let tables = try await store.tableNames()
         XCTAssertTrue(tables.contains("sleepRecoveryAttempt"))
         XCTAssertTrue(tables.contains("sleepRecoveryDailyOverride"))
@@ -124,7 +136,9 @@ final class SleepRecoveryStoreTests: XCTestCase {
         XCTAssertTrue([
             "deviceId", "day", "sessionStartTs", "totalSleepMin", "efficiency",
             "deepMin", "remMin", "lightMin", "disturbances", "restingHr",
-            "avgHrv", "recovery", "restScore", "updatedAt",
+            "avgHrv", "recovery", "restScore", "chargeWeightedSumWithoutSleep",
+            "chargeWeightWithoutSleep", "chargeBaselineUsable", "sleepNeedHours",
+            "sleepConsistency", "updatedAt",
         ].allSatisfy(overrideColumns.contains))
 
         let auditIndexes = try await store.indexNamesForTest(table: "sleepRecoveryAttempt")
@@ -264,9 +278,9 @@ final class SleepRecoveryStoreTests: XCTestCase {
         let rest = try await store.metricSeries(
             deviceId: device, key: "sleep_performance",
             from: "2026-07-26", to: "2026-07-26")
+        let overrides = try await store.sleepRecoveryDailyOverrides(deviceId: device)
         XCTAssertEqual(rest.first?.value, 88)
-        let dailyOverrides = try await store.sleepRecoveryDailyOverrides(deviceId: device)
-        XCTAssertEqual(dailyOverrides.count, 1)
+        XCTAssertEqual(overrides.count, 1)
     }
 
     func testDailyDeleteDuringReconcileCannotEraseRecoveredNight() async throws {
@@ -284,6 +298,70 @@ final class SleepRecoveryStoreTests: XCTestCase {
         XCTAssertEqual(rows.first?.recovery, 77)
     }
 
+    func testReprocessingRecoveredBoundsAtomicallyRekeysOverride() async throws {
+        let store = try await WhoopStore.inMemory()
+        let device = "my-whoop-noop"
+        try await persistCompleteRecovery(store: store, device: device)
+
+        let reprocessed = session(
+            start: 1_100,
+            end: 4_800,
+            edited: true,
+            stages: "[{\"start\":1100,\"end\":4800,\"stage\":\"light\"}]",
+            restingHr: 49,
+            avgHrv: 68)
+        let rekeyedOverride = dailyOverride(
+            sessionStart: 1_100,
+            totalSleepMin: 330,
+            recovery: 65,
+            restScore: 72,
+            chargeWeightedSumWithoutSleep: 1.75,
+            chargeWeightWithoutSleep: 2.25,
+            chargeBaselineUsable: true,
+            sleepNeedHours: 7.5,
+            sleepConsistency: 0.91)
+        let write = try await store.replaceWithManualSleepRecovery(
+            reprocessed,
+            deviceId: device,
+            audit: audit(id: "rekey", start: 1_100, end: 4_800),
+            dailyOverride: rekeyedOverride,
+            daily: daily(sleep: 330, recovery: 65),
+            replacingStartTs: 1_000)
+
+        guard case .updated(let removed) = write else {
+            return XCTFail("expected recovered session to re-key in place")
+        }
+        XCTAssertEqual(removed, 0)
+        let oldOverride = try await store.sleepRecoveryDailyOverride(
+            deviceId: device,
+            sessionStartTs: 1_000)
+        let newOverride = try await store.sleepRecoveryDailyOverride(
+            deviceId: device,
+            sessionStartTs: 1_100)
+        XCTAssertNil(oldOverride)
+        let override = try XCTUnwrap(newOverride)
+        XCTAssertEqual(override.totalSleepMin, 330)
+        XCTAssertEqual(override.recovery, 65)
+        XCTAssertEqual(override.restScore, 72)
+        XCTAssertEqual(override.chargeWeightedSumWithoutSleep, 1.75)
+        XCTAssertEqual(override.chargeWeightWithoutSleep, 2.25)
+        XCTAssertTrue(override.chargeBaselineUsable)
+        XCTAssertEqual(override.sleepNeedHours, 7.5)
+        XCTAssertEqual(override.sleepConsistency, 0.91)
+
+        let sessions = try await store.sleepSessions(deviceId: device, from: 0, to: 10_000, limit: 10)
+        XCTAssertEqual(sessions, [reprocessed])
+        let rekeyedDailyRows = try await store.dailyMetrics(
+            deviceId: device, from: "2026-07-26", to: "2026-07-26")
+        let row = try XCTUnwrap(rekeyedDailyRows.first)
+        XCTAssertEqual(row.totalSleepMin, 330)
+        XCTAssertEqual(row.recovery, 65)
+        let rest = try await store.metricSeries(
+            deviceId: device, key: "sleep_performance",
+            from: "2026-07-26", to: "2026-07-26")
+        XCTAssertEqual(rest.first?.value, 72)
+    }
+
     func testEditingRecoveredBoundsInvalidatesProtectedDerivedValues() async throws {
         let store = try await WhoopStore.inMemory()
         let device = "my-whoop-noop"
@@ -296,11 +374,11 @@ final class SleepRecoveryStoreTests: XCTestCase {
             newEndTs: 4_800,
             stagesJSON: "[{\"start\":1100,\"end\":4800,\"stage\":\"light\"}]")
 
-        let dailyOverrides = try await store.sleepRecoveryDailyOverrides(deviceId: device)
-        XCTAssertTrue(dailyOverrides.isEmpty)
-        let dailyRows = try await store.dailyMetrics(
+        let overrides = try await store.sleepRecoveryDailyOverrides(deviceId: device)
+        let clearedDailyRows = try await store.dailyMetrics(
             deviceId: device, from: "2026-07-26", to: "2026-07-26")
-        let row = try XCTUnwrap(dailyRows.first)
+        XCTAssertTrue(overrides.isEmpty)
+        let row = try XCTUnwrap(clearedDailyRows.first)
         XCTAssertNil(row.totalSleepMin)
         XCTAssertNil(row.restingHr)
         XCTAssertNil(row.avgHrv)
@@ -318,11 +396,11 @@ final class SleepRecoveryStoreTests: XCTestCase {
 
         _ = try await store.deleteSleepSession(deviceId: device, startTs: 1_000)
 
-        let dailyOverrides = try await store.sleepRecoveryDailyOverrides(deviceId: device)
-        XCTAssertTrue(dailyOverrides.isEmpty)
-        let dailyRows = try await store.dailyMetrics(
+        let overrides = try await store.sleepRecoveryDailyOverrides(deviceId: device)
+        let clearedDailyRows = try await store.dailyMetrics(
             deviceId: device, from: "2026-07-26", to: "2026-07-26")
-        let row = try XCTUnwrap(dailyRows.first)
+        XCTAssertTrue(overrides.isEmpty)
+        let row = try XCTUnwrap(clearedDailyRows.first)
         XCTAssertNil(row.totalSleepMin)
         XCTAssertNil(row.recovery)
         let rest = try await store.metricSeries(

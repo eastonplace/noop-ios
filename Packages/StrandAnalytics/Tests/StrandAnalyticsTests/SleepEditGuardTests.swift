@@ -156,6 +156,14 @@ final class SleepEditGuardTests: XCTestCase {
         XCTAssertEqual(w?.end, 10_300)
     }
 
+    func testClampFailsClosedWhenFutureCapWouldOverflow() {
+        XCTAssertNil(SleepEditGuard.clampedEditWindow(
+            start: Int.min,
+            end: Int.max,
+            now: Int.max,
+            slackSec: 300))
+    }
+
     func testFullyFutureWindowIsRefused() {
         // THE #940 phantom: both ends after now. Capping the end lands at/below the start -> nil.
         XCTAssertNil(SleepEditGuard.clampedEditWindow(start: 80_000, end: 100_000, now: 10_000))

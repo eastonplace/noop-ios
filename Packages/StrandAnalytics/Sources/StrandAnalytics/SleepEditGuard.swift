@@ -64,8 +64,12 @@ public enum SleepEditGuard {
     /// cannot render.
     public static func clampedEditWindow(start: Int, end: Int, now: Int,
                                          slackSec: Int = 300) -> (start: Int, end: Int)? {
-        let cappedEnd = min(end, now + slackSec)
-        guard cappedEnd > start else { return nil }
+        let (latestAllowedEnd, capOverflow) = now.addingReportingOverflow(slackSec)
+        guard !capOverflow else { return nil }
+        let cappedEnd = min(end, latestAllowedEnd)
+        guard cappedEnd > start,
+              SleepTimestampMath.nonnegativeDuration(start: start, end: cappedEnd) != nil
+        else { return nil }
         return (start, cappedEnd)
     }
 }

@@ -112,6 +112,27 @@ public struct SleepWindowRecoveryResult: Equatable, Sendable {
     }
 }
 
+/// Checked wall-clock arithmetic shared by the bounded recovery path. The raw-store
+/// boundary is hostile: a corrupt export can contain either `Int.min` or `Int.max`.
+/// Never turn an invalid duration into a wrapped interval that looks like a real night.
+enum SleepTimestampMath {
+    static func nonnegativeDuration(start: Int, end: Int) -> Int? {
+        let (duration, overflow) = end.subtractingReportingOverflow(start)
+        guard !overflow, duration >= 0 else { return nil }
+        return duration
+    }
+
+    static func adding(_ delta: Int, to value: Int) -> Int? {
+        let (result, overflow) = value.addingReportingOverflow(delta)
+        return overflow ? nil : result
+    }
+
+    static func subtracting(_ delta: Int, from value: Int) -> Int? {
+        let (result, overflow) = value.subtractingReportingOverflow(delta)
+        return overflow ? nil : result
+    }
+}
+
 /// Bounded fallback for a detector miss. The user provides only the search interval;
 /// NOOP still derives stages and vitals from recorded physiology inside that interval.
 public enum SleepWindowRecovery {
@@ -129,7 +150,27 @@ public enum SleepWindowRecovery {
         gravity: [GravitySample] = [],
         useSleepStagerV2: Bool = false
     ) -> SleepWindowRecoveryResult {
-        let duration = end - start
+        guard let duration = SleepTimestampMath.nonnegativeDuration(start: start, end: end),
+              duration >= minWindowSeconds,
+              duration <= maxWindowSeconds
+        else {
+            return result(
+                source: source,
+                outcome: .invalidWindow,
+                reason: .invalidDuration,
+                confidence: 0,
+                start: start,
+                end: end,
+                evidence: SleepWindowEvidence(
+                    gravitySamples: 0,
+                    hrSamples: 0,
+                    rrSamples: 0,
+                    respSamples: 0,
+                    gravityCoverage: 0,
+                    hrCoverage: 0,
+                    rrCoverage: 0,
+                    respCoverage: 0))
+        }
         let hrWindow = hr.filter { $0.ts >= start && $0.ts <= end }.sorted { $0.ts < $1.ts }
         let rrWindow = rr.filter { $0.ts >= start && $0.ts <= end }.sorted { $0.ts < $1.ts }
         let respWindow = resp.filter { $0.ts >= start && $0.ts <= end }.sorted { $0.ts < $1.ts }
@@ -145,12 +186,6 @@ public enum SleepWindowRecovery {
             rrCoverage: coverageFraction(rrWindow.map(\.ts), start: start, end: end),
             respCoverage: coverageFraction(respWindow.map(\.ts), start: start, end: end)
         )
-
-        guard duration >= minWindowSeconds, duration <= maxWindowSeconds else {
-            return result(
-                source: source, outcome: .invalidWindow, reason: .invalidDuration,
-                confidence: 0, start: start, end: end, evidence: evidence)
-        }
 
         // Gravity alone is not evidence that the strap was worn: an off-wrist device can
         // be perfectly still for hours. Require at least one physiological stream before
@@ -197,8 +232,20 @@ public enum SleepWindowRecovery {
                 start: start, end: end, grav: gravityWindow,
                 hr: hrWindow, rr: rrWindow, resp: respWindow)
 
-        let asleepSeconds = stages.reduce(0) { partial, segment in
-            segment.stage == "wake" ? partial : partial + max(0, segment.end - segment.start)
+        guard let asleepSeconds = asleepSeconds(in: stages, start: start, end: end) else {
+            let hasVitals = restingHR != nil || avgHRV != nil
+            return result(
+                source: source,
+                outcome: hasVitals ? .partial : .noSleepEvidence,
+                reason: .noAsleepEpochs,
+                confidence: hasVitals ? partialConfidence(evidence) : 0.15,
+                start: start,
+                end: end,
+                stages: [],
+                efficiency: nil,
+                restingHR: restingHR,
+                avgHRV: avgHRV,
+                evidence: evidence)
         }
         guard asleepSeconds >= 20 * 60 else {
             let hasVitals = restingHR != nil || avgHRV != nil
@@ -235,14 +282,51 @@ public enum SleepWindowRecovery {
     /// Occupied five-minute buckets divided by all buckets in the requested interval.
     /// This is robust to 1 Hz and sparse streams and avoids rewarding a clump of samples.
     static func coverageFraction(_ timestamps: [Int], start: Int, end: Int) -> Double {
-        guard end > start else { return 0 }
+        guard let duration = SleepTimestampMath.nonnegativeDuration(start: start, end: end),
+              duration > 0
+        else { return 0 }
         let bucketSeconds = 5 * 60
-        let bucketCount = max(1, Int(ceil(Double(end - start) / Double(bucketSeconds))))
+        let bucketCount = duration / bucketSeconds
+            + (duration.isMultiple(of: bucketSeconds) ? 0 : 1)
         let occupied = Set(timestamps.compactMap { ts -> Int? in
             guard ts >= start, ts <= end else { return nil }
-            return min(bucketCount - 1, max(0, (ts - start) / bucketSeconds))
+            guard let offset = SleepTimestampMath.nonnegativeDuration(start: start, end: ts) else {
+                return nil
+            }
+            return min(bucketCount - 1, offset / bucketSeconds)
         }).count
         return min(1, Double(occupied) / Double(bucketCount))
+    }
+
+    /// Sum only defensible asleep segments inside the requested interval. A malformed
+    /// segment fails the recovery closed rather than being clipped into fabricated sleep.
+    static func asleepSeconds(in stages: [StageSegment], start: Int, end: Int) -> Int? {
+        guard SleepTimestampMath.nonnegativeDuration(start: start, end: end) != nil else {
+            return nil
+        }
+
+        var total = 0
+        for segment in stages where segment.stage != "wake" {
+            guard SleepTimestampMath.nonnegativeDuration(
+                start: segment.start,
+                end: segment.end
+            ) != nil else {
+                return nil
+            }
+            let clippedStart = max(start, segment.start)
+            let clippedEnd = min(end, segment.end)
+            guard clippedEnd > clippedStart else { continue }
+            guard let duration = SleepTimestampMath.nonnegativeDuration(
+                start: clippedStart,
+                end: clippedEnd
+            ) else {
+                return nil
+            }
+            let (nextTotal, overflow) = total.addingReportingOverflow(duration)
+            guard !overflow else { return nil }
+            total = nextTotal
+        }
+        return total
     }
 
     private static func partialConfidence(_ evidence: SleepWindowEvidence) -> Double {

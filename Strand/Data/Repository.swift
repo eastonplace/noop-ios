@@ -1370,6 +1370,27 @@ final class Repository: ObservableObject {
         guard let window = SleepEditGuard.clampedEditWindow(
             start: newStartTs, end: newEndTs, now: Int(Date().timeIntervalSince1970)) else { return }
         let (safeStartTs, safeEndTs) = window
+
+        // A user-bounded recovery owns a protected daily Rest/Charge overlay. Its
+        // bounds must be re-analysed and re-keyed in the recovery writer’s single
+        // transaction; the generic stage-only edit would fire the invalidation trigger
+        // first and leave the corrected day blank. If provenance cannot be read, fail
+        // closed rather than risk treating a recovered night as an ordinary edit.
+        do {
+            if try await store.sleepRecoveryDailyOverride(
+                deviceId: computedDeviceId,
+                sessionStartTs: detectedStartTs
+            ) != nil {
+                _ = await recoverMissedSleep(
+                    startTs: safeStartTs,
+                    endTs: safeEndTs,
+                    replacingStartTs: detectedStartTs)
+                return
+            }
+        } catch {
+            return
+        }
+
         // Re-derive stages from the raw streams for the corrected window; fall back to reshaping the
         // stored summary when the strap has no dense data there yet. The fallback fires for a genuine
         // imported night (no strap data at all) AND for the transient case where the user edits BEFORE
@@ -1563,8 +1584,10 @@ final class Repository: ObservableObject {
         for seg in arr {
             guard let s = (seg["start"] as? NSNumber)?.intValue,
                   let e = (seg["end"] as? NSNumber)?.intValue,
-                  let stage = seg["stage"] as? String, e > s else { continue }
-            let dur = Double(e - s)
+                  let stage = seg["stage"] as? String else { continue }
+            let (duration, overflow) = e.subtractingReportingOverflow(s)
+            guard !overflow, duration > 0 else { continue }
+            let dur = Double(duration)
             total += dur
             if stage != "wake" && stage != "awake" { asleep += dur }
         }
@@ -1580,10 +1603,16 @@ final class Repository: ObservableObject {
     /// thousands of samples, which would otherwise freeze the UI.
     private func restageFromRaw(start: Int, end: Int) async -> String? {
         guard let store = await ensureStore() else { return nil }
-        let lo = start - 3_600, hi = end + 3_600
+        let (lo, lowerPaddingOverflow) = start.subtractingReportingOverflow(3_600)
+        let (hi, upperPaddingOverflow) = end.addingReportingOverflow(3_600)
+        let (windowSeconds, durationOverflow) = end.subtractingReportingOverflow(start)
+        guard !lowerPaddingOverflow,
+              !upperPaddingOverflow,
+              !durationOverflow,
+              windowSeconds > 0
+        else { return nil }
         let grav = (try? await store.gravitySamples(deviceId: deviceId, from: lo, to: hi, limit: 200_000)) ?? []
         let inWindowGravity = grav.lazy.filter { $0.ts >= start && $0.ts <= end }.count
-        let windowSeconds = max(1, end - start)
         guard inWindowGravity >= max(20, windowSeconds / 120) else { return nil }
         let hr = (try? await store.hrSamples(deviceId: deviceId, from: lo, to: hi, limit: 200_000)) ?? []
         let rr = (try? await store.rrIntervals(deviceId: deviceId, from: lo, to: hi, limit: 200_000)) ?? []

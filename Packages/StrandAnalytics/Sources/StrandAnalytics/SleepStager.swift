@@ -997,9 +997,23 @@ public enum SleepStager {
 
     /// asleep / in-bed in [0, 1]; asleep = in-bed − wake.
     static func efficiency(start: Int, end: Int, stages: [StageSegment]) -> Double {
-        let inBed = Double(end - start)
-        if inBed <= 0 { return 0 }
-        let wake = stages.filter { $0.stage == "wake" }.reduce(0.0) { $0 + Double($1.end - $1.start) }
+        guard let inBedSeconds = SleepTimestampMath.nonnegativeDuration(start: start, end: end),
+              inBedSeconds > 0
+        else { return 0 }
+        var wakeSeconds = 0
+        for stage in stages where stage.stage == "wake" {
+            guard let duration = SleepTimestampMath.nonnegativeDuration(
+                start: stage.start,
+                end: stage.end
+            ) else {
+                return 0
+            }
+            let (nextWake, overflow) = wakeSeconds.addingReportingOverflow(duration)
+            guard !overflow else { return 0 }
+            wakeSeconds = nextWake
+        }
+        let inBed = Double(inBedSeconds)
+        let wake = Double(wakeSeconds)
         let asleep = max(0.0, inBed - wake)
         return min(1.0, asleep / inBed)
     }
@@ -1031,6 +1045,7 @@ public enum SleepStager {
     /// stages from the sensor data instead of a fabricated "awake" block. (#318)
     public static func stageSession(start: Int, end: Int, grav: [GravitySample],
                                     hr: [HRSample], rr: [RRInterval], resp: [RespSample]) -> [StageSegment] {
+        guard isRepresentableStageWindow(start: start, end: end) else { return [] }
         // v7.0.2 perf (#707): stage each window AT MOST ONCE per (window, input-fingerprint). Both
         // `detectSleep` (per accepted run) and the sleep-edit restage call this with byte-identical streams
         // across post-sync passes / `body` re-evaluations; each call builds a fresh 30 s epoch grid +
@@ -1054,6 +1069,20 @@ public enum SleepStager {
         let rr: StreamFingerprint; let resp: StreamFingerprint
     }
     private static let stageSessionCache = AnalyticsMemoCache<V1StageKey, [StageSegment]>(capacity: 32)
+
+    /// Epoch-grid staging converts the timestamps to `Double`. Reject values that
+    /// would lose integer-second precision (or have a wrapped duration) instead of
+    /// fabricating a hypnogram from a malformed clock.
+    private static func isRepresentableStageWindow(start: Int, end: Int) -> Bool {
+        let exactDoubleUnixLimit = 9_007_199_254_740_991
+        guard let duration = SleepTimestampMath.nonnegativeDuration(start: start, end: end) else {
+            return false
+        }
+        return duration > 0
+            && duration <= maxMainSleepSpanS
+            && start >= -exactDoubleUnixLimit
+            && end <= exactDoubleUnixLimit
+    }
 
     /// Unchanged V1 staging recipe; split verbatim so the public entry memoizes in front of it.
     private static func stageSessionUncached(start: Int, end: Int, grav: [GravitySample],

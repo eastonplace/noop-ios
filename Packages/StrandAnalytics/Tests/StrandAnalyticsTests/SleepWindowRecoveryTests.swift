@@ -139,6 +139,28 @@ final class SleepWindowRecoveryTests: XCTestCase {
         }
     }
 
+    func testExtremeTimestampsFailClosedWithoutWrappedEvidenceOrSleep() {
+        let recovered = SleepWindowRecovery.analyze(
+            start: Int.min,
+            end: Int.max,
+            hr: [HRSample(ts: 0, bpm: 60)],
+            gravity: [GravitySample(ts: 0, x: 0, y: 0, z: 1)])
+
+        XCTAssertEqual(recovered.outcome, .invalidWindow)
+        XCTAssertEqual(recovered.reason, .invalidDuration)
+        XCTAssertFalse(recovered.canPersistSession)
+        XCTAssertEqual(recovered.evidence.hrSamples, 0)
+        XCTAssertEqual(recovered.evidence.gravitySamples, 0)
+        XCTAssertEqual(
+            SleepWindowRecovery.coverageFraction(
+                [Int.min, Int.max], start: Int.min, end: Int.max),
+            0)
+        XCTAssertNil(SleepWindowRecovery.asleepSeconds(
+            in: [StageSegment(start: Int.min, end: Int.max, stage: "light")],
+            start: 0,
+            end: 3_600))
+    }
+
     func testDSTSpringForwardWindowUsesAbsoluteElapsedTime() throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
@@ -238,6 +260,30 @@ final class SleepWindowRecoveryTests: XCTestCase {
         XCTAssertEqual(score.daily.avgHrv, 62)
         XCTAssertEqual(score.daily.strain, 20)
         XCTAssertEqual(score.daily.steps, 7_500)
+    }
+
+    func testDailyScorerRejectsMalformedStageTimestamps() {
+        let analysis = SleepWindowRecoveryResult(
+            source: .manualWindow,
+            outcome: .complete,
+            reason: .boundedReanalysis,
+            confidence: 0.9,
+            requestedStart: 0,
+            requestedEnd: 3_600,
+            stages: [StageSegment(start: Int.min, end: Int.max, stage: "light")],
+            efficiency: 1,
+            restingHR: 50,
+            avgHRV: 60,
+            evidence: evidence())
+
+        let score = ManualSleepDailyScorer.score(
+            day: "2026-07-26",
+            analysis: analysis,
+            existing: daily(day: "2026-07-26", totalSleepMin: 420),
+            priorHistory: [])
+
+        XCTAssertNil(score.daily.totalSleepMin)
+        XCTAssertNil(score.restScore)
     }
 
     func testDailyScorerRegeneratesChargeOnceBaselineIsUsable() {

@@ -59,8 +59,10 @@ extension Repository {
         }
 
         let (safeStart, safeEnd) = safeWindow
-        guard safeEnd - safeStart >= SleepWindowRecovery.minWindowSeconds,
-              safeEnd - safeStart <= SleepWindowRecovery.maxWindowSeconds else {
+        let (duration, durationOverflow) = safeEnd.subtractingReportingOverflow(safeStart)
+        guard !durationOverflow,
+              duration >= SleepWindowRecovery.minWindowSeconds,
+              duration <= SleepWindowRecovery.maxWindowSeconds else {
             return MissedSleepRecoverySaveResult(
                 status: .invalidWindow,
                 title: "Check the sleep window",
@@ -84,8 +86,17 @@ extension Repository {
         // namespace so the normal merge, export and projection paths see this correction.
         let computedId = Repository.whoopSource + "-noop"
 
-        let lo = safeStart - 3_600
-        let hi = safeEnd + 3_600
+        let (lo, lowerPaddingOverflow) = safeStart.subtractingReportingOverflow(3_600)
+        let (hi, upperPaddingOverflow) = safeEnd.addingReportingOverflow(3_600)
+        guard !lowerPaddingOverflow, !upperPaddingOverflow else {
+            return MissedSleepRecoverySaveResult(
+                status: .invalidWindow,
+                title: "Check the sleep window",
+                message: "Choose a valid sleep window between 30 minutes and 16 hours.",
+                confidence: nil,
+                sessionStart: nil,
+                sessionEnd: nil)
+        }
         let raw = await sleepRecoveryRawWindow(store: store, from: lo, to: hi)
         let useV2 = PuffinExperiment.experimentalSleepV2Enabled
 
@@ -168,7 +179,17 @@ extension Repository {
         let wakeDate = Date(timeIntervalSince1970: TimeInterval(safeEnd))
         let offset = TimeZone.current.secondsFromGMT(for: wakeDate)
         let day = AnalyticsEngine.dayString(safeEnd, offsetSec: offset)
-        let fromDay = AnalyticsEngine.dayString(safeEnd - 180 * 86_400, offsetSec: offset)
+        let (historyStart, historyStartOverflow) = safeEnd.subtractingReportingOverflow(180 * 86_400)
+        guard !historyStartOverflow else {
+            return MissedSleepRecoverySaveResult(
+                status: .invalidWindow,
+                title: "Check the sleep window",
+                message: "Choose a valid sleep window between 30 minutes and 16 hours.",
+                confidence: nil,
+                sessionStart: nil,
+                sessionEnd: nil)
+        }
+        let fromDay = AnalyticsEngine.dayString(historyStart, offsetSec: offset)
         async let computedHistoryRead = store.dailyMetrics(
             deviceId: computedId, from: fromDay, to: day)
         async let importedHistoryRead = store.dailyMetrics(
@@ -182,13 +203,25 @@ extension Repository {
         for row in importedHistory { mergedByDay[row.day] = row }
         let priorHistory = mergedByDay.values.sorted { $0.day < $1.day }
         let personalNeed = await canonicalSleepNeedPlan(onOrBefore: day)
+        let sleepNeedHours = max(0.1, personalNeed.minutes / 60.0)
+        // Rest regularity is a property of the preceding nights, not of the newly
+        // bounded window alone. Use the same duration-based proxy as the rest of the
+        // app and persist the exact context that produced this recovered score.
+        let recentSleepHours = priorHistory
+            .filter { $0.day < day }
+            .suffix(7)
+            .compactMap(\.totalSleepMin)
+            .filter { $0 > 0 }
+            .map { $0 / 60.0 }
+        let sleepConsistency = VitalityEngine.sleepConsistency(nightlyHours: recentSleepHours)
 
         let scored = ManualSleepDailyScorer.score(
             day: day,
             analysis: analysis,
             existing: existing,
             priorHistory: priorHistory,
-            sleepNeedHours: max(0.1, personalNeed.minutes / 60.0))
+            sleepNeedHours: sleepNeedHours,
+            sleepConsistency: sleepConsistency)
         let dailyOverride = SleepRecoveryDailyOverride(
             day: day,
             sessionStartTs: safeStart,
@@ -202,6 +235,11 @@ extension Repository {
             avgHrv: scored.daily.avgHrv,
             recovery: scored.daily.recovery,
             restScore: scored.restScore,
+            chargeWeightedSumWithoutSleep: scored.chargeContext.weightedSumWithoutSleep,
+            chargeWeightWithoutSleep: scored.chargeContext.weightWithoutSleep,
+            chargeBaselineUsable: scored.chargeContext.baselineUsable,
+            sleepNeedHours: sleepNeedHours,
+            sleepConsistency: sleepConsistency,
             updatedAt: now)
 
         do {
