@@ -16,6 +16,47 @@ struct HealthKitSyncWindow: Codable, Equatable, Sendable {
     }
 }
 
+/// Converts one committed HealthKit civil-time window into IntelligenceEngine's day-offset contract.
+/// Calendar arithmetic (not seconds/86,400) keeps spring/fall DST windows exact. The result is bounded to
+/// the same 10,000-day ceiling as IntelligenceAnalysisRequest, so a malformed historical cursor cannot ask
+/// the scorer for an unbounded pass.
+struct HealthKitAnalysisRange: Equatable, Sendable {
+    static let maximumWindowDays = 10_000
+
+    let maxDays: Int
+    let startOffset: Int
+
+    init(window: HealthKitSyncWindow, now: Date = Date(), calendar input: Calendar = .current) {
+        let calendar = input
+        let today = calendar.startOfDay(for: now)
+        let rawStart = calendar.startOfDay(for: window.start)
+        let rawEnd = calendar.startOfDay(for: window.end)
+        let end = min(rawEnd, today)
+        let start = min(rawStart, end)
+
+        let rawOffset = max(0, calendar.dateComponents([.day], from: end, to: today).day ?? 0)
+        let boundedOffset = min(rawOffset, Self.maximumWindowDays - 1)
+        let rawSpan = max(1, (calendar.dateComponents([.day], from: start, to: end).day ?? 0) + 1)
+        let remaining = max(1, Self.maximumWindowDays - boundedOffset)
+
+        startOffset = boundedOffset
+        maxDays = min(rawSpan, remaining)
+    }
+
+    var publicationDays: Int {
+        min(Self.maximumWindowDays, max(120, startOffset + maxDays))
+    }
+}
+
+enum HealthKitSyncPublication {
+    static let name = Notification.Name("noop.healthKitSyncWindowCommitted")
+    static let windowKey = "window"
+
+    static func window(from notification: Notification) -> HealthKitSyncWindow? {
+        notification.userInfo?[windowKey] as? HealthKitSyncWindow
+    }
+}
+
 @MainActor
 protocol HealthKitPendingWindowPersisting: AnyObject {
     func load() -> HealthKitSyncWindow?
@@ -66,14 +107,20 @@ final class HealthKitSyncCoordinator {
 
     private let persistence: any HealthKitPendingWindowPersisting
     private let operation: Operation
+    private let notificationCenter: NotificationCenter
     private(set) var pending: HealthKitSyncWindow?
     private(set) var isRunning = false
     private var revision: UInt64 = 0
     private var waiters: [CheckedContinuation<Void, Never>] = []
     private var workerTask: Task<Void, Never>?
 
-    init(persistence: any HealthKitPendingWindowPersisting, operation: @escaping Operation) {
+    init(
+        persistence: any HealthKitPendingWindowPersisting,
+        notificationCenter: NotificationCenter = .default,
+        operation: @escaping Operation
+    ) {
         self.persistence = persistence
+        self.notificationCenter = notificationCenter
         self.operation = operation
         pending = persistence.load()
     }
@@ -115,11 +162,15 @@ final class HealthKitSyncCoordinator {
 
             // An overlapping wake widened/replaced the pending interval while the operation awaited.
             // Keep the union and run it once more; only the exact successfully-processed revision may
-            // clear the durable journal.
+            // clear the durable journal and publish a committed scoring generation.
             guard revision == snapshotRevision else { continue }
             do {
                 try persistence.save(nil)
                 pending = nil
+                notificationCenter.post(
+                    name: HealthKitSyncPublication.name,
+                    object: nil,
+                    userInfo: [HealthKitSyncPublication.windowKey: snapshot])
             } catch {
                 // Clearing failure is conservative: repeat the idempotent aggregation on next wake.
                 return
