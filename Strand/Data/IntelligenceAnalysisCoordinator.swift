@@ -218,16 +218,40 @@ extension IntelligenceEngine {
         }
     }
 
+    /// Emit one final, privacy-safe receipt after AppModel's explicit Repository refresh has had a chance to
+    /// publish the just-scored generation. The task stops silently if a newer offload starts or completes.
+    /// Waiting for a refreshSeq change is diagnostic-only; Repository's byte-identical diff guard may keep the
+    /// same sequence, so the bounded poll falls through and records the settled state after two seconds.
+    private func scheduleFinalRecoveryReceipt(
+        app: AppModel,
+        live: LiveState,
+        generation: TimeInterval?,
+        startingRefreshSeq: Int
+    ) {
+        Task { @MainActor [weak app, weak live] in
+            guard let app, let live else { return }
+            for _ in 0..<100 {
+                guard live.backfillDataAvailableAt == generation, !live.backfilling else { return }
+                if app.repo.refreshSeq != startingRefreshSeq { break }
+                await Self.waitForAnalysisPoll()
+            }
+            guard live.backfillDataAvailableAt == generation, !live.backfilling else { return }
+            let receipt = await DebugDataDiagnostics.recoveryReadinessReceipt(repo: app.repo)
+            live.append(log: "postBackfillFinal \(receipt.line)")
+        }
+    }
+
     /// AppModel's post-backfill path intentionally asks analysis not to publish Repository itself; it performs
     /// one explicit cache publication immediately after this call. Hold the call until one exact current-day
     /// pass begins and ends with the same quiescent durable-data generation. If a reconnect or periodic burst
     /// advances data during analysis, rerun before returning. Forced source work survives caller cancellation.
     private func submitStablePostBackfillAnalysis() async {
-        guard let live = AppModel.shared?.live else {
+        guard let app = AppModel.shared else {
             await submitSerializedAnalysis(
                 maxDays: 21, startOffset: 0, force: true, refreshRepository: false)
             return
         }
+        let live = app.live
 
         while true {
             let before = BackfillAnalysisSnapshot(
@@ -244,7 +268,14 @@ extension IntelligenceEngine {
             let after = BackfillAnalysisSnapshot(
                 dataAvailableAt: live.backfillDataAvailableAt,
                 backfilling: live.backfilling)
-            if after.isSettledAndUnchanged(since: before) { return }
+            if after.isSettledAndUnchanged(since: before) {
+                scheduleFinalRecoveryReceipt(
+                    app: app,
+                    live: live,
+                    generation: after.dataAvailableAt,
+                    startingRefreshSeq: app.repo.refreshSeq)
+                return
+            }
         }
     }
 
