@@ -101,7 +101,7 @@ final class HealthKitPendingWindowDefaultsStore: HealthKitPendingWindowPersistin
 /// journal before it clears its own pending window. If iOS suspends or kills the process before the app-level
 /// scoring task runs, the next app mount drains the same union instead of waiting for the 15-minute cadence.
 @MainActor
-final class HealthKitScoringCoordinator {
+final class HealthKitScoringCoordinator: NSObject {
     typealias Operation = @MainActor (HealthKitSyncWindow) async -> Bool
 
     static let shared = HealthKitScoringCoordinator(
@@ -121,6 +121,7 @@ final class HealthKitScoringCoordinator {
         self.persistence = persistence
         self.notificationCenter = notificationCenter
         pending = persistence.load()
+        super.init()
     }
 
     func offer(_ window: HealthKitSyncWindow) throws {
