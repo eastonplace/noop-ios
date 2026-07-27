@@ -5,8 +5,11 @@ import XCTest
 final class IntelligenceAnalysisAdmissionTests: XCTestCase {
     func testNonForcedTickIsRejectedWhileAnotherPassRuns() async {
         let admission = IntelligenceAnalysisAdmission()
-        XCTAssertTrue(await admission.acquire(force: true))
-        XCTAssertFalse(await admission.acquire(force: false))
+        let firstAcquired = await admission.acquire(force: true)
+        let disposableAcquired = await admission.acquire(force: false)
+
+        XCTAssertTrue(firstAcquired)
+        XCTAssertFalse(disposableAcquired)
         XCTAssertTrue(admission.isRunning)
         XCTAssertEqual(admission.waitingForcedCallers, 0)
         admission.release()
@@ -14,7 +17,8 @@ final class IntelligenceAnalysisAdmissionTests: XCTestCase {
 
     func testForcedRequestWaitsThenAcquiresInsteadOfBeingCollapsed() async throws {
         let admission = IntelligenceAnalysisAdmission()
-        XCTAssertTrue(await admission.acquire(force: true))
+        let firstAcquired = await admission.acquire(force: true)
+        XCTAssertTrue(firstAcquired)
 
         let waiter = Task { @MainActor in
             await admission.acquire(force: true)
@@ -24,7 +28,8 @@ final class IntelligenceAnalysisAdmissionTests: XCTestCase {
         XCTAssertTrue(admission.isRunning)
 
         admission.release()
-        XCTAssertTrue(await waiter.value)
+        let waiterAcquired = await waiter.value
+        XCTAssertTrue(waiterAcquired)
         XCTAssertTrue(admission.isRunning)
         XCTAssertEqual(admission.waitingForcedCallers, 0)
         admission.release()
@@ -32,7 +37,8 @@ final class IntelligenceAnalysisAdmissionTests: XCTestCase {
 
     func testCancelledForcedWaiterDoesNotStealOwnership() async throws {
         let admission = IntelligenceAnalysisAdmission()
-        XCTAssertTrue(await admission.acquire(force: true))
+        let firstAcquired = await admission.acquire(force: true)
+        XCTAssertTrue(firstAcquired)
 
         let waiter = Task { @MainActor in
             await admission.acquire(force: true)
@@ -41,7 +47,8 @@ final class IntelligenceAnalysisAdmissionTests: XCTestCase {
         XCTAssertEqual(admission.waitingForcedCallers, 1)
         waiter.cancel()
 
-        XCTAssertFalse(await waiter.value)
+        let waiterAcquired = await waiter.value
+        XCTAssertFalse(waiterAcquired)
         XCTAssertEqual(admission.waitingForcedCallers, 0)
         XCTAssertTrue(admission.isRunning, "the original owner still holds the pipeline")
         admission.release()
