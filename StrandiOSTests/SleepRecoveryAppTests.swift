@@ -92,12 +92,15 @@ final class SleepRecoveryAppTests: XCTestCase {
 
         // Seed enough real history for the reprocessed recovery to have a usable
         // Charge context and a non-neutral duration-consistency value.
-        let history = (1...7).map { daysBeforeWake in
-            dailyMetric(
-                day: Repository.localDayKey(
-                    Date(timeIntervalSince1970: TimeInterval(newEnd - daysBeforeWake * 86_400))),
+        var history: [DailyMetric] = []
+        for daysBeforeWake in 1...7 {
+            let historyTimestamp = newEnd - daysBeforeWake * 86_400
+            let historyDate = Date(timeIntervalSince1970: TimeInterval(historyTimestamp))
+            let historyDay = Repository.localDayKey(historyDate)
+            history.append(dailyMetric(
+                day: historyDay,
                 restingHr: 53 + daysBeforeWake % 3,
-                avgHrv: 55 + Double(daysBeforeWake))
+                avgHrv: 55 + Double(daysBeforeWake)))
         }
         try await store.upsertDailyMetrics(history, deviceId: computedId)
 
