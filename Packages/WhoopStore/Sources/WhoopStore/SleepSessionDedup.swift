@@ -1,4 +1,5 @@
 import Foundation
+import WhoopProtocol
 
 /// Overlap-aware de-duplication of banked sleep sessions (#899).
 ///
@@ -29,21 +30,25 @@ public enum SleepSessionDedup {
     /// the absolute overlap is under the 30 min bar (e.g. a 40 min fragment 60% inside the night).
     public static let minOverlapFractionOfShorter = 0.5
 
-    /// The duration of a usable effective session span. Store rows are persisted data, not trusted
+    /// The duration of a valid effective session span. Store rows are persisted data, not trusted
     /// arithmetic inputs: `end > start` still permits an overflowing `end - start` for Int.min/max.
+    /// The shared 30-minute to 16-hour policy is part of this trust boundary. A legacy row outside
+    /// that policy is quarantined: it is not scored or ranked, and crucially it is not returned as
+    /// a duplicate for the analytics heal to delete.
     private static func duration(of session: CachedSleepSession) -> Int? {
-        guard session.effectiveStartTs >= -exactDoubleUnixTimestampLimit,
+        guard SleepSessionWindow.isValid(start: session.effectiveStartTs, end: session.endTs),
+              session.effectiveStartTs >= -exactDoubleUnixTimestampLimit,
               session.effectiveStartTs <= exactDoubleUnixTimestampLimit,
               session.endTs >= -exactDoubleUnixTimestampLimit,
               session.endTs <= exactDoubleUnixTimestampLimit
         else { return nil }
         let (duration, overflow) = session.endTs.subtractingReportingOverflow(session.effectiveStartTs)
-        guard !overflow, duration > 0 else { return nil }
+        guard !overflow else { return nil }
         return duration
     }
 
     /// Seconds of overlap between the two sessions' EFFECTIVE spans (edited onsets honoured,
-    /// mirroring how display / day assignment place the block). 0 when disjoint.
+    /// mirroring how display / day assignment place the block). 0 when disjoint or quarantined.
     static func overlapSeconds(_ a: CachedSleepSession, _ b: CachedSleepSession) -> Int {
         guard duration(of: a) != nil, duration(of: b) != nil else { return 0 }
         let overlapStart = max(a.effectiveStartTs, b.effectiveStartTs)
@@ -53,7 +58,7 @@ public enum SleepSessionDedup {
         return overflow ? 0 : overlap
     }
 
-    /// True when `a` and `b` are overlapping copies of the same night: overlap of at least
+    /// True when `a` and `b` are valid overlapping copies of the same night: overlap of at least
     /// `minOverlapSeconds` absolute, OR at least `minOverlapFractionOfShorter` of the shorter
     /// session's duration. Both terms use only (effectiveStartTs, endTs), the only time fields
     /// the data model carries (there is no banked-at column to compare).
@@ -63,13 +68,13 @@ public enum SleepSessionDedup {
         guard overlap > 0 else { return false }
         if overlap >= minOverlapSeconds { return true }
         let shorter = min(aDuration, bDuration)
-        return shorter > 0 && Double(overlap) >= minOverlapFractionOfShorter * Double(shorter)
+        return Double(overlap) >= minOverlapFractionOfShorter * Double(shorter)
     }
 
     /// Collapse overlapping duplicates to one canonical survivor per night, deterministically.
     ///
     /// Canonical preference, highest first:
-    ///   1. `userEdited`: a hand-corrected night is never dropped (matching the engine's existing
+    ///   1. `userEdited`: a hand-corrected VALID night is never dropped (matching the engine's existing
     ///      edited-window upsert guard, where the user's correction always outranks re-detection).
     ///   2. Bank recency: `startTs` in `freshStarts`. The row model has no banked-at column, so
     ///      recency is witnessed by the CALLER passing the keys it banked this pass; the freshly
@@ -79,24 +84,16 @@ public enum SleepSessionDedup {
     ///      on every run and platform.
     ///
     /// Greedy sweep in preference order: a session is kept unless it overlap-duplicates an
-    /// already-kept one (well-formed edited rows are exempt and always kept). Malformed spans are
-    /// returned as dropped before ranking, so a corrupt Int.min/Int.max row cannot masquerade as
-    /// the longest night. Both outputs are sorted by startTs. Read-side callers with no bank witness
-    /// pass no `freshStarts`.
+    /// already-kept one (valid edited rows are exempt and always kept). Invalid legacy spans are
+    /// deliberately absent from BOTH outputs. Read-side callers therefore exclude them, while the
+    /// post-upsert heal only deletes `dropped` valid duplicates and cannot silently destroy a
+    /// quarantined user's row. The Sleep screen reads those rows separately for repair.
+    /// Both outputs are sorted by startTs. Read-side callers with no bank witness pass no `freshStarts`.
     public static func dedupe(_ sessions: [CachedSleepSession], freshStarts: Set<Int> = [])
         -> (kept: [CachedSleepSession], dropped: [CachedSleepSession]) {
-        var valid: [CachedSleepSession] = []
-        var dropped: [CachedSleepSession] = []
-        for session in sessions {
-            if duration(of: session) == nil {
-                dropped.append(session)
-            } else {
-                valid.append(session)
-            }
-        }
-        guard valid.count > 1 else {
-            return (valid, dropped.sorted { $0.startTs < $1.startTs })
-        }
+        let valid = sessions.filter { duration(of: $0) != nil }
+        guard valid.count > 1 else { return (valid, []) }
+
         func rank(_ s: CachedSleepSession) -> (Int, Int, Int, Int, Int) {
             (s.userEdited ? 1 : 0,
              freshStarts.contains(s.startTs) ? 1 : 0,
@@ -104,8 +101,10 @@ public enum SleepSessionDedup {
              s.endTs,
              s.startTs)
         }
+
         let ordered = valid.sorted { rank($0) > rank($1) }
         var kept: [CachedSleepSession] = []
+        var dropped: [CachedSleepSession] = []
         for s in ordered {
             if !s.userEdited, kept.contains(where: { isDuplicate($0, s) }) {
                 dropped.append(s)
