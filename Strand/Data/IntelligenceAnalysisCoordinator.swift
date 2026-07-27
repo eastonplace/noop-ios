@@ -58,7 +58,7 @@ struct BackfillAnalysisSnapshot: Equatable, Sendable {
     }
 }
 
-private enum IntelligenceAnalysisCoordinatorError: Error {
+enum IntelligenceAnalysisCoordinatorError: Error {
     case ownerReleased
     case deferred
     case analysisDidNotComplete
@@ -68,6 +68,8 @@ private enum IntelligenceAnalysisCoordinatorError: Error {
 ///
 /// - A non-forced cadence tick is disposable while another pass runs.
 /// - A forced source-change request suspends until its own exact request, or a compatible superset, completes.
+/// - A retryable forced failure remains queued; transient store protection/open failures cannot advance a
+///   timestamp-heal flag or publish an older Home generation as though the requested analysis completed.
 /// - Pending recent-day work is selected before deeper historical chunks, creating a current-day fast lane.
 /// - Overlapping compatible pending windows coalesce; disjoint or differently-published work stays separate.
 /// - Every caller returns when ITS batch completes; the caller that happened to start the runner never waits
@@ -95,6 +97,11 @@ final class IntelligenceAnalysisCoordinator {
     }
 
     private var queues: [ObjectIdentifier: QueueState] = [:]
+    private let retryDelay: TimeInterval
+
+    init(retryDelay: TimeInterval = 1.0) {
+        self.retryDelay = max(0, retryDelay)
+    }
 
     /// Test/diagnostic visibility only. These are pure queue counts and do not publish UI state.
     func isRunning(for owner: AnyObject) -> Bool {
@@ -152,10 +159,29 @@ final class IntelligenceAnalysisCoordinator {
             do {
                 try await batch.run(batch.request)
                 completed = true
+            } catch IntelligenceAnalysisCoordinatorError.analysisDidNotComplete where batch.request.force {
+                // The source-change request is durable. Re-read the live queue before appending it: other
+                // callers may have arrived while `run` was suspended, and restoring the pre-run local state
+                // would silently erase those requests. Compatible work can coalesce with this retry and every
+                // original waiter stays attached until one real analysis pass completes.
+                var latest = queues[key] ?? QueueState()
+                latest.pending.append(batch)
+                normalizePendingBatches(&latest.pending)
+                queues[key] = latest
+                await waitBeforeRetry()
+                continue
             } catch {
                 completed = false
             }
             batch.waiters.forEach { $0.resume(returning: completed) }
+        }
+    }
+
+    private func waitBeforeRetry() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.asyncAfter(deadline: .now() + retryDelay) {
+                continuation.resume()
+            }
         }
     }
 
