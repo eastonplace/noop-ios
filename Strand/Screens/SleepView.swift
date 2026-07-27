@@ -2515,9 +2515,9 @@ struct SleepView: View {
         // SleepView (scroll-stutter isolation; identical output to the prior inline check).
         SleepSyncingNote()
         if repo.loaded {
-            ComingSoon(what: "No nights here yet. Import your WHOOP export in Data Sources to see every night, your sleep stages and trends straight away. Or open Intelligence to see last night computed from the strap after you wear it to bed.")
+            sleepRecoveryEmptyState(what: "No nights here yet. Import your WHOOP export in Data Sources to see every night, your sleep stages and trends straight away. Or open Intelligence to see last night computed from the strap after you wear it to bed.")
         } else {
-            ComingSoon(what: "Loading your sleep history…")
+            sleepRecoveryEmptyState(what: "Loading your sleep history…")
         }
     }
 

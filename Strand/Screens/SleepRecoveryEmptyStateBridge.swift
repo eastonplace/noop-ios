@@ -6,7 +6,7 @@ import WhoopStore
 /// Local routing seam for the app's shared empty-state component. The one Sleep
 /// placeholder becomes actionable; every other call delegates to StrandDesign unchanged.
 @ViewBuilder
-func ComingSoon(what: String) -> some View {
+func sleepRecoveryEmptyState(what: String) -> some View {
     if MissedSleepRecoveryRouting.shouldReplaceEmptyState(what) {
         MissedSleepRecoveryBridge()
     } else {
