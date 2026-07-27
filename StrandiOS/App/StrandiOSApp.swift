@@ -105,6 +105,23 @@ struct StrandiOSApp: App {
         externalSurfaceDay = ExternalSurfaceDayProjection.make(repository: model.repo)
     }
 
+    /// A HealthKit sync is not complete for product surfaces when SQLite alone has changed. Score the exact
+    /// committed civil-day window through the same serialized IntelligenceEngine admission used by strap
+    /// backfill, publish one Repository generation that includes both imported inputs and derived Recovery,
+    /// then update every external surface even if the app is backgrounded.
+    @MainActor
+    private func publishCommittedHealthWindow(_ window: HealthKitSyncWindow) async {
+        let range = HealthKitAnalysisRange(window: window)
+        await model.intelligence.analyzeRecent(
+            maxDays: range.maxDays,
+            startOffset: range.startOffset,
+            refreshRepository: false)
+        _ = await model.repo.refresh(.recentDashboard(days: range.publicationDays))
+        refreshExternalSurfaceDay()
+        driveLiveActivity()
+        await WidgetSnapshot.publish(from: model)
+    }
+
     var body: some Scene {
         WindowGroup {
             iOSRootView()
@@ -156,6 +173,14 @@ struct StrandiOSApp: App {
                     refreshExternalSurfaceDay()
                     driveLiveActivity()
                     Task { await WidgetSnapshot.publish(from: model) }
+                }
+                .onReceive(
+                    NotificationCenter.default.publisher(for: HealthKitSyncPublication.name)
+                ) { notification in
+                    guard let window = HealthKitSyncPublication.window(from: notification) else { return }
+                    Task { @MainActor in
+                        await publishCommittedHealthWindow(window)
+                    }
                 }
                 .onReceive(model.repo.$canonicalStrainByDay.dropFirst()) { _ in
                     guard scenePhase == .active else { return }
