@@ -1,5 +1,4 @@
 import XCTest
-import GRDB
 import WhoopProtocol
 @testable import WhoopStore
 
@@ -48,21 +47,18 @@ final class TimestampHealTests: XCTestCase {
             day("2025-07-12"),   // FUTURE (> todayKey) — the "12 Jul" carry-over bug — drop
             day("2019-01-01"),   // far-past (< the 2023-11 floor day) — drop
         ], deviceId: "dev1-noop")
-        // sleepSession rows keyed by startTs: one real, one future.
+        // sleepSession rows keyed by startTs: one real, one future short provider fragment. The cache keeps
+        // ordered, non-overlong fragments losslessly; timestamp plausibility is this heal's responsibility.
         _ = try await store.upsertSleepSessions([
             CachedSleepSession(startTs: now - 30_000, endTs: now - 1000, efficiency: nil,
                                restingHr: nil, avgHrv: nil, stagesJSON: nil),
         ], deviceId: "dev1-noop")
-        // Current writes reject malformed/too-short sessions. Inject the historical
-        // bad-clock row directly so this migration test still exercises the legacy
-        // database state it is responsible for repairing.
         let futureStart = now + 30 * 86_400
-        try await store.registryWriter.write { db in
-            try db.execute(sql: """
-                INSERT INTO sleepSession (deviceId, startTs, endTs, userEdited)
-                VALUES (?, ?, ?, 0)
-                """, arguments: ["dev1-noop", futureStart, futureStart + 1000])
-        }
+        let futureChanged = try await store.upsertSleepSessions([
+            CachedSleepSession(startTs: futureStart, endTs: futureStart + 1000,
+                               efficiency: nil, restingHr: nil, avgHrv: nil, stagesJSON: nil),
+        ], deviceId: "dev1-noop")
+        XCTAssertEqual(futureChanged, 1, "the cache preserves the repairable short fragment before healing")
 
         let result = try await store.healImplausibleTimestamps(now: now, todayLocalDayKey: todayKey)
         XCTAssertEqual(result.computedRowsDeleted, 3, "2 bad daily + 1 future sleep session")
