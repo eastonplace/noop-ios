@@ -314,6 +314,106 @@ extension WhoopStore {
             }
         }
 
+        // A saved efficiency is evidence, not a placeholder. Older builds could persist 0 beside a staged
+        // night and the Sleep tab then displayed a physiologically impossible 0% until its presentation
+        // fallback overrode it. Heal those rows in place and enforce the invariant at SQLite itself so every
+        // writer—imports, analytics, manual recovery and future call sites—gets the same honest boundary.
+        // Positive fractions (0...1] and percentages (1...100] are both retained because historical sources
+        // have used both domains; views already normalize those two valid representations.
+        migrator.registerMigration("sleep-efficiency-integrity-v1") { db in
+            let invalidEfficiency = "efficiency IS NOT NULL AND (efficiency <= 0 OR efficiency > 100 OR efficiency != efficiency)"
+
+            try db.execute(sql: "UPDATE sleepSession SET efficiency = NULL WHERE \(invalidEfficiency)")
+            try db.execute(sql: "UPDATE dailyMetric SET efficiency = NULL WHERE \(invalidEfficiency)")
+            try db.execute(sql: "UPDATE sleepRecoveryDailyOverride SET efficiency = NULL WHERE \(invalidEfficiency)")
+
+            try db.execute(sql: """
+                CREATE TRIGGER IF NOT EXISTS sleepSession_efficiency_integrity_after_insert
+                AFTER INSERT ON sleepSession
+                WHEN NEW.efficiency IS NOT NULL
+                 AND (NEW.efficiency <= 0 OR NEW.efficiency > 100 OR NEW.efficiency != NEW.efficiency)
+                BEGIN
+                    UPDATE sleepSession
+                    SET efficiency = NULL
+                    WHERE deviceId = NEW.deviceId AND startTs = NEW.startTs;
+                END;
+                """)
+            try db.execute(sql: """
+                CREATE TRIGGER IF NOT EXISTS sleepSession_efficiency_integrity_after_update
+                AFTER UPDATE OF efficiency ON sleepSession
+                WHEN NEW.efficiency IS NOT NULL
+                 AND (NEW.efficiency <= 0 OR NEW.efficiency > 100 OR NEW.efficiency != NEW.efficiency)
+                BEGIN
+                    UPDATE sleepSession
+                    SET efficiency = NULL
+                    WHERE deviceId = NEW.deviceId AND startTs = NEW.startTs;
+                END;
+                """)
+            // An edited window/stage shape invalidates the old denominator. Clear it only when the update did
+            // not supply a distinct freshly-computed efficiency; manual recovery can still atomically replace
+            // bounds, stages and a new valid value in one write.
+            try db.execute(sql: """
+                CREATE TRIGGER IF NOT EXISTS sleepSession_efficiency_after_edited_shape_update
+                AFTER UPDATE OF startTsAdjusted, endTs, stagesJSON ON sleepSession
+                WHEN NEW.userEdited = 1
+                 AND NEW.efficiency IS OLD.efficiency
+                 AND (NEW.startTsAdjusted IS NOT OLD.startTsAdjusted
+                   OR NEW.endTs IS NOT OLD.endTs
+                   OR NEW.stagesJSON IS NOT OLD.stagesJSON)
+                BEGIN
+                    UPDATE sleepSession
+                    SET efficiency = NULL
+                    WHERE deviceId = NEW.deviceId AND startTs = NEW.startTs;
+                END;
+                """)
+
+            try db.execute(sql: """
+                CREATE TRIGGER IF NOT EXISTS dailyMetric_efficiency_integrity_after_insert
+                AFTER INSERT ON dailyMetric
+                WHEN NEW.efficiency IS NOT NULL
+                 AND (NEW.efficiency <= 0 OR NEW.efficiency > 100 OR NEW.efficiency != NEW.efficiency)
+                BEGIN
+                    UPDATE dailyMetric
+                    SET efficiency = NULL
+                    WHERE deviceId = NEW.deviceId AND day = NEW.day;
+                END;
+                """)
+            try db.execute(sql: """
+                CREATE TRIGGER IF NOT EXISTS dailyMetric_efficiency_integrity_after_update
+                AFTER UPDATE OF efficiency ON dailyMetric
+                WHEN NEW.efficiency IS NOT NULL
+                 AND (NEW.efficiency <= 0 OR NEW.efficiency > 100 OR NEW.efficiency != NEW.efficiency)
+                BEGIN
+                    UPDATE dailyMetric
+                    SET efficiency = NULL
+                    WHERE deviceId = NEW.deviceId AND day = NEW.day;
+                END;
+                """)
+
+            try db.execute(sql: """
+                CREATE TRIGGER IF NOT EXISTS sleepRecoveryOverride_efficiency_integrity_after_insert
+                AFTER INSERT ON sleepRecoveryDailyOverride
+                WHEN NEW.efficiency IS NOT NULL
+                 AND (NEW.efficiency <= 0 OR NEW.efficiency > 100 OR NEW.efficiency != NEW.efficiency)
+                BEGIN
+                    UPDATE sleepRecoveryDailyOverride
+                    SET efficiency = NULL
+                    WHERE deviceId = NEW.deviceId AND day = NEW.day;
+                END;
+                """)
+            try db.execute(sql: """
+                CREATE TRIGGER IF NOT EXISTS sleepRecoveryOverride_efficiency_integrity_after_update
+                AFTER UPDATE OF efficiency ON sleepRecoveryDailyOverride
+                WHEN NEW.efficiency IS NOT NULL
+                 AND (NEW.efficiency <= 0 OR NEW.efficiency > 100 OR NEW.efficiency != NEW.efficiency)
+                BEGIN
+                    UPDATE sleepRecoveryDailyOverride
+                    SET efficiency = NULL
+                    WHERE deviceId = NEW.deviceId AND day = NEW.day;
+                END;
+                """)
+        }
+
         return migrator
     }
 }
