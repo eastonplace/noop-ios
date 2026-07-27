@@ -125,16 +125,16 @@ extension WhoopStore {
     // MARK: - Upserts (idempotent by natural key; latest server value wins on conflict)
 
     /// Upsert cached sleep sessions. Natural key (deviceId, startTs). Returns rows changed.
+    ///
+    /// This is the lossless cache boundary, not the scoring-admission boundary. Preserve every finite,
+    /// ordered provider/legacy span so repair and diagnostics can still inspect it; importers, manual edits,
+    /// dedupe and scoring apply the stricter shared 30-minute–16-hour policy before using a row as sleep.
     @discardableResult
     public func upsertSleepSessions(_ sessions: [CachedSleepSession], deviceId: String) async throws -> Int {
         return try syncWrite { db in
             var n = 0
             for s in sessions {
-                // Every normal write shares the scoring contract. Legacy rows that
-                // predate this policy remain in SQLite for repair/diagnostics, but
-                // no current importer, recompute, or undo path can admit a short or
-                // overlong session that recovery would later need to quarantine.
-                guard SleepSessionWindow.isValid(start: s.effectiveStartTs, end: s.endTs) else {
+                guard SleepSessionWindow.hasPlausibleBounds(start: s.effectiveStartTs, end: s.endTs) else {
                     continue
                 }
                 try db.execute(sql: """
@@ -477,7 +477,8 @@ extension WhoopStore {
 
     // MARK: - Reads
 
-    /// Cached sleep sessions overlapping [from, to] by their effective window, oldest first.
+    /// Cached sleep sessions intersecting the query interval `[from, to]`, ordered by effective onset.
+    /// Session spans are half-open `[start, end)`, so a row ending exactly at `from` does not overlap.
     public func sleepSessions(deviceId: String, from: Int, to: Int, limit: Int) async throws -> [CachedSleepSession] {
         try syncRead { db in
             try Row.fetchAll(db, sql: """
@@ -485,7 +486,7 @@ extension WhoopStore {
                        startTsAdjusted FROM sleepSession
                 WHERE deviceId = ?
                   AND COALESCE(startTsAdjusted, startTs) <= ?
-                  AND endTs >= ?
+                  AND endTs > ?
                 ORDER BY COALESCE(startTsAdjusted, startTs) ASC LIMIT ?
                 """, arguments: [deviceId, to, from, limit])
                 .map {
