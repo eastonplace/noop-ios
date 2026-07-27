@@ -17,6 +17,17 @@ private enum IntelligenceAnalysisCoordinatorRegistry {
 }
 
 extension IntelligenceEngine {
+    /// A queued forced request represents durable source change and must survive cancellation of the UI task
+    /// that happened to request it. DispatchQueue's deadline is cancellation-insensitive, unlike Task.sleep;
+    /// use it only while waiting for the legacy in-engine lock to clear.
+    private static func waitForLegacyAnalysisLockPoll() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(20)) {
+                continuation.resume()
+            }
+        }
+    }
+
     /// The four-argument declaration in `IntelligenceEngine.swift` remains the implementation entry point.
     /// Every production call using one or more defaults resolves to an exact overload below and therefore
     /// enters the completion-aware coordinator. The repository source audit forbids direct full-signature
@@ -40,19 +51,13 @@ extension IntelligenceEngine {
             // Defensive compatibility with the original implementation's internal `computing` lock. Normal
             // production calls are serialized by the coordinator, but a direct legacy/full-signature call or
             // an in-engine re-arm task may already own the old lock. Forced work waits instead of returning;
-            // a disposable cadence request still drops.
+            // a disposable cadence request still drops. Once forced work is queued it ignores caller-task
+            // cancellation—the durable source change still needs to be scored and published.
             while self.computing {
-                guard admitted.force, !Task.isCancelled else { return }
-                do {
-                    try await Task.sleep(nanoseconds: 20_000_000)
-                } catch {
-                    // Cancellation of the waiting caller does not invalidate source data that already queued,
-                    // but this execute closure has not begun that work yet. A later durable-data edge or cadence
-                    // pass will retry; do not steal the old lock.
-                    return
-                }
+                guard admitted.force else { return }
+                await Self.waitForLegacyAnalysisLockPoll()
             }
-            guard !Task.isCancelled || admitted.force else { return }
+            guard admitted.force || !Task.isCancelled else { return }
 
             // Preserve the exact admitted batch. A current-day request can no longer be substituted by the
             // historical chunk that happened to be active when it arrived.
