@@ -49,8 +49,8 @@ final class SleepEfficiencyStoreIntegrityTests: XCTestCase {
         XCTAssertNil(zero, "legacy placeholder zero is missing data, not 0% physiology")
         XCTAssertNil(negative)
         XCTAssertNil(tooHigh)
-        XCTAssertEqual(fraction, 0.91, accuracy: 0.0001)
-        XCTAssertEqual(percentage, 91, accuracy: 0.0001,
+        XCTAssertEqual(try XCTUnwrap(fraction), 0.91, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(percentage), 91, accuracy: 0.0001,
                        "historical percentage-domain imports remain supported")
     }
 
@@ -72,7 +72,7 @@ final class SleepEfficiencyStoreIntegrityTests: XCTestCase {
             from: "2026-07-26",
             to: "2026-07-26")
         row = try XCTUnwrap(rows.first)
-        XCTAssertEqual(row.efficiency, 0.88, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(row.efficiency), 0.88, accuracy: 0.0001)
     }
 
     func testEditingSleepShapeClearsStaleEfficiencyUntilReanalysisSuppliesOne() async throws {
