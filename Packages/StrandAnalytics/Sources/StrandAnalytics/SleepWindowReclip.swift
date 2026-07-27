@@ -23,15 +23,38 @@ import Foundation
 /// reclip (the caller then keeps the existing JSON).
 public enum SleepWindowReclip {
 
+    /// Reclip emits minute values as Double and persisted segment timestamps often cross a JSON
+    /// boundary, so retain only exact Unix-second values rather than carrying a malformed clock on.
+    private static let exactDoubleUnixTimestampLimit = 9_007_199_254_740_991
+
+    private static func usableDuration(start: Int, end: Int) -> Int? {
+        guard start >= -exactDoubleUnixTimestampLimit,
+              start <= exactDoubleUnixTimestampLimit,
+              end >= -exactDoubleUnixTimestampLimit,
+              end <= exactDoubleUnixTimestampLimit,
+              let duration = SleepTimestampMath.nonnegativeDuration(start: start, end: end),
+              duration > 0
+        else { return nil }
+        return duration
+    }
+
     public static func reclip(stagesJSON: String?, sessionStart: Int, oldEnd: Int,
                               newStart: Int, newEnd: Int) -> String? {
+        // This runs over persisted edit data, so do not assume either stored or newly-edited
+        // bounds are a sane arithmetic pair. In particular, `end > start` is not enough when
+        // a corrupt row contains Int.min / Int.max: direct subtraction traps in debug builds.
+        guard let oldDuration = usableDuration(start: sessionStart, end: oldEnd),
+              let newDuration = usableDuration(start: newStart, end: newEnd)
+        else { return nil }
         guard let stagesJSON, let data = stagesJSON.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) else { return nil }
         if let arr = obj as? [[String: Any]] {
             return reclipSegments(arr, newStart: newStart, newEnd: newEnd)
         }
         if let dict = obj as? [String: Any] {
-            return reclipMinutes(dict, deltaSeconds: (newEnd - newStart) - (oldEnd - sessionStart))
+            let (deltaSeconds, overflow) = newDuration.subtractingReportingOverflow(oldDuration)
+            guard !overflow else { return nil }
+            return reclipMinutes(dict, deltaSeconds: deltaSeconds)
         }
         return nil
     }

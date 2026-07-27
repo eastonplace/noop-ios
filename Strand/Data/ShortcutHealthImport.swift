@@ -49,6 +49,9 @@ enum ShortcutHealthImport {
     static let payloadParam = "payload"
     static let versionParam = "v"
     static let supportedVersion = 1
+    /// `WorkoutRow.durationS` is Double-backed; retain only exact Unix seconds at this text-import
+    /// boundary instead of carrying a corrupt Int clock into later workout analytics.
+    static let exactDoubleUnixTimestampLimit = 9_007_199_254_740_991
 
     enum Outcome: Error, Equatable {
         case imported(days: Int, workouts: Int)
@@ -177,9 +180,16 @@ enum ShortcutHealthImport {
         // W,startUnix,endUnix,sport,durationS,energyKcal,distanceM
         guard let startS = field(f, 1), let start = Int(startS),
               let endS = field(f, 2), let end = Int(endS),
-              let sport = field(f, 3), end >= start else { return nil }
+              let sport = field(f, 3), end >= start,
+              start >= -exactDoubleUnixTimestampLimit,
+              start <= exactDoubleUnixTimestampLimit,
+              end >= -exactDoubleUnixTimestampLimit,
+              end <= exactDoubleUnixTimestampLimit
+        else { return nil }
+        let (derivedDuration, overflow) = end.subtractingReportingOverflow(start)
+        guard !overflow, derivedDuration >= 0 else { return nil }
         var w = ParsedWorkout(startTs: start, endTs: end, sport: sport)
-        w.durationS  = field(f, 4).flatMap { Double($0) } ?? Double(end - start)
+        w.durationS  = field(f, 4).flatMap { Double($0) } ?? Double(derivedDuration)
         w.energyKcal = field(f, 5).flatMap { Double($0) }
         w.distanceM  = field(f, 6).flatMap { Double($0) }
         return w

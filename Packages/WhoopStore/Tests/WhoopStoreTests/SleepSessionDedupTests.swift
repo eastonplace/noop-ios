@@ -122,4 +122,16 @@ final class SleepSessionDedupTests: XCTestCase {
         let one = session(start: midnight, end: midnight + 3600)
         XCTAssertEqual(SleepSessionDedup.dedupe([one]).kept.map(\.startTs), [one.startTs])
     }
+
+    func testOverflowingEffectiveSpanIsDroppedBeforeRanking() {
+        let valid = session(start: midnight - 8 * 3600, end: midnight)
+        let malformed = session(start: Int.min, end: Int.max)
+
+        let result = SleepSessionDedup.dedupe([malformed, valid])
+
+        XCTAssertEqual(result.kept.map(\.startTs), [valid.startTs],
+                       "a corrupt giant span must not win the longest-session rank")
+        XCTAssertEqual(result.dropped.map(\.startTs), [malformed.startTs])
+        XCTAssertFalse(SleepSessionDedup.isDuplicate(malformed, valid))
+    }
 }

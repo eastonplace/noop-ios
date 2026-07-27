@@ -51,12 +51,16 @@ enum WearableImporter {
         // optional `levels.data` hypnogram is mapped when present.
         var sessions: [CachedSleepSession] = []
         for s in result.sleeps {
-            let startTs = Int(s.start.timeIntervalSince1970)
-            let endTs = Int(s.end.timeIntervalSince1970)
-            let segs: [[String: Any]] = s.stages.map {
-                ["start": Int($0.start.timeIntervalSince1970),
-                 "end": Int($0.end.timeIntervalSince1970),
-                 "stage": $0.stage]
+            guard let startTs = timestamp(s.start),
+                  let endTs = timestamp(s.end),
+                  positiveDuration(start: startTs, end: endTs) != nil
+            else { continue }
+            let segs: [[String: Any]] = s.stages.compactMap {
+                guard let start = timestamp($0.start),
+                      let end = timestamp($0.end),
+                      positiveDuration(start: start, end: end) != nil
+                else { return nil }
+                return ["start": start, "end": end, "stage": $0.stage]
             }
             let json = segs.isEmpty ? nil : (try? JSONSerialization.data(withJSONObject: segs))
                 .flatMap { String(data: $0, encoding: .utf8) }
@@ -126,14 +130,36 @@ enum WearableImporter {
     }
 
     /// Asleep fraction from the hypnogram segments (non-wake ÷ in-bed span).
-    private static func efficiency(segs: [[String: Any]], start: Int, end: Int) -> Double? {
-        guard end > start, !segs.isEmpty else { return nil }
+    static func efficiency(segs: [[String: Any]], start: Int, end: Int) -> Double? {
+        guard let inBed = positiveDuration(start: start, end: end), !segs.isEmpty else { return nil }
         var asleep = 0
         for seg in segs {
             guard let s = seg["start"] as? Int, let e = seg["end"] as? Int,
                   let stage = seg["stage"] as? String, stage != "wake" else { continue }
-            asleep += max(0, e - s)
+            guard let duration = positiveDuration(start: s, end: e) else { continue }
+            let (updatedAsleep, overflow) = asleep.addingReportingOverflow(duration)
+            guard !overflow else { return nil }
+            asleep = updatedAsleep
         }
-        return min(100, Double(asleep) / Double(end - start) * 100)
+        return min(100, Double(asleep) / Double(inBed) * 100)
+    }
+
+    /// Date-backed import models carry timestamps as Double seconds. Keep only the range whose
+    /// integer seconds are exactly representable before converting back to Int at the store boundary.
+    private static let exactDoubleUnixTimestampLimit = 9_007_199_254_740_991
+
+    static func timestamp(_ date: Date) -> Int? {
+        let seconds = date.timeIntervalSince1970
+        guard seconds.isFinite,
+              seconds >= -Double(exactDoubleUnixTimestampLimit),
+              seconds <= Double(exactDoubleUnixTimestampLimit)
+        else { return nil }
+        return Int(seconds)
+    }
+
+    private static func positiveDuration(start: Int, end: Int) -> Int? {
+        let (duration, overflow) = end.subtractingReportingOverflow(start)
+        guard !overflow, duration > 0 else { return nil }
+        return duration
     }
 }

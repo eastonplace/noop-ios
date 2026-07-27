@@ -95,6 +95,15 @@ final class SleepWindowReclipTests: XCTestCase {
         XCTAssertNil(SleepWindowReclip.reclip(stagesJSON: "not json", sessionStart: 0, oldEnd: 1, newStart: 0, newEnd: 1))
     }
 
+    func testExtremeStoredOrEditedBoundsFailClosed() {
+        let segments = #"[{"start":1000,"end":2000,"stage":"light"}]"#
+        let minutes = #"{"awake":30,"light":200,"deep":80,"rem":90}"#
+        XCTAssertNil(SleepWindowReclip.reclip(
+            stagesJSON: segments, sessionStart: Int.min, oldEnd: Int.max, newStart: 1000, newEnd: 2000))
+        XCTAssertNil(SleepWindowReclip.reclip(
+            stagesJSON: minutes, sessionStart: 1000, oldEnd: 2000, newStart: Int.min, newEnd: Int.max))
+    }
+
     // MARK: - bed (onset) edits: START-AWARE reclip (#0)
 
     func testBedOnlyEditSegmentsDropsStagesBeforeNewBed() throws {

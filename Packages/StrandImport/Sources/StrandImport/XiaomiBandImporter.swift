@@ -125,7 +125,7 @@ public struct XiaomiBandImporter {
 
         for table in dayTables where try tableExists(db, table) {
             for r in try rawRows(db, table: table) {
-                let key = dayKey(time: r.time, zoneOffset: r.zoneOffset)
+                guard let key = dayKey(time: r.time, zoneOffset: r.zoneOffset) else { continue }
                 var row = ensure(key, r.time)
                 apply(table: table, value: r.value, into: &row)
                 byDay[key] = row
@@ -253,8 +253,19 @@ public struct XiaomiBandImporter {
     }
 
     /// The band's local calendar day for a sample (`time + zone_offset`, formatted UTC).
-    static func dayKey(time: Int, zoneOffset: Int) -> String {
-        dayFormatter.string(from: Date(timeIntervalSince1970: TimeInterval(time + zoneOffset)))
+    /// SQLite input is untrusted: reject values that overflow the local-time adjustment or cannot
+    /// round-trip through Date's Double-backed Unix-second representation.
+    static func dayKey(time: Int, zoneOffset: Int) -> String? {
+        let exactDoubleUnixTimestampLimit = 9_007_199_254_740_991
+        guard time >= -exactDoubleUnixTimestampLimit,
+              time <= exactDoubleUnixTimestampLimit
+        else { return nil }
+        let (localTime, overflow) = time.addingReportingOverflow(zoneOffset)
+        guard !overflow,
+              localTime >= -exactDoubleUnixTimestampLimit,
+              localTime <= exactDoubleUnixTimestampLimit
+        else { return nil }
+        return dayFormatter.string(from: Date(timeIntervalSince1970: TimeInterval(localTime)))
     }
 
     static let dayFormatter: DateFormatter = {

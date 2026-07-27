@@ -110,6 +110,21 @@ final class XiaomiBandImporterTests: XCTestCase {
         XCTAssertEqual(try ImportCoordinator().detectKind(of: url), .xiaomiBand)
     }
 
+    func testExtremeDayTimestampIsIgnoredWithoutBlockingValidRows() throws {
+        let url = try makeMiFitnessDB([
+            ("steps_day", day0, 0, ["steps": 8421], 0),
+            // A hostile zone offset would overflow the old `time + zone_offset` expression.
+            ("steps_day", 9_007_199_254_740_991, Int.max, ["steps": 99_999], 0),
+        ])
+
+        let result = try XiaomiBandImporter().import(from: url)
+
+        XCTAssertEqual(result.days.count, 1)
+        XCTAssertEqual(result.days.first?.day, "2025-03-22")
+        XCTAssertEqual(result.days.first?.steps, 8421)
+        XCTAssertNil(XiaomiBandImporter.dayKey(time: 9_007_199_254_740_991, zoneOffset: Int.max))
+    }
+
     // MARK: - Real export (opt-in, ground truth)
 
     /// Runs against the user's real Mi Band 10 export when `XIAOMI_REAL_DB` points at
