@@ -2,7 +2,7 @@
 
 Branch: `release/noop-ios-2.1-rc`
 
-Status: **Draft release candidate. Do not merge until remaining integration, simulator, and physical-device QA pass.**
+Status: **Draft release candidate. Production wiring and automated/simulator qualification are recorded; do not merge until physical-device WHOOP and assistive-technology gates are recorded.**
 
 ## Release purpose
 
@@ -32,15 +32,12 @@ The live release candidate includes stricter family detection, model correction,
 
 Selected WHOOP 5/MG sleep records can produce a separately labelled approximate candidate value. It is isolated from canonical Blood Oxygen, Apple Health, Charge, Rest, illness detection, widgets, Trends, alerts, and medical claims.
 
-## Included foundations still requiring live integration
+## Production recovery integrations
 
-The branch contains tested engines and presentation foundations for:
-
-- signed 1-, 2-, and 5-minute workout heart-rate recovery;
-- conservative missing-field workout backfill;
-- bounded strap clock-recovery planning.
-
-The complete-diff audit found that their final production call sites are not all wired. They are therefore not described as shipped user features and remain explicit release gates.
+- `WorkoutHeartRateRecoveryCard` is in the live workout-detail Overview, after the summary stats and before heart-rate zones.
+- `WorkoutDetectedBackfill` runs on the detected-versus-real collision path with the real row's owning namespace; failed persistence retains the detected row and emits a diagnostic.
+- `StrapClockRecoveryPlanner` is connected to BLE timeouts, retries, Data Range fallback, and connection-generation resets.
+- Unsupported diagnostic GATT scans fail closed before GATT traffic, and approximate clock reference state is cleared on connection reset.
 
 ## Data integrity and privacy
 
@@ -101,30 +98,25 @@ The complete-diff audit found that their final production call sites are not all
 - default last-night time seed;
 - seeded WHOOP model safeguards.
 
-## Remaining integration gates
+## Remaining release gates
 
-1. Place `WorkoutHeartRateRecoveryCard` in the live workout-detail hierarchy.
-2. Invoke `WorkoutDetectedBackfill` from the detected-versus-real collision path using the real row's owning namespace.
-3. Wire `StrapClockRecoveryPlanner` into the BLE timeout and clock-correlation lifecycle per connection generation.
-4. Complete the remaining app-level protocol diagnostics listed in `docs/qa/noop-ios-2.1-implementation-handoff.md`.
-5. Reconcile or remove compatibility helpers once equivalent logic is folded into moving core files.
+1. Exercise WHOOP 4.0 and WHOOP 5/MG connection, reconnect, background, clock recovery, and backfill behavior on physical hardware.
+2. Exercise real missed-night recovery, post-workout recovery, and sleep-session editing/recovery with recorded strap data.
+3. Complete assistive-technology checks: VoiceOver, Switch Control, maximum Dynamic Type, Reduce Motion, and 12/24-hour time.
+4. Recheck the draft PR's hosted CI after the repaired head is published; no earlier failing run is evidence for this head.
 
-## Required simulator QA
+## Automated and simulator qualification
 
-1. Generate the Xcode project and build `NOOPiOS` warning-clean.
-2. Run all retained Swift package test suites.
-3. Run the complete `NOOPiOSTests` target.
-4. Open Settings → What's New and verify the iOS 2.1 card at normal and maximum Dynamic Type.
-5. Validate VoiceOver order and labels on the release card and missed-sleep recovery flow.
-6. Validate Retry Detection success and failure states.
-7. Validate a dense-data manual window creates one session and refreshes Sleep, Today, Rest, and Charge.
-8. Validate sparse motion preserves only defensible vitals and does not fabricate stages/Rest.
-9. Validate invalid, future, shorter-than-30-minute, and longer-than-16-hour windows are blocked.
-10. Validate repeated submission is idempotent and edited-session overlap is refused.
-11. Edit and delete a recovered session, force a rescore, and confirm persistence/cleanup behavior.
-12. Relaunch and verify the recovered result survives.
-13. Confirm SpO₂ Candidate (Beta) never appears in canonical health surfaces.
-14. After live wiring, validate workout HR recovery, workout backfill, and clock recovery end-to-end.
+Completed on 2026-07-26:
+
+1. Regenerated `Strand.xcodeproj` with XcodeGen.
+2. Passed all eight repository source/contract audits.
+3. Passed all seven retained Swift package suites: 2,179 tests, zero failures, and one intentional Xiaomi real-database skip.
+4. Passed the complete `NOOPiOSTests` simulator target: 210 tests, zero failures or skips.
+5. Built and launched `NOOPiOS` on the iPhone 17 Pro simulator.
+6. Visually checked populated Today, workout detail, and Sleep flows. The heart-rate recovery card rendered recorded 1-, 2-, and 5-minute drops in both light and dark appearance.
+
+Still required before release are the physical-device and assistive-technology checks listed above. The automated iOS coverage includes recovered-session reprocessing/rekeying, malformed timestamp fail-closed behavior, collision backfill, and bounded clock-recovery contracts.
 
 ## Required physical-device QA
 
@@ -136,6 +128,6 @@ The complete-diff audit found that their final production call sites are not all
 - Backup, restore, export, and delete-all-data.
 - VoiceOver, Switch Control, maximum Dynamic Type, Reduce Motion, light/dark mode, and 12/24-hour time.
 
-## Current verification limitation
+## Qualification limitations
 
-The connected environment can inspect and modify the private GitHub repository but cannot clone it or run Xcode because outbound DNS and macOS simulator access are unavailable. Repository GitHub Actions have also been failing before checkout. Source-level audit and test additions are included, but compilation and simulator results must be recorded from a working macOS/Xcode environment.
+The local clone still cannot resolve `github.com`, so the repaired head is published through the GitHub connector rather than `git push`. Physical-device/WHOOP and assistive-technology evidence is deliberately not inferred from simulator results.

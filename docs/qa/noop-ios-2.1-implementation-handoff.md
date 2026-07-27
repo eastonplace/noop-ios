@@ -1,8 +1,10 @@
 # Noop iOS 2.1 WHOOP implementation handoff
 
-This handoff separates work already committed to `release/noop-ios-2.1` from edits that still require the local macOS checkout. The 2.1 release scope is WHOOP. Oura is not a 2.1 release requirement.
+> **Historical handoff.** The listed production wiring and timestamp-safety work was completed on draft PR #23 (`release/noop-ios-2.1-rc`) on 2026-07-26. This file is retained as rationale and verification history; do not replay its old rebase or app-edit instructions.
 
-## Branch refresh first
+This handoff originally separated work already committed to `release/noop-ios-2.1` from edits that required a local macOS checkout. The 2.1 release scope is WHOOP. Oura is not a 2.1 release requirement.
+
+## Historical branch-refresh plan (superseded)
 
 PR #20 is behind the moving PR #19 release line. Preserve the current tip before rewriting history:
 
@@ -86,19 +88,19 @@ The pure backfill now rejects:
 - Strain outside `0...100`;
 - Strain without explicit version provenance.
 
-It still needs one production call from the detector collision branch.
+The production detector-collision call is now wired with the real row's owning namespace.
 
 ### GET_CLOCK planner
 
-The planner now emits at most three retries and one Data Range fallback per connection generation. It rejects a newest-bank timestamp more than five minutes ahead of wall time. `reset()` rearms the next generation.
+The planner emits at most three retries and one Data Range fallback per connection generation. It rejects a newest-bank timestamp more than five minutes ahead of wall time, is wired to the BLE timeout/connection lifecycle, and `reset()` rearms the next generation.
 
 ### Unsupported GATT families
 
 Puffin-1150, Monument, and Symphony remain commandless metadata. The scan decision now fails closed when the **selected** UUID is unknown or unsupported, even when it is advertised or CoreBluetooth omits advertised service UUIDs.
 
-## Local app-file edits still required
+## Historical app-file edits (completed)
 
-These files are large, actively moving files. Apply the changes after the rebase so the local edit uses the current PR #19 structure rather than replacing an older whole file.
+These files were large, actively moving files. The completed changes were applied surgically against the PR #23 structure; the snippets below remain historical acceptance criteria, not instructions to reapply.
 
 ### 1. Place the heart-rate-recovery card
 
@@ -386,16 +388,12 @@ Required migration path:
 7. Export under explicit beta column names.
 8. Retain canonical `spo2Pct` isolation tests.
 
-## Local verification sequence
+## Qualification sequence (automated and simulator gates completed)
 
-1. Refresh onto the current stacked base.
-2. Apply the six narrow app-file edits above.
-3. Run all eight audits in `noop-ios-2.1-local-verification.md`.
-4. Run the focused WHOOP/analytics/import/store tests while iterating.
-5. Run all seven retained package suites for repository health.
-6. Regenerate with XcodeGen.
-7. Build warning-clean and run the complete iOS simulator suite.
-8. Perform the manual simulator checks, including canonical Blood O₂ versus beta-candidate separation.
-9. Keep PR #20 draft until device-only WHOOP/background gates are recorded.
+1. Run all eight audits in `noop-ios-2.1-local-verification.md`.
+2. Run all seven retained package suites for repository health.
+3. Regenerate with XcodeGen, build the iOS app, and run the complete iOS simulator suite.
+4. Perform manual simulator checks of the populated workout-recovery and Sleep flows in light and dark appearance.
+5. Keep PR #23 draft until Easton explicitly authorizes a merge; physical WHOOP/iPhone and assistive-technology gates remain outstanding.
 
-No GitHub Actions result is release evidence for this PR. Do not merge PR #20, PR #19, staging, or main during this work.
+No earlier GitHub Actions result is release evidence for the repaired PR head. Do not merge PR #23, staging, or main during this work.

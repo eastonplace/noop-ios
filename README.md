@@ -29,11 +29,13 @@ The unified iOS 2.1 release line combines the WHOOP backend compatibility work p
 - **Experimental SpO₂ Candidate:** a separate, explicitly labelled beta surface for selected WHOOP 5/MG evidence. It never feeds canonical Blood Oxygen, Apple Health, Charge, illness detection, widgets, or medical claims.
 - **Reliability and privacy hardening:** additional bounded processing, local persistence, migration, deletion, accessibility, and performance protections across sleep, imports, widgets, and background execution.
 
-### Included foundations still requiring live app integration
+### Live recovery and reliability features
 
-The branch also contains tested analytics foundations for workout heart-rate recovery, conservative missing-field workout backfill, and strap clock-recovery planning. These are **not presented as shipped user features yet** because their final live call-site wiring and simulator/device verification remain release gates.
+- **Workout heart-rate recovery:** eligible workout details show signed 1-, 2-, and 5-minute drops derived only from recorded post-workout heart-rate samples; NOOP does not interpolate missing coverage.
+- **Collision-safe workout backfill:** detector output fills only safe missing fields on the real workout in its owning data namespace and never overwrites user or imported values.
+- **Bounded strap clock recovery:** connection-generation resets, timeouts, retries, and fallback diagnostics now use the bounded clock-recovery planner.
 
-The release remains a **draft release candidate** until warning-clean simulator compilation, complete test suites, the remaining integration gates, and physical WHOOP/iPhone validation are recorded. See [`docs/releases/NOOP_IOS_2_1.md`](docs/releases/NOOP_IOS_2_1.md) for complete scope, exclusions, and QA requirements.
+Automated and simulator qualification is recorded, but the release remains a **draft release candidate** until physical WHOOP/iPhone and assistive-technology release gates are recorded. See [`docs/releases/NOOP_IOS_2_1.md`](docs/releases/NOOP_IOS_2_1.md) for complete scope, exclusions, and QA requirements.
 
 ## Platform scope
 
