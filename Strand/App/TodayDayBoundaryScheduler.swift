@@ -65,7 +65,10 @@ final class TodayDayBoundaryScheduler {
             // One presentation invalidation only. `displayDayKey` includes both local/logical keys, so its
             // existing onChange rebuilds the snapshot with no database contention and no fabricated row.
             repository.objectWillChange.send()
-            self.arm(after: boundary.addingTimeInterval(0.001), calendar: calendar)
+            // Timers can wake late under load or after a brief suspension. Rebase on the actual wall clock,
+            // not the planned boundary, or a midnight timer that wakes after 04:00 can schedule the next edge
+            // hours late. Scene activation still cancels/re-arms separately for timezone and larger clock shifts.
+            self.arm(after: Date(), calendar: calendar)
         }
     }
 }
