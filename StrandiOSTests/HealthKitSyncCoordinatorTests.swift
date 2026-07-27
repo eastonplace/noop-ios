@@ -345,7 +345,7 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
         XCTAssertEqual(range.publicationDays, 120)
     }
 
-    func testAnalysisRangeTargetsHistoricalWindowWithoutRescoringNewerGap() throws {
+    func testAnalysisRangeRecomputesForwardDependencyClosureFromHistoricalChange() throws {
         let calendar = try newYorkCalendar()
         let now = try date(calendar, year: 2026, month: 7, day: 27)
         let window = HealthKitSyncWindow(
@@ -354,8 +354,9 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
 
         let range = HealthKitAnalysisRange(window: window, now: now, calendar: calendar)
 
-        XCTAssertEqual(range.startOffset, 15)
-        XCTAssertEqual(range.maxDays, 3)
+        XCTAssertEqual(range.startOffset, 0)
+        XCTAssertEqual(range.maxDays, 18,
+                       "historical HRV/RHR can affect every later baseline-dependent day")
         XCTAssertEqual(range.publicationDays, 120)
     }
 
