@@ -39,6 +39,19 @@ struct IntelligenceAnalysisRequest: Equatable, Sendable {
     }
 }
 
+/// Immutable observation around one post-backfill analysis pass. The caller may publish only when the store
+/// is still quiescent and the durable-data edge is unchanged after analysis. A reconnect or periodic burst
+/// that starts or completes in the middle therefore forces another pass over the newest data instead of
+/// allowing an older generation to publish a final-looking blank Recovery state.
+struct BackfillAnalysisSnapshot: Equatable, Sendable {
+    let dataAvailableAt: TimeInterval?
+    let backfilling: Bool
+
+    func isSettledAndUnchanged(since earlier: Self) -> Bool {
+        !backfilling && !earlier.backfilling && dataAvailableAt == earlier.dataAvailableAt
+    }
+}
+
 /// Main-actor admission queue shared by every production shorthand overload below.
 ///
 /// `IntelligenceEngine` already has one full four-argument implementation. Historically its internal Boolean
@@ -125,6 +138,41 @@ extension IntelligenceEngine {
         }
     }
 
+    /// AppModel's post-backfill path intentionally asks analysis not to publish the Repository itself; it
+    /// performs one explicit publication immediately after this call. Keep that contract, but do not return
+    /// while another offload is writing or after a newer durable-data edge has appeared. This turns the old
+    /// two-second debounce from a timing guess into a generation-stable source-to-UI handoff.
+    private func submitStablePostBackfillAnalysis() async {
+        guard let live = AppModel.shared?.live else {
+            await submitSerializedAnalysis(
+                maxDays: 21, startOffset: 0, force: true, refreshRepository: false)
+            return
+        }
+
+        while !Task.isCancelled {
+            let before = BackfillAnalysisSnapshot(
+                dataAvailableAt: live.backfillDataAvailableAt,
+                backfilling: live.backfilling)
+            if before.backfilling {
+                do {
+                    try await Task.sleep(for: .milliseconds(250))
+                } catch {
+                    return
+                }
+                continue
+            }
+
+            await submitSerializedAnalysis(
+                maxDays: 21, startOffset: 0, force: true, refreshRepository: false)
+            guard !Task.isCancelled else { return }
+
+            let after = BackfillAnalysisSnapshot(
+                dataAvailableAt: live.backfillDataAvailableAt,
+                backfilling: live.backfilling)
+            if after.isSettledAndUnchanged(since: before) { return }
+        }
+    }
+
     // Define every proper subset of the original four labels. Swift prefers these exact signatures over the
     // original method's default arguments, so every production shorthand call is serialized. The fully-spelled
     // four-label call remains the private bypass used only by `submitSerializedAnalysis` above.
@@ -145,8 +193,12 @@ extension IntelligenceEngine {
     }
 
     func analyzeRecent(refreshRepository: Bool) async {
-        await submitSerializedAnalysis(maxDays: 21, startOffset: 0, force: true,
-                                       refreshRepository: refreshRepository)
+        if refreshRepository {
+            await submitSerializedAnalysis(
+                maxDays: 21, startOffset: 0, force: true, refreshRepository: true)
+        } else {
+            await submitStablePostBackfillAnalysis()
+        }
     }
 
     func analyzeRecent(maxDays: Int, startOffset: Int) async {
