@@ -264,7 +264,7 @@ final class IntelligenceEngine: ObservableObject {
         let computedId = deviceId + "-noop"
         let now = Int(Date().timeIntervalSince1970)
         let tzOffset = TimeZone.current.secondsFromGMT()
-        let nowLocalMidnight = Self.midnightLocal(now, offsetSec: tzOffset)
+        guard let nowLocalMidnight = Self.midnightLocal(now, offsetSec: tzOffset) else { return false }
         let newestDay = AnalyticsEngine.dayString(nowLocalMidnight, offsetSec: tzOffset)
         let oldestDay = AnalyticsEngine.dayString(nowLocalMidnight - (maxDays - 1) * 86_400, offsetSec: tzOffset)
         let gate7 = Array((await repo.dailyMetrics(fromDay: oldestDay, toDay: newestDay))
@@ -497,7 +497,11 @@ final class IntelligenceEngine: ObservableObject {
         // day keys are LOCAL calendar days, consistent with the dashboard's local "today" lookup. A
         // west-of-UTC user's evening crosses midnight UTC; bucketing by UTC put it in the next UTC day,
         // which the local read never found (Toronto/UTC-4 report).
-        let nowLocalMidnight = Self.midnightLocal(now, offsetSec: tzOffset)
+        guard let nowLocalMidnight = Self.midnightLocal(now, offsetSec: tzOffset) else {
+            performanceChangedRows = 0
+            note = String(localized: "Unable to establish a valid local-day window.")
+            return
+        }
 
         // ── Learned habitual midsleep (#547) ──────────────────────────────────
         // Compute the user's habitual midsleep ONCE per run from the trailing sleep history so the
@@ -652,8 +656,9 @@ final class IntelligenceEngine: ObservableObject {
                 // analyzeDay's dayHr/daySteps, which use it ONLY for those totals. `dayStart` is already a
                 // LOCAL midnight; midnightLocal is idempotent on it (the store range is inclusive, so end
                 // at -1 s). (#277 , local-day bucketing.)
-                let dayMid = Self.midnightLocal(dayStart, offsetSec: tzOffset)
-                let dayEnd = dayMid + 86_400 - 1
+                guard let dayMid = Self.midnightLocal(dayStart, offsetSec: tzOffset) else { continue }
+                let (dayEnd, dayEndOverflow) = dayMid.addingReportingOverflow(86_399)
+                guard !dayEndOverflow else { continue }
                 // Same `owner` as the night window above (I2): the additive day totals must come from the
                 // one device that owns the day, never a mix.
                 // #997 (ryanbr): for a PAST day (20 of 21 in the default scan) the night window above reads
@@ -1400,8 +1405,10 @@ final class IntelligenceEngine: ObservableObject {
             // (Owner resolution mirrors the scoring loop; one device installs resolve to `deviceId`.)
             var motion: [String: Double] = [:]
             for off in 0..<stepsCalDays {
-                let dayMid = Self.midnightLocal(nowLocalMidnight - off * 86_400, offsetSec: tzOffset)
-                let dayEnd = dayMid + 86_400 - 1
+                guard let dayMid = Self.midnightLocal(nowLocalMidnight - off * 86_400,
+                                                      offsetSec: tzOffset) else { continue }
+                let (dayEnd, dayEndOverflow) = dayMid.addingReportingOverflow(86_399)
+                guard !dayEndOverflow else { continue }
                 let dayKey = AnalyticsEngine.dayString(dayMid, offsetSec: tzOffset)
                 let owner = await Self.resolveDayOwner(day: dayKey, from: dayMid, to: dayEnd, store: store,
                                                        devices: regDevices, activeId: regActiveId,
@@ -1954,9 +1961,14 @@ final class IntelligenceEngine: ObservableObject {
         // re-banked copy of the night would otherwise feed "asleep" epochs at the OLD times into the H7
         // re-onset guard, letting the stale block keep confirming itself. Read-side only (no bank-recency
         // witness here); the store itself is healed post-upsert in analyzeRecent.
-        let sessions = SleepSessionDedup.dedupe(
-            (try? await store.sleepSessions(deviceId: computedId, from: from, to: to,
-                                            limit: 4000)) ?? []).kept
+        let storedSessions = (try? await store.sleepSessions(deviceId: computedId, from: from, to: to,
+                                                             limit: 4000)) ?? []
+        // A persisted session's bounds are input, not a trust boundary. Filter impossible spans BEFORE the
+        // de-duplicator calculates overlap/duration so an Int.min/Int.max row cannot make a diagnostic
+        // read trap before the valid sessions are considered.
+        let sessions = SleepSessionDedup.dedupe(storedSessions.filter {
+            Self.representablePositiveDuration(start: $0.startTs, end: $0.endTs) != nil
+        }).kept
         // One range read of the window's banked band state, keyed by startTs, instead of a single-row SELECT
         // per kept session. We still expand ONLY the kept (deduped) sessions, in order, so the output is
         // identical to the old per-session loop — just without the N round-trips.
@@ -1965,9 +1977,20 @@ final class IntelligenceEngine: ObservableObject {
         var samples: [(ts: Int, state: Int)] = []
         for s in sessions {
             guard let states = stateByStart[s.startTs], !states.isEmpty else { continue }
+            // Expand one persisted state series atomically. If a corrupt epoch offset overflows or exits its
+            // own session, discard that entire series; a partial stale/asleep tail must never confirm a run.
+            var sessionSamples: [(ts: Int, state: Int)] = []
+            var validSeries = true
             for (i, st) in states.enumerated() {
-                samples.append((ts: s.startTs + i * epochS, state: st))
+                let (offset, offsetOverflow) = i.multipliedReportingOverflow(by: epochS)
+                let (timestamp, timestampOverflow) = s.startTs.addingReportingOverflow(offset)
+                guard !offsetOverflow, !timestampOverflow, Self.isSafeTimestamp(timestamp), timestamp < s.endTs else {
+                    validSeries = false
+                    break
+                }
+                sessionSamples.append((ts: timestamp, state: st))
             }
+            if validSeries { samples.append(contentsOf: sessionSamples) }
         }
         return samples
     }
@@ -1976,6 +1999,7 @@ final class IntelligenceEngine: ObservableObject {
         store: WhoopStore, importedId: String, computedId: String,
         windowStart: Int, windowEnd: Int, offsetSec: Int
     ) async -> Int? {
+        guard windowEnd >= windowStart else { return nil }
         let imported = (try? await store.sleepSessions(deviceId: importedId, from: windowStart,
                                                        to: windowEnd, limit: 4000)) ?? []
         let computed = (try? await store.sleepSessions(deviceId: computedId, from: windowStart,
@@ -1986,12 +2010,20 @@ final class IntelligenceEngine: ObservableObject {
         // then steered the main-night pick (day assignment) to the stale block. The same collapse also
         // covers an imported night and its computed twin (the longest capture wins, exactly what the
         // per-day length rule chose anyway).
-        let merged = SleepSessionDedup.dedupe(imported + computed).kept
+        // Reject malformed stored spans before de-duplication. Apart from avoiding unchecked math below, this
+        // prevents an extreme row from reaching its overlap/duration ranking and taking down the entire
+        // learned-timing pass.
+        let validSessions = (imported + computed).filter {
+            Self.representablePositiveDuration(start: $0.effectiveStartTs, end: $0.endTs) != nil
+        }
+        let merged = SleepSessionDedup.dedupe(validSessions).kept
         let blocks = merged.compactMap { s -> SleepStageTotals.HistoryBlock? in
             let start = s.effectiveStartTs, end = s.endTs
-            guard end > start else { return nil }
-            let mid = start + (end - start) / 2
+            guard let duration = Self.representablePositiveDuration(start: start, end: end) else { return nil }
+            let (mid, midpointOverflow) = start.addingReportingOverflow(duration / 2)
+            guard !midpointOverflow else { return nil }
             let dayKey = AnalyticsEngine.dayString(mid, offsetSec: offsetSec)
+            guard !dayKey.isEmpty else { return nil }
             return SleepStageTotals.HistoryBlock(start: start, end: end, dayKey: dayKey)
         }
         return SleepStageTotals.habitualMidsleepSec(blocks, offsetSec: offsetSec)
@@ -1999,15 +2031,45 @@ final class IntelligenceEngine: ObservableObject {
 
     /// Floor a unix-seconds timestamp to 00:00:00 of its UTC calendar day. Mirrors the Android
     /// IntelligenceEngine.midnightUtc; the floorMod form is correct for any sign.
-    nonisolated static func midnightUtc(_ ts: Int) -> Int { ts - floorMod(ts, 86_400) }
+    /// Returns nil when the mathematical floor cannot be represented in `Int` (for example Int.min, which
+    /// sits inside a UTC day whose true floor is below Int.min). A raw bad-clock value must not wrap into a
+    /// plausible modern day.
+    nonisolated static func midnightUtc(_ ts: Int) -> Int? {
+        let (midnight, overflow) = ts.subtractingReportingOverflow(floorMod(ts, 86_400))
+        return overflow ? nil : midnight
+    }
 
     /// Floor a unix-seconds timestamp to 00:00:00 of its LOCAL calendar day (#277). `offsetSec` is
     /// seconds EAST of UTC. Shift into local time, floor to the local day, shift back:
     /// `ts - floorMod(ts + offsetSec, 86400)`. floorMod keeps the floor correct for negative offsets
     /// and negative timestamps. `offsetSec == 0` reduces exactly to `midnightUtc`. Mirrors the
     /// Android IntelligenceEngine.midnightLocal byte-for-byte.
-    nonisolated static func midnightLocal(_ ts: Int, offsetSec: Int) -> Int {
-        ts - floorMod(ts + offsetSec, 86_400)
+    nonisolated static func midnightLocal(_ ts: Int, offsetSec: Int) -> Int? {
+        let (localTimestamp, shiftOverflow) = ts.addingReportingOverflow(offsetSec)
+        guard !shiftOverflow else { return nil }
+        let (localMidnight, floorOverflow) = localTimestamp.subtractingReportingOverflow(
+            floorMod(localTimestamp, 86_400))
+        guard !floorOverflow else { return nil }
+        let (utcMidnight, unshiftOverflow) = localMidnight.subtractingReportingOverflow(offsetSec)
+        return unshiftOverflow ? nil : utcMidnight
+    }
+
+    /// Every integer in this range is exactly representable by the `Double` timestamps used by the analytics
+    /// layer. It also leaves ample arithmetic headroom for session comparisons, unlike Int.min/Int.max from a
+    /// malformed export.
+    nonisolated private static let maximumSafeTimestamp = 9_007_199_254_740_991
+
+    nonisolated private static func isSafeTimestamp(_ timestamp: Int) -> Bool {
+        timestamp >= -maximumSafeTimestamp && timestamp <= maximumSafeTimestamp
+    }
+
+    /// Positive duration that is representable in an Int. Persistent exports are untrusted: comparisons alone
+    /// do not make `Int.max - Int.min` safe to evaluate.
+    nonisolated private static func representablePositiveDuration(start: Int, end: Int) -> Int? {
+        guard isSafeTimestamp(start), isSafeTimestamp(end) else { return nil }
+        let (duration, overflow) = end.subtractingReportingOverflow(start)
+        guard !overflow, duration > 0 else { return nil }
+        return duration
     }
 
     /// Euclidean modulo (result has the sign of the divisor) , matches Kotlin/Java Math.floorMod, so
