@@ -246,6 +246,9 @@ enum DebugDataDiagnostics {
                 line += " · \(relTime(Date().timeIntervalSince1970 - at))"
             }
             if !d.bool(forKey: "alarm.lastArmConnected") { line += " · strap NOT connected (queued)" }
+            if let heartRate = d.object(forKey: "alarm.lastArmHeartRate") as? Int {
+                line += " · HR \(heartRate) bpm at arm"
+            }
             // #34: the strap-clock skew AT ARM. Skew ~0 but the strap still rejects ⇒ a corrupted alarm
             // register, not a clock problem (which pins whether a re-clock could ever help).
             if let skew = d.object(forKey: "alarm.lastArmClockSkew") as? Int, abs(skew) > 3600 {

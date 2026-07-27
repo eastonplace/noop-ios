@@ -727,6 +727,11 @@ public final class BLEManager: NSObject, ObservableObject {
     /// readable and avoid forcing SwiftUI to auto-scroll on every ACK row.
     private var historicalAckLogCounter = 0
     private var clockRequested = false
+    /// Bounded per-physical-connection GET_CLOCK recovery. The planner is pure; this manager owns the
+    /// command writes, response deadline, and the one allowed approximate correlation.
+    private var clockRecovery = StrapClockRecoveryPlanner()
+    private var clockRecoveryTimeout: DispatchWorkItem?
+    private static let clockRecoveryTimeoutSeconds: TimeInterval = 4
     private var intentionalDisconnect = false
     /// Consecutive `didFailToConnect` count, for the auto-reconnect backoff (#414). Reset to 0 on a
     /// successful connect; grows the reschedule delay so a strap that's genuinely out of range doesn't
@@ -799,6 +804,9 @@ public final class BLEManager: NSObject, ObservableObject {
     private(set) var deviceId: String
     /// Captured (device↔wall) correlation from GET_CLOCK; nil until the response lands.
     private(set) var clockRef: ClockRef?
+    /// A Data Range fallback can keep historical decoding moving, but it is not a real GET_CLOCK
+    /// correlation. A delayed real response must therefore replace it instead of being ignored.
+    private var clockRefIsApproximate = false
 
     /// The strap's OWN clock extrapolated to right now (its RTC at the last GET_CLOCK + elapsed since).
     /// Used to judge live-gesture freshness in the strap's clock domain rather than wall time — so a
@@ -1077,6 +1085,11 @@ public final class BLEManager: NSObject, ObservableObject {
     public func disconnect() {
         intentionalDisconnect = true
         cancelScanFallback()
+        // Cancel an unanswered GET_CLOCK recovery before the link begins its asynchronous teardown.
+        // `didDisconnect` repeats this reset for non-user disconnects; doing it here prevents a timer
+        // from issuing a stale retry while CoreBluetooth still reports the old link as connected.
+        resetClockRecoveryForConnection()
+        strapNewestTs = nil
         // A user-initiated teardown is a clean slate: clear any #80 marginal-radio fallback so the next
         // (manual) reconnect attempts the full R10/R11 stream again rather than inheriting old suspicion.
         marginalRadio.reset()
@@ -2632,8 +2645,16 @@ public final class BLEManager: NSObject, ObservableObject {
         configureCollectorFamily()
         central.stopScan()
         log("Scanning for \(model.displayName)…")
+        // The normal production scan stays pinned to the selected connectable family. A Connection
+        // Test Centre capture can additionally SEE the v9.1 diagnostic-only service families, but the
+        // decision gate in `didDiscover` below rejects them before any GATT discovery or command path.
+        let services = [model.scanService] + (TestCentre.active(.connection)
+            ? WhoopGattServiceFamily.unsupportedServiceUUIDStrings.map { CBUUID(string: $0) } : [])
+        if services.count > 1 {
+            log("Connection diagnostics: scanning unsupported WHOOP service metadata only")
+        }
         central.scanForPeripherals(
-            withServices: [model.scanService],
+            withServices: services,
             options: [CBCentralManagerScanOptionAllowDuplicatesKey: false]
         )
         guard allowFallback else { return }
@@ -2776,6 +2797,13 @@ public final class BLEManager: NSObject, ObservableObject {
         d.set(sentEpoch, forKey: "alarm.lastArmSentEpoch")
         d.set(Date().timeIntervalSince1970, forKey: "alarm.lastArmAt")
         d.set(connectedPeripheralUUID != nil, forKey: "alarm.lastArmConnected")
+        // A missing live sample is meaningful diagnostics too; don't let an older arm's HR masquerade
+        // as the HR at this arm event.
+        if let heartRate = state.heartRate {
+            d.set(heartRate, forKey: "alarm.lastArmHeartRate")
+        } else {
+            d.removeObject(forKey: "alarm.lastArmHeartRate")
+        }
         // #34: the strap-clock skew (its own RTC minus wall, seconds) AT THE MOMENT we armed. A wrong RTC
         // is a top cause of the firmware alarm never firing, and knowing the clock state at arm — not just
         // now — tells whether the arm even had a chance (skew ~0 but the strap still rejects ⇒ a corrupted
@@ -3119,6 +3147,25 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
             }
             return
         }
+        // A diagnostic-wide scan may report service families that we intentionally do not support.
+        // Decide before pinning, stopping the scan, preparing the peripheral, or opening GATT: those
+        // families are metadata-only until their framing is proven on owned hardware.
+        let advertisedServices = (advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID])?
+            .map(\.uuidString) ?? []
+        let scanDecision = whoopGattScanDecision(
+            // `DeviceFamily` intentionally keeps its raw UUID detail inside WhoopProtocol; the
+            // app's selected CBUUID is the production scan contract and normalizes identically.
+            selectedServiceUUIDString: selectedModel.scanService.uuidString,
+            advertisedServiceUUIDStrings: advertisedServices
+        )
+        guard scanDecision.shouldConnect else {
+            if let unsupported = scanDecision.unsupportedFamily {
+                log(unsupported.diagnosticUnsupportedMessage)
+            } else {
+                log("Discovered \(name) — selected WHOOP service is not connectable; ignoring")
+            }
+            return
+        }
         // Multi-WHOOP preferred-peripheral filter: when the app has pinned a specific strap, ignore any
         // OTHER discovered WHOOP and keep scanning. When `preferredPeripheralUUID == nil` (the single-
         // WHOOP default) this guard is skipped and the original "connect to the first discovered" path
@@ -3159,6 +3206,10 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         // i.e. it survives past the loop's quick-timeout window (below), or on a clean teardown
         // (disconnect() resets the detector and clears the guide too).
         connectGeneration &+= 1
+        resetClockRecoveryForConnection()
+        // Data Range markers belong to the physical connection that returned them. Never let a stale
+        // previous-generation marker become this generation's approximate clock fallback.
+        strapNewestTs = nil
         if postBondLoop.tripped {
             let gen = connectGeneration
             DispatchQueue.main.asyncAfter(deadline: .now() + postBondLoop.quickTimeoutWindow + 1) { [weak self] in
@@ -3280,7 +3331,8 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         // stream comes back automatically.
         realtimeArmed = false
         whoop5SessionStarted = false
-        clockRequested = false
+        resetClockRecoveryForConnection()
+        strapNewestTs = nil
         connectHandshakeDone = false
         cmdNotifyConfirmedActive = false   // #34: a fresh connection needs its own notify-confirm + settle
         connectSettledSignaled = false
@@ -3440,12 +3492,15 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         state.encryptedBond = true   // a restored link was genuinely encrypted-bonded before (#69)
         didBond = true
         noteGenuineBond(of: p)   // #52: a restored link was genuinely bonded; eligible as a re-adopt target
-        // clockRef is nil in the fresh process after restore, so we must re-request it.
-        // Reset the flag so the post-restore didWriteValueFor issues exactly one getClock.
-        clockRequested = false
+        // A restored connection is a fresh physical link for the bounded GET_CLOCK retry state. The
+        // process usually has no clockRef after restore, but treating this as a fresh generation also
+        // prevents a stale Data Range marker/retry counter from a pre-suspension connection leaking in.
+        resetClockRecoveryForConnection()
+        strapNewestTs = nil
         // Ensure the store is ready before restored BLE data arrives (idempotent; no-op if already built).
         Task { @MainActor in await bootstrapStore() }
         if p.state == .connected {
+            connectGeneration &+= 1
             state.markConnected()
             log("Restored CONNECTED peripheral \(p.identifier) — re-discovering services")
             discoverPrimaryServices(on: p)
@@ -3747,20 +3802,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
         case .whoop5: send(.getHello)
         }
         sendSetClockBothForms()
-        if clockRef == nil && !clockRequested {
-            clockRequested = true
-            // GET_CLOCK's payload length is firmware-specific, exactly like SET_CLOCK's: newer
-            // firmware answers the EMPTY form and ignores [0x00], while fw 41.17.x answers [0x00] and
-            // ignores the empty form (#120). Send both — the strap answers whichever its firmware
-            // accepts, and the `clockRef == nil` correlation guard makes a second reply a no-op.
-            // Without the [0x00] form, correlation never establishes on 41.17.x, so a lost RTC (the
-            // 1971 clock behind #120) stays invisible and ClockPolicy can never re-fix it. Both
-            // GET_CLOCKs ride behind both SET_CLOCKs above, so the reply reflects the corrected clock.
-            // (Offload doesn't depend on this — Backfiller falls back to an identity clockRef — but a
-            // real correlation drives realtime decode and the drift re-set.)
-            send(.getClock, payload: [])
-            send(.getClock, payload: [0x00])
-        }
+        requestClockCorrelationIfNeeded()
         send(.sendR10R11Realtime, payload: [0x00])   // stop the type-43 realtime flood (BLE airtime/battery)
         send(.getDataRange)                          // refresh the strap's stored range for the watchdog
         // Plain offload (no high-freq-sync), rate-limited (first connect always runs; reconnect-flaps are
@@ -3852,6 +3894,95 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
         }
     }
 
+    /// Start one precise GET_CLOCK request for this connection when the current reference is absent or
+    /// only approximate. WHOOP 5/MG deliberately stays out: its firmware does not serve GET_CLOCK and
+    /// its realtime/historical frames already carry real Unix time.
+    private func requestClockCorrelationIfNeeded() {
+        guard selectedModel.deviceFamily == .whoop4,
+              !hasPreciseClockCorrelation,
+              !clockRequested
+        else { return }
+
+        clockRequested = true
+        // GET_CLOCK's payload length is firmware-specific: newer firmware answers the empty form while
+        // 41.17.x answers [0x00]. Sending both retains the established, hardware-tested command path.
+        send(.getClock, payload: [])
+        send(.getClock, payload: [0x00])
+        armClockRecoveryTimeout(for: connectGeneration)
+    }
+
+    private var hasPreciseClockCorrelation: Bool {
+        clockRef != nil && !clockRefIsApproximate
+    }
+
+    private func resetClockRecoveryForConnection() {
+        clockRecoveryTimeout?.cancel()
+        clockRecoveryTimeout = nil
+        clockRecovery.reset()
+        clockRequested = false
+    }
+
+    private func armClockRecoveryTimeout(for generation: Int) {
+        clockRecoveryTimeout?.cancel()
+        let timeout = DispatchWorkItem { [weak self] in
+            guard let self,
+                  self.connectGeneration == generation,
+                  self.state.connected,
+                  self.selectedModel.deviceFamily == .whoop4,
+                  !self.hasPreciseClockCorrelation
+            else { return }
+            self.clockRecoveryTimeout = nil
+            self.applyClockRecoveryAction(for: generation)
+        }
+        clockRecoveryTimeout = timeout
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.clockRecoveryTimeoutSeconds,
+            execute: timeout
+        )
+    }
+
+    /// A GET_CLOCK deadline or newly-arrived Data Range marker advances the bounded planner exactly once.
+    /// Its retry budget is per `connectGeneration`; late work from an old connection is ignored.
+    private func applyClockRecoveryAction(for generation: Int) {
+        guard connectGeneration == generation,
+              state.connected,
+              selectedModel.deviceFamily == .whoop4
+        else { return }
+
+        switch clockRecovery.nextAction(
+            hasPreciseCorrelation: hasPreciseClockCorrelation,
+            newestBankedUnix: strapNewestTs,
+            wallUnix: Int(Date().timeIntervalSince1970)
+        ) {
+        case .retryGetClock(let attempt, let maximum):
+            log("Clock: no precise correlation; retrying GET_CLOCK \(attempt)/\(maximum)")
+            send(.getClock, payload: [])
+            send(.getClock, payload: [0x00])
+            armClockRecoveryTimeout(for: generation)
+
+        case .installDataRangeFallback(let deviceUnix, let wallUnix):
+            let approximate = ClockRef(device: deviceUnix, wall: wallUnix)
+            clockRef = approximate
+            clockRefIsApproximate = true
+            collector?.clockRef = approximate
+            backfiller?.clockRef = approximate
+            log("Clock: GET_CLOCK unresponsive; installed one approximate Data Range correlation")
+
+        case .none:
+            break
+        }
+    }
+
+    /// If the fourth GET_CLOCK deadline happened before GET_DATA_RANGE replied, install the one permitted
+    /// fallback as soon as that current-generation marker arrives. Before the retry budget is exhausted,
+    /// the range answer never accelerates retries.
+    private func applyClockFallbackIfReady() {
+        guard !hasPreciseClockCorrelation,
+              clockRecovery.retryCount >= clockRecovery.maximumRetries
+        else { return }
+        applyClockRecoveryAction(for: connectGeneration)
+    }
+
     /// Newest plausible-unix marker in a GET_DATA_RANGE COMMAND_RESPONSE = the strap's newest stored
     /// record. Mirrors re/diagnose_biometrics.py: scan u32 LE words in the response body (data starts at
     /// frame[7], after [type,seq,cmd]), keep those in the unix range, return the max. nil if none.
@@ -3937,6 +4068,10 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                     log("Get Data Range raw frame (#451 — for offset analysis): \(hex)")
                     if let newest = BLEManager.dataRangeNewestUnix(from: frame) {
                         strapNewestTs = newest                    // feeds the liveness watchdog
+                        // If GET_CLOCK has already exhausted its bounded retry budget, this current-link
+                        // banked marker is the sole safe fallback source. Until then it must not alter the
+                        // retry cadence or replace a precise correlation.
+                        applyClockFallbackIfReady()
                         // #928: flag an implausibly FUTURE "newest" (strap clock set ahead) right where it
                         // lands, so a Test Centre export shows WHY auto-continue refused to trust the range.
                         let wallNowForSkew = Int(Date().timeIntervalSince1970)
@@ -3985,10 +4120,13 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                 }
                 // Clock correlation runs in both live and backfill modes. Once established it
                 // unblocks both the Collector (live path) and the Backfiller (chunk decoding).
-                if clockRef == nil {
+                if !hasPreciseClockCorrelation {
                     // #47: reuse the single decode above (byte-identical for WHOOP4) instead of re-parsing.
                     if let ref = ClockCorrelation.clockRef(from: parsed, wall: Int(Date().timeIntervalSince1970)) {
                         clockRef = ref
+                        clockRefIsApproximate = false
+                        clockRecoveryTimeout?.cancel()
+                        clockRecoveryTimeout = nil
                         collector?.clockRef = ref                  // unblocks buffered persistence
                         backfiller?.clockRef = ref                 // unblocks historical chunk decode
                         log("Clock correlated: device=\(ref.device) wall=\(ref.wall)")

@@ -103,7 +103,9 @@ final class IntelligenceEngine: ObservableObject {
     /// MainActor-bound `diagnosticSink` in the SAME per-day order. The immutable value graph is explicitly
     /// `Sendable` because it crosses from the detached scan back to the main-actor fold.
     private struct DayScan: Sendable {
-        let result: AnalyticsEngine.DayResult
+        /// Nil when the upstream raw-HR gate rejected this day. Keeping that decision in the detached
+        /// result lets the main actor replay its diagnostic without ever touching the sink off actor.
+        let result: AnalyticsEngine.DayResult?
         let rhrLine: String?
         /// CAPTURE-B (#814/#799): the resolved READ owner id this day was scored from, and how many HR rows
         /// that owner returned for the night window, carried out of the off-actor loop so the main-actor
@@ -128,6 +130,17 @@ final class IntelligenceEngine: ObservableObject {
         /// where `rr` is in scope and replayed through `diagnosticSink` in pass 2 (which is main-actor
         /// isolated). nil when the night has no in-sleep R-R.
         let hrvDiag: String?
+        /// One privacy-safe reason an upstream day was not scored. A sparse raw stream is materially
+        /// different from a stager that found no sleep, so it must survive into the shareable strap log.
+        let skippedLine: String?
+    }
+
+    /// A real workout plus the store namespace that owns its natural key. `WorkoutRow` intentionally
+    /// carries provenance, not a storage device id; retaining the latter at the collision seam prevents
+    /// an Apple Health row from being accidentally re-written under the canonical WHOOP namespace.
+    private struct OwnedWorkout: Sendable {
+        let row: WorkoutRow
+        let deviceId: String
     }
 
     struct Computed: Identifiable {
@@ -567,7 +580,22 @@ final class IntelligenceEngine: ObservableObject {
                 let bundle = try? await store.analysisDayBundle(
                     deviceId: owner, from: from, to: to, limit: 200_000)
                 let hr = bundle?.hr ?? []
-                guard hr.count >= 200 else { continue }   // need real raw data, not a stray sample
+                guard hr.count >= 200 else {
+                    // Keep this lightweight diagnostic in the detached result. `diagnosticSink` is
+                    // MainActor-bound, so calling it here would violate the engine's actor boundary.
+                    out.append(DayScan(
+                        result: nil,
+                        rhrLine: nil,
+                        readOwner: owner,
+                        hrRows: hr.count,
+                        sleepTrace: [],
+                        stepsTrace: [],
+                        hrvTrace: [],
+                        hrvDiag: nil,
+                        skippedLine: "sleep day=\(day) SKIPPED hrSamples=\(hr.count) (need ≥200)"
+                    ))
+                    continue
+                }   // need real raw data, not a stray sample
                 let rr = bundle?.rr ?? []
                 let resp = bundle?.resp ?? []
                 let grav = bundle?.gravity ?? []
@@ -794,7 +822,7 @@ final class IntelligenceEngine: ObservableObject {
                 out.append(DayScan(result: res, rhrLine: rhrLine,
                                    readOwner: owner, hrRows: hr.count,
                                    sleepTrace: sleepTrace, stepsTrace: stepsTrace, hrvTrace: hrvTrace,
-                                   hrvDiag: hrvDiag))
+                                   hrvDiag: hrvDiag, skippedLine: nil))
             }
             return out
         }.value
@@ -810,7 +838,11 @@ final class IntelligenceEngine: ObservableObject {
         // loop produced them. Pure assignment / appends , no further store reads , so this is cheap and the
         // main actor was free during the heavy enumeration above.
         for scan in scanned {
-            let res = scan.result
+            if let line = scan.skippedLine {
+                diagnosticSink?(line, nil)
+                continue
+            }
+            guard let res = scan.result else { continue }
             readOwnerByDay[res.daily.day] = (scan.readOwner, scan.hrRows)
             nightlyHrvByDay[res.daily.day] = res.daily.avgHrv
             nightlyRhrByDay[res.daily.day] = res.daily.restingHr.map(Double.init)
@@ -890,10 +922,13 @@ final class IntelligenceEngine: ObservableObject {
         // (`computedId` is bound once above, before the off-actor scan loop.)
         let windowStart = nowLocalMidnight - (startOffset + maxDays - 1) * 86_400 - 30 * 3_600
         let windowEnd = startOffset == 0 ? now : nowLocalMidnight - (startOffset - 1) * 86_400
-        var realWorkouts = (try? await store.workouts(deviceId: deviceId, from: windowStart,
-                                                       to: windowEnd, limit: 100_000)) ?? []
-        realWorkouts += (try? await store.workouts(deviceId: "apple-health", from: windowStart,
-                                                    to: windowEnd, limit: 100_000)) ?? []
+        let realWorkoutDeviceIds = deviceId == "apple-health" ? [deviceId] : [deviceId, "apple-health"]
+        var realWorkouts: [OwnedWorkout] = []
+        for realWorkoutDeviceId in realWorkoutDeviceIds {
+            let rows = (try? await store.workouts(deviceId: realWorkoutDeviceId, from: windowStart,
+                                                   to: windowEnd, limit: 100_000)) ?? []
+            realWorkouts += rows.map { OwnedWorkout(row: $0, deviceId: realWorkoutDeviceId) }
+        }
 
         // ── Pass 2: re-score ONLY recovery against the now-seeded baseline (cheap, baseline-dependent);
         // every other field was computed once in pass 1. Recovery stays nil until the HRV baseline is
@@ -1083,25 +1118,61 @@ final class IntelligenceEngine: ObservableObject {
             // double-count. sport = "detected"; energyKcal is the APPROXIMATE Keytel/BMR total.
             for s in night.workouts {
                 let durMin = max(0, (s.end - s.start) / 60)
-                let avgBpm = Int(s.avgHR)
+                let validDetectedAverage = s.avgHR.isFinite && (30.0...250.0).contains(s.avgHR)
+                let avgBpm = validDetectedAverage ? Int(s.avgHR.rounded()) : 0
+                let detectedRow = WorkoutRow(
+                    startTs: s.start, endTs: s.end,
+                    sport: "detected", source: computedId,
+                    durationS: s.durationS, energyKcal: s.caloriesKcal,
+                    avgHr: validDetectedAverage ? avgBpm : nil, maxHr: s.peakHR,
+                    strain: s.strain, distanceM: nil,
+                    zonesJSON: nil, notes: nil,
+                    strainVersion: s.strain == nil ? nil : 2
+                )
                 // The overlap test is bare time overlap (any source), so a detected bout collapses against a
                 // manual session even though their SPORTS differ ("detected" vs the user's sport) , the
                 // #975 "two workouts, one vanished" seam. Find the collider so the trace can name its source.
-                if let hit = realWorkouts.first(where: { s.start < $0.endTs && $0.startTs < s.end }) {
+                if let index = realWorkouts.firstIndex(where: {
+                    s.start < $0.row.endTs && $0.row.startTs < s.end
+                }) {
+                    let hit = realWorkouts[index]
+                    let existing = hit.row
+                    let computed = WorkoutDetectedBackfill.ComputedValues(
+                        averageHeartRate: validDetectedAverage ? avgBpm : nil,
+                        peakHeartRate: s.peakHR,
+                        caloriesKcal: s.caloriesKcal,
+                        strain: s.strain,
+                        strainVersion: s.strain == nil ? nil : 2
+                    )
+                    let enriched = WorkoutDetectedBackfill.applying(computed, to: existing)
+                    var backfillFailed = false
+                    var didBackfill = false
+                    if enriched != existing {
+                        do {
+                            try await upsertRealWorkout(enriched, owningDeviceId: hit.deviceId, store: store)
+                            realWorkouts[index] = OwnedWorkout(row: enriched, deviceId: hit.deviceId)
+                            didBackfill = true
+                        } catch {
+                            backfillFailed = true
+                            // Do not turn a disk error into a silent data loss. Keep the real row intact
+                            // and retain the detected row for a later reconciliation; a successful next
+                            // pass removes this temporary overlap after it can enrich the real row.
+                            workoutRows.append(detectedRow)
+                            diagnosticSink?("workout backfill failed for overlapping "
+                                + "\(WorkoutSource.sourceLabel(existing)) row; real row preserved and "
+                                + "detected metrics retained for retry", .workouts)
+                        }
+                    }
                     if workoutsTraceActive {
                         diagnosticSink?(WorkoutsTrace.detectedBoutLine(
-                            verdict: "droppedOverlap", durMin: durMin, avgBpm: avgBpm,
-                            overlapSource: WorkoutSource.sourceLabel(hit)), .workouts)
+                            verdict: backfillFailed ? "backfillFailedOverlap"
+                                : (didBackfill ? "backfilledOverlap" : "droppedOverlap"),
+                            durMin: durMin, avgBpm: avgBpm,
+                            overlapSource: WorkoutSource.sourceLabel(existing)), .workouts)
                     }
                     continue
                 }
-                workoutRows.append(WorkoutRow(startTs: s.start, endTs: s.end,
-                                              sport: "detected", source: computedId,
-                                              durationS: s.durationS, energyKcal: s.caloriesKcal,
-                                              avgHr: avgBpm, maxHr: s.peakHR,
-                                              strain: s.strain, distanceM: nil,
-                                              zonesJSON: nil, notes: nil,
-                                              strainVersion: s.strain == nil ? nil : 2))
+                workoutRows.append(detectedRow)
                 if workoutsTraceActive {
                     diagnosticSink?(WorkoutsTrace.detectedBoutLine(
                         verdict: "persisted", durMin: durMin, avgBpm: avgBpm), .workouts)
@@ -1603,6 +1674,14 @@ final class IntelligenceEngine: ObservableObject {
     /// unknowns) lives in `DeviceFamily.forRegistryModel` (#171).
     nonisolated static func skinTempFamily(forOwner owner: String, devices: [PairedDevice]) -> DeviceFamily {
         DeviceFamily.forRegistryModel(devices.first(where: { $0.id == owner })?.model)
+    }
+
+    /// Persist a collision backfill in the namespace that owns the real row's natural key. The scoring
+    /// loop intentionally combines canonical WHOOP and Apple Health rows for de-duplication; using the
+    /// active device id here would create a cross-source duplicate instead of enriching the collider.
+    private func upsertRealWorkout(_ row: WorkoutRow, owningDeviceId: String,
+                                   store: WhoopStore) async throws {
+        _ = try await store.upsertWorkouts([row], deviceId: owningDeviceId)
     }
 
     /// #137: re-score under-sampled manual workouts. A `manual` workout is scored from the live HR

@@ -94,6 +94,10 @@ struct WorkoutDetailView: View {
             switch detailTab {
             case .overview:
                 paperStatsGrid
+                WorkoutHeartRateRecoveryCard(
+                    workout: displayRow,
+                    maxHR: Double(profile.hrMax)
+                )
                 paperZonesCard
             case .heartRate:
                 hrCurveCard
