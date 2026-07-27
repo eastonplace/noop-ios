@@ -15,7 +15,7 @@ private enum IntelligenceAnalysisCoordinatorRegistry {
         }
     }
 
-    static var entries: [ObjectIdentifier: Entry] = [:]
+    private static var entries: [ObjectIdentifier: Entry] = [:]
 
     static func coordinator(for engine: IntelligenceEngine) -> IntelligenceAnalysisCoordinator {
         entries = entries.filter { $0.value.engine != nil }
