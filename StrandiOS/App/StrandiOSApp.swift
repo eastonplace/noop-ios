@@ -170,6 +170,12 @@ struct StrandiOSApp: App {
                     if url.host == "import-health" { model.handleHealthImportURL(url) }
                 }
                 .task {
+                    // SwiftUI does not guarantee an initial scenePhase onChange edge. Arm the clock owner on
+                    // first mount so a continuously-foregrounded fresh launch still invalidates at midnight
+                    // and 04:00. Scene changes continue to re-arm it through the lifecycle bridge below.
+                    TodayDayBoundaryScheduler.shared.setActive(
+                        scenePhase == .active,
+                        repository: model.repo)
                     refreshExternalSurfaceDay()
                     alarmRuntime.start()
                     #if DEBUG
@@ -218,35 +224,15 @@ private struct iOSRootView: View {
                     onboarded = true
                     lastSeenChangelog = AppChangelog.currentVersion
                 })
-                .transition(.opacity)
-                .zIndex(1)
+            } else if acceptedTerms != TermsOfUse.currentVersion {
+                TermsAcceptanceView {
+                    acceptedTerms = TermsOfUse.currentVersion
+                }
+            } else if lastSeenChangelog != AppChangelog.currentVersion {
+                WhatsNewView(onContinue: {
+                    lastSeenChangelog = AppChangelog.currentVersion
+                })
             }
-            if acceptedTerms != Terms.currentVersion {
-                TermsGateView(onAccept: { acceptedTerms = Terms.currentVersion })
-                    .transition(.opacity)
-                    .zIndex(2)
-            }
-        }
-        .animation(.easeInOut(duration: 0.35), value: onboarded)
-        .animation(.easeInOut(duration: 0.35), value: acceptedTerms)
-        .sheet(isPresented: $showWhatsNew) {
-            WhatsNewView(onClose: {
-                lastSeenChangelog = AppChangelog.currentVersion
-                showWhatsNew = false
-            })
-        }
-        .onAppear {
-            showWhatsNewIfDue()
-            UpdateStore.shared.seedWhatsNewIfNeeded()
-        }
-        .onChange(of: acceptedTerms) { _, _ in showWhatsNewIfDue() }
-    }
-
-    private func showWhatsNewIfDue() {
-        if onboarded && acceptedTerms == Terms.currentVersion
-            && lastSeenChangelog != AppChangelog.currentVersion
-        {
-            showWhatsNew = true
         }
     }
 }
