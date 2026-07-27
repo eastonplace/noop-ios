@@ -30,6 +30,30 @@ final class SleepV2ContextTests: XCTestCase {
         XCTAssertEqual(summary.recentNapMinutes, 45)
     }
 
+    func testNightSummaryIgnoresExtremeStageAndNormalizesExtremeOffset() throws {
+        let session = SleepSession(
+            start: 0,
+            end: 600,
+            efficiency: 1,
+            stages: [
+                StageSegment(start: 0, end: 600, stage: "light"),
+                StageSegment(start: Int.min, end: Int.max, stage: "deep"),
+            ],
+            restingHR: nil,
+            avgHRV: nil)
+
+        let summary = try XCTUnwrap(SleepNightSummary.select(
+            from: [session], wakeDay: "2026-07-20", offsetSeconds: Int.max,
+            source: .noopMeasured, sourceRowId: "row"))
+        XCTAssertEqual(summary.mainSleepMinutes, 10, accuracy: 0.001)
+        XCTAssertEqual(summary.inBedMinutes, 10, accuracy: 0.001)
+        XCTAssertEqual(summary.efficiency, 1, accuracy: 0.001)
+        XCTAssertEqual(summary.onsetMinuteLocal,
+                       SleepStageTotals.localSecOfDay(0, offsetSec: Int.max) / 60)
+        XCTAssertEqual(summary.wakeMinuteLocal,
+                       SleepStageTotals.localSecOfDay(600, offsetSec: Int.max) / 60)
+    }
+
     func testChronologicalReplayUsesPreviousDayEffortAndCarriesDebt() throws {
         let s1 = SleepNightSummary(wakeDay: "2026-07-19", mainSleepStart: 0, mainSleepEnd: 25_200,
             mainSleepMinutes: 420, inBedMinutes: 450, efficiency: 420.0 / 450,

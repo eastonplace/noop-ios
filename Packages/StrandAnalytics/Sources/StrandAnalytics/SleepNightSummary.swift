@@ -34,6 +34,25 @@ public struct SleepNightSummary: Codable, Equatable, Sendable {
         self.lowStressQuality = lowStressQuality; self.source = source; self.sourceRowId = sourceRowId
     }
 
+    /// Ignore malformed stage spans rather than subtracting externally supplied Int extrema. A non-finite
+    /// accumulated value rejects the summary so it cannot publish fabricated sleep time.
+    private static func stageAsleepSeconds(from stages: [StageSegment]) -> Double? {
+        var total = 0.0
+        for stage in stages where stage.stage != "wake" {
+            guard let duration = SleepStageTotals.positiveDurationSeconds(start: stage.start, end: stage.end) else {
+                continue
+            }
+            let next = total + Double(duration)
+            guard next.isFinite else { return nil }
+            total = next
+        }
+        return total
+    }
+
+    private static func localMinute(_ epoch: Int, offsetSeconds: Int) -> Int {
+        SleepStageTotals.localSecOfDay(epoch, offsetSec: offsetSeconds) / 60
+    }
+
     /// Uses the existing production selector. Inter-fragment gaps are included in
     /// the outer in-bed span exactly once; non-main sessions are nap credit only.
     public static func select(from sessions: [SleepSession], wakeDay: String,
@@ -46,25 +65,26 @@ public struct SleepNightSummary: Codable, Equatable, Sendable {
         let main = indices.compactMap { sessions.indices.contains($0) ? sessions[$0] : nil }
             .sorted { $0.start < $1.start }
         guard let start = main.first?.start, let end = main.last?.end, end > start else { return nil }
-        let asleepSeconds = main.flatMap(\.stages).filter { $0.stage != "wake" }
-            .reduce(0.0) { $0 + Double(max(0, $1.end - $1.start)) }
-        let inBedSeconds = Double(end - start)
+        guard let inBedDuration = SleepStageTotals.positiveDurationSeconds(start: start, end: end),
+              let asleepSeconds = stageAsleepSeconds(from: main.flatMap(\.stages)) else { return nil }
+        let inBedSeconds = Double(inBedDuration)
         guard asleepSeconds > 0 else { return nil }
         let mainSet = Set(indices)
-        let napSeconds = sessions.enumerated().reduce(0.0) { total, pair in
+        var napSeconds = 0.0
+        for pair in sessions.enumerated() {
             guard !mainSet.contains(pair.offset), pair.element.end <= start,
-                  previousMainSleepEnd.map({ pair.element.start >= $0 }) ?? true else { return total }
-            return total + pair.element.stages.filter { $0.stage != "wake" }
-                .reduce(0.0) { $0 + Double(max(0, $1.end - $1.start)) }
-        }
-        func localMinute(_ epoch: Int) -> Int {
-            (((epoch + offsetSeconds) % 86_400 + 86_400) % 86_400) / 60
+                  previousMainSleepEnd.map({ pair.element.start >= $0 }) ?? true else { continue }
+            guard let seconds = stageAsleepSeconds(from: pair.element.stages) else { return nil }
+            let next = napSeconds + seconds
+            guard next.isFinite else { return nil }
+            napSeconds = next
         }
         return SleepNightSummary(
             wakeDay: wakeDay, mainSleepStart: start, mainSleepEnd: end,
             mainSleepMinutes: asleepSeconds / 60, inBedMinutes: inBedSeconds / 60,
             efficiency: min(1, max(0, asleepSeconds / inBedSeconds)),
-            onsetMinuteLocal: localMinute(start), wakeMinuteLocal: localMinute(end),
+            onsetMinuteLocal: localMinute(start, offsetSeconds: offsetSeconds),
+            wakeMinuteLocal: localMinute(end, offsetSeconds: offsetSeconds),
             recentNapMinutes: napSeconds / 60, lowStressQuality: lowStressQuality,
             source: source, sourceRowId: sourceRowId)
     }
@@ -80,22 +100,24 @@ public struct SleepNightSummary: Codable, Equatable, Sendable {
             blocks, offsetSec: offsetSeconds, habitualMidsleepSec: habitualMidsleepSec),
               let start = indices.compactMap({ blocks.indices.contains($0) ? blocks[$0].start : nil }).min(),
               let end = indices.compactMap({ blocks.indices.contains($0) ? blocks[$0].end : nil }).max(),
-              end > start, let asleep = totalSleepMinutes, asleep > 0,
-              let efficiency, efficiency > 0 else { return nil }
+              end > start, let asleep = totalSleepMinutes, asleep.isFinite, asleep > 0,
+              let efficiency, efficiency.isFinite, efficiency > 0 else { return nil }
         let chosen = Set(indices)
-        let nap = sessions.enumerated().reduce(0.0) { total, pair in
-            guard !chosen.contains(pair.offset), pair.element.endTs <= start else { return total }
-            return total + (SleepStageTotals.minutes(fromStagesJSON: pair.element.stagesJSON)?.asleep ?? 0)
+        var nap = 0.0
+        for pair in sessions.enumerated() {
+            guard !chosen.contains(pair.offset), pair.element.endTs <= start else { continue }
+            let next = nap + (SleepStageTotals.minutes(fromStagesJSON: pair.element.stagesJSON)?.asleep ?? 0)
+            guard next.isFinite else { return nil }
+            nap = next
         }
-        func localMinute(_ epoch: Int) -> Int {
-            (((epoch + offsetSeconds) % 86_400 + 86_400) % 86_400) / 60
-        }
+        let inBedMinutes = asleep / efficiency
+        guard inBedMinutes.isFinite, inBedMinutes > 0 else { return nil }
         let edited = sessions.contains(where: \.userEdited)
         return SleepNightSummary(
             wakeDay: wakeDay, mainSleepStart: start, mainSleepEnd: end,
-            mainSleepMinutes: asleep, inBedMinutes: asleep / efficiency,
-            efficiency: min(1, efficiency), onsetMinuteLocal: localMinute(start),
-            wakeMinuteLocal: localMinute(end), recentNapMinutes: nap,
+            mainSleepMinutes: asleep, inBedMinutes: inBedMinutes,
+            efficiency: min(1, efficiency), onsetMinuteLocal: localMinute(start, offsetSeconds: offsetSeconds),
+            wakeMinuteLocal: localMinute(end, offsetSeconds: offsetSeconds), recentNapMinutes: nap,
             lowStressQuality: lowStressQuality, source: edited ? .noopEdited : .noopMeasured,
             sourceRowId: indices.compactMap { sessions.indices.contains($0) ? String(sessions[$0].startTs) : nil }
                 .joined(separator: ","))

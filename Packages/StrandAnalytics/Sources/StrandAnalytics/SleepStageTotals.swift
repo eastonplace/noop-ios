@@ -15,6 +15,78 @@ public enum SleepStageTotals {
         }
     }
 
+    // MARK: - Safe timestamp and stage arithmetic
+
+    /// A non-negative timestamp gap, or nil when the inputs are reversed or their subtraction would
+    /// overflow. The zero case matters for adjacent fragments, which intentionally bridge.
+    static func nonnegativeDifferenceSeconds(start: Int, end: Int) -> Int? {
+        guard end >= start else { return nil }
+        let (duration, overflow) = end.subtractingReportingOverflow(start)
+        guard !overflow else { return nil }
+        return duration
+    }
+
+    /// A positive timestamp span, or nil when the inputs are malformed or their subtraction would overflow.
+    /// Sleep data is external input, so an impossible span must be ignored rather than trap or become a
+    /// giant fabricated night.
+    static func positiveDurationSeconds(start: Int, end: Int) -> Int? {
+        guard let duration = nonnegativeDifferenceSeconds(start: start, end: end), duration > 0 else {
+            return nil
+        }
+        return duration
+    }
+
+    /// Add a non-negative duration to an epoch without allowing a malformed timestamp to wrap around.
+    static func addingSeconds(_ seconds: Int, to timestamp: Int) -> Int? {
+        guard seconds >= 0 else { return nil }
+        let (result, overflow) = timestamp.addingReportingOverflow(seconds)
+        return overflow ? nil : result
+    }
+
+    /// The midpoint used by selection. Nil means the block is malformed and must not participate.
+    static func midpointSeconds(start: Int, end: Int) -> Int? {
+        guard let duration = positiveDurationSeconds(start: start, end: end) else { return nil }
+        return addingSeconds(duration / 2, to: start)
+    }
+
+    /// Preserve the existing truncation-to-whole-seconds behavior while rejecting non-finite or unrepresentable
+    /// minute totals before converting back to Int.
+    static func seconds(fromMinutes minutes: Double) -> Int? {
+        guard minutes.isFinite, minutes >= 0 else { return nil }
+        let seconds = minutes * 60.0
+        guard seconds.isFinite, seconds >= 0, seconds < Double(Int.max) else { return nil }
+        return Int(seconds)
+    }
+
+    private static func finiteNonNegativeSum(_ lhs: Double, _ rhs: Double) -> Double? {
+        guard lhs.isFinite, rhs.isFinite, lhs >= 0, rhs >= 0 else { return nil }
+        let sum = lhs + rhs
+        return sum.isFinite ? sum : nil
+    }
+
+    private static func valid(_ minutes: Minutes) -> Bool {
+        guard let asleepWithoutREM = finiteNonNegativeSum(minutes.light, minutes.deep),
+              let asleep = finiteNonNegativeSum(asleepWithoutREM, minutes.rem),
+              finiteNonNegativeSum(asleep, minutes.awake) != nil else { return false }
+        return true
+    }
+
+    private static func add(_ source: Minutes, to total: inout Minutes) -> Bool {
+        guard valid(source),
+              let awake = finiteNonNegativeSum(total.awake, source.awake),
+              let light = finiteNonNegativeSum(total.light, source.light),
+              let deep = finiteNonNegativeSum(total.deep, source.deep),
+              let rem = finiteNonNegativeSum(total.rem, source.rem) else { return false }
+        total = Minutes(awake: awake, light: light, deep: deep, rem: rem)
+        return true
+    }
+
+    /// Normalize without ever forming `timestamp + offset` first: both operands can be Int extrema.
+    private static func secondOfDay(_ seconds: Int) -> Int {
+        let remainder = seconds % secondsPerDay
+        return remainder >= 0 ? remainder : remainder + secondsPerDay
+    }
+
     /// Stage minutes for one session's `stagesJSON`, or nil if it decodes to nothing usable. The on-device
     /// stager calls awake "wake"; the importer "awake" — both map to `awake`.
     public static func minutes(fromStagesJSON json: String?) -> Minutes? {
@@ -24,23 +96,34 @@ public enum SleepStageTotals {
             var m = Minutes()
             for seg in arr {
                 guard let s = (seg["start"] as? NSNumber)?.intValue,
-                      let e = (seg["end"] as? NSNumber)?.intValue, e > s,
+                      let e = (seg["end"] as? NSNumber)?.intValue,
                       let name = seg["stage"] as? String else { continue }
-                let mins = Double(e - s) / 60.0
+                guard let duration = positiveDurationSeconds(start: s, end: e) else { continue }
+                let mins = Double(duration) / 60.0
                 switch name {
-                case "wake", "awake": m.awake += mins
-                case "light": m.light += mins
-                case "deep": m.deep += mins
-                case "rem": m.rem += mins
+                case "wake", "awake":
+                    guard let awake = finiteNonNegativeSum(m.awake, mins) else { return nil }
+                    m.awake = awake
+                case "light":
+                    guard let light = finiteNonNegativeSum(m.light, mins) else { return nil }
+                    m.light = light
+                case "deep":
+                    guard let deep = finiteNonNegativeSum(m.deep, mins) else { return nil }
+                    m.deep = deep
+                case "rem":
+                    guard let rem = finiteNonNegativeSum(m.rem, mins) else { return nil }
+                    m.rem = rem
                 default: continue
                 }
             }
-            return m.inBed > 0 ? m : nil
+            guard valid(m), m.inBed > 0 else { return nil }
+            return m
         }
         if let dict = obj as? [String: Any] {                  // minute dict (imported)
             func v(_ k: String) -> Double { (dict[k] as? NSNumber)?.doubleValue ?? 0 }
             let m = Minutes(awake: v("awake"), light: v("light"), deep: v("deep"), rem: v("rem"))
-            return m.inBed > 0 ? m : nil
+            guard valid(m), m.inBed > 0 else { return nil }
+            return m
         }
         return nil
     }
@@ -98,17 +181,22 @@ public enum SleepStageTotals {
     /// in-bed. `interFragmentAwakeSeconds` ≤ 0 reproduces the legacy sum-of-stages behaviour. (#777/#705)
     public static func dailyAggregate(_ stagesJSONs: [String?],
                                       interFragmentAwakeSeconds: Double) -> DailySleep? {
+        guard interFragmentAwakeSeconds.isFinite else { return nil }
         var total = Minutes()
         var any = false
         for j in stagesJSONs {
             if let m = minutes(fromStagesJSON: j) {
-                total.awake += m.awake; total.light += m.light
-                total.deep += m.deep; total.rem += m.rem
+                guard add(m, to: &total) else { return nil }
                 any = true
             }
         }
-        if interFragmentAwakeSeconds > 0 { total.awake += interFragmentAwakeSeconds / 60.0 }
-        guard any, total.inBed > 0 else { return nil }
+        if interFragmentAwakeSeconds > 0 {
+            guard let awake = finiteNonNegativeSum(total.awake, interFragmentAwakeSeconds / 60.0) else {
+                return nil
+            }
+            total.awake = awake
+        }
+        guard any, valid(total), total.inBed > 0 else { return nil }
         return DailySleep(totalSleepMin: total.asleep, efficiency: total.asleep / total.inBed,
                           deepMin: total.deep, remMin: total.rem, lightMin: total.light)
     }
@@ -122,12 +210,15 @@ public enum SleepStageTotals {
     public static func interFragmentAwakeSeconds(_ spans: [(start: Int, end: Int)]) -> Double {
         guard spans.count > 1 else { return 0 }
         let sorted = spans.sorted { $0.start < $1.start }
-        var gap = 0
+        var gap = 0.0
         for i in 1..<sorted.count {
-            let g = sorted[i].start - sorted[i - 1].end
-            if g > 0 { gap += g }
+            guard let g = positiveDurationSeconds(start: sorted[i - 1].end, end: sorted[i].start) else {
+                continue
+            }
+            guard let next = finiteNonNegativeSum(gap, Double(g)) else { return 0 }
+            gap = next
         }
-        return Double(gap)
+        return gap
     }
 
     // MARK: - Canonical main-night selection (#525 / #547 — learned-timing scored pick)
@@ -184,8 +275,14 @@ public enum SleepStageTotals {
     public struct NightBlock {
         public let start: Int, end: Int
         public init(start: Int, end: Int) { self.start = start; self.end = end }
-        public var durationS: Int { end - start }
-        public var midpointSec: Int { start + (end - start) / 2 }
+        /// Existing non-optional API preserved: malformed spans report zero rather than trapping.
+        public var durationS: Int { SleepStageTotals.positiveDurationSeconds(start: start, end: end) ?? 0 }
+        /// Existing non-optional API preserved: malformed spans fall back to their onset and are excluded
+        /// from selector candidates by `isUsable`.
+        public var midpointSec: Int { SleepStageTotals.midpointSeconds(start: start, end: end) ?? start }
+        fileprivate var isUsable: Bool {
+            SleepStageTotals.positiveDurationSeconds(start: start, end: end) != nil
+        }
     }
 
     // MARK: - Selection reason (explainability — WHY this block is the main night) (spec 2026-06-20)
@@ -237,22 +334,23 @@ public enum SleepStageTotals {
     /// the scored selector no longer GATES on it — it only feeds the cold-start alignment bonus.
     /// Mirrors `SleepStager.isOvernightOnset`. `offsetSec` is seconds EAST of UTC. (#525 / #547)
     public static func isOvernightOnset(_ ts: Int, offsetSec: Int) -> Bool {
-        let local = ts + offsetSec
-        let secOfDay = ((local % secondsPerDay) + secondsPerDay) % secondsPerDay
+        let secOfDay = localSecOfDay(ts, offsetSec: offsetSec)
         let hour = secOfDay / 3_600
         return hour >= overnightStartHour || hour < overnightEndHour
     }
 
     /// Local time-of-day, in seconds [0, 86400), of a unix timestamp shifted east by `offsetSec`.
     static func localSecOfDay(_ ts: Int, offsetSec: Int) -> Int {
-        let local = ts + offsetSec
-        return ((local % secondsPerDay) + secondsPerDay) % secondsPerDay
+        let local = secondOfDay(ts) + secondOfDay(offsetSec)
+        return local >= secondsPerDay ? local - secondsPerDay : local
     }
 
     /// Smallest circular distance (seconds, 0...43200) between two times-of-day, so 23:30 and 00:30 are
     /// 3600s apart, not 82800. Both inputs are seconds-of-day in [0, 86400).
     static func circularDistanceSec(_ a: Int, _ b: Int) -> Int {
-        let raw = abs(a - b) % secondsPerDay
+        let lhs = secondOfDay(a)
+        let rhs = secondOfDay(b)
+        let raw = lhs >= rhs ? lhs - rhs : rhs - lhs
         return min(raw, secondsPerDay - raw)
     }
 
@@ -289,14 +387,13 @@ public enum SleepStageTotals {
     /// by sorting on `start` first (the selector is order-independent, but bridging must see neighbours).
     /// Pure + deterministic. (#547)
     public static func bridgeAdjacent(_ blocks: [NightBlock]) -> [NightBlock] {
-        guard blocks.count > 1 else { return blocks }
-        let sorted = blocks.sorted { $0.start < $1.start }
+        let sorted = blocks.filter(\.isUsable).sorted { $0.start < $1.start }
+        guard sorted.count > 1 else { return sorted }
         let bridgeS = gapBridgeMaxMin * 60
         var out: [NightBlock] = [sorted[0]]
         for b in sorted.dropFirst() {
             let last = out[out.count - 1]
-            let gap = b.start - last.end
-            if gap >= 0 && gap < bridgeS {
+            if let gap = nonnegativeDifferenceSeconds(start: last.end, end: b.start), gap < bridgeS {
                 out[out.count - 1] = NightBlock(start: last.start, end: max(last.end, b.end))
             } else {
                 out.append(b)
@@ -329,7 +426,8 @@ public enum SleepStageTotals {
     public static func bridgedNightGroups(_ blocks: [NightBlock], offsetSec: Int) -> [BridgedNightGroup] {
         guard !blocks.isEmpty else { return [] }
         // Sort indices by onset so bridging sees neighbours, exactly as `bridgeAdjacent` sorts the blocks.
-        let order = blocks.indices.sorted { blocks[$0].start < blocks[$1].start }
+        let order = blocks.indices.filter { blocks[$0].isUsable }
+            .sorted { blocks[$0].start < blocks[$1].start }
         let bridgeS = gapBridgeMaxMin * 60
         let nightTailBridgeS = nightTailBridgeMaxMin * 60
         // Build the bridged spans AND the original indices that compose each one, in one pass over `order`.
@@ -339,18 +437,19 @@ public enum SleepStageTotals {
         for idx in order {
             let b = blocks[idx]
             if let last = bridged.last {
-                let gap = b.start - last.end
+                let gap = nonnegativeDifferenceSeconds(start: last.end, end: b.start)
                 // Unconditional short-wake bridge (< gapBridgeMaxMin), byte-identical to `bridgeAdjacent`.
                 // Then a WIDER bridge for a true overnight night-tail (#861): a gap in
                 // [gapBridgeMaxMin, nightTailBridgeMaxMin) folds the fragment in ONLY when its onset is
                 // still in the overnight band: a real mid-night wake, not an isolated daytime nap. This
                 // stops one overnight sleep being split into a nap + a main sleep, while a daytime nap
                 // (daytime onset, or a gap at/over nightTailBridgeMaxMin) still stands as its own block.
-                let bridges = gap >= 0
-                    && (gap < bridgeS
-                        || (gap < nightTailBridgeS && isOvernightOnset(b.start, offsetSec: offsetSec)))
+                let bridges = gap.map {
+                    $0 < bridgeS
+                        || ($0 < nightTailBridgeS && isOvernightOnset(b.start, offsetSec: offsetSec))
+                } ?? false
                 if bridges {
-                    if gap > 0 {
+                    if let gap, gap > 0 {
                         gaps[gaps.count - 1].append(.init(start: last.end, end: b.start))
                     }
                     bridged[bridged.count - 1] = NightBlock(start: last.start, end: max(last.end, b.end))
@@ -386,6 +485,7 @@ public enum SleepStageTotals {
                                              habitualMidsleepSec: Int? = nil) -> [Int]? {
         guard !blocks.isEmpty else { return nil }
         let all = bridgedNightGroups(blocks, offsetSec: offsetSec)
+        guard !all.isEmpty else { return nil }
         // Rebuild each group's bridged span for scoring: sorted-ascending fragments make the span
         // (first start, running-max end) — identical to the span the one-pass loop accumulated.
         let bridgedSpans = all.map { g -> NightBlock in
@@ -409,15 +509,16 @@ public enum SleepStageTotals {
     /// enough history exists; leave nil for the cold-start band. (#525 / #547)
     public static func mainNightIndex(_ blocks: [NightBlock], offsetSec: Int,
                                       habitualMidsleepSec: Int? = nil) -> Int? {
-        guard !blocks.isEmpty else { return nil }
+        let eligible = blocks.indices.filter { blocks[$0].isUsable }
+        guard let first = eligible.first else { return nil }
         let target = targetMidsleepSec(habitualMidsleepSec)
         func score(_ b: NightBlock) -> Double {
             let asleepMin = Double(b.durationS) / 60.0
             let midSec = localSecOfDay(b.midpointSec, offsetSec: offsetSec)
             return asleepMin + alignmentBonusMinutes(blockMidSec: midSec, targetMidSec: target)
         }
-        var bestIdx = 0
-        for i in 1..<blocks.count {
+        var bestIdx = first
+        for i in eligible.dropFirst() {
             let cand = blocks[i], best = blocks[bestIdx]
             let cs = score(cand), bs = score(best)
             let candWins: Bool
@@ -451,14 +552,16 @@ public enum SleepStageTotals {
         guard let idx = mainNightIndex(blocks, offsetSec: offsetSec,
                                        habitualMidsleepSec: habitualMidsleepSec) else { return nil }
         let chosen = blocks[idx]
+        let usable = blocks.indices.filter { blocks[$0].isUsable }
+        let usableDurations = usable.map { blocks[$0].durationS }
+        let usableOnsets = usable.map { blocks[$0].start }
         let reason = mainNightReason(
             chosenAsleepSec: chosen.durationS, chosenOnset: chosen.start,
             chosenMidLocalSec: localSecOfDay(chosen.midpointSec, offsetSec: offsetSec),
-            blockCount: blocks.count,
+            blockCount: usable.count,
             // duration-only winner over the SAME asleep figure (clock span) + same earlier-onset tie-break.
-            longestAsleepSec: blocks.map(\.durationS).max() ?? chosen.durationS,
-            longestOnset: durationOnlyWinnerOnset(asleepSecs: blocks.map(\.durationS),
-                                                  onsets: blocks.map(\.start)),
+            longestAsleepSec: usableDurations.max() ?? chosen.durationS,
+            longestOnset: durationOnlyWinnerOnset(asleepSecs: usableDurations, onsets: usableOnsets),
             chosenIsDurationWinnerOnset: chosen.start,
             habitualMidsleepSec: habitualMidsleepSec)
         return MainNightSelection(index: idx, reason: reason, asleepSeconds: chosen.durationS)
@@ -590,10 +693,18 @@ public enum SleepStageTotals {
                     }
                     return blocks[i].stagesJSON
                 }
-                let spans: [(start: Int, end: Int)] = group.enumerated().map { (gi, i) in
+                var spans: [(start: Int, end: Int)] = []
+                for (gi, i) in group.enumerated() {
                     let onset = onsetByStart[blocks[i].startTs] ?? blocks[i].startTs
-                    let inBedSec = Int((minutes(fromStagesJSON: clampedStages[gi])?.inBed ?? 0) * 60.0)
-                    return (start: onset, end: onset + inBedSec)
+                    let inBedSec: Int
+                    if let minutes = minutes(fromStagesJSON: clampedStages[gi]) {
+                        guard let seconds = seconds(fromMinutes: minutes.inBed) else { return nil }
+                        inBedSec = seconds
+                    } else {
+                        inBedSec = 0
+                    }
+                    guard let end = addingSeconds(inBedSec, to: onset) else { return nil }
+                    spans.append((start: onset, end: end))
                 }
                 let gapAwakeS = interFragmentAwakeSeconds(spans)
                 if let agg = dailyAggregate(clampedStages, interFragmentAwakeSeconds: gapAwakeS) {
@@ -619,11 +730,20 @@ public enum SleepStageTotals {
                                               habitualMidsleepSec: Int? = nil) -> [Int]? {
         guard !blocks.isEmpty else { return nil }
         func onset(_ b: (startTs: Int, stagesJSON: String?)) -> Int { onsetByStart[b.startTs] ?? b.startTs }
-        func effEnd(_ b: (startTs: Int, stagesJSON: String?)) -> Int {
-            onset(b) + Int((minutes(fromStagesJSON: b.stagesJSON)?.inBed ?? 0) * 60.0)
+        func effEnd(_ b: (startTs: Int, stagesJSON: String?)) -> Int? {
+            let inBedSec: Int
+            if let minutes = minutes(fromStagesJSON: b.stagesJSON) {
+                guard let seconds = seconds(fromMinutes: minutes.inBed) else { return nil }
+                inBedSec = seconds
+            } else {
+                inBedSec = 0
+            }
+            return addingSeconds(inBedSec, to: onset(b))
         }
         // Order by effective onset so bridging sees neighbours.
-        let order = blocks.indices.sorted { onset(blocks[$0]) < onset(blocks[$1]) }
+        let order = blocks.indices.filter { effEnd(blocks[$0]) != nil }
+            .sorted { onset(blocks[$0]) < onset(blocks[$1]) }
+        guard !order.isEmpty else { return nil }
         let bridgeS = gapBridgeMaxMin * 60
         let nightTailBridgeS = nightTailBridgeMaxMin * 60
         // Bridged groups of ORIGINAL indices, plus the representative (startTs, stages) the score reads.
@@ -631,24 +751,26 @@ public enum SleepStageTotals {
         var groupEnd: [Int] = []     // running effective end of each bridged group
         for idx in order {
             let b = blocks[idx]
+            guard let end = effEnd(b) else { continue }
             if let last = groupEnd.last {
-                let gap = onset(b) - last
+                let gap = nonnegativeDifferenceSeconds(start: last, end: onset(b))
                 // Same two-tier bridge as `mainNightGroupIndices` so the summed daily total folds in EXACTLY
                 // the fragments the Sleep tab folds into the main night (no nap/total divergence): the
                 // unconditional short-wake bridge (< gapBridgeMaxMin), then the wider overnight night-tail
                 // bridge ([gapBridgeMaxMin, nightTailBridgeMaxMin) only when the fragment's onset is still in
                 // the overnight band) that stops one night being split into a nap + a main sleep. (#861)
-                let bridges = gap >= 0
-                    && (gap < bridgeS
-                        || (gap < nightTailBridgeS && isOvernightOnset(onset(b), offsetSec: offsetSec)))
+                let bridges = gap.map {
+                    $0 < bridgeS
+                        || ($0 < nightTailBridgeS && isOvernightOnset(onset(b), offsetSec: offsetSec))
+                } ?? false
                 if bridges {
                     groups[groups.count - 1].append(idx)
-                    groupEnd[groupEnd.count - 1] = max(last, effEnd(b))
+                    groupEnd[groupEnd.count - 1] = max(last, end)
                     continue
                 }
             }
             groups.append([idx])
-            groupEnd.append(effEnd(b))
+            groupEnd.append(end)
         }
         // Score each bridged group by its FIRST fragment's onset + the group's SUMMED decoded minutes, via
         // the same per-stages scorer (asleep minutes + alignment), so the pick matches the bare path on a
@@ -680,12 +802,11 @@ public enum SleepStageTotals {
         var any = false
         for j in stagesJSONs {
             if let m = minutes(fromStagesJSON: j) {
-                total.awake += m.awake; total.light += m.light
-                total.deep += m.deep; total.rem += m.rem
+                guard add(m, to: &total) else { return nil }
                 any = true
             }
         }
-        guard any else { return nil }
+        guard any, valid(total) else { return nil }
         let dict: [String: Double] = ["awake": total.awake, "light": total.light,
                                       "deep": total.deep, "rem": total.rem]
         return (try? JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys]))
@@ -707,17 +828,26 @@ public enum SleepStageTotals {
         guard !blocks.isEmpty else { return nil }
         let target = targetMidsleepSec(habitualMidsleepSec)
         func onset(_ b: (startTs: Int, stagesJSON: String?)) -> Int { onsetByStart[b.startTs] ?? b.startTs }
-        func score(_ b: (startTs: Int, stagesJSON: String?)) -> Double {
+        func score(_ b: (startTs: Int, stagesJSON: String?)) -> Double? {
             let m = minutes(fromStagesJSON: b.stagesJSON)
             let asleepMin = m?.asleep ?? 0
-            let inBedSec = Int((m?.inBed ?? 0) * 60.0)
-            let midSec = localSecOfDay(onset(b) + inBedSec / 2, offsetSec: offsetSec)
+            let inBedSec: Int
+            if let m {
+                guard let seconds = seconds(fromMinutes: m.inBed) else { return nil }
+                inBedSec = seconds
+            } else {
+                inBedSec = 0
+            }
+            guard let midpoint = addingSeconds(inBedSec / 2, to: onset(b)) else { return nil }
+            let midSec = localSecOfDay(midpoint, offsetSec: offsetSec)
             return asleepMin + alignmentBonusMinutes(blockMidSec: midSec, targetMidSec: target)
         }
-        var bestIdx = 0
-        for i in 1..<blocks.count {
+        let eligible = blocks.indices.filter { score(blocks[$0]) != nil }
+        guard let first = eligible.first else { return nil }
+        var bestIdx = first
+        for i in eligible.dropFirst() {
             let cand = blocks[i], best = blocks[bestIdx]
-            let cs = score(cand), bs = score(best)
+            guard let cs = score(cand), let bs = score(best) else { continue }
             let candWins: Bool
             if cs != bs {
                 candWins = cs > bs
@@ -743,12 +873,22 @@ public enum SleepStageTotals {
         func onset(_ b: (startTs: Int, stagesJSON: String?)) -> Int { onsetByStart[b.startTs] ?? b.startTs }
         // Per-block decoded asleep seconds + local midpoint (onset + in-bed span / 2), the SAME figures the
         // score used, so the reason is the exact truth of the pick.
-        let asleepSecs: [Int] = blocks.map { Int((minutes(fromStagesJSON: $0.stagesJSON)?.asleep ?? 0) * 60.0) }
+        let asleepSecs: [Int] = blocks.map {
+            guard let minutes = minutes(fromStagesJSON: $0.stagesJSON) else { return 0 }
+            return seconds(fromMinutes: minutes.asleep) ?? 0
+        }
         let onsets: [Int] = blocks.map(onset)
         let chosen = blocks[idx]
         let chosenAsleepSec = asleepSecs[idx]
-        let chosenInBedSec = Int((minutes(fromStagesJSON: chosen.stagesJSON)?.inBed ?? 0) * 60.0)
-        let chosenMidLocalSec = localSecOfDay(onset(chosen) + chosenInBedSec / 2, offsetSec: offsetSec)
+        let chosenInBedSec: Int
+        if let minutes = minutes(fromStagesJSON: chosen.stagesJSON) {
+            guard let seconds = seconds(fromMinutes: minutes.inBed) else { return nil }
+            chosenInBedSec = seconds
+        } else {
+            chosenInBedSec = 0
+        }
+        guard let chosenMidpoint = addingSeconds(chosenInBedSec / 2, to: onset(chosen)) else { return nil }
+        let chosenMidLocalSec = localSecOfDay(chosenMidpoint, offsetSec: offsetSec)
         let reason = mainNightReason(
             chosenAsleepSec: chosenAsleepSec, chosenOnset: onset(chosen),
             chosenMidLocalSec: chosenMidLocalSec, blockCount: blocks.count,
@@ -769,8 +909,14 @@ public enum SleepStageTotals {
         public init(start: Int, end: Int, dayKey: String) {
             self.start = start; self.end = end; self.dayKey = dayKey
         }
-        public var durationS: Int { end - start }
-        public var midpointSec: Int { start + (end - start) / 2 }
+        /// Existing non-optional API preserved: malformed spans report zero rather than trapping.
+        public var durationS: Int { SleepStageTotals.positiveDurationSeconds(start: start, end: end) ?? 0 }
+        /// Existing non-optional API preserved: malformed spans fall back to their onset and are ignored
+        /// by `habitualMidsleepSec`.
+        public var midpointSec: Int { SleepStageTotals.midpointSeconds(start: start, end: end) ?? start }
+        fileprivate var isUsable: Bool {
+            SleepStageTotals.positiveDurationSeconds(start: start, end: end) != nil
+        }
     }
 
     /// Minimum number of DAYS (with at least one block) needed before a habitual midsleep is trusted; a
@@ -790,7 +936,7 @@ public enum SleepStageTotals {
         guard !history.isEmpty else { return nil }
         // Longest block per local day (selection-independent). Ties within a day → earlier onset (stable).
         var longestByDay: [String: HistoryBlock] = [:]
-        for b in history {
+        for b in history where b.isUsable {
             if let cur = longestByDay[b.dayKey] {
                 if b.durationS > cur.durationS || (b.durationS == cur.durationS && b.start < cur.start) {
                     longestByDay[b.dayKey] = b
@@ -803,7 +949,10 @@ public enum SleepStageTotals {
         // Circular mean of each day's midpoint time-of-day: convert each to an angle, take the mean
         // direction via the unit-vector sum (order-independent), map back to seconds-of-day. nil when
         // the resultant vector is degenerate (antipodal/uniform midpoints) — falls back to cold-start.
-        let midSecs = longestByDay.values.map { localSecOfDay($0.midpointSec, offsetSec: offsetSec) }
+        let midSecs: [Int] = longestByDay.values.compactMap { block -> Int? in
+            guard let midpoint = midpointSeconds(start: block.start, end: block.end) else { return nil }
+            return localSecOfDay(midpoint, offsetSec: offsetSec)
+        }
         return circularMeanSec(midSecs)
     }
 
@@ -824,7 +973,7 @@ public enum SleepStageTotals {
         var sumSin = 0.0, sumCos = 0.0
         let k = 2.0 * Double.pi / Double(secondsPerDay)
         for s in secs {
-            let a = Double(s) * k
+            let a = Double(secondOfDay(s)) * k
             sumSin += sin(a); sumCos += cos(a)
         }
         // Resultant length R = |(Σsin, Σcos)| / n. Below epsilon the direction is meaningless.
