@@ -174,8 +174,9 @@ extension Repository {
             startTsAdjusted: nil)
 
         // Score the corrected wake day from the same personal baseline chain as the
-        // regular engine. Imported history wins on a same-day tie, matching Repository's
-        // normal source resolver; the corrected row itself remains canonical computed data.
+        // regular engine. Imported values win FIELD-BY-FIELD when present; computed values fill
+        // imported nils. Whole-row replacement here previously erased real computed HRV/RHR on a
+        // same-day imported placeholder, starving the baseline and leaving recovered Charge blank.
         let wakeDate = Date(timeIntervalSince1970: TimeInterval(safeEnd))
         let offset = TimeZone.current.secondsFromGMT(for: wakeDate)
         let day = AnalyticsEngine.dayString(safeEnd, offsetSec: offset)
@@ -197,11 +198,9 @@ extension Repository {
         let computedHistory = (try? await computedHistoryRead) ?? []
         let importedHistory = (try? await importedHistoryRead) ?? []
         let existing = computedHistory.first { $0.day == day }
-        var mergedByDay = Dictionary(
-            computedHistory.map { ($0.day, $0) },
-            uniquingKeysWith: { _, newest in newest })
-        for row in importedHistory { mergedByDay[row.day] = row }
-        let priorHistory = mergedByDay.values.sorted { $0.day < $1.day }
+        let priorHistory = SleepRecoveryHistoryMerge.merge(
+            computed: computedHistory,
+            imported: importedHistory)
         let personalNeed = await canonicalSleepNeedPlan(onOrBefore: day)
         let sleepNeedHours = max(0.1, personalNeed.minutes / 60.0)
         // Rest regularity is a property of the preceding nights, not of the newly
