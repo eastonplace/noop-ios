@@ -3,6 +3,47 @@ import Combine
 import StrandAnalytics
 import WhoopProtocol
 
+/// Converts the Backfiller's per-session ACK count into one monotonic count for the complete logical burst.
+/// Auto-continuation resets the low-level counter to zero between slices; treating that as user-visible progress
+/// made Home look as though sync restarted repeatedly. A durable-data publication explicitly closes the burst.
+/// The long-gap fallback separates a later empty/metadata-only periodic sync that has no publication edge.
+struct HistoricalBurstProgress: Equatable, Sendable {
+    static let newBurstGapSeconds: TimeInterval = 120
+
+    private(set) var completedSessionChunks = 0
+    private(set) var lastSessionCount = 0
+    private(set) var finalized = true
+    private(set) var lastReportAt: TimeInterval?
+
+    mutating func record(sessionCount rawCount: Int, at timestamp: TimeInterval) -> Int {
+        let count = max(0, rawCount)
+        let gap = lastReportAt.map { max(0, timestamp - $0) } ?? .infinity
+
+        if finalized || (count == 0 && gap > Self.newBurstGapSeconds) {
+            completedSessionChunks = 0
+            lastSessionCount = 0
+            finalized = false
+        } else if count < lastSessionCount {
+            // The Backfiller began the next auto-continued session. Preserve the completed slice and add the
+            // new session's local count on top instead of showing 0 again.
+            completedSessionChunks = Self.saturatingAdd(completedSessionChunks, lastSessionCount)
+        }
+
+        lastSessionCount = count
+        lastReportAt = timestamp
+        return Self.saturatingAdd(completedSessionChunks, count)
+    }
+
+    mutating func markFinalized() {
+        finalized = true
+    }
+
+    private static func saturatingAdd(_ lhs: Int, _ rhs: Int) -> Int {
+        let (sum, overflow) = lhs.addingReportingOverflow(rhs)
+        return overflow ? Int.max : sum
+    }
+}
+
 /// Observable live connection and biometric state. High-frequency in-memory updates remain MainActor-owned;
 /// expensive durable/log work is delegated to focused serial helpers in the accompanying extensions.
 @MainActor
@@ -60,10 +101,31 @@ public final class LiveState: ObservableObject {
     /// A backfill burst ended with durable raw data (or a timestamp-heal request). This is deliberately
     /// separate from `lastSyncedAt`: partial/offload-timeout data must become visible and get scored, but
     /// must never be presented as a completed sync.
-    @Published public var backfillDataAvailableAt: TimeInterval?
+    @Published public var backfillDataAvailableAt: TimeInterval? {
+        didSet {
+            if let value = backfillDataAvailableAt, value != oldValue {
+                historicalBurstProgress.markFinalized()
+            }
+        }
+    }
     @Published public var lastSyncError: String?
     @Published public var backfilling = false
-    @Published public var syncChunksThisSession = 0
+    /// User-visible progress for the COMPLETE logical burst. BLEManager still assigns each session's local
+    /// ACK count here; the observer normalizes resets into a monotonic cumulative value before SwiftUI's next
+    /// render, so the existing Today/Sleep components need no high-frequency parent observation or duplicate
+    /// progress model.
+    @Published public var syncChunksThisSession = 0 {
+        didSet {
+            guard !normalizingHistoricalChunkCount else { return }
+            let cumulative = historicalBurstProgress.record(
+                sessionCount: syncChunksThisSession,
+                at: Date().timeIntervalSince1970)
+            guard cumulative != syncChunksThisSession else { return }
+            normalizingHistoricalChunkCount = true
+            syncChunksThisSession = cumulative
+            normalizingHistoricalChunkCount = false
+        }
+    }
     @Published public var rejectedFramesThisSession = 0
     @Published public var rejectedFramesUnarchived = 0
     @Published public var decodedChunksThisSession = 0
@@ -84,6 +146,9 @@ public final class LiveState: ObservableObject {
     public var onBatteryUpdate: ((Double) -> Void)?
 
     static let maxLogLines = 5_000
+
+    private var historicalBurstProgress = HistoricalBurstProgress()
+    private var normalizingHistoricalChunkCount = false
 
     lazy var logTailPersistence = DebouncedLogTailPersistence(
         debounceInterval: 3,
@@ -108,6 +173,7 @@ public final class LiveState: ObservableObject {
     public func markDisconnected() {
         connected = false
         connectedAt = nil
+        historicalBurstProgress.markFinalized()
         Task { await flushLogPersistence() }
     }
 
