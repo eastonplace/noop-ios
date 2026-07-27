@@ -3,7 +3,9 @@ import Foundation
 /// One process owns one intelligence engine. Keep admission outside the engine's stored layout so this
 /// release-candidate fix can wrap every existing default-argument call without changing persistence or UI state.
 @MainActor
-private let sharedIntelligenceAnalysisAdmission = IntelligenceAnalysisAdmission()
+private enum IntelligenceAnalysisAdmissionRegistry {
+    static let shared = IntelligenceAnalysisAdmission()
+}
 
 extension IntelligenceEngine {
     /// The four-argument declaration in `IntelligenceEngine.swift` is the implementation entry point. Every
@@ -16,8 +18,8 @@ extension IntelligenceEngine {
         force: Bool,
         refreshRepository: Bool
     ) async {
-        guard await sharedIntelligenceAnalysisAdmission.acquire(force: force) else { return }
-        defer { sharedIntelligenceAnalysisAdmission.release() }
+        guard await IntelligenceAnalysisAdmissionRegistry.shared.acquire(force: force) else { return }
+        defer { IntelligenceAnalysisAdmissionRegistry.shared.release() }
 
         // Belt-and-braces for an already-running legacy/full-signature caller. Forced source changes wait;
         // disposable cadence work drops. Once this branch has the shared admission, no wrapped caller can
