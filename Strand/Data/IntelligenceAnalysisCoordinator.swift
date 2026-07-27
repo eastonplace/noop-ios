@@ -64,6 +64,8 @@ struct BackfillAnalysisSnapshot: Equatable, Sendable {
 /// - A forced source-change request suspends until its own exact request, or a compatible superset, completes.
 /// - Pending recent-day work is selected before deeper historical chunks, creating a current-day fast lane.
 /// - Overlapping compatible pending windows coalesce; disjoint or differently-published work stays separate.
+/// - Every caller returns when ITS batch completes; the caller that happened to start the runner never waits
+///   for unrelated batches queued behind it.
 ///
 /// One shared coordinator partitions queues by engine identity. MainActor isolation makes both queue mutation
 /// and the engine callback race-free.
@@ -76,6 +78,7 @@ final class IntelligenceAnalysisCoordinator {
     private struct PendingBatch {
         var request: IntelligenceAnalysisRequest
         var waiters: [CheckedContinuation<Void, Never>]
+        let run: Execute
     }
 
     private struct QueueState {
@@ -103,37 +106,40 @@ final class IntelligenceAnalysisCoordinator {
         run: @escaping Execute
     ) async {
         let key = ObjectIdentifier(owner)
+        if queues[key] != nil, !request.force { return }
 
-        if queues[key] != nil {
-            guard request.force else { return }
-            await withCheckedContinuation { continuation in
-                var state = queues[key] ?? QueueState()
-                state.pending.append(PendingBatch(request: request, waiters: [continuation]))
-                normalizePendingBatches(&state.pending)
-                queues[key] = state
+        await withCheckedContinuation { continuation in
+            let shouldStartRunner = queues[key] == nil
+            var state = queues[key] ?? QueueState()
+            state.pending.append(PendingBatch(
+                request: request,
+                waiters: [continuation],
+                run: run))
+            normalizePendingBatches(&state.pending)
+            queues[key] = state
+
+            if shouldStartRunner {
+                // The runner retains the coordinator until every queued batch has either executed or been
+                // coalesced. Individual submitters remain suspended only on their own batch continuation.
+                Task { @MainActor in
+                    await self.drain(ownerKey: key)
+                }
             }
-            return
         }
+    }
 
-        queues[key] = QueueState()
-        var current = request
-        var completionWaiters: [CheckedContinuation<Void, Never>] = []
-
+    private func drain(ownerKey key: ObjectIdentifier) async {
         while true {
-            await run(current)
-            completionWaiters.forEach { $0.resume() }
-            completionWaiters.removeAll(keepingCapacity: true)
-
-            guard var state = queues[key] else { return }
-            guard let index = nextBatchIndex(in: state.pending) else {
+            guard var state = queues[key],
+                  let index = nextBatchIndex(in: state.pending) else {
                 queues.removeValue(forKey: key)
                 return
             }
 
             let batch = state.pending.remove(at: index)
-            queues[key] = state
-            current = batch.request
-            completionWaiters = batch.waiters
+            queues[key] = state // existence continues to mark this owner as actively running
+            await batch.run(batch.request)
+            batch.waiters.forEach { $0.resume() }
         }
     }
 
@@ -218,40 +224,16 @@ extension IntelligenceEngine {
         }
     }
 
-    /// Emit one final, privacy-safe receipt after AppModel's explicit Repository refresh has had a chance to
-    /// publish the just-scored generation. The task stops silently if a newer offload starts or completes.
-    /// Waiting for a refreshSeq change is diagnostic-only; Repository's byte-identical diff guard may keep the
-    /// same sequence, so the bounded poll falls through and records the settled state after two seconds.
-    private func scheduleFinalRecoveryReceipt(
-        app: AppModel,
-        live: LiveState,
-        generation: TimeInterval?,
-        startingRefreshSeq: Int
-    ) {
-        Task { @MainActor [weak app, weak live] in
-            guard let app, let live else { return }
-            for _ in 0..<100 {
-                guard live.backfillDataAvailableAt == generation, !live.backfilling else { return }
-                if app.repo.refreshSeq != startingRefreshSeq { break }
-                await Self.waitForAnalysisPoll()
-            }
-            guard live.backfillDataAvailableAt == generation, !live.backfilling else { return }
-            let receipt = await DebugDataDiagnostics.recoveryReadinessReceipt(repo: app.repo)
-            live.append(log: "postBackfillFinal \(receipt.line)")
-        }
-    }
-
     /// AppModel's post-backfill path intentionally asks analysis not to publish Repository itself; it performs
     /// one explicit cache publication immediately after this call. Hold the call until one exact current-day
     /// pass begins and ends with the same quiescent durable-data generation. If a reconnect or periodic burst
     /// advances data during analysis, rerun before returning. Forced source work survives caller cancellation.
     private func submitStablePostBackfillAnalysis() async {
-        guard let app = AppModel.shared else {
+        guard let live = AppModel.shared?.live else {
             await submitSerializedAnalysis(
                 maxDays: 21, startOffset: 0, force: true, refreshRepository: false)
             return
         }
-        let live = app.live
 
         while true {
             let before = BackfillAnalysisSnapshot(
@@ -268,14 +250,7 @@ extension IntelligenceEngine {
             let after = BackfillAnalysisSnapshot(
                 dataAvailableAt: live.backfillDataAvailableAt,
                 backfilling: live.backfilling)
-            if after.isSettledAndUnchanged(since: before) {
-                scheduleFinalRecoveryReceipt(
-                    app: app,
-                    live: live,
-                    generation: after.dataAvailableAt,
-                    startingRefreshSeq: app.repo.refreshSeq)
-                return
-            }
+            if after.isSettledAndUnchanged(since: before) { return }
         }
     }
 
