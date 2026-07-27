@@ -224,15 +224,35 @@ private struct iOSRootView: View {
                     onboarded = true
                     lastSeenChangelog = AppChangelog.currentVersion
                 })
-            } else if acceptedTerms != TermsOfUse.currentVersion {
-                TermsAcceptanceView {
-                    acceptedTerms = TermsOfUse.currentVersion
-                }
-            } else if lastSeenChangelog != AppChangelog.currentVersion {
-                WhatsNewView(onContinue: {
-                    lastSeenChangelog = AppChangelog.currentVersion
-                })
+                .transition(.opacity)
+                .zIndex(1)
             }
+            if acceptedTerms != Terms.currentVersion {
+                TermsGateView(onAccept: { acceptedTerms = Terms.currentVersion })
+                    .transition(.opacity)
+                    .zIndex(2)
+            }
+        }
+        .animation(.easeInOut(duration: 0.35), value: onboarded)
+        .animation(.easeInOut(duration: 0.35), value: acceptedTerms)
+        .sheet(isPresented: $showWhatsNew) {
+            WhatsNewView(onClose: {
+                lastSeenChangelog = AppChangelog.currentVersion
+                showWhatsNew = false
+            })
+        }
+        .onAppear {
+            showWhatsNewIfDue()
+            UpdateStore.shared.seedWhatsNewIfNeeded()
+        }
+        .onChange(of: acceptedTerms) { _, _ in showWhatsNewIfDue() }
+    }
+
+    private func showWhatsNewIfDue() {
+        if onboarded && acceptedTerms == Terms.currentVersion
+            && lastSeenChangelog != AppChangelog.currentVersion
+        {
+            showWhatsNew = true
         }
     }
 }
