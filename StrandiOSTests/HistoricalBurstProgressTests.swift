@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 @testable import NOOP
 
@@ -48,5 +49,27 @@ final class HistoricalBurstProgressTests: XCTestCase {
         live.backfillDataAvailableAt = 100
         live.syncChunksThisSession = 0
         XCTAssertEqual(live.syncChunksThisSession, 0)
+    }
+
+    @MainActor
+    func testAutoContinuationResetDoesNotEmitAVisibleZero() {
+        let live = LiveState()
+        var publications = 0
+        let cancellable = live.objectWillChange.sink { publications += 1 }
+
+        live.syncChunksThisSession = 5
+        XCTAssertEqual(live.syncChunksThisSession, 5)
+        XCTAssertEqual(publications, 1)
+
+        // BLEManager begins the next auto-continued session by assigning its local count (zero). The public
+        // cumulative count and publisher must stay unchanged—no brief Home/Sleep reset before the next ACK.
+        live.syncChunksThisSession = 0
+        XCTAssertEqual(live.syncChunksThisSession, 5)
+        XCTAssertEqual(publications, 1)
+
+        live.syncChunksThisSession = 1
+        XCTAssertEqual(live.syncChunksThisSession, 6)
+        XCTAssertEqual(publications, 2)
+        withExtendedLifetime(cancellable) {}
     }
 }
