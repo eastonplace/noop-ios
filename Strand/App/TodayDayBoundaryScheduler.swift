@@ -33,7 +33,7 @@ final class TodayDayBoundaryScheduler {
     /// The presentation key changes at local 00:00 (`localKey`) and local 04:00 (`logicalKey`). Return the
     /// first strictly-future boundary using Calendar arithmetic so DST days remain correct.
     nonisolated static func nextBoundary(after now: Date, calendar input: Calendar = .current) -> Date {
-        var calendar = input
+        let calendar = input
         let startOfToday = calendar.startOfDay(for: now)
         let nextMidnight = calendar.date(byAdding: .day, value: 1, to: startOfToday)
             ?? startOfToday.addingTimeInterval(86_400)
