@@ -1,0 +1,53 @@
+name: Apply PR23 analysis root fix
+
+# Temporary transport workflow. It applies source changes on the draft PR branch only,
+# commits them there, and deletes itself plus the transport script. It never targets main.
+on:
+  push:
+    branches:
+      - release/noop-ios-2.1-rc
+    paths:
+      - Tools/qa/apply_pr23_analysis_root_fix.py
+      - .github/workflows/pr23-analysis-root-fix.yml
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
+    paths:
+      - Tools/qa/apply_pr23_analysis_root_fix.py
+      - .github/workflows/pr23-analysis-root-fix.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pr23-analysis-root-fix
+  cancel-in-progress: true
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the live PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: release/noop-ios-2.1-rc
+          fetch-depth: 0
+
+      - name: Apply exact source and test changes
+        run: python3 Tools/qa/apply_pr23_analysis_root_fix.py
+
+      - name: Commit the root fix without merging
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/pr23-analysis-root-fix.yml
+          rm -f Tools/qa/apply_pr23_analysis_root_fix.py
+          git config user.name "ChatGPT GitHub"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git diff --cached --quiet && exit 0
+          git commit -m "fix: serialize post-backfill recovery analysis"
+          git push origin HEAD:release/noop-ios-2.1-rc
