@@ -1341,8 +1341,10 @@ final class Repository: ObservableObject {
         let offsetSec = TimeZone.current.secondsFromGMT()
         let blocks = (imported + computed).compactMap { s -> SleepStageTotals.HistoryBlock? in
             let start = s.effectiveStartTs, end = s.endTs
-            guard end > start else { return nil }
-            let mid = start + (end - start) / 2
+            let (duration, durationOverflow) = end.subtractingReportingOverflow(start)
+            guard !durationOverflow, duration > 0 else { return nil }
+            let (mid, midpointOverflow) = start.addingReportingOverflow(duration / 2)
+            guard !midpointOverflow else { return nil }
             let dayKey = AnalyticsEngine.dayString(mid, offsetSec: offsetSec)
             return SleepStageTotals.HistoryBlock(start: start, end: end, dayKey: dayKey)
         }

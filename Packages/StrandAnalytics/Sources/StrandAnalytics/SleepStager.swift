@@ -1073,15 +1073,22 @@ public enum SleepStager {
     /// Epoch-grid staging converts the timestamps to `Double`. Reject values that
     /// would lose integer-second precision (or have a wrapped duration) instead of
     /// fabricating a hypnogram from a malformed clock.
-    private static func isRepresentableStageWindow(start: Int, end: Int) -> Bool {
-        let exactDoubleUnixLimit = 9_007_199_254_740_991
+    private static let exactDoubleUnixTimestampLimit = 9_007_199_254_740_991
+
+    private static func representableStageDuration(start: Int, end: Int) -> Int? {
         guard let duration = SleepTimestampMath.nonnegativeDuration(start: start, end: end) else {
-            return false
+            return nil
         }
-        return duration > 0
+        guard duration > 0
             && duration <= maxMainSleepSpanS
-            && start >= -exactDoubleUnixLimit
-            && end <= exactDoubleUnixLimit
+            && start >= -exactDoubleUnixTimestampLimit
+            && end <= exactDoubleUnixTimestampLimit
+        else { return nil }
+        return duration
+    }
+
+    private static func isRepresentableStageWindow(start: Int, end: Int) -> Bool {
+        representableStageDuration(start: start, end: end) != nil
     }
 
     /// Unchanged V1 staging recipe; split verbatim so the public entry memoizes in front of it.
@@ -1097,7 +1104,7 @@ public enum SleepStager {
         let rrSeg = rowsBetween(rr, start: start, end: end) { $0.ts }
         let respSeg = rowsBetween(resp, start: start, end: end) { $0.ts }
 
-        let grid = buildEpochGrid(start: Double(start), end: Double(end),
+        let grid = buildEpochGrid(start: start, end: end,
                                   gravTimes: gTimes, gravDeltas: gDeltas,
                                   hr: hrSeg, rr: rrSeg, resp: respSeg)
         if grid.nEpochs == 0 { return [StageSegment(start: start, end: end, stage: "light")] }
@@ -1148,11 +1155,12 @@ public enum SleepStager {
     /// persists NULL (no fabricated zero series). Pure + deterministic; shares `buildEpochGrid` with staging
     /// so the grids align epoch-for-epoch. (H8)
     public static func sessionEpochMotion(start: Int, end: Int, grav: [GravitySample]) -> [Double] {
+        guard isRepresentableStageWindow(start: start, end: end) else { return [] }
         let gSeg = rowsBetween(grav, start: start, end: end) { $0.ts }
         if gSeg.count < 2 { return [] }
         let gDeltas = gravityDeltas(gSeg)
         let gTimes = gSeg.map { $0.ts }
-        let grid = buildEpochGrid(start: Double(start), end: Double(end),
+        let grid = buildEpochGrid(start: start, end: end,
                                   gravTimes: gTimes, gravDeltas: gDeltas,
                                   hr: [], rr: [], resp: [])
         return grid.counts
@@ -1169,14 +1177,18 @@ public enum SleepStager {
     /// carried VERBATIM — this never converts an unproven code into a derived stage; consumers decide meaning.
     public static func sessionEpochSleepState(start: Int, end: Int,
                                               sleepState: [(ts: Int, state: Int)]) -> [Int] {
+        guard let duration = representableStageDuration(start: start, end: end) else { return [] }
         let seg = rowsBetween(sleepState, start: start, end: end) { $0.ts }.sorted { $0.ts < $1.ts }
-        guard !seg.isEmpty, end > start else { return [] }
-        let nEpochs = max(1, Int(ceil(Double(end - start) / epochS)))
+        guard !seg.isEmpty else { return [] }
+        let epochSeconds = Int(epochS)
+        let nEpochs = max(1, (duration + epochSeconds - 1) / epochSeconds)
         var out = [Int](repeating: seg[0].state, count: nEpochs)   // lead-in = first sample's state
         var last = seg[0].state
         var si = 0
         for i in 0..<nEpochs {
-            let epochEnd = start + Int(Double(i + 1) * epochS)
+            guard let epochEnd = SleepTimestampMath.adding((i + 1) * epochSeconds, to: start) else {
+                return []
+            }
             // Advance through every sample that falls in/at-or-before this epoch's window; the LAST one wins.
             while si < seg.count && seg[si].ts < epochEnd {
                 last = seg[si].state
@@ -1202,16 +1214,19 @@ public enum SleepStager {
         func epochMid(_ i: Int) -> Double { edges[i] + epochS / 2.0 }
     }
 
-    static func buildEpochGrid(start: Double, end: Double,
+    static func buildEpochGrid(start: Int, end: Int,
                                gravTimes: [Int], gravDeltas: [Double],
                                hr: [HRSample], rr: [RRInterval], resp: [RespSample]) -> EpochGrid {
-        if end <= start {
-            return EpochGrid(start: start, end: end, edges: [start], counts: [],
+        guard let duration = representableStageDuration(start: start, end: end) else {
+            return EpochGrid(start: Double(start), end: Double(end), edges: [Double(start)], counts: [],
                              moveFrac: [], hr: [], rr: [], resp: [])
         }
-        let nEpochs = max(1, Int(ceil((end - start) / epochS)))
-        var edges = (0...nEpochs).map { start + Double($0) * epochS }
-        edges[nEpochs] = max(edges[nEpochs], end)
+        let epochSeconds = Int(epochS)
+        let nEpochs = max(1, (duration + epochSeconds - 1) / epochSeconds)
+        let startDouble = Double(start)
+        let endDouble = Double(end)
+        var edges = (0...nEpochs).map { startDouble + Double($0) * epochS }
+        edges[nEpochs] = max(edges[nEpochs], endDouble)
 
         var counts = [Double](repeating: 0, count: nEpochs)
         var moveN = [Int](repeating: 0, count: nEpochs)
@@ -1221,31 +1236,29 @@ public enum SleepStager {
         var rrBuckets = [[Double]](repeating: [], count: nEpochs)
         var respBuckets = [[Double]](repeating: [], count: nEpochs)
 
-        func idx(_ ts: Double) -> Int? {
-            if ts < start || ts >= end {
-                if ts == end { return nEpochs - 1 }
-                return nil
-            }
-            let i = Int((ts - start) / epochS)
-            return min(i, nEpochs - 1)
+        func idx(_ ts: Int) -> Int? {
+            guard ts >= start, ts <= end,
+                  let offset = SleepTimestampMath.nonnegativeDuration(start: start, end: ts)
+            else { return nil }
+            return min(offset / epochSeconds, nEpochs - 1)
         }
 
         for (t, d) in zip(gravTimes, gravDeltas) {
-            guard let i = idx(Double(t)) else { continue }
+            guard let i = idx(t) else { continue }
             counts[i] += d
             gravN[i] += 1
             if d >= moveDeltaThresholdG { moveN[i] += 1 }
         }
         for r in hr {
-            guard let i = idx(Double(r.ts)) else { continue }
+            guard let i = idx(r.ts) else { continue }
             hrSum[i] += Double(r.bpm); hrCnt[i] += 1
         }
         for r in rr {
-            guard let i = idx(Double(r.ts)) else { continue }
+            guard let i = idx(r.ts) else { continue }
             rrBuckets[i].append(Double(r.rrMs))
         }
         for r in resp {
-            guard let i = idx(Double(r.ts)) else { continue }
+            guard let i = idx(r.ts) else { continue }
             respBuckets[i].append(Double(r.raw))
         }
 
@@ -1253,7 +1266,7 @@ public enum SleepStager {
         // No gravity coverage → 1.0 (treat as moving; conservative).
         let moveFrac = (0..<nEpochs).map { gravN[$0] > 0 ? Double(moveN[$0]) / Double(gravN[$0]) : 1.0 }
 
-        return EpochGrid(start: start, end: end, edges: edges, counts: counts,
+        return EpochGrid(start: startDouble, end: endDouble, edges: edges, counts: counts,
                          moveFrac: moveFrac, hr: hrMean, rr: rrBuckets, resp: respBuckets)
     }
 
@@ -1851,6 +1864,7 @@ public enum SleepStager {
     public static func remFunnelDiagnostic(start: Int, end: Int, grav: [GravitySample],
                                            hr: [HRSample], rr: [RRInterval],
                                            resp: [RespSample]) -> REMFunnelDiagnostic? {
+        guard isRepresentableStageWindow(start: start, end: end) else { return nil }
         let gSeg = rowsBetween(grav, start: start, end: end) { $0.ts }
         if gSeg.count < 2 { return nil }
         let gDeltas = gravityDeltas(gSeg)
@@ -1859,7 +1873,7 @@ public enum SleepStager {
         let rrSeg = rowsBetween(rr, start: start, end: end) { $0.ts }
         let respSeg = rowsBetween(resp, start: start, end: end) { $0.ts }
 
-        let grid = buildEpochGrid(start: Double(start), end: Double(end),
+        let grid = buildEpochGrid(start: start, end: end,
                                   gravTimes: gTimes, gravDeltas: gDeltas,
                                   hr: hrSeg, rr: rrSeg, resp: respSeg)
         if grid.nEpochs == 0 { return nil }

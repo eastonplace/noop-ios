@@ -1003,6 +1003,32 @@ final class SleepStagerTests: XCTestCase {
         XCTAssertTrue(SleepStager.sessionEpochMotion(start: 0, end: 1800, grav: []).isEmpty)
     }
 
+    func testEpochGridConsumersRejectExtremeTimestampWindows() {
+        let grav = [
+            GravitySample(ts: Int.min, x: 0, y: 0, z: 1),
+            GravitySample(ts: Int.max, x: 0, y: 0, z: 1),
+        ]
+        XCTAssertTrue(SleepStager.sessionEpochMotion(
+            start: Int.min, end: Int.max, grav: grav
+        ).isEmpty)
+        XCTAssertTrue(SleepStager.sessionEpochSleepState(
+            start: Int.min,
+            end: Int.max,
+            sleepState: [(ts: Int.min, state: 2), (ts: Int.max, state: 2)]
+        ).isEmpty)
+        XCTAssertEqual(
+            SleepStager.buildEpochGrid(
+                start: Int.min, end: Int.max,
+                gravTimes: grav.map(\.ts), gravDeltas: [0, 0],
+                hr: [], rr: [], resp: []
+            ).nEpochs,
+            0
+        )
+        XCTAssertNil(SleepStager.remFunnelDiagnostic(
+            start: Int.min, end: Int.max, grav: grav, hr: [], rr: [], resp: []
+        ))
+    }
+
     // MARK: - #175 per-session band sleep_state gridding (persisted beside stagesJSON)
 
     func testSessionEpochSleepStateGridsOnePerEpoch() {
