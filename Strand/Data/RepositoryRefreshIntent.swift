@@ -93,6 +93,102 @@ enum RepositoryRefreshContext {
     @TaskLocal static var disposition: Disposition = .allow
 }
 
+/// Central publication fence for source pipelines whose imported rows and derived scores must become visible
+/// as one generation. A HealthKit import, for example, may persist fresh HRV/RHR before Recovery is recomputed.
+/// Without this fence an unrelated foreground/BLE refresh can publish those new vitals with the previous or
+/// blank Recovery in the middle of the transaction.
+///
+/// - An exclusive source pipeline waits for a typed Repository refresh already in flight.
+/// - Once exclusive acquisition is pending, no new typed refresh may start.
+/// - A blocked refresh returns `false` immediately (so analysis cannot deadlock waiting on its own publication)
+///   and is re-requested after the fence opens; the normal refresh coordinator coalesces those retries.
+/// - The source owner performs its one coherent final refresh directly while holding the fence.
+///
+/// MainActor isolation makes the handoff deterministic without locks. The class is injectable so tests and
+/// previews do not share production fence state.
+@MainActor
+final class RepositoryPublicationBarrier {
+    static let shared = RepositoryPublicationBarrier()
+
+    private var exclusive = false
+    private var activeRefreshes = 0
+    private var exclusiveWaiters: [CheckedContinuation<Void, Never>] = []
+    private var afterOpen: [@MainActor () -> Void] = []
+
+    #if DEBUG
+    private(set) var deferredRequestCount = 0
+    #endif
+
+    var blocksRefreshes: Bool {
+        exclusive || !exclusiveWaiters.isEmpty
+    }
+
+    /// Acquire the source-publication fence. New refreshes stop immediately; an already-running typed refresh
+    /// is allowed to finish before the source begins writing, so it cannot publish a snapshot taken mid-import.
+    func acquireExclusive() async {
+        if !exclusive, activeRefreshes == 0, exclusiveWaiters.isEmpty {
+            exclusive = true
+            return
+        }
+        await withCheckedContinuation { continuation in
+            exclusiveWaiters.append(continuation)
+        }
+    }
+
+    /// Best-effort synchronous bootstrap for a scoring journal restored before AppModel launch. The iOS app
+    /// initializes the HealthKit coordinator before constructing AppModel, so production reaches this with no
+    /// active refresh. If a test or future host initializes late, the normal async acquisition still closes it.
+    func acquireRestoredExclusiveIfIdle() -> Bool {
+        guard !exclusive, activeRefreshes == 0, exclusiveWaiters.isEmpty else { return false }
+        exclusive = true
+        return true
+    }
+
+    func releaseExclusive() {
+        precondition(exclusive, "Repository publication fence released by non-owner")
+        if !exclusiveWaiters.isEmpty {
+            // Transfer ownership without opening a publication gap between two source transactions.
+            let next = exclusiveWaiters.removeFirst()
+            next.resume()
+            return
+        }
+
+        exclusive = false
+        let callbacks = afterOpen
+        afterOpen.removeAll(keepingCapacity: true)
+        callbacks.forEach { $0() }
+    }
+
+    /// Called by the typed refresh executor immediately before it reads Repository's SQLite projection.
+    /// Returns false instead of suspending when a source fence is requested; suspending here could deadlock an
+    /// in-flight Intelligence pass whose completion is required by the exclusive scorer.
+    func beginRefreshIfAllowed() -> Bool {
+        guard !exclusive, exclusiveWaiters.isEmpty else { return false }
+        activeRefreshes += 1
+        return true
+    }
+
+    func endRefresh() {
+        precondition(activeRefreshes > 0, "Repository refresh fence count underflow")
+        activeRefreshes -= 1
+        guard activeRefreshes == 0, !exclusive, !exclusiveWaiters.isEmpty else { return }
+        exclusive = true
+        exclusiveWaiters.removeFirst().resume()
+    }
+
+    /// Retain a weak/coalescible retry until all exclusive source generations have completed.
+    func performAfterOpen(_ operation: @escaping @MainActor () -> Void) {
+        guard blocksRefreshes else {
+            operation()
+            return
+        }
+        #if DEBUG
+        deferredRequestCount += 1
+        #endif
+        afterOpen.append(operation)
+    }
+}
+
 /// Main-actor single-flight queue because `Repository` itself is MainActor-isolated. Requests that arrive
 /// before an operation starts merge into one pending batch. Requests arriving after a refresh starts queue a
 /// later pass because they may represent data committed after the running query took its SQLite snapshot.
@@ -188,6 +284,18 @@ private enum RepositoryRefreshRegistry {
         if let existing = entries[key]?.coordinator { return existing }
         let coordinator = RepositoryRefreshCoordinator { [weak repository] intent in
             guard let repository, await repository.storeHandle() != nil else { return false }
+            let barrier = RepositoryPublicationBarrier.shared
+            guard barrier.beginRefreshIfAllowed() else {
+                barrier.performAfterOpen { [weak repository] in
+                    guard let repository else { return }
+                    Task { @MainActor in
+                        _ = await repository.refresh(intent)
+                    }
+                }
+                return false
+            }
+            defer { barrier.endRefresh() }
+
             let trace = PerformanceTrace.begin(intent.traceName)
             defer { PerformanceTrace.end(trace) }
             await repository.refresh(days: intent.days)
