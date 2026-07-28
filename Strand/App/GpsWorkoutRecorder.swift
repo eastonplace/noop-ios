@@ -180,6 +180,12 @@ final class TrackFilter {
         last = fix
         return RouteMath.LatLng(fix.lat, fix.lon)
     }
+
+    func restore(lastAccepted fix: RawFix) {
+        guard fix.accuracyM >= 0, fix.accuracyM <= maxAccuracyM,
+              (-90...90).contains(fix.lat), (-180...180).contains(fix.lon) else { return }
+        last = fix
+    }
 }
 
 // MARK: - RouteStore (on-device side-store)
@@ -307,6 +313,7 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
     private var filter = TrackFilter()
     private var track: [RouteMath.LatLng] = []
     private var startMs: Int64 = 0
+    private var lastAcceptedFix: RawFix?
 
     /// Read-only live polyline for the in-workout map. The recorder remains the sole owner;
     /// views cannot mutate or synthesize route state.
@@ -372,6 +379,7 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
         paceSecPerKm = nil
         pointCount = 0
         rawFixCount = 0
+        lastAcceptedFix = nil
         isRecording = true
 
         switch manager.authorizationStatus {
@@ -411,7 +419,11 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
         ActiveGpsWorkoutPersistence.Snapshot(
             sessionID: sessionID, workoutStartMs: startMs, encodedPolyline: RouteMath.encode(track),
             distanceM: distanceM, rawFixCount: rawFixCount, acceptedPointCount: track.count,
-            recordingWasActive: isRecording, hadTerminatedGap: hadTerminatedGap
+            recordingWasActive: isRecording, hadTerminatedGap: hadTerminatedGap,
+            lastAcceptedFix: lastAcceptedFix.map {
+                ActiveGpsWorkoutPersistence.AcceptedFix(lat: $0.lat, lon: $0.lon,
+                                                         accuracyM: $0.accuracyM, timestampMs: $0.tMs)
+            }
         )
     }
 
@@ -423,6 +435,13 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
         track = points
         startMs = snapshot.workoutStartMs
         rawFixCount = snapshot.rawFixCount
+        filter = TrackFilter()
+        if let fix = snapshot.lastAcceptedFix {
+            lastAcceptedFix = RawFix(lat: fix.lat, lon: fix.lon, accuracyM: fix.accuracyM, tMs: fix.timestampMs)
+            filter.restore(lastAccepted: lastAcceptedFix!)
+        } else {
+            lastAcceptedFix = nil
+        }
         pointCount = points.count
         distanceM = snapshot.distanceM
         let elapsed = Double(Int64(Date().timeIntervalSince1970 * 1000) - startMs) / 1000
@@ -451,6 +470,7 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
         for fix in fixes {
             if let pt = filter.accept(fix) {
                 track.append(pt)
+                lastAcceptedFix = fix
                 changed = true
             }
         }

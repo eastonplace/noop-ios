@@ -14,9 +14,11 @@ enum ActiveGpsWorkoutPersistence {
         let acceptedPointCount: Int
         let recordingWasActive: Bool
         let hadTerminatedGap: Bool
+        let lastAcceptedFix: AcceptedFix?
 
         init(sessionID: UUID, workoutStartMs: Int64, encodedPolyline: String, distanceM: Double,
-             rawFixCount: Int, acceptedPointCount: Int, recordingWasActive: Bool, hadTerminatedGap: Bool) {
+             rawFixCount: Int, acceptedPointCount: Int, recordingWasActive: Bool, hadTerminatedGap: Bool,
+             lastAcceptedFix: AcceptedFix? = nil) {
             version = Self.currentVersion
             self.sessionID = sessionID
             self.workoutStartMs = workoutStartMs
@@ -26,14 +28,24 @@ enum ActiveGpsWorkoutPersistence {
             self.acceptedPointCount = acceptedPointCount
             self.recordingWasActive = recordingWasActive
             self.hadTerminatedGap = hadTerminatedGap
+            self.lastAcceptedFix = lastAcceptedFix
         }
 
         var isValid: Bool {
             guard version == Self.currentVersion, workoutStartMs > 0, distanceM.isFinite, distanceM >= 0,
                   rawFixCount >= acceptedPointCount, acceptedPointCount >= 0 else { return false }
             let points = RouteMath.decode(encodedPolyline)
-            return encodedPolyline.isEmpty ? acceptedPointCount == 0 : points.count == acceptedPointCount
+            guard encodedPolyline.isEmpty ? acceptedPointCount == 0 : points.count == acceptedPointCount else { return false }
+            guard let lastAcceptedFix else { return acceptedPointCount == 0 }
+            return (-90...90).contains(lastAcceptedFix.lat) && (-180...180).contains(lastAcceptedFix.lon)
         }
+    }
+
+    struct AcceptedFix: Codable, Equatable, Sendable {
+        let lat: Double
+        let lon: Double
+        let accuracyM: Double
+        let timestampMs: Int64
     }
 
     static let defaultsKey = "noop.activeGpsWorkout.v1"

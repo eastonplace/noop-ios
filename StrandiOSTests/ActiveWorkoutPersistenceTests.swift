@@ -126,7 +126,8 @@ final class ActiveWorkoutPersistenceTests: XCTestCase {
         let snapshot = ActiveGpsWorkoutPersistence.Snapshot(
             sessionID: UUID(), workoutStartMs: 1_700_000_000_000,
             encodedPolyline: RouteMath.encode(points), distanceM: RouteMath.totalMeters(points),
-            rawFixCount: 3, acceptedPointCount: points.count, recordingWasActive: true, hadTerminatedGap: false
+            rawFixCount: 3, acceptedPointCount: points.count, recordingWasActive: true, hadTerminatedGap: false,
+            lastAcceptedFix: .init(lat: 40.7584, lon: -73.9848, accuracyM: 8, timestampMs: 1_700_000_010_000)
         )
         ActiveGpsWorkoutPersistence.store(snapshot, into: defaults)
         XCTAssertEqual(try XCTUnwrap(ActiveGpsWorkoutPersistence.load(from: defaults)), snapshot)
@@ -139,7 +140,8 @@ final class ActiveWorkoutPersistenceTests: XCTestCase {
         let snapshot = ActiveGpsWorkoutPersistence.Snapshot(
             sessionID: UUID(), workoutStartMs: 1_700_000_000_000,
             encodedPolyline: "bad", distanceM: 10, rawFixCount: 2, acceptedPointCount: 2,
-            recordingWasActive: true, hadTerminatedGap: false
+            recordingWasActive: true, hadTerminatedGap: false,
+            lastAcceptedFix: .init(lat: 40.7584, lon: -73.9848, accuracyM: 8, timestampMs: 1_700_000_010_000)
         )
         ActiveGpsWorkoutPersistence.store(snapshot, into: defaults)
         XCTAssertNil(ActiveGpsWorkoutPersistence.load(from: defaults))
