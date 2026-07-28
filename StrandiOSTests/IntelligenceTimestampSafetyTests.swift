@@ -4,6 +4,12 @@ import WhoopStore
 
 @MainActor
 final class IntelligenceTimestampSafetyTests: XCTestCase {
+    private func newYorkCalendar() throws -> Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        return calendar
+    }
+
     func testMidnightHelpersPreserveRepresentableDatesAndRejectOverflow() throws {
         let utcTimestamp = 1_623_805_200
         let localMidnight = try XCTUnwrap(
@@ -40,6 +46,56 @@ final class IntelligenceTimestampSafetyTests: XCTestCase {
 
         XCTAssertEqual(samples.map(\.ts), [validStart, validStart + 30, validStart + 60])
         XCTAssertEqual(samples.map(\.state), [1, 2, 3])
+    }
+
+    func testCivilDayWindowsStayAtMidnightAcrossSpringDST() throws {
+        let calendar = try newYorkCalendar()
+        let reference = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 3, day: 10, hour: 12)))
+        let windows = IntelligenceEngine.civilDayWindows(
+            reference: reference, startOffset: 0, count: 4, calendar: calendar)
+
+        XCTAssertEqual(windows.map(\.day), [
+            "2026-03-10", "2026-03-09", "2026-03-08", "2026-03-07"
+        ])
+        XCTAssertEqual(windows[2].nextStart - windows[2].start, 23 * 3_600)
+    }
+
+    func testCivilDayWindowsStayAtMidnightAcrossFallDST() throws {
+        let calendar = try newYorkCalendar()
+        let reference = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 11, day: 3, hour: 12)))
+        let windows = IntelligenceEngine.civilDayWindows(
+            reference: reference, startOffset: 0, count: 4, calendar: calendar)
+
+        XCTAssertEqual(windows.map(\.day), [
+            "2026-11-03", "2026-11-02", "2026-11-01", "2026-10-31"
+        ])
+        XCTAssertEqual(windows[2].nextStart - windows[2].start, 25 * 3_600)
+    }
+
+    func testHistoricalMigrationBoundsWorkToRealSourceDaysAcrossDST() throws {
+        let calendar = try newYorkCalendar()
+        let reference = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 3, day: 10, hour: 12)))
+        let earliest = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 3, day: 7, hour: 23)))
+
+        XCTAssertEqual(IntelligenceEngine.boundedHistoryDays(
+            earliestTimestamp: Int(earliest.timeIntervalSince1970),
+            reference: reference,
+            calendar: calendar,
+            cap: 4_000), 4)
+        XCTAssertEqual(IntelligenceEngine.boundedHistoryDays(
+            earliestTimestamp: Int(reference.timeIntervalSince1970),
+            reference: reference,
+            calendar: calendar,
+            cap: 4_000), 1)
+        XCTAssertEqual(IntelligenceEngine.boundedHistoryDays(
+            earliestTimestamp: 0,
+            reference: reference,
+            calendar: calendar,
+            cap: 30), 30)
     }
 
     func testBandSleepStateSamplesRejectsSeriesThatEscapesItsSession() async throws {

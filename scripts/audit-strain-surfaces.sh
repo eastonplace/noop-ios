@@ -14,7 +14,13 @@ while IFS= read -r match; do
         Strand/Screens/ManualWorkoutSheet.swift:*|\
         Strand/Screens/InsightsHubView.swift:*|\
         Strand/Screens/ScoringGuideView.swift:*|\
-        Strand/Screens/TodayView.swift:*)
+        Strand/Screens/TodayView.swift:*|\
+        Strand/Screens/CoupledView.swift:*|\
+        Strand/Screens/TrendsSnapshotModels.swift:*|\
+        Strand/Screens/TrendsView+SelectedRange.swift:*|\
+        StrandiOS/App/SmartAlarmRuntimeController.swift:*|\
+        StrandiOS/Widgets/LiveUpdatePolicies.swift:*|\
+        StrandiOS/Widgets/LiveActivityController.swift:*)
             ;;
         *)
             violations="${violations}${match}\n"

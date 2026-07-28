@@ -121,27 +121,27 @@ struct StrandiOSApp: App {
         await HealthKitScoringCoordinator.shared.runAndWait(
             analyze: { window in
                 let range = HealthKitAnalysisRange(window: window)
-                return await RepositoryRefreshContext.$disposition.withValue(.suppress) {
-                    await model.intelligence.analyzeRecentForPublication(
-                        maxDays: range.maxDays,
-                        startOffset: range.startOffset,
-                        refreshRepository: false,
-                        verifyDurableRecovery: { results in
-                            await IntelligenceRecoveryPersistenceReceipt.verify(
-                                results: results,
-                                repository: model.repo).complete
-                        })
-                }
+                return await model.intelligence.analyzeRecentForPublication(
+                    maxDays: range.maxDays,
+                    startOffset: range.startOffset,
+                    refreshRepository: false,
+                    verifyDurableRecovery: { results in
+                        await IntelligenceRecoveryPersistenceReceipt.verify(
+                            results: results,
+                            reconciledDays: range.reconciledDays(),
+                            repository: model.repo).complete
+                    })
             },
             publish: { window in
                 let range = HealthKitAnalysisRange(window: window)
                 // The scoring coordinator is the exclusive publication owner here. Call the underlying coherent
                 // refresh directly: routing through the normal typed queue would correctly defer behind this
                 // same fence and deadlock its owner. Every non-owner publisher remains fenced and replayed.
-                await model.repo.refresh(days: range.publicationDays)
+                guard await model.repo.refresh(days: range.publicationDays) else { return false }
                 refreshExternalSurfaceDay()
                 driveLiveActivity()
                 await WidgetSnapshot.publish(from: model)
+                return true
             })
     }
 

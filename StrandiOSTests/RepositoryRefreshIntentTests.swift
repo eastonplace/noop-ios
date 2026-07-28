@@ -178,18 +178,38 @@ final class RepositoryRefreshIntentTests: XCTestCase {
         barrier.endRefresh()
     }
 
-    func testBlockedRefreshCallbackRunsOnlyAfterPublicationFenceOpens() async {
+    func testBlockedRefreshesCoalesceToOneWidestReplayPerRepository() async {
         let barrier = RepositoryPublicationBarrier()
         await barrier.acquireExclusive()
-        var callbacks = 0
+        let owner = NSObject()
+        var replayed: [RepositoryRefreshIntent] = []
 
-        barrier.performAfterOpen { callbacks += 1 }
-        barrier.performAfterOpen { callbacks += 1 }
-        XCTAssertEqual(callbacks, 0)
-        XCTAssertEqual(barrier.deferredRequestCount, 2)
+        for _ in 0..<100 {
+            barrier.performAfterOpen(for: owner, intent: .currentDay) { replayed.append($0) }
+        }
+        barrier.performAfterOpen(for: owner, intent: .fullHistoryMigration) { replayed.append($0) }
+        XCTAssertTrue(replayed.isEmpty)
+        XCTAssertEqual(barrier.deferredRequestCount, 101)
+        XCTAssertEqual(barrier.deferredRepositoryCount, 1)
 
         barrier.releaseExclusive()
-        XCTAssertEqual(callbacks, 2)
+        XCTAssertEqual(replayed, [.fullHistoryMigration])
+        XCTAssertEqual(barrier.deferredRepositoryCount, 0)
+    }
+
+    func testBlockedRefreshesKeepDifferentRepositoriesDistinct() async {
+        let barrier = RepositoryPublicationBarrier()
+        await barrier.acquireExclusive()
+        let first = NSObject()
+        let second = NSObject()
+        var replayed: [RepositoryRefreshIntent] = []
+
+        barrier.performAfterOpen(for: first, intent: .currentDay) { replayed.append($0) }
+        barrier.performAfterOpen(for: second, intent: .postImport) { replayed.append($0) }
+        XCTAssertEqual(barrier.deferredRepositoryCount, 2)
+
+        barrier.releaseExclusive()
+        XCTAssertEqual(Set(replayed.map(\.description)), Set(["current-day", "post-import"]))
     }
 
     func testRestoredJournalCanFenceSynchronouslyBeforeLaunchRefresh() {

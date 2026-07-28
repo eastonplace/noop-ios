@@ -137,4 +137,59 @@ final class IntelligenceAnalysisDurableRetryTests: XCTestCase {
         XCTAssertFalse(completed)
         XCTAssertEqual(attempts, 1)
     }
+
+    func testPersistentForcedFailureUsesBoundedRetryBudget() async {
+        let coordinator = IntelligenceAnalysisCoordinator(retryDelay: 0, maximumRetryCount: 2)
+        let owner = Owner()
+        let request = IntelligenceAnalysisRequest(
+            maxDays: 21,
+            startOffset: 0,
+            force: true,
+            refreshRepository: false)
+        var attempts = 0
+
+        let completed = await coordinator.submit(owner: owner, request: request) { _ in
+            attempts += 1
+            throw IntelligenceAnalysisCoordinatorError.analysisDidNotComplete
+        }
+
+        XCTAssertFalse(completed)
+        XCTAssertEqual(attempts, 3, "one initial attempt plus the bounded retry budget")
+        XCTAssertFalse(coordinator.isRunning(for: owner))
+    }
+
+    func testEveryBatchGetsItsOwnRefreshDisposition() async {
+        let coordinator = IntelligenceAnalysisCoordinator(retryDelay: 0)
+        let owner = Owner()
+        let gate = Gate()
+        let suppressed = IntelligenceAnalysisRequest(
+            maxDays: 21, startOffset: 0, force: true, refreshRepository: false)
+        let allowed = IntelligenceAnalysisRequest(
+            maxDays: 21, startOffset: 30, force: true, refreshRepository: true)
+        var observed: [RepositoryRefreshContext.Disposition] = []
+
+        let first = Task { @MainActor in
+            await RepositoryRefreshContext.$disposition.withValue(.allow) {
+                await coordinator.submit(owner: owner, request: suppressed) { _ in
+                    observed.append(RepositoryRefreshContext.disposition)
+                    await gate.wait()
+                }
+            }
+        }
+        while observed.isEmpty { await Task.yield() }
+        let second = Task { @MainActor in
+            await RepositoryRefreshContext.$disposition.withValue(.suppress) {
+                await coordinator.submit(owner: owner, request: allowed) { _ in
+                    observed.append(RepositoryRefreshContext.disposition)
+                }
+            }
+        }
+        gate.open()
+
+        let firstResult = await first.value
+        let secondResult = await second.value
+        XCTAssertTrue(firstResult)
+        XCTAssertTrue(secondResult)
+        XCTAssertEqual(observed, [.suppress, .allow])
+    }
 }

@@ -77,7 +77,7 @@ final class HealthKitPipelineSerializationTests: XCTestCase {
                     if analyzed.count == 1 { await gate.wait() }
                     return true
                 },
-                publish: { published.append($0) })
+                publish: { published.append($0); return true })
         }
         try await waitUntil { gate.isWaiting }
 
@@ -118,6 +118,7 @@ final class HealthKitPipelineSerializationTests: XCTestCase {
                     events.append("publish-start")
                     await publishGate.wait()
                     events.append("publish-end")
+                    return true
                 })
         }
         try await waitUntil { publishGate.isWaiting }
@@ -219,7 +220,7 @@ final class HealthKitPipelineSerializationTests: XCTestCase {
         let scoringTask = Task { @MainActor in
             await scoring.runAndWait(
                 analyze: { analyzed.append($0); return true },
-                publish: { published.append($0) })
+                publish: { published.append($0); return true })
         }
         try importer.offer(second)
         gate.open()

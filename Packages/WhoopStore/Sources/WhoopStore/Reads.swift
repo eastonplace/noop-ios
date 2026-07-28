@@ -62,12 +62,41 @@ extension WhoopStore {
             // exactly one row, so fetchOne is non-nil and the columns read straight into Int. The guard is
             // belt-and-suspenders.
             guard let row = try Row.fetchOne(db, sql: """
-                SELECT COUNT(*) AS c, COALESCE(MAX(ts), 0) AS m FROM hrSample
-                WHERE deviceId = ? AND ts >= ? AND ts <= ?
-                """, arguments: [deviceId, from, to]) else { return (0, 0) }
+                SELECT COUNT(*) AS c, COALESCE(MAX(ts), 0) AS m FROM (
+                    SELECT ts FROM hrSample
+                    WHERE deviceId = ? AND ts >= ? AND ts <= ?
+                    UNION ALL
+                    SELECT p.ts FROM ppgHrSample p
+                    WHERE p.deviceId = ? AND p.ts >= ? AND p.ts <= ?
+                      AND NOT EXISTS (
+                        SELECT 1 FROM hrSample h
+                        WHERE h.deviceId = p.deviceId AND h.ts = p.ts)
+                )
+                """, arguments: [deviceId, from, to, deviceId, from, to]) else { return (0, 0) }
             let c: Int = row["c"]
             let m: Int = row["m"]
             return (c, m)
+        }
+    }
+
+    /// Indexed bounds for the same measured-first HR stream `hrSamples` scores. One-shot history repairs use
+    /// this to stop at the oldest real source day instead of scanning thousands of empty calendar days.
+    public func hrTimestampBounds(deviceId: String) async throws -> (earliest: Int, latest: Int)? {
+        try syncRead { db in
+            guard let row = try Row.fetchOne(db, sql: """
+                SELECT MIN(ts) AS earliest, MAX(ts) AS latest FROM (
+                    SELECT ts FROM hrSample WHERE deviceId = ?
+                    UNION ALL
+                    SELECT p.ts FROM ppgHrSample p
+                    WHERE p.deviceId = ?
+                      AND NOT EXISTS (
+                        SELECT 1 FROM hrSample h
+                        WHERE h.deviceId = p.deviceId AND h.ts = p.ts)
+                )
+                """, arguments: [deviceId, deviceId]),
+                  let earliest: Int = row["earliest"],
+                  let latest: Int = row["latest"] else { return nil }
+            return (earliest, latest)
         }
     }
 
@@ -177,6 +206,19 @@ extension WhoopStore {
                 """, arguments: [deviceId, from, to, limit])
                 // activityClass (#316, v19) reads back nil for any pre-v19 row (the column defaulted null) and
                 // for any record whose @63 byte was 0xFF/invalid/absent, an absent class stays absent.
+                .map { StepSample(ts: $0["ts"], counter: $0["counter"], activityClass: $0["activityClass"]) }
+        }
+    }
+
+    /// Latest classified activity in a bounded window. Today only needs one icon; loading up to 200,000
+    /// cumulative-counter rows to discover it caused avoidable database and allocation pressure on Home.
+    public func latestStepActivityClass(deviceId: String, from: Int, to: Int) async throws -> StepSample? {
+        try syncRead { db in
+            try Row.fetchOne(db, sql: """
+                SELECT ts, counter, activityClass FROM stepSample
+                WHERE deviceId = ? AND ts >= ? AND ts <= ? AND activityClass IS NOT NULL
+                ORDER BY ts DESC LIMIT 1
+                """, arguments: [deviceId, from, to])
                 .map { StepSample(ts: $0["ts"], counter: $0["counter"], activityClass: $0["activityClass"]) }
         }
     }

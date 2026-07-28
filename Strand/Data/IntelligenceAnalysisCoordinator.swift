@@ -103,6 +103,7 @@ final class IntelligenceAnalysisCoordinator {
     private struct PendingBatch {
         var request: IntelligenceAnalysisRequest
         var waiters: [CheckedContinuation<Bool, Never>]
+        var retryCount: Int
         let run: Execute
     }
 
@@ -112,9 +113,11 @@ final class IntelligenceAnalysisCoordinator {
 
     private var queues: [ObjectIdentifier: QueueState] = [:]
     private let retryDelay: TimeInterval
+    private let maximumRetryCount: Int
 
-    init(retryDelay: TimeInterval = 1.0) {
+    init(retryDelay: TimeInterval = 1.0, maximumRetryCount: Int = 2) {
         self.retryDelay = max(0, retryDelay)
+        self.maximumRetryCount = max(0, maximumRetryCount)
     }
 
     /// Test/diagnostic visibility only. These are pure queue counts and do not publish UI state.
@@ -145,6 +148,7 @@ final class IntelligenceAnalysisCoordinator {
             state.pending.append(PendingBatch(
                 request: request,
                 waiters: [continuation],
+                retryCount: 0,
                 run: run))
             normalizePendingBatches(&state.pending)
             queues[key] = state
@@ -167,22 +171,28 @@ final class IntelligenceAnalysisCoordinator {
                 return
             }
 
-            let batch = state.pending.remove(at: index)
+            var batch = state.pending.remove(at: index)
             queues[key] = state // existence continues to mark this owner as actively running
             let completed: Bool
             do {
-                try await batch.run(batch.request)
+                let disposition: RepositoryRefreshContext.Disposition =
+                    batch.request.refreshRepository ? .allow : .suppress
+                try await RepositoryRefreshContext.$disposition.withValue(disposition) {
+                    try await batch.run(batch.request)
+                }
                 completed = true
-            } catch IntelligenceAnalysisCoordinatorError.analysisDidNotComplete where batch.request.force {
+            } catch IntelligenceAnalysisCoordinatorError.analysisDidNotComplete
+                where batch.request.force && batch.retryCount < maximumRetryCount {
                 // The source-change request is durable. Re-read the live queue before appending it: other
                 // callers may have arrived while `run` was suspended, and restoring the pre-run local state
                 // would silently erase those requests. Compatible work can coalesce with this retry and every
                 // original waiter stays attached until one real analysis pass completes.
+                batch.retryCount += 1
                 var latest = queues[key] ?? QueueState()
                 latest.pending.append(batch)
                 normalizePendingBatches(&latest.pending)
                 queues[key] = latest
-                await waitBeforeRetry()
+                await waitBeforeRetry(attempt: batch.retryCount)
                 continue
             } catch {
                 completed = false
@@ -191,9 +201,11 @@ final class IntelligenceAnalysisCoordinator {
         }
     }
 
-    private func waitBeforeRetry() async {
+    private func waitBeforeRetry(attempt: Int) async {
+        let multiplier = pow(2.0, Double(max(0, attempt - 1)))
+        let delay = min(30, retryDelay * multiplier)
         await withCheckedContinuation { continuation in
-            DispatchQueue.main.asyncAfter(deadline: .now() + retryDelay) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                 continuation.resume()
             }
         }
@@ -209,6 +221,10 @@ final class IntelligenceAnalysisCoordinator {
                     guard batches[lhs].request.canCoalesce(with: batches[rhs].request) else { continue }
                     batches[lhs].request = batches[lhs].request.coalesced(with: batches[rhs].request)
                     batches[lhs].waiters.append(contentsOf: batches[rhs].waiters)
+                    // A genuinely new compatible request supplies fresh evidence that retrying the widened
+                    // source window is worthwhile; keep the less-exhausted budget without ever becoming an
+                    // unbounded hot loop.
+                    batches[lhs].retryCount = min(batches[lhs].retryCount, batches[rhs].retryCount)
                     batches.remove(at: rhs)
                     changed = true
                     break outer

@@ -59,4 +59,22 @@ final class StepSampleTests: XCTestCase {
         // The counter rides through unchanged alongside the new column.
         XCTAssertEqual(read.map(\.counter), [60, 61, 62, 63])
     }
+
+    func testLatestStepActivityClassReadsOnlyLatestClassifiedRow() async throws {
+        let store = try await WhoopStore.inMemory()
+        let streams = Streams(steps: [
+            StepSample(ts: 100, counter: 1, activityClass: 1),
+            StepSample(ts: 200, counter: 2, activityClass: 2),
+            StepSample(ts: 300, counter: 3, activityClass: nil),
+        ])
+        _ = try await store.insert(streams, deviceId: "my-whoop")
+
+        let latest = try await store.latestStepActivityClass(
+            deviceId: "my-whoop", from: 0, to: 400)
+        XCTAssertEqual(latest?.ts, 200)
+        XCTAssertEqual(latest?.activityClass, 2)
+        let absent = try await store.latestStepActivityClass(
+            deviceId: "my-whoop", from: 201, to: 400)
+        XCTAssertNil(absent)
+    }
 }

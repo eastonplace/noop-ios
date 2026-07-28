@@ -124,6 +124,7 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
             },
             publish: {
                 publicationCalls += 1
+                return true
             })
 
         XCTAssertFalse(completed)
@@ -142,10 +143,20 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
             },
             publish: {
                 events.append("publication")
+                return true
             })
 
         XCTAssertTrue(completed)
         XCTAssertEqual(events, ["analysis", "publication"])
+    }
+
+    @MainActor
+    func testPublicationFailureIsNotReportedAsCompletion() async {
+        let completed = await HealthKitScoringCoordinator.runAnalysisThenPublish(
+            analyze: { true },
+            publish: { false })
+
+        XCTAssertFalse(completed)
     }
 
     private func newYorkCalendar() throws -> Calendar {
@@ -403,6 +414,39 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
         XCTAssertEqual(attempts, 2)
         XCTAssertNil(scoring.pending)
         XCTAssertNil(persistence.value)
+        XCTAssertFalse(barrier.blocksRefreshes)
+    }
+
+    @MainActor
+    func testFailedRepositoryPublicationRetainsJournalAndFenceForReplay() async throws {
+        let persistence = PendingWindowMemoryStore()
+        let (scoring, barrier) = makeScoring(persistence: persistence)
+        let window = HealthKitSyncWindow(
+            start: Date(timeIntervalSince1970: 100),
+            end: Date(timeIntervalSince1970: 200))
+        try await scoring.offer(window)
+
+        var publications = 0
+        await scoring.runAndWait(
+            analyze: { _ in true },
+            publish: { _ in
+                publications += 1
+                return false
+            })
+
+        XCTAssertEqual(publications, 1)
+        XCTAssertEqual(scoring.pending, window)
+        XCTAssertEqual(persistence.value, window)
+        XCTAssertTrue(barrier.blocksRefreshes)
+
+        await scoring.runAndWait(
+            analyze: { _ in true },
+            publish: { _ in
+                publications += 1
+                return true
+            })
+        XCTAssertEqual(publications, 2)
+        XCTAssertNil(scoring.pending)
         XCTAssertFalse(barrier.blocksRefreshes)
     }
 

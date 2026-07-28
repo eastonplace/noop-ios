@@ -449,6 +449,27 @@ final class MetricsCacheTests: XCTestCase {
         XCTAssertEqual(rows.map { $0.day }, ["2026-05-20"])
     }
 
+    func testReconcileDailyMetricsUpsertsAndEvictsStaleRangeAtomically() async throws {
+        let store = try await WhoopStore.inMemory()
+        let metric: (String, Double?) -> DailyMetric = { day, recovery in
+            DailyMetric(day: day, totalSleepMin: nil, efficiency: nil, deepMin: nil, remMin: nil,
+                        lightMin: nil, disturbances: nil, restingHr: nil, avgHrv: nil,
+                        recovery: recovery, strain: nil, exerciseCount: nil)
+        }
+        try await store.upsertDailyMetrics([
+            metric("2026-05-09", 9), metric("2026-05-10", 10), metric("2026-05-11", 11)
+        ], deviceId: "my-whoop-noop")
+
+        _ = try await store.reconcileDailyMetrics(
+            [metric("2026-05-11", 77), metric("2026-05-12", 88)],
+            deviceId: "my-whoop-noop", from: "2026-05-10", to: "2026-05-12")
+
+        let rows = try await store.dailyMetrics(
+            deviceId: "my-whoop-noop", from: "2026-05-01", to: "2026-05-31")
+        XCTAssertEqual(rows.map(\.day), ["2026-05-09", "2026-05-11", "2026-05-12"])
+        XCTAssertEqual(rows.first(where: { $0.day == "2026-05-11" })?.recovery, 77)
+    }
+
     // MARK: - windowed computed-daily delete (#277 local-day re-bucketing migration)
 
     func testDeleteDailyMetricsInRangeKeepsImportedAndOutOfRange() async throws {

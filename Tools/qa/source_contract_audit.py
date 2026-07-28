@@ -78,7 +78,13 @@ def main() -> int:
                 "non-Sendable sample values."
             )
 
-        if name != "Strand/Data/RepositoryRefreshIntent.swift":
+        direct_refresh_owners = {
+            "Strand/Data/RepositoryRefreshIntent.swift",
+            # HealthKit's exclusive publisher already owns the central fence and must call the coherent
+            # snapshot directly; typed admission would defer behind its own fence and deadlock.
+            "StrandiOS/App/StrandiOSApp.swift",
+        }
+        if name not in direct_refresh_owners:
             for match in direct_days_refresh.finditer(text):
                 line = text.count("\n", 0, match.start()) + 1
                 warnings.append(

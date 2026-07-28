@@ -185,10 +185,11 @@ final class Repository: ObservableObject {
     var importedReadIds: [String] {
         deviceId == canonicalDeviceId ? [deviceId] : [deviceId, canonicalDeviceId]
     }
-    /// The distinct COMPUTED ("-noop") source ids to union: the active strap's computed sibling and the
-    /// canonical computed sibling. Same dedup rule as `importedReadIds`.
+    /// The engine's stable canonical writer must win over a legacy active-strap sibling. Keeping the legacy
+    /// source as a fallback preserves older history without letting a stale re-pair row shadow newly verified
+    /// `my-whoop-noop` Recovery on the same day.
     var computedReadIds: [String] {
-        computedDeviceId == canonicalComputedId ? [computedDeviceId] : [computedDeviceId, canonicalComputedId]
+        computedDeviceId == canonicalComputedId ? [canonicalComputedId] : [canonicalComputedId, computedDeviceId]
     }
     private var store: WhoopStore?
 
@@ -299,6 +300,45 @@ final class Repository: ObservableObject {
             }
         }
         return byDay.values.sorted { $0.day < $1.day }
+    }
+
+    /// Publication-sensitive refreshes must distinguish an empty table from a failed read. The ordinary
+    /// facades above intentionally remain best-effort for non-critical UI details; this variant is the
+    /// all-or-nothing dashboard snapshot boundary used by `refresh(days:)`.
+    private func requiredUnionDailyMetrics(
+        store: WhoopStore, ids: [String], from: String, to: String
+    ) async throws -> [DailyMetric] {
+        var byDay: [String: DailyMetric] = [:]
+        for id in ids {
+            for metric in try await store.dailyMetrics(deviceId: id, from: from, to: to)
+                where byDay[metric.day] == nil {
+                byDay[metric.day] = metric
+            }
+        }
+        return byDay.values.sorted { $0.day < $1.day }
+    }
+
+    private func requiredUnionMetricSeries(
+        store: WhoopStore, ids: [String], key: String, from: String, to: String
+    ) async throws -> [MetricPoint] {
+        var byDay: [String: MetricPoint] = [:]
+        for id in ids {
+            for point in try await store.metricSeries(deviceId: id, key: key, from: from, to: to)
+                where byDay[point.day] == nil {
+                byDay[point.day] = point
+            }
+        }
+        return byDay.values.sorted { $0.day < $1.day }
+    }
+
+    private func requiredUnionSleepSessions(
+        store: WhoopStore, ids: [String], from: Int, to: Int, limit: Int = 4_000
+    ) async throws -> [CachedSleepSession] {
+        var blocks: [CachedSleepSession] = []
+        for id in ids {
+            blocks += try await store.sleepSessions(deviceId: id, from: from, to: to, limit: limit)
+        }
+        return Self.dedupBlocks(blocks.filter(Self.hasValidSleepWindow))
     }
 
     /// metricSeries points across the imported union for a key + day range, DEDUPED per day with the active
@@ -893,8 +933,9 @@ final class Repository: ObservableObject {
     var loadFireCounts: [String: Int] = [:]
     #endif
 
-    func refresh(days nDays: Int = 4000) async {
-        guard let store = await ensureStore() else { return }
+    @discardableResult
+    func refresh(days nDays: Int = 4000) async -> Bool {
+        guard let store = await ensureStore() else { return false }
         refreshGen &+= 1
         let myGen = refreshGen
         let now = Date()
@@ -906,21 +947,45 @@ final class Repository: ObservableObject {
         // UNION the active strap (live raw, #814) with the canonical "my-whoop" import so a re-added strap's
         // live data AND the canonical history both surface, deduped per day (active strap wins). Collapses to
         // a single id on a single-device install (byte-identical to before).
-        let imported = await unionDailyMetrics(store: store, from: fromDay, to: toDay)
-        let computed = await unionComputedDailyMetrics(store: store, from: fromDay, to: toDay)
-        let apple = (try? await store.dailyMetrics(deviceId: Self.appleHealthSource, from: fromDay, to: toDay)) ?? []
-        let activityFile = (try? await store.dailyMetrics(deviceId: Self.activityFileSource, from: fromDay, to: toDay)) ?? []
-        let impSleep = await unionSleepSessions(store: store, from: lo, to: hi)
-        let compSleep = await unionComputedSleepSessions(store: store, from: lo, to: hi)
+        let imported: [DailyMetric]
+        let computed: [DailyMetric]
+        let apple: [DailyMetric]
+        let activityFile: [DailyMetric]
+        let impSleep: [CachedSleepSession]
+        let compSleep: [CachedSleepSession]
+        let perf: [MetricPoint]
+        let cons: [MetricPoint]
+        let need: [MetricPoint]
+        let debt: [MetricPoint]
+        do {
+            imported = try await requiredUnionDailyMetrics(
+                store: store, ids: importedReadIds, from: fromDay, to: toDay)
+            computed = try await requiredUnionDailyMetrics(
+                store: store, ids: computedReadIds, from: fromDay, to: toDay)
+            apple = try await store.dailyMetrics(
+                deviceId: Self.appleHealthSource, from: fromDay, to: toDay)
+            activityFile = try await store.dailyMetrics(
+                deviceId: Self.activityFileSource, from: fromDay, to: toDay)
+            impSleep = try await requiredUnionSleepSessions(
+                store: store, ids: importedReadIds, from: lo, to: hi)
+            compSleep = try await requiredUnionSleepSessions(
+                store: store, ids: computedReadIds, from: lo, to: hi)
+            perf = try await requiredUnionMetricSeries(
+                store: store, ids: importedReadIds, key: "sleep_performance", from: fromDay, to: toDay)
+            cons = try await requiredUnionMetricSeries(
+                store: store, ids: importedReadIds, key: "sleep_consistency", from: fromDay, to: toDay)
+            need = try await requiredUnionMetricSeries(
+                store: store, ids: importedReadIds, key: "sleep_need_min", from: fromDay, to: toDay)
+            debt = try await requiredUnionMetricSeries(
+                store: store, ids: importedReadIds, key: "sleep_debt_min", from: fromDay, to: toDay)
+        } catch {
+            return false
+        }
         let computedSourceId = computedDeviceId
         let importedSourceId = deviceId
 
         // Export-verbatim sleep figures (long-format metricSeries rows from WhoopImporter).
         // SleepView prefers these per day over its APPROXIMATE recomputations.
-        let perf = await unionMetricSeries(store: store, key: "sleep_performance", from: fromDay, to: toDay)
-        let cons = await unionMetricSeries(store: store, key: "sleep_consistency", from: fromDay, to: toDay)
-        let need = await unionMetricSeries(store: store, key: "sleep_need_min", from: fromDay, to: toDay)
-        let debt = await unionMetricSeries(store: store, key: "sleep_debt_min", from: fromDay, to: toDay)
 
         // Merge + sort OFF the main actor (FIX 3): the figures build, the two O(n log n) daily/sleep merges,
         // the source-row sort, and the freshness counts are all pure over the rows just read, so they run in
@@ -958,9 +1023,13 @@ final class Repository: ObservableObject {
             return MergedCaches(
                 importedSleep: fig,
                 days: Self.mergeActivityFileSteps(
-                    into: Self.mergeDaily(imported: imported, computed: computed, userEditedDays: editedDays),
-                    activityFile
-                ),
+                    // Apple is a true final fallback. This makes watch-only Recovery reach Home while WHOOP
+                    // imports and canonical NOOP calculations retain their documented field-level priority.
+                    into: Self.mergeDaily(
+                        imported: Self.mergeDaily(
+                            imported: imported, computed: computed, userEditedDays: editedDays),
+                        computed: apple),
+                    activityFile),
                 sleeps: Self.mergeSleep(imported: impSleep, computed: compSleep),
                 vitalRows: Self.sourceRows(imported: imported, computed: computed, apple: apple),
                 freshness: Self.computeFreshness(imported: imported, computed: computed, apple: apple,
@@ -971,7 +1040,7 @@ final class Repository: ObservableObject {
 
         // Generation guard (#review): if a newer refresh() started while this one merged off-actor, drop
         // this now-stale result so it can't clobber the newer caches or re-fire loadAll out of order.
-        guard myGen == refreshGen else { return }
+        guard myGen == refreshGen else { return false }
 
         // DIFF before publishing (FIX 3): if this refresh produced byte-identical caches AND we've already
         // loaded once, skip the re-publish and the `refreshSeq` bump entirely , assigning an equal value to
@@ -985,7 +1054,7 @@ final class Repository: ObservableObject {
             && merged.freshness == freshness
             && merged.persistedStrainByDay == persistedStrainByDay
             && merged.importedStrainByDay == importedStrainByDay
-        guard !unchanged else { return }
+        guard !unchanged else { return true }
 
         // One consistent publish per refresh: assign every cache, flip `loaded`, then bump `refreshSeq` so
         // the intraday-updating views reload exactly once for this real change.
@@ -999,6 +1068,7 @@ final class Repository: ObservableObject {
         rebuildCanonicalStrain()
         self.loaded = true
         self.refreshSeq += 1
+        return true
     }
 
     /// Per-source coverage counts for the Freshness Pipeline card. Pure over the rows already read.
@@ -1241,7 +1311,12 @@ final class Repository: ObservableObject {
         guard let store = await ensureStore() else { return nil }
         var perId: [[StepSample]] = []
         for id in importedReadIds {   // active strap FIRST so it wins a ts tie
-            perId.append((try? await store.stepSamples(deviceId: id, from: from, to: to, limit: 200_000)) ?? [])
+            if let sample = (try? await store.latestStepActivityClass(
+                deviceId: id, from: from, to: to)) ?? nil {
+                perId.append([sample])
+            } else {
+                perId.append([])
+            }
         }
         return Self.latestActivityClass(perId)
     }
@@ -2085,8 +2160,8 @@ final class Repository: ObservableObject {
             var candidates = [
                 MetricSourceCandidate(source: actualWhoopSource, key: key),
                 MetricSourceCandidate(source: whoopSource, key: key),
-                MetricSourceCandidate(source: computedSource, key: key),
                 MetricSourceCandidate(source: whoopSource + "-noop", key: key),
+                MetricSourceCandidate(source: computedSource, key: key),
             ]
             if let appleKey = appleCompatibleKey(forWhoopKey: key) {
                 candidates.append(MetricSourceCandidate(source: appleHealthSource, key: appleKey))

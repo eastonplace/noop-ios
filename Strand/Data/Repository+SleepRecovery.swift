@@ -97,7 +97,18 @@ extension Repository {
                 sessionStart: nil,
                 sessionEnd: nil)
         }
-        let raw = await sleepRecoveryRawWindow(store: store, from: lo, to: hi)
+        let raw: SleepRecoveryRawWindow
+        do {
+            raw = try await sleepRecoveryRawWindow(store: store, from: lo, to: hi)
+        } catch {
+            return MissedSleepRecoverySaveResult(
+                status: .storeUnavailable,
+                title: "Local data is unavailable",
+                message: "NOOP could not read the recorded physiology. Nothing was invented or saved.",
+                confidence: nil,
+                sessionStart: nil,
+                sessionEnd: nil)
+        }
         let useV2 = PuffinExperiment.experimentalSleepV2Enabled
 
         let analysis = await Task.detached(priority: .utility) {
@@ -195,8 +206,20 @@ extension Repository {
             deviceId: computedId, from: fromDay, to: day)
         async let importedHistoryRead = store.dailyMetrics(
             deviceId: Repository.whoopSource, from: fromDay, to: day)
-        let computedHistory = (try? await computedHistoryRead) ?? []
-        let importedHistory = (try? await importedHistoryRead) ?? []
+        let computedHistory: [DailyMetric]
+        let importedHistory: [DailyMetric]
+        do {
+            computedHistory = try await computedHistoryRead
+            importedHistory = try await importedHistoryRead
+        } catch {
+            return MissedSleepRecoverySaveResult(
+                status: .storeUnavailable,
+                title: "Recovery history is unavailable",
+                message: "NOOP could not read your baseline history. Nothing was invented or saved.",
+                confidence: analysis.confidence,
+                sessionStart: nil,
+                sessionEnd: nil)
+        }
         let existing = computedHistory.first { $0.day == day }
         let priorHistory = SleepRecoveryHistoryMerge.merge(
             computed: computedHistory,
@@ -302,9 +325,9 @@ extension Repository {
         store: WhoopStore,
         from: Int,
         to: Int
-    ) async -> SleepRecoveryRawWindow {
+    ) async throws -> SleepRecoveryRawWindow {
         let ids = importedReadIds
-        return await Task.detached(priority: .utility) {
+        return try await Task.detached(priority: .utility) {
             var gravityByTs: [Int: GravitySample] = [:]
             var hrByTs: [Int: HRSample] = [:]
             var rrByTs: [Int: RRInterval] = [:]
@@ -320,10 +343,10 @@ extension Repository {
                 async let respRead = store.respSamples(
                     deviceId: id, from: from, to: to, limit: 200_000)
 
-                let gravity = (try? await gravityRead) ?? []
-                let hr = (try? await hrRead) ?? []
-                let rr = (try? await rrRead) ?? []
-                let resp = (try? await respRead) ?? []
+                let gravity = try await gravityRead
+                let hr = try await hrRead
+                let rr = try await rrRead
+                let resp = try await respRead
 
                 for row in gravity where gravityByTs[row.ts] == nil { gravityByTs[row.ts] = row }
                 for row in hr where hrByTs[row.ts] == nil { hrByTs[row.ts] = row }

@@ -126,12 +126,16 @@ try:
     require(
         receipt,
         "struct IntelligenceRecoveryPersistenceReceipt",
-        "$0.recovery != nil && $0.source != .whoopImport",
+        "reconciledDays: ClosedRange<String>",
+        "repository.importedReadIds",
+        "if let recovery = row.recovery",
         "deviceId: Repository.appleHealthSource",
-        "repository.computedReadIds",
+        'let computedSource = Repository.whoopSource + "-noop"',
         "sleepRecoveryDailyOverrides",
-        "$0.source == override.source",
-        "verifiedRecoveries == expectedRecoveries",
+        "result.recoveryPersistenceOwner",
+        "sameOptional(persisted.recovery, result.recovery)",
+        "reconciledComputedRange",
+        "verifiedResults == expectedResults",
     )
 
     refresh = "Strand/Data/RepositoryRefreshIntent.swift"
@@ -162,6 +166,8 @@ try:
         "var hasUnknownHistoricalDeletion = false",
         "historyQueryChunkDays = 1",
         "streamWorkouts",
+        "Inbound Health data is already durably committed",
+        "Apple Health data imported; write-back will retry",
         "roundedInt(_ value: Double, in domain: ClosedRange<Int>)",
         "Live HealthKit import owns daily Apple projections and Apple workouts only",
         "readTypes.compactMap { $0 as? HKSampleType }",
@@ -181,11 +187,10 @@ try:
         app,
         "HealthKitScoringCoordinator.shared.runAndWait(",
         "analyze: { window in",
-        "RepositoryRefreshContext.$disposition.withValue(.suppress)",
         "analyzeRecentForPublication(",
         "IntelligenceRecoveryPersistenceReceipt.verify(",
         "publish: { window in",
-        "await model.repo.refresh(days: range.publicationDays)",
+        "guard await model.repo.refresh(days: range.publicationDays) else { return false }",
         "await health.foregroundCatchUp()",
         "await drainCommittedHealthScoring()",
     )
@@ -229,7 +234,9 @@ try:
         "testRestoredScoringJournalClosesPublicationBeforeDrain",
         "testFailedAggregationSurvivesRelaunchAndLeavesDurableScoringWork",
         "testFailedScoringRetainsJournalAndPublicationFenceUntilLaterDrain",
+        "testFailedRepositoryPublicationRetainsJournalAndFenceForReplay",
         "testAnalysisFailureDoesNotPublishDerivedSurfaces",
+        "testPublicationFailureIsNotReportedAsCompletion",
         "testSuccessfulAnalysisPublishesExactlyOnceAfterAnalysis",
         "testPendingPersistenceFailureDoesNotStartOrLoseInMemoryWork",
         "testInitialLargeHistoryIsPagedInBoundedBatches",
@@ -245,7 +252,8 @@ try:
     require(
         "StrandiOSTests/RepositoryRefreshIntentTests.swift",
         "testExclusivePublicationWaitsForInFlightRefreshAndStopsNewStarts",
-        "testBlockedRefreshCallbackRunsOnlyAfterPublicationFenceOpens",
+        "testBlockedRefreshesCoalesceToOneWidestReplayPerRepository",
+        "testBlockedRefreshesKeepDifferentRepositoriesDistinct",
         "testRestoredJournalCanFenceSynchronouslyBeforeLaunchRefresh",
     )
     require(
@@ -256,10 +264,13 @@ try:
     )
     require(
         "StrandiOSTests/IntelligenceRecoveryPersistenceReceiptTests.swift",
-        "testAuthoritativeWhoopImportDoesNotRequireShadowComputedMatch",
-        "testAppleRecoveryMustExistAndMatchInAppleNamespace",
-        "testComputedRecoveryMustExistInAComputedReadNamespace",
-        "testDurableManualOverrideOwnsVisibleRecoveryInsteadOfAutomaticResult",
+        "testNilOutcomeRequiresARealClearingWrite",
+        "testEmptyResultsStillRequireReadableStoreAndReconciledRange",
+        "testWhoopOwnsRecoveryOnlyWhenItsFieldIsNonNil",
+        "testDisplayProvenanceCannotChangeTheActualPersistenceOwner",
+        "testWatchOnlyResultMustMatchAppleNamespace",
+        "testUnexpectedCanonicalDayFailsReconciliation",
+        "testManualOverrideOwnsCanonicalVisibleValue",
     )
     require(
         "Packages/WhoopStore/Tests/WhoopStoreTests/HealthKitAuthoritativeStoreTests.swift",

@@ -1,127 +1,120 @@
 import Foundation
 import WhoopStore
 
-/// Source-to-store completion receipt for a finished Intelligence pass. `IntelligenceEngine.analyzeRecent`
-/// currently treats several best-effort auxiliary writes as non-fatal and historically used `try?` at those
-/// seams. A publication-sensitive caller must therefore verify the one field this pipeline promises before it
-/// clears a durable source journal: every non-nil Recovery the engine says it calculated must exist in the
-/// namespace that Home will read.
-///
-/// This is deliberately a postcondition, not a second scorer:
-/// - It never invents or recalculates Recovery.
-/// - Nil Recovery remains legitimate for missing inputs or a calibrating baseline.
-/// - A WHOOP-import-owned day is excluded: the authoritative imported row already owns Home, and its value need
-///   not equal NOOP's shadow calculation.
-/// - Apple Watch results must match the persisted `apple-health` row exactly.
-/// - NOOP-computed results must match the engine's stable canonical `my-whoop-noop` row, unless a durable user
-///   Recovery override owns that day; in that case the same canonical row must match the override instead.
-///
-/// Any read failure or missing/mismatched durable result returns false. The HealthKit scoring journal and
-/// Repository publication fence then remain in place for an idempotent retry rather than exposing stale Home.
+/// Fail-closed proof that one admitted Intelligence pass produced the exact durable Recovery projection Home
+/// will read. UI provenance is not persistence ownership: a strap-scored day can also have an Apple/WHOOP row.
+/// The receipt therefore verifies field-level WHOOP authority first, then each result's explicit writer.
 struct IntelligenceRecoveryPersistenceReceipt: Equatable, Sendable {
-    let expectedRecoveries: Int
-    let verifiedRecoveries: Int
+    let expectedResults: Int
+    let verifiedResults: Int
     let storeAvailable: Bool
+    let reconciledComputedRange: Bool
 
     var complete: Bool {
-        storeAvailable && verifiedRecoveries == expectedRecoveries
+        storeAvailable && reconciledComputedRange && verifiedResults == expectedResults
     }
 
     @MainActor
     static func verify(
         results: [IntelligenceEngine.Computed],
+        reconciledDays: ClosedRange<String>,
         repository: Repository
     ) async -> Self {
-        let expected = results.filter {
-            $0.recovery != nil && $0.source != .whoopImport
-        }
-        guard !expected.isEmpty else {
-            return Self(expectedRecoveries: 0, verifiedRecoveries: 0, storeAvailable: true)
-        }
-        guard let store = await repository.storeHandle(),
-              let firstDay = expected.map(\.day).min(),
-              let lastDay = expected.map(\.day).max() else {
-            return Self(expectedRecoveries: expected.count, verifiedRecoveries: 0, storeAvailable: false)
+        guard let store = await repository.storeHandle() else {
+            return failure(expected: results.count)
         }
 
         do {
-            let appleRows = try await store.dailyMetrics(
-                deviceId: Repository.appleHealthSource,
-                from: firstDay,
-                to: lastDay)
-            let appleByDay = Dictionary(
-                appleRows.map { ($0.day, $0) },
-                uniquingKeysWith: { _, newest in newest })
-
-            // AppModel.deviceId is intentionally stable `my-whoop`; IntelligenceEngine always writes its
-            // computed results to that id's `-noop` sibling even after the Repository follows a re-paired strap.
-            let computedSource = Repository.whoopSource + "-noop"
-            let computedRows = try await store.dailyMetrics(
-                deviceId: computedSource,
-                from: firstDay,
-                to: lastDay)
-            let computedByDay = Dictionary(
-                computedRows.map { ($0.day, $0) },
-                uniquingKeysWith: { _, newest in newest })
-            let overrides = try await store.sleepRecoveryDailyOverrides(
-                deviceId: computedSource,
-                from: firstDay,
-                to: lastDay)
-            let overrideByDay = Dictionary(
-                overrides.map { ($0.day, $0) },
-                uniquingKeysWith: { _, newest in newest })
-
-            var verified = 0
-            for result in expected {
-                guard let automatic = result.recovery else { continue }
-                switch result.source {
-                case .appleHealth:
-                    if approximatelyEqual(appleByDay[result.day]?.recovery, automatic) {
-                        verified += 1
-                    }
-
-                case .computed:
-                    guard let persisted = computedByDay[result.day] else { continue }
-                    if let override = overrideByDay[result.day] {
-                        // A durable manual recovery intentionally owns the visible field, including nil.
-                        if sameOptional(persisted.recovery, override.recovery) {
-                            verified += 1
-                        }
-                    } else if approximatelyEqual(persisted.recovery, automatic) {
-                        verified += 1
-                    }
-
-                case .whoopImport:
-                    // Filtered above; keep the switch exhaustive if DaySource grows compiler checking.
-                    break
+            // Imported WHOOP is authoritative per FIELD, not merely because a day row exists. Preserve the
+            // same active-then-canonical precedence Repository uses and only claim Recovery when it is nonnil.
+            var importedRecoveryByDay: [String: Double] = [:]
+            for source in repository.importedReadIds {
+                let rows = try await store.dailyMetrics(
+                    deviceId: source, from: reconciledDays.lowerBound, to: reconciledDays.upperBound)
+                for row in rows where importedRecoveryByDay[row.day] == nil {
+                    if let recovery = row.recovery { importedRecoveryByDay[row.day] = recovery }
                 }
             }
 
+            let computedSource = Repository.whoopSource + "-noop"
+            let computedRows = try await store.dailyMetrics(
+                deviceId: computedSource,
+                from: reconciledDays.lowerBound,
+                to: reconciledDays.upperBound)
+            let computedByDay = Dictionary(
+                computedRows.map { ($0.day, $0) }, uniquingKeysWith: { _, newest in newest })
+            let appleRows = try await store.dailyMetrics(
+                deviceId: Repository.appleHealthSource,
+                from: reconciledDays.lowerBound,
+                to: reconciledDays.upperBound)
+            let appleByDay = Dictionary(
+                appleRows.map { ($0.day, $0) }, uniquingKeysWith: { _, newest in newest })
+            let overrides = try await store.sleepRecoveryDailyOverrides(
+                deviceId: computedSource,
+                from: reconciledDays.lowerBound,
+                to: reconciledDays.upperBound)
+            let overrideByDay = Dictionary(
+                overrides.map { ($0.day, $0) }, uniquingKeysWith: { _, newest in newest })
+
+            var verified = 0
+            // Manual-Recovery rows are deliberately restored by SQLite after range deletion, even when
+            // this automatic pass produced no result for that day. They are protected state, not stale rows.
+            var expectedCanonicalDays = Set(overrideByDay.keys)
+            for result in results {
+                if result.recoveryPersistenceOwner == .canonicalComputed {
+                    // The engine still persists a diagnostic/fallback shadow on WHOOP-import-owned days.
+                    // Imported Recovery wins Home, but the canonical row is expected to survive range
+                    // reconciliation and must not be mistaken for a stale extra day.
+                    expectedCanonicalDays.insert(result.day)
+                }
+                if importedRecoveryByDay[result.day] != nil {
+                    // The imported value intentionally wins Home and need not equal NOOP's shadow score.
+                    verified += 1
+                    continue
+                }
+
+                switch result.recoveryPersistenceOwner {
+                case .appleHealth:
+                    guard let persisted = appleByDay[result.day] else { continue }
+                    if sameOptional(persisted.recovery, result.recovery) { verified += 1 }
+
+                case .canonicalComputed:
+                    guard let persisted = computedByDay[result.day] else { continue }
+                    if let override = overrideByDay[result.day] {
+                        if sameOptional(persisted.recovery, override.recovery) { verified += 1 }
+                    } else if sameOptional(persisted.recovery, result.recovery) {
+                        verified += 1
+                    }
+                }
+            }
+
+            // The engine reconciles its complete requested window. An extra canonical row means a failed
+            // stale-day deletion and can otherwise leave yesterday's numerical Recovery visible.
+            let reconciled = Set(computedRows.map(\.day)).isSubset(of: expectedCanonicalDays)
             return Self(
-                expectedRecoveries: expected.count,
-                verifiedRecoveries: verified,
-                storeAvailable: true)
+                expectedResults: results.count,
+                verifiedResults: verified,
+                storeAvailable: true,
+                reconciledComputedRange: reconciled)
         } catch {
-            return Self(
-                expectedRecoveries: expected.count,
-                verifiedRecoveries: 0,
-                storeAvailable: false)
+            return failure(expected: results.count)
         }
     }
 
-    private static func approximatelyEqual(_ lhs: Double?, _ rhs: Double) -> Bool {
-        guard let lhs, lhs.isFinite, rhs.isFinite else { return false }
-        return abs(lhs - rhs) <= 1e-8
+    private static func failure(expected: Int) -> Self {
+        Self(
+            expectedResults: expected,
+            verifiedResults: 0,
+            storeAvailable: false,
+            reconciledComputedRange: false)
     }
 
     private static func sameOptional(_ lhs: Double?, _ rhs: Double?) -> Bool {
         switch (lhs, rhs) {
-        case (nil, nil):
-            return true
+        case (nil, nil): return true
         case let (left?, right?):
             return left.isFinite && right.isFinite && abs(left - right) <= 1e-8
-        default:
-            return false
+        default: return false
         }
     }
 }

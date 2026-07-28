@@ -706,9 +706,17 @@ final class HealthKitBridge: ObservableObject {
                 guard !rows.isEmpty else { return }
                 _ = try await store.upsertWorkouts(rows, deviceId: appleDeviceId)
             }
-            try await writeBack(whoopStore: store)
+            // Inbound Health data is already durably committed. Outbound mirroring is a separate,
+            // best-effort side effect and must never keep the import journal alive or prevent the scoring
+            // coordinator from publishing Recovery. Per-component writeback fingerprints retain only
+            // successful exports, so the next ordinary sync retries any failed component idempotently.
+            do {
+                try await writeBack(whoopStore: store)
+                lastError = nil
+            } catch {
+                lastError = String(localized: "Apple Health data imported; write-back will retry: \(error.localizedDescription)")
+            }
             lastSync = Date()
-            lastError = nil
             return true
         } catch {
             lastError = String(localized: "Apple Health sync failed: \(error.localizedDescription)")

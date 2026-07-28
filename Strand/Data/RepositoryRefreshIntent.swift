@@ -113,10 +113,15 @@ final class RepositoryPublicationBarrier {
     private var exclusive = false
     private var activeRefreshes = 0
     private var exclusiveWaiters: [CheckedContinuation<Void, Never>] = []
-    private var afterOpen: [@MainActor () -> Void] = []
+    private struct DeferredRefresh {
+        var intent: RepositoryRefreshIntent
+        let operation: @MainActor (RepositoryRefreshIntent) -> Void
+    }
+    private var afterOpen: [ObjectIdentifier: DeferredRefresh] = [:]
 
     #if DEBUG
     private(set) var deferredRequestCount = 0
+    var deferredRepositoryCount: Int { afterOpen.count }
     #endif
 
     var blocksRefreshes: Bool {
@@ -154,9 +159,9 @@ final class RepositoryPublicationBarrier {
         }
 
         exclusive = false
-        let callbacks = afterOpen
+        let callbacks = Array(afterOpen.values)
         afterOpen.removeAll(keepingCapacity: true)
-        callbacks.forEach { $0() }
+        callbacks.forEach { $0.operation($0.intent) }
     }
 
     /// Called by the typed refresh executor immediately before it reads Repository's SQLite projection.
@@ -176,16 +181,29 @@ final class RepositoryPublicationBarrier {
         exclusiveWaiters.removeFirst().resume()
     }
 
-    /// Retain a weak/coalescible retry until all exclusive source generations have completed.
-    func performAfterOpen(_ operation: @escaping @MainActor () -> Void) {
+    /// Retain at most one replay per Repository until all exclusive source generations have completed.
+    /// A long-lived source fence can receive hundreds of foreground/BLE/UI refresh attempts; retaining one
+    /// callback per attempt caused an unbounded burst when the fence opened. Merge their typed intents here,
+    /// before any tasks are created, so one Repository produces exactly one widest replay.
+    func performAfterOpen(
+        for owner: AnyObject,
+        intent: RepositoryRefreshIntent,
+        operation: @escaping @MainActor (RepositoryRefreshIntent) -> Void
+    ) {
         guard blocksRefreshes else {
-            operation()
+            operation(intent)
             return
         }
         #if DEBUG
         deferredRequestCount += 1
         #endif
-        afterOpen.append(operation)
+        let key = ObjectIdentifier(owner)
+        if var deferred = afterOpen[key] {
+            deferred.intent = RepositoryRefreshIntent.merged(deferred.intent, intent)
+            afterOpen[key] = deferred
+        } else {
+            afterOpen[key] = DeferredRefresh(intent: intent, operation: operation)
+        }
     }
 }
 
@@ -286,10 +304,10 @@ private enum RepositoryRefreshRegistry {
             guard let repository, await repository.storeHandle() != nil else { return false }
             let barrier = RepositoryPublicationBarrier.shared
             guard barrier.beginRefreshIfAllowed() else {
-                barrier.performAfterOpen { [weak repository] in
+                barrier.performAfterOpen(for: repository, intent: intent) { [weak repository] replayIntent in
                     guard let repository else { return }
                     Task { @MainActor in
-                        _ = await repository.refresh(intent)
+                        _ = await repository.refresh(replayIntent)
                     }
                 }
                 return false
@@ -298,8 +316,7 @@ private enum RepositoryRefreshRegistry {
 
             let trace = PerformanceTrace.begin(intent.traceName)
             defer { PerformanceTrace.end(trace) }
-            await repository.refresh(days: intent.days)
-            return true
+            return await repository.refresh(days: intent.days)
         }
         entries[key] = Entry(repository: repository, coordinator: coordinator)
         return coordinator

@@ -43,6 +43,18 @@ struct HealthKitAnalysisRange: Equatable, Sendable {
     var publicationDays: Int {
         min(Self.maximumWindowDays, max(120, maxDays))
     }
+
+    func reconciledDays(now: Date = Date(), calendar input: Calendar = .current) -> ClosedRange<String> {
+        let calendar = input
+        let newest = calendar.startOfDay(for: now)
+        let oldest = calendar.date(byAdding: .day, value: -(maxDays - 1), to: newest) ?? newest
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: oldest)...formatter.string(from: newest)
+    }
 }
 
 enum HealthKitSyncPublication {
@@ -110,7 +122,7 @@ final class HealthKitPendingWindowDefaultsStore: HealthKitPendingWindowPersistin
 final class HealthKitScoringCoordinator: NSObject {
     typealias Operation = @MainActor (HealthKitSyncWindow) async -> Bool
     typealias Analysis = @MainActor (HealthKitSyncWindow) async -> Bool
-    typealias Publication = @MainActor (HealthKitSyncWindow) async -> Void
+    typealias Publication = @MainActor (HealthKitSyncWindow) async -> Bool
 
     static let shared = HealthKitScoringCoordinator(
         persistence: HealthKitPendingWindowDefaultsStore(key: "healthKit.pendingScoringWindow.v1"))
@@ -159,11 +171,10 @@ final class HealthKitScoringCoordinator: NSObject {
     /// analysis and publication and holds both fences throughout those phases.
     static func runAnalysisThenPublish(
         analyze: @escaping @MainActor () async -> Bool,
-        publish: @escaping @MainActor () async -> Void
+        publish: @escaping @MainActor () async -> Bool
     ) async -> Bool {
         guard await analyze() else { return false }
-        await publish()
-        return true
+        return await publish()
     }
 
     /// Durably widen the scoring dependency. This method is async because a direct caller must first close the
@@ -228,7 +239,7 @@ final class HealthKitScoringCoordinator: NSObject {
             guard await analyze(snapshot) else { return }
             guard revision == snapshotRevision else { continue }
 
-            await publish(snapshot)
+            guard await publish(snapshot) else { return }
             // Production offers cannot occur while the scoring lease is held. Keep the second check as a
             // defensive/test guard for any direct future caller that widens the journal during publication.
             guard revision == snapshotRevision else { continue }
@@ -247,7 +258,7 @@ final class HealthKitScoringCoordinator: NSObject {
     /// Backward-compatible operation-only seam used by existing coordinator tests. It receives all revision
     /// and fence guarantees; it simply has no separate publication phase.
     func runAndWait(operation: @escaping Operation) async {
-        await runAndWait(analyze: operation, publish: { _ in })
+        await runAndWait(analyze: operation, publish: { _ in true })
     }
 
     private func ensurePublicationBarrierHeld() async {
