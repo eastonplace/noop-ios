@@ -13,8 +13,8 @@ import WhoopStore
 /// - A WHOOP-import-owned day is excluded: the authoritative imported row already owns Home, and its value need
 ///   not equal NOOP's shadow calculation.
 /// - Apple Watch results must match the persisted `apple-health` row exactly.
-/// - NOOP-computed results must match a computed row, unless a durable user Recovery override owns that day; in
-///   that case the visible row in the SAME computed namespace must match the override instead.
+/// - NOOP-computed results must match the engine's stable canonical `my-whoop-noop` row, unless a durable user
+///   Recovery override owns that day; in that case the same canonical row must match the override instead.
 ///
 /// Any read failure or missing/mismatched durable result returns false. The HealthKit scoring journal and
 /// Repository publication fence then remain in place for an idempotent retry rather than exposing stale Home.
@@ -25,16 +25,6 @@ struct IntelligenceRecoveryPersistenceReceipt: Equatable, Sendable {
 
     var complete: Bool {
         storeAvailable && verifiedRecoveries == expectedRecoveries
-    }
-
-    private struct SourcedDaily {
-        let source: String
-        let row: DailyMetric
-    }
-
-    private struct SourcedOverride {
-        let source: String
-        let row: SleepRecoveryDailyOverride
     }
 
     @MainActor
@@ -63,27 +53,23 @@ struct IntelligenceRecoveryPersistenceReceipt: Equatable, Sendable {
                 appleRows.map { ($0.day, $0) },
                 uniquingKeysWith: { _, newest in newest })
 
-            var computedByDay: [String: [SourcedDaily]] = [:]
-            var overrideByDay: [String: [SourcedOverride]] = [:]
-            for source in repository.computedReadIds {
-                let rows = try await store.dailyMetrics(
-                    deviceId: source,
-                    from: firstDay,
-                    to: lastDay)
-                for row in rows {
-                    computedByDay[row.day, default: []].append(
-                        SourcedDaily(source: source, row: row))
-                }
-
-                let overrides = try await store.sleepRecoveryDailyOverrides(
-                    deviceId: source,
-                    from: firstDay,
-                    to: lastDay)
-                for override in overrides {
-                    overrideByDay[override.day, default: []].append(
-                        SourcedOverride(source: source, row: override))
-                }
-            }
+            // AppModel.deviceId is intentionally stable `my-whoop`; IntelligenceEngine always writes its
+            // computed results to that id's `-noop` sibling even after the Repository follows a re-paired strap.
+            let computedSource = Repository.whoopSource + "-noop"
+            let computedRows = try await store.dailyMetrics(
+                deviceId: computedSource,
+                from: firstDay,
+                to: lastDay)
+            let computedByDay = Dictionary(
+                computedRows.map { ($0.day, $0) },
+                uniquingKeysWith: { _, newest in newest })
+            let overrides = try await store.sleepRecoveryDailyOverrides(
+                deviceId: computedSource,
+                from: firstDay,
+                to: lastDay)
+            let overrideByDay = Dictionary(
+                overrides.map { ($0.day, $0) },
+                uniquingKeysWith: { _, newest in newest })
 
             var verified = 0
             for result in expected {
@@ -95,22 +81,13 @@ struct IntelligenceRecoveryPersistenceReceipt: Equatable, Sendable {
                     }
 
                 case .computed:
-                    let rows = computedByDay[result.day] ?? []
-                    let overrides = overrideByDay[result.day] ?? []
-                    if !overrides.isEmpty {
-                        // A durable manual recovery intentionally owns the visible field. Accept only when the
-                        // persisted row in that override's exact namespace reflects its value, including nil.
-                        if overrides.contains(where: { override in
-                            rows.contains(where: {
-                                $0.source == override.source
-                                    && sameOptional($0.row.recovery, override.row.recovery)
-                            })
-                        }) {
+                    guard let persisted = computedByDay[result.day] else { continue }
+                    if let override = overrideByDay[result.day] {
+                        // A durable manual recovery intentionally owns the visible field, including nil.
+                        if sameOptional(persisted.recovery, override.recovery) {
                             verified += 1
                         }
-                    } else if rows.contains(where: {
-                        approximatelyEqual($0.row.recovery, automatic)
-                    }) {
+                    } else if approximatelyEqual(persisted.recovery, automatic) {
                         verified += 1
                     }
 
