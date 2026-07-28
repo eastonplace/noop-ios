@@ -113,17 +113,25 @@ struct StrandiOSApp: App {
     }
 
     /// Drain the crash-safe HealthKit → Intelligence handoff. The scoring coordinator retains the widest
-    /// committed window until its exact analysis completes, then publishes Repository/Home/widgets while the
-    /// HealthKit import lease and Repository fence exclude every newer writer or unrelated refresh.
+    /// committed window until its exact analysis completes, every newly calculated Recovery is verified in
+    /// durable storage, and Repository/Home/widgets publish while the HealthKit import lease and Repository
+    /// fence exclude every newer writer or unrelated refresh.
     @MainActor
     private func drainCommittedHealthScoring() async {
         await HealthKitScoringCoordinator.shared.runAndWait(
             analyze: { window in
                 let range = HealthKitAnalysisRange(window: window)
-                return await model.intelligence.analyzeRecent(
-                    maxDays: range.maxDays,
-                    startOffset: range.startOffset,
-                    refreshRepository: false)
+                return await RepositoryRefreshContext.$disposition.withValue(.suppress) {
+                    await model.intelligence.analyzeRecentForPublication(
+                        maxDays: range.maxDays,
+                        startOffset: range.startOffset,
+                        refreshRepository: false,
+                        verifyDurableRecovery: { results in
+                            await IntelligenceRecoveryPersistenceReceipt.verify(
+                                results: results,
+                                repository: model.repo).complete
+                        })
+                }
             },
             publish: { window in
                 let range = HealthKitAnalysisRange(window: window)
