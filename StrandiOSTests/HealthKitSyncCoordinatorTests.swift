@@ -99,6 +99,20 @@ private final class GeneratedHeartRatePageLoader: HealthKitAnchoredPageLoading {
 
 final class HealthKitSyncCoordinatorTests: XCTestCase {
     @MainActor
+    private func makeScoring(
+        persistence: PendingWindowMemoryStore,
+        notificationCenter: NotificationCenter = NotificationCenter()
+    ) -> (HealthKitScoringCoordinator, RepositoryPublicationBarrier) {
+        let barrier = RepositoryPublicationBarrier()
+        return (
+            HealthKitScoringCoordinator(
+                persistence: persistence,
+                notificationCenter: notificationCenter,
+                publicationBarrier: barrier),
+            barrier)
+    }
+
+    @MainActor
     func testAnalysisFailureDoesNotPublishDerivedSurfaces() async {
         var analysisCalls = 0
         var publicationCalls = 0
@@ -160,7 +174,7 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
         let scoringPersistence = PendingWindowMemoryStore()
         let gate = AsyncGate()
         let notificationCenter = NotificationCenter()
-        let scoring = HealthKitScoringCoordinator(
+        let (scoring, barrier) = makeScoring(
             persistence: scoringPersistence,
             notificationCenter: notificationCenter)
         let recorder = CommittedWindowRecorder()
@@ -206,7 +220,8 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
         XCTAssertEqual(scoring.pending, a.union(b))
         XCTAssertEqual(scoringPersistence.value, a.union(b))
         XCTAssertEqual(recorder.windows, [a, a.union(b)],
-                       "each pre-import journal edge is durable; scoring still consumes only the final union")
+                       "each pre-import journal edge is durable; scoring consumes only the final union")
+        XCTAssertTrue(barrier.blocksRefreshes)
 
         var scored: [HealthKitSyncWindow] = []
         await scoring.runAndWait(operation: { window in
@@ -216,16 +231,19 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
         XCTAssertEqual(scored, [a.union(b)])
         XCTAssertNil(scoring.pending)
         XCTAssertNil(scoringPersistence.value)
+        XCTAssertFalse(barrier.blocksRefreshes)
     }
 
     @MainActor
-    func testScoringNotificationIsScopedToOriginatingCoordinator() throws {
+    func testScoringNotificationIsScopedToOriginatingCoordinator() async throws {
         let notificationCenter = NotificationCenter()
-        let observed = HealthKitScoringCoordinator(
-            persistence: PendingWindowMemoryStore(),
+        let observedPersistence = PendingWindowMemoryStore()
+        let unrelatedPersistence = PendingWindowMemoryStore()
+        let (observed, _) = makeScoring(
+            persistence: observedPersistence,
             notificationCenter: notificationCenter)
-        let unrelated = HealthKitScoringCoordinator(
-            persistence: PendingWindowMemoryStore(),
+        let (unrelated, _) = makeScoring(
+            persistence: unrelatedPersistence,
             notificationCenter: notificationCenter)
         let recorder = CommittedWindowRecorder()
         let token = notificationCenter.addObserver(
@@ -245,18 +263,43 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
             start: Date(timeIntervalSince1970: 300),
             end: Date(timeIntervalSince1970: 400))
 
-        try unrelated.offer(first)
+        try await unrelated.offer(first)
         XCTAssertTrue(recorder.windows.isEmpty,
                       "preview/test coordinators must not wake the production scoring observer")
-        try observed.offer(second)
+        try await observed.offer(second)
         XCTAssertEqual(recorder.windows, [second])
+
+        await unrelated.runAndWait(operation: { _ in true })
+        await observed.runAndWait(operation: { _ in true })
+    }
+
+    @MainActor
+    func testRestoredScoringJournalClosesPublicationBeforeDrain() async throws {
+        let window = HealthKitSyncWindow(
+            start: Date(timeIntervalSince1970: 100),
+            end: Date(timeIntervalSince1970: 200))
+        let persistence = PendingWindowMemoryStore()
+        persistence.value = window
+        let (scoring, barrier) = makeScoring(persistence: persistence)
+
+        XCTAssertEqual(scoring.pending, window)
+        XCTAssertTrue(barrier.blocksRefreshes,
+                      "launch must fence Repository before AppModel schedules its initial refresh")
+
+        await scoring.runAndWait(operation: { candidate in
+            XCTAssertEqual(candidate, window)
+            return true
+        })
+        XCTAssertNil(scoring.pending)
+        XCTAssertNil(persistence.value)
+        XCTAssertFalse(barrier.blocksRefreshes)
     }
 
     @MainActor
     func testFailedAggregationSurvivesRelaunchAndLeavesDurableScoringWork() async throws {
         let importPersistence = PendingWindowMemoryStore()
         let scoringPersistence = PendingWindowMemoryStore()
-        let scoring = HealthKitScoringCoordinator(persistence: scoringPersistence)
+        let (scoring, barrier) = makeScoring(persistence: scoringPersistence)
         let window = HealthKitSyncWindow(
             start: Date(timeIntervalSince1970: 100),
             end: Date(timeIntervalSince1970: 200))
@@ -271,6 +314,7 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
         XCTAssertEqual(scoring.pending, window,
                        "a failure after local commit/write-back must not strand Recovery scoring")
         XCTAssertEqual(scoringPersistence.value, window)
+        XCTAssertTrue(barrier.blocksRefreshes)
 
         var scored: [HealthKitSyncWindow] = []
         await scoring.runAndWait(operation: { candidate in
@@ -278,6 +322,7 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
             return true
         })
         XCTAssertEqual(scored, [window])
+        XCTAssertFalse(barrier.blocksRefreshes)
 
         var recoveredCalls: [HealthKitSyncWindow] = []
         let recovered = HealthKitSyncCoordinator(
@@ -293,6 +338,8 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
         XCTAssertNil(importPersistence.value)
         XCTAssertEqual(scoring.pending, window,
                        "the successful replay creates a fresh scoring edge after the prior one was consumed")
+        XCTAssertTrue(barrier.blocksRefreshes)
+        await scoring.runAndWait(operation: { _ in true })
     }
 
     @MainActor
@@ -300,7 +347,7 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
         let importPersistence = PendingWindowMemoryStore()
         let scoringPersistence = PendingWindowMemoryStore()
         scoringPersistence.failNextSave = true
-        let scoring = HealthKitScoringCoordinator(persistence: scoringPersistence)
+        let (scoring, barrier) = makeScoring(persistence: scoringPersistence)
         var operationCount = 0
         let coordinator = HealthKitSyncCoordinator(
             persistence: importPersistence,
@@ -319,21 +366,25 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
                        "import must not begin before its scoring dependency is durable")
         XCTAssertEqual(importPersistence.value, window)
         XCTAssertNil(scoring.pending)
+        XCTAssertFalse(barrier.blocksRefreshes,
+                       "a failed pre-journal with no durable work must reopen publication")
 
         await coordinator.runAndWait()
         XCTAssertEqual(operationCount, 1, "the idempotent import operation runs after handoff recovery")
         XCTAssertNil(importPersistence.value)
         XCTAssertEqual(scoring.pending, window)
+        XCTAssertTrue(barrier.blocksRefreshes)
+        await scoring.runAndWait(operation: { _ in true })
     }
 
     @MainActor
-    func testFailedScoringRetainsJournalUntilLaterDrain() async throws {
+    func testFailedScoringRetainsJournalAndPublicationFenceUntilLaterDrain() async throws {
         let persistence = PendingWindowMemoryStore()
-        let scoring = HealthKitScoringCoordinator(persistence: persistence)
+        let (scoring, barrier) = makeScoring(persistence: persistence)
         let window = HealthKitSyncWindow(
             start: Date(timeIntervalSince1970: 100),
             end: Date(timeIntervalSince1970: 200))
-        try scoring.offer(window)
+        try await scoring.offer(window)
 
         var attempts = 0
         await scoring.runAndWait(operation: { _ in
@@ -343,6 +394,7 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
         XCTAssertEqual(attempts, 1)
         XCTAssertEqual(scoring.pending, window)
         XCTAssertEqual(persistence.value, window)
+        XCTAssertTrue(barrier.blocksRefreshes)
 
         await scoring.runAndWait(operation: { _ in
             attempts += 1
@@ -351,12 +403,13 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
         XCTAssertEqual(attempts, 2)
         XCTAssertNil(scoring.pending)
         XCTAssertNil(persistence.value)
+        XCTAssertFalse(barrier.blocksRefreshes)
     }
 
     @MainActor
     func testPendingPersistenceFailureDoesNotStartOrLoseInMemoryWork() async {
         let importPersistence = PendingWindowMemoryStore()
-        let scoring = HealthKitScoringCoordinator(persistence: PendingWindowMemoryStore())
+        let (scoring, barrier) = makeScoring(persistence: PendingWindowMemoryStore())
         importPersistence.failNextSave = true
         var operationCount = 0
         let coordinator = HealthKitSyncCoordinator(
@@ -377,6 +430,7 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
         XCTAssertNil(coordinator.pending)
         XCTAssertNil(importPersistence.value)
         XCTAssertNil(scoring.pending)
+        XCTAssertFalse(barrier.blocksRefreshes)
     }
 
     func testAnalysisRangeCoversRecentCommittedDays() throws {
@@ -442,7 +496,7 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
         let pager = HealthKitAnchorPager(loader: loader, pageLimit: 500)
         let type = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .heartRate))
 
-        let result = try await pager.scan(type: type, predicate: nil, priorAnchor: nil)
+        let result = try await pager.scan(type: type, predicate: nil, anchor: nil)
 
         XCTAssertEqual(result.sampleCount, total)
         XCTAssertEqual(result.pageCount, 41, "An exact multiple requires one final empty page")
@@ -460,7 +514,7 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
         let type = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .heartRate))
 
         do {
-            _ = try await pager.scan(type: type, predicate: nil, priorAnchor: nil)
+            _ = try await pager.scan(type: type, predicate: nil, anchor: nil)
             XCTFail("Expected the injected page fault")
         } catch GeneratedHeartRatePageLoader.Failure.injected {
             XCTAssertEqual(loader.requestedLimits.count, 2)
