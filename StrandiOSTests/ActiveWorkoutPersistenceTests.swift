@@ -120,6 +120,31 @@ final class ActiveWorkoutPersistenceTests: XCTestCase {
         XCTAssertEqual(ActiveWorkoutPersistence.load(from: defaults), later)
     }
 
+    func testActiveGpsSnapshotRoundTripsAndClears() throws {
+        let defaults = freshDefaults()
+        let points = [RouteMath.LatLng(40.7580, -73.9855), RouteMath.LatLng(40.7584, -73.9848)]
+        let snapshot = ActiveGpsWorkoutPersistence.Snapshot(
+            sessionID: UUID(), workoutStartMs: 1_700_000_000_000,
+            encodedPolyline: RouteMath.encode(points), distanceM: RouteMath.totalMeters(points),
+            rawFixCount: 3, acceptedPointCount: points.count, recordingWasActive: true, hadTerminatedGap: false
+        )
+        ActiveGpsWorkoutPersistence.store(snapshot, into: defaults)
+        XCTAssertEqual(try XCTUnwrap(ActiveGpsWorkoutPersistence.load(from: defaults)), snapshot)
+        ActiveGpsWorkoutPersistence.clear(from: defaults)
+        XCTAssertNil(ActiveGpsWorkoutPersistence.load(from: defaults))
+    }
+
+    func testActiveGpsSnapshotRejectsCorruptPolylineAndMismatchedPointCount() {
+        let defaults = freshDefaults()
+        let snapshot = ActiveGpsWorkoutPersistence.Snapshot(
+            sessionID: UUID(), workoutStartMs: 1_700_000_000_000,
+            encodedPolyline: "bad", distanceM: 10, rawFixCount: 2, acceptedPointCount: 2,
+            recordingWasActive: true, hadTerminatedGap: false
+        )
+        ActiveGpsWorkoutPersistence.store(snapshot, into: defaults)
+        XCTAssertNil(ActiveGpsWorkoutPersistence.load(from: defaults))
+    }
+
     func testCoalescedWriterKeepsNewestSnapshot() {
         let defaults = freshDefaults()
         for count in 1...200 {
