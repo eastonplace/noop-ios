@@ -166,7 +166,7 @@ struct RootTabView: View {
         case .live:
             quickScreen(LiveView())
         case .workout:
-            quickScreen(WorkoutsView())
+            QuickWorkoutFlow(onClose: { quickAction = nil })
         case .journal:
             quickScreen(CoachingRootView())
         case .breathe:
@@ -512,6 +512,30 @@ private struct MoreCategoryView: View {
 private enum QuickAction: Int, Identifiable {
     case menu, live, workout, journal, breathe
     var id: Int { rawValue }
+}
+
+/// The quick-action route is intentionally separate from the history screen. It observes only the active
+/// workout state it needs, chooses a sport once, and then replaces itself with the existing live workout.
+private struct QuickWorkoutFlow: View {
+    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var live: LiveState
+    let onClose: () -> Void
+    @State private var showLiveWorkout = false
+
+    var body: some View {
+        StartWorkoutSheet { sport in
+            model.startWorkout(sport: sport)
+            showLiveWorkout = true
+        }
+        .sheet(isPresented: $showLiveWorkout, onDismiss: onClose) {
+            LiveWorkoutView(onClose: onClose)
+                .environmentObject(model)
+                .environmentObject(live)
+        }
+        .onAppear {
+            if model.activeWorkout != nil { showLiveWorkout = true }
+        }
+    }
 }
 
 private struct QuickActionSheet: View {
