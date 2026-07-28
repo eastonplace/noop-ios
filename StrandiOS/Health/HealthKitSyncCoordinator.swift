@@ -97,14 +97,30 @@ final class HealthKitPendingWindowDefaultsStore: HealthKitPendingWindowPersistin
 /// Durable handoff from HealthKit ingestion to IntelligenceEngine scoring. The import coordinator writes this
 /// journal before it clears its own pending window. If iOS suspends or kills the process before the app-level
 /// scoring task runs, the next app mount drains the same union instead of waiting for the 15-minute cadence.
+///
+/// The coordinator also owns the import/scoring lease. HealthKit rows must never change while a scored
+/// generation is being published: otherwise a second observer wake can commit newer HRV/RHR after analysis but
+/// before Repository refresh, briefly exposing fresh vitals with stale or blank Recovery. Imports and the full
+/// analysis→Repository/widget publication transaction are therefore mutually exclusive, while additional
+/// requested windows remain durably unioned in their journals.
 @MainActor
 final class HealthKitScoringCoordinator: NSObject {
     typealias Operation = @MainActor (HealthKitSyncWindow) async -> Bool
-    typealias Analysis = @MainActor () async -> Bool
-    typealias Publication = @MainActor () async -> Void
+    typealias Analysis = @MainActor (HealthKitSyncWindow) async -> Bool
+    typealias Publication = @MainActor (HealthKitSyncWindow) async -> Void
 
     static let shared = HealthKitScoringCoordinator(
         persistence: HealthKitPendingWindowDefaultsStore(key: "healthKit.pendingScoringWindow.v1"))
+
+    private enum PipelineLease: Equatable {
+        case importing
+        case scoring
+    }
+
+    private struct LeaseWaiter {
+        let kind: PipelineLease
+        let continuation: CheckedContinuation<Void, Never>
+    }
 
     private let persistence: any HealthKitPendingWindowPersisting
     private let notificationCenter: NotificationCenter
@@ -112,6 +128,8 @@ final class HealthKitScoringCoordinator: NSObject {
     private(set) var isRunning = false
     private var revision: UInt64 = 0
     private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var activeLease: PipelineLease?
+    private var leaseWaiters: [LeaseWaiter] = []
 
     init(
         persistence: any HealthKitPendingWindowPersisting,
@@ -123,12 +141,12 @@ final class HealthKitScoringCoordinator: NSObject {
         super.init()
     }
 
-    /// Keep the publication boundary after the derived analysis has completed. A failed analysis leaves
-    /// the durable scoring journal pending in `runAndWait`; publishing here would make Home/widgets look
-    /// current while they still contain the previous Recovery generation.
+    /// Compatibility helper for focused tests and callers that have no competing producer. Production uses
+    /// the coordinator-owned `runAndWait(analyze:publish:)`, which can validate the scoring revision between
+    /// analysis and publication and holds the pipeline lease throughout both phases.
     static func runAnalysisThenPublish(
-        analyze: @escaping Analysis,
-        publish: @escaping Publication
+        analyze: @escaping @MainActor () async -> Bool,
+        publish: @escaping @MainActor () async -> Void
     ) async -> Bool {
         guard await analyze() else { return false }
         await publish()
@@ -146,13 +164,30 @@ final class HealthKitScoringCoordinator: NSObject {
             userInfo: [HealthKitSyncPublication.windowKey: widened])
     }
 
-    func runAndWait(operation: @escaping Operation) async {
+    /// Run one importer while excluding scoring publication. A second import request can still widen the
+    /// import coordinator's in-memory/durable window while the operation awaits; it will be replayed before
+    /// this lease is released. The scoring notification may arrive immediately, but its drain waits here.
+    func withImportLease<T>(_ operation: @MainActor () async -> T) async -> T {
+        await acquireLease(.importing)
+        defer { releaseLease(.importing) }
+        return await operation()
+    }
+
+    /// Drain the durable scoring union. The revision check occurs after analysis and before publication, so a
+    /// widened window never publishes the older analyzed generation. The scoring lease also excludes the only
+    /// production writer of these HealthKit rows for the entire Repository/widget publication phase.
+    func runAndWait(
+        analyze: @escaping Analysis,
+        publish: @escaping Publication
+    ) async {
         if isRunning {
             await withCheckedContinuation { waiters.append($0) }
             return
         }
         isRunning = true
+        await acquireLease(.scoring)
         defer {
+            releaseLease(.scoring)
             isRunning = false
             let continuations = waiters
             waiters.removeAll()
@@ -161,17 +196,50 @@ final class HealthKitScoringCoordinator: NSObject {
 
         while let snapshot = pending {
             let snapshotRevision = revision
-            guard await operation(snapshot) else { return }
+            guard await analyze(snapshot) else { return }
             guard revision == snapshotRevision else { continue }
+
+            await publish(snapshot)
+            // Production offers cannot occur while the scoring lease is held. Keep the second check as a
+            // defensive/test guard for any direct future caller that bypasses the import coordinator.
+            guard revision == snapshotRevision else { continue }
+
             do {
                 try persistence.save(nil)
                 pending = nil
             } catch {
-                // The derived publication may already be correct, but retaining the journal is conservative:
-                // the next mount repeats the idempotent analysis rather than losing the handoff.
+                // Publication may already be correct, but retaining the journal is conservative: the next
+                // mount repeats the idempotent analysis rather than losing the handoff.
                 return
             }
         }
+    }
+
+    /// Backward-compatible operation-only seam used by existing coordinator tests. It receives all revision
+    /// and lease guarantees; it simply has no separate publication phase.
+    func runAndWait(operation: @escaping Operation) async {
+        await runAndWait(analyze: operation, publish: { _ in })
+    }
+
+    private func acquireLease(_ kind: PipelineLease) async {
+        guard activeLease != nil else {
+            activeLease = kind
+            return
+        }
+        await withCheckedContinuation { continuation in
+            leaseWaiters.append(LeaseWaiter(kind: kind, continuation: continuation))
+        }
+    }
+
+    private func releaseLease(_ kind: PipelineLease) {
+        precondition(activeLease == kind, "HealthKit pipeline lease released by non-owner")
+        guard !leaseWaiters.isEmpty else {
+            activeLease = nil
+            return
+        }
+        let next = leaseWaiters.removeFirst()
+        activeLease = next.kind
+        next.continuation.resume()
     }
 }
 
@@ -234,23 +302,35 @@ final class HealthKitSyncCoordinator {
             continuations.forEach { $0.resume() }
         }
 
-        while let snapshot = pending {
-            let snapshotRevision = revision
-            guard await operation(snapshot) else { return }
+        await scoringCoordinator.withImportLease {
+            while let snapshot = pending {
+                let snapshotRevision = revision
+                do {
+                    // Journal the scoring dependency BEFORE any import/write-back awaits. If local rows commit
+                    // and a later outbound HealthKit write fails—or the process is suspended—the score request
+                    // already survives. Scoring itself cannot begin until this import lease is released.
+                    try scoringCoordinator.offer(snapshot)
+                } catch {
+                    return
+                }
 
-            // An overlapping wake widened/replaced the pending interval while the operation awaited.
-            // Keep the union and run it once more; only the exact successfully-processed revision may hand
-            // off a scoring journal and clear the durable import window.
-            guard revision == snapshotRevision else { continue }
-            do {
-                // Ordering is the crash-safety contract: the derived-score work is durable before imported
-                // work is acknowledged. A kill at any later instruction leaves at least one journal to replay.
-                try scoringCoordinator.offer(snapshot)
-                try persistence.save(nil)
-                pending = nil
-            } catch {
-                // Clearing/handoff failure is conservative: repeat the idempotent aggregation on next wake.
-                return
+                guard await operation(snapshot) else {
+                    // Import work remains pending for retry, while the durable scoring journal may safely
+                    // reconcile either unchanged rows or a partially committed transaction.
+                    return
+                }
+
+                // An overlapping wake widened/replaced the pending interval while the operation awaited. Keep
+                // the import lease and process the union before any scoring publication can begin.
+                guard revision == snapshotRevision else { continue }
+                do {
+                    try persistence.save(nil)
+                    pending = nil
+                } catch {
+                    // Clearing failure is conservative: repeat the idempotent import on the next wake. The
+                    // scoring dependency is already durable and will run after this lease is released.
+                    return
+                }
             }
         }
     }
