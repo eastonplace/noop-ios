@@ -67,6 +67,17 @@ final class IntelligenceRecoveryPersistenceReceiptTests: XCTestCase {
         XCTAssertEqual(receipt.verifiedRecoveries, 0)
     }
 
+    func testAuthoritativeWhoopImportDoesNotRequireShadowComputedMatch() async throws {
+        let repository = Repository(deviceId: Repository.whoopSource)
+        let receipt = await IntelligenceRecoveryPersistenceReceipt.verify(
+            results: [result(day: "2026-07-27", recovery: 66, source: .whoopImport)],
+            repository: repository)
+
+        XCTAssertTrue(receipt.complete,
+                      "WHOOP's imported row owns Home; its value need not equal NOOP's shadow calculation")
+        XCTAssertEqual(receipt.expectedRecoveries, 0)
+    }
+
     func testAppleRecoveryMustExistAndMatchInAppleNamespace() async throws {
         let store = try await WhoopStore.inMemory()
         let repository = Repository(deviceId: Repository.whoopSource)
