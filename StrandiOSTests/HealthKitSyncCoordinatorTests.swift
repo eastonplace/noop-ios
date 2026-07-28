@@ -205,14 +205,14 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
         XCTAssertNil(importPersistence.value)
         XCTAssertEqual(scoring.pending, a.union(b))
         XCTAssertEqual(scoringPersistence.value, a.union(b))
-        XCTAssertEqual(recorder.windows, [a.union(b)],
-                       "only the widest committed generation triggers app-level scoring")
+        XCTAssertEqual(recorder.windows, [a, a.union(b)],
+                       "each pre-import journal edge is durable; scoring still consumes only the final union")
 
         var scored: [HealthKitSyncWindow] = []
-        await scoring.runAndWait { window in
+        await scoring.runAndWait(operation: { window in
             scored.append(window)
             return true
-        }
+        })
         XCTAssertEqual(scored, [a.union(b)])
         XCTAssertNil(scoring.pending)
         XCTAssertNil(scoringPersistence.value)
@@ -253,7 +253,7 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
     }
 
     @MainActor
-    func testFailedAggregationSurvivesRelaunchAndCreatesNoScoringWork() async throws {
+    func testFailedAggregationSurvivesRelaunchAndLeavesDurableScoringWork() async throws {
         let importPersistence = PendingWindowMemoryStore()
         let scoringPersistence = PendingWindowMemoryStore()
         let scoring = HealthKitScoringCoordinator(persistence: scoringPersistence)
@@ -266,8 +266,18 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
         ) { _ in false }
         try failing.offer(window)
         await failing.runAndWait()
+
         XCTAssertEqual(importPersistence.value, window)
-        XCTAssertNil(scoring.pending)
+        XCTAssertEqual(scoring.pending, window,
+                       "a failure after local commit/write-back must not strand Recovery scoring")
+        XCTAssertEqual(scoringPersistence.value, window)
+
+        var scored: [HealthKitSyncWindow] = []
+        await scoring.runAndWait(operation: { candidate in
+            scored.append(candidate)
+            return true
+        })
+        XCTAssertEqual(scored, [window])
 
         var recoveredCalls: [HealthKitSyncWindow] = []
         let recovered = HealthKitSyncCoordinator(
@@ -281,7 +291,8 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(recoveredCalls, [window])
         XCTAssertNil(importPersistence.value)
-        XCTAssertEqual(scoring.pending, window)
+        XCTAssertEqual(scoring.pending, window,
+                       "the successful replay creates a fresh scoring edge after the prior one was consumed")
     }
 
     @MainActor
@@ -304,13 +315,13 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
 
         try coordinator.offer(window)
         await coordinator.runAndWait()
-        XCTAssertEqual(operationCount, 1)
-        XCTAssertEqual(importPersistence.value, window,
-                       "import work is not acknowledged before scoring work is durable")
+        XCTAssertEqual(operationCount, 0,
+                       "import must not begin before its scoring dependency is durable")
+        XCTAssertEqual(importPersistence.value, window)
         XCTAssertNil(scoring.pending)
 
         await coordinator.runAndWait()
-        XCTAssertEqual(operationCount, 2, "the idempotent import operation replays")
+        XCTAssertEqual(operationCount, 1, "the idempotent import operation runs after handoff recovery")
         XCTAssertNil(importPersistence.value)
         XCTAssertEqual(scoring.pending, window)
     }
@@ -325,18 +336,18 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
         try scoring.offer(window)
 
         var attempts = 0
-        await scoring.runAndWait { _ in
+        await scoring.runAndWait(operation: { _ in
             attempts += 1
             return false
-        }
+        })
         XCTAssertEqual(attempts, 1)
         XCTAssertEqual(scoring.pending, window)
         XCTAssertEqual(persistence.value, window)
 
-        await scoring.runAndWait { _ in
+        await scoring.runAndWait(operation: { _ in
             attempts += 1
             return true
-        }
+        })
         XCTAssertEqual(attempts, 2)
         XCTAssertNil(scoring.pending)
         XCTAssertNil(persistence.value)
@@ -365,6 +376,7 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
         XCTAssertEqual(operationCount, 0)
         XCTAssertNil(coordinator.pending)
         XCTAssertNil(importPersistence.value)
+        XCTAssertNil(scoring.pending)
     }
 
     func testAnalysisRangeCoversRecentCommittedDays() throws {
