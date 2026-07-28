@@ -6,6 +6,7 @@ final class IntelligenceAnalysisDurableRetryTests: XCTestCase {
     private final class Owner {}
     private enum TestFailure: Error { case simulated }
 
+    @MainActor
     private final class Gate {
         private var continuation: CheckedContinuation<Void, Never>?
 

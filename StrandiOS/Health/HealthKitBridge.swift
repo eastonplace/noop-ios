@@ -707,11 +707,6 @@ final class HealthKitBridge: ObservableObject {
                 _ = try await store.upsertWorkouts(rows, deviceId: appleDeviceId)
             }
             try await writeBack(whoopStore: store)
-            // `replaceAppleHealthRange` committed durable rows, but Repository is an
-            // in-memory projection. Refresh it before declaring this sync successful
-            // so Today, Health, Home, and widget observers see the same generation
-            // that was written to SQLite rather than waiting for an unrelated sync.
-            _ = await repo.refresh(.recentDashboard(days: 120))
             lastSync = Date()
             lastError = nil
             return true

@@ -100,6 +100,8 @@ final class HealthKitPendingWindowDefaultsStore: HealthKitPendingWindowPersistin
 @MainActor
 final class HealthKitScoringCoordinator: NSObject {
     typealias Operation = @MainActor (HealthKitSyncWindow) async -> Bool
+    typealias Analysis = @MainActor () async -> Bool
+    typealias Publication = @MainActor () async -> Void
 
     static let shared = HealthKitScoringCoordinator(
         persistence: HealthKitPendingWindowDefaultsStore(key: "healthKit.pendingScoringWindow.v1"))
@@ -119,6 +121,18 @@ final class HealthKitScoringCoordinator: NSObject {
         self.notificationCenter = notificationCenter
         pending = persistence.load()
         super.init()
+    }
+
+    /// Keep the publication boundary after the derived analysis has completed. A failed analysis leaves
+    /// the durable scoring journal pending in `runAndWait`; publishing here would make Home/widgets look
+    /// current while they still contain the previous Recovery generation.
+    static func runAnalysisThenPublish(
+        analyze: @escaping Analysis,
+        publish: @escaping Publication
+    ) async -> Bool {
+        guard await analyze() else { return false }
+        await publish()
+        return true
     }
 
     func offer(_ window: HealthKitSyncWindow) throws {

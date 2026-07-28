@@ -112,15 +112,19 @@ struct StrandiOSApp: App {
     private func drainCommittedHealthScoring() async {
         await HealthKitScoringCoordinator.shared.runAndWait { window in
             let range = HealthKitAnalysisRange(window: window)
-            await model.intelligence.analyzeRecent(
-                maxDays: range.maxDays,
-                startOffset: range.startOffset,
-                refreshRepository: false)
-            _ = await model.repo.refresh(.recentDashboard(days: range.publicationDays))
-            refreshExternalSurfaceDay()
-            driveLiveActivity()
-            await WidgetSnapshot.publish(from: model)
-            return true
+            return await HealthKitScoringCoordinator.runAnalysisThenPublish(
+                analyze: {
+                    await model.intelligence.analyzeRecent(
+                        maxDays: range.maxDays,
+                        startOffset: range.startOffset,
+                        refreshRepository: false)
+                },
+                publish: {
+                    _ = await model.repo.refresh(.recentDashboard(days: range.publicationDays))
+                    refreshExternalSurfaceDay()
+                    driveLiveActivity()
+                    await WidgetSnapshot.publish(from: model)
+                })
         }
     }
 

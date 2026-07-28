@@ -98,6 +98,42 @@ private final class GeneratedHeartRatePageLoader: HealthKitAnchoredPageLoading {
 }
 
 final class HealthKitSyncCoordinatorTests: XCTestCase {
+    @MainActor
+    func testAnalysisFailureDoesNotPublishDerivedSurfaces() async {
+        var analysisCalls = 0
+        var publicationCalls = 0
+
+        let completed = await HealthKitScoringCoordinator.runAnalysisThenPublish(
+            analyze: {
+                analysisCalls += 1
+                return false
+            },
+            publish: {
+                publicationCalls += 1
+            })
+
+        XCTAssertFalse(completed)
+        XCTAssertEqual(analysisCalls, 1)
+        XCTAssertEqual(publicationCalls, 0)
+    }
+
+    @MainActor
+    func testSuccessfulAnalysisPublishesExactlyOnceAfterAnalysis() async {
+        var events: [String] = []
+
+        let completed = await HealthKitScoringCoordinator.runAnalysisThenPublish(
+            analyze: {
+                events.append("analysis")
+                return true
+            },
+            publish: {
+                events.append("publication")
+            })
+
+        XCTAssertTrue(completed)
+        XCTAssertEqual(events, ["analysis", "publication"])
+    }
+
     private func newYorkCalendar() throws -> Calendar {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "America/New_York"))

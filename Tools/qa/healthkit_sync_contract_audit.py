@@ -31,6 +31,8 @@ try:
     require(
         "StrandiOS/Health/HealthKitSyncCoordinator.swift",
         "final class HealthKitSyncCoordinator",
+        "static func runAnalysisThenPublish",
+        "guard await analyze() else { return false }",
         "try persistence.save(widened)",
         "guard revision == snapshotRevision else { continue }",
         "final class HealthKitAnchorPager",
@@ -58,6 +60,14 @@ try:
         "Live HealthKit import owns daily Apple projections and Apple workouts only",
         "readTypes.compactMap { $0 as? HKSampleType }",
     )
+    forbid(
+        "StrandiOS/Health/HealthKitBridge.swift",
+        "_ = await repo.refresh(.recentDashboard(days: 120))",
+    )
+    require(
+        "StrandiOS/App/StrandiOSApp.swift",
+        "HealthKitScoringCoordinator.runAnalysisThenPublish",
+    )
     require(
         "Packages/WhoopStore/Sources/WhoopStore/HealthKitAuthoritativeStore.swift",
         "struct HealthKitObjectIdentity",
@@ -80,8 +90,10 @@ try:
     )
     require(
         "StrandiOSTests/HealthKitSyncCoordinatorTests.swift",
-        "testObserverBWidensPendingWindowWhileObserverAIsSyncing",
-        "testFailedAggregationSurvivesRelaunchAndRetries",
+        "testObserverBWidensImportAndPublishesOneDurableScoringUnion",
+        "testFailedAggregationSurvivesRelaunchAndCreatesNoScoringWork",
+        "testAnalysisFailureDoesNotPublishDerivedSurfaces",
+        "testSuccessfulAnalysisPublishesExactlyOnceAfterAnalysis",
         "testPendingPersistenceFailureDoesNotStartOrLoseInMemoryWork",
         "testInitialLargeHistoryIsPagedInBoundedBatches",
         "testPagingFailureDoesNotProduceACommittableFinalAnchor",
