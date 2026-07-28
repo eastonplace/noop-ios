@@ -340,6 +340,8 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
     /// changes the route. `rawFixCount` is the running count of raw fixes seen (accepted + rejected) so the
     /// line can show the filter's accept rate; reset on `start`.
     var workoutsLog: ((String) -> Void)?
+    /// This is an action-only checkpoint hook; it does not expose the recorder as a broad publisher.
+    var onCheckpoint: (() -> Void)?
     private var rawFixCount = 0
 
     override init() {
@@ -405,6 +407,32 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
                             distanceM: RouteMath.totalMeters(track))
     }
 
+    func activeSnapshot(sessionID: UUID, hadTerminatedGap: Bool = false) -> ActiveGpsWorkoutPersistence.Snapshot {
+        ActiveGpsWorkoutPersistence.Snapshot(
+            sessionID: sessionID, workoutStartMs: startMs, encodedPolyline: RouteMath.encode(track),
+            distanceM: distanceM, rawFixCount: rawFixCount, acceptedPointCount: track.count,
+            recordingWasActive: isRecording, hadTerminatedGap: hadTerminatedGap
+        )
+    }
+
+    /// Preserve only the pre-termination route. Resuming uses this foreground process; it never implies
+    /// CoreLocation kept recording while NOOP was closed.
+    func restore(_ snapshot: ActiveGpsWorkoutPersistence.Snapshot) {
+        let points = RouteMath.decode(snapshot.encodedPolyline)
+        guard points.count == snapshot.acceptedPointCount else { return }
+        track = points
+        startMs = snapshot.workoutStartMs
+        rawFixCount = snapshot.rawFixCount
+        pointCount = points.count
+        distanceM = snapshot.distanceM
+        let elapsed = Double(Int64(Date().timeIntervalSince1970 * 1000) - startMs) / 1000
+        paceSecPerKm = RouteMath.paceSecPerKm(meters: distanceM, seconds: elapsed)
+        isRecording = snapshot.recordingWasActive
+        if isRecording, manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways {
+            beginUpdates()
+        }
+    }
+
     // MARK: Updates
 
     fileprivate func beginUpdates() {
@@ -439,6 +467,7 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
             workoutsLog(WorkoutsTrace.gpsLine(rawFixes: rawFixCount, acceptedPoints: pointCount,
                                               distanceM: distanceM))
         }
+        onCheckpoint?()
     }
 }
 

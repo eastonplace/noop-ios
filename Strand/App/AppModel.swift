@@ -371,6 +371,7 @@ final class AppModel: ObservableObject {
         // Physical-input + wear hooks (fired live by FrameRouter).
         live.onDoubleTap = { [weak self] in self?.handleDoubleTap() }
         live.onWristChange = { [weak self] worn in self?.handleWristChange(worn) }
+        gpsRecorder.onCheckpoint = { [weak self] in self?.persistActiveGpsWorkout() }
         // Strap battery alerts (#368): low-battery warning + full-charge note. The notifier self-gates
         // on the user's setting and the OS authorization, and carries its own persisted once-per-
         // crossing state, so feeding it every battery reading is safe.
@@ -705,6 +706,7 @@ final class AppModel: ObservableObject {
         activeWorkoutIsGps = WorkoutCatalog.sport(named: resolved)?.isDistanceSport ?? false
         if activeWorkoutIsGps {
             gpsRecorder.start(startMs: Int64(started.timeIntervalSince1970 * 1000))
+            persistActiveGpsWorkout(force: true)
         }
         // Make the session durable from the first instant (#529): persist it now so an OS kill right
         // after Start , before any HR sample lands , can still be rehydrated + ended on relaunch.
@@ -809,6 +811,12 @@ final class AppModel: ObservableObject {
         return accepted
     }
 
+    private func persistActiveGpsWorkout(force: Bool = false) {
+        guard let workout = activeWorkout, activeWorkoutIsGps else { return }
+        let snapshot = gpsRecorder.activeSnapshot(sessionID: workout.sessionID)
+        if force || snapshot.acceptedPointCount > 0 { ActiveGpsWorkoutPersistence.store(snapshot) }
+    }
+
     /// If a manual workout was in flight when iOS killed the app, rebuild `activeWorkout` from the durable
     /// snapshot so reopening doesn't lose it , the session can still be ended + saved (#529). The Apple
     /// analogue of Android's `rehydrateActiveNonGpsWorkout`. No-op when a workout is already live (a live
@@ -820,11 +828,19 @@ final class AppModel: ObservableObject {
                               sport: snap.sport, maxHR: Double(profile.hrMax))
         w.restore(samples: snap.samples)
         activeWorkout = w
+        if let gps = ActiveGpsWorkoutPersistence.load(), gps.sessionID == snap.sessionID {
+            activeWorkoutIsGps = true
+            gpsRecorder.restore(gps)
+            if gps.recordingWasActive {
+                workoutDurabilityWarning = String(localized: "GPS paused while NOOP was closed. Your captured route was restored and recording can resume, but the gap is not estimated.")
+            }
+        }
     }
 
     /// Flushes the in-flight workout before iOS suspends the process.
     @discardableResult
     func flushActiveWorkoutSnapshot() -> Bool {
+        persistActiveGpsWorkout(force: true)
         if persistActiveWorkout(force: true, synchronously: true) { return true }
         return persistActiveWorkout(force: true, synchronously: true)
     }
@@ -933,10 +949,17 @@ final class AppModel: ObservableObject {
                 workoutFinishState = .failed(WorkoutFinishError.readBackMissing.localizedDescription)
                 return .failure(.readBackMissing)
             }
-            if let route { RouteStore.store(route, startTs: saved.startTs, sport: saved.sport) }
+            if let route {
+                RouteStore.store(route, startTs: saved.startTs, sport: saved.sport)
+                guard RouteStore.load(startTs: saved.startTs, sport: saved.sport) == route else {
+                    workoutFinishState = .failed(WorkoutFinishError.readBackMissing.localizedDescription)
+                    return .failure(.readBackMissing)
+                }
+            }
             _ = await repo.refresh(.currentDay)
             lastWorkout = saved
             ActiveWorkoutPersistence.clear()
+            ActiveGpsWorkoutPersistence.clear()
             activeWorkout = nil
             activeWorkoutIsGps = false
             pendingWorkoutSnapshot = nil
