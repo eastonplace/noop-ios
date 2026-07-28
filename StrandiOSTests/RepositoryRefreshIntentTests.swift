@@ -149,5 +149,59 @@ final class RepositoryRefreshIntentTests: XCTestCase {
         let result = await task.value
         XCTAssertFalse(result)
     }
+
+    func testExclusivePublicationWaitsForInFlightRefreshAndStopsNewStarts() async {
+        let barrier = RepositoryPublicationBarrier()
+        XCTAssertTrue(barrier.beginRefreshIfAllowed())
+
+        var acquiredExclusive = false
+        let exclusive = Task { @MainActor in
+            await barrier.acquireExclusive()
+            acquiredExclusive = true
+        }
+        for _ in 0..<20 { await Task.yield() }
+
+        XCTAssertFalse(acquiredExclusive,
+                       "a source import cannot begin while an older Repository snapshot is still reading")
+        XCTAssertFalse(barrier.beginRefreshIfAllowed(),
+                       "once source publication is pending, no newer refresh may overtake it")
+
+        barrier.endRefresh()
+        await exclusive.value
+        XCTAssertTrue(acquiredExclusive)
+        XCTAssertTrue(barrier.blocksRefreshes)
+        XCTAssertFalse(barrier.beginRefreshIfAllowed())
+
+        barrier.releaseExclusive()
+        XCTAssertFalse(barrier.blocksRefreshes)
+        XCTAssertTrue(barrier.beginRefreshIfAllowed())
+        barrier.endRefresh()
+    }
+
+    func testBlockedRefreshCallbackRunsOnlyAfterPublicationFenceOpens() async {
+        let barrier = RepositoryPublicationBarrier()
+        await barrier.acquireExclusive()
+        var callbacks = 0
+
+        barrier.performAfterOpen { callbacks += 1 }
+        barrier.performAfterOpen { callbacks += 1 }
+        XCTAssertEqual(callbacks, 0)
+        XCTAssertEqual(barrier.deferredRequestCount, 2)
+
+        barrier.releaseExclusive()
+        XCTAssertEqual(callbacks, 2)
+    }
+
+    func testRestoredJournalCanFenceSynchronouslyBeforeLaunchRefresh() {
+        let barrier = RepositoryPublicationBarrier()
+
+        XCTAssertTrue(barrier.acquireRestoredExclusiveIfIdle())
+        XCTAssertTrue(barrier.blocksRefreshes)
+        XCTAssertFalse(barrier.acquireRestoredExclusiveIfIdle(),
+                       "one durable scoring journal owns one fence")
+
+        barrier.releaseExclusive()
+        XCTAssertFalse(barrier.blocksRefreshes)
+    }
 }
 #endif
