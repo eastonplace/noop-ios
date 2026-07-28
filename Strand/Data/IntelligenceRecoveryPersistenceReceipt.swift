@@ -12,7 +12,7 @@ import WhoopStore
 /// - Nil Recovery remains legitimate for missing inputs or a calibrating baseline.
 /// - Apple Watch results must match the persisted `apple-health` row exactly.
 /// - Strap/import-derived results must match a computed row, unless a durable user Recovery override owns that
-///   day; in that case the visible row must match the override instead of the automatic result.
+///   day; in that case the visible row in the SAME computed namespace must match the override instead.
 ///
 /// Any read failure or missing/mismatched durable result returns false. The HealthKit scoring journal and
 /// Repository publication fence then remain in place for an idempotent retry rather than exposing stale Home.
@@ -23,6 +23,16 @@ struct IntelligenceRecoveryPersistenceReceipt: Equatable, Sendable {
 
     var complete: Bool {
         storeAvailable && verifiedRecoveries == expectedRecoveries
+    }
+
+    private struct SourcedDaily {
+        let source: String
+        let row: DailyMetric
+    }
+
+    private struct SourcedOverride {
+        let source: String
+        let row: SleepRecoveryDailyOverride
     }
 
     @MainActor
@@ -49,21 +59,25 @@ struct IntelligenceRecoveryPersistenceReceipt: Equatable, Sendable {
                 appleRows.map { ($0.day, $0) },
                 uniquingKeysWith: { _, newest in newest })
 
-            var computedByDay: [String: [DailyMetric]] = [:]
-            var overrideByDay: [String: [SleepRecoveryDailyOverride]] = [:]
+            var computedByDay: [String: [SourcedDaily]] = [:]
+            var overrideByDay: [String: [SourcedOverride]] = [:]
             for source in repository.computedReadIds {
                 let rows = try await store.dailyMetrics(
                     deviceId: source,
                     from: firstDay,
                     to: lastDay)
-                for row in rows { computedByDay[row.day, default: []].append(row) }
+                for row in rows {
+                    computedByDay[row.day, default: []].append(
+                        SourcedDaily(source: source, row: row))
+                }
 
                 let overrides = try await store.sleepRecoveryDailyOverrides(
                     deviceId: source,
                     from: firstDay,
                     to: lastDay)
                 for override in overrides {
-                    overrideByDay[override.day, default: []].append(override)
+                    overrideByDay[override.day, default: []].append(
+                        SourcedOverride(source: source, row: override))
                 }
             }
 
@@ -80,14 +94,19 @@ struct IntelligenceRecoveryPersistenceReceipt: Equatable, Sendable {
                     let rows = computedByDay[result.day] ?? []
                     let overrides = overrideByDay[result.day] ?? []
                     if !overrides.isEmpty {
-                        // A durable manual recovery intentionally owns the visible field. Accept only when a
-                        // persisted computed row reflects one of those exact override values, including nil.
+                        // A durable manual recovery intentionally owns the visible field. Accept only when the
+                        // persisted row in that override's exact namespace reflects its value, including nil.
                         if overrides.contains(where: { override in
-                            rows.contains(where: { sameOptional($0.recovery, override.recovery) })
+                            rows.contains(where: {
+                                $0.source == override.source
+                                    && sameOptional($0.row.recovery, override.row.recovery)
+                            })
                         }) {
                             verified += 1
                         }
-                    } else if rows.contains(where: { approximatelyEqual($0.recovery, automatic) }) {
+                    } else if rows.contains(where: {
+                        approximatelyEqual($0.row.recovery, automatic)
+                    }) {
                         verified += 1
                     }
                 }
