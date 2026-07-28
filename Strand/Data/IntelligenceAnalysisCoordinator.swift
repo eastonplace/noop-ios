@@ -12,23 +12,36 @@ struct IntelligenceAnalysisRequest: Equatable, Sendable {
     let startOffset: Int
     let force: Bool
     let refreshRepository: Bool
+    /// Publication-sensitive source pipelines may require a durable postcondition before their caller is
+    /// released. Keep that semantic in the request identity so such work can never coalesce into an otherwise
+    /// identical best-effort batch and silently lose its verifier closure.
+    let requiresDurableRecoveryReceipt: Bool
 
-    init(maxDays: Int, startOffset: Int, force: Bool, refreshRepository: Bool) {
+    init(
+        maxDays: Int,
+        startOffset: Int,
+        force: Bool,
+        refreshRepository: Bool,
+        requiresDurableRecoveryReceipt: Bool = false
+    ) {
         let boundedStart = min(max(0, startOffset), Self.maximumWindowDays - 1)
         let remaining = max(1, Self.maximumWindowDays - boundedStart)
         self.startOffset = boundedStart
         self.maxDays = min(max(1, maxDays), remaining)
         self.force = force
         self.refreshRepository = refreshRepository
+        self.requiresDurableRecoveryReceipt = requiresDurableRecoveryReceipt
     }
 
     var endOffsetExclusive: Int { startOffset + maxDays }
 
     /// Merge only requests with identical publication semantics whose day ranges overlap or touch. Keeping a
     /// recent `refreshRepository:false` post-backfill request separate from a deep migration prevents an
-    /// unrelated historical refresh from publishing before today's exact pass has completed.
+    /// unrelated historical refresh from publishing before today's exact pass has completed. Durable-receipt
+    /// work also stays separate from a best-effort batch so its postcondition cannot be dropped by coalescing.
     func canCoalesce(with other: Self) -> Bool {
         refreshRepository == other.refreshRepository
+            && requiresDurableRecoveryReceipt == other.requiresDurableRecoveryReceipt
             && startOffset <= other.endOffsetExclusive
             && other.startOffset <= endOffsetExclusive
     }
@@ -41,7 +54,8 @@ struct IntelligenceAnalysisRequest: Equatable, Sendable {
             maxDays: upper - lower,
             startOffset: lower,
             force: force || other.force,
-            refreshRepository: refreshRepository)
+            refreshRepository: refreshRepository,
+            requiresDurableRecoveryReceipt: requiresDurableRecoveryReceipt)
     }
 }
 
@@ -210,6 +224,9 @@ final class IntelligenceAnalysisCoordinator {
             let a = batches[lhs].request
             let b = batches[rhs].request
             if a.startOffset != b.startOffset { return a.startOffset < b.startOffset }
+            if a.requiresDurableRecoveryReceipt != b.requiresDurableRecoveryReceipt {
+                return a.requiresDurableRecoveryReceipt
+            }
             if a.refreshRepository != b.refreshRepository { return !a.refreshRepository }
             return a.maxDays < b.maxDays
         }
@@ -220,6 +237,8 @@ final class IntelligenceAnalysisCoordinator {
 
 @MainActor
 extension IntelligenceEngine {
+    typealias DurableRecoveryPostcondition = @MainActor ([Computed]) async -> Bool
+
     /// A queued forced request represents durable source change and must survive cancellation of the UI task
     /// that happened to request it. DispatchQueue's deadline is cancellation-insensitive, unlike Task.sleep;
     /// use it while waiting for the legacy in-engine lock or an active historical writer to clear.
@@ -233,18 +252,22 @@ extension IntelligenceEngine {
 
     /// The only route from shorthand production calls into the existing full implementation. Supplying all
     /// four labels below deliberately resolves to the class's original method, not to any overload here.
+    /// A durable postcondition executes inside the admitted batch, after the engine updates `results` but before
+    /// any waiter resumes or the next queued analysis can replace that snapshot.
     @discardableResult
     private func submitSerializedAnalysis(
         maxDays: Int,
         startOffset: Int,
         force: Bool,
-        refreshRepository: Bool
+        refreshRepository: Bool,
+        durableRecoveryPostcondition: DurableRecoveryPostcondition? = nil
     ) async -> Bool {
         let request = IntelligenceAnalysisRequest(
             maxDays: maxDays,
             startOffset: startOffset,
             force: force,
-            refreshRepository: refreshRepository)
+            refreshRepository: refreshRepository,
+            requiresDurableRecoveryReceipt: durableRecoveryPostcondition != nil)
 
         return await IntelligenceAnalysisCoordinator.shared.submit(owner: self, request: request) { [weak self] queued in
             guard let self else { throw IntelligenceAnalysisCoordinatorError.ownerReleased }
@@ -265,6 +288,11 @@ extension IntelligenceEngine {
                 force: queued.force,
                 refreshRepository: queued.refreshRepository)
             else { throw IntelligenceAnalysisCoordinatorError.analysisDidNotComplete }
+
+            if let durableRecoveryPostcondition,
+               !(await durableRecoveryPostcondition(self.results)) {
+                throw IntelligenceAnalysisCoordinatorError.analysisDidNotComplete
+            }
         }
     }
 
@@ -369,6 +397,24 @@ extension IntelligenceEngine {
     func analyzeRecent(maxDays: Int, startOffset: Int, refreshRepository: Bool) async -> Bool {
         await submitSerializedAnalysis(maxDays: maxDays, startOffset: startOffset, force: true,
                                        refreshRepository: refreshRepository)
+    }
+
+    /// Stronger publication contract for a durable source handoff. The verifier runs against the exact results
+    /// produced by this admitted batch before any queued analysis can replace them. A false receipt is treated
+    /// as a retryable forced failure, so the source journal and Repository publication fence remain intact.
+    @discardableResult
+    func analyzeRecentForPublication(
+        maxDays: Int,
+        startOffset: Int,
+        refreshRepository: Bool,
+        verifyDurableRecovery: @escaping DurableRecoveryPostcondition
+    ) async -> Bool {
+        await submitSerializedAnalysis(
+            maxDays: maxDays,
+            startOffset: startOffset,
+            force: true,
+            refreshRepository: refreshRepository,
+            durableRecoveryPostcondition: verifyDurableRecovery)
     }
 
     func analyzeRecent(maxDays: Int, force: Bool, refreshRepository: Bool) async {
