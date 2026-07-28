@@ -104,12 +104,34 @@ try:
         "guard await operation(snapshot)",
         "try persistence.save(nil)",
     )
-    # A publication-sensitive analysis call must return the actual completion status, never Void.
+
+    admission = "Strand/Data/IntelligenceAnalysisCoordinator.swift"
+    # A publication-sensitive analysis call must return actual completion and retain its durable verifier as a
+    # distinct queue semantic; otherwise coalescing can silently turn it into a best-effort batch.
     require_regex(
-        "Strand/Data/IntelligenceAnalysisCoordinator.swift",
+        admission,
         r"func\s+analyzeRecent\(\s*maxDays:\s*Int,\s*startOffset:\s*Int,\s*"
         r"refreshRepository:\s*Bool\s*\)\s*async\s*->\s*Bool",
         "Bool-returning three-label analyzeRecent overload",
+    )
+    require(
+        admission,
+        "requiresDurableRecoveryReceipt",
+        "durableRecoveryPostcondition(self.results)",
+        "func analyzeRecentForPublication(",
+        "verifyDurableRecovery: @escaping DurableRecoveryPostcondition",
+    )
+
+    receipt = "Strand/Data/IntelligenceRecoveryPersistenceReceipt.swift"
+    require(
+        receipt,
+        "struct IntelligenceRecoveryPersistenceReceipt",
+        "$0.recovery != nil && $0.source != .whoopImport",
+        "deviceId: Repository.appleHealthSource",
+        "repository.computedReadIds",
+        "sleepRecoveryDailyOverrides",
+        "$0.source == override.source",
+        "verifiedRecoveries == expectedRecoveries",
     )
 
     refresh = "Strand/Data/RepositoryRefreshIntent.swift"
@@ -148,12 +170,20 @@ try:
         bridge,
         "_ = await repo.refresh(.recentDashboard(days: 120))",
     )
+    require(
+        "StrandiOS/Health/HealthKitAnchorPager+Compatibility.swift",
+        "priorAnchor: HKQueryAnchor?",
+        "anchor: priorAnchor",
+    )
 
     app = "StrandiOS/App/StrandiOSApp.swift"
     require(
         app,
         "HealthKitScoringCoordinator.shared.runAndWait(",
         "analyze: { window in",
+        "RepositoryRefreshContext.$disposition.withValue(.suppress)",
+        "analyzeRecentForPublication(",
+        "IntelligenceRecoveryPersistenceReceipt.verify(",
         "publish: { window in",
         "await model.repo.refresh(days: range.publicationDays)",
         "await health.foregroundCatchUp()",
@@ -221,6 +251,15 @@ try:
     require(
         "StrandiOSTests/IntelligenceAnalysisPublicationContractTests.swift",
         "testThreeLabelPublicationOverloadReturnsCompletionStatus",
+        "testDurableReceiptRunsInsidePublicationSensitiveAnalysisAPI",
+        "testDurableReceiptSemanticDoesNotCoalesceWithBestEffortRequest",
+    )
+    require(
+        "StrandiOSTests/IntelligenceRecoveryPersistenceReceiptTests.swift",
+        "testAuthoritativeWhoopImportDoesNotRequireShadowComputedMatch",
+        "testAppleRecoveryMustExistAndMatchInAppleNamespace",
+        "testComputedRecoveryMustExistInAComputedReadNamespace",
+        "testDurableManualOverrideOwnsVisibleRecoveryInsteadOfAutomaticResult",
     )
     require(
         "Packages/WhoopStore/Tests/WhoopStoreTests/HealthKitAuthoritativeStoreTests.swift",
