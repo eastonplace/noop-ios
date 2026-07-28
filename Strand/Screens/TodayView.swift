@@ -283,7 +283,16 @@ struct TodayView: View {
     // passes clean tests), so it is left as a follow-up rather than rushed in alongside the load-path fix.
     @EnvironmentObject var profile: ProfileStore
     @EnvironmentObject var router: NavRouter
-    @EnvironmentObject var model: AppModel
+    /// The stable command owner captured by a zero-layout leaf below. Do not turn this back into an
+    /// `@EnvironmentObject`: AppModel publishes at workout/HR cadence and Today only needs it for commands
+    /// plus the already-isolated active-workout surface.
+    @State private var appModel: AppModel?
+    private var model: AppModel {
+        guard let appModel else {
+            preconditionFailure("TodayView rendered before AppModelReferenceCapture supplied AppModel")
+        }
+        return appModel
+    }
     /// The "update ringer", the bell in the top bar opens this inbox; dismissed Today cards post into it.
     @EnvironmentObject var updateStore: UpdateStore
 
@@ -1663,6 +1672,19 @@ struct TodayView: View {
     }
 
     var body: some View {
+        Group {
+            if appModel != nil {
+                dashboard
+            } else {
+                Color.clear
+            }
+        }
+        // Keep broad AppModel observation in this inert leaf. The root retains only a stable reference, so
+        // a live HR/workout publication cannot re-evaluate the full Today dashboard.
+        .background(AppModelReferenceCapture(reference: $appModel))
+    }
+
+    private var dashboard: some View {
         ScreenScaffold(title: scaffoldTitle, onRefresh: {
                            model.ble.syncNow()
                            _ = await repo.refresh(.currentDay)

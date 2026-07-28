@@ -38,6 +38,41 @@ def require_before(errors: list[str], source: str, earlier: str, later: str, lab
         errors.append(f"{label}: {earlier!r} must appear before {later!r}.")
 
 
+def swift_type_body(source: str, type_name: str) -> str | None:
+    """Return one Swift struct declaration, without confusing nested braces for its end."""
+    match = re.search(rf"\bstruct\s+{re.escape(type_name)}\b[^{{]*{{", source)
+    if not match:
+        return None
+    depth = 0
+    for index in range(match.end() - 1, len(source)):
+        character = source[index]
+        if character == "{":
+            depth += 1
+        elif character == "}":
+            depth -= 1
+            if depth == 0:
+                return source[match.start() : index + 1]
+    return None
+
+
+def require_unobserved_app_model_root(errors: list[str], path: Path, type_name: str) -> None:
+    """Keep high-frequency AppModel observation in the inert capture leaf, never a heavy screen root."""
+    source = path.read_text(encoding="utf-8")
+    body = swift_type_body(source, type_name)
+    label = f"{relative(path)} {type_name}"
+    if body is None:
+        errors.append(f"{label}: root declaration is missing.")
+        return
+    if re.search(r"(?m)^\s*@EnvironmentObject[^\n]*\bAppModel\b", body):
+        errors.append(f"{label}: must not broadly observe AppModel; use AppModelReferenceCapture.")
+    for contract in (
+        "@State private var appModel: AppModel?",
+        "AppModelReferenceCapture(reference: $appModel)",
+    ):
+        if contract not in body:
+            errors.append(f"{label}: missing narrow AppModel command-reference contract {contract!r}.")
+
+
 def main() -> int:
     errors: list[str] = []
     warnings: list[str] = []
@@ -203,6 +238,21 @@ def main() -> int:
     refresh_contract = ROOT / "Strand/Data/RepositoryRefreshIntent.swift"
     if "inferredLegacyIntent" in refresh_contract.read_text(encoding="utf-8"):
         errors.append("RepositoryRefreshIntent must not restore the deleted heuristic compatibility router.")
+
+    capture = ROOT / "Strand/Screens/ScreenScaffold.swift"
+    if not capture.exists():
+        errors.append("Strand/Screens/ScreenScaffold.swift is missing.")
+    else:
+        capture_text = capture.read_text(encoding="utf-8")
+        for contract in (
+            "@EnvironmentObject private var model: AppModel",
+            "@Binding var reference: AppModel?",
+            "guard reference !== model else { return }",
+        ):
+            if contract not in capture_text:
+                errors.append(f"{relative(capture)} is missing AppModel capture contract {contract!r}.")
+    require_unobserved_app_model_root(errors, ROOT / "Strand/Screens/TodayView.swift", "TodayView")
+    require_unobserved_app_model_root(errors, ROOT / "Strand/Screens/WorkoutsView.swift", "WorkoutsView")
 
     intents = ROOT / "StrandiOS/System/NOOPAppIntents.swift"
     if not intents.exists():

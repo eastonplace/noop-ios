@@ -18,8 +18,9 @@ struct TestCentreView: View {
     /// The Report orchestrator: assembles the redacted bundle, runs the mandatory review gate, shares.
     @StateObject private var report = TestCentreReport()
 
-    /// Re-read activation on appear so a toggle flip elsewhere reflects here.
-    @State private var refreshToken = 0
+    /// Rebuild only the small static mode summary after an inline activation changes. The previous
+    /// screen-wide `.id(refreshToken)` recreated sheets, controls, and the live log on every appear.
+    @State private var modeSummaryRefreshID = UUID()
 
     // Section 2: recalibrate confirm.
     @State private var showRecalibrateConfirm = false
@@ -80,9 +81,7 @@ struct TestCentreView: View {
                 advancedCard.staggeredAppear(index: 5)
             }
         }
-        .id(refreshToken)
         .onAppear {
-            refreshToken &+= 1
             ScheduledDebugExport.activateIfEnabled()
         }
         .sheet(item: $report.pending) { _ in
@@ -183,6 +182,7 @@ struct TestCentreView: View {
                 .buttonStyle(.plain)
             }
         }
+        .id(modeSummaryRefreshID)
     }
 
     private func paperTestSection(_ title: LocalizedStringKey,
@@ -196,7 +196,7 @@ struct TestCentreView: View {
                         SettingsRow(icon: row.0, title: row.1, subtitle: row.2, showsChevron: false) {
                             ChipButton(TestCentre.active(row.3) ? "On" : "Run") {
                                 TestCentre.activate(row.3)
-                                refreshToken &+= 1
+                                modeSummaryRefreshID = UUID()
                             }
                         }
                     }
@@ -638,10 +638,9 @@ private struct ConnectionReadoutPanel: View {
         // per-session number keeps resetting away.
         let sessionRows = ConnectionReadout.sessionRows(taggedTail: tail)
         let allTimeRows = TestCentre.cumulativeDrainedRows()
-        // #987: clock latch + frame liveness. The correlated device clock is parsed from the same log the
-        // export ships (pure ConnectionReadout parsers), the last-frame stamp off the non-published
-        // LiveState field FrameRouter writes.
-        let deviceClock = ConnectionReadout.clockCorrelatedDevice(logLines: live.log)
+        // Clock correlation is explicit state captured by BLEManager at the proven decode seam. The log
+        // remains export evidence, not a state store the diagnostic panel re-scans on every append.
+        let deviceClock = live.correlatedDeviceClockUnix
         let rtcWarning = ConnectionReadout.rtcWarning(deviceClockUnix: deviceClock,
                                                       strapNewestUnix: live.strapRange?.newestUnix)
         VStack(alignment: .leading, spacing: 4) {

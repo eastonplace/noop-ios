@@ -397,18 +397,34 @@ struct BackfillContinuation {
 /// actually stops, keeping the UI's "last synced" status truthful.
 struct BackfillBurstPublication: Equatable {
     private(set) var needsPublication = false
+    private var persistedPasses = 0
 
-    mutating func record(rowsPersisted: Int, requiresTimestampHeal: Bool) {
+    /// Records one durable session. The returned value is cheap UI progress only: it does not start
+    /// analysis or refresh Repository, both of which remain deferred to one burst-finalization edge.
+    @discardableResult
+    mutating func record(rowsPersisted: Int, requiresTimestampHeal: Bool,
+                         latestFrontierUnix: Int? = nil,
+                         at timestamp: TimeInterval = Date().timeIntervalSince1970) -> HistoricalSyncPassProgress? {
         needsPublication = needsPublication || rowsPersisted > 0 || requiresTimestampHeal
+        guard rowsPersisted > 0 else { return nil }
+        persistedPasses += 1
+        return HistoricalSyncPassProgress(rowsPersisted: rowsPersisted,
+                                          passNumber: persistedPasses,
+                                          latestFrontierUnix: latestFrontierUnix,
+                                          publishedAt: timestamp)
     }
 
     mutating func consume() -> Bool {
-        defer { needsPublication = false }
+        defer {
+            needsPublication = false
+            persistedPasses = 0
+        }
         return needsPublication
     }
 
     mutating func reset() {
         needsPublication = false
+        persistedPasses = 0
     }
 }
 
@@ -1813,9 +1829,13 @@ public final class BLEManager: NSObject, ObservableObject {
         if sessionDroppedImplausible > 0 {
             IntelligenceEngine.requestTimestampReheal()
         }
-        backfillBurstPublication.record(
+        let progress = backfillBurstPublication.record(
             rowsPersisted: sessionRowsPersisted,
-            requiresTimestampHeal: sessionDroppedImplausible > 0)
+            requiresTimestampHeal: sessionDroppedImplausible > 0,
+            latestFrontierUnix: backfiller?.sessionNewestUnix)
+        if let progress {
+            state.publishHistoricalSyncProgress(progress)
+        }
         // #364 auto-continue spin-detector: did THIS session move the strap's trim cursor? Compare the
         // Backfiller's current high-water trim against where it stood when the previous session ended.
         // A frozen cursor (console-only / strap refusing to trim) ⇒ don't re-kick (it would spin forever).
@@ -2628,9 +2648,13 @@ public final class BLEManager: NSObject, ObservableObject {
         // live HR lapses. Feed the already-tracked future-dated signal into BackfillPolicy, which SKIPS
         // the .strap/.periodic triggers entirely for such a strap (the .connect pass still re-checks it).
         let clockUntrusted = BackfillContinuation.isFutureDatedNewest(strapNewestTs, wallNowUnix: Int(now))
+        let (batteryPct, charging) = batteryPctAndCharging()
+        let powerSaving = BLEManager.lowPowerThrottleActive(
+            batteryPct: batteryPct, charging: charging, thresholdPct: lowBatteryOffloadPct)
         guard BackfillPolicy.shouldRun(trigger: trigger, now: now, lastBackfillAt: last,
                                        emptyStreak: emptySyncTracker.consecutiveEmptySyncs,
-                                       clockUntrusted: clockUntrusted) else {
+                                       clockUntrusted: clockUntrusted,
+                                       powerSaving: powerSaving) else {
             log("Backfill: \(trigger) skipped (rate-limited; last \(last.map { Int(now - $0) } ?? -1)s ago)")
             return
         }
@@ -3461,9 +3485,13 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
             let rowsPersisted = backfiller?.sessionRowsPersisted ?? 0
             let droppedImplausible = backfiller?.sessionDroppedImplausible ?? 0
             if droppedImplausible > 0 { IntelligenceEngine.requestTimestampReheal() }
-            backfillBurstPublication.record(
+            let progress = backfillBurstPublication.record(
                 rowsPersisted: rowsPersisted,
-                requiresTimestampHeal: droppedImplausible > 0)
+                requiresTimestampHeal: droppedImplausible > 0,
+                latestFrontierUnix: backfiller?.sessionNewestUnix)
+            if let progress {
+                state.publishHistoricalSyncProgress(progress)
+            }
         }
         // If earlier slices in this burst were durable, publish now rather than requiring a later clean
         // HISTORY_COMPLETE to score/show them.
@@ -4263,6 +4291,9 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                         clockRecoveryTimeout = nil
                         collector?.clockRef = ref                  // unblocks buffered persistence
                         backfiller?.clockRef = ref                 // unblocks historical chunk decode
+                        // State for the UI is written at the same proven correlation seam. The log remains
+                        // export evidence; it is no longer a state store that screens have to re-parse.
+                        state.noteClockCorrelation(deviceUnix: ref.device)
                         log("Clock correlated: device=\(ref.device) wall=\(ref.wall)")
                         // Conditional SET_CLOCK (mirrors WHOOP): only when the strap RTC has drifted /
                         // is frozen — not blindly every connect. Offload doesn't depend on this (it uses

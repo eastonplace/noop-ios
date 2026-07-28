@@ -19,16 +19,20 @@ enum BackfillTrigger {
 /// (observed: ~15-min periodic + expedited event syncs).
 enum BackfillPolicy {
     static let periodicFloorSeconds: TimeInterval = 900   // 15 min
+    static let lowPowerPeriodicFloorSeconds: TimeInterval = 2_700 // 45 min
     static let eventFloorSeconds: TimeInterval = 90       // absorbs reconnect-flaps / event bursts
-    static let emptyBackoffThreshold = 3                  // empties before the floor starts stretching
-    static let maxEmptyBackoff: Double = 4                // cap → ~6-min event / 1-hr periodic floor
 
-    /// `emptyStreak` = consecutive COMPLETED offloads that banked no sensor records (EmptySyncTracker).
-    /// Past the threshold the AUTOMATIC triggers (.periodic/.strap) stretch their floor — each further
-    /// empty doubles it, capped — so an off-wrist / not-banking strap that still emits EVENT packets
-    /// every 90s isn't re-offloaded console-only every 90s, draining its battery and ours (#77/#120/#216).
-    /// `.manual`/`.connect`/`.foreground` never back off, and the first real record resets the streak,
-    /// so baseline cadence resumes instantly — a user- or connection-driven sync is never delayed.
+    /// The timer and limiter must use the same periodic cadence. Keeping this decision here prevents a
+    /// 45-minute low-power timer from repeatedly hitting an unrelated 60-minute floor and becoming an
+    /// accidental 90-minute sync gap.
+    static func periodicFloorSeconds(powerSaving: Bool) -> TimeInterval {
+        powerSaving ? lowPowerPeriodicFloorSeconds : periodicFloorSeconds
+    }
+
+    /// `emptyStreak` is intentionally retained in this API for call-site compatibility and the existing
+    /// user-facing three-empty warning, but it no longer changes automatic cadence. The old multiplier
+    /// made normal mode slower after harmless empty completions and could compound a 45-minute low-power
+    /// one-shot timer into a 90-minute effective interval.
     ///
     /// `clockUntrusted` = the strap's own RTC currently reads future-dated (#928: `BackfillContinuation
     /// .isFutureDatedNewest`). Such a strap still BANKS real rows every pass, so it never trips the
@@ -42,12 +46,11 @@ enum BackfillPolicy {
     /// `emptyStreak`, `.connect`/`.foreground`/`.manual`/`.autoContinue` are never affected.
     static func shouldRun(trigger: BackfillTrigger, now: TimeInterval,
                           lastBackfillAt: TimeInterval?, emptyStreak: Int = 0,
-                          clockUntrusted: Bool = false) -> Bool {
+                          clockUntrusted: Bool = false,
+                          powerSaving: Bool = false) -> Bool {
         guard let last = lastBackfillAt else { return true }
         let elapsed = now - last
-        let backoff: Double = emptyStreak >= emptyBackoffThreshold
-            ? min(pow(2.0, Double(emptyStreak - emptyBackoffThreshold + 1)), maxEmptyBackoff)
-            : 1.0
+        _ = emptyStreak
         switch trigger {
         // .manual (user-tapped) and .autoContinue (#364 expedited backlog drain) always run — both are
         // deliberately un-floored; .autoContinue's runaway protection lives in BLEManager's cap, not here.
@@ -56,8 +59,8 @@ enum BackfillPolicy {
         // #160: a future-dated-clock strap's recurring automatic offloads are near-useless (#1012 won't
         // trust the range) but each holds the link ~60s and starves the WHOOP4 realtime-HR re-arm, so skip
         // them entirely — not just stretch the floor. The .connect pass above still re-checks the clock.
-        case .strap:                 return !clockUntrusted && elapsed >= eventFloorSeconds * backoff
-        case .periodic:              return !clockUntrusted && elapsed >= periodicFloorSeconds * backoff
+        case .strap:                 return !clockUntrusted && elapsed >= eventFloorSeconds
+        case .periodic:              return !clockUntrusted && elapsed >= periodicFloorSeconds(powerSaving: powerSaving)
         }
     }
 }

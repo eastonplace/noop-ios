@@ -447,7 +447,7 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
         let elapsed = Double(Int64(Date().timeIntervalSince1970 * 1000) - startMs) / 1000
         paceSecPerKm = RouteMath.paceSecPerKm(meters: distanceM, seconds: elapsed)
         isRecording = snapshot.recordingWasActive
-        if isRecording, manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways {
+        if isRecording, (manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways) {
             beginUpdates()
         }
     }

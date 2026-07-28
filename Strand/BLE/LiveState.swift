@@ -3,6 +3,16 @@ import Combine
 import StrandAnalytics
 import WhoopProtocol
 
+/// Cheap, value-only observation after a historical session has durably persisted rows. It deliberately
+/// excludes analysis and Repository work: those expensive operations run exactly once when the complete
+/// continuation burst is finalized.
+struct HistoricalSyncPassProgress: Equatable, Sendable {
+    let rowsPersisted: Int
+    let passNumber: Int
+    let latestFrontierUnix: Int?
+    let publishedAt: TimeInterval
+}
+
 /// Converts the Backfiller's per-session ACK count into one monotonic count for the complete logical burst.
 /// Auto-continuation resets the low-level counter to zero between slices; treating that as user-visible progress
 /// made Home look as though sync restarted repeatedly. A durable-data publication explicitly closes the burst.
@@ -67,6 +77,10 @@ public final class LiveState: ObservableObject {
     @Published public var lastFrameType: String?
     @Published public var lastEvent: String?
     public internal(set) var lastFrameAtUnix: Int?
+    /// The latest device-side clock captured at the BLE correlation seam. This is application state,
+    /// not a presentation-derived value: diagnostics and Devices must never scan the growing strap log
+    /// just to rediscover a correlation that BLEManager already established.
+    @Published public private(set) var correlatedDeviceClockUnix: Int?
     @Published public var worn = true
     @Published public var historySyncExperimental = false
 
@@ -108,6 +122,7 @@ public final class LiveState: ObservableObject {
             }
         }
     }
+    @Published private(set) var historicalSyncPassProgress: HistoricalSyncPassProgress?
     @Published public var lastSyncError: String?
     @Published public var backfilling = false
 
@@ -177,6 +192,19 @@ public final class LiveState: ObservableObject {
         connectedAt = nil
         historicalBurstProgress.markFinalized()
         Task { await flushLogPersistence() }
+    }
+
+    /// Records the device clock once BLE has proved a wall-clock correlation. Keeping this explicit lets
+    /// the tiny clock readout leaves update without tying command-center rendering to log publication.
+    public func noteClockCorrelation(deviceUnix: Int) {
+        guard correlatedDeviceClockUnix != deviceUnix else { return }
+        correlatedDeviceClockUnix = deviceUnix
+    }
+
+    /// Publishes a compact persisted-pass receipt without asking AppModel to score or rebuild Repository.
+    /// That keeps long oldest-first bursts visibly alive while preserving the single heavy finalization edge.
+    func publishHistoricalSyncProgress(_ progress: HistoricalSyncPassProgress) {
+        historicalSyncPassProgress = progress
     }
 
     public var connectionStatusLabel: String {

@@ -81,14 +81,12 @@ private struct DevicesContent: View {
     private var activeDevice: PairedDevice? { activeDevices.first(where: { $0.status == .active }) }
     private var otherDevices: [PairedDevice] { activeDevices.filter { $0.status != .active } }
 
-    /// #987: the active+connected strap's clock state, from the SAME pure ConnectionReadout parsers the
-    /// Test Centre Connection panel binds (one source of truth). nil (no row at all) until the WHOOP path
-    /// has produced any clock signal - a routed frame, a clock correlation, or a data-range reply - so a
-    /// generic HR strap or an idle card never shows a fabricated "waiting" state. One computation for
-    /// both the line and the warning (the log scan is the cost worth paying once, not twice).
+    /// The active+connected strap's explicit clock state. BLEManager writes the correlated value at the
+    /// proven decode seam; the strap log is evidence for export, never a state store this heavy screen
+    /// has to search during rendering.
     private var strapClockState: (line: String, warning: String?)? {
         guard live.connected else { return nil }
-        let deviceClock = ConnectionReadout.clockCorrelatedDevice(logLines: live.log)
+        let deviceClock = live.correlatedDeviceClockUnix
         guard deviceClock != nil || live.strapRange != nil || live.lastFrameAtUnix != nil else { return nil }
         let latched = ConnectionReadout.clockLatchedLabel(deviceClockUnix: deviceClock)
         let frame = ConnectionReadout.lastFrameLabel(lastFrameUnix: live.lastFrameAtUnix,

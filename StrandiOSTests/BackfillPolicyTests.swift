@@ -1,0 +1,46 @@
+import XCTest
+@testable import NOOP
+
+final class BackfillPolicyTests: XCTestCase {
+    func testDefaultPeriodicCadenceStaysAtFifteenMinutesAfterEmptyStreak() {
+        let last = 10_000.0
+
+        XCTAssertFalse(BackfillPolicy.shouldRun(trigger: .periodic, now: last + 899,
+                                                lastBackfillAt: last, emptyStreak: 12))
+        XCTAssertTrue(BackfillPolicy.shouldRun(trigger: .periodic, now: last + 900,
+                                               lastBackfillAt: last, emptyStreak: 12))
+    }
+
+    func testDefaultStrapCadenceStaysAtNinetySecondsAfterEmptyStreak() {
+        let last = 10_000.0
+
+        XCTAssertFalse(BackfillPolicy.shouldRun(trigger: .strap, now: last + 89,
+                                                lastBackfillAt: last, emptyStreak: 12))
+        XCTAssertTrue(BackfillPolicy.shouldRun(trigger: .strap, now: last + 90,
+                                               lastBackfillAt: last, emptyStreak: 12))
+    }
+
+    func testLowBatteryPeriodicFloorMatchesItsOneShotTimer() {
+        let last = 10_000.0
+
+        XCTAssertEqual(BackfillPolicy.periodicFloorSeconds(powerSaving: true),
+                       TimeInterval(BLEManager.lowBatteryBackfillIntervalSeconds))
+        XCTAssertFalse(BackfillPolicy.shouldRun(trigger: .periodic, now: last + 2_699,
+                                                lastBackfillAt: last, emptyStreak: 12,
+                                                powerSaving: true))
+        XCTAssertTrue(BackfillPolicy.shouldRun(trigger: .periodic, now: last + 2_700,
+                                               lastBackfillAt: last, emptyStreak: 12,
+                                               powerSaving: true))
+    }
+
+    func testManualAndBoundedAutoContinueRemainImmediate() {
+        let last = 10_000.0
+
+        XCTAssertTrue(BackfillPolicy.shouldRun(trigger: .manual, now: last,
+                                               lastBackfillAt: last, emptyStreak: 12,
+                                               clockUntrusted: true))
+        XCTAssertTrue(BackfillPolicy.shouldRun(trigger: .autoContinue, now: last,
+                                               lastBackfillAt: last, emptyStreak: 12,
+                                               clockUntrusted: true))
+    }
+}

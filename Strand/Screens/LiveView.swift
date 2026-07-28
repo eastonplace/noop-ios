@@ -1097,6 +1097,18 @@ struct LiveSignalTrustRail: View {
 struct LiveLogCard: View {
     @EnvironmentObject private var live: LiveState
     var showsTestCentreLink = true
+    /// The UI is deliberately a tail viewer. `LiveState` retains every in-memory line (and exports all
+    /// of them); this cap only bounds SwiftUI's visible work while a strap is streaming.
+    @State private var displayedLineCount = 300
+    @State private var followsTail = true
+
+    private var visibleLog: ArraySlice<String> {
+        live.log.suffix(displayedLineCount)
+    }
+
+    private var hiddenLineCount: Int {
+        max(0, live.log.count - visibleLog.count)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -1112,19 +1124,51 @@ struct LiveLogCard: View {
                     .buttonStyle(.plain).font(StrandFont.mono).foregroundStyle(StrandPalette.accent)
             }
             ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(Array(live.log.enumerated()), id: \.offset) { idx, line in
+                VStack(alignment: .leading, spacing: 6) {
+                    if hiddenLineCount > 0 {
+                        Button("Load \(min(300, hiddenLineCount)) older lines") {
+                            displayedLineCount += min(300, hiddenLineCount)
+                            followsTail = false
+                        }
+                        .buttonStyle(.plain)
+                        .font(StrandFont.mono)
+                        .foregroundStyle(StrandPalette.accent)
+                        .accessibilityLabel("Load older strap log lines")
+                    }
+                    HStack {
+                        Text("Showing \(visibleLog.count) of \(live.log.count) lines")
+                            .font(StrandFont.micro)
+                            .foregroundStyle(StrandPalette.textTertiary)
+                        Spacer()
+                        Button(followsTail ? "Following latest" : "Follow latest") {
+                            followsTail = true
+                            if let last = live.log.indices.last {
+                                proxy.scrollTo(last, anchor: .bottom)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .font(StrandFont.micro)
+                        .foregroundStyle(StrandPalette.accent)
+                    }
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 2) {
+                            ForEach(visibleLog.indices, id: \.self) { idx in
+                                let line = live.log[idx]
                             Text(line).font(StrandFont.mono)
                                 .foregroundStyle(StrandPalette.textSecondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .id(idx)
+                            }
                         }
                     }
-                }
-                .frame(height: 200)
-                .onChangeCompat(of: live.log.count) { _ in
-                    if let last = live.log.indices.last { proxy.scrollTo(last, anchor: .bottom) }
+                    .frame(height: 200)
+                    // A deliberate drag means the reader is inspecting history. New streaming lines never
+                    // yank that context away; the explicit control above resumes tail-following.
+                    .simultaneousGesture(DragGesture().onChanged { _ in followsTail = false })
+                    .onChangeCompat(of: live.log.count) { _ in
+                        guard followsTail, let last = live.log.indices.last else { return }
+                        proxy.scrollTo(last, anchor: .bottom)
+                    }
                 }
             }
 

@@ -25,9 +25,15 @@ struct WorkoutsView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var repo: Repository
     /// #459: "Start Workout" used to live ONLY on the Live screen, so a user reaching Workouts (via the
-    /// Quick-action FAB or the tab) had no way to begin one from the obvious place. Injected here so the
-    /// header/empty-state can start a live session and present the in-exercise view directly.
-    @EnvironmentObject var model: AppModel
+    /// Quick-action FAB or the tab) had no way to begin one from the obvious place. The model is captured
+    /// as a plain command reference below rather than observed by this large history root.
+    @State private var appModel: AppModel?
+    private var model: AppModel {
+        guard let appModel else {
+            preconditionFailure("WorkoutsView rendered before AppModelReferenceCapture supplied AppModel")
+        }
+        return appModel
+    }
     @State private var showLiveWorkout = false
     @State private var showStartSport = false
 
@@ -129,6 +135,19 @@ struct WorkoutsView: View {
     }
 
     var body: some View {
+        Group {
+            if appModel != nil {
+                dashboard
+            } else {
+                Color.clear
+            }
+        }
+        // The capture leaf is the only broad observer. Workouts retains only object identity, preventing
+        // each active-workout publication from rebuilding the filtered history and summary sections.
+        .background(AppModelReferenceCapture(reference: $appModel))
+    }
+
+    private var dashboard: some View {
         ScreenScaffold(title: "Workouts", subtitle: "Every session, threaded together.",
                        onRefresh: { _ = await repo.refresh(.currentDay) },
                        // PERF: the column ends in the full "All Sessions" log (the breakdown grid, the
