@@ -10,9 +10,11 @@ import WhoopStore
 /// This is deliberately a postcondition, not a second scorer:
 /// - It never invents or recalculates Recovery.
 /// - Nil Recovery remains legitimate for missing inputs or a calibrating baseline.
+/// - A WHOOP-import-owned day is excluded: the authoritative imported row already owns Home, and its value need
+///   not equal NOOP's shadow calculation.
 /// - Apple Watch results must match the persisted `apple-health` row exactly.
-/// - Strap/import-derived results must match a computed row, unless a durable user Recovery override owns that
-///   day; in that case the visible row in the SAME computed namespace must match the override instead.
+/// - NOOP-computed results must match a computed row, unless a durable user Recovery override owns that day; in
+///   that case the visible row in the SAME computed namespace must match the override instead.
 ///
 /// Any read failure or missing/mismatched durable result returns false. The HealthKit scoring journal and
 /// Repository publication fence then remain in place for an idempotent retry rather than exposing stale Home.
@@ -40,7 +42,9 @@ struct IntelligenceRecoveryPersistenceReceipt: Equatable, Sendable {
         results: [IntelligenceEngine.Computed],
         repository: Repository
     ) async -> Self {
-        let expected = results.filter { $0.recovery != nil }
+        let expected = results.filter {
+            $0.recovery != nil && $0.source != .whoopImport
+        }
         guard !expected.isEmpty else {
             return Self(expectedRecoveries: 0, verifiedRecoveries: 0, storeAvailable: true)
         }
@@ -90,7 +94,7 @@ struct IntelligenceRecoveryPersistenceReceipt: Equatable, Sendable {
                         verified += 1
                     }
 
-                case .computed, .whoopImport:
+                case .computed:
                     let rows = computedByDay[result.day] ?? []
                     let overrides = overrideByDay[result.day] ?? []
                     if !overrides.isEmpty {
@@ -109,6 +113,10 @@ struct IntelligenceRecoveryPersistenceReceipt: Equatable, Sendable {
                     }) {
                         verified += 1
                     }
+
+                case .whoopImport:
+                    // Filtered above; keep the switch exhaustive if DaySource grows compiler checking.
+                    break
                 }
             }
 
