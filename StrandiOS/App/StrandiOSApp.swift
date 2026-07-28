@@ -106,26 +106,26 @@ struct StrandiOSApp: App {
     }
 
     /// Drain the crash-safe HealthKit → Intelligence handoff. The scoring coordinator retains the widest
-    /// committed window until this operation completes, so observer delivery, foreground catch-up, suspension,
-    /// and process relaunch all converge on the same idempotent source-to-Home generation.
+    /// committed window until its exact analysis completes, then publishes Repository/Home/widgets while the
+    /// HealthKit import lease excludes a newer writer. No fresh HRV/RHR generation can therefore become visible
+    /// with the previous or blank Recovery sandwiched between the analysis and Repository refresh.
     @MainActor
     private func drainCommittedHealthScoring() async {
-        await HealthKitScoringCoordinator.shared.runAndWait { window in
-            let range = HealthKitAnalysisRange(window: window)
-            return await HealthKitScoringCoordinator.runAnalysisThenPublish(
-                analyze: {
-                    await model.intelligence.analyzeRecent(
-                        maxDays: range.maxDays,
-                        startOffset: range.startOffset,
-                        refreshRepository: false)
-                },
-                publish: {
-                    _ = await model.repo.refresh(.recentDashboard(days: range.publicationDays))
-                    refreshExternalSurfaceDay()
-                    driveLiveActivity()
-                    await WidgetSnapshot.publish(from: model)
-                })
-        }
+        await HealthKitScoringCoordinator.shared.runAndWait(
+            analyze: { window in
+                let range = HealthKitAnalysisRange(window: window)
+                return await model.intelligence.analyzeRecent(
+                    maxDays: range.maxDays,
+                    startOffset: range.startOffset,
+                    refreshRepository: false)
+            },
+            publish: { window in
+                let range = HealthKitAnalysisRange(window: window)
+                _ = await model.repo.refresh(.recentDashboard(days: range.publicationDays))
+                refreshExternalSurfaceDay()
+                driveLiveActivity()
+                await WidgetSnapshot.publish(from: model)
+            })
     }
 
     var body: some Scene {
@@ -239,6 +239,10 @@ struct StrandiOSApp: App {
                     defer { PerformanceTrace.end(trace) }
                     health.refreshAuthIfPreviouslyGranted()
                     await health.foregroundCatchUp()
+                    // Observer delivery can be suspended or its notification can land before this view's
+                    // subscription is active. Foreground is the second deterministic drain, not a blind widget
+                    // publish: wait for the durable scoring journal to settle first, then publish the snapshot.
+                    await drainCommittedHealthScoring()
                     await WidgetSnapshot.publish(from: model)
                 }
             } else if phase == .background {
