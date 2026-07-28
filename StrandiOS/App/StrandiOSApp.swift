@@ -60,6 +60,7 @@ struct StrandiOSApp: App {
     @AppStorage(AppearanceMode.storageKey) private var appearanceRaw = AppearanceMode.system.rawValue
     @AppStorage(ChartStyle.storageKey) private var chartStyleRaw = ChartStyle.titanium.rawValue
 
+    @MainActor
     init() {
         #if DEBUG
         DemoDayHarness.applyLaunchArgsIfNeeded()
@@ -67,6 +68,12 @@ struct StrandiOSApp: App {
         WidgetSnapshot.assertGroupProvisioned()
         ScheduledDebugExport.register()
         UNUserNotificationCenter.current().delegate = NotificationPresenter.shared
+
+        // Restore the durable HealthKit scoring journal and close the Repository publication fence BEFORE
+        // AppModel schedules launch's initial refresh. Otherwise a process killed after HealthKit import could
+        // relaunch, publish the imported HRV/RHR immediately, and only calculate its Recovery moments later.
+        _ = HealthKitScoringCoordinator.shared
+
         let model = AppModel()
         let alarmMode = SmartAlarmAdaptiveModeStore(legacy: model.behavior)
         let alarmRuntime = SmartAlarmRuntimeController(model: model, modeStore: alarmMode)
@@ -107,8 +114,7 @@ struct StrandiOSApp: App {
 
     /// Drain the crash-safe HealthKit → Intelligence handoff. The scoring coordinator retains the widest
     /// committed window until its exact analysis completes, then publishes Repository/Home/widgets while the
-    /// HealthKit import lease excludes a newer writer. No fresh HRV/RHR generation can therefore become visible
-    /// with the previous or blank Recovery sandwiched between the analysis and Repository refresh.
+    /// HealthKit import lease and Repository fence exclude every newer writer or unrelated refresh.
     @MainActor
     private func drainCommittedHealthScoring() async {
         await HealthKitScoringCoordinator.shared.runAndWait(
@@ -121,7 +127,10 @@ struct StrandiOSApp: App {
             },
             publish: { window in
                 let range = HealthKitAnalysisRange(window: window)
-                _ = await model.repo.refresh(.recentDashboard(days: range.publicationDays))
+                // The scoring coordinator is the exclusive publication owner here. Call the underlying coherent
+                // refresh directly: routing through the normal typed queue would correctly defer behind this
+                // same fence and deadlock its owner. Every non-owner publisher remains fenced and replayed.
+                await model.repo.refresh(days: range.publicationDays)
                 refreshExternalSurfaceDay()
                 driveLiveActivity()
                 await WidgetSnapshot.publish(from: model)
@@ -172,10 +181,9 @@ struct StrandiOSApp: App {
                 }
                 .onReceive(TodayDayBoundaryScheduler.shared.$presentationGeneration.dropFirst()) { _ in
                     guard scenePhase == .active else { return }
-                    // The midnight/04:00 transition can be purely temporal: no store
-                    // row needs to change for the Home, widget, and Live Activity day
-                    // labels to become stale. Publish from the same boundary source
-                    // that invalidated Today instead of waiting for the next sync.
+                    // The midnight/04:00 transition can be purely temporal: no store row needs to change for
+                    // Home, widget, and Live Activity day labels to become stale. Publish from the same boundary
+                    // source that invalidated Today instead of waiting for the next sync.
                     refreshExternalSurfaceDay()
                     driveLiveActivity()
                     Task { await WidgetSnapshot.publish(from: model) }
