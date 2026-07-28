@@ -362,7 +362,11 @@ extension IntelligenceEngine {
                                        refreshRepository: true)
     }
 
-    func analyzeRecent(maxDays: Int, startOffset: Int, refreshRepository: Bool) async {
+    /// Publication-sensitive callers need the real coordinator result. Returning `Void` here let call sites
+    /// compile only when they ignored success, and made HealthKit's fail-closed publication closure impossible
+    /// to type-check. Keep the exact requested window and expose whether its admitted batch actually completed.
+    @discardableResult
+    func analyzeRecent(maxDays: Int, startOffset: Int, refreshRepository: Bool) async -> Bool {
         await submitSerializedAnalysis(maxDays: maxDays, startOffset: startOffset, force: true,
                                        refreshRepository: refreshRepository)
     }
