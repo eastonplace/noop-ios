@@ -53,9 +53,11 @@ final class HealthKitPipelineSerializationTests: XCTestCase {
 
     func testRevisionAdvanceDuringAnalysisSkipsTheOlderPublication() async throws {
         let persistence = PipelineWindowMemoryStore()
+        let barrier = RepositoryPublicationBarrier()
         let scoring = HealthKitScoringCoordinator(
             persistence: persistence,
-            notificationCenter: NotificationCenter())
+            notificationCenter: NotificationCenter(),
+            publicationBarrier: barrier)
         let gate = PipelineGate()
         let first = HealthKitSyncWindow(
             start: Date(timeIntervalSince1970: 100),
@@ -63,7 +65,8 @@ final class HealthKitPipelineSerializationTests: XCTestCase {
         let second = HealthKitSyncWindow(
             start: Date(timeIntervalSince1970: 50),
             end: Date(timeIntervalSince1970: 300))
-        try scoring.offer(first)
+        try await scoring.offer(first)
+        XCTAssertTrue(barrier.blocksRefreshes)
 
         var analyzed: [HealthKitSyncWindow] = []
         var published: [HealthKitSyncWindow] = []
@@ -80,7 +83,7 @@ final class HealthKitPipelineSerializationTests: XCTestCase {
 
         // This is a defensive direct offer that bypasses the production import lease. The coordinator must
         // still detect the revision edge after analysis and skip publication of the superseded first window.
-        try scoring.offer(second)
+        try await scoring.offer(second)
         gate.open()
         await task.value
 
@@ -88,18 +91,21 @@ final class HealthKitPipelineSerializationTests: XCTestCase {
         XCTAssertEqual(published, [first.union(second)])
         XCTAssertNil(scoring.pending)
         XCTAssertNil(persistence.value)
+        XCTAssertFalse(barrier.blocksRefreshes)
     }
 
     func testImportLeaseExcludesWritesUntilPublicationFinishes() async throws {
         let persistence = PipelineWindowMemoryStore()
+        let barrier = RepositoryPublicationBarrier()
         let scoring = HealthKitScoringCoordinator(
             persistence: persistence,
-            notificationCenter: NotificationCenter())
+            notificationCenter: NotificationCenter(),
+            publicationBarrier: barrier)
         let publishGate = PipelineGate()
         let window = HealthKitSyncWindow(
             start: Date(timeIntervalSince1970: 100),
             end: Date(timeIntervalSince1970: 200))
-        try scoring.offer(window)
+        try await scoring.offer(window)
 
         var events: [String] = []
         let scoringTask = Task { @MainActor in
@@ -124,19 +130,24 @@ final class HealthKitPipelineSerializationTests: XCTestCase {
         for _ in 0..<20 { await Task.yield() }
         XCTAssertEqual(events, ["analyze", "publish-start"],
                        "HealthKit rows must not change during Repository/widget publication")
+        XCTAssertTrue(barrier.blocksRefreshes,
+                      "unrelated Repository refreshes stay fenced through publication")
 
         publishGate.open()
         await scoringTask.value
         await importTask.value
         XCTAssertEqual(events, ["analyze", "publish-start", "publish-end", "import"])
+        XCTAssertFalse(barrier.blocksRefreshes)
     }
 
-    func testFailedImportStillLeavesDurableScoringWork() async throws {
+    func testFailedImportStillLeavesDurableScoringWorkAndFence() async throws {
         let importPersistence = PipelineWindowMemoryStore()
         let scoringPersistence = PipelineWindowMemoryStore()
+        let barrier = RepositoryPublicationBarrier()
         let scoring = HealthKitScoringCoordinator(
             persistence: scoringPersistence,
-            notificationCenter: NotificationCenter())
+            notificationCenter: NotificationCenter(),
+            publicationBarrier: barrier)
         let window = HealthKitSyncWindow(
             start: Date(timeIntervalSince1970: 100),
             end: Date(timeIntervalSince1970: 200))
@@ -159,6 +170,8 @@ final class HealthKitPipelineSerializationTests: XCTestCase {
         XCTAssertEqual(importPersistence.value, window)
         XCTAssertEqual(scoring.pending, window)
         XCTAssertEqual(scoringPersistence.value, window)
+        XCTAssertTrue(barrier.blocksRefreshes,
+                      "fresh vitals cannot publish while their Recovery scoring journal remains")
 
         var scored: [HealthKitSyncWindow] = []
         await scoring.runAndWait(operation: { candidate in
@@ -167,6 +180,7 @@ final class HealthKitPipelineSerializationTests: XCTestCase {
         })
         XCTAssertEqual(scored, [window])
         XCTAssertNil(scoring.pending)
+        XCTAssertFalse(barrier.blocksRefreshes)
         XCTAssertEqual(importer.pending, window,
                        "scoring success must not falsely acknowledge the failed import retry")
     }
@@ -174,9 +188,11 @@ final class HealthKitPipelineSerializationTests: XCTestCase {
     func testWidenedImportCompletesBeforeAnyScoringPublication() async throws {
         let importPersistence = PipelineWindowMemoryStore()
         let scoringPersistence = PipelineWindowMemoryStore()
+        let barrier = RepositoryPublicationBarrier()
         let scoring = HealthKitScoringCoordinator(
             persistence: scoringPersistence,
-            notificationCenter: NotificationCenter())
+            notificationCenter: NotificationCenter(),
+            publicationBarrier: barrier)
         let gate = PipelineGate()
         let first = HealthKitSyncWindow(
             start: Date(timeIntervalSince1970: 200),
@@ -217,6 +233,7 @@ final class HealthKitPipelineSerializationTests: XCTestCase {
         XCTAssertEqual(published, [union])
         XCTAssertNil(importer.pending)
         XCTAssertNil(scoring.pending)
+        XCTAssertFalse(barrier.blocksRefreshes)
     }
 }
 #endif
