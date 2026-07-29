@@ -73,6 +73,39 @@ def require_unobserved_app_model_root(errors: list[str], path: Path, type_name: 
             errors.append(f"{label}: missing narrow AppModel command-reference contract {contract!r}.")
 
 
+def require_unobserved_live_state_root(errors: list[str], path: Path, type_name: str) -> None:
+    """Keep streaming LiveState subscriptions in purpose-built leaves, never a heavy route root."""
+    source = path.read_text(encoding="utf-8")
+    body = swift_type_body(source, type_name)
+    label = f"{relative(path)} {type_name}"
+    if body is None:
+        errors.append(f"{label}: root declaration is missing.")
+        return
+    if re.search(r"(?m)^\s*@EnvironmentObject[^\n]*\bLiveState\b", body):
+        errors.append(f"{label}: must not broadly observe LiveState; use LiveStateReferenceCapture.")
+    for contract in (
+        "@State private var liveState: LiveState?",
+        "LiveStateReferenceCapture(reference: $liveState)",
+    ):
+        if contract not in body:
+            errors.append(f"{label}: missing narrow LiveState reference contract {contract!r}.")
+
+
+def require_plain_device_content(errors: list[str], path: Path) -> None:
+    """DevicesContent is the long paired-device list; its live work belongs in DeviceLiveObservation."""
+    source = path.read_text(encoding="utf-8")
+    body = swift_type_body(source, "DevicesContent")
+    label = f"{relative(path)} DevicesContent"
+    if body is None:
+        errors.append(f"{label}: declaration is missing.")
+        return
+    if "@EnvironmentObject" in body:
+        errors.append(f"{label}: must keep AppModel/LiveState as plain references and scope updates to leaves.")
+    for contract in ("let model: AppModel", "let live: LiveState", "DeviceLiveObservation(live: live)"):
+        if contract not in body:
+            errors.append(f"{label}: missing scoped device command-center contract {contract!r}.")
+
+
 def main() -> int:
     errors: list[str] = []
     warnings: list[str] = []
@@ -253,6 +286,27 @@ def main() -> int:
                 errors.append(f"{relative(capture)} is missing AppModel capture contract {contract!r}.")
     require_unobserved_app_model_root(errors, ROOT / "Strand/Screens/TodayView.swift", "TodayView")
     require_unobserved_app_model_root(errors, ROOT / "Strand/Screens/WorkoutsView.swift", "WorkoutsView")
+
+    today = ROOT / "Strand/Screens/TodayView.swift"
+    today_text = today.read_text(encoding="utf-8")
+    for contract in (
+        "private struct TodayScreenSnapshot: Equatable",
+        "@State private var screenSnapshot: TodayScreenSnapshot?",
+        "defer { refreshScreenSnapshot() }",
+        "TodaySnapshotHeartSection(snapshot: screenSnapshot.heart",
+        "TodaySnapshotStressSection(snapshot: screenSnapshot.stress",
+        "TodaySnapshotHealthSection(",
+        ".equatable()",
+    ):
+        if contract not in today_text:
+            errors.append(
+                f"{relative(today)} is missing immutable Today section-snapshot contract {contract!r}."
+            )
+    for type_name, filename in (("DevicesView", "DevicesView.swift"), ("TestCentreView", "TestCentreView.swift")):
+        path = ROOT / "Strand/Screens" / filename
+        require_unobserved_app_model_root(errors, path, type_name)
+        require_unobserved_live_state_root(errors, path, type_name)
+    require_plain_device_content(errors, ROOT / "Strand/Screens/DevicesView.swift")
 
     intents = ROOT / "StrandiOS/System/NOOPAppIntents.swift"
     if not intents.exists():

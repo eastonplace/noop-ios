@@ -13,13 +13,12 @@ import OuraProtocol
 // goes through a registry op, and the `SourceCoordinator` (already wired in AppModel) reacts to the
 // active-device change — so this view never touches BLEManager or the WHOOP path directly.
 struct DevicesView: View {
-    @EnvironmentObject var model: AppModel
+    /// The route stores stable command/state identities only. Its compact list is driven by
+    /// `DeviceRegistry`; the command centre and summary each opt into live observation in a tiny leaf.
+    @State private var appModel: AppModel?
+    @State private var liveState: LiveState?
+    @State private var registry: DeviceRegistry?
     var onClose: (() -> Void)? = nil
-    // PERF: this OUTER view does NOT observe `LiveState`. It only branches on `model.deviceRegistry`
-    // becoming non-nil and hands off to `DevicesContent`, which owns its own `@EnvironmentObject live`
-    // (the live battery / "Active · Live" badge live there). Observing `live` here would re-render the
-    // whole screen on every ~1 Hz strap tick for no visible change — `live` is still in the environment
-    // for `DevicesContent` and the Add-device wizard, so nothing downstream loses its live readout.
 
     var body: some View {
         ScreenScaffold(title: "Devices",
@@ -39,8 +38,8 @@ struct DevicesView: View {
                                    .foregroundStyle(StrandPalette.textPrimary)
                            }
                        }) {
-            if let registry = model.deviceRegistry {
-                DevicesContent(registry: registry)
+            if let registry, let appModel, let liveState {
+                DevicesContent(registry: registry, model: appModel, live: liveState)
             } else {
                 // The registry is built once the on-device store opens (a beat after launch). Show a
                 // calm pending note rather than an empty screen in that brief window.
@@ -50,6 +49,9 @@ struct DevicesView: View {
                     symbol: "badge.plus.radiowaves.right")
             }
         }
+        .background(AppModelReferenceCapture(reference: $appModel))
+        .background(LiveStateReferenceCapture(reference: $liveState))
+        .background(DeviceRegistryReferenceCapture(reference: $registry))
     }
 }
 
@@ -60,8 +62,9 @@ struct DevicesView: View {
 /// becoming non-nil.
 private struct DevicesContent: View {
     @ObservedObject var registry: DeviceRegistry
-    @EnvironmentObject var model: AppModel
-    @EnvironmentObject var live: LiveState
+    /// Plain references: these do not subscribe the full list to high-frequency app/live publishers.
+    let model: AppModel
+    let live: LiveState
     @AppStorage(PuffinExperiment.deepDataKey) private var deepDataEnabled = false
 
     // Sheets / alerts
@@ -75,6 +78,7 @@ private struct DevicesContent: View {
     @State private var pickNewActive = false
     @State private var commandFeedback: String?
     @State private var showingActiveDeviceActions = false
+    @State private var showingCommandCenter = false
 
     private var activeDevices: [PairedDevice] { registry.devices.filter { $0.status != .archived } }
     private var removedDevices: [PairedDevice] { registry.devices.filter { $0.status == .archived } }
@@ -99,7 +103,26 @@ private struct DevicesContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
             if let device = activeDevice {
-                commandCenter(device)
+                DeviceLiveObservation(live: live) {
+                    DeviceCard(
+                        device: device,
+                        isActive: true,
+                        isLiveConnected: live.connected,
+                        liveBatteryPct: live.batteryPct.map { Int($0.rounded()) },
+                        liveFirmware: live.strapFirmware,
+                        liveClockLine: strapClockState?.line,
+                        liveClockWarning: strapClockState?.warning,
+                        onMakeActive: {},
+                        onRename: {
+                            renameDraft = device.nickname ?? device.displayName
+                            renameTarget = device
+                        },
+                        onRemove: { removeTarget = device })
+                }
+                NoopButton("Open command centre", systemImage: "slider.horizontal.3", kind: .secondary,
+                           fullWidth: true) {
+                    showingCommandCenter = true
+                }
             } else {
                 DataPendingNote(title: "No active device",
                                 message: "Choose a paired device or add one to see connection and sync controls.",
@@ -134,6 +157,15 @@ private struct DevicesContent: View {
             AddDeviceWizard(live: live) { showAddWizard = false }
                 .environmentObject(model)
                 .environmentObject(live)
+        }
+        // The rich diagnostics only exist after the user deliberately opens them. This keeps the regular
+        // device list fast while streaming and scopes the live subscription to this sheet.
+        .sheet(isPresented: $showingCommandCenter) {
+            if let device = activeDevice {
+                DeviceLiveObservation(live: live) {
+                    commandCenter(device)
+                }
+            }
         }
         // Switch confirm
         .alert("Make this your active strap?",
@@ -537,6 +569,17 @@ private struct DevicesContent: View {
         }
         .presentationDetents([.height(330)])
         .presentationDragIndicator(.hidden)
+    }
+}
+
+/// A deliberately small observation boundary for the active-device summary and on-demand command centre.
+/// `DevicesContent` keeps a stable LiveState reference but never subscribes to HR/R-R/log churn itself.
+private struct DeviceLiveObservation<Content: View>: View {
+    @ObservedObject var live: LiveState
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        content()
     }
 }
 

@@ -12,8 +12,24 @@ import StrandImport
 /// experimental toggles) so the Test Centre is the one place to find them; SettingsView keeps a thin nav
 /// link in. No em-dash in any string here.
 struct TestCentreView: View {
-    @EnvironmentObject var model: AppModel
-    @EnvironmentObject var live: LiveState
+    /// Command/state identities are captured once by inert leaves below. This large diagnostic route
+    /// must not subscribe to every HR/R-R/log publication just because a few child controls issue actions.
+    @State private var appModel: AppModel?
+    @State private var liveState: LiveState?
+
+    private var model: AppModel {
+        guard let appModel else {
+            preconditionFailure("TestCentreView rendered before AppModelReferenceCapture supplied AppModel")
+        }
+        return appModel
+    }
+
+    private var live: LiveState {
+        guard let liveState else {
+            preconditionFailure("TestCentreView rendered before LiveStateReferenceCapture supplied LiveState")
+        }
+        return liveState
+    }
 
     /// The Report orchestrator: assembles the redacted bundle, runs the mandatory review gate, shares.
     @StateObject private var report = TestCentreReport()
@@ -70,6 +86,18 @@ struct TestCentreView: View {
         capture: .toggle, includesScreenshot: false, requires5MG: false)
 
     var body: some View {
+        Group {
+            if appModel != nil, liveState != nil {
+                dashboard
+            } else {
+                Color.clear
+            }
+        }
+        .background(AppModelReferenceCapture(reference: $appModel))
+        .background(LiveStateReferenceCapture(reference: $liveState))
+    }
+
+    private var dashboard: some View {
         ScreenScaffold(title: "Test Centre",
                        subtitle: "Diagnostics & tools") {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {

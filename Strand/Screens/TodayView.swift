@@ -255,6 +255,103 @@ private struct TodayPillarSnapshotCard: View {
     }
 }
 
+/// Immutable, value-fed inputs for the paper Today sections. Repository refreshes still re-evaluate the
+/// small root to schedule the correct loads, but SwiftUI can now retain each section when the values it
+/// actually renders are byte-identical. This is deliberately UI-shaped rather than a copy of Repository:
+/// a changed raw row which produces the same rendered tiles must not rebuild charts, cards, and grids.
+private struct TodayScreenSnapshot: Equatable {
+    struct Hero: Equatable {
+        let pillars: [TodayPillarModel]
+        let glance: String
+        let showsWorkoutAction: Bool
+    }
+
+    struct Heart: Equatable {
+        let samples: [HRTrackPoint]
+        let restingHR: Double?
+    }
+
+    struct Stress: Equatable {
+        let hours: [Double?]
+        let value: Double?
+        let nowHour: Int
+    }
+
+    struct Health: Equatable {
+        let tiles: [HealthDashboardTileModel]
+        let status: String
+    }
+
+    let hero: Hero
+    let heart: Heart
+    let stress: Stress
+    let health: Health
+}
+
+/// The only paper hero leaf that observes the workout command owner. Its broad publication scope is kept
+/// here because the active-workout affordance must flip immediately; the rest of Today remains value-fed.
+private struct TodaySnapshotHeroSection: View {
+    @EnvironmentObject private var model: AppModel
+    let snapshot: TodayScreenSnapshot.Hero
+    let onPillar: (String) -> Void
+    let onOpenWorkouts: () -> Void
+    let onStartWorkout: () -> Void
+    let onOpenActiveWorkout: () -> Void
+
+    var body: some View {
+        let workoutIsActive = model.activeWorkout != nil
+        TodayHeroCard(
+            pillars: snapshot.pillars,
+            glance: snapshot.glance,
+            workoutIsActive: workoutIsActive,
+            showsWorkoutAction: snapshot.showsWorkoutAction,
+            onPillar: onPillar,
+            onOpenWorkouts: onOpenWorkouts,
+            onWorkoutAction: workoutIsActive ? onOpenActiveWorkout : onStartWorkout
+        )
+    }
+}
+
+private struct TodaySnapshotHeartSection: View, @preconcurrency Equatable {
+    let snapshot: TodayScreenSnapshot.Heart
+    let onOpen: () -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.snapshot == rhs.snapshot }
+
+    var body: some View {
+        HRLiveModuleCard(samples: snapshot.samples, restingHR: snapshot.restingHR,
+                         timeLabel: TodayView.paperClockLabel, onOpen: onOpen)
+    }
+}
+
+private struct TodaySnapshotStressSection: View, @preconcurrency Equatable {
+    let snapshot: TodayScreenSnapshot.Stress
+    let onOpen: () -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.snapshot == rhs.snapshot }
+
+    var body: some View {
+        StressModuleCard(hours: snapshot.hours, value: snapshot.value, nowHour: snapshot.nowHour,
+                         onOpen: onOpen)
+    }
+}
+
+private struct TodaySnapshotHealthSection: View, @preconcurrency Equatable {
+    let snapshot: TodayScreenSnapshot.Health
+    let onTile: (String) -> Void
+    let onCustomize: () -> Void
+    let onShowAll: () -> Void
+    let onDataSources: () -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.snapshot == rhs.snapshot }
+
+    var body: some View {
+        HealthDashboardCard(tiles: snapshot.tiles, status: snapshot.status, onTile: onTile,
+                            onCustomize: onCustomize, onShowAll: onShowAll,
+                            onDataSources: onDataSources)
+    }
+}
+
 struct TodayView: View {
     @EnvironmentObject var repo: Repository
     // PERF (scroll stutter): TodayView deliberately does NOT observe `LiveState` directly. A connected
@@ -483,6 +580,10 @@ struct TodayView: View {
     // refreshSeq would preserve a stale row across that boundary, so this keeps the existing rollover rule
     // intact while making ordinary body updates O(1).
     @State private var displayDaySnapshot: DisplayDaySnapshot?
+
+    /// Immutable render inputs committed after a scoped Today load. Value-fed leaf sections below compare
+    /// this rather than subscribing to Repository, so an unrelated refresh cannot rebuild unchanged cards.
+    @State private var screenSnapshot: TodayScreenSnapshot?
 
     // Support sheet (donate + contact), opened from the home toolbar on macOS, and from an
     // in-content control on iOS (a primary tab has no NavigationStack, so a `.toolbar` item never
@@ -1399,14 +1500,13 @@ struct TodayView: View {
 
     // MARK: - Paper Today (S1)
 
-    private var paperPillarCard: some View {
+    private func buildScreenSnapshot() -> TodayScreenSnapshot {
         let day = displayDay
         // Never carry a neighboring day's Recovery into this day. An unscored day is intentionally
         // represented by the dashed gauge and "Not rated", matching the calendar's gray cell.
         let charge = day?.recovery
         let effort = effortStrain(day)
         let strain = effort.map { StrainScale.displayValue(fromStored: $0) }
-        let workoutIsActive = model.activeWorkout != nil
         let pillars = [
             TodayPillarModel(
                 id: "recovery", label: String(localized: "Recovery"), value: charge, maximum: 100,
@@ -1428,25 +1528,48 @@ struct TodayView: View {
                 detail: day.map(sleepValue), accent: StrandPalette.sleepAccent
             ),
         ]
-        return TodayHeroCard(
-            pillars: pillars,
-            glance: paperGlanceText,
-            workoutIsActive: workoutIsActive,
-            showsWorkoutAction: selectedDayOffset == 0,
-            onPillar: { id in
-                switch id {
-                case "recovery": paperPillarDetail = .charge
-                case "strain": paperPillarDetail = .effort
-                case "sleep": paperPillarDetail = .rest
-                default: break
-                }
-            },
-            onOpenWorkouts: { showingTodayWorkouts = true },
-            onWorkoutAction: {
-                if workoutIsActive { showLiveWorkout = true }
-                else { showStartSport = true }
+        let midnight = Calendar.current.startOfDay(for: selectedLogicalDay)
+        let cutoff = (hrPoints.last?.date ?? selectedLogicalDay).addingTimeInterval(-2 * 60 * 60)
+        let heartSamples = hrPoints
+            .filter { $0.date >= cutoff }
+            .suffix(240)
+            .enumerated()
+            .map { index, point in
+                HRTrackPoint(id: index, t: point.date.timeIntervalSince(midnight), bpm: point.value)
             }
+        let tiles = enabledDashboardCards.map { healthDashboardTile($0, day: day) }
+        return TodayScreenSnapshot(
+            hero: .init(pillars: pillars, glance: paperGlanceText,
+                        showsWorkoutAction: selectedDayOffset == 0),
+            heart: .init(samples: heartSamples, restingHR: day?.restingHr.map(Double.init)),
+            stress: .init(hours: stressRibbonSlots, value: stressToday, nowHour: demoSceneHour),
+            health: .init(tiles: tiles,
+                          status: String(localized: "\(enabledDashboardCards.count) of 9 metrics selected"))
         )
+    }
+
+    private func refreshScreenSnapshot() {
+        screenSnapshot = buildScreenSnapshot()
+    }
+
+    @ViewBuilder
+    private var paperPillarCard: some View {
+        if let screenSnapshot {
+            TodaySnapshotHeroSection(
+                snapshot: screenSnapshot.hero,
+                onPillar: { id in
+                    switch id {
+                    case "recovery": paperPillarDetail = .charge
+                    case "strain": paperPillarDetail = .effort
+                    case "sleep": paperPillarDetail = .rest
+                    default: break
+                    }
+                },
+                onOpenWorkouts: { showingTodayWorkouts = true },
+                onStartWorkout: { showStartSport = true },
+                onOpenActiveWorkout: { showLiveWorkout = true }
+            )
+        }
     }
 
     private func paperScoreState(_ value: Double?, kind: PaperPillarDetailKind) -> String {
@@ -1480,26 +1603,13 @@ struct TodayView: View {
         return "\(workoutCount) \(workoutWord) · \(steps) steps · \(calories) cal"
     }
 
+    @ViewBuilder
     private var paperLiveHeartRateCard: some View {
-        let midnight = Calendar.current.startOfDay(for: selectedLogicalDay)
-        let cutoff = (hrPoints.last?.date ?? selectedLogicalDay).addingTimeInterval(-2 * 60 * 60)
-        let samples = hrPoints
-            .filter { $0.date >= cutoff }
-            .suffix(240)
-            .enumerated()
-            .map { index, point in
-                HRTrackPoint(
-                    id: index,
-                    t: point.date.timeIntervalSince(midnight),
-                    bpm: point.value
-                )
-            }
-        return HRLiveModuleCard(
-            samples: samples,
-            restingHR: displayDay?.restingHr.map(Double.init),
-            timeLabel: Self.paperClockLabel,
-            onOpen: { showingHeartRateTimeline = true }
-        )
+        if let screenSnapshot {
+            TodaySnapshotHeartSection(snapshot: screenSnapshot.heart,
+                                      onOpen: { showingHeartRateTimeline = true })
+                .equatable()
+        }
     }
 
     private func loadDaytimeStressForRibbon() async {
@@ -1533,16 +1643,16 @@ struct TodayView: View {
     /// they did while the module still opened the retired PaperPillarDetailView stress sheet.
     private var stressDetail: some View { StressView() }
 
+    @ViewBuilder
     private var paperStressCard: some View {
-        StressModuleCard(
-            hours: stressRibbonSlots,
-            value: stressToday,
-            nowHour: demoSceneHour,
-            onOpen: { showingStressDetail = true }
-        )
+        if let screenSnapshot {
+            TodaySnapshotStressSection(snapshot: screenSnapshot.stress,
+                                       onOpen: { showingStressDetail = true })
+                .equatable()
+        }
     }
 
-    private static func paperClockLabel(_ seconds: TimeInterval) -> String {
+    fileprivate static func paperClockLabel(_ seconds: TimeInterval) -> String {
         let normalized = min(max(seconds, 0), 86_400)
         let date = Calendar.current.startOfDay(for: Date()).addingTimeInterval(normalized)
         return paperClockFormatter.string(from: date)
@@ -1564,23 +1674,22 @@ struct TodayView: View {
         }
     }
 
+    @ViewBuilder
     private var paperHealthMonitorCard: some View {
-        // Resolve the presentation row ONCE and pass it through the complete tile build. The previous
-        // `map(healthDashboardTile)` had each tile re-enter `dashboardValue -> displayDay`, which multiplied
-        // a full repository scan by every enabled card during a single SwiftUI body update.
-        let day = displayDay
-        return HealthDashboardCard(
-            tiles: enabledDashboardCards.map { healthDashboardTile($0, day: day) },
-            status: String(localized: "\(enabledDashboardCards.count) of 9 metrics selected"),
-            onTile: { id in
-                guard let card = DashboardCard(rawValue: id) else { return }
-                selectedDashboardDestination = card
-                showingDashboardDestination = true
-            },
-            onCustomize: { showingDashboardEditor = true },
-            onShowAll: { showingDashboardCatalog = true },
-            onDataSources: { showingDashboardDataSources = true }
-        )
+        if let screenSnapshot {
+            TodaySnapshotHealthSection(
+                snapshot: screenSnapshot.health,
+                onTile: { id in
+                    guard let card = DashboardCard(rawValue: id) else { return }
+                    selectedDashboardDestination = card
+                    showingDashboardDestination = true
+                },
+                onCustomize: { showingDashboardEditor = true },
+                onShowAll: { showingDashboardCatalog = true },
+                onDataSources: { showingDashboardDataSources = true }
+            )
+            .equatable()
+        }
     }
 
     private func healthDashboardTile(_ card: DashboardCard, day: DailyMetric?) -> HealthDashboardTileModel {
@@ -1754,7 +1863,11 @@ struct TodayView: View {
         // edited / deleted drink (hydrationSeq) and the Settings feature toggle both re-read just the two
         // hydration fields. Cheap (one metricSeries row), never re-runs the heavy loads.
         .task(id: repo.hydrationSeq) { await reloadHydration() }
-        .onChangeCompat(of: hydrationEnabled) { _ in Task { await reloadHydration() } }
+        .onChangeCompat(of: hydrationEnabled) { _ in
+            refreshScreenSnapshot()
+            Task { await reloadHydration() }
+        }
+        .onChangeCompat(of: dashboardCardsRaw) { _ in refreshScreenSnapshot() }
         // #755: NO per-edge safety net here, on purpose. A deep offload segments into many slices that each
         // flip `backfilling` false→true, so re-running the heavy history-wide reads on that edge would re-fire
         // them dozens of times mid-offload and re-create the very write-contention this fix removes. The
@@ -1771,6 +1884,7 @@ struct TodayView: View {
         .onChangeCompat(of: todayInputKey) { newKey in
             derived = buildDerived()
             derivedKey = newKey
+            refreshScreenSnapshot()
         }
         .onChangeCompat(of: displayDayKey) { _ in
             refreshDisplayDaySnapshot()
@@ -1787,6 +1901,7 @@ struct TodayView: View {
                 derived = buildDerived()
                 derivedKey = todayInputKey
             }
+            refreshScreenSnapshot()
         }
         .navigationDestination(isPresented: $showingHeartRateTimeline) {
             FullDayChartView()
@@ -4084,6 +4199,10 @@ struct TodayView: View {
     private func loadAll() async {
         let trace = PerformanceTrace.begin("today_load")
         defer { PerformanceTrace.end(trace) }
+        // One immutable, UI-shaped commit after every load path (including cache restores and early returns).
+        // This is intentionally after the scoped/history-wide writers so a Repository refresh only changes
+        // the sections whose rendered values differ.
+        defer { refreshScreenSnapshot() }
         // Always refresh the selected day (cheap, and it's what a day-switch / return-to-tab needs). Since
         // #860 retired the launch auto-land, this pass no longer changes `selectedDayOffset`, so there's no
         // re-fire to bail for: the history-wide set + the new-day announce run straight through below.
@@ -4278,6 +4397,7 @@ struct TodayView: View {
             hydrationTotalML = nil
             hydrationGoalML = nil
         }
+        refreshScreenSnapshot()
     }
 
     /// #932: restore the day-scoped outputs from a same-(seq, day) cache on a re-mount, so the selected day
