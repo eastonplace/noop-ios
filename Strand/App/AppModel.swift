@@ -162,6 +162,10 @@ final class AppModel: ObservableObject {
     private var lastWorkoutSnapshotEnqueuedAt: Date = .distantPast
     private var lastWorkoutSnapshotAt: Date = .distantPast
     private var latestWorkoutSnapshotAttempt: UInt64 = 0
+    private var latestGpsSnapshotAttempt: UInt64 = 0
+    private var workoutSnapshotDurabilityFailed = false
+    private var gpsSnapshotDurabilityFailed = false
+    private var gpsHadTerminatedGap = false
     private var applicationIsActive = true
 
     /// A manual workout in progress. `samples` accumulate from the smoothed live `bpm`; `liveStrain`
@@ -371,7 +375,9 @@ final class AppModel: ObservableObject {
         // Physical-input + wear hooks (fired live by FrameRouter).
         live.onDoubleTap = { [weak self] in self?.handleDoubleTap() }
         live.onWristChange = { [weak self] worn in self?.handleWristChange(worn) }
-        gpsRecorder.onCheckpoint = { [weak self] in self?.persistActiveGpsWorkout() }
+        gpsRecorder.onCheckpoint = { [weak self] checkpoint in
+            _ = self?.persistActiveGpsWorkout(checkpoint)
+        }
         // Strap battery alerts (#368): low-battery warning + full-charge note. The notifier self-gates
         // on the user's setting and the OS authorization, and carries its own persisted once-per-
         // crossing state, so feeding it every battery reading is safe.
@@ -698,6 +704,10 @@ final class AppModel: ObservableObject {
         pendingWorkoutEnd = nil
         pendingWorkoutRoute = nil
         pendingWorkoutWasGps = false
+        workoutSnapshotDurabilityFailed = false
+        gpsSnapshotDurabilityFailed = false
+        gpsHadTerminatedGap = false
+        refreshWorkoutDurabilityWarning()
         // #524: arm GPS route recording for a distance-type sport (run / ride / walk / hike), mirroring
         // Android, which defaults GPS on for `isDistanceSport`. Manual-first / opt-in: only these sports
         // record a route, and the recorder still captures nothing unless the user grants When-In-Use
@@ -705,15 +715,21 @@ final class AppModel: ObservableObject {
         // regardless. A non-distance sport (yoga, strength) never touches location at all.
         activeWorkoutIsGps = WorkoutCatalog.sport(named: resolved)?.isDistanceSport ?? false
         if activeWorkoutIsGps {
-            gpsRecorder.start(startMs: Int64(started.timeIntervalSince1970 * 1000))
-            persistActiveGpsWorkout(force: true)
+            gpsRecorder.start(
+                sessionID: activeWorkout!.sessionID,
+                startMs: Int64(started.timeIntervalSince1970 * 1000)
+            )
+            if let checkpoint = gpsRecorder.persistenceCheckpoint() {
+                _ = persistActiveGpsWorkout(checkpoint, synchronously: true)
+            }
         }
         // Make the session durable from the first instant (#529): persist it now so an OS kill right
         // after Start , before any HR sample lands , can still be rehydrated + ended on relaunch.
         let initialSnapshotCommitted = persistActiveWorkout(force: true, synchronously: true)
             || persistActiveWorkout(force: true, synchronously: true)
         if !initialSnapshotCommitted {
-            workoutDurabilityWarning = String(localized: "This workout is recording, but it is not safely recoverable if NOOP closes. Keep the app open and free storage before continuing.")
+            workoutSnapshotDurabilityFailed = true
+            refreshWorkoutDurabilityWarning()
         }
         // Workouts & GPS test mode (Test Centre): one session-start line tagged `.workouts`. Zero-cost when
         // off (the gate is one UserDefaults bool read), so the lifecycle of a missing workout is visible.
@@ -789,11 +805,12 @@ final class AppModel: ObservableObject {
                 else { return }
                 if committed {
                     self.lastWorkoutSnapshotAt = now
-                    self.workoutDurabilityWarning = nil
+                    self.workoutSnapshotDurabilityFailed = false
                 } else {
                     self.lastWorkoutSnapshotEnqueuedAt = .distantPast
-                    self.workoutDurabilityWarning = String(localized: "This workout is recording, but recent changes are not safely recoverable if NOOP closes. Keep the app open and free storage before continuing.")
+                    self.workoutSnapshotDurabilityFailed = true
                 }
+                self.refreshWorkoutDurabilityWarning()
             }
         )
         if accepted {
@@ -802,19 +819,59 @@ final class AppModel: ObservableObject {
             // timestamp can advance immediately. Asynchronous callers wait for `onCommit` above.
             if synchronously {
                 lastWorkoutSnapshotAt = now
-                workoutDurabilityWarning = nil
+                workoutSnapshotDurabilityFailed = false
+                refreshWorkoutDurabilityWarning()
             }
         } else {
             lastWorkoutSnapshotEnqueuedAt = .distantPast
-            workoutDurabilityWarning = String(localized: "This workout is recording, but recent changes are not safely recoverable if NOOP closes. Keep the app open and free storage before continuing.")
+            workoutSnapshotDurabilityFailed = true
+            refreshWorkoutDurabilityWarning()
         }
         return accepted
     }
 
-    private func persistActiveGpsWorkout(force: Bool = false) {
-        guard let workout = activeWorkout, activeWorkoutIsGps else { return }
-        let snapshot = gpsRecorder.activeSnapshot(sessionID: workout.sessionID)
-        if force || snapshot.acceptedPointCount > 0 { ActiveGpsWorkoutPersistence.store(snapshot) }
+    @discardableResult
+    private func persistActiveGpsWorkout(
+        _ checkpoint: ActiveGpsWorkoutPersistence.Checkpoint,
+        synchronously: Bool = false
+    ) -> Bool {
+        guard activeWorkout?.sessionID == checkpoint.sessionID, activeWorkoutIsGps else { return true }
+        latestGpsSnapshotAttempt &+= 1
+        let attempt = latestGpsSnapshotAttempt
+        let sessionID = checkpoint.sessionID
+        let accepted = ActiveGpsWorkoutPersistence.store(
+            checkpoint,
+            synchronously: synchronously,
+            onCommit: { [weak self] committed in
+                guard let self,
+                      self.activeWorkout?.sessionID == sessionID,
+                      self.latestGpsSnapshotAttempt == attempt else { return }
+                self.gpsSnapshotDurabilityFailed = !committed
+                self.refreshWorkoutDurabilityWarning()
+            }
+        )
+        if synchronously {
+            gpsSnapshotDurabilityFailed = !accepted
+            refreshWorkoutDurabilityWarning()
+        } else if !accepted {
+            gpsSnapshotDurabilityFailed = true
+            refreshWorkoutDurabilityWarning()
+        }
+        return accepted
+    }
+
+    private func refreshWorkoutDurabilityWarning() {
+        guard activeWorkout != nil else {
+            workoutDurabilityWarning = nil
+            return
+        }
+        if workoutSnapshotDurabilityFailed || gpsSnapshotDurabilityFailed {
+            workoutDurabilityWarning = String(localized: "This workout is recording, but recent changes are not safely recoverable if NOOP closes. Keep the app open and free storage before continuing.")
+        } else if gpsHadTerminatedGap {
+            workoutDurabilityWarning = String(localized: "GPS paused while NOOP was closed. Your captured route was restored and recording can resume. The gap is separated and is not added to distance.")
+        } else {
+            workoutDurabilityWarning = nil
+        }
     }
 
     /// If a manual workout was in flight when iOS killed the app, rebuild `activeWorkout` from the durable
@@ -832,7 +889,8 @@ final class AppModel: ObservableObject {
             activeWorkoutIsGps = true
             gpsRecorder.restore(gps)
             if gps.recordingWasActive {
-                workoutDurabilityWarning = String(localized: "GPS paused while NOOP was closed. Your captured route was restored and recording can resume, but the gap is not estimated.")
+                gpsHadTerminatedGap = true
+                refreshWorkoutDurabilityWarning()
             }
         }
     }
@@ -840,16 +898,20 @@ final class AppModel: ObservableObject {
     /// Flushes the in-flight workout before iOS suspends the process.
     @discardableResult
     func flushActiveWorkoutSnapshot() -> Bool {
-        persistActiveGpsWorkout(force: true)
-        if persistActiveWorkout(force: true, synchronously: true) { return true }
-        return persistActiveWorkout(force: true, synchronously: true)
+        let gpsCommitted = !activeWorkoutIsGps || ActiveGpsWorkoutPersistence.flushPendingWrites()
+        gpsSnapshotDurabilityFailed = !gpsCommitted
+        let workoutCommitted = persistActiveWorkout(force: true, synchronously: true)
+            || persistActiveWorkout(force: true, synchronously: true)
+        workoutSnapshotDurabilityFailed = !workoutCommitted
+        refreshWorkoutDurabilityWarning()
+        return gpsCommitted && workoutCommitted
     }
 
     func setApplicationActive(_ active: Bool) {
         applicationIsActive = active
         if !active {
             if !flushActiveWorkoutSnapshot(), activeWorkout != nil {
-                workoutDurabilityWarning = String(localized: "This workout is recording, but recent changes are not safely recoverable if NOOP closes. Keep the app open and free storage before continuing.")
+                refreshWorkoutDurabilityWarning()
             }
         } else {
             Task { [weak self] in
@@ -892,6 +954,10 @@ final class AppModel: ObservableObject {
         // Mac with no GPS, or denied permission). A non-GPS session never armed the recorder.
         if wasGps && pendingWorkoutRoute == nil {
             gpsRecorder.stop()
+            if !ActiveGpsWorkoutPersistence.flushPendingWrites() {
+                gpsSnapshotDurabilityFailed = true
+                refreshWorkoutDurabilityWarning()
+            }
             pendingWorkoutRoute = gpsRecorder.capturedRoute()
         }
         let route = pendingWorkoutRoute
@@ -962,6 +1028,10 @@ final class AppModel: ObservableObject {
             ActiveGpsWorkoutPersistence.clear()
             activeWorkout = nil
             activeWorkoutIsGps = false
+            workoutSnapshotDurabilityFailed = false
+            gpsSnapshotDurabilityFailed = false
+            gpsHadTerminatedGap = false
+            refreshWorkoutDurabilityWarning()
             pendingWorkoutSnapshot = nil
             pendingWorkoutEnd = nil
             pendingWorkoutRoute = nil

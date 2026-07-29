@@ -92,7 +92,7 @@ def require_unobserved_live_state_root(errors: list[str], path: Path, type_name:
 
 
 def require_plain_device_content(errors: list[str], path: Path) -> None:
-    """DevicesContent is the long paired-device list; its live work belongs in DeviceLiveObservation."""
+    """DevicesContent is the long paired-device list; live work belongs in purpose-built leaves."""
     source = path.read_text(encoding="utf-8")
     body = swift_type_body(source, "DevicesContent")
     label = f"{relative(path)} DevicesContent"
@@ -101,9 +101,45 @@ def require_plain_device_content(errors: list[str], path: Path) -> None:
         return
     if "@EnvironmentObject" in body:
         errors.append(f"{label}: must keep AppModel/LiveState as plain references and scope updates to leaves.")
-    for contract in ("let model: AppModel", "let live: LiveState", "DeviceLiveObservation(live: live)"):
+    for contract in (
+        "let model: AppModel",
+        "let live: LiveState",
+        "DeviceSummaryLiveObservation(live: live)",
+        "DeviceCommandCenterSnapshotObservation(live: live)",
+    ):
         if contract not in body:
             errors.append(f"{label}: missing scoped device command-center contract {contract!r}.")
+
+
+def require_device_command_center_snapshot(errors: list[str]) -> None:
+    """Pin the narrow, deduplicated command-centre adapter and timer/sync leaves."""
+    snapshot = ROOT / "Strand/Screens/DeviceCommandCenterLiveSnapshot.swift"
+    if not snapshot.exists():
+        errors.append(f"{relative(snapshot)} is missing.")
+        return
+    snapshot_text = snapshot.read_text(encoding="utf-8")
+    for contract in (
+        "final class DeviceCommandCenterLiveSnapshot: ObservableObject",
+        ".removeDuplicates()",
+        "live.syncChunksPublisher",
+        "live.$historicalSyncPassProgress",
+    ):
+        if contract not in snapshot_text:
+            errors.append(f"{relative(snapshot)} is missing narrow snapshot contract {contract!r}.")
+    for forbidden in ("live.$heartRate", "live.$rr", "live.$log"):
+        if forbidden in snapshot_text:
+            errors.append(f"{relative(snapshot)} must not subscribe to high-frequency field {forbidden!r}.")
+
+    devices = ROOT / "Strand/Screens/DevicesView.swift"
+    devices_text = devices.read_text(encoding="utf-8")
+    for contract in (
+        "private struct DeviceCommandIdentityTimerLeaf",
+        "private struct DeviceCommandStatusTimerLeaf",
+        "private struct DeviceCommandPowerTimerLeaf",
+        "private struct DeviceHistoricalSyncProgressLeaf",
+    ):
+        if contract not in devices_text:
+            errors.append(f"{relative(devices)} is missing command-centre leaf {contract!r}.")
 
 
 def main() -> int:
@@ -307,6 +343,31 @@ def main() -> int:
         require_unobserved_app_model_root(errors, path, type_name)
         require_unobserved_live_state_root(errors, path, type_name)
     require_plain_device_content(errors, ROOT / "Strand/Screens/DevicesView.swift")
+    require_device_command_center_snapshot(errors)
+
+    scoped_control_contracts = {
+        ROOT / "Strand/Screens/TestCentreView.swift": (
+            "private struct TestCentreConnectionTrustLeaf",
+            "private struct TestCentreRecordInspectLeaf",
+        ),
+        ROOT / "Strand/Screens/WorkoutsView.swift": (
+            "private struct WorkoutsActiveWorkoutButtonLeaf",
+        ),
+    }
+    for path, contracts in scoped_control_contracts.items():
+        text = path.read_text(encoding="utf-8")
+        for contract in contracts:
+            if contract not in text:
+                errors.append(f"{relative(path)} is missing scoped live-control contract {contract!r}.")
+
+    ios_root = ROOT / "StrandiOS/App/RootTabView.swift"
+    ios_root_text = ios_root.read_text(encoding="utf-8")
+    for contract in (
+        "withAnimation(Self.sheetEase) { quickAction = .activeWorkout }",
+        "case .activeWorkout:\n            quickScreen(LiveWorkoutView",
+    ):
+        if contract not in ios_root_text:
+            errors.append(f"{relative(ios_root)} is missing direct active-workout route {contract!r}.")
 
     intents = ROOT / "StrandiOS/System/NOOPAppIntents.swift"
     if not intents.exists():

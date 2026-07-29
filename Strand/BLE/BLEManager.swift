@@ -586,13 +586,19 @@ public final class BLEManager: NSObject, ObservableObject {
     /// high-freq-sync), so each periodic tick just routes through requestSync(.periodic) → beginBackfill
     /// (SEND_HISTORICAL_DATA + watchdog), subject to the BackfillPolicy floor.
     private var backfillTimer: DispatchSourceTimer?
-    // The timer fires this often, but BackfillPolicy.periodicFloorSeconds is the real floor (a recent
-    // event-triggered sync defers the next periodic tick). 900s = 15 min, matching WHOOP.
+    /// Wall-clock target represented by `backfillTimer`. Keeping the target lets battery updates that do
+    /// not cross the power-saving boundary avoid cancelling and recreating an identical timer.
+    private var backfillTimerDeadlineAt: TimeInterval?
+    // BackfillPolicy.periodicFloorSeconds is the real floor (a recent event-triggered sync moves the
+    // absolute deadline). 900s = 15 min, matching WHOOP.
     static let backfillIntervalSeconds = 900
     /// #477: stretched offload cadence while low on power (45 min). The strap banks to flash meanwhile,
     /// so this only delays sync (larger batches), never loses data. Mirrors Android
     /// `LOW_BATTERY_BACKFILL_INTERVAL_MS`.
     static let lowBatteryBackfillIntervalSeconds = 2700
+    /// If an already-due timer cannot begin because a transient gate is closed (for example, the store is
+    /// still protected), retry soon without spinning a zero-delay timer loop.
+    static let backfillRetryDelaySeconds: TimeInterval = 30
 
     /// Pure battery-adaptive gate (#477), the twin of Android `WhoopBleClient.idleThrottleActive`. Keyed
     /// on the STRAP's battery: armed by `thresholdPct` > 0, engages while the strap is discharging at/below
@@ -929,6 +935,7 @@ public final class BLEManager: NSObject, ObservableObject {
         #endif
         // Strap-as-clock: an incoming EVENT packet kicks a rate-limited catch-up sync.
         router.onSyncTrigger = { [weak self] in self?.requestSync(.strap) }
+        installPowerStateScheduling()
         // #78 hole-4: a paused-for-bond-loop strap gets one bounded salvage attempt per app-foreground.
         installForegroundSalvageProbe()
     }
@@ -1057,6 +1064,7 @@ public final class BLEManager: NSObject, ObservableObject {
         #endif
         // Strap-as-clock: an incoming EVENT packet kicks a rate-limited catch-up sync.
         router.onSyncTrigger = { [weak self] in self?.requestSync(.strap) }
+        installPowerStateScheduling()
         // #78 hole-4: a paused-for-bond-loop strap gets one bounded salvage attempt per app-foreground.
         installForegroundSalvageProbe()
     }
@@ -1981,7 +1989,7 @@ public final class BLEManager: NSObject, ObservableObject {
     /// lying that the strap finished syncing.
     private func publishBackfillBurstIfNeeded() {
         guard backfillBurstPublication.consume() else { return }
-        state.backfillDataAvailableAt = Date().timeIntervalSince1970
+        state.finalizeHistoricalSyncBurst(at: Date().timeIntervalSince1970)
         log("Backfill: durable history is ready after the sync burst; scheduling one dashboard refresh.")
     }
 
@@ -2199,9 +2207,10 @@ public final class BLEManager: NSObject, ObservableObject {
     }
 
     /// #477 (Settings): battery-% at/below which the offload cadence stretches while discharging (0 = off).
-    /// Applies on the next re-arm; a live sync in flight is never interrupted.
+    /// Recompute the absolute next-attempt deadline now. A live sync in flight is never interrupted.
     public func setLowBatteryOffloadThrottle(_ thresholdPct: Int) {
         lowBatteryOffloadPct = thresholdPct
+        startBackfillTimer()
     }
 
     /// #477 (Settings): pause the background continuous-HRV stream when the strap is low. Keyed on the
@@ -2222,15 +2231,20 @@ public final class BLEManager: NSObject, ObservableObject {
         (state.batteryPct.map { Int($0.rounded()) } ?? 100, state.charging == true)
     }
 
-    /// The next periodic-offload interval — normally `backfillIntervalSeconds`, stretched when low on
-    /// power (#477). Reads the battery snapshot only when the lever is armed (threshold > 0).
-    private func nextBackfillInterval() -> Int {
-        guard lowBatteryOffloadPct > 0 else { return BLEManager.backfillIntervalSeconds }
+    /// Whether the current strap/settings snapshot selects the 45-minute periodic floor.
+    private func periodicPowerSavingActive() -> Bool {
+        guard lowBatteryOffloadPct > 0 else { return false }
         let (pct, charging) = batteryPctAndCharging()
-        return BLEManager.offloadInterval(
-            baseSeconds: BLEManager.backfillIntervalSeconds,
-            lowSeconds: BLEManager.lowBatteryBackfillIntervalSeconds,
+        return BLEManager.lowPowerThrottleActive(
             batteryPct: pct, charging: charging, thresholdPct: lowBatteryOffloadPct)
+    }
+
+    /// LiveState calls this only when battery percentage or charging state actually changes. Recomputing
+    /// against the persisted last-attempt time makes both threshold crossings take effect immediately.
+    private func installPowerStateScheduling() {
+        state.onSyncPowerStateChange = { [weak self] in
+            self?.startBackfillTimer()
+        }
     }
 
     /// #927: the continuous-capture side of the realtime want, window-gated. True while the "Continuous
@@ -2622,25 +2636,52 @@ public final class BLEManager: NSObject, ObservableObject {
         if keepAliveTick % 2 == 0 { send(.getBatteryLevel, payload: []) }  // ~every 60s
     }
 
-    private func startBackfillTimer() {
+    private func startBackfillTimer(minimumDelaySeconds: TimeInterval = 0) {
+        guard state.connected, state.bonded, !restoreInProgress else {
+            backfillTimer?.cancel()
+            backfillTimer = nil
+            backfillTimerDeadlineAt = nil
+            return
+        }
+
+        let now = Date().timeIntervalSince1970
+        let last = UserDefaults.standard.object(forKey: BLEManager.backfillLastAtKey) as? Double
+        let powerSaving = periodicPowerSavingActive()
+        // A due timer normally fires immediately. If its attempt just failed a transient gate, the caller
+        // supplies a small retry floor so an overdue absolute deadline cannot form a zero-delay loop.
+        let delay = BackfillPolicy.periodicDelaySeconds(
+            now: now,
+            lastBackfillAt: last,
+            powerSaving: powerSaving,
+            minimumDelaySeconds: minimumDelaySeconds)
+        let deadline = now + delay
+        if backfillTimer != nil,
+           let existing = backfillTimerDeadlineAt,
+           abs(existing - deadline) < 0.001 {
+            return
+        }
+
         backfillTimer?.cancel()
-        // #477: one-shot, re-armed by triggerPeriodicBackfill() with a fresh (battery-adaptive) interval
-        // each tick — so the cadence can stretch/relax as power state changes (was a fixed repeating timer).
-        let interval = nextBackfillInterval()
+        let delayMilliseconds = Int((delay * 1_000).rounded(.up))
         let t = DispatchSource.makeTimerSource(queue: .main)
-        t.schedule(deadline: .now() + .seconds(interval))
-        t.setEventHandler { [weak self] in self?.triggerPeriodicBackfill() }
+        t.schedule(deadline: .now() + .milliseconds(delayMilliseconds))
+        t.setEventHandler { [weak self] in
+            self?.backfillTimerDeadlineAt = nil
+            self?.triggerPeriodicBackfill()
+        }
         t.resume()
         backfillTimer = t
+        backfillTimerDeadlineAt = deadline
     }
 
     /// The single gated entry point for every historical-offload kick. Applies the connection/state
     /// gate AND the BackfillPolicy rate-limiter for the trigger. On a go: records the attempt time
     /// (persisted) and starts the offload.
-    func requestSync(_ trigger: BackfillTrigger) {
-        guard !restoreInProgress else { return }
+    @discardableResult
+    func requestSync(_ trigger: BackfillTrigger) -> Bool {
+        guard !restoreInProgress else { return false }
         guard BLEManager.shouldRunPeriodicBackfill(
-            connected: state.connected, bonded: state.bonded, backfilling: backfilling) else { return }
+            connected: state.connected, bonded: state.bonded, backfilling: backfilling) else { return false }
         let now = Date().timeIntervalSince1970
         let last = UserDefaults.standard.object(forKey: BLEManager.backfillLastAtKey) as? Double
         // #160: a future-dated-clock strap's recurring automatic offloads (#928/#1012) are near-useless
@@ -2656,11 +2697,16 @@ public final class BLEManager: NSObject, ObservableObject {
                                        clockUntrusted: clockUntrusted,
                                        powerSaving: powerSaving) else {
             log("Backfill: \(trigger) skipped (rate-limited; last \(last.map { Int(now - $0) } ?? -1)s ago)")
-            return
+            return false
         }
         if beginBackfill() {
             UserDefaults.standard.set(now, forKey: BLEManager.backfillLastAtKey)
+            // Every successful trigger moves the next periodic deadline, including manual/strap/connect
+            // attempts. This avoids leaving an older timer armed only to wake and fail the same floor.
+            startBackfillTimer()
+            return true
         }
+        return false
     }
 
     func quiesceStoreForRestore() async throws {
@@ -2690,8 +2736,9 @@ public final class BLEManager: NSObject, ObservableObject {
 
     /// Periodic-timer callback: routes through the rate-limited requestSync entry point.
     private func triggerPeriodicBackfill() {
-        requestSync(.periodic)
-        startBackfillTimer()   // #477: re-arm with a fresh battery-adaptive interval (one-shot timer)
+        if !requestSync(.periodic) {
+            startBackfillTimer(minimumDelaySeconds: BLEManager.backfillRetryDelaySeconds)
+        }
     }
 
     /// User-tappable "Sync now" (#364): kick a historical offload IMMEDIATELY, bypassing the 15-min

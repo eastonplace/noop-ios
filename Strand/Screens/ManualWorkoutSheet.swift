@@ -443,7 +443,7 @@ struct StartWorkoutSheet: View {
                         SectionHeader("Recent route")
                         PaperCard {
                             HStack(spacing: 12) {
-                                WorkoutRouteMap(points: recentRoute.points, showsEndpoints: false)
+                                WorkoutRouteMap(segments: recentRoute.segments, showsEndpoints: false)
                                     .frame(width: 104, height: 78)
                                     .allowsHitTesting(false)
                                     .compositingGroup()
@@ -666,7 +666,7 @@ struct StartWorkoutSheet: View {
     private struct RecentRoute {
         let row: WorkoutRow
         let route: WorkoutRoute
-        let points: [RouteMath.LatLng]
+        let segments: [[RouteMath.LatLng]]
     }
 
     /// D15: only a genuinely persisted, decodable route earns a route card. A distance-only
@@ -674,9 +674,9 @@ struct StartWorkoutSheet: View {
     private var recentRoute: RecentRoute? {
         for row in recentRows {
             guard let route = RouteStore.load(startTs: row.startTs, sport: row.sport) else { continue }
-            let points = RouteMath.decode(route.polyline)
-            guard points.count >= 2 else { continue }
-            return RecentRoute(row: row, route: route, points: points)
+            let segments = route.decodedSegments.filter { $0.count >= 2 }
+            guard !segments.isEmpty else { continue }
+            return RecentRoute(row: row, route: route, segments: segments)
         }
         return nil
     }

@@ -29,6 +29,24 @@ enum BackfillPolicy {
         powerSaving ? lowPowerPeriodicFloorSeconds : periodicFloorSeconds
     }
 
+    /// Absolute wall-clock deadline for the next periodic attempt. The deadline stays anchored to the
+    /// last actual offload attempt when the power-saving floor changes. Re-arming a timer at minute 15
+    /// after a 15 -> 45 minute transition therefore waits only the remaining 30 minutes, not a fresh 45.
+    static func periodicDeadline(now: TimeInterval, lastBackfillAt: TimeInterval?,
+                                 powerSaving: Bool) -> TimeInterval {
+        (lastBackfillAt ?? now) + periodicFloorSeconds(powerSaving: powerSaving)
+    }
+
+    /// Remaining delay for the absolute periodic deadline. A 45 -> 15 minute transition whose shorter
+    /// deadline has already passed returns zero so the scheduler can attempt immediately.
+    static func periodicDelaySeconds(now: TimeInterval, lastBackfillAt: TimeInterval?,
+                                     powerSaving: Bool,
+                                     minimumDelaySeconds: TimeInterval = 0) -> TimeInterval {
+        let remaining = periodicDeadline(now: now, lastBackfillAt: lastBackfillAt,
+                                         powerSaving: powerSaving) - now
+        return max(0, max(minimumDelaySeconds, remaining))
+    }
+
     /// `emptyStreak` is intentionally retained in this API for call-site compatibility and the existing
     /// user-facing three-empty warning, but it no longer changes automatic cadence. The old multiplier
     /// made normal mode slower after harmless empty completions and could compound a 45-minute low-power

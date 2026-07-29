@@ -84,4 +84,29 @@ final class HistoricalBurstProgressTests: XCTestCase {
         XCTAssertEqual(live.historicalSyncPassProgress, progress)
         XCTAssertNil(live.backfillDataAvailableAt)
     }
+
+    @MainActor
+    func testBurstFinalizationPublishesDurableEdgeThenClearsPassProgress() {
+        let live = LiveState()
+        let progress = HistoricalSyncPassProgress(rowsPersisted: 120, passNumber: 1,
+                                                  latestFrontierUnix: 1_000, publishedAt: 10)
+        live.publishHistoricalSyncProgress(progress)
+
+        live.finalizeHistoricalSyncBurst(at: 20)
+
+        XCTAssertEqual(live.backfillDataAvailableAt, 20)
+        XCTAssertNil(live.historicalSyncPassProgress)
+    }
+
+    @MainActor
+    func testDisconnectClearsPassProgress() {
+        let live = LiveState()
+        live.publishHistoricalSyncProgress(
+            HistoricalSyncPassProgress(rowsPersisted: 120, passNumber: 1,
+                                       latestFrontierUnix: 1_000, publishedAt: 10))
+
+        live.markDisconnected()
+
+        XCTAssertNil(live.historicalSyncPassProgress)
+    }
 }

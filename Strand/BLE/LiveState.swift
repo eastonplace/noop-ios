@@ -84,8 +84,16 @@ public final class LiveState: ObservableObject {
     @Published public var worn = true
     @Published public var historySyncExperimental = false
 
-    @Published public var batteryPct: Double?
-    @Published public var charging: Bool?
+    @Published public var batteryPct: Double? {
+        didSet {
+            if batteryPct != oldValue { onSyncPowerStateChange?() }
+        }
+    }
+    @Published public var charging: Bool? {
+        didSet {
+            if charging != oldValue { onSyncPowerStateChange?() }
+        }
+    }
     @Published public internal(set) var batterySamples: [(ts: Int, soc: Double)] = []
     @Published public var batteryRatedHours = BatteryEstimator.ratedLifeHoursWhoop4
     @Published public var advertisingName: String?
@@ -132,6 +140,10 @@ public final class LiveState: ObservableObject {
     /// UI to flash back to zero at every auto-continued slice—the exact UX regression this model is meant to
     /// remove. Manual publication keeps the public property/API intact while guaranteeing one visible edge.
     private var visibleSyncChunks = 0
+    private let syncChunksSubject = CurrentValueSubject<Int, Never>(0)
+    var syncChunksPublisher: AnyPublisher<Int, Never> {
+        syncChunksSubject.eraseToAnyPublisher()
+    }
     public var syncChunksThisSession: Int {
         get { visibleSyncChunks }
         set {
@@ -141,6 +153,7 @@ public final class LiveState: ObservableObject {
             guard cumulative != visibleSyncChunks else { return }
             objectWillChange.send()
             visibleSyncChunks = cumulative
+            syncChunksSubject.send(cumulative)
         }
     }
 
@@ -162,6 +175,9 @@ public final class LiveState: ObservableObject {
     public var onWristChange: ((Bool) -> Void)?
     public var onSmartAlarmFired: (() -> Void)?
     public var onBatteryUpdate: ((Double) -> Void)?
+    /// BLEManager installs this internal hook so periodic scheduling reacts to strap battery/charging
+    /// threshold crossings without taking over AppModel's separate user-notification callback above.
+    var onSyncPowerStateChange: (() -> Void)?
 
     static let maxLogLines = 5_000
 
@@ -191,6 +207,7 @@ public final class LiveState: ObservableObject {
         connected = false
         connectedAt = nil
         historicalBurstProgress.markFinalized()
+        clearHistoricalSyncProgress()
         Task { await flushLogPersistence() }
     }
 
@@ -205,6 +222,18 @@ public final class LiveState: ObservableObject {
     /// That keeps long oldest-first bursts visibly alive while preserving the single heavy finalization edge.
     func publishHistoricalSyncProgress(_ progress: HistoricalSyncPassProgress) {
         historicalSyncPassProgress = progress
+    }
+
+    /// Publish the durable-data edge first, then retire the pass receipt. AppModel observes the first
+    /// mutation and keeps its single post-burst analysis/Repository refresh even though UI progress clears.
+    func finalizeHistoricalSyncBurst(at timestamp: TimeInterval) {
+        backfillDataAvailableAt = timestamp
+        clearHistoricalSyncProgress()
+    }
+
+    func clearHistoricalSyncProgress() {
+        guard historicalSyncPassProgress != nil else { return }
+        historicalSyncPassProgress = nil
     }
 
     public var connectionStatusLabel: String {

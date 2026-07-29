@@ -103,7 +103,10 @@ struct RootTabView: View {
                 withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) { selectedTab = 1 }
                 router.requestedDestination = nil
             case .activeWorkout:
-                withAnimation(Self.sheetEase) { quickAction = .live }
+                // iPhone owns a direct active-workout sheet. Clear the legacy LiveView one-shot so a
+                // later diagnostics visit cannot reopen the workout a second time.
+                router.presentActiveWorkout = false
+                withAnimation(Self.sheetEase) { quickAction = .activeWorkout }
                 router.requestedDestination = nil
             case .liveSession:
                 withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) { selectedTab = 0 }
@@ -131,7 +134,7 @@ struct RootTabView: View {
                 case .rhythm: RhythmHost(onClose: { routedPillar = nil })
                 case .devices: DevicesView()
                 case .trends: TrendsView()
-                case .activeWorkout: LiveView()
+                case .activeWorkout: LiveWorkoutView(onClose: { routedPillar = nil })
                 case .liveSession: TodayView()
                 case .settings: SettingsView()
                 case .updates: UpdatesInboxView(onClose: { routedPillar = nil })
@@ -165,6 +168,8 @@ struct RootTabView: View {
             .presentationDragIndicator(.hidden)
         case .live:
             quickScreen(LiveView())
+        case .activeWorkout:
+            quickScreen(LiveWorkoutView(onClose: { quickAction = nil }))
         case .workout:
             QuickWorkoutFlow(onClose: { quickAction = nil })
         case .journal:
@@ -510,7 +515,7 @@ private struct MoreCategoryView: View {
 }
 
 private enum QuickAction: Int, Identifiable {
-    case menu, live, workout, journal, breathe
+    case menu, live, activeWorkout, workout, journal, breathe
     var id: Int { rawValue }
 }
 

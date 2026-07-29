@@ -66,14 +66,6 @@ struct TestCentreView: View {
     /// True when the connected strap is a 5/MG, so the 5/MG experimental block shows. Mirrors the
     /// SettingsView gate (#22): a confident 4.0 owner never sees controls that cannot touch their strap.
     private var is5MG: Bool { selectedWhoopModelRaw == WhoopModel.whoop5mg.rawValue }
-    private var activeConnection: Bool { live.connected && live.bonded }
-    private var canExerciseLiveTools: Bool {
-        #if DEBUG
-        return activeConnection || CommandLine.arguments.contains("--demo-seed")
-        #else
-        return activeConnection
-        #endif
-    }
     private var hrvSnapshotSource: SpotHrvReading.Source {
         selectedWhoopModelRaw == WhoopModel.whoop5mg.rawValue ? .opticalPPG : .chestStrap
     }
@@ -150,35 +142,16 @@ struct TestCentreView: View {
     private var liveDiagnosticsSection: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
             SectionHeader("Signal Trust", overline: "Live stream diagnostics")
-            LiveSignalTrustRail(activeConnection: activeConnection)
+            TestCentreConnectionTrustLeaf(live: live)
 
             SectionHeader("Record & inspect", overline: "Current stream")
             PaperCard(padding: 14) {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(activeConnection
-                         ? "Record a workout interval or inspect the live R-R stream."
-                         : "Connect a strap in Live, then return here to record or inspect its stream.")
-                        .font(StrandFont.caption)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    NoopButton(model.activeWorkout == nil ? "Record workout" : "Open active workout",
-                               systemImage: model.activeWorkout == nil ? "record.circle" : "timer",
-                               kind: .primary, fullWidth: true) {
-                        if model.activeWorkout == nil { showStartSport = true }
-                        else { showLiveWorkout = true }
-                    }
-                    .disabled(!canExerciseLiveTools && model.activeWorkout == nil)
-                    HStack(spacing: NoopMetrics.rowSpacing) {
-                        NoopButton("Refresh strap", systemImage: "arrow.clockwise", kind: .secondary) {
-                            model.getBattery()
-                        }
-                        .disabled(!canExerciseLiveTools)
-                        NoopButton("Inspect HRV", systemImage: "waveform.path.ecg", kind: .secondary) {
-                            showHRVSnapshot = true
-                        }
-                        .disabled(!canExerciseLiveTools)
-                    }
-                }
+                TestCentreRecordInspectLeaf(
+                    model: model,
+                    live: live,
+                    onStartWorkout: { showStartSport = true },
+                    onOpenWorkout: { showLiveWorkout = true },
+                    onInspectHRV: { showHRVSnapshot = true })
             }
 
             SectionHeader("Stream log", overline: "Inspect & export")
@@ -479,6 +452,68 @@ struct TestCentreView: View {
             infoMessage = String(localized: "Couldn't write the strap log right now.")
         }
         showInfo = true
+    }
+}
+
+/// Observes only the small connection rail, not the complete Test Centre route.
+private struct TestCentreConnectionTrustLeaf: View {
+    @ObservedObject var live: LiveState
+
+    var body: some View {
+        LiveSignalTrustRail(activeConnection: live.connected && live.bonded)
+    }
+}
+
+/// Keeps active-workout labels and connection-gated actions live without invalidating the diagnostic log.
+private struct TestCentreRecordInspectLeaf: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var live: LiveState
+    let onStartWorkout: () -> Void
+    let onOpenWorkout: () -> Void
+    let onInspectHRV: () -> Void
+
+    private var activeConnection: Bool { live.connected && live.bonded }
+    private var canExerciseLiveTools: Bool {
+        #if DEBUG
+        return activeConnection || CommandLine.arguments.contains("--demo-seed")
+        #else
+        return activeConnection
+        #endif
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(activeConnection
+                 ? "Record a workout interval or inspect the live R-R stream."
+                 : "Connect a strap in Live, then return here to record or inspect its stream.")
+                .font(StrandFont.caption)
+                .foregroundStyle(StrandPalette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            NoopButton(model.activeWorkout == nil ? "Record workout" : "Open active workout",
+                       systemImage: model.activeWorkout == nil ? "record.circle" : "timer",
+                       kind: .primary,
+                       fullWidth: true,
+                       action: openWorkout)
+                .disabled(!canExerciseLiveTools && model.activeWorkout == nil)
+            HStack(spacing: NoopMetrics.rowSpacing) {
+                NoopButton("Refresh strap", systemImage: "arrow.clockwise", kind: .secondary) {
+                    model.getBattery()
+                }
+                .disabled(!canExerciseLiveTools)
+                NoopButton("Inspect HRV", systemImage: "waveform.path.ecg", kind: .secondary) {
+                    onInspectHRV()
+                }
+                .disabled(!canExerciseLiveTools)
+            }
+        }
+    }
+
+    private func openWorkout() {
+        if model.activeWorkout == nil {
+            onStartWorkout()
+        } else {
+            onOpenWorkout()
+        }
     }
 }
 

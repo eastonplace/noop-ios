@@ -1,6 +1,7 @@
 import XCTest
 @testable import NOOP
 
+@MainActor
 final class BackfillPolicyTests: XCTestCase {
     func testDefaultPeriodicCadenceStaysAtFifteenMinutesAfterEmptyStreak() {
         let last = 10_000.0
@@ -31,6 +32,50 @@ final class BackfillPolicyTests: XCTestCase {
         XCTAssertTrue(BackfillPolicy.shouldRun(trigger: .periodic, now: last + 2_700,
                                                lastBackfillAt: last, emptyStreak: 12,
                                                powerSaving: true))
+    }
+
+    func testEnteringPowerSavingKeepsDeadlineAnchoredToLastAttempt() {
+        let last = 10_000.0
+        let normalTimerFire = last + BackfillPolicy.periodicFloorSeconds
+
+        XCTAssertEqual(
+            BackfillPolicy.periodicDeadline(
+                now: normalTimerFire,
+                lastBackfillAt: last,
+                powerSaving: true),
+            last + BackfillPolicy.lowPowerPeriodicFloorSeconds)
+        XCTAssertEqual(
+            BackfillPolicy.periodicDelaySeconds(
+                now: normalTimerFire,
+                lastBackfillAt: last,
+                powerSaving: true),
+            1_800,
+            "15 -> 45 minutes must wait the remaining 30 minutes, not a fresh 45")
+    }
+
+    func testLeavingPowerSavingShortensAnAlreadyArmedTimerImmediately() {
+        let last = 10_000.0
+        let now = last + 1_200
+
+        XCTAssertEqual(
+            BackfillPolicy.periodicDelaySeconds(
+                now: now,
+                lastBackfillAt: last,
+                powerSaving: false),
+            0,
+            "45 -> 15 minutes must attempt now when the normal deadline already passed")
+    }
+
+    func testOverdueRejectedAttemptUsesBoundedRetryInsteadOfZeroDelayLoop() {
+        let last = 10_000.0
+
+        XCTAssertEqual(
+            BackfillPolicy.periodicDelaySeconds(
+                now: last + 1_200,
+                lastBackfillAt: last,
+                powerSaving: false,
+                minimumDelaySeconds: BLEManager.backfillRetryDelaySeconds),
+            30)
     }
 
     func testManualAndBoundedAutoContinueRemainImmediate() {

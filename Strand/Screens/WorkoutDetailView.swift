@@ -50,7 +50,9 @@ struct WorkoutDetailView: View {
 
     /// The GPS route captured for this session on-device (#524), if any. Decoded from `RouteStore` by the
     /// row's natural key. nil = no route was recorded (honest — the map only shows when points exist).
-    @State private var route: [RouteMath.LatLng] = []
+    @State private var routeSegments: [[RouteMath.LatLng]] = []
+    private var routePointCount: Int { routeSegments.reduce(0) { $0 + $1.count } }
+    private var hasDrawableRoute: Bool { routeSegments.contains { $0.count >= 2 } }
     /// Board-v2 tabbed summary (spec 003 D6). Splits tab is pending a real per-split
     /// computation (none exists in the repo yet) — adding a fake table would violate the
     /// honesty rule, so the segment ships with three tabs until Codex lands split math.
@@ -128,10 +130,9 @@ struct WorkoutDetailView: View {
         // #524: the GPS route, if this session recorded one on-device. A cheap UserDefaults read keyed
         // by the row's natural key (startTs + sport); decoded to points only when ≥2 were captured so the
         // map only ever draws a real route.
-        let routePoints: [RouteMath.LatLng] = {
+        let loadedRouteSegments: [[RouteMath.LatLng]] = {
             guard let r = RouteStore.load(startTs: target.startTs, sport: target.sport) else { return [] }
-            let pts = RouteMath.decode(r.polyline)
-            return pts.count >= 2 ? pts : []
+            return r.decodedSegments.filter { $0.count >= 2 }
         }()
 
         // HR curve over the exact session window — a finer bucket than the 24h chart so a short run
@@ -161,7 +162,7 @@ struct WorkoutDetailView: View {
         }
 
         await MainActor.run {
-            self.route = routePoints
+            self.routeSegments = loadedRouteSegments
             self.refreshedRow = target
             self.hrPoints = points
             self.zoneMinutes = minutes
@@ -292,7 +293,7 @@ struct WorkoutDetailView: View {
     }
 
     @ViewBuilder private var paperRouteCard: some View {
-        if route.count >= 2 {
+        if hasDrawableRoute {
             PaperCard(padding: 0) {
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: 10) {
@@ -310,7 +311,7 @@ struct WorkoutDetailView: View {
                     }
                     .foregroundStyle(StrandPalette.textPrimary)
                     .padding(16)
-                    WorkoutRouteMap(points: route)
+                    WorkoutRouteMap(segments: routeSegments)
                         .frame(height: 180)
                         .accessibilityLabel(routeAccessibilityLabel)
                 }
@@ -409,13 +410,13 @@ struct WorkoutDetailView: View {
     /// pace read off the route. Shown ONLY when ≥2 points were captured — honest "no map" otherwise (a
     /// Mac with no GPS, denied permission, or a non-distance sport never produce a route).
     @ViewBuilder private var routeCard: some View {
-        if route.count >= 2 {
+        if hasDrawableRoute {
             VStack(alignment: .leading, spacing: NoopMetrics.gap) {
                 SectionHeader("Route", overline: "Recorded on device",
                               trailing: distanceLabel(displayRow.distanceM))
                 NoopCard(padding: 0, tint: StrandPalette.effortColor) {
                     VStack(alignment: .leading, spacing: 0) {
-                        WorkoutRouteMap(points: route)
+                        WorkoutRouteMap(segments: routeSegments)
                             .frame(height: 220)
                             .clipShape(RoundedRectangle(cornerRadius: NoopMetrics.cardRadius,
                                                         style: .continuous))
@@ -424,7 +425,7 @@ struct WorkoutDetailView: View {
                             routeStat(String(localized: "Distance"), distanceLabel(displayRow.distanceM),
                                       tint: StrandPalette.metricCyan)
                             routeStat(String(localized: "Avg pace"), paceLabel, tint: StrandPalette.effortBright)
-                            routeStat(String(localized: "Points"), "\(route.count)", tint: StrandPalette.textSecondary)
+                            routeStat(String(localized: "Points"), "\(routePointCount)", tint: StrandPalette.textSecondary)
                         }
                         .padding(NoopMetrics.cardPadding)
                     }
@@ -719,16 +720,23 @@ typealias RouteMapRepresentable = NSViewRepresentable
 
 #if canImport(MapKit)
 struct WorkoutRouteMap: RouteMapRepresentable {
-    let points: [RouteMath.LatLng]
+    let segments: [[RouteMath.LatLng]]
     let showsEndpoints: Bool
 
     init(points: [RouteMath.LatLng], showsEndpoints: Bool = true) {
-        self.points = points
+        segments = points.isEmpty ? [] : [points]
         self.showsEndpoints = showsEndpoints
     }
 
-    private var coordinates: [CLLocationCoordinate2D] {
-        points.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
+    init(segments: [[RouteMath.LatLng]], showsEndpoints: Bool = true) {
+        self.segments = segments
+        self.showsEndpoints = showsEndpoints
+    }
+
+    private var coordinateSegments: [[CLLocationCoordinate2D]] {
+        segments.map {
+            $0.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
+        }
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -748,19 +756,25 @@ struct WorkoutRouteMap: RouteMapRepresentable {
     private func configure(_ map: MKMapView) {
         map.removeOverlays(map.overlays)
         map.removeAnnotations(map.annotations)
-        let coords = coordinates
-        guard coords.count >= 2 else { return }
-        let line = MKPolyline(coordinates: coords, count: coords.count)
-        map.addOverlay(line)
+        let coordinates = coordinateSegments.filter { $0.count >= 2 }
+        guard !coordinates.isEmpty else { return }
+        let lines = coordinates.map { MKPolyline(coordinates: $0, count: $0.count) }
+        map.addOverlays(lines)
 
         if showsEndpoints {
-            let start = MKPointAnnotation(); start.coordinate = coords.first!; start.title = String(localized: "Start")
-            let end = MKPointAnnotation(); end.coordinate = coords.last!; end.title = String(localized: "Finish")
+            let start = MKPointAnnotation()
+            start.coordinate = coordinates.first!.first!
+            start.title = String(localized: "Start")
+            let end = MKPointAnnotation()
+            end.coordinate = coordinates.last!.last!
+            end.title = String(localized: "Finish")
             map.addAnnotations([start, end])
         }
 
         // Frame the whole route with a little padding so the line isn't flush to the edges.
-        let rect = line.boundingMapRect
+        let rect = lines.dropFirst().reduce(lines[0].boundingMapRect) {
+            $0.union($1.boundingMapRect)
+        }
         let inset = UIEdgeInsetsLikePadding
         map.setVisibleMapRect(rect, edgePadding: inset, animated: false)
     }
@@ -801,7 +815,16 @@ private enum RoutePlatformColor {
 #else
 /// Platforms without MapKit (none we ship, but keeps the type resolvable): no route map.
 struct WorkoutRouteMap: View {
-    let points: [RouteMath.LatLng]
+    let segments: [[RouteMath.LatLng]]
+
+    init(points: [RouteMath.LatLng], showsEndpoints: Bool = true) {
+        segments = points.isEmpty ? [] : [points]
+    }
+
+    init(segments: [[RouteMath.LatLng]], showsEndpoints: Bool = true) {
+        self.segments = segments
+    }
+
     var body: some View { Color.clear }
 }
 #endif

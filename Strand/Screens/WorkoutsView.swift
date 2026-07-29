@@ -512,15 +512,10 @@ struct WorkoutsView: View {
     /// place people instinctively look — instead of only from the Live screen. Starts the session and
     /// presents the in-exercise view directly (no cross-view auto-present race with LiveView's sheet).
     private var startLiveWorkoutButton: some View {
-        NoopButton(model.activeWorkout == nil ? "Start workout" : "View active workout",
-                   systemImage: model.activeWorkout == nil ? "figure.run" : "timer",
-                   kind: .primary, fullWidth: true) {
-            // No active session → pick a named sport first (#519), then the sheet's onStart begins it
-            // and opens the in-exercise view. Already active → jump straight back into the live view.
-            if model.activeWorkout == nil { showStartSport = true }
-            else { showLiveWorkout = true }
-        }
-        .accessibilityLabel(model.activeWorkout == nil ? "Start a workout" : "View the active workout")
+        WorkoutsActiveWorkoutButtonLeaf(
+            model: model,
+            onStart: { showStartSport = true },
+            onOpen: { showLiveWorkout = true })
     }
 
     /// The latest session start (anchors every window — windows are relative to the
@@ -1790,6 +1785,32 @@ struct WorkoutsView: View {
         static let effort: CGFloat = 64   // #796 per-session Strain column
         static let source: CGFloat = 80
         static let action: CGFloat = 36   // trailing "•••" per-row actions menu
+    }
+}
+
+/// Observes active-workout state only around the one control that renders it.
+private struct WorkoutsActiveWorkoutButtonLeaf: View {
+    @ObservedObject var model: AppModel
+    let onStart: () -> Void
+    let onOpen: () -> Void
+
+    private var hasActiveWorkout: Bool { model.activeWorkout != nil }
+
+    var body: some View {
+        NoopButton(hasActiveWorkout ? "View active workout" : "Start workout",
+                   systemImage: hasActiveWorkout ? "timer" : "figure.run",
+                   kind: .primary,
+                   fullWidth: true,
+                   action: openWorkout)
+            .accessibilityLabel(hasActiveWorkout ? "View the active workout" : "Start a workout")
+    }
+
+    private func openWorkout() {
+        if hasActiveWorkout {
+            onOpen()
+        } else {
+            onStart()
+        }
     }
 }
 
