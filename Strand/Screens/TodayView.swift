@@ -468,6 +468,9 @@ struct TodayView: View {
     // "Sleep" tile shows THIS, formatted like Charge/Strain, with hours-in-bed kept as the caption, the
     // tile previously showed hours where the score belonged (#248). nil until loaded / no night yet.
     @State private var restScore: Double?
+    /// A day-scoped load can finish after the logical day changes. Retain its identity so the old score
+    /// cannot paint the new day while the replacement read is in flight.
+    @State private var restScoreLoadKey: String?
 
     /// The provenance-bearing point that backs `restScore`, when it is one of the two source-aware
     /// Sleep Performance series. Kept separate from the generic resolver source so shadow-mode legacy
@@ -584,6 +587,9 @@ struct TodayView: View {
     /// Immutable render inputs committed after a scoped Today load. Value-fed leaf sections below compare
     /// this rather than subscribing to Repository, so an unrelated refresh cannot rebuild unchanged cards.
     @State private var screenSnapshot: TodayScreenSnapshot?
+    /// Advances only when a first-paint metric crosses its freshness boundary. It restarts the one-shot
+    /// freshness task without adding a repeating timer to Today.
+    @State private var firstPaintFreshnessScheduleRevision = 0
 
     // Support sheet (donate + contact), opened from the home toolbar on macOS, and from an
     // in-content control on iOS (a primary tab has no NavigationStack, so a `.toolbar` item never
@@ -736,6 +742,13 @@ struct TodayView: View {
         return "\(key.logicalKey)|\(key.localKey)|\(key.selectedDayKey)"
     }
 
+    /// This is intentionally separate from the snapshot revision. A new first-paint snapshot can arrive
+    /// without invalidating a completed score read for the same selected day.
+    private var restScorePresentationKey: String {
+        let key = displayDayKey
+        return "\(key.logicalKey)|\(key.localKey)|\(key.selectedDayKey)|\(key.offset)"
+    }
+
     /// Pure selection policy behind the snapshot. The selected-day case remains a backward lookup, while
     /// Today delegates to the existing logical/local resolver so the #144 and #304 rollover guarantees are
     /// byte-for-byte shared with Repository.
@@ -811,9 +824,9 @@ struct TodayView: View {
         return value
     }
 
-    /// Recompute freshness at the UI boundary. A same-day value is fresh only when its newest raw frontier
-    /// (or snapshot write time when no frontier exists) is no more than 60 minutes old. A one-day carry is
-    /// aging; an older carry is stale. This reads only persisted snapshot evidence.
+    /// Recompute freshness at the UI boundary. A same-day value is fresh only when evidence attached to
+    /// that metric is no more than 60 minutes old. The snapshot's global HR frontier is not metric evidence:
+    /// it must never freshen Recovery or Sleep. A one-day carry is aging; an older carry is stale.
     nonisolated static func firstPaintMetricFreshness(
         _ value: TodayHealthMetricValue?,
         snapshot: TodayHealthSnapshot?,
@@ -832,10 +845,38 @@ struct TodayView: View {
             return dayGap == 1 ? .aging : .stale
         }
 
-        let evidenceTimestamp = value.rawFrontierTs ?? snapshot?.rawFrontierTs ?? snapshot?.generatedAt
+        let evidenceTimestamp = value.rawFrontierTs ?? value.observedAt
         guard let evidenceTimestamp else { return .stale }
         let age = nowTimestamp - evidenceTimestamp
         return age >= 0 && age <= 60 * 60 ? .fresh : .stale
+    }
+
+    /// Return the next local deadline at which a fresh first-paint metric can become stale. The caller
+    /// schedules exactly one wake-up and reschedules only if another metric remains fresh afterward.
+    nonisolated static func nextFirstPaintFreshnessDeadline(
+        snapshot: TodayHealthSnapshot?,
+        selectedDayOffset: Int,
+        currentLogicalDay: String,
+        currentLocalDay: String,
+        nowTimestamp: Int
+    ) -> Int? {
+        let visibleMetrics: [TodayHealthSnapshot.Metric] = [.recovery, .strain, .sleepScore]
+        return visibleMetrics.compactMap { metric in
+            guard let value = firstPaintMetric(
+                metric,
+                snapshot: snapshot,
+                selectedDayOffset: selectedDayOffset,
+                currentLogicalDay: currentLogicalDay,
+                currentLocalDay: currentLocalDay
+            ) else { return nil }
+            let metricDay = value.metricDay ?? snapshot?.displayDay
+            guard metricDay == currentLogicalDay || metricDay == currentLocalDay,
+                  let evidenceTimestamp = value.rawFrontierTs ?? value.observedAt,
+                  evidenceTimestamp <= nowTimestamp
+            else { return nil }
+            let deadline = evidenceTimestamp + 60 * 60 + 1
+            return deadline > nowTimestamp ? deadline : nil
+        }.min()
     }
 
     /// A first-paint metric is current only when its own day matches the current logical day. The snapshot
@@ -1723,6 +1764,35 @@ struct TodayView: View {
         screenSnapshot = buildScreenSnapshot()
     }
 
+    /// Metadata changes and day changes cancel the previous task through this key. The revision is bumped
+    /// by the one-shot task itself when the next deadline is reached.
+    private var firstPaintFreshnessScheduleKey: String {
+        let key = displayDayKey
+        return "\(key.refreshSeq)|\(key.todayHealthSnapshotRevision)|\(key.offset)|\(key.logicalKey)|\(key.localKey)|\(key.selectedDayKey)|\(firstPaintFreshnessScheduleRevision)"
+    }
+
+    private func refreshFirstPaintFreshnessWhenDue() async {
+        let key = displayDayKey
+        let nowTimestamp = Int(Date().timeIntervalSince1970)
+        guard let deadline = Self.nextFirstPaintFreshnessDeadline(
+            snapshot: firstPaintSnapshot(for: key),
+            selectedDayOffset: key.offset,
+            currentLogicalDay: key.logicalKey,
+            currentLocalDay: key.localKey,
+            nowTimestamp: nowTimestamp
+        ) else { return }
+        let delay = deadline - nowTimestamp
+        guard delay > 0 else { return }
+        do {
+            try await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000_000)
+        } catch {
+            return
+        }
+        guard !Task.isCancelled else { return }
+        firstPaintFreshnessScheduleRevision &+= 1
+        refreshScreenSnapshot()
+    }
+
     @ViewBuilder
     private var paperPillarCard: some View {
         if let screenSnapshot {
@@ -2030,6 +2100,9 @@ struct TodayView: View {
             offset: selectedDayOffset,
             presentationDay: presentationDayLoadKey
         )) { await loadAll() }
+        // Freshness is time-based even while the repository is quiet. This is a one-shot task, not a
+        // periodic redraw: it wakes only at the earliest direct metric-evidence expiry.
+        .task(id: firstPaintFreshnessScheduleKey) { await refreshFirstPaintFreshnessWhenDue() }
         // #989: hydration writes don't bump refreshSeq, so the card needs its own triggers, a logged /
         // edited / deleted drink (hydrationSeq) and the Settings feature toggle both re-read just the two
         // hydration fields. Cheap (one metricSeries row), never re-runs the heavy loads.
@@ -4578,9 +4651,10 @@ struct TodayView: View {
     /// merges the other keys around it, same ordering as a genuine load. The zoom is NOT cached (it is the
     /// user's transient gesture state): it is re-clamped against the restored axis exactly like a genuine
     /// load, which on the fresh-mount hit path is the nil → nil no-op (a re-mount resets `@State`).
-    private func restoreDayScoped(_ c: TodayDayScopedCache) {
+    private func restoreDayScoped(_ c: TodayDayScopedCache, loadKey: String) {
         sparks["sleep_performance"] = c.restSpark
         restScore = c.restScore
+        restScoreLoadKey = loadKey
         displayedSleepScorePoint = c.displayedSleepScorePoint
         provenanceByMetric = c.provenanceByMetric
         hrPoints = c.hrPoints
@@ -4630,11 +4704,12 @@ struct TodayView: View {
         // is keyed by the state this pass actually loaded for.
         let loadSeq = repo.refreshSeq
         let loadDayKey = selectedDayKey
+        let loadRestScoreKey = restScorePresentationKey
         if repo.todayDayScopedLoadedSeq == loadSeq,
            repo.todayDayScopedLoadedDayKey == loadDayKey,
            let cached = repo.todayDayScopedCache,
            selectedDayOffset != 0 || Date().timeIntervalSince(cached.bankedAt) < Self.todayCacheMaxAge {
-            restoreDayScoped(cached)
+            restoreDayScoped(cached, loadKey: loadRestScoreKey)
             if selectedDayOffset == 0, let axis = hrAxis {
                 let nowEnd = Date()
                 if nowEnd > axis.upperBound {
@@ -4680,6 +4755,7 @@ struct TodayView: View {
             lastValue: restSeries.last?.value, isTodaySelected: selectedDayOffset == 0,
             todayKey: selectedDayKey)
         restScore = restScoreLocal
+        restScoreLoadKey = loadRestScoreKey
 
         // Component 4, resolve the REAL per-day merge winner for the selected day's derived scores. The
         // cross-source resolver applies the SAME imported-WHOOP > NOOP-computed > Apple-Health precedence
@@ -4770,7 +4846,9 @@ struct TodayView: View {
         // skipping here costs nothing but a cache miss. The snapshot is built from the LOCALS captured at
         // each computation point, never from `@State` at tail time: a cancelled sibling pass's interleaved
         // `@State` writes (its awaits still complete) can therefore never leak into this pass's bank.
-        guard loadDayKey == selectedDayKey, !Task.isCancelled else { return }
+        guard loadDayKey == selectedDayKey,
+              loadRestScoreKey == restScorePresentationKey,
+              !Task.isCancelled else { return }
         repo.todayDayScopedCache = TodayDayScopedCache(
             restSpark: restSparkLocal,
             restScore: restScoreLocal,

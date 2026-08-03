@@ -87,6 +87,50 @@ final class TodayFirstPaintSemanticsTests: XCTestCase {
             nowTimestamp: now), .stale)
     }
 
+    func testGlobalSnapshotFrontierCannotFreshenRecoveryWithoutMetricEvidence() {
+        let now = 2_000_000
+        let currentDay = "2026-08-03"
+        let oldRecovery = metric(78, day: currentDay, observedAt: now - (60 * 60 + 1))
+        let recentOtherMetricFrontier = snapshot(
+            day: currentDay,
+            recovery: oldRecovery,
+            generatedAt: now,
+            rawFrontierTs: now
+        )
+
+        XCTAssertEqual(TodayView.firstPaintMetricFreshness(
+            oldRecovery, snapshot: recentOtherMetricFrontier,
+            currentLogicalDay: currentDay, currentLocalDay: currentDay,
+            nowTimestamp: now), .stale)
+
+        let noMetricEvidence = metric(78, day: currentDay)
+        let globallyRecentOnly = snapshot(
+            day: currentDay,
+            recovery: noMetricEvidence,
+            generatedAt: now,
+            rawFrontierTs: now
+        )
+        XCTAssertEqual(TodayView.firstPaintMetricFreshness(
+            noMetricEvidence, snapshot: globallyRecentOnly,
+            currentLogicalDay: currentDay, currentLocalDay: currentDay,
+            nowTimestamp: now), .stale)
+    }
+
+    func testFreshnessDeadlineTracksMetricEvidenceNotGlobalSnapshotFrontier() {
+        let now = 2_000_000
+        let currentDay = "2026-08-03"
+        let recovery = metric(78, day: currentDay, observedAt: now - 120)
+        let handoff = snapshot(day: currentDay, recovery: recovery, rawFrontierTs: now)
+
+        XCTAssertEqual(TodayView.nextFirstPaintFreshnessDeadline(
+            snapshot: handoff,
+            selectedDayOffset: 0,
+            currentLogicalDay: currentDay,
+            currentLocalDay: currentDay,
+            nowTimestamp: now
+        ), now + 60 * 60 - 119)
+    }
+
     func testMultiDayCarryIsStaleAgainstCurrentLogicalDay() {
         let now = 2_000_000
         let oldDay = "2026-07-31"
