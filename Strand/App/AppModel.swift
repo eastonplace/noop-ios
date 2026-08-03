@@ -464,6 +464,9 @@ final class AppModel: ObservableObject {
                 self.live.batteryPct = 68
             }
             #endif
+            // Resolve the active source before first paint. The durable snapshot key includes this lineage,
+            // so a re-paired strap can never hydrate the previous source's Recovery/Sleep/Strain values.
+            await self.wireSourceCoordinator()
             // First paint is one indexed durable snapshot read. It starts independently from the broad
             // repository refresh, so a stale/missing snapshot can never delay authoritative data loading.
             let firstPaintTask = Task(priority: .userInitiated) { [weak self] in
@@ -471,7 +474,6 @@ final class AppModel: ObservableObject {
             }
             _ = await self.repo.refresh(.initialLoad)          // surface any imported data at once
             _ = await firstPaintTask.value
-            await self.wireSourceCoordinator()                 // dormant unless a generic strap is active
             try? await Task.sleep(nanoseconds: 6_000_000_000)  // give the first offload a moment
             // FIX 2(a): DEFER the heavy one-shot 4000-day heal/rescore while an import is in flight. A
             // large Apple Health import is the worst-case launch overlap , running a 4000-iteration heal
@@ -561,6 +563,9 @@ final class AppModel: ObservableObject {
         guard sourceCoordinator == nil, let store = await repo.storeHandle() else { return }
         let registry = DeviceRegistry(store: DeviceRegistryStore(dbQueue: store.registryWriter))
         registry.reload()
+        // Establish the source lineage synchronously. The subscription below is still needed for future
+        // changes, but its asynchronous initial emission is too late for the startup snapshot contract.
+        _ = repo.adoptActiveDeviceId(registry.activeDeviceId)
         let coordinator = SourceCoordinator(
             registry: registry,
             live: live,

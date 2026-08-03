@@ -39,6 +39,28 @@ final class TodayDisplayDaySnapshotTests: XCTestCase {
             logicalKey)
     }
 
+    func testFirstPaintAcceptsPreviousLogicalDayAtMidnightAndFourAM() {
+        XCTAssertTrue(TodayView.acceptsFirstPaintSnapshot(
+            displayDay: "2026-06-13", selectedDayOffset: 0,
+            logicalKey: "2026-06-13", localKey: "2026-06-14"
+        ))
+        XCTAssertTrue(TodayView.acceptsFirstPaintSnapshot(
+            displayDay: "2026-06-13", selectedDayOffset: 0,
+            logicalKey: "2026-06-14", localKey: "2026-06-14"
+        ))
+    }
+
+    func testFirstPaintRejectsFutureAndHistoricalSnapshots() {
+        XCTAssertFalse(TodayView.acceptsFirstPaintSnapshot(
+            displayDay: "2026-06-15", selectedDayOffset: 0,
+            logicalKey: "2026-06-14", localKey: "2026-06-14"
+        ))
+        XCTAssertFalse(TodayView.acceptsFirstPaintSnapshot(
+            displayDay: "2026-06-13", selectedDayOffset: 1,
+            logicalKey: "2026-06-14", localKey: "2026-06-14"
+        ))
+    }
+
     func testSnapshotUsesExplicitPastDayKey() {
         let rows = [
             day("2026-06-12", sleepMin: 390),

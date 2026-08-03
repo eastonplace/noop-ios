@@ -766,15 +766,35 @@ struct TodayView: View {
             day: resolvedDisplayDay(for: key))
     }
 
-    /// The current-day snapshot is a complete, per-metric-resolved daily row. It is only valid for the
-    /// same logical/local day pair that produced it; past-day navigation always reads the normal history.
+    /// The current-day snapshot is a per-metric-resolved row. Its own display day may lag the wall clock
+    /// during the midnight/04:00 handoff, but it must never describe a future day. Past-day navigation
+    /// always reads the normal history.
     private func firstPaintSnapshot(for key: DisplayDayKey) -> TodayHealthSnapshot? {
-        guard key.offset == 0,
-              let snapshot = repo.todayHealthSnapshot,
-              snapshot.logicalDay == key.logicalKey,
-              snapshot.localDay == key.localKey
+        guard let snapshot = repo.todayHealthSnapshot,
+              Self.acceptsFirstPaintSnapshot(
+                displayDay: snapshot.displayDay,
+                selectedDayOffset: key.offset,
+                logicalKey: key.logicalKey,
+                localKey: key.localKey
+              )
         else { return nil }
         return snapshot
+    }
+
+    nonisolated static func acceptsFirstPaintSnapshot(
+        displayDay: String,
+        selectedDayOffset: Int,
+        logicalKey: String,
+        localKey: String
+    ) -> Bool {
+        selectedDayOffset == 0 && displayDay <= max(logicalKey, localKey)
+    }
+
+    private func carriedMetricDetail(_ value: TodayHealthMetricValue?, snapshot: TodayHealthSnapshot?) -> String? {
+        guard let value, let metricDay = value.metricDay,
+              metricDay != snapshot?.displayDay
+        else { return nil }
+        return String(localized: "Last scored · \(metricDay)")
     }
 
     private func resolvedDisplayDay(for key: DisplayDayKey) -> DailyMetric? {
@@ -1523,16 +1543,20 @@ struct TodayView: View {
 
     private func buildScreenSnapshot() -> TodayScreenSnapshot {
         let day = displayDay
-        // Never carry a neighboring day's Recovery into this day. An unscored day is intentionally
-        // represented by the dashed gauge and "Not rated", matching the calendar's gray cell.
-        let charge = day?.recovery
-        let effort = effortStrain(day)
+        let firstPaint = firstPaintSnapshot(for: displayDayKey)
+        // A morning handoff can contain yesterday's completed Recovery/Sleep and today's live Strain.
+        // The resolver preserves each metric's own day, and the card labels a carried value rather than
+        // blanking two pillars until the overnight scorer completes.
+        let charge = firstPaint?.recovery?.value ?? day?.recovery
+        let effort = firstPaint?.strain?.value ?? effortStrain(day)
         let strain = effort.map { StrainScale.displayValue(fromStored: $0) }
+        let rest = firstPaint?.sleepScore?.value ?? restScore
         let pillars = [
             TodayPillarModel(
                 id: "recovery", label: String(localized: "Recovery"), value: charge, maximum: 100,
                 valueText: charge.map { "\(Int($0.rounded()))" } ?? "—",
                 state: paperScoreState(charge, kind: .charge),
+                detail: carriedMetricDetail(firstPaint?.recovery, snapshot: firstPaint),
                 accent: charge.map { RecoveryBands.color(for: $0) } ?? StrandPalette.recoveryData,
                 bandTicks: [0.34, 0.67]
             ),
@@ -1540,13 +1564,15 @@ struct TodayView: View {
                 id: "strain", label: String(localized: "Strain"), value: strain, maximum: 21,
                 valueText: strain.map { String(format: "%.1f", $0) } ?? "—",
                 state: paperScoreState(effort, kind: .effort),
+                detail: carriedMetricDetail(firstPaint?.strain, snapshot: firstPaint),
                 accent: StrandPalette.strainAccent
             ),
             TodayPillarModel(
-                id: "sleep", label: String(localized: "Sleep"), value: displayedRestScore, maximum: 100,
-                valueText: displayedRestScore.map { "\(Int($0.rounded()))" } ?? "—",
-                state: paperScoreState(displayedRestScore, kind: .rest),
-                detail: day.map(sleepValue), accent: StrandPalette.sleepAccent
+                id: "sleep", label: String(localized: "Sleep"), value: rest, maximum: 100,
+                valueText: rest.map { "\(Int($0.rounded()))" } ?? "—",
+                state: paperScoreState(rest, kind: .rest),
+                detail: carriedMetricDetail(firstPaint?.sleepScore, snapshot: firstPaint) ?? day.map(sleepValue),
+                accent: StrandPalette.sleepAccent
             ),
         ]
         let midnight = Calendar.current.startOfDay(for: selectedLogicalDay)
@@ -1909,6 +1935,7 @@ struct TodayView: View {
         }
         .onChangeCompat(of: displayDayKey) { _ in
             refreshDisplayDaySnapshot()
+            refreshScreenSnapshot()
         }
         .onAppear {
             refreshDisplayDaySnapshot()

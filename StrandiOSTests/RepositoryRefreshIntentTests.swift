@@ -1,13 +1,14 @@
 import XCTest
+import WhoopStore
 @testable import NOOP
 
 #if os(iOS)
 @MainActor
 final class RepositoryRefreshIntentTests: XCTestCase {
     func testIntentRangesAndDeterministicEqualRangeMerge() {
-        XCTAssertEqual(RepositoryRefreshIntent.currentDay.days, 120)
-        XCTAssertEqual(RepositoryRefreshIntent.postBackfill.days, 120)
-        XCTAssertEqual(RepositoryRefreshIntent.initialLoad.days, 120)
+        XCTAssertEqual(RepositoryRefreshIntent.currentDay.days, 4_000)
+        XCTAssertEqual(RepositoryRefreshIntent.postBackfill.days, 4_000)
+        XCTAssertEqual(RepositoryRefreshIntent.initialLoad.days, 4_000)
         XCTAssertEqual(RepositoryRefreshIntent.recentDashboard(days: 1).days, 120)
         XCTAssertEqual(RepositoryRefreshIntent.fullHistoryMigration.days, 4_000)
         XCTAssertEqual(
@@ -37,6 +38,25 @@ final class RepositoryRefreshIntentTests: XCTestCase {
             String(describing: RepositoryRefreshIntent.fullHistoryMigration.traceName),
             "repository_refresh_full_history_migration"
         )
+    }
+
+    func testInitialLoadPreservesMultiYearHistoryWindow() async throws {
+        let store = try await WhoopStore.inMemory()
+        let calendar = Calendar.current
+        let oldDate = calendar.date(byAdding: .day, value: -730, to: Date())!
+        let oldDay = Repository.localDayKey(oldDate)
+        try await store.upsertDailyMetrics([
+            DailyMetric(day: oldDay, totalSleepMin: 440, efficiency: 0.9, deepMin: 90, remMin: 100,
+                        lightMin: 250, disturbances: 3, restingHr: 52, avgHrv: 63, recovery: 78,
+                        strain: 64, exerciseCount: 1, strainVersion: 2)
+        ], deviceId: Repository.whoopSource + "-noop")
+        let repository = Repository(deviceId: Repository.whoopSource)
+        repository.setStoreForTesting(store)
+
+        let didRefresh = await repository.refresh(.initialLoad)
+
+        XCTAssertTrue(didRefresh)
+        XCTAssertEqual(repository.freshness.earliestDay, oldDay)
     }
 
     func testOverlappingNarrowRequestsCoalesceToWidestPendingRange() async {

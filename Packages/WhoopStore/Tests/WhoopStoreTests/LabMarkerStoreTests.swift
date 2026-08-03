@@ -42,7 +42,7 @@ final class LabMarkerStoreTests: XCTestCase {
     }
 
     func testSchemaVersionIs18() {
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 32)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 33)
     }
 
     // MARK: - helpers

@@ -650,6 +650,20 @@ extension WhoopStore {
                           on: "todayHealthSnapshot",
                           columns: ["deviceId", "generatedAt"])
         }
+        // v33: first-paint snapshots need an explicit database/source context. The database UUID lives
+        // outside the snapshot row so it survives a snapshot clear, travels with a valid backup, and changes
+        // when a replacement database is created. `contextId` lets the UPSERT reject a stale pre-restore
+        // writer without decoding JSON inside SQLite.
+        migrator.registerMigration("v33-today-health-snapshot-context") { db in
+            try db.alter(table: "todayHealthSnapshot") { t in
+                t.add(column: "contextId", .text)
+            }
+            try db.create(table: "todayHealthSnapshotDatabase") { t in
+                t.column("id", .text).notNull().primaryKey()
+            }
+            try db.execute(sql: "INSERT INTO todayHealthSnapshotDatabase (id) VALUES (?)",
+                           arguments: [UUID().uuidString])
+        }
         return migrator
     }
 }

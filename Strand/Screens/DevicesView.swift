@@ -589,6 +589,9 @@ private struct DevicesContent: View {
         registry.archive(device.id)
         removeTarget = nil
         if wasActive {
+            Task {
+                await model.repo.invalidateTodayHealthSnapshot()
+            }
             // Other paired devices left → ask which becomes active; otherwise no active device remains.
             if !activeDevices.isEmpty {
                 pickNewActive = true
@@ -601,7 +604,9 @@ private struct DevicesContent: View {
         let deviceId = device.id
         Task {
             guard let store = await model.repo.storeHandle() else { return }
+            await model.repo.invalidateTodayHealthSnapshot()
             await registry.deleteDeviceData(deviceId, store: store)
+            _ = await model.repo.refresh(.activeDeviceChanged)
         }
         deleteDataTarget = nil
     }

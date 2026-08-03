@@ -4,8 +4,8 @@ enum RepositoryRefreshDataset: Hashable, Sendable {
     case dashboard
 }
 
-/// Explicit refresh purposes. Each case maps to the narrowest safe replacement window for the coherent
-/// dashboard cache; small UI events can no longer accidentally request 4,000 days by default.
+/// Explicit refresh purposes. The current cache is a full-history replacement model, so Phase 1 keeps its
+/// historic 4,000-day extent until Phase 2 introduces a separate recent dashboard projection.
 enum RepositoryRefreshIntent: Equatable, Sendable, CustomStringConvertible {
     case currentDay
     case recentDashboard(days: Int)
@@ -18,7 +18,7 @@ enum RepositoryRefreshIntent: Equatable, Sendable, CustomStringConvertible {
     var days: Int {
         switch self {
         case .currentDay, .postBackfill, .initialLoad:
-            return 120
+            return 4_000
         case .recentDashboard(let days):
             return min(4_000, max(120, days))
         case .activeDeviceChanged, .postImport, .fullHistoryMigration:
