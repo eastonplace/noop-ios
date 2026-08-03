@@ -103,7 +103,7 @@ final class TodayHealthSnapshotHydrationTests: XCTestCase {
         XCTAssertEqual(repository.todayHealthSnapshot?.sleepScore?.value, 91)
 
         repository.todayHealthSnapshotHydrationReadHook = nil
-        hydrationGate.open()
+        await hydrationGate.open()
         await hydrationTask.value
 
         XCTAssertEqual(repository.todayHealthSnapshot?.displayDay, day)
@@ -130,7 +130,7 @@ final class TodayHealthSnapshotHydrationTests: XCTestCase {
         await sleepGate.waitUntilEntered()
         repository.scheduleTodayHealthSnapshotWriteForTesting()
         repository.todayHealthSnapshotSleepReadHook = nil
-        sleepGate.open()
+        await sleepGate.open()
 
         let didRefresh = await refreshTask.value
         XCTAssertTrue(didRefresh)
