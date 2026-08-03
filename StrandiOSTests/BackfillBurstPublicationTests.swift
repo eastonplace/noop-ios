@@ -7,7 +7,10 @@ final class BackfillBurstPublicationTests: XCTestCase {
         generation: Int64,
         rows: HistoricalStreamInsertCounts,
         databaseInstanceId: String = "database-a",
-        deviceId: String = "strap-a"
+        deviceId: String = "strap-a",
+        lineage: String? = nil,
+        cursorEpoch: Int = 0,
+        trimScope: String = HistoricalCursorScope.defaultTrimScope
     ) -> HistoricalDataCommitReceipt {
         HistoricalDataCommitReceipt(
             receiptId: "receipt-\(generation)",
@@ -18,7 +21,11 @@ final class BackfillBurstPublicationTests: XCTestCase {
             chunkEndUnix: 1_700_000_000 + Int(generation),
             committedAt: 1_700_000_001 + Int(generation),
             rawBatchId: nil,
-            insertedRows: rows
+            insertedRows: rows,
+            fingerprint: String(repeating: "0", count: 64),
+            lineage: lineage ?? "device:\(deviceId)",
+            cursorEpoch: cursorEpoch,
+            trimScope: trimScope
         )
     }
 
@@ -95,16 +102,53 @@ final class BackfillBurstPublicationTests: XCTestCase {
             deviceId: "strap-a", lineage: "ble:A", epoch: 7)
         let sourceB = HistoricalReceiptWatermark.SourceIdentity(
             deviceId: "strap-b", lineage: "ble:B", epoch: 8)
-        let receiptA = receipt(generation: 61, rows: HistoricalStreamInsertCounts(hr: 2), deviceId: "strap-a")
-        let receiptB = receipt(generation: 12, rows: HistoricalStreamInsertCounts(hr: 3), deviceId: "strap-b")
 
-        burst.record(receipt: receiptA, sourceIdentity: sourceA)
-        burst.record(receipt: receiptB, sourceIdentity: sourceB)
+        let durableReceiptA = receipt(
+            generation: 61,
+            rows: HistoricalStreamInsertCounts(hr: 2),
+            deviceId: "strap-a",
+            lineage: sourceA.lineage,
+            cursorEpoch: Int(sourceA.epoch),
+            trimScope: sourceA.trimScope)
+        let durableReceiptB = receipt(
+            generation: 12,
+            rows: HistoricalStreamInsertCounts(hr: 3),
+            deviceId: "strap-b",
+            lineage: sourceB.lineage,
+            cursorEpoch: Int(sourceB.epoch),
+            trimScope: sourceB.trimScope)
+
+        burst.record(receipt: durableReceiptA)
+        burst.record(receipt: durableReceiptB)
         let finalization = burst.consumeFinalization()
 
         XCTAssertEqual(finalization?.watermark?.coordinates.map { $0.sourceIdentity.deviceId }, ["strap-a", "strap-b"])
         XCTAssertEqual(finalization?.watermark?.coordinates.map { $0.throughGeneration }, [61, 12])
         XCTAssertEqual(finalization?.watermark?.coordinates.map { $0.sourceIdentity.epoch }, [7, 8])
+    }
+
+    func testDifferentTrimScopesRemainSeparateWatermarkCoordinates() {
+        var burst = BackfillBurstPublication()
+        let historical = receipt(
+            generation: 81,
+            rows: HistoricalStreamInsertCounts(hr: 1),
+            lineage: "registry-lineage",
+            cursorEpoch: 3,
+            trimScope: "historical")
+        let replay = receipt(
+            generation: 82,
+            rows: HistoricalStreamInsertCounts(hr: 1),
+            lineage: "registry-lineage",
+            cursorEpoch: 3,
+            trimScope: "replay")
+
+        burst.record(receipt: historical)
+        burst.record(receipt: replay)
+
+        let coordinates = burst.consumeFinalization()?.watermark?.coordinates ?? []
+        XCTAssertEqual(coordinates.count, 2)
+        XCTAssertEqual(coordinates.map { $0.sourceIdentity.trimScope }, ["historical", "replay"])
+        XCTAssertEqual(coordinates.map { $0.scope.trimScope }, ["historical", "replay"])
     }
 
     func testEmptyOnlyReceiptDoesNotArmLaterHealPublication() {

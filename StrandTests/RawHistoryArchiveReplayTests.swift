@@ -18,7 +18,15 @@ final class RawHistoryArchiveReplayTests: XCTestCase {
             trim: Int,
             chunkEndUnix: Int,
             rawBatch: HistoricalRawBatch?,
-            committedAt: Int
+            committedAt: Int,
+            scope: HistoricalCursorScope,
+            fingerprint: String,
+            fingerprintInput: HistoricalReceivedFrameFingerprintInput,
+            rawCaptureStatus: HistoricalRawCaptureStatus?,
+            rawRange: HistoricalRawRangeEvidence?,
+            burst: HistoricalDataCommitBurst?,
+            timestampHeal: HistoricalTimestampHeal?,
+            isFinal: Bool
         ) async throws -> HistoricalDataCommitReceipt {
             HistoricalDataCommitReceipt(
                 receiptId: "capture-\(trim)",
@@ -29,7 +37,16 @@ final class RawHistoryArchiveReplayTests: XCTestCase {
                 chunkEndUnix: chunkEndUnix,
                 committedAt: committedAt,
                 rawBatchId: rawBatch?.meta.batchId,
-                insertedRows: HistoricalStreamInsertCounts()
+                insertedRows: HistoricalStreamInsertCounts(),
+                fingerprint: fingerprint,
+                lineage: scope.lineage,
+                cursorEpoch: scope.cursorEpoch,
+                trimScope: scope.trimScope,
+                rawStatus: rawCaptureStatus,
+                rawRange: rawRange ?? fingerprintInput.rawRangeEvidence,
+                burst: burst,
+                timestampHeal: timestampHeal,
+                isFinal: isFinal
             )
         }
 
@@ -54,7 +71,15 @@ final class RawHistoryArchiveReplayTests: XCTestCase {
             trim: Int,
             chunkEndUnix: Int,
             rawBatch: HistoricalRawBatch?,
-            committedAt: Int
+            committedAt: Int,
+            scope: HistoricalCursorScope,
+            fingerprint: String,
+            fingerprintInput: HistoricalReceivedFrameFingerprintInput,
+            rawCaptureStatus: HistoricalRawCaptureStatus?,
+            rawRange: HistoricalRawRangeEvidence?,
+            burst: HistoricalDataCommitBurst?,
+            timestampHeal: HistoricalTimestampHeal?,
+            isFinal: Bool
         ) async throws -> HistoricalDataCommitReceipt { throw Boom() }
         func insert(_ streams: Streams, deviceId: String) async throws
             -> (hr: Int, rr: Int, events: Int, battery: Int,

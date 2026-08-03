@@ -407,22 +407,11 @@ struct BackfillBurstPublication: Equatable {
     /// scopes, but an empty-only burst must never arm a later publication with a stale coordinate.
     private var productiveScopes: Set<HistoricalReceiptWatermark.Scope> = []
 
-    /// Backfiller invokes this only after its SQLite transaction commits and before the strap ACK.
-    /// Retain every database/source/generation coordinate. Keep it private to BLE until finalization so a
-    /// deep offload causes no per-chunk SwiftUI work and source A is not lost when source B arrives later.
+    /// Record the durable receipt identity. The display/session source is not allowed to relabel it.
     mutating func record(receipt: HistoricalDataCommitReceipt) {
-        record(receipt: receipt, sourceIdentity: nil)
-    }
-
-    /// Context-aware producer handoff. `sourceIdentity` is frozen by Backfiller before decode; nil keeps
-    /// the current-schema receipt adapter compatible with existing tests and replay callers.
-    mutating func record(
-        receipt: HistoricalDataCommitReceipt,
-        sourceIdentity: HistoricalReceiptWatermark.SourceIdentity?
-    ) {
-        let candidate = HistoricalReceiptWatermark(receipt: receipt, sourceIdentity: sourceIdentity)
+        let candidate = HistoricalReceiptWatermark(receipt: receipt)
         commitWatermark = (commitWatermark ?? HistoricalReceiptWatermark(coordinates: []))
-            .including(receipt: receipt, sourceIdentity: sourceIdentity)
+            .including(receipt: receipt)
         if receipt.insertedRows.total > 0, let scope = candidate.coordinates.first?.scope {
             productiveScopes.insert(scope)
             needsPublication = true
@@ -1716,6 +1705,18 @@ public final class BLEManager: NSObject, ObservableObject {
             Task { @MainActor in await self.bootstrapStore() }
             return false
         }
+        guard let store = dataStore else {
+            log("Backfill: registry store not ready — deferring historical admission")
+            return false
+        }
+        let admittedScope: HistoricalCursorScope
+        do {
+            admittedScope = try DeviceRegistryStore(dbQueue: store.registryWriter)
+                .historicalCursorScope(for: deviceId)
+        } catch {
+            log("Backfill: failed to resolve durable cursor scope — deferring historical admission: \(error)")
+            return false
+        }
         // Capture the family at begin() (not init): selectedModel is reliably set by connect() before any
         // backfill starts, whereas bootstrapStore() can build the Backfiller before the family is known.
         // #42/#364: consecutiveAutoContinues > 0 means this offload is re-kicked after an EARLIER session in
@@ -1728,7 +1729,8 @@ public final class BLEManager: NSObject, ObservableObject {
         backfiller.begin(
             family: selectedModel.deviceFamily,
             continuedAfterRows: consecutiveAutoContinues > 0,
-            sourceIdentity: admittedSource)
+            sourceIdentity: admittedSource,
+            historicalCursorScope: admittedScope)
         backfilling = true
         state.backfilling = true
         historicalProgress.begin()
@@ -2041,9 +2043,7 @@ public final class BLEManager: NSObject, ObservableObject {
     /// formal `HISTORY_COMPLETE`, so an idle-timeout with durable rows refreshes the dashboard without
     /// lying that the strap finished syncing.
     private func recordHistoricalCommit(_ context: HistoricalCommitContext) {
-        backfillBurstPublication.record(
-            receipt: context.receipt,
-            sourceIdentity: context.sourceIdentity)
+        backfillBurstPublication.record(receipt: context.receipt)
 
         // A productive commit may resume after didDisconnectPeripheral already finalized and cleared the
         // burst. Finalize again at the receipt boundary so durable work cannot strand behind a dead drain.
@@ -2059,7 +2059,7 @@ public final class BLEManager: NSObject, ObservableObject {
             watermark: finalization.watermark)
         if let watermark = finalization.watermark {
             let scopes = watermark.coordinates.map {
-                "\($0.databaseInstanceId)/\($0.sourceIdentity.deviceId)#\($0.sourceIdentity.lineage)#\($0.sourceIdentity.epoch) through \($0.throughGeneration)"
+                "\($0.databaseInstanceId)/\($0.sourceIdentity.deviceId)#\($0.sourceIdentity.lineage)#\($0.sourceIdentity.epoch)/\($0.sourceIdentity.trimScope) through \($0.throughGeneration)"
             }.joined(separator: ", ")
             log("Backfill: durable history is ready for source scopes [\(scopes)]; scheduling one dashboard refresh.")
         } else {

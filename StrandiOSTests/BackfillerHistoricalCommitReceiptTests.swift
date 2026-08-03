@@ -32,7 +32,16 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
     }
 
     private actor SourceCaptureStore: BackfillStoreWriting {
+        struct CommitDetails: Sendable {
+            let scope: HistoricalCursorScope
+            let fingerprint: String
+            let fingerprintInput: HistoricalReceivedFrameFingerprintInput
+            let rawCaptureStatus: HistoricalRawCaptureStatus?
+            let rawRange: HistoricalRawRangeEvidence?
+        }
+
         private var committedDeviceIds: [String] = []
+        private var lastCommitDetails: CommitDetails?
 
         func commitHistoricalChunk(
             streams: Streams,
@@ -40,9 +49,23 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
             trim: Int,
             chunkEndUnix: Int,
             rawBatch: HistoricalRawBatch?,
-            committedAt: Int
+            committedAt: Int,
+            scope: HistoricalCursorScope,
+            fingerprint: String,
+            fingerprintInput: HistoricalReceivedFrameFingerprintInput,
+            rawCaptureStatus: HistoricalRawCaptureStatus?,
+            rawRange: HistoricalRawRangeEvidence?,
+            burst: HistoricalDataCommitBurst?,
+            timestampHeal: HistoricalTimestampHeal?,
+            isFinal: Bool
         ) async throws -> HistoricalDataCommitReceipt {
             committedDeviceIds.append(deviceId)
+            lastCommitDetails = CommitDetails(
+                scope: scope,
+                fingerprint: fingerprint,
+                fingerprintInput: fingerprintInput,
+                rawCaptureStatus: rawCaptureStatus,
+                rawRange: rawRange)
             return HistoricalDataCommitReceipt(
                 receiptId: "source-\(trim)",
                 generation: Int64(trim),
@@ -52,7 +75,16 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
                 chunkEndUnix: chunkEndUnix,
                 committedAt: committedAt,
                 rawBatchId: rawBatch?.meta.batchId,
-                insertedRows: HistoricalStreamInsertCounts(hr: 1)
+                insertedRows: HistoricalStreamInsertCounts(hr: 1),
+                fingerprint: fingerprint,
+                lineage: scope.lineage,
+                cursorEpoch: scope.cursorEpoch,
+                trimScope: scope.trimScope,
+                rawStatus: rawCaptureStatus,
+                rawRange: rawRange ?? fingerprintInput.rawRangeEvidence,
+                burst: burst,
+                timestampHeal: timestampHeal,
+                isFinal: isFinal
             )
         }
 
@@ -68,6 +100,8 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
         func cursor(_ name: String) async throws -> Int? { nil }
 
         func deviceIds() -> [String] { committedDeviceIds }
+
+        func commitDetails() -> CommitDetails? { lastCommitDetails }
     }
 
     private actor CommitSpy: BackfillStoreWriting {
@@ -85,7 +119,15 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
             trim: Int,
             chunkEndUnix: Int,
             rawBatch: HistoricalRawBatch?,
-            committedAt: Int
+            committedAt: Int,
+            scope: HistoricalCursorScope,
+            fingerprint: String,
+            fingerprintInput: HistoricalReceivedFrameFingerprintInput,
+            rawCaptureStatus: HistoricalRawCaptureStatus?,
+            rawRange: HistoricalRawRangeEvidence?,
+            burst: HistoricalDataCommitBurst?,
+            timestampHeal: HistoricalTimestampHeal?,
+            isFinal: Bool
         ) async throws -> HistoricalDataCommitReceipt {
             await ledger.append("commit")
             if failuresRemaining > 0 {
@@ -114,7 +156,16 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
                     sleepState: streams.sleepState.count,
                     ppgHr: streams.ppgHr.count,
                     ppgWaveform: streams.ppgWaveform.count
-                )
+                ),
+                fingerprint: fingerprint,
+                lineage: scope.lineage,
+                cursorEpoch: scope.cursorEpoch,
+                trimScope: scope.trimScope,
+                rawStatus: rawCaptureStatus,
+                rawRange: rawRange ?? fingerprintInput.rawRangeEvidence,
+                burst: burst,
+                timestampHeal: timestampHeal,
+                isFinal: isFinal
             )
         }
 
@@ -151,7 +202,9 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
             ackTrim: { _, _ in ledger.append("ack") },
             onHistoricalCommit: { _ in ledger.append("receipt") }
         )
-        backfiller.begin(family: .whoop4)
+        backfiller.begin(
+            family: .whoop4,
+            historicalCursorScope: HistoricalCursorScope(deviceId: "strap-a", lineage: "test-lineage"))
 
         await backfiller.ingest(historyEndFrame(trim: 41))
 
@@ -167,7 +220,9 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
             ackTrim: { _, _ in ledger.append("ack") },
             onHistoricalCommit: { _ in ledger.append("receipt") }
         )
-        backfiller.begin(family: .whoop4)
+        backfiller.begin(
+            family: .whoop4,
+            historicalCursorScope: HistoricalCursorScope(deviceId: "strap-a", lineage: "test-lineage"))
 
         await backfiller.ingest(historyEndFrame(trim: 42))
 
@@ -184,13 +239,142 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
             ackTrim: { _, _ in ledger.append("ack") },
             onHistoricalCommit: { _ in ledger.append("receipt") }
         )
-        backfiller.begin(family: .whoop4)
+        backfiller.begin(
+            family: .whoop4,
+            historicalCursorScope: HistoricalCursorScope(deviceId: "strap-a", lineage: "test-lineage"))
 
         await backfiller.ingest(historyEndFrame(trim: 41))
         await backfiller.ingest(historyEndFrame(trim: 42))
 
         XCTAssertEqual(ledger.events, ["commit"])
         XCTAssertTrue(backfiller.persistStalled)
+    }
+
+    @MainActor
+    func testRawDisabledCommitUsesExactReceivedFrameIdentityAndRange() async throws {
+        let store = SourceCaptureStore()
+        let source = HistoricalReceiptWatermark.SourceIdentity(
+            deviceId: "strap-a", lineage: "ble:A", epoch: 7)
+        let scope = HistoricalCursorScope(
+            deviceId: "strap-a", lineage: "registry-lineage", cursorEpoch: 19,
+            trimScope: "historical")
+        let backfiller = Backfiller(
+            store: store,
+            deviceId: source.deviceId,
+            ackTrim: { _, _ in },
+            sourceIdentity: source,
+            extract: { _, _, _, _, _ in Streams() })
+        backfiller.begin(
+            family: .whoop4,
+            sourceIdentity: source,
+            historicalCursorScope: scope)
+
+        let startFrame = frameFromPayload([], type: 49, seq: 0, cmd: 1)
+        let receivedFrame = frameFromPayload([0x01, 0x02, 0x03], type: 47)
+        let endFrame = historyEndFrame(trim: 123)
+        await backfiller.ingest(startFrame)
+        await backfiller.ingest(receivedFrame)
+        await backfiller.ingest(endFrame)
+
+        guard let details = await store.commitDetails() else {
+            XCTFail("the raw-disabled chunk must produce a commit")
+            return
+        }
+        XCTAssertEqual(details.scope, scope)
+        XCTAssertEqual(details.fingerprintInput.orderedFrames, [receivedFrame])
+        XCTAssertEqual(details.fingerprintInput.protocolMetadata, Data(startFrame))
+        XCTAssertEqual(details.fingerprintInput.historyEndFrame, Data(endFrame))
+        XCTAssertEqual(details.rawCaptureStatus, .disabled)
+        XCTAssertEqual(details.rawRange, details.fingerprintInput.rawRangeEvidence)
+        XCTAssertEqual(details.rawRange?.source, .receivedFrames)
+        XCTAssertEqual(details.rawRange?.frameCount, 1)
+        XCTAssertEqual(details.rawRange?.byteCount, receivedFrame.count)
+        XCTAssertEqual(
+            details.fingerprint,
+            try WhoopStore.historicalReceivedFrameFingerprint(
+                input: details.fingerprintInput,
+                deviceId: "strap-a",
+                trim: 123,
+                chunkEndUnix: 1_700_000_000))
+    }
+
+    @MainActor
+    func testDisplaySourceIdentityCommitsUnderAdmittedRegistryScope() async throws {
+        let store = try await WhoopStore.inMemory()
+        let registry = DeviceRegistryStore(dbQueue: store.registryWriter)
+        try registry.add(PairedDevice(
+            id: "strap-a",
+            brand: "WHOOP",
+            model: "WHOOP 5.0",
+            peripheralId: "peripheral-a",
+            sourceKind: .liveBLE,
+            capabilities: [.hr],
+            status: .paired,
+            addedAt: 1,
+            lastSeenAt: 1))
+        let registryScope = try registry.historicalCursorScope(for: "strap-a")
+        let displaySource = HistoricalReceiptWatermark.SourceIdentity(
+            deviceId: "strap-a", lineage: "ble:peripheral-a", epoch: 44)
+        var ackCount = 0
+        let backfiller = Backfiller(
+            store: store,
+            deviceId: "strap-a",
+            ackTrim: { _, _ in ackCount += 1 },
+            sourceIdentity: displaySource,
+            extract: { _, _, _, _, _ in Streams() })
+        backfiller.begin(
+            family: .whoop4,
+            sourceIdentity: displaySource,
+            historicalCursorScope: registryScope)
+
+        await backfiller.ingest(historyEndFrame(trim: 125))
+
+        XCTAssertEqual(ackCount, 1)
+        let receipts = try await store.historicalDataCommitReceipts(deviceId: "strap-a")
+        XCTAssertEqual(receipts.count, 1)
+        XCTAssertEqual(receipts.first?.lineage, registryScope.lineage)
+        XCTAssertEqual(receipts.first?.cursorEpoch, registryScope.cursorEpoch)
+        XCTAssertEqual(receipts.first?.trimScope, registryScope.trimScope)
+        XCTAssertNotEqual(receipts.first?.lineage, displaySource.lineage)
+    }
+
+    @MainActor
+    func testStaleLineageAndEpochAreRejectedBeforeHistoricalAck() async throws {
+        let store = try await WhoopStore.inMemory()
+        let registry = DeviceRegistryStore(dbQueue: store.registryWriter)
+        try registry.add(PairedDevice(
+            id: "strap-a",
+            brand: "WHOOP",
+            model: "WHOOP 5.0",
+            peripheralId: "peripheral-a",
+            sourceKind: .liveBLE,
+            capabilities: [.hr],
+            status: .paired,
+            addedAt: 1,
+            lastSeenAt: 1))
+        let initialScope = try registry.historicalCursorScope(for: "strap-a")
+        let source = HistoricalReceiptWatermark.SourceIdentity(
+            deviceId: "strap-a",
+            lineage: "ble:peripheral-a",
+            epoch: 44)
+        var ackCount = 0
+        let backfiller = Backfiller(
+            store: store,
+            deviceId: source.deviceId,
+            ackTrim: { _, _ in ackCount += 1 },
+            sourceIdentity: source)
+        backfiller.begin(
+            family: .whoop4,
+            sourceIdentity: source,
+            historicalCursorScope: initialScope)
+
+        try registry.setPeripheralId("strap-a", peripheralId: "peripheral-b")
+        await backfiller.ingest(historyEndFrame(trim: 124))
+
+        XCTAssertEqual(ackCount, 0)
+        XCTAssertTrue(backfiller.persistStalled)
+        let receipts = try await store.historicalDataCommitReceipts(deviceId: "strap-a")
+        XCTAssertEqual(receipts, [])
     }
 
     @MainActor
@@ -208,7 +392,12 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
             beforeHistoricalCommit: { await gate.wait() },
             sourceIdentity: sourceA,
             extract: { _, _, _, _, _ in Streams() })
-        backfiller.begin(family: .whoop4, sourceIdentity: sourceA)
+        let scopeA = HistoricalCursorScope(
+            deviceId: "strap-a", lineage: "registry-A", cursorEpoch: 11)
+        backfiller.begin(
+            family: .whoop4,
+            sourceIdentity: sourceA,
+            historicalCursorScope: scopeA)
 
         let historicalRecord = frameFromPayload([0x01, 0x02, 0x03], type: 47)
         let commitTask = Task { @MainActor in
@@ -227,7 +416,11 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
         let committedDeviceIds = await store.deviceIds()
         XCTAssertEqual(committedDeviceIds, ["strap-a"])
         XCTAssertEqual(contexts.count, 1)
-        XCTAssertEqual(contexts.first?.sourceIdentity, sourceA)
+        XCTAssertEqual(
+            contexts.first?.sourceIdentity,
+            HistoricalReceiptWatermark.SourceIdentity(
+                deviceId: "strap-a", lineage: scopeA.lineage, epoch: Int64(scopeA.cursorEpoch),
+                trimScope: scopeA.trimScope))
         XCTAssertEqual(contexts.first?.receipt.deviceId, "strap-a")
     }
 }

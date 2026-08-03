@@ -171,7 +171,15 @@ final class BackfillerSessionTallyTests: XCTestCase {
             trim: Int,
             chunkEndUnix: Int,
             rawBatch: HistoricalRawBatch?,
-            committedAt: Int
+            committedAt: Int,
+            scope: HistoricalCursorScope,
+            fingerprint: String,
+            fingerprintInput: HistoricalReceivedFrameFingerprintInput,
+            rawCaptureStatus: HistoricalRawCaptureStatus?,
+            rawRange: HistoricalRawRangeEvidence?,
+            burst: HistoricalDataCommitBurst?,
+            timestampHeal: HistoricalTimestampHeal?,
+            isFinal: Bool
         ) async throws -> HistoricalDataCommitReceipt {
             HistoricalDataCommitReceipt(
                 receiptId: "tally-\(trim)",
@@ -195,7 +203,16 @@ final class BackfillerSessionTallyTests: XCTestCase {
                     sleepState: streams.sleepState.count,
                     ppgHr: streams.ppgHr.count,
                     ppgWaveform: streams.ppgWaveform.count
-                )
+                ),
+                fingerprint: fingerprint,
+                lineage: scope.lineage,
+                cursorEpoch: scope.cursorEpoch,
+                trimScope: scope.trimScope,
+                rawStatus: rawCaptureStatus,
+                rawRange: rawRange ?? fingerprintInput.rawRangeEvidence,
+                burst: burst,
+                timestampHeal: timestampHeal,
+                isFinal: isFinal
             )
         }
 
@@ -250,7 +267,9 @@ final class BackfillerSessionTallyTests: XCTestCase {
             deviceId: "test",
             ackTrim: { _, _ in },
             log: { lines.append($0) })
-        backfiller.begin(family: .whoop4)
+        backfiller.begin(
+            family: .whoop4,
+            historicalCursorScope: HistoricalCursorScope(deviceId: "test", lineage: "test-lineage"))
         for f in v25RecordFrames { await backfiller.ingest(f) }     // records arrive on the open chunk
         await backfiller.ingest(historyEndFrame(trim: 0xFFFFFFFF))  // ...then a no-cursor END carrying them
 
@@ -273,7 +292,9 @@ final class BackfillerSessionTallyTests: XCTestCase {
             deviceId: "test",
             ackTrim: { _, _ in },
             log: { lines.append($0) })
-        backfiller.begin(family: .whoop4)
+        backfiller.begin(
+            family: .whoop4,
+            historicalCursorScope: HistoricalCursorScope(deviceId: "test", lineage: "test-lineage"))
         await backfiller.ingest(historyEndFrame(trim: 0xFFFFFFFF))  // no records this session
 
         XCTAssertEqual(backfiller.sessionRowsPersisted, 0)

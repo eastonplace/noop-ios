@@ -14,7 +14,15 @@ protocol BackfillStoreWriting: AnyObject, Sendable {
         trim: Int,
         chunkEndUnix: Int,
         rawBatch: HistoricalRawBatch?,
-        committedAt: Int
+        committedAt: Int,
+        scope: HistoricalCursorScope,
+        fingerprint: String,
+        fingerprintInput: HistoricalReceivedFrameFingerprintInput,
+        rawCaptureStatus: HistoricalRawCaptureStatus?,
+        rawRange: HistoricalRawRangeEvidence?,
+        burst: HistoricalDataCommitBurst?,
+        timestampHeal: HistoricalTimestampHeal?,
+        isFinal: Bool
     ) async throws -> HistoricalDataCommitReceipt
     @discardableResult
     func insert(_ streams: Streams, deviceId: String) async throws
@@ -27,8 +35,7 @@ protocol BackfillStoreWriting: AnyObject, Sendable {
 
 extension WhoopStore: BackfillStoreWriting {}
 
-/// Receipt plus the source identity admitted before decode. The current store receipt only carries
-/// `deviceId`; keeping this context at the app boundary preserves the lineage/epoch extension seam.
+/// Receipt plus the durable source identity returned by the scoped commit.
 struct HistoricalCommitContext: Equatable, Sendable {
     let receipt: HistoricalDataCommitReceipt
     let sourceIdentity: HistoricalReceiptWatermark.SourceIdentity
@@ -59,6 +66,9 @@ final class Backfiller {
     /// Source identity captured at session admission. The identity remains stable across every chunk in
     /// the session and is carried through the commit callback even when the mutable current id changes.
     private(set) var sourceIdentity: HistoricalReceiptWatermark.SourceIdentity
+    /// Durable cursor scope captured at session admission. The caller resolves it from the registry before
+    /// SEND_HISTORICAL. The store validates this unchanged scope, so a stale lineage or epoch fails closed.
+    private(set) var historicalCursorScope: HistoricalCursorScope?
     /// Confirms one HISTORY_END chunk to the strap. Carries both the trim cursor (= first u32
     /// of end_data, used for the `strap_trim` cursor) and the 8-byte `end_data` (= the raw
     /// HISTORY_END metadata.data[10:18]) that the high-freq-sync ack form requires verbatim.
@@ -85,6 +95,9 @@ final class Backfiller {
 
     /// Buffered data frames for the current open chunk (between START and END).
     private var chunk: [[UInt8]] = []
+    /// Exact HISTORY_START metadata for the admitted protocol session. It is part of the received-frame
+    /// identity but is kept separate from the data frames and exact HISTORY_END evidence.
+    private var sessionProtocolMetadata = Data()
     /// Whether a START has been received and we're accumulating a chunk.
     private var chunkOpen = false
     /// Strap family for the current offload, set at begin(). Drives family-aware frame parsing (WHOOP 5/MG
@@ -217,8 +230,10 @@ final class Backfiller {
                                                                     sessionOldestUnix: $3, sessionNewestUnix: $4,
                                                                     subLagInterp: PuffinExperiment.ppgHrSubLagInterpEnabled) }) {
         self.store = store
+        let admittedSource = sourceIdentity ?? HistoricalReceiptWatermark.SourceIdentity(deviceId: deviceId)
         self.deviceId = deviceId
-        self.sourceIdentity = sourceIdentity ?? HistoricalReceiptWatermark.SourceIdentity(deviceId: deviceId)
+        self.sourceIdentity = admittedSource
+        self.historicalCursorScope = nil
         self.ackTrim = ackTrim
         self.enableRawCapture = enableRawCapture
         self.log = log
@@ -247,9 +262,11 @@ final class Backfiller {
     func begin(
         family: DeviceFamily,
         continuedAfterRows: Bool = false,
-        sourceIdentity: HistoricalReceiptWatermark.SourceIdentity? = nil
+        sourceIdentity: HistoricalReceiptWatermark.SourceIdentity? = nil,
+        historicalCursorScope: HistoricalCursorScope
     ) {
         self.family = family
+        self.historicalCursorScope = historicalCursorScope
         if let sourceIdentity {
             self.sourceIdentity = sourceIdentity
         } else if self.sourceIdentity.deviceId != deviceId {
@@ -261,6 +278,7 @@ final class Backfiller {
         isBackfilling = true
         persistStalled = false   // #57: fresh session starts un-stalled
         chunk.removeAll(keepingCapacity: true)
+        sessionProtocolMetadata.removeAll(keepingCapacity: true)
         chunkOpen = true
         sessionRowsPersisted = 0
         sessionMotionRows = 0
@@ -285,6 +303,7 @@ final class Backfiller {
     func ingest(_ frame: [UInt8]) async {
         switch classifyHistoricalMeta(parseFrame(frame, family: family)) {
         case .start:
+            sessionProtocolMetadata = Data(frame)
             isBackfilling = true
             chunk.removeAll(keepingCapacity: true)
             chunkOpen = true
@@ -430,13 +449,25 @@ final class Backfiller {
         let rejected: [[UInt8]]
     }
 
+    private static func receivedTimestampRange(
+        from parsed: [ParsedFrame]
+    ) -> (min: Int?, max: Int?) {
+        let timestamps = parsed.compactMap { $0.parsed["unix"]?.intValue }
+        return (timestamps.min(), timestamps.max())
+    }
+
     private func finishChunk(unix: UInt32, trim: UInt32, endFrame: [UInt8]) async {
         guard let endData = Backfiller.endData(from: endFrame, family: family) else { return }
 
         // Capture every mutable admission input before the detached decode can suspend. In particular,
         // never read `deviceId` again for this chunk: SourceCoordinator may switch the active strap while
         // the detached task is running.
-        let admittedSource = sourceIdentity
+        guard let admittedScope = historicalCursorScope else {
+            log?("Backfill: no durable cursor scope was admitted for this session — holding ack for trim=\(trim).")
+            persistStalled = true
+            return
+        }
+        let protocolMetadata = sessionProtocolMetadata
 
         // #773: corrupt future-RTC detection. A HISTORY_END carries the strap's own clock; a genuine offload
         // is always PAST-dated (it's banked history), so an end dated days into the future can only be a
@@ -456,6 +487,8 @@ final class Backfiller {
         chunk.removeAll(keepingCapacity: true)   // next records accumulate into the next chunk
         var decodedForCommit = Streams()
         var rawBatchForCommit: HistoricalRawBatch?
+        var receivedMinTs: Int?
+        var receivedMaxTs: Int?
 
         if !frames.isEmpty {
             // type-47 HISTORICAL_DATA carries its OWN real-unix timestamp — extractHistoricalStreams
@@ -488,6 +521,9 @@ final class Backfiller {
                 return DecodedChunk(parsed: parsed, decoded: decoded, rejected: rejected)
             }.value
             let parsed = d.parsed
+            let range = Backfiller.receivedTimestampRange(from: parsed)
+            receivedMinTs = range.min
+            receivedMaxTs = range.max
             // Observability (PR #241): log which layout this strap emits on a HEALTHY sync too — the
             // unmapped-version path below only fires for layouts NOOP can't decode, so a normal log
             // never revealed v18/v24/v25/v26. Once per distinct layout this session.
@@ -625,15 +661,21 @@ final class Backfiller {
             // batch in the same transaction as decoded rows, the trim cursor, and its receipt.
             if enableRawCapture {
                 let meta = RawBatchMeta(
-                    batchId: "hist-\(admittedSource.deviceId)-\(admittedSource.epoch)-\(trim)",
-                    deviceId: admittedSource.deviceId,
+                    batchId: "hist-\(admittedScope.key)-\(trim)",
+                    deviceId: admittedScope.deviceId,
                     clockRef: ref,
                     capturedAt: Int(Date().timeIntervalSince1970),
-                    startTs: ref.wall,
-                    endTs: ref.wall,
+                    startTs: receivedMinTs ?? Int(unix),
+                    endTs: receivedMaxTs ?? Int(unix),
                     frameCount: frames.count,
-                    byteSize: frames.reduce(0) { $0 + $1.count })
-                rawBatchForCommit = HistoricalRawBatch(meta: meta, frames: frames)
+                    byteSize: frames.reduce(0) { $0 + $1.count },
+                    lineage: admittedScope.lineage,
+                    cursorEpoch: admittedScope.cursorEpoch)
+                rawBatchForCommit = HistoricalRawBatch(
+                    meta: meta,
+                    frames: frames,
+                    protocolMetadata: protocolMetadata,
+                    historyEndFrame: Data(endFrame))
             }
         }
 
@@ -643,6 +685,46 @@ final class Backfiller {
         if persistStalled {
             log?("Backfill: persist stalled earlier this session — NOT committing or acking trim=\(trim) so the strap can't trim past un-stored history. Reconnect once the store is healthy (#57).")
             return
+        }
+
+        // A retained raw batch needs a concrete range even when its frames carry no decodable unix field.
+        // Use the exact range stored in that batch for both contract fields. Raw-disabled chunks retain the
+        // received-frame range, including nil when no timestamp evidence was received.
+        let fingerprintMinReceivedTs = rawBatchForCommit?.meta.startTs ?? receivedMinTs
+        let fingerprintMaxReceivedTs = rawBatchForCommit?.meta.endTs ?? receivedMaxTs
+        let fingerprintInput = HistoricalReceivedFrameFingerprintInput(
+            orderedFrames: frames,
+            protocolMetadata: protocolMetadata,
+            historyEndFrame: Data(endFrame),
+            minReceivedTs: fingerprintMinReceivedTs,
+            maxReceivedTs: fingerprintMaxReceivedTs)
+        let fingerprint: String
+        do {
+            fingerprint = try WhoopStore.historicalReceivedFrameFingerprint(
+                input: fingerprintInput,
+                deviceId: admittedScope.deviceId,
+                trim: Int(trim),
+                chunkEndUnix: Int(unix))
+        } catch {
+            log?("Backfill: failed to fingerprint historical chunk (trim=\(trim)): \(error) — holding ack so the strap re-sends this chunk.")
+            persistStalled = true
+            return
+        }
+
+        let rawCaptureStatus: HistoricalRawCaptureStatus
+        let rawRange: HistoricalRawRangeEvidence
+        if let rawBatch = rawBatchForCommit {
+            rawCaptureStatus = .captured(batchId: rawBatch.meta.batchId)
+            rawRange = HistoricalRawRangeEvidence(
+                source: .retainedRawBatch,
+                minReceivedTs: rawBatch.meta.startTs,
+                maxReceivedTs: rawBatch.meta.endTs,
+                frameCount: rawBatch.meta.frameCount,
+                byteCount: rawBatch.meta.byteSize,
+                hasHistoryEnd: rawBatch.historyEndFrame != nil)
+        } else {
+            rawCaptureStatus = .disabled
+            rawRange = fingerprintInput.rawRangeEvidence
         }
 
         if let beforeHistoricalCommit {
@@ -655,11 +737,20 @@ final class Backfiller {
         do {
             receipt = try await store.commitHistoricalChunk(
                 streams: decodedForCommit,
-                deviceId: admittedSource.deviceId,
+                deviceId: admittedScope.deviceId,
                 trim: Int(trim),
                 chunkEndUnix: Int(unix),
                 rawBatch: rawBatchForCommit,
-                committedAt: Int(Date().timeIntervalSince1970)
+                committedAt: Int(Date().timeIntervalSince1970),
+                scope: admittedScope,
+                fingerprint: fingerprint,
+                fingerprintInput: fingerprintInput,
+                rawCaptureStatus: rawCaptureStatus,
+                rawRange: rawRange,
+                burst: nil,
+                timestampHeal: HistoricalTimestampHeal(
+                    droppedRecordCount: decodedForCommit.droppedImplausible),
+                isFinal: trim == UInt32.max
             )
         } catch {
             log?("Backfill: failed to atomically commit historical chunk (trim=\(trim)): \(error) — holding ack so the strap re-sends this chunk; history won't advance until the local commit succeeds.")
@@ -667,7 +758,12 @@ final class Backfiller {
             return
         }
         onHistoricalCommit?(receipt)
-        onHistoricalCommitContext?(HistoricalCommitContext(receipt: receipt, sourceIdentity: admittedSource))
+        let durableSource = HistoricalReceiptWatermark.SourceIdentity(
+            deviceId: receipt.deviceId,
+            lineage: receipt.lineage,
+            epoch: Int64(receipt.cursorEpoch),
+            trimScope: receipt.trimScope)
+        onHistoricalCommitContext?(HistoricalCommitContext(receipt: receipt, sourceIdentity: durableSource))
 
         // Success-side observability (#150): tally only receipt-backed rows. This includes every
         // persisted stream, including WHOOP 5 step, sleep-state, and PPG samples.

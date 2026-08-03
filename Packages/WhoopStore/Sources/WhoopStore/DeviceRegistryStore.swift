@@ -95,6 +95,17 @@ public struct DeviceRegistryStore: Sendable {
         }
     }
 
+    /// Resolve the complete durable historical cursor scope before a BLE session is admitted.
+    /// The caller must carry this value unchanged through decode; the journal revalidates it at commit.
+    public func historicalCursorScope(
+        for id: String,
+        trimScope: String = HistoricalCursorScope.defaultTrimScope
+    ) throws -> HistoricalCursorScope {
+        try dbQueue.read { db in
+            try WhoopStore.historicalCursorScope(deviceId: id, trimScope: trimScope, in: db)
+        }
+    }
+
     /// Find the registry row that has adopted a given BLE peripheral, if any. Used to map a
     /// connected CBPeripheral back to its `PairedDevice` so multiple straps stay distinct.
     public func device(forPeripheralId peripheralId: String) throws -> PairedDevice? {

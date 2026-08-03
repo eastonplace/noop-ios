@@ -10,20 +10,26 @@ import WhoopStore
 /// process every receipt in this database/source scope through that generation, including a final receipt
 /// whose inserted-row count is zero.
 public struct HistoricalReceiptWatermark: Equatable, Sendable {
-    /// Source identity is nested so future lineage/epoch fields stay at the app boundary without changing
-    /// the current receipt type.
+    /// Source identity is nested so display/session metadata stays separate from the durable receipt scope.
     public struct SourceIdentity: Equatable, Hashable, Sendable {
         public let deviceId: String
-        /// Stable source lineage. The current receipt schema does not carry this field, so the producer
-        /// admits it before decode and the later receipt-hardening adapter can map the durable value here.
+        /// Display/session lineage. Durable watermark coordinates derive lineage from the committed receipt.
         public let lineage: String
-        /// Admission epoch. This separates late work from a later source/session even when deviceId repeats.
+        /// Display/session epoch. Durable watermark coordinates derive the epoch from the committed receipt.
         public let epoch: Int64
+        /// Historical trim protocol. This is part of the watermark fence, so different trim protocols cannot merge.
+        public let trimScope: String
 
-        public init(deviceId: String, lineage: String? = nil, epoch: Int64 = 0) {
+        public init(
+            deviceId: String,
+            lineage: String? = nil,
+            epoch: Int64 = 0,
+            trimScope: String = HistoricalCursorScope.defaultTrimScope
+        ) {
             self.deviceId = deviceId
             self.lineage = lineage ?? "device:\(deviceId)"
             self.epoch = epoch
+            self.trimScope = trimScope
         }
     }
 
@@ -35,6 +41,8 @@ public struct HistoricalReceiptWatermark: Equatable, Sendable {
             self.databaseInstanceId = databaseInstanceId
             self.sourceIdentity = sourceIdentity
         }
+
+        public var trimScope: String { sourceIdentity.trimScope }
     }
 
     /// One durable receipt frontier. A burst can contain more than one source scope, so the watermark is
@@ -57,6 +65,8 @@ public struct HistoricalReceiptWatermark: Equatable, Sendable {
         public var scope: Scope {
             Scope(databaseInstanceId: databaseInstanceId, sourceIdentity: sourceIdentity)
         }
+
+        public var trimScope: String { sourceIdentity.trimScope }
     }
 
     public let coordinates: [Coordinate]
@@ -94,28 +104,36 @@ public struct HistoricalReceiptWatermark: Equatable, Sendable {
             if $0.sourceIdentity.epoch != $1.sourceIdentity.epoch {
                 return $0.sourceIdentity.epoch < $1.sourceIdentity.epoch
             }
-            return $0.sourceIdentity.deviceId < $1.sourceIdentity.deviceId
+            if $0.sourceIdentity.deviceId != $1.sourceIdentity.deviceId {
+                return $0.sourceIdentity.deviceId < $1.sourceIdentity.deviceId
+            }
+            return $0.sourceIdentity.trimScope < $1.sourceIdentity.trimScope
         }
     }
 
-    /// Adapts the current receipt schema at one boundary. The producer-supplied identity is authoritative
-    /// until the receipt-hardening branch adds durable lineage/epoch fields to the receipt itself.
-    init(receipt: HistoricalDataCommitReceipt, sourceIdentity: SourceIdentity? = nil) {
+    /// Adapts the durable receipt at the publication boundary. Receipt lineage, epoch, and trim scope are
+    /// authoritative; a display/session identity must never relabel this coordinate.
+    init(receipt: HistoricalDataCommitReceipt) {
         self.init(coordinates: [Coordinate(
             databaseInstanceId: receipt.databaseInstanceId,
-            sourceIdentity: sourceIdentity ?? SourceIdentity(deviceId: receipt.deviceId),
+            sourceIdentity: SourceIdentity(
+                deviceId: receipt.deviceId,
+                lineage: receipt.lineage,
+                epoch: Int64(receipt.cursorEpoch),
+                trimScope: receipt.trimScope),
             throughGeneration: receipt.generation
         )])
     }
 
     /// Include one receipt while retaining every distinct database/source scope in the burst.
-    func including(
-        receipt: HistoricalDataCommitReceipt,
-        sourceIdentity: SourceIdentity? = nil
-    ) -> Self {
+    func including(receipt: HistoricalDataCommitReceipt) -> Self {
         Self(coordinates: coordinates + [Coordinate(
             databaseInstanceId: receipt.databaseInstanceId,
-            sourceIdentity: sourceIdentity ?? SourceIdentity(deviceId: receipt.deviceId),
+            sourceIdentity: SourceIdentity(
+                deviceId: receipt.deviceId,
+                lineage: receipt.lineage,
+                epoch: Int64(receipt.cursorEpoch),
+                trimScope: receipt.trimScope),
             throughGeneration: receipt.generation
         )])
     }
@@ -127,16 +145,17 @@ public struct HistoricalReceiptWatermark: Equatable, Sendable {
 
     /// Advances only within the same database/source fence. A generation watermark never merges two
     /// source identities, even if a device switch races a late callback.
-    func advanced(
-        with receipt: HistoricalDataCommitReceipt,
-        sourceIdentity: SourceIdentity? = nil
-    ) -> Self? {
-        let identity = sourceIdentity ?? SourceIdentity(deviceId: receipt.deviceId)
+    func advanced(with receipt: HistoricalDataCommitReceipt) -> Self? {
+        let identity = SourceIdentity(
+            deviceId: receipt.deviceId,
+            lineage: receipt.lineage,
+            epoch: Int64(receipt.cursorEpoch),
+            trimScope: receipt.trimScope)
         guard coordinates.count == 1,
               coordinates[0].databaseInstanceId == receipt.databaseInstanceId,
               coordinates[0].sourceIdentity == identity
         else { return nil }
-        return including(receipt: receipt, sourceIdentity: sourceIdentity)
+        return including(receipt: receipt)
     }
 }
 
