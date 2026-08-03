@@ -664,6 +664,24 @@ extension WhoopStore {
             try db.execute(sql: "INSERT INTO todayHealthSnapshotDatabase (id) VALUES (?)",
                            arguments: [UUID().uuidString])
         }
+        // v34: order accepted first-paint writes with a durable SQLite sequence. `generatedAt` is a wall
+        // clock diagnostic and can move backward after clock correction, restore, or test-time injection.
+        // Existing rows start at zero and receive a real generation on their next accepted write.
+        migrator.registerMigration("v34-today-health-snapshot-generation") { db in
+            try db.alter(table: "todayHealthSnapshot") { t in
+                t.add(column: "generation", .integer).notNull().defaults(to: 0)
+            }
+            try db.create(table: "todayHealthSnapshotGeneration") { t in
+                t.column("id", .integer).primaryKey()
+                t.column("value", .integer).notNull()
+            }
+            try db.execute(sql: """
+                INSERT INTO todayHealthSnapshotGeneration (id, value)
+                SELECT 1, COALESCE(MAX(generation), 0) FROM todayHealthSnapshot
+                """)
+            try db.create(index: "idx_todayHealthSnapshot_generation",
+                          on: "todayHealthSnapshot", columns: ["generation"])
+        }
         return migrator
     }
 }

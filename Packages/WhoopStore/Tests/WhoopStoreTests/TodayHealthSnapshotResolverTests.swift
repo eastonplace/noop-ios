@@ -28,7 +28,10 @@ final class TodayHealthSnapshotResolverTests: XCTestCase {
         strainFrontier: Int? = nil,
         sleepFrontier: Int? = nil,
         authoritativeMetrics: Set<TodayHealthSnapshot.Metric> = [],
-        context: TodayHealthSnapshotContext? = nil
+        context: TodayHealthSnapshotContext? = nil,
+        metricStates: [TodayHealthSnapshot.Metric: TodayHealthMetricState]? = nil,
+        generation: Int64 = 0,
+        schemaVersion: Int = TodayHealthSnapshot.currentSchemaVersion
     ) -> TodayHealthSnapshot {
         let snapshotContext = context ?? self.context
         return TodayHealthSnapshot(
@@ -36,6 +39,7 @@ final class TodayHealthSnapshotResolverTests: XCTestCase {
             deviceId: "my-whoop", displayDay: day, logicalDay: day, localDay: day,
             generatedAt: generatedAt,
             rawFrontierTs: [recoveryFrontier, strainFrontier, sleepFrontier].compactMap { $0 }.max(),
+            generation: generation, schemaVersion: schemaVersion,
             authoritativeMetrics: authoritativeMetrics,
             dailyMetric: daily(day, recovery: recovery, strain: strain, sleep: sleepDuration),
             recovery: recovery.map {
@@ -57,7 +61,8 @@ final class TodayHealthSnapshotResolverTests: XCTestCase {
                 TodayHealthMetricValue(value: $0, metricDay: day, sourceId: "my-whoop-noop",
                                         observedAt: generatedAt, rawFrontierTs: sleepFrontier,
                                         algorithmVersion: "daily-sleep-duration-v1")
-            }
+            },
+            metricStates: metricStates
         )
     }
 
@@ -101,6 +106,173 @@ final class TodayHealthSnapshotResolverTests: XCTestCase {
         XCTAssertEqual(resolved?.strain?.metricDay, "2026-08-04")
         XCTAssertEqual(resolved?.sleepScore?.value, 80)
         XCTAssertEqual(resolved?.sleepDurationMinutes?.value, 430)
+        XCTAssertNil(resolved?.dailyMetric.recovery)
+        XCTAssertNil(resolved?.dailyMetric.totalSleepMin)
+    }
+
+    func testSameDayAuthoritativeUnavailableClearsPersistedValueEvenWithGenerationZero() {
+        let persisted = snapshot(generatedAt: 100, recovery: 78, recoveryFrontier: 90)
+        let live = snapshot(
+            generatedAt: 200,
+            recoveryFrontier: 90,
+            authoritativeMetrics: [.recovery],
+            metricStates: [
+                .recovery: .unavailable(TodayHealthUnavailableEvidence(
+                    metricDay: "2026-08-03", sourceId: "my-whoop-noop", reason: .absent,
+                    observedAt: 200, rawFrontierTs: 90, algorithmVersion: "daily-recovery-v1",
+                    generation: 0
+                ))
+            ]
+        )
+
+        let resolved = TodayHealthSnapshotResolver.resolve(persisted: persisted, live: live)
+
+        XCTAssertNil(resolved?.recovery)
+        XCTAssertNil(resolved?.dailyMetric.recovery)
+        guard case let .unavailable(evidence) = resolved?.recoveryState else {
+            return XCTFail("Expected an unavailable recovery state")
+        }
+        XCTAssertEqual(evidence.reason, .absent)
+        XCTAssertEqual(evidence.generation, 0)
+    }
+
+    func testNewDayRecoveryUnavailableCarriesPriorNightUnlessExplicitlyDeleted() {
+        let persisted = snapshot(day: "2026-08-03", generatedAt: 100, recovery: 74,
+                                 sleepScore: 80, sleepDuration: 430)
+        let absent = snapshot(
+            day: "2026-08-04", generatedAt: 200, authoritativeMetrics: [.recovery],
+            metricStates: [
+                .recovery: .unavailable(TodayHealthUnavailableEvidence(
+                    metricDay: "2026-08-04", sourceId: "my-whoop-noop", reason: .absent,
+                    observedAt: 200, rawFrontierTs: 100, algorithmVersion: "daily-recovery-v1",
+                    generation: 0
+                ))
+            ]
+        )
+        let deleted = snapshot(
+            day: "2026-08-04", generatedAt: 201, authoritativeMetrics: [.recovery],
+            metricStates: [
+                .recovery: .unavailable(TodayHealthUnavailableEvidence(
+                    metricDay: "2026-08-04", sourceId: "my-whoop-noop", reason: .deleted,
+                    observedAt: 201, rawFrontierTs: 101, algorithmVersion: "daily-recovery-v1",
+                    generation: 0
+                ))
+            ]
+        )
+
+        let carried = TodayHealthSnapshotResolver.resolve(persisted: persisted, live: absent)
+        let cleared = TodayHealthSnapshotResolver.resolve(persisted: persisted, live: deleted)
+        let noPrior = TodayHealthSnapshotResolver.resolve(
+            persisted: snapshot(day: "2026-08-03", generatedAt: 99), live: absent
+        )
+
+        XCTAssertEqual(carried?.recovery?.value, 74)
+        XCTAssertEqual(carried?.recovery?.metricDay, "2026-08-03")
+        XCTAssertEqual(carried?.sleepScore?.metricDay, "2026-08-03")
+        XCTAssertEqual(carried?.sleepDurationMinutes?.metricDay, "2026-08-03")
+        XCTAssertNil(carried?.dailyMetric.recovery)
+        XCTAssertNil(carried?.dailyMetric.totalSleepMin)
+        XCTAssertNil(cleared?.recovery)
+        guard case let .unavailable(evidence) = cleared?.recoveryState else {
+            return XCTFail("Expected an unavailable recovery state")
+        }
+        XCTAssertEqual(evidence.reason, .deleted)
+        guard case let .unavailable(noPriorEvidence) = noPrior?.recoveryState else {
+            return XCTFail("Expected new-day unavailable recovery state without a prior value")
+        }
+        XCTAssertEqual(noPriorEvidence.metricDay, "2026-08-04")
+    }
+
+    func testNewDayStrainUnavailableNeverCarriesPriorDayValue() {
+        let persisted = snapshot(day: "2026-08-03", generatedAt: 100, strain: 64)
+        let live = snapshot(
+            day: "2026-08-04", generatedAt: 200, authoritativeMetrics: [.strain],
+            metricStates: [
+                .strain: .unavailable(TodayHealthUnavailableEvidence(
+                    metricDay: "2026-08-04", sourceId: "my-whoop-noop", reason: .absent,
+                    observedAt: 200, rawFrontierTs: 100, algorithmVersion: "strain-v2-daily",
+                    generation: 0
+                ))
+            ]
+        )
+
+        let resolved = TodayHealthSnapshotResolver.resolve(persisted: persisted, live: live)
+
+        XCTAssertNil(resolved?.strain)
+        XCTAssertNil(resolved?.dailyMetric.strain)
+        guard case let .unavailable(evidence) = resolved?.strainState else {
+            return XCTFail("Expected an unavailable strain state")
+        }
+        XCTAssertEqual(evidence.metricDay, "2026-08-04")
+    }
+
+    func testUnavailableGenerationBeatsOlderValue() {
+        let persisted = snapshot(
+            generatedAt: 100, recoveryFrontier: 100, authoritativeMetrics: [.recovery],
+            metricStates: [
+                .recovery: .unavailable(TodayHealthUnavailableEvidence(
+                    metricDay: "2026-08-03", sourceId: "my-whoop-noop", reason: .absent,
+                    observedAt: 100, rawFrontierTs: 100, algorithmVersion: "daily-recovery-v1",
+                    generation: 5
+                ))
+            ], generation: 5
+        )
+        let staleLive = snapshot(
+            generatedAt: 200, recovery: 42, recoveryFrontier: 99, authoritativeMetrics: [.recovery],
+            metricStates: [
+                .recovery: .value(TodayHealthMetricValue(
+                    value: 42, metricDay: "2026-08-03", sourceId: "my-whoop-noop", observedAt: 200,
+                    rawFrontierTs: 99, algorithmVersion: "daily-recovery-v1", generation: 0
+                ))
+            ]
+        )
+
+        let resolved = TodayHealthSnapshotResolver.resolve(persisted: persisted, live: staleLive)
+
+        guard case let .unavailable(evidence) = resolved?.recoveryState else {
+            return XCTFail("Expected persisted unavailable recovery state")
+        }
+        XCTAssertEqual(evidence.generation, 5)
+        XCTAssertNil(resolved?.recovery)
+
+        let freshLive = snapshot(
+            generatedAt: 201, recovery: 43, recoveryFrontier: 100, authoritativeMetrics: [.recovery],
+            metricStates: [
+                .recovery: .value(TodayHealthMetricValue(
+                    value: 43, metricDay: "2026-08-03", sourceId: "my-whoop-noop", observedAt: 201,
+                    rawFrontierTs: 100, algorithmVersion: "daily-recovery-v1", generation: 6
+                ))
+            ], generation: 6
+        )
+
+        let corrected = TodayHealthSnapshotResolver.resolve(persisted: persisted, live: freshLive)
+
+        XCTAssertEqual(corrected?.recovery?.value, 43)
+        XCTAssertEqual(corrected?.recovery?.generation, 6)
+    }
+
+    func testSchemaThreeSnapshotDecodesToExplicitSchemaFourStates() throws {
+        let legacy = snapshot(
+            generatedAt: 100, recovery: 78,
+            authoritativeMetrics: [.recovery, .strain],
+            schemaVersion: 3
+        )
+
+        let data = try JSONEncoder().encode(legacy)
+        let migrated = try JSONDecoder().decode(TodayHealthSnapshot.self, from: data)
+
+        XCTAssertEqual(migrated.schemaVersion, TodayHealthSnapshot.currentSchemaVersion)
+        guard case let .value(recovery) = migrated.recoveryState else {
+            return XCTFail("Expected migrated recovery value")
+        }
+        XCTAssertEqual(recovery.value, 78)
+        guard case let .unavailable(evidence) = migrated.strainState else {
+            return XCTFail("Expected migrated authoritative strain absence")
+        }
+        XCTAssertEqual(evidence.reason, .absent)
+        guard case .unknown = migrated.sleepScoreState else {
+            return XCTFail("Expected non-authoritative sleep score to remain unknown")
+        }
     }
 
     func testVerifiedLiveV2StrainBeatsSnapshotWithLargerFrontier() {

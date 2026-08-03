@@ -59,7 +59,15 @@ final class TodayHealthSnapshotStoreTests: XCTestCase {
         let loaded = try XCTUnwrap(persisted)
 
         XCTAssertTrue(didSave)
-        XCTAssertEqual(loaded, expected)
+        XCTAssertEqual(loaded.scopeId, expected.scopeId)
+        XCTAssertEqual(loaded.generatedAt, expected.generatedAt)
+        XCTAssertEqual(loaded.generation, 1)
+        XCTAssertEqual(loaded.recovery?.value, expected.recovery?.value)
+        XCTAssertEqual(loaded.recovery?.generation, 1)
+        XCTAssertEqual(loaded.strain?.value, expected.strain?.value)
+        XCTAssertEqual(loaded.strain?.generation, 1)
+        XCTAssertEqual(loaded.sleepScore?.value, expected.sleepScore?.value)
+        XCTAssertEqual(loaded.sleepDurationMinutes?.value, expected.sleepDurationMinutes?.value)
         XCTAssertEqual(loaded.metric(.strain)?.strainVersion, 2)
         XCTAssertEqual(loaded.context, expected.context)
     }
@@ -78,7 +86,71 @@ final class TodayHealthSnapshotStoreTests: XCTestCase {
         XCTAssertTrue(savedCurrent)
         XCTAssertFalse(savedStale)
         XCTAssertTrue(savedNewerEvidence)
-        XCTAssertEqual(persisted, newerEvidence)
+        XCTAssertEqual(persisted?.generatedAt, 1)
+        XCTAssertEqual(persisted?.recovery?.value, 21)
+        XCTAssertEqual(persisted?.recovery?.generation, 2)
+        XCTAssertEqual(persisted?.generation, 2)
+    }
+
+    func testEqualRawFrontierUsesDatabaseGenerationInsteadOfGeneratedAt() async throws {
+        let store = try await WhoopStore.inMemory()
+        let context = try await context(for: store)
+        let first = snapshot(context: context, generatedAt: 200, rawFrontierTs: 50, recovery: 82, strain: 76)
+        let second = snapshot(context: context, generatedAt: 1, rawFrontierTs: 50, recovery: 21, strain: 9)
+
+        let savedFirst = try await store.saveTodayHealthSnapshot(first)
+        let savedSecond = try await store.saveTodayHealthSnapshot(second)
+        XCTAssertTrue(savedFirst)
+        XCTAssertTrue(savedSecond)
+
+        let persisted = try await store.todayHealthSnapshot(scopeId: first.scopeId)
+        XCTAssertEqual(persisted?.generatedAt, 1)
+        XCTAssertEqual(persisted?.recovery?.value, 21)
+        XCTAssertEqual(persisted?.generation, 2)
+        XCTAssertEqual(persisted?.recovery?.generation, 2)
+    }
+
+    func testRoundTripsUnavailableAndUnknownMetricStatesWithEvidence() async throws {
+        let store = try await WhoopStore.inMemory()
+        let context = try await context(for: store)
+        let day = "2026-08-03"
+        let unavailable = TodayHealthUnavailableEvidence(
+            metricDay: day, sourceId: "my-whoop-noop", reason: .absent, observedAt: 100,
+            rawFrontierTs: 90, algorithmVersion: "daily-recovery-v1", generation: 0
+        )
+        let dailyMetric = DailyMetric(
+            day: day, totalSleepMin: nil, efficiency: nil, deepMin: nil, remMin: nil,
+            lightMin: nil, disturbances: nil, restingHr: nil, avgHrv: nil, recovery: nil,
+            strain: nil, exerciseCount: nil, strainVersion: nil
+        )
+        let expected = TodayHealthSnapshot(
+            scopeId: "dashboard:my-whoop|\(context.identifier)", context: context, deviceId: "my-whoop",
+            displayDay: day, logicalDay: day, localDay: day, generatedAt: 100, rawFrontierTs: 90,
+            authoritativeMetrics: [.recovery], dailyMetric: dailyMetric,
+            metricStates: [
+                .recovery: .unavailable(unavailable),
+                .strain: .unknown,
+                .sleepScore: .unknown,
+                .sleepDurationMinutes: .unknown
+            ]
+        )
+
+        let didSave = try await store.saveTodayHealthSnapshot(expected)
+        let persisted = try await store.todayHealthSnapshot(scopeId: expected.scopeId)
+        let loaded = try XCTUnwrap(persisted)
+        XCTAssertTrue(didSave)
+
+        guard case let .unavailable(evidence) = loaded.recoveryState else {
+            return XCTFail("Expected unavailable recovery state")
+        }
+        XCTAssertEqual(evidence.reason, .absent)
+        XCTAssertEqual(evidence.metricDay, day)
+        XCTAssertEqual(evidence.generation, 1)
+        guard case .unknown = loaded.strainState else {
+            return XCTFail("Expected unknown strain state")
+        }
+        XCTAssertNil(loaded.recovery)
+        XCTAssertTrue(loaded.authoritativeMetrics.contains(.recovery))
     }
 
     func testDeleteAllDataRemovesEveryContextScopedSnapshotForDevice() async throws {
