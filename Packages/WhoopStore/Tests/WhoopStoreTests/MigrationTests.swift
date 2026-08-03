@@ -69,7 +69,17 @@ final class MigrationTests: XCTestCase {
             let cols = try await store.columnNamesForTest(table: table)
             XCTAssertTrue(cols.contains("synced"), "\(table) missing synced column")
         }
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 33)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 34)
+    }
+
+    func testV34AddsDurableTodayHealthSnapshotGeneration() async throws {
+        let store = try await WhoopStore.inMemory()
+        let tables = try await store.tableNames()
+        XCTAssertTrue(tables.contains("todayHealthSnapshotGeneration"))
+        let snapshotColumns = try await store.columnNamesForTest(table: "todayHealthSnapshot")
+        XCTAssertTrue(snapshotColumns.contains("generation"))
+        let generationColumns = try await store.columnNamesForTest(table: "todayHealthSnapshotGeneration")
+        XCTAssertTrue(generationColumns.contains("value"))
     }
 
     func testRecoveryChargeContextMigrationUpgradesExistingOverrideTable() async throws {
