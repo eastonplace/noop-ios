@@ -4,6 +4,60 @@ import StrandAnalytics
 import WhoopProtocol
 import WhoopStore
 
+/// Durable work identity for a finalized historical burst.
+///
+/// This is a journal coordinate, not a copy of one receipt. `throughGeneration` tells a later consumer to
+/// process every receipt in this database/source scope through that generation, including a final receipt
+/// whose inserted-row count is zero.
+public struct HistoricalReceiptWatermark: Equatable, Sendable {
+    /// Source identity is nested so future lineage/epoch fields remain an app-layer extension point without
+    /// changing the watermark or its consumers.
+    public struct SourceIdentity: Equatable, Sendable {
+        public let deviceId: String
+
+        public init(deviceId: String) {
+            self.deviceId = deviceId
+        }
+    }
+
+    public let databaseInstanceId: String
+    public let sourceIdentity: SourceIdentity
+    public let throughGeneration: Int64
+
+    public init(
+        databaseInstanceId: String,
+        sourceIdentity: SourceIdentity,
+        throughGeneration: Int64
+    ) {
+        self.databaseInstanceId = databaseInstanceId
+        self.sourceIdentity = sourceIdentity
+        self.throughGeneration = throughGeneration
+    }
+
+    /// Adapts the current receipt schema at one boundary. Future lineage/epoch fields belong in
+    /// `SourceIdentity`, not in the burst or AppModel APIs.
+    init(receipt: HistoricalDataCommitReceipt) {
+        self.init(
+            databaseInstanceId: receipt.databaseInstanceId,
+            sourceIdentity: SourceIdentity(deviceId: receipt.deviceId),
+            throughGeneration: receipt.generation
+        )
+    }
+
+    /// Advances only within the same database/source fence. A generation watermark never merges two
+    /// source identities, even if a device switch races a late callback.
+    func advanced(with receipt: HistoricalDataCommitReceipt) -> Self? {
+        let candidateSource = SourceIdentity(deviceId: receipt.deviceId)
+        guard databaseInstanceId == receipt.databaseInstanceId,
+              sourceIdentity == candidateSource else { return nil }
+        return Self(
+            databaseInstanceId: databaseInstanceId,
+            sourceIdentity: sourceIdentity,
+            throughGeneration: max(throughGeneration, receipt.generation)
+        )
+    }
+}
+
 /// Cheap, value-only observation after a historical session has durably persisted rows. It deliberately
 /// excludes analysis and Repository work: those expensive operations run exactly once when the complete
 /// continuation burst is finalized.
@@ -11,10 +65,7 @@ struct HistoricalSyncPassProgress: Equatable, Sendable {
     let rowsPersisted: Int
     let passNumber: Int
     let latestFrontierUnix: Int?
-    let latestCommitReceiptId: String?
-    let latestCommitGeneration: Int64?
-    let latestCommitDatabaseInstanceId: String?
-    let latestCommitDeviceId: String?
+    let commitWatermark: HistoricalReceiptWatermark?
     let publishedAt: TimeInterval
 
     init(
@@ -27,10 +78,7 @@ struct HistoricalSyncPassProgress: Equatable, Sendable {
             rowsPersisted: rowsPersisted,
             passNumber: passNumber,
             latestFrontierUnix: latestFrontierUnix,
-            latestCommitReceiptId: nil,
-            latestCommitGeneration: nil,
-            latestCommitDatabaseInstanceId: nil,
-            latestCommitDeviceId: nil,
+            commitWatermark: nil,
             publishedAt: publishedAt
         )
     }
@@ -39,19 +87,13 @@ struct HistoricalSyncPassProgress: Equatable, Sendable {
         rowsPersisted: Int,
         passNumber: Int,
         latestFrontierUnix: Int?,
-        latestCommitReceiptId: String?,
-        latestCommitGeneration: Int64?,
-        latestCommitDatabaseInstanceId: String?,
-        latestCommitDeviceId: String?,
+        commitWatermark: HistoricalReceiptWatermark?,
         publishedAt: TimeInterval
     ) {
         self.rowsPersisted = rowsPersisted
         self.passNumber = passNumber
         self.latestFrontierUnix = latestFrontierUnix
-        self.latestCommitReceiptId = latestCommitReceiptId
-        self.latestCommitGeneration = latestCommitGeneration
-        self.latestCommitDatabaseInstanceId = latestCommitDatabaseInstanceId
-        self.latestCommitDeviceId = latestCommitDeviceId
+        self.commitWatermark = commitWatermark
         self.publishedAt = publishedAt
     }
 }
@@ -163,9 +205,8 @@ public final class LiveState: ObservableObject {
     @Published public internal(set) var strapRange: StrapRange?
     @Published public var strapNeedsReboot = false
     @Published public var lastSyncedAt: TimeInterval?
-    /// A backfill burst ended with durable raw data (or a timestamp-heal request). This is deliberately
-    /// separate from `lastSyncedAt`: partial/offload-timeout data must become visible and get scored, but
-    /// must never be presented as a completed sync.
+    /// Transitional UI status for a backfill burst that ended with durable raw data or a timestamp-heal
+    /// request. This stays separate from `lastSyncedAt`, but it is not the durable analytical work identity.
     @Published public var backfillDataAvailableAt: TimeInterval? {
         didSet {
             if let value = backfillDataAvailableAt, value != oldValue {
@@ -173,9 +214,11 @@ public final class LiveState: ObservableObject {
             }
         }
     }
-    /// The receipt associated with the most recently finalized historical burst. This is observability
-    /// only in Phase 2A. The existing timestamp remains the sole analysis/Repository trigger until the
-    /// later receipt-consumer phase validates the database and device context.
+    /// Journal coordinate handed to the later durable consumer. The watermark, not the timestamp or one
+    /// mutable receipt, is the identity of the finalized analytical work.
+    @Published public private(set) var finalizedHistoricalDataCommitWatermark: HistoricalReceiptWatermark?
+    /// Phase 2A compatibility context for diagnostics only. AppModel never uses this receipt as work
+    /// identity; the watermark above covers every committed receipt through its generation.
     @Published public private(set) var finalizedHistoricalDataCommitReceipt: HistoricalDataCommitReceipt?
     @Published private(set) var historicalSyncPassProgress: HistoricalSyncPassProgress?
     @Published public var lastSyncError: String?
@@ -271,12 +314,14 @@ public final class LiveState: ObservableObject {
         historicalSyncPassProgress = progress
     }
 
-    /// Publish the durable receipt before the timestamp edge, then retire progress. AppModel still observes
-    /// only the timestamp in Phase 2A, so this adds context without changing the analysis pipeline.
+    /// Publish the journal watermark before the transitional timestamp edge, then retire progress. The
+    /// optional receipt remains a Phase 2A diagnostics compatibility seam and is never the work identity.
     func finalizeHistoricalSyncBurst(
         at timestamp: TimeInterval,
+        watermark: HistoricalReceiptWatermark? = nil,
         receipt: HistoricalDataCommitReceipt? = nil
     ) {
+        finalizedHistoricalDataCommitWatermark = watermark ?? receipt.map { HistoricalReceiptWatermark(receipt: $0) }
         finalizedHistoricalDataCommitReceipt = receipt
         backfillDataAvailableAt = timestamp
         clearHistoricalSyncProgress()

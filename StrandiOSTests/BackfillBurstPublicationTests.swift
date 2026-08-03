@@ -1,7 +1,27 @@
 import XCTest
 @testable import NOOP
+import WhoopStore
 
 final class BackfillBurstPublicationTests: XCTestCase {
+    private func receipt(
+        generation: Int64,
+        rows: HistoricalStreamInsertCounts,
+        databaseInstanceId: String = "database-a",
+        deviceId: String = "strap-a"
+    ) -> HistoricalDataCommitReceipt {
+        HistoricalDataCommitReceipt(
+            receiptId: "receipt-\(generation)",
+            generation: generation,
+            databaseInstanceId: databaseInstanceId,
+            deviceId: deviceId,
+            trim: Int(generation),
+            chunkEndUnix: 1_700_000_000 + Int(generation),
+            committedAt: 1_700_000_001 + Int(generation),
+            rawBatchId: nil,
+            insertedRows: rows
+        )
+    }
+
     func testDurablePassPublishesCheapProgressBeforeBurstFinalization() {
         var burst = BackfillBurstPublication()
 
@@ -27,6 +47,43 @@ final class BackfillBurstPublicationTests: XCTestCase {
 
         XCTAssertTrue(burst.consume())
         XCTAssertFalse(burst.consume())
+    }
+
+    func testEmptyFinalChunkPublishesWatermarkThroughTheProductiveReceipt() {
+        var burst = BackfillBurstPublication()
+        let productive = receipt(generation: 41, rows: HistoricalStreamInsertCounts(hr: 240))
+        let emptyFinal = receipt(generation: 42, rows: HistoricalStreamInsertCounts())
+
+        burst.record(receipt: productive)
+        burst.record(rowsPersisted: productive.insertedRows.total, requiresTimestampHeal: false)
+        burst.record(receipt: emptyFinal)
+        burst.record(rowsPersisted: 0, requiresTimestampHeal: false)
+
+        let finalization = burst.consumeFinalization()
+
+        XCTAssertEqual(
+            finalization?.watermark,
+            HistoricalReceiptWatermark(
+                databaseInstanceId: "database-a",
+                sourceIdentity: HistoricalReceiptWatermark.SourceIdentity(deviceId: "strap-a"),
+                throughGeneration: emptyFinal.generation))
+        XCTAssertGreaterThanOrEqual(finalization?.watermark?.throughGeneration ?? 0, productive.generation)
+        XCTAssertFalse(burst.needsPublication)
+        XCTAssertNil(burst.commitWatermark)
+    }
+
+    @MainActor
+    func testFinalizationKeepsTimestampStatusButPublishesWatermarkIdentity() {
+        let live = LiveState()
+        let watermark = HistoricalReceiptWatermark(
+            databaseInstanceId: "database-a",
+            sourceIdentity: HistoricalReceiptWatermark.SourceIdentity(deviceId: "strap-a"),
+            throughGeneration: 42)
+
+        live.finalizeHistoricalSyncBurst(at: 2_000, watermark: watermark)
+
+        XCTAssertEqual(live.finalizedHistoricalDataCommitWatermark, watermark)
+        XCTAssertEqual(live.backfillDataAvailableAt, 2_000)
     }
 
     func testTimestampHealPublishesEvenWhenTheBadRowsWereRejected() {

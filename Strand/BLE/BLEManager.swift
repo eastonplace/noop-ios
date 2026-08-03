@@ -396,14 +396,27 @@ struct BackfillContinuation {
 /// `HISTORY_COMPLETE` strands durable rows after an idle timeout. Consume exactly once when the burst
 /// actually stops, keeping the UI's "last synced" status truthful.
 struct BackfillBurstPublication: Equatable {
+    struct Finalization: Equatable {
+        let watermark: HistoricalReceiptWatermark?
+    }
+
     private(set) var needsPublication = false
     private var persistedPasses = 0
-    private(set) var latestHistoricalCommitReceipt: HistoricalDataCommitReceipt?
+    private(set) var commitWatermark: HistoricalReceiptWatermark?
 
     /// Backfiller invokes this only after its SQLite transaction commits and before the strap ACK.
-    /// Keep it private to BLE until finalization so a deep offload causes no per-chunk SwiftUI work.
+    /// Collapse each committed receipt into one database/source/generation coordinate. Keep it private to
+    /// BLE until finalization so a deep offload causes no per-chunk SwiftUI work.
     mutating func record(receipt: HistoricalDataCommitReceipt) {
-        latestHistoricalCommitReceipt = receipt
+        let candidate = HistoricalReceiptWatermark(receipt: receipt)
+        if let current = commitWatermark {
+            // A connected burst should remain inside one database/source fence. If a late callback crosses
+            // that fence, start a new coordinate instead of claiming the two identities are contiguous.
+            commitWatermark = current.advanced(with: receipt) ?? candidate
+        } else {
+            commitWatermark = candidate
+        }
+        needsPublication = needsPublication || receipt.insertedRows.total > 0
     }
 
     /// Records one durable session. The returned value is cheap UI progress only: it does not start
@@ -418,26 +431,24 @@ struct BackfillBurstPublication: Equatable {
         return HistoricalSyncPassProgress(rowsPersisted: rowsPersisted,
                                           passNumber: persistedPasses,
                                           latestFrontierUnix: latestFrontierUnix,
-                                          latestCommitReceiptId: latestHistoricalCommitReceipt?.receiptId,
-                                          latestCommitGeneration: latestHistoricalCommitReceipt?.generation,
-                                          latestCommitDatabaseInstanceId: latestHistoricalCommitReceipt?.databaseInstanceId,
-                                          latestCommitDeviceId: latestHistoricalCommitReceipt?.deviceId,
+                                          commitWatermark: commitWatermark,
                                           publishedAt: timestamp)
     }
 
+    mutating func consumeFinalization() -> Finalization? {
+        guard needsPublication else { return nil }
+        defer { reset() }
+        return Finalization(watermark: commitWatermark)
+    }
+
     mutating func consume() -> Bool {
-        defer {
-            needsPublication = false
-            persistedPasses = 0
-            latestHistoricalCommitReceipt = nil
-        }
-        return needsPublication
+        consumeFinalization() != nil
     }
 
     mutating func reset() {
         needsPublication = false
         persistedPasses = 0
-        latestHistoricalCommitReceipt = nil
+        commitWatermark = nil
     }
 }
 
@@ -2004,11 +2015,12 @@ public final class BLEManager: NSObject, ObservableObject {
     /// formal `HISTORY_COMPLETE`, so an idle-timeout with durable rows refreshes the dashboard without
     /// lying that the strap finished syncing.
     private func publishBackfillBurstIfNeeded() {
-        let receipt = backfillBurstPublication.latestHistoricalCommitReceipt
-        guard backfillBurstPublication.consume() else { return }
-        state.finalizeHistoricalSyncBurst(at: Date().timeIntervalSince1970, receipt: receipt)
-        if let receipt {
-            log("Backfill: durable history is ready after the sync burst; receipt=\(receipt.receiptId), generation=\(receipt.generation); scheduling one dashboard refresh.")
+        guard let finalization = backfillBurstPublication.consumeFinalization() else { return }
+        state.finalizeHistoricalSyncBurst(
+            at: Date().timeIntervalSince1970,
+            watermark: finalization.watermark)
+        if let watermark = finalization.watermark {
+            log("Backfill: durable history is ready through generation \(watermark.throughGeneration) for database \(watermark.databaseInstanceId), source \(watermark.sourceIdentity.deviceId); scheduling one dashboard refresh.")
         } else {
             log("Backfill: durable history is ready after the sync burst; scheduling one dashboard refresh.")
         }

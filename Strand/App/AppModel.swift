@@ -408,10 +408,10 @@ final class AppModel: ObservableObject {
             self.applyPowerSaving()
         }.store(in: &hrCancellables)
         // A backfill burst can end after a clean HISTORY_COMPLETE OR after the idle watchdog, because each
-        // chunk is committed before it is acknowledged. Only the burst-finalization signal means durable
-        // rows are ready and no auto-continued session remains. Keeping it separate from `lastSyncedAt`
-        // preserves honest sync status while preventing heavy analysis/refresh from racing the next slice.
-        live.$backfillDataAvailableAt
+        // chunk is committed before it is acknowledged. Subscribe to the finalized journal watermark so
+        // the durable work identity covers every committed receipt through one generation, including an
+        // empty final chunk. `backfillDataAvailableAt` remains transitional UI status only.
+        live.$finalizedHistoricalDataCommitWatermark
             .dropFirst()
             .compactMap { $0 }
             .removeDuplicates()
