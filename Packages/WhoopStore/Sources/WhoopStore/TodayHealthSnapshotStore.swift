@@ -315,8 +315,9 @@ public struct TodayHealthSnapshot: Codable, Equatable, Sendable {
     public let schemaVersion: Int
     /// Explicit state and evidence for every visible metric. Missing dictionary entries read as `.unknown`.
     public let metricStates: [Metric: TodayHealthMetricState]
-    /// Compatibility contract for producers that still report which reads completed. A value can be
-    /// authoritative, unavailable is always authoritative, and unknown remains non-authoritative.
+    /// Compatibility contract for producers that still report which reads completed. The explicit state
+    /// remains authoritative: `.value` and `.unavailable` are authoritative, while `.unknown` is never
+    /// authoritative even if a legacy producer left the metric in this set.
     public let authoritativeMetrics: Set<Metric>
     /// The complete displayed daily row, used as the non-hero first-paint fallback.
     public let dailyMetric: DailyMetric
@@ -473,7 +474,7 @@ public struct TodayHealthSnapshot: Codable, Equatable, Sendable {
     }
 
     public func isAuthoritative(_ metric: Metric) -> Bool {
-        authoritativeMetrics.contains(metric) || state(for: metric).isUnavailable
+        state(for: metric).isAuthoritative
     }
 
     /// Return a copy with the database-issued generation applied to the top-level snapshot and every
@@ -633,8 +634,9 @@ public enum TodayHealthSnapshotStoreError: Error, Equatable {
 
 extension WhoopStore {
     /// Atomically save a dashboard first-paint snapshot. SQLite assigns the accepted row's generation;
-    /// wall-clock `generatedAt` never orders writes. A lower raw frontier is rejected, while equal-frontier
-    /// writes are ordered by the database sequence, so an explicit unavailable state can clear an old value.
+    /// wall-clock `generatedAt` never orders writes. A lower raw frontier is rejected. Equal-frontier
+    /// writes require the caller's generation to match the row generation, so a stale value cannot replace
+    /// a newer unavailable state. A greater raw frontier remains accepted regardless of generation.
     /// Returns true only when the database accepted the write.
     @discardableResult
     public func saveTodayHealthSnapshot(_ snapshot: TodayHealthSnapshot) async throws -> Bool {
@@ -649,8 +651,14 @@ extension WhoopStore {
                 let existingContextId: String? = existing["contextId"]
                 guard existingContextId == contextId else { return false }
                 let existingFrontier: Int? = existing["rawFrontierTs"]
-                guard (snapshot.rawFrontierTs ?? -1) >= (existingFrontier ?? -1) else {
+                let incomingFrontier = snapshot.rawFrontierTs ?? -1
+                let storedFrontier = existingFrontier ?? -1
+                guard incomingFrontier >= storedFrontier else {
                     return false
+                }
+                if incomingFrontier == storedFrontier {
+                    let existingGeneration: Int64 = existing["generation"] ?? 0
+                    guard snapshot.generation == existingGeneration else { return false }
                 }
             }
 

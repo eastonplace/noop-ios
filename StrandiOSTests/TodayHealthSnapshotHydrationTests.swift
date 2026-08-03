@@ -58,6 +58,103 @@ final class TodayHealthSnapshotHydrationTests: XCTestCase {
         )
     }
 
+    private func legacySleepSnapshot(day: String, generatedAt: Int) -> TodayHealthSnapshot {
+        TodayHealthSnapshot(
+            scopeId: "dashboard:\(Repository.whoopSource)", deviceId: Repository.whoopSource,
+            displayDay: day, logicalDay: day, localDay: day, generatedAt: generatedAt,
+            schemaVersion: 2, authoritativeMetrics: [.sleepScore],
+            dailyMetric: daily(day, recovery: nil, strain: nil, sleep: nil),
+            sleepScore: TodayHealthMetricValue(
+                value: 91, metricDay: day, sourceId: "my-whoop-noop",
+                algorithmVersion: "sleep-performance-v1")
+        )
+    }
+
+    private func fixedNewYorkDate(hour: Int, minute: Int = 0) -> Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/New_York")!
+        return calendar.date(from: DateComponents(
+            timeZone: calendar.timeZone, year: 2026, month: 8, day: 3,
+            hour: hour, minute: minute))!
+    }
+
+    func testHydrationPreservesLegacySleepWhenRefreshCreatesCurrentRowFirst() async throws {
+        let store = try await WhoopStore.inMemory()
+        let beforeRollover = fixedNewYorkDate(hour: 3, minute: 59)
+        let day = Repository.logicalDayKey(beforeRollover)
+        let legacy = legacySleepSnapshot(day: day, generatedAt: Int(beforeRollover.timeIntervalSince1970))
+        let savedLegacy = try await store.saveTodayHealthSnapshot(legacy)
+        XCTAssertTrue(savedLegacy)
+        try await store.upsertDailyMetrics(
+            [daily(day, recovery: 78, strain: nil, sleep: nil)], deviceId: Repository.whoopSource)
+
+        let repository = Repository(deviceId: Repository.whoopSource)
+        repository.setStoreForTesting(store)
+        repository.setTodayHealthSnapshotTestNow(beforeRollover)
+        repository.todayHealthSnapshotSleepReadOverride = .failed
+
+        let hydrationGate = AsyncTestGate()
+        repository.todayHealthSnapshotHydrationReadHook = { await hydrationGate.wait() }
+        let hydrationTask = Task { await repository.hydrateTodayHealthSnapshot() }
+        await hydrationGate.waitUntilEntered()
+
+        let didRefresh = await repository.refresh(days: 4_000)
+        XCTAssertTrue(didRefresh)
+        XCTAssertEqual(repository.todayHealthSnapshot?.sleepScore?.value, 91)
+
+        repository.todayHealthSnapshotHydrationReadHook = nil
+        hydrationGate.open()
+        await hydrationTask.value
+
+        XCTAssertEqual(repository.todayHealthSnapshot?.displayDay, day)
+        XCTAssertEqual(repository.todayHealthSnapshot?.sleepScore?.value, 91)
+        let scopeId = try XCTUnwrap(repository.todayHealthSnapshot?.scopeId)
+        let durable = try await store.todayHealthSnapshot(scopeId: scopeId)
+        XCTAssertEqual(durable?.sleepScore?.value, 91)
+    }
+
+    func testAuthoritativeRefreshOwnsWriteAgainstThrottledLiveUpdate() async throws {
+        let store = try await WhoopStore.inMemory()
+        let fixedNow = fixedNewYorkDate(hour: 3, minute: 59)
+        let day = Repository.logicalDayKey(fixedNow)
+        try await store.upsertDailyMetrics(
+            [daily(day, recovery: 78, strain: 64, sleep: nil)], deviceId: Repository.whoopSource)
+
+        let repository = Repository(deviceId: Repository.whoopSource)
+        repository.setStoreForTesting(store)
+        repository.setTodayHealthSnapshotTestNow(fixedNow)
+        let sleepGate = AsyncTestGate()
+        repository.todayHealthSnapshotSleepReadHook = { await sleepGate.wait() }
+
+        let refreshTask = Task { await repository.refresh(days: 4_000) }
+        await sleepGate.waitUntilEntered()
+        repository.scheduleTodayHealthSnapshotWriteForTesting()
+        repository.todayHealthSnapshotSleepReadHook = nil
+        sleepGate.open()
+
+        let didRefresh = await refreshTask.value
+        XCTAssertTrue(didRefresh)
+        let scopeId = try XCTUnwrap(repository.todayHealthSnapshot?.scopeId)
+        let durable = try await store.todayHealthSnapshot(scopeId: scopeId)
+        XCTAssertNotNil(durable)
+
+        // The live follow-up is test-owned and may be queued after the authoritative save. Cancel it so
+        // this test leaves no delayed task behind.
+        await repository.invalidateTodayHealthSnapshot()
+    }
+
+    func testRefreshFailsWhenSnapshotDatabaseIdentityCannotBeEstablished() async throws {
+        let store = try await WhoopStore.inMemory()
+        let repository = Repository(deviceId: Repository.whoopSource)
+        repository.setStoreForTesting(store)
+        repository.todayHealthSnapshotDatabaseIdentityUnavailableForTesting = true
+
+        let didRefresh = await repository.refresh(days: 4_000)
+
+        XCTAssertFalse(didRefresh)
+        XCTAssertNil(repository.todayHealthSnapshot)
+    }
+
     func testHydratesOneStoredSnapshotWithoutPublishingTheBroadCache() async throws {
         let store = try await WhoopStore.inMemory()
         let now = Date()
@@ -236,6 +333,8 @@ final class TodayHealthSnapshotHydrationTests: XCTestCase {
             [MetricPoint(day: day, key: "sleep_performance", value: 86)],
             deviceId: Repository.whoopSource
         )
+        try await store.insert(
+            Streams(hr: [HRSample(ts: 100, bpm: 60)]), deviceId: Repository.whoopSource)
 
         let repository = Repository(deviceId: Repository.whoopSource)
         repository.setStoreForTesting(store)
@@ -382,5 +481,35 @@ final class TodayHealthSnapshotHydrationTests: XCTestCase {
 
         XCTAssertEqual(Repository.localDayKey(instant, calendar: newYork), "2026-03-30")
         XCTAssertEqual(Repository.localDayKey(instant, calendar: tokyo), "2026-03-31")
+    }
+}
+
+private actor AsyncTestGate {
+    private var entered = false
+    private var released = false
+    private var enteredContinuation: CheckedContinuation<Void, Never>?
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+
+    func wait() async {
+        entered = true
+        enteredContinuation?.resume()
+        enteredContinuation = nil
+        guard !released else { return }
+        await withCheckedContinuation { continuation in
+            releaseContinuation = continuation
+        }
+    }
+
+    func waitUntilEntered() async {
+        guard !entered else { return }
+        await withCheckedContinuation { continuation in
+            enteredContinuation = continuation
+        }
+    }
+
+    func open() {
+        released = true
+        releaseContinuation?.resume()
+        releaseContinuation = nil
     }
 }

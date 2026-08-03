@@ -241,11 +241,19 @@ final class Repository: ObservableObject {
     /// restored/replaced database from the old in-memory Repository generation.
     private var todayHealthSnapshotDatabaseInstanceId: String?
     private var todayHealthSnapshotLastPersistedAt: Date?
+    /// An awaited refresh owns this handoff. A throttled live-Strain update may queue follow-up work, but
+    /// it must not invalidate the awaited write token while the critical Sleep/Recovery save is suspended.
+    private var todayHealthSnapshotAuthoritativeWriteInFlight = false
     private var todayHealthSnapshotWriteDirty = false
     private var todayHealthSnapshotWritePolicy: TodayHealthSnapshotWritePolicy = .immediate
     /// Distinguishes a cancelled/delayed writer from its replacement. A cancelled task may still reach an
     /// actor hop, so this token prevents it from clearing or superseding the newer writer's state.
     private var todayHealthSnapshotWriteToken = 0
+
+    #if DEBUG
+    /// Narrow test seams for the first-paint race tests. Production uses the live clock and database reads.
+    private var todayHealthSnapshotTestNow: Date?
+    #endif
 
     private struct TodayHealthMetricSources: Equatable, Sendable {
         let recovery: String?
@@ -377,6 +385,18 @@ final class Repository: ObservableObject {
     }
 
     var todayHealthSnapshotSleepReadOverride: TodayHealthSnapshotSleepReadOverride = .database
+    var todayHealthSnapshotSleepReadHook: (@MainActor () async -> Void)?
+    var todayHealthSnapshotHydrationReadHook: (@MainActor () async -> Void)?
+    var todayHealthSnapshotDatabaseIdentityUnavailableForTesting = false
+
+    func setTodayHealthSnapshotTestNow(_ now: Date?) {
+        todayHealthSnapshotTestNow = now
+    }
+
+    func scheduleTodayHealthSnapshotWriteForTesting() {
+        refreshTodayHealthSnapshotFromCurrentCaches(
+            now: todayHealthSnapshotNow(), writePolicy: .throttledLiveStrain)
+    }
     #endif
 
     // MARK: - Union reads (active strap + canonical)
@@ -834,7 +854,8 @@ final class Repository: ObservableObject {
         guard liveDayStrain != nil || value != nil else { return }
         liveDayStrain = value
         rebuildCanonicalStrain()
-        refreshTodayHealthSnapshotFromCurrentCaches(now: Date(), writePolicy: .throttledLiveStrain)
+        refreshTodayHealthSnapshotFromCurrentCaches(
+            now: todayHealthSnapshotNow(), writePolicy: .throttledLiveStrain)
     }
 
     private func rebuildCanonicalStrain() {
@@ -975,10 +996,20 @@ final class Repository: ObservableObject {
     }
 
     private func cacheTodayHealthSnapshotDatabaseIdentity(from store: WhoopStore) async {
+#if DEBUG
+        guard !todayHealthSnapshotDatabaseIdentityUnavailableForTesting else { return }
+#endif
         guard todayHealthSnapshotDatabaseInstanceId == nil,
               let id = try? await store.todayHealthSnapshotDatabaseInstanceId()
         else { return }
         todayHealthSnapshotDatabaseInstanceId = id
+    }
+
+    private func todayHealthSnapshotNow() -> Date {
+#if DEBUG
+        if let todayHealthSnapshotTestNow { return todayHealthSnapshotTestNow }
+#endif
+        return Date()
     }
 
     /// Expose the shared store handle (used by the importer to persist mapped rows).
@@ -998,16 +1029,22 @@ final class Repository: ObservableObject {
 
         let currentScopeId = todayHealthSnapshotScopeId
         let legacyScopeId = todayHealthDashboardScopeId
-        let persisted: TodayHealthSnapshot?
+#if DEBUG
+        if let hook = todayHealthSnapshotHydrationReadHook { await hook() }
+#endif
+        guard generation == todayHealthSnapshotGeneration else { return }
+
+        let current: TodayHealthSnapshot?
+        let legacy: TodayHealthSnapshot?
         do {
-            if let current = try await store.todayHealthSnapshot(scopeId: currentScopeId) {
-                persisted = current
-            } else if currentScopeId != legacyScopeId {
-                // One-time migration path for records written before the context was part of the durable
-                // key. It never runs on an ordinary launch after the upgrade has completed.
-                persisted = try await store.todayHealthSnapshot(scopeId: legacyScopeId)
+            current = try await store.todayHealthSnapshot(scopeId: currentScopeId)
+            if current == nil || current?.sleepScoreState.isUnknown == true,
+               currentScopeId != legacyScopeId {
+                // A refresh can create the current-context row while hydration is suspended. If that row
+                // has no Sleep evidence yet, still check the compatible legacy key before first paint.
+                legacy = try await store.todayHealthSnapshot(scopeId: legacyScopeId)
             } else {
-                persisted = nil
+                legacy = nil
             }
         } catch {
             _ = try? await store.clearTodayHealthSnapshot(scopeId: currentScopeId)
@@ -1015,6 +1052,31 @@ final class Repository: ObservableObject {
                 _ = try? await store.clearTodayHealthSnapshot(scopeId: legacyScopeId)
             }
             return
+        }
+
+        var persisted = current
+        var legacySleepWasMerged = false
+        var legacyScopeToClear: String?
+        if let legacy, isCompatibleTodayHealthSnapshot(legacy, expectedContext: expectedContext) {
+            if let current, current.sleepScoreState.isUnknown {
+                let repairedLegacy = await repairedTodayHealthSnapshot(
+                    legacy, store: store, context: expectedContext, now: todayHealthSnapshotNow())
+                if !repairedLegacy.sleepScoreState.isUnknown {
+                    persisted = TodayHealthSnapshotResolver.resolve(
+                        persisted: repairedLegacy, live: current) ?? current
+                    legacySleepWasMerged = true
+                    legacyScopeToClear = legacyScopeId
+                }
+            } else if current == nil {
+                // One-time migration path for records written before the context was part of the durable
+                // key. It never runs on an ordinary launch after the upgrade has completed.
+                persisted = legacy
+                legacyScopeToClear = legacyScopeId
+            }
+        } else if current == nil {
+            // Keep the existing compatibility rejection below responsible for clearing an incompatible
+            // legacy record. Do not blend it into a current-context snapshot.
+            persisted = legacy
         }
 
         guard let persisted, generation == todayHealthSnapshotGeneration else { return }
@@ -1025,7 +1087,7 @@ final class Repository: ObservableObject {
         }
 
         let repaired = await repairedTodayHealthSnapshot(
-            persisted, store: store, context: expectedContext, now: Date())
+            persisted, store: store, context: expectedContext, now: todayHealthSnapshotNow())
         guard generation == todayHealthSnapshotGeneration else { return }
         let resolved = TodayHealthSnapshotResolver.resolve(
             persisted: repaired, live: todayHealthSnapshot
@@ -1033,11 +1095,28 @@ final class Repository: ObservableObject {
         let before = todayHealthSnapshot
         publishTodayHealthSnapshot(resolved, persist: false)
         // A repair upgrades context/day semantics and corrects a stale V2 snapshot before first paint.
-        if repaired != persisted, resolved == repaired {
+        if legacySleepWasMerged || (repaired != persisted && resolved == repaired) {
             guard generation == todayHealthSnapshotGeneration else { return }
-            _ = try? await store.saveTodayHealthSnapshot(repaired)
-            if persisted.scopeId != repaired.scopeId {
-                _ = try? await store.clearTodayHealthSnapshot(scopeId: persisted.scopeId)
+            let snapshotToPersist = legacySleepWasMerged ? resolved : repaired
+            let didSave: Bool
+            do {
+                didSave = try await store.saveTodayHealthSnapshot(snapshotToPersist)
+            } catch {
+                return
+            }
+            guard didSave, generation == todayHealthSnapshotGeneration else { return }
+            let stored: TodayHealthSnapshot
+            do {
+                guard let saved = try await store.todayHealthSnapshot(scopeId: snapshotToPersist.scopeId)
+                else { return }
+                stored = saved
+            } catch {
+                return
+            }
+            guard generation == todayHealthSnapshotGeneration else { return }
+            publishTodayHealthSnapshot(stored, persist: false)
+            if let legacyScopeToClear, legacyScopeToClear != snapshotToPersist.scopeId {
+                _ = try? await store.clearTodayHealthSnapshot(scopeId: legacyScopeToClear)
             }
         }
         changedRows = before == todayHealthSnapshot ? 0 : 1
@@ -1152,6 +1231,31 @@ final class Repository: ObservableObject {
         )
     }
 
+    /// Preserve a compatible legacy Sleep value when the exact-day read fails while hydration and refresh
+    /// race. The current-context row may already exist but contain only the refresh's unknown state.
+    /// Reads remain keyed to the current and legacy scopes; this is not a startup history scan.
+    private func persistedTodayHealthSnapshotForFailedSleepRead(
+        store: WhoopStore,
+        currentScopeId: String,
+        legacyScopeId: String,
+        context: TodayHealthSnapshotContext,
+        now: Date
+    ) async throws -> TodayHealthSnapshot? {
+        let current = try await store.todayHealthSnapshot(scopeId: currentScopeId)
+        guard current?.sleepScoreState.isUnknown != false,
+              currentScopeId != legacyScopeId,
+              let legacy = try await store.todayHealthSnapshot(scopeId: legacyScopeId),
+              isCompatibleTodayHealthSnapshot(legacy, expectedContext: context)
+        else { return current }
+
+        let repairedLegacy = await repairedTodayHealthSnapshot(
+            legacy, store: store, context: context, now: now)
+        guard !repairedLegacy.sleepScoreState.isUnknown else { return current }
+        guard let current else { return repairedLegacy }
+        return TodayHealthSnapshotResolver.resolve(
+            persisted: repairedLegacy, live: current) ?? current
+    }
+
     private func upgradedTodayHealthMetric(
         _ value: TodayHealthMetricValue?,
         kind: TodayHealthSnapshot.Metric,
@@ -1224,6 +1328,7 @@ final class Repository: ObservableObject {
         refreshGeneration: Int
     ) async -> TodayHealthSnapshotPersistenceOutcome {
         guard refreshGeneration == refreshGen else { return .superseded }
+        guard todayHealthSnapshotContext != nil else { return .failed }
         guard let candidate = currentTodayHealthSnapshot(now: now) else { return .notRequired }
         let resolved = TodayHealthSnapshotResolver.resolve(
             persisted: todayHealthSnapshot, live: candidate
@@ -1252,12 +1357,24 @@ final class Repository: ObservableObject {
         todayHealthSnapshotWritePolicy = .immediate
         todayHealthSnapshotWriteToken &+= 1
         let writeToken = todayHealthSnapshotWriteToken
-        return await enrichAndPersistTodayHealthSnapshot(
+        todayHealthSnapshotAuthoritativeWriteInFlight = true
+        let outcome = await enrichAndPersistTodayHealthSnapshot(
             candidate: candidate,
             generation: generation,
             refreshGeneration: refreshGeneration,
             writeToken: writeToken
         )
+        todayHealthSnapshotAuthoritativeWriteInFlight = false
+
+        if todayHealthSnapshotWriteDirty {
+            let pendingPolicy = todayHealthSnapshotWritePolicy
+            todayHealthSnapshotWriteDirty = false
+            if generation == todayHealthSnapshotGeneration,
+               refreshGeneration == refreshGen {
+                scheduleTodayHealthSnapshotWrite(policy: pendingPolicy)
+            }
+        }
+        return outcome
     }
 
     private func isCurrentTodayHealthSnapshotWrite(
@@ -1286,6 +1403,13 @@ final class Repository: ObservableObject {
     /// Coalesce writers while keeping first paint immediate. Live Strain may change every 20 seconds, but it
     /// only earns a SQLite rewrite every five minutes. Recovery/Sleep/day/context changes remain immediate.
     private func scheduleTodayHealthSnapshotWrite(policy: TodayHealthSnapshotWritePolicy) {
+        if todayHealthSnapshotAuthoritativeWriteInFlight {
+            if policy == .immediate || !todayHealthSnapshotWriteDirty {
+                todayHealthSnapshotWritePolicy = policy
+            }
+            todayHealthSnapshotWriteDirty = true
+            return
+        }
         if let task = todayHealthSnapshotWriteTask {
             // A critical Recovery/Sleep/day event must not wait behind a delayed live-Strain write.
             if policy == .immediate, todayHealthSnapshotWritePolicy == .throttledLiveStrain {
@@ -1353,7 +1477,10 @@ final class Repository: ObservableObject {
         if let candidate {
             base = candidate
         } else {
-            guard let current = currentTodayHealthSnapshot(now: Date()) else { return .notRequired }
+            guard todayHealthSnapshotContext != nil else { return .failed }
+            guard let current = currentTodayHealthSnapshot(now: todayHealthSnapshotNow()) else {
+                return .notRequired
+            }
             base = current
         }
 
@@ -1365,9 +1492,14 @@ final class Repository: ObservableObject {
         let persistedForFailedSleepRead: TodayHealthSnapshot?
         if case .failed = sleepRead {
             do {
-                // Cache-first publication may have replaced memory already. Read only this scope when Sleep
-                // is unknown so a failed read cannot convert durable score evidence into an authoritative nil.
-                persistedForFailedSleepRead = try await store.todayHealthSnapshot(scopeId: base.scopeId)
+                // Cache-first publication may have replaced memory already. Read the current key and, when
+                // its Sleep state is unknown, the compatible legacy key so a refresh cannot erase durable
+                // Sleep during the hydration migration race.
+                guard let context = todayHealthSnapshotContext else { return .failed }
+                persistedForFailedSleepRead = try await persistedTodayHealthSnapshotForFailedSleepRead(
+                    store: store, currentScopeId: base.scopeId,
+                    legacyScopeId: todayHealthDashboardScopeId,
+                    context: context, now: todayHealthSnapshotNow())
             } catch {
                 return .failed
             }
@@ -1383,7 +1515,7 @@ final class Repository: ObservableObject {
             generation: generation, refreshGeneration: refreshGeneration, writeToken: writeToken)
         else { return .superseded }
         let finalBase: TodayHealthSnapshot
-        if let current = currentTodayHealthSnapshot(now: Date()),
+        if let current = currentTodayHealthSnapshot(now: todayHealthSnapshotNow()),
            current.displayDay == base.displayDay {
             finalBase = current
         } else {
@@ -1409,7 +1541,7 @@ final class Repository: ObservableObject {
             displayDay: finalBase.displayDay,
             logicalDay: finalBase.logicalDay,
             localDay: finalBase.localDay,
-            generatedAt: Int(Date().timeIntervalSince1970),
+            generatedAt: Int(todayHealthSnapshotNow().timeIntervalSince1970),
             rawFrontierTs: rawFrontierTs,
             authoritativeMetrics: authoritativeMetrics,
             dailyMetric: finalBase.dailyMetric,
@@ -1437,6 +1569,19 @@ final class Repository: ObservableObject {
         guard isCurrentTodayHealthSnapshotWrite(
             generation: generation, refreshGeneration: refreshGeneration, writeToken: writeToken)
         else { return .superseded }
+        let stored: TodayHealthSnapshot
+        do {
+            guard let saved = try await store.todayHealthSnapshot(scopeId: resolved.scopeId) else {
+                return .failed
+            }
+            stored = saved
+        } catch {
+            return .failed
+        }
+        guard isCurrentTodayHealthSnapshotWrite(
+            generation: generation, refreshGeneration: refreshGeneration, writeToken: writeToken)
+        else { return .superseded }
+        publishTodayHealthSnapshot(stored, persist: false)
         todayHealthSnapshotLastPersistedAt = Date()
         changedRows = 1
         return .persisted
@@ -1521,9 +1666,10 @@ final class Repository: ObservableObject {
         store: WhoopStore,
         day: String
     ) async -> TodayHealthMetricRead<TodayHealthMetricValue> {
-        #if DEBUG
+#if DEBUG
+        if let hook = todayHealthSnapshotSleepReadHook { await hook() }
         if todayHealthSnapshotSleepReadOverride == .failed { return .failed }
-        #endif
+#endif
         do {
             let imported = try await requiredUnionMetricSeriesWithSource(
                 store: store, ids: importedReadIds, key: "sleep_performance", from: day, to: day
@@ -1811,10 +1957,14 @@ final class Repository: ObservableObject {
 
     @discardableResult
     func refresh(days nDays: Int = 4000) async -> Bool {
-        guard let store = await ensureStore() else { return false }
+        guard let store = await ensureStore(), todayHealthSnapshotContext != nil else {
+            // A store handle without its database identity cannot form the snapshot scope. Treat this as
+            // persistence infrastructure failure, not as a legitimate no-data refresh.
+            return false
+        }
         refreshGen &+= 1
         let myGen = refreshGen
-        let now = Date()
+        let now = todayHealthSnapshotNow()
         let fromDay = Self.dayString(now.addingTimeInterval(-Double(nDays) * 86_400))
         let toDay = Self.dayString(now.addingTimeInterval(86_400))
         let nowTs = Int(now.timeIntervalSince1970)

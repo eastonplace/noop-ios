@@ -11,11 +11,12 @@ final class TodayHealthSnapshotStoreTests: XCTestCase {
         )
     }
 
-    private func daily(_ day: String, recovery: Double = 73, strain: Double = 61,
-                       sleep: Double = 447) -> DailyMetric {
+    private func daily(_ day: String, recovery: Double? = 73, strain: Double? = 61,
+                       sleep: Double? = 447) -> DailyMetric {
         DailyMetric(day: day, totalSleepMin: sleep, efficiency: 0.91, deepMin: 92, remMin: 107,
                     lightMin: 248, disturbances: 4, restingHr: 51, avgHrv: 62,
-                    recovery: recovery, strain: strain, exerciseCount: 1, strainVersion: 2)
+                    recovery: recovery, strain: strain, exerciseCount: 1,
+                    strainVersion: strain.map { _ in 2 })
     }
 
     private func snapshot(
@@ -25,28 +26,36 @@ final class TodayHealthSnapshotStoreTests: XCTestCase {
         rawFrontierTs: Int? = 1_754_207_800,
         recovery: Double = 73,
         strain: Double = 61,
-        sleepScore: Double = 84
+        sleepScore: Double = 84,
+        generation: Int64 = 0,
+        authoritativeMetrics: Set<TodayHealthSnapshot.Metric> = [
+            .recovery, .strain, .sleepScore, .sleepDurationMinutes
+        ],
+        metricStates: [TodayHealthSnapshot.Metric: TodayHealthMetricState]? = nil
     ) -> TodayHealthSnapshot {
         let metric = daily(day, recovery: recovery, strain: strain)
         return TodayHealthSnapshot(
             scopeId: "dashboard:my-whoop|\(context.identifier)", context: context, deviceId: "my-whoop",
             displayDay: day, logicalDay: day, localDay: day, generatedAt: generatedAt,
-            rawFrontierTs: rawFrontierTs,
-            authoritativeMetrics: [.recovery, .strain, .sleepScore, .sleepDurationMinutes],
+            rawFrontierTs: rawFrontierTs, generation: generation,
+            authoritativeMetrics: authoritativeMetrics,
             dailyMetric: metric,
             recovery: TodayHealthMetricValue(value: recovery, metricDay: day, sourceId: "my-whoop-noop",
                                               observedAt: generatedAt, rawFrontierTs: rawFrontierTs,
-                                              algorithmVersion: "daily-recovery-v1"),
+                                              algorithmVersion: "daily-recovery-v1", generation: generation),
             strain: TodayHealthMetricValue(value: strain, metricDay: day, sourceId: "my-whoop-noop",
                                             observedAt: generatedAt, rawFrontierTs: rawFrontierTs,
-                                            algorithmVersion: "strain-v2-daily", strainVersion: 2),
+                                            algorithmVersion: "strain-v2-daily", strainVersion: 2,
+                                            generation: generation),
             sleepScore: TodayHealthMetricValue(value: sleepScore, metricDay: day, sourceId: "my-whoop-noop",
                                                 observedAt: generatedAt, rawFrontierTs: rawFrontierTs,
-                                                algorithmVersion: "sleep-performance-v1"),
-            sleepDurationMinutes: TodayHealthMetricValue(value: metric.totalSleepMin ?? 0, metricDay: day,
+                                                algorithmVersion: "sleep-performance-v1", generation: generation),
+            sleepDurationMinutes: metric.totalSleepMin.map { TodayHealthMetricValue(value: $0, metricDay: day,
                                                           sourceId: "my-whoop-noop", observedAt: generatedAt,
                                                           rawFrontierTs: rawFrontierTs,
-                                                          algorithmVersion: "daily-sleep-duration-v1")
+                                                          algorithmVersion: "daily-sleep-duration-v1",
+                                                          generation: generation) },
+            metricStates: metricStates
         )
     }
 
@@ -92,13 +101,16 @@ final class TodayHealthSnapshotStoreTests: XCTestCase {
         XCTAssertEqual(persisted?.generation, 2)
     }
 
-    func testEqualRawFrontierUsesDatabaseGenerationInsteadOfGeneratedAt() async throws {
+    func testEqualRawFrontierAcceptsCurrentDatabaseGeneration() async throws {
         let store = try await WhoopStore.inMemory()
         let context = try await context(for: store)
         let first = snapshot(context: context, generatedAt: 200, rawFrontierTs: 50, recovery: 82, strain: 76)
-        let second = snapshot(context: context, generatedAt: 1, rawFrontierTs: 50, recovery: 21, strain: 9)
 
         let savedFirst = try await store.saveTodayHealthSnapshot(first)
+        let persistedFirstRow = try await store.todayHealthSnapshot(scopeId: first.scopeId)
+        let persistedFirst = try XCTUnwrap(persistedFirstRow)
+        let second = snapshot(context: context, generatedAt: 1, rawFrontierTs: 50, recovery: 21, strain: 9,
+                              generation: persistedFirst.generation)
         let savedSecond = try await store.saveTodayHealthSnapshot(second)
         XCTAssertTrue(savedFirst)
         XCTAssertTrue(savedSecond)
@@ -108,6 +120,56 @@ final class TodayHealthSnapshotStoreTests: XCTestCase {
         XCTAssertEqual(persisted?.recovery?.value, 21)
         XCTAssertEqual(persisted?.generation, 2)
         XCTAssertEqual(persisted?.recovery?.generation, 2)
+    }
+
+    func testEqualRawFrontierStaleValueCannotResurrectUnavailableMetric() async throws {
+        let store = try await WhoopStore.inMemory()
+        let context = try await context(for: store)
+        let first = snapshot(context: context, rawFrontierTs: 50, recovery: 82, strain: 76)
+        let savedFirst = try await store.saveTodayHealthSnapshot(first)
+        XCTAssertTrue(savedFirst)
+        let persistedFirstRow = try await store.todayHealthSnapshot(scopeId: first.scopeId)
+        let persistedFirst = try XCTUnwrap(persistedFirstRow)
+
+        let unavailable = snapshot(
+            context: context, generatedAt: 200, rawFrontierTs: 50, recovery: 0, strain: 76,
+            generation: persistedFirst.generation,
+            metricStates: [
+                .recovery: .unavailable(TodayHealthUnavailableEvidence(
+                    metricDay: first.displayDay, sourceId: "my-whoop-noop", reason: .sourceUnavailable,
+                    observedAt: 200, rawFrontierTs: 50, algorithmVersion: "daily-recovery-v1",
+                    generation: persistedFirst.generation
+                ))
+            ]
+        )
+        let savedUnavailable = try await store.saveTodayHealthSnapshot(unavailable)
+        XCTAssertTrue(savedUnavailable)
+
+        let staleValue = first
+        let savedStale = try await store.saveTodayHealthSnapshot(staleValue)
+        XCTAssertFalse(savedStale)
+
+        let persistedRow = try await store.todayHealthSnapshot(scopeId: first.scopeId)
+        let persisted = try XCTUnwrap(persistedRow)
+        guard case let .unavailable(evidence) = persisted.recoveryState else {
+            return XCTFail("Expected unavailable recovery state")
+        }
+        XCTAssertEqual(evidence.reason, .sourceUnavailable)
+        XCTAssertNil(persisted.recovery)
+        XCTAssertEqual(persisted.generation, 2)
+    }
+
+    func testUnknownMetricIsNeverAuthoritativeWhenLegacySetContainsIt() async throws {
+        let store = try await WhoopStore.inMemory()
+        let context = try await context(for: store)
+        let unknown = snapshot(
+            context: context, recovery: 73,
+            authoritativeMetrics: [.recovery],
+            metricStates: [.recovery: .unknown]
+        )
+
+        XCTAssertFalse(unknown.isAuthoritative(.recovery))
+        XCTAssertFalse(unknown.recoveryState.isAuthoritative)
     }
 
     func testRoundTripsUnavailableAndUnknownMetricStatesWithEvidence() async throws {
