@@ -20,6 +20,72 @@ extension WhoopStore {
             try Int.fetchOne(db, sql: "SELECT value FROM cursors WHERE name = ?", arguments: [name])
         }
     }
+
+    /// Store the trim frontier for one historical cursor scope.
+    ///
+    /// Historical trim state is not a single database-wide value. A physical strap can be replaced,
+    /// re-paired, or read through more than one source while the old rows remain in SQLite. The scope
+    /// keeps those frontiers independent and records the journal generation that made the frontier safe.
+    public func setCursor(_ scope: HistoricalCursorScope, _ value: Int,
+                          watermarkGeneration: Int64 = 0) async throws {
+        try syncWrite { db in
+            try WhoopStore.setHistoricalCursor(scope, value: value,
+                                               watermarkGeneration: watermarkGeneration, in: db)
+        }
+    }
+
+    /// Read the trim frontier for one historical cursor scope.
+    public func cursor(_ scope: HistoricalCursorScope) async throws -> Int? {
+        try syncRead { db in
+            try Int.fetchOne(db, sql: """
+                SELECT trim
+                FROM historicalCursor
+                WHERE deviceId = ? AND lineage = ? AND cursorEpoch = ? AND trimScope = ?
+                """, arguments: [scope.deviceId, scope.lineage, scope.cursorEpoch, scope.trimScope])
+        }
+    }
+
+    /// The journal generation associated with a historical cursor scope.
+    public func historicalCursorWatermark(_ scope: HistoricalCursorScope) async throws -> Int64? {
+        try syncRead { db in
+            try Int64.fetchOne(db, sql: """
+                SELECT watermarkGeneration
+                FROM historicalCursor
+                WHERE deviceId = ? AND lineage = ? AND cursorEpoch = ? AND trimScope = ?
+                """, arguments: [scope.deviceId, scope.lineage, scope.cursorEpoch, scope.trimScope])
+        }
+    }
+
+    /// Resolve the durable history scope for a registered device. Unregistered test/import sources use a
+    /// stable device-derived lineage and epoch zero, so they still avoid the old global `strap_trim` key.
+    public func historicalCursorScope(
+        deviceId: String,
+        trimScope: String = HistoricalCursorScope.defaultTrimScope
+    ) async throws -> HistoricalCursorScope {
+        try syncRead { db in
+            try WhoopStore.historicalCursorScope(deviceId: deviceId, trimScope: trimScope, in: db)
+        }
+    }
+
+    static func setHistoricalCursor(
+        _ scope: HistoricalCursorScope,
+        value: Int,
+        watermarkGeneration: Int64,
+        in db: Database
+    ) throws {
+        try db.execute(sql: """
+            INSERT INTO historicalCursor
+                (deviceId, lineage, cursorEpoch, trimScope, trim, watermarkGeneration)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(deviceId, lineage, cursorEpoch, trimScope) DO UPDATE SET
+                trim = MAX(historicalCursor.trim, excluded.trim),
+                watermarkGeneration = MAX(historicalCursor.watermarkGeneration, excluded.watermarkGeneration)
+            """, arguments: [
+                scope.deviceId, scope.lineage, scope.cursorEpoch, scope.trimScope,
+                value, watermarkGeneration,
+            ])
+    }
+
     public func setHighwater(_ stream: String, _ ts: Int) async throws { try await setCursor("highwater:" + stream, ts) }
     public func highwater(_ stream: String) async throws -> Int? { try await cursor("highwater:" + stream) }
 

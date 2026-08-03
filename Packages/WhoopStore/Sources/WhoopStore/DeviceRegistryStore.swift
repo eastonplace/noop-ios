@@ -58,8 +58,40 @@ public struct DeviceRegistryStore: Sendable {
     /// CBPeripheral.identifier.uuidString on iOS/Mac; passing nil un-adopts it.
     public func setPeripheralId(_ id: String, peripheralId: String?) throws {
         try dbQueue.write { db in
+            let previous = try String.fetchOne(
+                db,
+                sql: "SELECT peripheralId FROM pairedDevice WHERE id = ?",
+                arguments: [id]
+            )
+            // A different adopted peripheral is a new history lineage. The old samples remain readable,
+            // but a trim from the old physical strap must never suppress a fresh strap's offload.
+            if let previous, previous != peripheralId {
+                try db.execute(
+                    sql: """
+                        UPDATE pairedDevice
+                        SET historyLineage = ?, historyCursorEpoch = historyCursorEpoch + 1
+                        WHERE id = ?
+                        """,
+                    arguments: [UUID().uuidString, id]
+                )
+            }
             try db.execute(sql: "UPDATE pairedDevice SET peripheralId = ? WHERE id = ?",
                            arguments: [peripheralId, id])
+        }
+    }
+
+    /// Stable lineage used to scope historical trim receipts. It changes when the adopted physical
+    /// peripheral changes or when the device's data is deleted.
+    public func historyLineage(for id: String) throws -> String? {
+        try dbQueue.read { db in
+            try String.fetchOne(db, sql: "SELECT historyLineage FROM pairedDevice WHERE id = ?", arguments: [id])
+        }
+    }
+
+    /// Current durable history cursor epoch for one registry row.
+    public func historyCursorEpoch(for id: String) throws -> Int? {
+        try dbQueue.read { db in
+            try Int.fetchOne(db, sql: "SELECT historyCursorEpoch FROM pairedDevice WHERE id = ?", arguments: [id])
         }
     }
 
@@ -95,7 +127,7 @@ public struct DeviceRegistryStore: Sendable {
         // deviceId-keyed exactly like every other per-second stream above — must be cleared too, or a
         // "delete all of this device's data" leaves the raw waveform behind (the same privacy defect
         // this list exists to close).
-        "ppgWaveformSample", "strainV2Shadow", "todayHealthSnapshot", "historicalDataCommitJournal",
+        "ppgWaveformSample", "strainV2Shadow", "todayHealthSnapshot", "historicalDataCommitJournal", "historicalCursor",
     ]
 
     /// Permanently delete every recorded sample/derived row belonging to one device, across all
@@ -110,8 +142,22 @@ public struct DeviceRegistryStore: Sendable {
             let existing = Set(try String.fetchAll(
                 db,
                 sql: "SELECT name FROM sqlite_master WHERE type = 'table'"))
+            let oldLineage = try String.fetchOne(
+                db,
+                sql: "SELECT historyLineage FROM pairedDevice WHERE id = ?",
+                arguments: [deviceId]
+            )
             for table in Self.deviceScopedTables where existing.contains(table) {
                 try db.execute(sql: "DELETE FROM \(table) WHERE deviceId = ?", arguments: [deviceId])
+            }
+            // Keep the registry row, but fence every future history commit from the deleted rows. This is
+            // the same boundary as a physical re-pair: old trim state is not allowed to skip new history.
+            if existing.contains("pairedDevice"), oldLineage != nil {
+                try db.execute(sql: """
+                    UPDATE pairedDevice
+                    SET historyLineage = ?, historyCursorEpoch = historyCursorEpoch + 1
+                    WHERE id = ?
+                    """, arguments: [UUID().uuidString, deviceId])
             }
         }
     }
@@ -138,15 +184,35 @@ public struct DeviceRegistryStore: Sendable {
 
     // MARK: mapping
     private static func upsert(_ db: Database, _ d: PairedDevice) throws {
+        let existing = try Row.fetchOne(
+            db,
+            sql: "SELECT peripheralId, historyLineage, historyCursorEpoch FROM pairedDevice WHERE id = ?",
+            arguments: [d.id]
+        )
+        let previousPeripheral: String? = existing?["peripheralId"]
+        let previousLineage: String? = existing?["historyLineage"]
+        let previousEpoch: Int? = existing?["historyCursorEpoch"]
+        // A registry upsert is also a physical-source update. Preserve the current fence for a metadata
+        // refresh, but advance it when an already-adopted peripheral is replaced or cleared.
+        let physicalPeripheralChanged = existing != nil
+            && previousPeripheral != nil
+            && previousPeripheral != d.peripheralId
+        let lineage = physicalPeripheralChanged
+            ? UUID().uuidString
+            : (previousLineage?.isEmpty == false ? previousLineage! : UUID().uuidString)
+        let cursorEpoch = physicalPeripheralChanged ? max(0, previousEpoch ?? 0) + 1 : max(0, previousEpoch ?? 0)
         try db.execute(sql: """
-            INSERT INTO pairedDevice (id, brand, model, nickname, peripheralId, sourceKind, capabilities, status, addedAt, lastSeenAt)
-            VALUES (?,?,?,?,?,?,?,?,?,?)
+            INSERT INTO pairedDevice
+                (id, brand, model, nickname, peripheralId, sourceKind, capabilities, status,
+                 addedAt, lastSeenAt, historyLineage, historyCursorEpoch)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(id) DO UPDATE SET brand=excluded.brand, model=excluded.model, nickname=excluded.nickname,
                 peripheralId=excluded.peripheralId, sourceKind=excluded.sourceKind, capabilities=excluded.capabilities,
-                status=excluded.status, lastSeenAt=excluded.lastSeenAt
+                status=excluded.status, lastSeenAt=excluded.lastSeenAt,
+                historyLineage=excluded.historyLineage, historyCursorEpoch=excluded.historyCursorEpoch
         """, arguments: [d.id, d.brand, d.model, d.nickname, d.peripheralId, d.sourceKind.rawValue,
                          d.capabilities.map(\.rawValue).sorted().joined(separator: ","),
-                         d.status.rawValue, d.addedAt, d.lastSeenAt])
+                         d.status.rawValue, d.addedAt, d.lastSeenAt, lineage, cursorEpoch])
     }
 
     private static func decode(_ row: Row) -> PairedDevice {

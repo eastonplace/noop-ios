@@ -30,6 +30,105 @@ final class MigrationTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: path))
     }
 
+    func testV36HistoricalReceiptSchemaRequiresDurableIdentityAndRawEvidence() async throws {
+        let store = try await WhoopStore.inMemory()
+        let receiptColumns = Set(try await store.columnNamesForTest(table: "historicalDataCommitJournal"))
+        let cursorColumns = Set(try await store.columnNamesForTest(table: "historicalCursor"))
+        let pairedDeviceColumns = Set(try await store.columnNamesForTest(table: "pairedDevice"))
+
+        XCTAssertTrue(receiptColumns.isSuperset(of: [
+            "fingerprint", "lineage", "cursorEpoch", "trimScope", "rawStatus", "rawRangeJSON",
+        ]))
+        XCTAssertTrue(cursorColumns.isSuperset(of: [
+            "deviceId", "lineage", "cursorEpoch", "trimScope", "watermarkGeneration",
+        ]))
+        XCTAssertTrue(pairedDeviceColumns.isSuperset(of: ["historyLineage", "historyCursorEpoch"]))
+    }
+
+    func testV36MarksLegacyReceiptsBeforeNewFingerprintBinding() async throws {
+        let dbQueue = try DatabaseQueue()
+        let migrator = WhoopStore.makeMigrator()
+        try migrator.migrate(dbQueue, upTo: "v35-historical-data-commit-journal")
+        let countsJSON = try JSONEncoder().encode(HistoricalStreamInsertCounts(hr: 1))
+
+        try await dbQueue.write { db in
+            let databaseInstanceId = try XCTUnwrap(
+                String.fetchOne(db, sql: "SELECT id FROM todayHealthSnapshotDatabase LIMIT 1")
+            )
+            try db.execute(sql: """
+                INSERT INTO historicalDataCommitJournal
+                    (receiptId, databaseInstanceId, deviceId, trim, chunkEndUnix, committedAt,
+                     rawBatchId, insertedRowsJSON)
+                VALUES (?, ?, ?, ?, ?, ?, NULL, ?)
+                """, arguments: [
+                    "legacy-receipt", databaseInstanceId, "my-whoop", 42, 100, 101, countsJSON,
+                ])
+        }
+
+        try migrator.migrate(dbQueue)
+
+        try await dbQueue.read { db in
+            XCTAssertEqual(
+                try String.fetchOne(
+                    db,
+                    sql: "SELECT fingerprint FROM historicalDataCommitJournal WHERE receiptId = 'legacy-receipt'"
+                ),
+                "legacy:legacy-receipt"
+            )
+            XCTAssertEqual(
+                try String.fetchOne(
+                    db,
+                    sql: "SELECT rawStatus FROM historicalDataCommitJournal WHERE receiptId = 'legacy-receipt'"
+                ),
+                "disabled"
+            )
+            XCTAssertEqual(
+                try Int.fetchOne(
+                    db,
+                    sql: "SELECT COUNT(*) FROM historicalCursor WHERE deviceId = 'my-whoop'"
+                ),
+                1
+            )
+        }
+    }
+
+    func testV37ScopesRawBatchIdentityAndSchemaVersion() async throws {
+        let dbQueue = try DatabaseQueue()
+        let migrator = WhoopStore.makeMigrator()
+        try migrator.migrate(dbQueue, upTo: "v36-historical-data-receipt-hardening")
+        try await dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT INTO rawBatch
+                    (batchId, deviceId, capturedAt, deviceClockRef, wallClockRef,
+                     startTs, endTs, frameCount, byteSize, framesBlob, syncedAt)
+                VALUES ('legacy-batch', 'legacy-device', 1, 2, 3, 4, 5, 0, 0, ?, NULL)
+                """, arguments: [Data([0, 0, 0, 0])])
+        }
+        try migrator.migrate(dbQueue)
+
+        try await dbQueue.read { db in
+            let columns = Set(try db.columns(in: "rawBatch").map(\.name))
+            XCTAssertTrue(columns.isSuperset(of: ["lineage", "cursorEpoch"]))
+            XCTAssertEqual(
+                try db.primaryKey("rawBatch").columns,
+                ["batchId", "deviceId", "lineage", "cursorEpoch"]
+            )
+            XCTAssertEqual(
+                try String.fetchOne(
+                    db, sql: "SELECT lineage FROM rawBatch WHERE batchId = 'legacy-batch'"
+                ),
+                "device:legacy-device"
+            )
+            XCTAssertEqual(
+                try Int.fetchOne(
+                    db, sql: "SELECT cursorEpoch FROM rawBatch WHERE batchId = 'legacy-batch'"
+                ),
+                0
+            )
+        }
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 37)
+    }
+
     func testHrSamplePrimaryKeyIsDeviceIdTs() async throws {
         let store = try await WhoopStore.inMemory()
         let cols = try await store.primaryKeyColumns("hrSample")
@@ -69,7 +168,7 @@ final class MigrationTests: XCTestCase {
             let cols = try await store.columnNamesForTest(table: table)
             XCTAssertTrue(cols.contains("synced"), "\(table) missing synced column")
         }
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 35)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 37)
     }
 
     func testV34AddsDurableTodayHealthSnapshotGeneration() async throws {

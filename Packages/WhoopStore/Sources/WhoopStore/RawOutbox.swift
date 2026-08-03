@@ -12,6 +12,11 @@ public struct ClockRef: Equatable, Codable, Sendable {
 public struct RawBatchMeta: Equatable, Sendable {
     public let batchId: String
     public let deviceId: String
+    /// Raw replay identity is scoped to the physical-source lineage and its deletion epoch.
+    /// The default keeps legacy callers in a stable device-derived scope until they supply the
+    /// registry-resolved scope explicitly.
+    public let lineage: String
+    public let cursorEpoch: Int
     public let clockRef: ClockRef
     public let capturedAt: Int
     public let startTs: Int
@@ -19,10 +24,29 @@ public struct RawBatchMeta: Equatable, Sendable {
     public let frameCount: Int
     public let byteSize: Int
     public init(batchId: String, deviceId: String, clockRef: ClockRef, capturedAt: Int,
-                startTs: Int, endTs: Int, frameCount: Int, byteSize: Int) {
-        self.batchId = batchId; self.deviceId = deviceId; self.clockRef = clockRef
+                startTs: Int, endTs: Int, frameCount: Int, byteSize: Int,
+                lineage: String? = nil, cursorEpoch: Int = 0) {
+        self.batchId = batchId; self.deviceId = deviceId
+        self.lineage = lineage?.isEmpty == false ? lineage! : "device:\(deviceId)"
+        self.cursorEpoch = max(0, cursorEpoch)
+        self.clockRef = clockRef
         self.capturedAt = capturedAt; self.startTs = startTs; self.endTs = endTs
         self.frameCount = frameCount; self.byteSize = byteSize
+    }
+
+    func withHistoricalScope(lineage: String, cursorEpoch: Int) -> Self {
+        Self(
+            batchId: batchId,
+            deviceId: deviceId,
+            clockRef: clockRef,
+            capturedAt: capturedAt,
+            startTs: startTs,
+            endTs: endTs,
+            frameCount: frameCount,
+            byteSize: byteSize,
+            lineage: lineage,
+            cursorEpoch: cursorEpoch
+        )
     }
 }
 
@@ -123,45 +147,83 @@ extension WhoopStore {
     static func enqueueRawBatch(_ meta: RawBatchMeta, blob: Data, in db: Database) throws {
         try db.execute(sql: """
             INSERT INTO rawBatch
-                (batchId, deviceId, capturedAt, deviceClockRef, wallClockRef,
+                (batchId, deviceId, lineage, cursorEpoch, capturedAt, deviceClockRef, wallClockRef,
                  startTs, endTs, frameCount, byteSize, framesBlob, syncedAt)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
-            ON CONFLICT(batchId) DO NOTHING
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+            ON CONFLICT(batchId, deviceId, lineage, cursorEpoch) DO NOTHING
             """, arguments: [
-                meta.batchId, meta.deviceId, meta.capturedAt,
+                meta.batchId, meta.deviceId, meta.lineage, meta.cursorEpoch, meta.capturedAt,
                 meta.clockRef.device, meta.clockRef.wall,
                 meta.startTs, meta.endTs, meta.frameCount, meta.byteSize, blob])
     }
 
-    /// `nil` means the batch id is not stored. `true` means its device and exact frame payload match.
-    /// `false` means another capture already owns that id, so an atomic history receipt must fail closed.
+    /// `nil` means this scoped batch identity is not stored. `true` means its metadata and exact frame
+    /// payload match. `false` means another capture owns the id for a different device or the same
+    /// lineage/epoch, so an atomic history receipt must fail closed.
     static func existingRawBatchMatches(_ meta: RawBatchMeta, blob: Data, in db: Database) throws -> Bool? {
-        guard let row = try Row.fetchOne(db, sql: """
-            SELECT deviceId, frameCount, byteSize, framesBlob
+        if let row = try Row.fetchOne(db, sql: """
+            SELECT deviceId, lineage, cursorEpoch, frameCount, byteSize, framesBlob
             FROM rawBatch
-            WHERE batchId = ?
-            """, arguments: [meta.batchId]) else {
-            return nil
+            WHERE batchId = ? AND deviceId = ? AND lineage = ? AND cursorEpoch = ?
+            """, arguments: [meta.batchId, meta.deviceId, meta.lineage, meta.cursorEpoch]) {
+            let existingDeviceId: String = row["deviceId"]
+            let existingLineage: String = row["lineage"]
+            let existingEpoch: Int = row["cursorEpoch"]
+            let existingFrameCount: Int = row["frameCount"]
+            let existingByteSize: Int = row["byteSize"]
+            let existingBlob: Data = row["framesBlob"]
+            guard existingDeviceId == meta.deviceId,
+                  existingLineage == meta.lineage,
+                  existingEpoch == meta.cursorEpoch,
+                  existingFrameCount == meta.frameCount,
+                  existingByteSize == meta.byteSize else {
+                return false
+            }
+            return try WhoopStore.zlibDecompressWithLength(existingBlob)
+                == WhoopStore.zlibDecompressWithLength(blob)
         }
-        let existingDeviceId: String = row["deviceId"]
-        let existingFrameCount: Int = row["frameCount"]
-        let existingByteSize: Int = row["byteSize"]
-        let existingBlob: Data = row["framesBlob"]
-        guard existingDeviceId == meta.deviceId,
-              existingFrameCount == meta.frameCount,
-              existingByteSize == meta.byteSize else {
+
+        // Keep batch IDs globally collision-safe across logical devices. A reused ID is only allowed
+        // when the device is the same and the physical lineage/epoch scope differs.
+        let existingDeviceIds = try String.fetchAll(
+            db,
+            sql: "SELECT DISTINCT deviceId FROM rawBatch WHERE batchId = ?",
+            arguments: [meta.batchId]
+        )
+        if existingDeviceIds.contains(where: { $0 != meta.deviceId }) {
             return false
         }
-        return try WhoopStore.zlibDecompressWithLength(existingBlob)
-            == WhoopStore.zlibDecompressWithLength(blob)
+        return nil
     }
 
     /// Decompress and return the exact frame bytes for a batch (empty if unknown).
     public func rawFrames(batchId: String) async throws -> [[UInt8]] {
+        try await loadRawFrames(batchId: batchId, lineage: nil, cursorEpoch: nil)
+    }
+
+    /// Decompress and return exact frame bytes for one scoped batch identity.
+    public func rawFrames(batchId: String, lineage: String, cursorEpoch: Int) async throws -> [[UInt8]] {
+        try await loadRawFrames(batchId: batchId, lineage: lineage, cursorEpoch: cursorEpoch)
+    }
+
+    private func loadRawFrames(batchId: String, lineage: String?, cursorEpoch: Int?) async throws -> [[UInt8]] {
         let row: Row? = try syncRead { db in
-            try Row.fetchOne(db,
-                sql: "SELECT framesBlob FROM rawBatch WHERE batchId = ?",
-                arguments: [batchId])
+            if let lineage, let cursorEpoch {
+                return try Row.fetchOne(
+                    db,
+                    sql: """
+                        SELECT framesBlob FROM rawBatch
+                        WHERE batchId = ? AND lineage = ? AND cursorEpoch = ?
+                        ORDER BY rowid ASC LIMIT 1
+                        """,
+                    arguments: [batchId, lineage, cursorEpoch]
+                )
+            }
+            return try Row.fetchOne(
+                db,
+                sql: "SELECT framesBlob FROM rawBatch WHERE batchId = ? ORDER BY rowid ASC LIMIT 1",
+                arguments: [batchId]
+            )
         }
         guard let row = row else { return [] }
         let blob: Data = row["framesBlob"]
@@ -174,7 +236,8 @@ extension WhoopStore {
             batchId: row["batchId"], deviceId: row["deviceId"],
             clockRef: ClockRef(device: row["deviceClockRef"], wall: row["wallClockRef"]),
             capturedAt: row["capturedAt"], startTs: row["startTs"], endTs: row["endTs"],
-            frameCount: row["frameCount"], byteSize: row["byteSize"])
+            frameCount: row["frameCount"], byteSize: row["byteSize"],
+            lineage: row["lineage"], cursorEpoch: row["cursorEpoch"])
     }
 
     /// Un-synced batches (syncedAt IS NULL), oldest first, capped at `limit`.
@@ -182,7 +245,7 @@ extension WhoopStore {
         try syncRead { db in
             try Row.fetchAll(db, sql: """
                 SELECT batchId, deviceId, capturedAt, deviceClockRef, wallClockRef,
-                       startTs, endTs, frameCount, byteSize
+                       startTs, endTs, frameCount, byteSize, lineage, cursorEpoch
                 FROM rawBatch
                 WHERE syncedAt IS NULL
                 ORDER BY capturedAt ASC
@@ -196,6 +259,25 @@ extension WhoopStore {
         try syncWrite { db in
             try db.execute(sql: "UPDATE rawBatch SET syncedAt = ? WHERE batchId = ?",
                            arguments: [at, batchId])
+        }
+    }
+
+    /// Mark one physical-source batch identity synced without touching a reused batch ID from another
+    /// lineage or deletion epoch.
+    public func markRawBatchSynced(
+        batchId: String,
+        lineage: String,
+        cursorEpoch: Int,
+        at: Int
+    ) async throws {
+        try syncWrite { db in
+            try db.execute(
+                sql: """
+                    UPDATE rawBatch SET syncedAt = ?
+                    WHERE batchId = ? AND lineage = ? AND cursorEpoch = ?
+                    """,
+                arguments: [at, batchId, lineage, cursorEpoch]
+            )
         }
     }
 }
