@@ -874,6 +874,40 @@ extension WhoopStore {
                 ON rawBatch (batchId, deviceId, lineage, cursorEpoch)
                 """)
         }
+
+        // v38: analysis acknowledgement is durable and source-scoped. The database identity is part
+        // of the key even though the current database normally has one identity row, so a replacement
+        // or restore can never make an old checkpoint acknowledge receipts from another database.
+        migrator.registerMigration("v38-historical-analysis-checkpoint") { db in
+            try db.create(table: "historicalAnalysisCheckpoint") { t in
+                t.column("databaseInstanceId", .text).notNull()
+                t.column("consumerId", .text).notNull()
+                t.column("deviceId", .text).notNull()
+                t.column("lineage", .text).notNull()
+                t.column("cursorEpoch", .integer).notNull()
+                t.column("trimScope", .text).notNull()
+                t.column("throughGeneration", .integer).notNull().defaults(to: 0)
+                t.column("throughTrim", .integer).notNull().defaults(to: 0)
+                t.column("pendingGeneration", .integer)
+                t.column("pendingTrim", .integer)
+                t.column("pendingReceiptId", .text)
+                t.column("pendingFingerprint", .text)
+                t.column("pendingPayload", .blob)
+                t.primaryKey([
+                    "databaseInstanceId", "consumerId", "deviceId", "lineage", "cursorEpoch", "trimScope",
+                ])
+            }
+            try db.create(
+                index: "idx_historicalAnalysisCheckpoint_database_consumer_generation",
+                on: "historicalAnalysisCheckpoint",
+                columns: ["databaseInstanceId", "consumerId", "throughGeneration"]
+            )
+            try db.create(
+                index: "idx_historicalAnalysisCheckpoint_pending",
+                on: "historicalAnalysisCheckpoint",
+                columns: ["databaseInstanceId", "consumerId", "pendingGeneration"]
+            )
+        }
         return migrator
     }
 }
