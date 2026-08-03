@@ -11,7 +11,7 @@ final class MigrationTests: XCTestCase {
             "device", "hrSample", "rrInterval", "event", "battery", "rawBatch",
             "coachingBehaviorSet", "coachingBehaviorMembership",
             "coachingStack", "coachingStackItem", "coachingStackUse",
-            "ppgWaveformSample", "todayHealthSnapshot",
+            "ppgWaveformSample", "todayHealthSnapshot", "historicalDataCommitJournal",
         ] {
             XCTAssertTrue(tables.contains(t), "missing table \(t)")
         }
@@ -69,7 +69,7 @@ final class MigrationTests: XCTestCase {
             let cols = try await store.columnNamesForTest(table: table)
             XCTAssertTrue(cols.contains("synced"), "\(table) missing synced column")
         }
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 34)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 35)
     }
 
     func testV34AddsDurableTodayHealthSnapshotGeneration() async throws {
@@ -80,6 +80,19 @@ final class MigrationTests: XCTestCase {
         XCTAssertTrue(snapshotColumns.contains("generation"))
         let generationColumns = try await store.columnNamesForTest(table: "todayHealthSnapshotGeneration")
         XCTAssertTrue(generationColumns.contains("value"))
+    }
+
+    func testV35CreatesHistoricalDataCommitJournal() async throws {
+        let store = try await WhoopStore.inMemory()
+        let tables = try await store.tableNames()
+        XCTAssertTrue(tables.contains("historicalDataCommitJournal"))
+        let columns = try await store.columnNamesForTest(table: "historicalDataCommitJournal")
+        for column in [
+            "generation", "receiptId", "databaseInstanceId", "deviceId", "trim", "chunkEndUnix",
+            "committedAt", "rawBatchId", "insertedRowsJSON",
+        ] {
+            XCTAssertTrue(columns.contains(column), "historicalDataCommitJournal missing \(column)")
+        }
     }
 
     func testRecoveryChargeContextMigrationUpgradesExistingOverrideTable() async throws {

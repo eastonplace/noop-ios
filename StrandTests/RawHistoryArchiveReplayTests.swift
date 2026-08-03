@@ -12,6 +12,27 @@ final class RawHistoryArchiveReplayTests: XCTestCase {
     /// Minimal BackfillStoreWriting that only records how many gravity samples were handed to insert.
     private final class CaptureStore: BackfillStoreWriting {
         private(set) var insertedGravity = 0
+        func commitHistoricalChunk(
+            streams: Streams,
+            deviceId: String,
+            trim: Int,
+            chunkEndUnix: Int,
+            rawBatch: HistoricalRawBatch?,
+            committedAt: Int
+        ) async throws -> HistoricalDataCommitReceipt {
+            HistoricalDataCommitReceipt(
+                receiptId: "capture-\(trim)",
+                generation: Int64(trim),
+                databaseInstanceId: "test-db",
+                deviceId: deviceId,
+                trim: trim,
+                chunkEndUnix: chunkEndUnix,
+                committedAt: committedAt,
+                rawBatchId: rawBatch?.meta.batchId,
+                insertedRows: HistoricalStreamInsertCounts()
+            )
+        }
+
         @discardableResult
         func insert(_ streams: Streams, deviceId: String) async throws
             -> (hr: Int, rr: Int, events: Int, battery: Int,
@@ -27,6 +48,14 @@ final class RawHistoryArchiveReplayTests: XCTestCase {
     /// A store whose insert always fails — stands in for a transient DB error during replay. (#152)
     private final class ThrowingStore: BackfillStoreWriting {
         struct Boom: Error {}
+        func commitHistoricalChunk(
+            streams: Streams,
+            deviceId: String,
+            trim: Int,
+            chunkEndUnix: Int,
+            rawBatch: HistoricalRawBatch?,
+            committedAt: Int
+        ) async throws -> HistoricalDataCommitReceipt { throw Boom() }
         func insert(_ streams: Streams, deviceId: String) async throws
             -> (hr: Int, rr: Int, events: Int, battery: Int,
                 spo2: Int, skinTemp: Int, resp: Int, gravity: Int) { throw Boom() }
