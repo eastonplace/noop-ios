@@ -35,7 +35,9 @@ public struct TodayHealthMetricValue: Codable, Equatable, Sendable {
 /// It is scoped to a logical dashboard owner, not a view instance. The saved `dailyMetric` lets the normal
 /// day resolver keep its rollover rules, while the per-metric values preserve source and freshness evidence.
 public struct TodayHealthSnapshot: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 1
+    /// Schema 2 marks snapshots written after the exact-day V2 Strain repair. Schema 1 could contain a
+    /// provisional live-day score that was saved before the durable daily cache finished loading.
+    public static let currentSchemaVersion = 2
 
     public enum Metric: String, CaseIterable, Codable, Sendable {
         case recovery

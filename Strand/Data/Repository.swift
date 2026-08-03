@@ -653,6 +653,11 @@ final class Repository: ObservableObject {
     }
 
     func canonicalStrain(for day: String) -> ResolvedStrain? {
+        // The startup snapshot is only a first-paint fallback. Once the coherent daily cache has loaded,
+        // its canonical V2 resolver owns the value so an older snapshot can never pin Today at 0.0.
+        if loaded, let canonical = canonicalStrainByDay[day] {
+            return canonical
+        }
         if let snapshot = todayHealthSnapshot,
            snapshot.displayDay == day,
            let strain = snapshot.strain,
@@ -816,12 +821,80 @@ final class Repository: ObservableObject {
         guard let store = await ensureStore(),
               let persisted = try? await store.todayHealthSnapshot(scopeId: todayHealthSnapshotScopeId)
         else { return }
+        let repaired = await repairedLegacyTodayHealthSnapshot(persisted, store: store, now: Date())
+        let resolved = TodayHealthSnapshotResolver.resolve(
+            persisted: repaired, live: todayHealthSnapshot
+        ) ?? repaired
         let before = todayHealthSnapshot
-        publishTodayHealthSnapshot(
-            TodayHealthSnapshotResolver.resolve(persisted: persisted, live: todayHealthSnapshot) ?? persisted,
-            persist: false
-        )
+        publishTodayHealthSnapshot(resolved, persist: false)
+        // The repair is an upgrade-only exact-day lookup and one write. Persisting it now prevents every
+        // later cold launch from showing a legacy provisional Strain while the broad cache warms.
+        if repaired != persisted, resolved == repaired {
+            _ = try? await store.saveTodayHealthSnapshot(repaired)
+        }
         changedRows = before == todayHealthSnapshot ? 0 : 1
+    }
+
+    /// Schema-1 snapshots predate the cold-start V2 Strain fence. Repair only those records from the
+    /// indexed current-day computed row; this is one row per computed namespace, never a history scan.
+    private func repairedLegacyTodayHealthSnapshot(
+        _ snapshot: TodayHealthSnapshot,
+        store: WhoopStore,
+        now: Date
+    ) async -> TodayHealthSnapshot {
+        guard snapshot.schemaVersion < TodayHealthSnapshot.currentSchemaVersion,
+              let persistedStrain = await exactDayPersistedV2Strain(
+                  store: store, day: snapshot.displayDay)
+        else { return snapshot }
+
+        let strain = TodayHealthMetricValue(
+            value: persistedStrain.storedValue,
+            sourceId: persistedStrain.sourceId,
+            algorithmVersion: "strain-v\(StrainScorerV2.version)-daily",
+            strainVersion: StrainScorerV2.version
+        )
+        return TodayHealthSnapshot(
+            scopeId: snapshot.scopeId,
+            deviceId: snapshot.deviceId,
+            displayDay: snapshot.displayDay,
+            logicalDay: snapshot.logicalDay,
+            localDay: snapshot.localDay,
+            generatedAt: max(snapshot.generatedAt + 1, Int(now.timeIntervalSince1970)),
+            rawFrontierTs: snapshot.rawFrontierTs,
+            schemaVersion: TodayHealthSnapshot.currentSchemaVersion,
+            dailyMetric: snapshot.dailyMetric.replacing(
+                strain: .some(persistedStrain.storedValue),
+                strainVersion: .some(StrainScorerV2.version)
+            ),
+            recovery: snapshot.recovery,
+            strain: strain,
+            sleepScore: snapshot.sleepScore,
+            sleepDurationMinutes: snapshot.sleepDurationMinutes
+        )
+    }
+
+    /// Return the durable V2 score for exactly one display day. `computedReadIds` is stable and normally
+    /// contains one id; a re-paired strap adds one fallback id without changing the bounded query shape.
+    private func exactDayPersistedV2Strain(
+        store: WhoopStore,
+        day: String
+    ) async -> ResolvedStrain? {
+        for sourceId in computedReadIds {
+            guard let metric = (try? await store.dailyMetrics(
+                deviceId: sourceId, from: day, to: day
+            ))?.last(where: { $0.day == day }),
+            metric.strainVersion == StrainScorerV2.version,
+            let storedValue = metric.strain
+            else { continue }
+            return ResolvedStrain(
+                day: day,
+                storedValue: storedValue,
+                version: StrainScorerV2.version,
+                origin: .computedDailyV2,
+                sourceId: sourceId
+            )
+        }
+        return nil
     }
 
     /// Publish the current in-memory dashboard values immediately, then enrich the snapshot off the refresh
@@ -1416,11 +1489,19 @@ final class Repository: ObservableObject {
         return byTs.values.sorted { $0.ts < $1.ts }
     }
 
+    /// A live Strain pass needs the initial daily cache. Before that cache exists, the live accumulator
+    /// has neither the resolved sleep window nor today's persisted V2 score, so its provisional zero can
+    /// incorrectly replace the durable first-paint snapshot during launch.
+    nonisolated static func canRefreshLiveDayStrain(repositoryLoaded: Bool) -> Bool {
+        repositoryLoaded
+    }
+
     /// Incremental current physiological-day V2 update. The first pass hydrates the
     /// accumulator from the cycle boundary; later passes fetch only timestamps beyond
     /// its raw frontier. Context-only changes (sleep/steps/RHR) update without replaying HR.
     func refreshLiveDayStrain(maxHR: Double, fallbackRestingHR: Double = StrainScorerV2.defaultRestingHR,
                               now: Date = Date()) async {
+        guard Self.canRefreshLiveDayStrain(repositoryLoaded: loaded) else { return }
         guard let store = await ensureStore() else { return }
         let dayKey = Self.logicalDayKey(now)
         let logicalStart = Int(Self.logicalDayStart(now).timeIntervalSince1970)

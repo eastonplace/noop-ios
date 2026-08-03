@@ -921,7 +921,11 @@ final class AppModel: ObservableObject {
             }
         } else {
             Task { [weak self] in
-                guard let self else { return }
+                guard let self,
+                      self.repo.loaded,
+                      !self.live.backfilling,
+                      !self.hasActiveImport
+                else { return }
                 await self.repo.refreshLiveDayStrain(maxHR: Double(self.profile.hrMax))
             }
             // The foreground edge needs the small live-strain refresh above right away, but a resumable
