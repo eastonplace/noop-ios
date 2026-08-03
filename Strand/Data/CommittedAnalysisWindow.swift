@@ -1,11 +1,11 @@
 import Foundation
 
-/// A calendar day identified by its year/month/day components in the calendar supplied to the planner.
+/// A Gregorian calendar day identified by its year/month/day components in the calendar supplied to the planner.
 ///
-/// The value does not retain a `Date` or a time zone. It retains the calendar identifier so serialization does
-/// not reinterpret valid non-Gregorian components as Gregorian components. A caller must use the same kind
-/// of `Calendar` that assigned the day when it turns the value back into a date. This keeps travel-time-zone
-/// changes explicit instead of freezing a launch-time formatter into the analysis contract.
+/// NOOP's health-day contract supports Gregorian days only. The value does not retain a `Date` or a time zone.
+/// It retains the calendar identifier so serialization rejects calendar drift instead of reinterpreting valid
+/// non-Gregorian components as Gregorian components. A caller may provide any time zone on a Gregorian
+/// `Calendar`; the caller's time zone remains authoritative when the value becomes a `Date`.
 struct AnalysisCivilDay: Codable, Comparable, CustomStringConvertible, Equatable, Hashable, Sendable {
     let year: Int
     let month: Int
@@ -13,13 +13,12 @@ struct AnalysisCivilDay: Codable, Comparable, CustomStringConvertible, Equatable
     let calendarIdentifier: Calendar.Identifier
 
     init?(year: Int, month: Int, day: Int) {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        self.init(year: year, month: month, day: day, calendar: calendar)
+        self.init(year: year, month: month, day: day, calendar: Self.validationCalendar())
     }
 
     init?(year: Int, month: Int, day: Int, calendar: Calendar) {
-        guard Self.isValidDate(year: year, month: month, day: day, calendar: calendar) else {
+        guard calendar.identifier == .gregorian,
+              Self.isValidDate(year: year, month: month, day: day, calendar: calendar) else {
             return nil
         }
         self.year = year
@@ -29,6 +28,9 @@ struct AnalysisCivilDay: Codable, Comparable, CustomStringConvertible, Equatable
     }
 
     init?(date: Date, calendar: Calendar) {
+        guard calendar.identifier == .gregorian else {
+            return nil
+        }
         let components = calendar.dateComponents([.year, .month, .day], from: date)
         guard let year = components.year,
               let month = components.month,
@@ -46,20 +48,36 @@ struct AnalysisCivilDay: Codable, Comparable, CustomStringConvertible, Equatable
         let year = try container.decode(Int.self, forKey: .year)
         let month = try container.decode(Int.self, forKey: .month)
         let day = try container.decode(Int.self, forKey: .day)
-        let calendarIdentifier = try container.decodeIfPresent(
-            Calendar.Identifier.self,
-            forKey: .calendarIdentifier
-        ) ?? .gregorian
+        let calendarIdentifier: Calendar.Identifier
+        if container.contains(.calendarIdentifier) {
+            guard try !container.decodeNil(forKey: .calendarIdentifier) else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .calendarIdentifier,
+                    in: container,
+                    debugDescription: "AnalysisCivilDay calendarIdentifier cannot be null."
+                )
+            }
+            calendarIdentifier = try container.decode(Calendar.Identifier.self, forKey: .calendarIdentifier)
+        } else {
+            calendarIdentifier = .gregorian
+        }
+        guard calendarIdentifier == .gregorian else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .calendarIdentifier,
+                in: container,
+                debugDescription: "AnalysisCivilDay supports Gregorian calendar days only."
+            )
+        }
         guard let value = Self(
             year: year,
             month: month,
             day: day,
-            calendar: Calendar(identifier: calendarIdentifier)
+            calendar: Self.validationCalendar()
         ) else {
             throw DecodingError.dataCorruptedError(
                 forKey: .day,
                 in: container,
-                debugDescription: "AnalysisCivilDay must contain a real \(String(describing: calendarIdentifier)) calendar date."
+                debugDescription: "AnalysisCivilDay must contain a real Gregorian calendar date."
             )
         }
         self = value
@@ -70,7 +88,7 @@ struct AnalysisCivilDay: Codable, Comparable, CustomStringConvertible, Equatable
     }
 
     func date(in calendar: Calendar) -> Date? {
-        guard calendar.identifier == calendarIdentifier else {
+        guard calendarIdentifier == .gregorian, calendar.identifier == .gregorian else {
             return nil
         }
         guard let date = calendar.date(from: dateComponents),
@@ -123,11 +141,18 @@ struct AnalysisCivilDay: Codable, Comparable, CustomStringConvertible, Equatable
             && components.month == month
             && components.day == day
     }
+
+    private static func validationCalendar() -> Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar
+    }
 }
 
 enum CommittedAnalysisWindowError: Error, Equatable, Sendable {
     case invertedTimestampRange
     case invalidLogicalDayRolloverHour
+    case nonGregorianCalendar
     case tooManyAffectedDays
     case unrepresentableCivilDay
 }
@@ -161,15 +186,18 @@ struct CommittedAnalysisWindow: Codable, Equatable, Sendable {
 
     /// Return every daily projection that a later coordinator must consider.
     ///
-    /// `Calendar` owns both local-midnight arithmetic and the 04:00 logical boundary. In particular, a
-    /// spring-forward day and a fall-back day still advance by one civil day even though their elapsed
-    /// durations are 23 and 25 hours.
+    /// The supplied `Calendar` must be Gregorian. It owns both local-midnight arithmetic and the 04:00
+    /// logical boundary. In particular, a spring-forward day and a fall-back day still advance by one civil
+    /// day even though their elapsed durations are 23 and 25 hours.
     func affectedDays(
         using inputCalendar: Calendar,
         logicalDayRolloverHour: Int = Self.defaultLogicalDayRolloverHour
     ) throws -> Set<AnalysisCivilDay> {
         guard (0..<24).contains(logicalDayRolloverHour) else {
             throw CommittedAnalysisWindowError.invalidLogicalDayRolloverHour
+        }
+        guard inputCalendar.identifier == .gregorian else {
+            throw CommittedAnalysisWindowError.nonGregorianCalendar
         }
 
         var affected = touchedCivilDays
