@@ -15,6 +15,61 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
 
     private struct CommitFailure: Error, Sendable {}
 
+    private actor AsyncGate {
+        private var continuation: CheckedContinuation<Void, Never>?
+        private(set) var waiting = false
+
+        func wait() async {
+            waiting = true
+            await withCheckedContinuation { continuation = $0 }
+            waiting = false
+        }
+
+        func open() {
+            continuation?.resume()
+            continuation = nil
+        }
+    }
+
+    private actor SourceCaptureStore: BackfillStoreWriting {
+        private var committedDeviceIds: [String] = []
+
+        func commitHistoricalChunk(
+            streams: Streams,
+            deviceId: String,
+            trim: Int,
+            chunkEndUnix: Int,
+            rawBatch: HistoricalRawBatch?,
+            committedAt: Int
+        ) async throws -> HistoricalDataCommitReceipt {
+            committedDeviceIds.append(deviceId)
+            return HistoricalDataCommitReceipt(
+                receiptId: "source-\(trim)",
+                generation: Int64(trim),
+                databaseInstanceId: "test-db",
+                deviceId: deviceId,
+                trim: trim,
+                chunkEndUnix: chunkEndUnix,
+                committedAt: committedAt,
+                rawBatchId: rawBatch?.meta.batchId,
+                insertedRows: HistoricalStreamInsertCounts(hr: 1)
+            )
+        }
+
+        @discardableResult
+        func insert(_ streams: Streams, deviceId: String) async throws
+            -> (hr: Int, rr: Int, events: Int, battery: Int,
+                spo2: Int, skinTemp: Int, resp: Int, gravity: Int) {
+            (0, 0, 0, 0, 0, 0, 0, 0)
+        }
+
+        func enqueueRawBatch(_ meta: RawBatchMeta, frames: [[UInt8]]) async throws {}
+        func setCursor(_ name: String, _ value: Int) async throws {}
+        func cursor(_ name: String) async throws -> Int? { nil }
+
+        func deviceIds() -> [String] { committedDeviceIds }
+    }
+
     private actor CommitSpy: BackfillStoreWriting {
         private let ledger: EventLedger
         private var failuresRemaining: Int
@@ -136,5 +191,43 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
 
         XCTAssertEqual(ledger.events, ["commit"])
         XCTAssertTrue(backfiller.persistStalled)
+    }
+
+    @MainActor
+    func testSourceSwitchWhileDetachedDecodeIsPausedUsesAdmittedSource() async {
+        let gate = AsyncGate()
+        let store = SourceCaptureStore()
+        let sourceA = HistoricalReceiptWatermark.SourceIdentity(
+            deviceId: "strap-a", lineage: "ble:A", epoch: 11)
+        var contexts: [HistoricalCommitContext] = []
+        let backfiller = Backfiller(
+            store: store,
+            deviceId: "strap-a",
+            ackTrim: { _, _ in },
+            onHistoricalCommitContext: { contexts.append($0) },
+            beforeHistoricalCommit: { await gate.wait() },
+            sourceIdentity: sourceA,
+            extract: { _, _, _, _, _ in Streams() })
+        backfiller.begin(family: .whoop4, sourceIdentity: sourceA)
+
+        let historicalRecord = frameFromPayload([0x01, 0x02, 0x03], type: 47)
+        let commitTask = Task { @MainActor in
+            await backfiller.ingest(historicalRecord)
+            await backfiller.ingest(historyEndFrame(trim: 123))
+        }
+        while !(await gate.waiting) {
+            await Task.yield()
+        }
+
+        // Simulate SourceCoordinator changing the mutable current source while detached decode is paused.
+        backfiller.deviceId = "strap-b"
+        await gate.open()
+        await commitTask.value
+
+        let committedDeviceIds = await store.deviceIds()
+        XCTAssertEqual(committedDeviceIds, ["strap-a"])
+        XCTAssertEqual(contexts.count, 1)
+        XCTAssertEqual(contexts.first?.sourceIdentity, sourceA)
+        XCTAssertEqual(contexts.first?.receipt.deviceId, "strap-a")
     }
 }

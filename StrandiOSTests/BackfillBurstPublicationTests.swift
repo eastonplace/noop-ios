@@ -72,6 +72,58 @@ final class BackfillBurstPublicationTests: XCTestCase {
         XCTAssertNil(burst.commitWatermark)
     }
 
+    func testLateProductiveReceiptAfterDisconnectCanStillFinalize() {
+        var burst = BackfillBurstPublication()
+        let productive = receipt(generation: 50, rows: HistoricalStreamInsertCounts(hr: 1))
+
+        // didDisconnectPeripheral consumes the current burst before the suspended commit returns.
+        XCTAssertNil(burst.consumeFinalization())
+        XCTAssertNil(burst.commitWatermark)
+
+        // The late receipt must create a new publication edge instead of only arming private state.
+        burst.record(receipt: productive)
+        let finalization = burst.consumeFinalization()
+
+        XCTAssertEqual(finalization?.watermark?.coordinates.count, 1)
+        XCTAssertEqual(finalization?.watermark?.throughGeneration, productive.generation)
+        XCTAssertNil(burst.commitWatermark)
+    }
+
+    func testProductiveReceiptsFromTwoSourcesRemainInOneWatermark() {
+        var burst = BackfillBurstPublication()
+        let sourceA = HistoricalReceiptWatermark.SourceIdentity(
+            deviceId: "strap-a", lineage: "ble:A", epoch: 7)
+        let sourceB = HistoricalReceiptWatermark.SourceIdentity(
+            deviceId: "strap-b", lineage: "ble:B", epoch: 8)
+        let receiptA = receipt(generation: 61, rows: HistoricalStreamInsertCounts(hr: 2), deviceId: "strap-a")
+        let receiptB = receipt(generation: 12, rows: HistoricalStreamInsertCounts(hr: 3), deviceId: "strap-b")
+
+        burst.record(receipt: receiptA, sourceIdentity: sourceA)
+        burst.record(receipt: receiptB, sourceIdentity: sourceB)
+        let finalization = burst.consumeFinalization()
+
+        XCTAssertEqual(finalization?.watermark?.coordinates.map { $0.sourceIdentity.deviceId }, ["strap-a", "strap-b"])
+        XCTAssertEqual(finalization?.watermark?.coordinates.map { $0.throughGeneration }, [61, 12])
+        XCTAssertEqual(finalization?.watermark?.coordinates.map { $0.sourceIdentity.epoch }, [7, 8])
+    }
+
+    func testEmptyOnlyReceiptDoesNotArmLaterHealPublication() {
+        var burst = BackfillBurstPublication()
+        let empty = receipt(generation: 71, rows: HistoricalStreamInsertCounts())
+
+        burst.record(receipt: empty)
+        XCTAssertNil(burst.consumeFinalization())
+        XCTAssertNil(burst.commitWatermark)
+
+        burst.record(rowsPersisted: 0, requiresTimestampHeal: true)
+        let healFinalization = burst.consumeFinalization()
+
+        XCTAssertNotNil(healFinalization)
+        XCTAssertNil(healFinalization?.watermark)
+        XCTAssertNil(burst.commitWatermark)
+        XCTAssertFalse(burst.needsPublication)
+    }
+
     @MainActor
     func testFinalizationKeepsTimestampStatusButPublishesWatermarkIdentity() {
         let live = LiveState()
@@ -84,6 +136,25 @@ final class BackfillBurstPublicationTests: XCTestCase {
 
         XCTAssertEqual(live.finalizedHistoricalDataCommitWatermark, watermark)
         XCTAssertEqual(live.backfillDataAvailableAt, 2_000)
+    }
+
+    @MainActor
+    func testLiveStateCarriesAllFinalizedSourceCoordinates() {
+        let live = LiveState()
+        let watermark = HistoricalReceiptWatermark(coordinates: [
+            .init(databaseInstanceId: "database-a",
+                  sourceIdentity: .init(deviceId: "strap-a", lineage: "ble:A", epoch: 1),
+                  throughGeneration: 10),
+            .init(databaseInstanceId: "database-a",
+                  sourceIdentity: .init(deviceId: "strap-b", lineage: "ble:B", epoch: 2),
+                  throughGeneration: 20),
+        ])
+
+        live.finalizeHistoricalSyncBurst(at: 3_000, watermark: watermark)
+
+        XCTAssertEqual(live.finalizedHistoricalDataCommitWatermark, watermark)
+        XCTAssertEqual(live.finalizedHistoricalBurst?.watermark, watermark)
+        XCTAssertEqual(live.finalizedHistoricalBurst?.watermark?.coordinates.count, 2)
     }
 
     func testTimestampHealPublishesEvenWhenTheBadRowsWereRejected() {

@@ -403,20 +403,30 @@ struct BackfillBurstPublication: Equatable {
     private(set) var needsPublication = false
     private var persistedPasses = 0
     private(set) var commitWatermark: HistoricalReceiptWatermark?
+    /// Only scopes with productive rows are refresh scopes. Empty receipts can still advance those
+    /// scopes, but an empty-only burst must never arm a later publication with a stale coordinate.
+    private var productiveScopes: Set<HistoricalReceiptWatermark.Scope> = []
 
     /// Backfiller invokes this only after its SQLite transaction commits and before the strap ACK.
-    /// Collapse each committed receipt into one database/source/generation coordinate. Keep it private to
-    /// BLE until finalization so a deep offload causes no per-chunk SwiftUI work.
+    /// Retain every database/source/generation coordinate. Keep it private to BLE until finalization so a
+    /// deep offload causes no per-chunk SwiftUI work and source A is not lost when source B arrives later.
     mutating func record(receipt: HistoricalDataCommitReceipt) {
-        let candidate = HistoricalReceiptWatermark(receipt: receipt)
-        if let current = commitWatermark {
-            // A connected burst should remain inside one database/source fence. If a late callback crosses
-            // that fence, start a new coordinate instead of claiming the two identities are contiguous.
-            commitWatermark = current.advanced(with: receipt) ?? candidate
-        } else {
-            commitWatermark = candidate
+        record(receipt: receipt, sourceIdentity: nil)
+    }
+
+    /// Context-aware producer handoff. `sourceIdentity` is frozen by Backfiller before decode; nil keeps
+    /// the current-schema receipt adapter compatible with existing tests and replay callers.
+    mutating func record(
+        receipt: HistoricalDataCommitReceipt,
+        sourceIdentity: HistoricalReceiptWatermark.SourceIdentity?
+    ) {
+        let candidate = HistoricalReceiptWatermark(receipt: receipt, sourceIdentity: sourceIdentity)
+        commitWatermark = (commitWatermark ?? HistoricalReceiptWatermark(coordinates: []))
+            .including(receipt: receipt, sourceIdentity: sourceIdentity)
+        if receipt.insertedRows.total > 0, let scope = candidate.coordinates.first?.scope {
+            productiveScopes.insert(scope)
+            needsPublication = true
         }
-        needsPublication = needsPublication || receipt.insertedRows.total > 0
     }
 
     /// Records one durable session. The returned value is cheap UI progress only: it does not start
@@ -431,14 +441,18 @@ struct BackfillBurstPublication: Equatable {
         return HistoricalSyncPassProgress(rowsPersisted: rowsPersisted,
                                           passNumber: persistedPasses,
                                           latestFrontierUnix: latestFrontierUnix,
-                                          commitWatermark: commitWatermark,
+                                          commitWatermark: commitWatermark?.filtered(to: productiveScopes),
                                           publishedAt: timestamp)
     }
 
     mutating func consumeFinalization() -> Finalization? {
-        guard needsPublication else { return nil }
-        defer { reset() }
-        return Finalization(watermark: commitWatermark)
+        // Reset even when there is no publication. An empty-only receipt must not survive into a later
+        // timestamp-heal publication and masquerade as productive durable work.
+        let finalization = needsPublication
+            ? Finalization(watermark: commitWatermark?.filtered(to: productiveScopes))
+            : nil
+        reset()
+        return finalization
     }
 
     mutating func consume() -> Bool {
@@ -449,6 +463,7 @@ struct BackfillBurstPublication: Equatable {
         needsPublication = false
         persistedPasses = 0
         commitWatermark = nil
+        productiveScopes.removeAll(keepingCapacity: true)
     }
 }
 
@@ -698,6 +713,9 @@ public final class BLEManager: NSObject, ObservableObject {
     /// `===` identity check would NOT tell a healthy session apart from a later loop cycle. Named distinctly
     /// from Repository.swift's v7.0.3 refreshGen publish token so the two never get confused.
     private var connectGeneration = 0
+    /// Source admission epoch for historical work. It advances on a new physical connection or active
+    /// source switch, so a late completion cannot inherit a later source's identity.
+    private var historicalSourceEpoch: Int64 = 0
     // MARK: Connection & Sync test mode (Test Centre) - diagnostic-only counters
     //
     // These exist purely to feed the .connection-tagged diagnostic lines + readout when that test mode is
@@ -1016,8 +1034,8 @@ public final class BLEManager: NSObject, ObservableObject {
                                 rejectedSink: { [weak self] frames, trim, family in
                                     self?.archiveRejectedFrames(frames, trim: trim, family: family) ?? true
                                 },
-                                onHistoricalCommit: { [weak self] receipt in
-                                    self?.backfillBurstPublication.record(receipt: receipt)
+                                onHistoricalCommitContext: { [weak self] context in
+                                    self?.recordHistoricalCommit(context)
                                 },
                                 onChunk: { [weak self] decoded, console in
                                     if decoded { self?.state.decodedChunksThisSession += 1 }
@@ -1442,17 +1460,18 @@ public final class BLEManager: NSObject, ObservableObject {
     /// WHOOP↔WHOOP switch via the registry). Only the `SourceCoordinator` calls this, and only when a
     /// DIFFERENT registered WHOOP becomes active — the single-WHOOP path leaves the seeded "my-whoop" id
     /// in place (bootstrapStore set it; this is never called), so that path is byte-for-byte unchanged.
-    /// Sets the manager's `deviceId` AND re-points the in-flight Collector/Backfiller so the very next
-    /// flush / standard-HR persist / historical finishChunk attributes new samples to the new id —
-    /// without waiting for a relaunch or a full strap-switch store rebuild. The Collector reads
-    /// `deviceId` at persist time (live + 0x2A37 standard-HR paths) and the Backfiller at finishChunk,
-    /// so updating their mutable `deviceId` here is sufficient. Additive: nothing on the single-WHOOP
-    /// path invokes it, so with one WHOOP the id stays "my-whoop" throughout.
+    /// Sets the manager's `deviceId` and re-points the live Collector/Backfiller for the next admitted
+    /// session. An already-decoding historical chunk keeps its frozen source identity and cannot be
+    /// re-attributed by this mutation. Additive: nothing on the single-WHOOP path invokes it.
     public func setActiveDeviceId(_ id: String) {
         guard !id.isEmpty else { return }
+        let changed = id != deviceId
         deviceId = id
         collector?.deviceId = id
         backfiller?.deviceId = id
+        if changed {
+            historicalSourceEpoch &+= 1
+        }
     }
 
     /// Add-a-WHOOP wizard: scan the selected family's WHOOP service and surface every nearby strap in
@@ -1702,7 +1721,14 @@ public final class BLEManager: NSObject, ObservableObject {
         // #42/#364: consecutiveAutoContinues > 0 means this offload is re-kicked after an EARLIER session in
         // the same burst banked rows — tell the backfiller so its no-cursor END reads as "caught up", not
         // "no banked history / charge to 100%". A fresh offload (count 0) keeps the honest guidance.
-        backfiller.begin(family: selectedModel.deviceFamily, continuedAfterRows: consecutiveAutoContinues > 0)
+        let admittedSource = HistoricalReceiptWatermark.SourceIdentity(
+            deviceId: deviceId,
+            lineage: "ble:\(connectedPeripheralUUID ?? deviceId)",
+            epoch: historicalSourceEpoch)
+        backfiller.begin(
+            family: selectedModel.deviceFamily,
+            continuedAfterRows: consecutiveAutoContinues > 0,
+            sourceIdentity: admittedSource)
         backfilling = true
         state.backfilling = true
         historicalProgress.begin()
@@ -2014,13 +2040,28 @@ public final class BLEManager: NSObject, ObservableObject {
     /// Emit a data-availability edge only after the full burst stops. `lastSyncedAt` remains reserved for
     /// formal `HISTORY_COMPLETE`, so an idle-timeout with durable rows refreshes the dashboard without
     /// lying that the strap finished syncing.
+    private func recordHistoricalCommit(_ context: HistoricalCommitContext) {
+        backfillBurstPublication.record(
+            receipt: context.receipt,
+            sourceIdentity: context.sourceIdentity)
+
+        // A productive commit may resume after didDisconnectPeripheral already finalized and cleared the
+        // burst. Finalize again at the receipt boundary so durable work cannot strand behind a dead drain.
+        if !backfilling {
+            publishBackfillBurstIfNeeded()
+        }
+    }
+
     private func publishBackfillBurstIfNeeded() {
         guard let finalization = backfillBurstPublication.consumeFinalization() else { return }
         state.finalizeHistoricalSyncBurst(
             at: Date().timeIntervalSince1970,
             watermark: finalization.watermark)
         if let watermark = finalization.watermark {
-            log("Backfill: durable history is ready through generation \(watermark.throughGeneration) for database \(watermark.databaseInstanceId), source \(watermark.sourceIdentity.deviceId); scheduling one dashboard refresh.")
+            let scopes = watermark.coordinates.map {
+                "\($0.databaseInstanceId)/\($0.sourceIdentity.deviceId)#\($0.sourceIdentity.lineage)#\($0.sourceIdentity.epoch) through \($0.throughGeneration)"
+            }.joined(separator: ", ")
+            log("Backfill: durable history is ready for source scopes [\(scopes)]; scheduling one dashboard refresh.")
         } else {
             log("Backfill: durable history is ready after the sync burst; scheduling one dashboard refresh.")
         }
@@ -3421,6 +3462,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         // i.e. it survives past the loop's quick-timeout window (below), or on a clean teardown
         // (disconnect() resets the detector and clears the guide too).
         connectGeneration &+= 1
+        historicalSourceEpoch &+= 1
         resetClockRecoveryForConnection()
         // Data Range markers belong to the physical connection that returned them. Never let a stale
         // previous-generation marker become this generation's approximate clock fallback.
@@ -3734,6 +3776,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         Task { @MainActor in await bootstrapStore() }
         if p.state == .connected {
             connectGeneration &+= 1
+            historicalSourceEpoch &+= 1
             state.markConnected()
             log("Restored CONNECTED peripheral \(p.identifier) — re-discovering services")
             discoverPrimaryServices(on: p)

@@ -10,51 +10,145 @@ import WhoopStore
 /// process every receipt in this database/source scope through that generation, including a final receipt
 /// whose inserted-row count is zero.
 public struct HistoricalReceiptWatermark: Equatable, Sendable {
-    /// Source identity is nested so future lineage/epoch fields remain an app-layer extension point without
-    /// changing the watermark or its consumers.
-    public struct SourceIdentity: Equatable, Sendable {
+    /// Source identity is nested so future lineage/epoch fields stay at the app boundary without changing
+    /// the current receipt type.
+    public struct SourceIdentity: Equatable, Hashable, Sendable {
         public let deviceId: String
+        /// Stable source lineage. The current receipt schema does not carry this field, so the producer
+        /// admits it before decode and the later receipt-hardening adapter can map the durable value here.
+        public let lineage: String
+        /// Admission epoch. This separates late work from a later source/session even when deviceId repeats.
+        public let epoch: Int64
 
-        public init(deviceId: String) {
+        public init(deviceId: String, lineage: String? = nil, epoch: Int64 = 0) {
             self.deviceId = deviceId
+            self.lineage = lineage ?? "device:\(deviceId)"
+            self.epoch = epoch
         }
     }
 
-    public let databaseInstanceId: String
-    public let sourceIdentity: SourceIdentity
-    public let throughGeneration: Int64
+    public struct Scope: Equatable, Hashable, Sendable {
+        public let databaseInstanceId: String
+        public let sourceIdentity: SourceIdentity
+
+        public init(databaseInstanceId: String, sourceIdentity: SourceIdentity) {
+            self.databaseInstanceId = databaseInstanceId
+            self.sourceIdentity = sourceIdentity
+        }
+    }
+
+    /// One durable receipt frontier. A burst can contain more than one source scope, so the watermark is
+    /// an ordered set of coordinates instead of a lossy "latest receipt" value.
+    public struct Coordinate: Equatable, Hashable, Sendable {
+        public let databaseInstanceId: String
+        public let sourceIdentity: SourceIdentity
+        public let throughGeneration: Int64
+
+        public init(
+            databaseInstanceId: String,
+            sourceIdentity: SourceIdentity,
+            throughGeneration: Int64
+        ) {
+            self.databaseInstanceId = databaseInstanceId
+            self.sourceIdentity = sourceIdentity
+            self.throughGeneration = throughGeneration
+        }
+
+        public var scope: Scope {
+            Scope(databaseInstanceId: databaseInstanceId, sourceIdentity: sourceIdentity)
+        }
+    }
+
+    public let coordinates: [Coordinate]
+
+    /// Compatibility accessors for single-scope consumers. Multi-scope consumers must iterate `coordinates`.
+    public var databaseInstanceId: String { coordinates.first?.databaseInstanceId ?? "" }
+    public var sourceIdentity: SourceIdentity { coordinates.first?.sourceIdentity ?? SourceIdentity(deviceId: "") }
+    public var throughGeneration: Int64 { coordinates.map(\.throughGeneration).max() ?? 0 }
 
     public init(
         databaseInstanceId: String,
         sourceIdentity: SourceIdentity,
         throughGeneration: Int64
     ) {
-        self.databaseInstanceId = databaseInstanceId
-        self.sourceIdentity = sourceIdentity
-        self.throughGeneration = throughGeneration
+        self.init(coordinates: [Coordinate(databaseInstanceId: databaseInstanceId,
+                                            sourceIdentity: sourceIdentity,
+                                            throughGeneration: throughGeneration)])
     }
 
-    /// Adapts the current receipt schema at one boundary. Future lineage/epoch fields belong in
-    /// `SourceIdentity`, not in the burst or AppModel APIs.
-    init(receipt: HistoricalDataCommitReceipt) {
-        self.init(
+    public init(coordinates: [Coordinate]) {
+        var byScope: [Scope: Coordinate] = [:]
+        for coordinate in coordinates {
+            if let current = byScope[coordinate.scope], current.throughGeneration >= coordinate.throughGeneration {
+                continue
+            }
+            byScope[coordinate.scope] = coordinate
+        }
+        self.coordinates = byScope.values.sorted {
+            if $0.databaseInstanceId != $1.databaseInstanceId {
+                return $0.databaseInstanceId < $1.databaseInstanceId
+            }
+            if $0.sourceIdentity.lineage != $1.sourceIdentity.lineage {
+                return $0.sourceIdentity.lineage < $1.sourceIdentity.lineage
+            }
+            if $0.sourceIdentity.epoch != $1.sourceIdentity.epoch {
+                return $0.sourceIdentity.epoch < $1.sourceIdentity.epoch
+            }
+            return $0.sourceIdentity.deviceId < $1.sourceIdentity.deviceId
+        }
+    }
+
+    /// Adapts the current receipt schema at one boundary. The producer-supplied identity is authoritative
+    /// until the receipt-hardening branch adds durable lineage/epoch fields to the receipt itself.
+    init(receipt: HistoricalDataCommitReceipt, sourceIdentity: SourceIdentity? = nil) {
+        self.init(coordinates: [Coordinate(
             databaseInstanceId: receipt.databaseInstanceId,
-            sourceIdentity: SourceIdentity(deviceId: receipt.deviceId),
+            sourceIdentity: sourceIdentity ?? SourceIdentity(deviceId: receipt.deviceId),
             throughGeneration: receipt.generation
-        )
+        )])
+    }
+
+    /// Include one receipt while retaining every distinct database/source scope in the burst.
+    func including(
+        receipt: HistoricalDataCommitReceipt,
+        sourceIdentity: SourceIdentity? = nil
+    ) -> Self {
+        Self(coordinates: coordinates + [Coordinate(
+            databaseInstanceId: receipt.databaseInstanceId,
+            sourceIdentity: sourceIdentity ?? SourceIdentity(deviceId: receipt.deviceId),
+            throughGeneration: receipt.generation
+        )])
+    }
+
+    func filtered(to scopes: Set<Scope>) -> Self? {
+        let filtered = coordinates.filter { scopes.contains($0.scope) }
+        return filtered.isEmpty ? nil : Self(coordinates: filtered)
     }
 
     /// Advances only within the same database/source fence. A generation watermark never merges two
     /// source identities, even if a device switch races a late callback.
-    func advanced(with receipt: HistoricalDataCommitReceipt) -> Self? {
-        let candidateSource = SourceIdentity(deviceId: receipt.deviceId)
-        guard databaseInstanceId == receipt.databaseInstanceId,
-              sourceIdentity == candidateSource else { return nil }
-        return Self(
-            databaseInstanceId: databaseInstanceId,
-            sourceIdentity: sourceIdentity,
-            throughGeneration: max(throughGeneration, receipt.generation)
-        )
+    func advanced(
+        with receipt: HistoricalDataCommitReceipt,
+        sourceIdentity: SourceIdentity? = nil
+    ) -> Self? {
+        let identity = sourceIdentity ?? SourceIdentity(deviceId: receipt.deviceId)
+        guard coordinates.count == 1,
+              coordinates[0].databaseInstanceId == receipt.databaseInstanceId,
+              coordinates[0].sourceIdentity == identity
+        else { return nil }
+        return including(receipt: receipt, sourceIdentity: sourceIdentity)
+    }
+}
+
+/// One non-optional publication event for a completed historical burst. The watermark may be nil for a
+/// timestamp-heal-only publication, but the event still must reach AppModel so the existing refresh path runs.
+public struct HistoricalBurstFinalization: Equatable, Sendable {
+    public let watermark: HistoricalReceiptWatermark?
+    public let publishedAt: TimeInterval
+
+    public init(watermark: HistoricalReceiptWatermark?, publishedAt: TimeInterval) {
+        self.watermark = watermark
+        self.publishedAt = publishedAt
     }
 }
 
@@ -217,6 +311,9 @@ public final class LiveState: ObservableObject {
     /// Journal coordinate handed to the later durable consumer. The watermark, not the timestamp or one
     /// mutable receipt, is the identity of the finalized analytical work.
     @Published public private(set) var finalizedHistoricalDataCommitWatermark: HistoricalReceiptWatermark?
+    /// Non-optional finalization edge. This keeps heal-only publications observable without arming a stale
+    /// receipt watermark, and gives AppModel one debounced event carrying every source coordinate.
+    @Published public private(set) var finalizedHistoricalBurst: HistoricalBurstFinalization?
     /// Phase 2A compatibility context for diagnostics only. AppModel never uses this receipt as work
     /// identity; the watermark above covers every committed receipt through its generation.
     @Published public private(set) var finalizedHistoricalDataCommitReceipt: HistoricalDataCommitReceipt?
@@ -321,8 +418,10 @@ public final class LiveState: ObservableObject {
         watermark: HistoricalReceiptWatermark? = nil,
         receipt: HistoricalDataCommitReceipt? = nil
     ) {
-        finalizedHistoricalDataCommitWatermark = watermark ?? receipt.map { HistoricalReceiptWatermark(receipt: $0) }
+        let resolvedWatermark = watermark ?? receipt.map { HistoricalReceiptWatermark(receipt: $0) }
+        finalizedHistoricalDataCommitWatermark = resolvedWatermark
         finalizedHistoricalDataCommitReceipt = receipt
+        finalizedHistoricalBurst = HistoricalBurstFinalization(watermark: resolvedWatermark, publishedAt: timestamp)
         backfillDataAvailableAt = timestamp
         clearHistoricalSyncProgress()
     }

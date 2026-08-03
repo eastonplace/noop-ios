@@ -408,16 +408,17 @@ final class AppModel: ObservableObject {
             self.applyPowerSaving()
         }.store(in: &hrCancellables)
         // A backfill burst can end after a clean HISTORY_COMPLETE OR after the idle watchdog, because each
-        // chunk is committed before it is acknowledged. Subscribe to the finalized journal watermark so
-        // the durable work identity covers every committed receipt through one generation, including an
-        // empty final chunk. `backfillDataAvailableAt` remains transitional UI status only.
-        live.$finalizedHistoricalDataCommitWatermark
+        // chunk is committed before it is acknowledged. Subscribe to the non-optional finalization edge so
+        // a heal-only publication still refreshes, while its multi-scope watermark carries every source.
+        live.$finalizedHistoricalBurst
             .dropFirst()
             .compactMap { $0 }
             .removeDuplicates()
             .debounce(for: .seconds(2), scheduler: DispatchQueue.main)
-            .sink { [weak self] _ in
-                Task { [weak self] in await self?.refreshAfterBackfillBurst() }
+            .sink { [weak self] finalization in
+                Task { [weak self] in
+                    await self?.refreshAfterBackfillBurst(watermark: finalization.watermark)
+                }
             }
             .store(in: &hrCancellables)
 
@@ -627,10 +628,17 @@ final class AppModel: ObservableObject {
         await intelligence.analyzeRecent()
     }
 
-    private func refreshAfterBackfillBurst() async {
+    private func refreshAfterBackfillBurst(watermark: HistoricalReceiptWatermark? = nil) async {
         let trace = PerformanceTrace.begin("backfill_finalize")
         defer { PerformanceTrace.end(trace) }
-        live.append(log: "Backfill: refreshing dashboard cache from completed sync")
+        if let watermark {
+            let scopes = watermark.coordinates.map {
+                "\($0.sourceIdentity.deviceId)#\($0.sourceIdentity.lineage)#\($0.sourceIdentity.epoch) through \($0.throughGeneration)"
+            }.joined(separator: ", ")
+            live.append(log: "Backfill: refreshing dashboard cache for source scopes [\(scopes)]")
+        } else {
+            live.append(log: "Backfill: refreshing dashboard cache from timestamp-heal publication")
+        }
         // Score the freshly-offloaded raw data RIGHT NOW rather than waiting for the next 15-minute
         // analyzeRecent tick , otherwise a just-synced night's Charge / Effort / Rest can take up to
         // 15 minutes to appear on a strap-only (no-import) dashboard. analyzeRecent no-ops if a tick is

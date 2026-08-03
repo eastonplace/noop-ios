@@ -27,6 +27,13 @@ protocol BackfillStoreWriting: AnyObject, Sendable {
 
 extension WhoopStore: BackfillStoreWriting {}
 
+/// Receipt plus the source identity admitted before decode. The current store receipt only carries
+/// `deviceId`; keeping this context at the app boundary preserves the lineage/epoch extension seam.
+struct HistoricalCommitContext: Equatable, Sendable {
+    let receipt: HistoricalDataCommitReceipt
+    let sourceIdentity: HistoricalReceiptWatermark.SourceIdentity
+}
+
 // MARK: - Backfiller
 
 /// Historical-offload state machine (idle / backfilling).
@@ -46,11 +53,12 @@ final class Backfiller {
     typealias Extractor = @Sendable ([ParsedFrame], Int, Int, Int?, Int?) -> Streams
 
     private let store: BackfillStoreWriting
-    /// Device id offloaded chunks persist under. MUTABLE so a WHOOP↔WHOOP switch
-    /// (BLEManager.setActiveDeviceId) re-attributes the next finishChunk persist immediately, rather
-    /// than freezing the id captured at construction. Single-WHOOP never switches, so this stays
-    /// "my-whoop" exactly as a `let` would have.
+    /// Current device id for the next session. An admitted session never reads this after decode starts;
+    /// `sourceIdentity` is frozen at `begin` so a source switch cannot re-attribute suspended work.
     var deviceId: String
+    /// Source identity captured at session admission. The identity remains stable across every chunk in
+    /// the session and is carried through the commit callback even when the mutable current id changes.
+    private(set) var sourceIdentity: HistoricalReceiptWatermark.SourceIdentity
     /// Confirms one HISTORY_END chunk to the strap. Carries both the trim cursor (= first u32
     /// of end_data, used for the `strap_trim` cursor) and the 8-byte `end_data` (= the raw
     /// HISTORY_END metadata.data[10:18]) that the high-freq-sync ack form requires verbatim.
@@ -164,6 +172,12 @@ final class Backfiller {
     /// One durable receipt per atomically committed chunk. BLE owns coalescing so this hook never causes
     /// per-chunk Repository or SwiftUI work. It fires before the strap ACK.
     private let onHistoricalCommit: ((HistoricalDataCommitReceipt) -> Void)?
+    /// Context-aware handoff seam. This is the producer-owned source identity until the receipt schema
+    /// carries durable lineage/epoch fields itself.
+    private let onHistoricalCommitContext: ((HistoricalCommitContext) -> Void)?
+    /// Deterministic async test seam. Production leaves this nil; tests can pause after detached decode
+    /// and switch the mutable current source before the commit resumes.
+    private let beforeHistoricalCommit: (() async -> Void)?
     /// Per-chunk outcome hook (#77 family): (didDecodeSensorRows, wasConsoleOnly). Lets BLEManager
     /// tally a session so a COMPLETED-but-empty offload (all console, no sensor records) can tell the
     /// user their strap isn't banking, without false-positiving a normal caught-up sync.
@@ -189,7 +203,10 @@ final class Backfiller {
          log: ((String) -> Void)? = nil,
          rejectedSink: ((_ frames: [[UInt8]], _ trim: UInt32, _ family: DeviceFamily) -> Bool)? = nil,
          onHistoricalCommit: ((HistoricalDataCommitReceipt) -> Void)? = nil,
+         onHistoricalCommitContext: ((HistoricalCommitContext) -> Void)? = nil,
+         beforeHistoricalCommit: (() async -> Void)? = nil,
          onChunk: ((_ decoded: Bool, _ console: Bool) -> Void)? = nil,
+         sourceIdentity: HistoricalReceiptWatermark.SourceIdentity? = nil,
          connectionActive: @escaping () -> Bool = { false },
          connectionLog: ((String) -> Void)? = nil,
          firmwareLayout: ((Int) -> Void)? = nil,
@@ -201,11 +218,14 @@ final class Backfiller {
                                                                     subLagInterp: PuffinExperiment.ppgHrSubLagInterpEnabled) }) {
         self.store = store
         self.deviceId = deviceId
+        self.sourceIdentity = sourceIdentity ?? HistoricalReceiptWatermark.SourceIdentity(deviceId: deviceId)
         self.ackTrim = ackTrim
         self.enableRawCapture = enableRawCapture
         self.log = log
         self.rejectedSink = rejectedSink
         self.onHistoricalCommit = onHistoricalCommit
+        self.onHistoricalCommitContext = onHistoricalCommitContext
+        self.beforeHistoricalCommit = beforeHistoricalCommit
         self.onChunk = onChunk
         self.connectionActive = connectionActive
         self.connectionLog = connectionLog
@@ -224,8 +244,19 @@ final class Backfiller {
     /// Called by BLEManager when the strap signals a historical offload is beginning.
     /// chunkOpen starts TRUE: the high-freq-sync biometric replay streams records immediately and
     /// sends one HISTORY_START then repeated HISTORY_ENDs, so we must accumulate from the outset.
-    func begin(family: DeviceFamily, continuedAfterRows: Bool = false) {
+    func begin(
+        family: DeviceFamily,
+        continuedAfterRows: Bool = false,
+        sourceIdentity: HistoricalReceiptWatermark.SourceIdentity? = nil
+    ) {
         self.family = family
+        if let sourceIdentity {
+            self.sourceIdentity = sourceIdentity
+        } else if self.sourceIdentity.deviceId != deviceId {
+            // Preserve the old convenience call for tests and replay paths while still freezing the id
+            // before the first decode of a newly admitted session.
+            self.sourceIdentity = HistoricalReceiptWatermark.SourceIdentity(deviceId: deviceId)
+        }
         self.continuedAfterRows = continuedAfterRows
         isBackfilling = true
         persistStalled = false   // #57: fresh session starts un-stalled
@@ -401,6 +432,11 @@ final class Backfiller {
 
     private func finishChunk(unix: UInt32, trim: UInt32, endFrame: [UInt8]) async {
         guard let endData = Backfiller.endData(from: endFrame, family: family) else { return }
+
+        // Capture every mutable admission input before the detached decode can suspend. In particular,
+        // never read `deviceId` again for this chunk: SourceCoordinator may switch the active strap while
+        // the detached task is running.
+        let admittedSource = sourceIdentity
 
         // #773: corrupt future-RTC detection. A HISTORY_END carries the strap's own clock; a genuine offload
         // is always PAST-dated (it's banked history), so an end dated days into the future can only be a
@@ -589,8 +625,8 @@ final class Backfiller {
             // batch in the same transaction as decoded rows, the trim cursor, and its receipt.
             if enableRawCapture {
                 let meta = RawBatchMeta(
-                    batchId: "hist-\(deviceId)-\(trim)",
-                    deviceId: deviceId,
+                    batchId: "hist-\(admittedSource.deviceId)-\(admittedSource.epoch)-\(trim)",
+                    deviceId: admittedSource.deviceId,
                     clockRef: ref,
                     capturedAt: Int(Date().timeIntervalSince1970),
                     startTs: ref.wall,
@@ -609,13 +645,17 @@ final class Backfiller {
             return
         }
 
+        if let beforeHistoricalCommit {
+            await beforeHistoricalCommit()
+        }
+
         // Rows, optional raw capture, the trim cursor, and this receipt commit as one SQLite unit. The
         // receipt is the only object later Phase 2 stages may use to trigger analysis or UI publication.
         let receipt: HistoricalDataCommitReceipt
         do {
             receipt = try await store.commitHistoricalChunk(
                 streams: decodedForCommit,
-                deviceId: deviceId,
+                deviceId: admittedSource.deviceId,
                 trim: Int(trim),
                 chunkEndUnix: Int(unix),
                 rawBatch: rawBatchForCommit,
@@ -627,6 +667,7 @@ final class Backfiller {
             return
         }
         onHistoricalCommit?(receipt)
+        onHistoricalCommitContext?(HistoricalCommitContext(receipt: receipt, sourceIdentity: admittedSource))
 
         // Success-side observability (#150): tally only receipt-backed rows. This includes every
         // persisted stream, including WHOOP 5 step, sleep-state, and PPG samples.
