@@ -268,6 +268,23 @@ final class Repository: ObservableObject {
         case failed
     }
 
+    private enum TodayHealthSnapshotPersistenceOutcome: Sendable {
+        case persisted
+        case notRequired
+        case rejected
+        case failed
+        case superseded
+
+        var completesRefresh: Bool {
+            switch self {
+            case .persisted, .notRequired:
+                return true
+            case .rejected, .failed, .superseded:
+                return false
+            }
+        }
+    }
+
     private enum TodayHealthSnapshotWritePolicy: Equatable {
         case immediate
         case throttledLiveStrain
@@ -1186,15 +1203,14 @@ final class Repository: ObservableObject {
     private func refreshTodayHealthSnapshotFromCurrentCachesAndPersist(
         now: Date,
         refreshGeneration: Int
-    ) async {
-        guard refreshGeneration == refreshGen,
-              let candidate = currentTodayHealthSnapshot(now: now)
-        else { return }
+    ) async -> TodayHealthSnapshotPersistenceOutcome {
+        guard refreshGeneration == refreshGen else { return .superseded }
+        guard let candidate = currentTodayHealthSnapshot(now: now) else { return .notRequired }
         let resolved = TodayHealthSnapshotResolver.resolve(
             persisted: todayHealthSnapshot, live: candidate
         ) ?? candidate
         publishTodayHealthSnapshot(resolved, persist: false)
-        await persistTodayHealthSnapshot(
+        return await persistTodayHealthSnapshot(
             candidate: candidate,
             generation: todayHealthSnapshotGeneration,
             refreshGeneration: refreshGeneration
@@ -1207,20 +1223,32 @@ final class Repository: ObservableObject {
         candidate: TodayHealthSnapshot,
         generation: Int,
         refreshGeneration: Int
-    ) async {
+    ) async -> TodayHealthSnapshotPersistenceOutcome {
         guard generation == todayHealthSnapshotGeneration,
               refreshGeneration == refreshGen
-        else { return }
+        else { return .superseded }
         todayHealthSnapshotWriteTask?.cancel()
         todayHealthSnapshotWriteTask = nil
         todayHealthSnapshotWriteDirty = false
         todayHealthSnapshotWritePolicy = .immediate
         todayHealthSnapshotWriteToken &+= 1
-        await enrichAndPersistTodayHealthSnapshot(
+        let writeToken = todayHealthSnapshotWriteToken
+        return await enrichAndPersistTodayHealthSnapshot(
             candidate: candidate,
             generation: generation,
-            refreshGeneration: refreshGeneration
+            refreshGeneration: refreshGeneration,
+            writeToken: writeToken
         )
+    }
+
+    private func isCurrentTodayHealthSnapshotWrite(
+        generation: Int,
+        refreshGeneration: Int?,
+        writeToken: Int?
+    ) -> Bool {
+        generation == todayHealthSnapshotGeneration
+            && (refreshGeneration.map { $0 == refreshGen } ?? true)
+            && (writeToken.map { $0 == todayHealthSnapshotWriteToken } ?? true)
     }
 
     private func publishTodayHealthSnapshot(_ snapshot: TodayHealthSnapshot, persist: Bool,
@@ -1285,45 +1313,56 @@ final class Repository: ObservableObject {
         }
     }
 
+    @discardableResult
     private func enrichAndPersistTodayHealthSnapshot(
         candidate: TodayHealthSnapshot? = nil,
         generation: Int,
         refreshGeneration: Int? = nil,
         writeToken: Int? = nil
-    ) async {
+    ) async -> TodayHealthSnapshotPersistenceOutcome {
         let trace = PerformanceTrace.begin("today_health_snapshot_write")
         var changedRows = 0
         defer { PerformanceTrace.end(trace, changedRows: changedRows) }
-        let refreshIsCurrent = refreshGeneration.map { $0 == refreshGen } ?? true
-        let writerIsCurrent = writeToken.map { $0 == todayHealthSnapshotWriteToken } ?? true
-        guard generation == todayHealthSnapshotGeneration,
-              refreshIsCurrent,
-              writerIsCurrent,
-              let store = await ensureStore()
-        else { return }
+        guard isCurrentTodayHealthSnapshotWrite(
+            generation: generation, refreshGeneration: refreshGeneration, writeToken: writeToken)
+        else { return .superseded }
+        guard let store = await ensureStore() else { return .failed }
+        guard isCurrentTodayHealthSnapshotWrite(
+            generation: generation, refreshGeneration: refreshGeneration, writeToken: writeToken)
+        else { return .superseded }
         let base: TodayHealthSnapshot
         if let candidate {
             base = candidate
         } else {
-            guard let current = currentTodayHealthSnapshot(now: Date()) else { return }
+            guard let current = currentTodayHealthSnapshot(now: Date()) else { return .notRequired }
             base = current
         }
 
         let sleepRead = await currentSleepScore(store: store, day: base.displayDay)
-        let isCurrentAfterSleepRead = refreshGeneration.map { $0 == refreshGen } ?? true
-        let writerIsCurrentAfterSleepRead = writeToken.map { $0 == todayHealthSnapshotWriteToken } ?? true
-        guard generation == todayHealthSnapshotGeneration,
-              isCurrentAfterSleepRead,
-              writerIsCurrentAfterSleepRead
-        else { return }
+        guard isCurrentTodayHealthSnapshotWrite(
+            generation: generation, refreshGeneration: refreshGeneration, writeToken: writeToken)
+        else { return .superseded }
+
+        let persistedForFailedSleepRead: TodayHealthSnapshot?
+        if case .failed = sleepRead {
+            do {
+                // Cache-first publication may have replaced memory already. Read only this scope when Sleep
+                // is unknown so a failed read cannot convert durable score evidence into an authoritative nil.
+                persistedForFailedSleepRead = try await store.todayHealthSnapshot(scopeId: base.scopeId)
+            } catch {
+                return .failed
+            }
+            guard isCurrentTodayHealthSnapshotWrite(
+                generation: generation, refreshGeneration: refreshGeneration, writeToken: writeToken)
+            else { return .superseded }
+        } else {
+            persistedForFailedSleepRead = nil
+        }
 
         let rawFrontierTs = await unionLatestHRSampleTs(store: store)
-        let isCurrentAfterFrontierRead = refreshGeneration.map { $0 == refreshGen } ?? true
-        let writerIsCurrentAfterFrontierRead = writeToken.map { $0 == todayHealthSnapshotWriteToken } ?? true
-        guard generation == todayHealthSnapshotGeneration,
-              isCurrentAfterFrontierRead,
-              writerIsCurrentAfterFrontierRead
-        else { return }
+        guard isCurrentTodayHealthSnapshotWrite(
+            generation: generation, refreshGeneration: refreshGeneration, writeToken: writeToken)
+        else { return .superseded }
         let finalBase: TodayHealthSnapshot
         if let current = currentTodayHealthSnapshot(now: Date()),
            current.displayDay == base.displayDay {
@@ -1361,24 +1400,27 @@ final class Repository: ObservableObject {
             sleepDurationMinutes: finalBase.sleepDurationMinutes
         )
         let resolved = TodayHealthSnapshotResolver.resolve(
-            persisted: todayHealthSnapshot, live: enriched
+            persisted: persistedForFailedSleepRead ?? todayHealthSnapshot, live: enriched
         ) ?? enriched
         let before = todayHealthSnapshot
         publishTodayHealthSnapshot(resolved, persist: false)
         changedRows = before == todayHealthSnapshot ? 0 : 1
-        let isCurrentBeforeSave = refreshGeneration.map { $0 == refreshGen } ?? true
-        let writerIsCurrentBeforeSave = writeToken.map { $0 == todayHealthSnapshotWriteToken } ?? true
-        guard generation == todayHealthSnapshotGeneration,
-              isCurrentBeforeSave,
-              writerIsCurrentBeforeSave
-        else { return }
+        guard isCurrentTodayHealthSnapshotWrite(
+            generation: generation, refreshGeneration: refreshGeneration, writeToken: writeToken)
+        else { return .superseded }
+        let didSave: Bool
         do {
-            guard try await store.saveTodayHealthSnapshot(resolved) else { return }
-            todayHealthSnapshotLastPersistedAt = Date()
-            changedRows = 1
+            didSave = try await store.saveTodayHealthSnapshot(resolved)
         } catch {
-            return
+            return .failed
         }
+        guard didSave else { return .rejected }
+        guard isCurrentTodayHealthSnapshotWrite(
+            generation: generation, refreshGeneration: refreshGeneration, writeToken: writeToken)
+        else { return .superseded }
+        todayHealthSnapshotLastPersistedAt = Date()
+        changedRows = 1
+        return .persisted
     }
 
     /// Build an in-memory candidate from the authoritative cache generation just published by `refresh()`.
@@ -1880,9 +1922,9 @@ final class Repository: ObservableObject {
             && merged.persistedStrainByDay == persistedStrainByDay
             && merged.importedStrainByDay == importedStrainByDay
         guard !unchanged else {
-            await refreshTodayHealthSnapshotFromCurrentCachesAndPersist(
+            let persistence = await refreshTodayHealthSnapshotFromCurrentCachesAndPersist(
                 now: now, refreshGeneration: myGen)
-            return myGen == refreshGen
+            return myGen == refreshGen && persistence.completesRefresh
         }
 
         // One consistent publish per refresh: assign every cache, flip `loaded`, then bump `refreshSeq` so
@@ -1898,9 +1940,9 @@ final class Repository: ObservableObject {
         rebuildCanonicalStrain()
         self.loaded = true
         self.refreshSeq += 1
-        await refreshTodayHealthSnapshotFromCurrentCachesAndPersist(
+        let persistence = await refreshTodayHealthSnapshotFromCurrentCachesAndPersist(
             now: now, refreshGeneration: myGen)
-        return myGen == refreshGen
+        return myGen == refreshGen && persistence.completesRefresh
     }
 
     /// Per-source coverage counts for the Freshness Pipeline card. Pure over the rows already read.

@@ -163,6 +163,34 @@ final class TodayHealthSnapshotHydrationTests: XCTestCase {
         XCTAssertTrue(durable?.isAuthoritative(.sleepScore) == true)
     }
 
+    func testFailedSleepReadWithoutHydrationPreservesDurableScore() async throws {
+        let store = try await WhoopStore.inMemory()
+        let now = Date()
+        let day = Repository.logicalDayKey(now)
+        let persisted = snapshot(
+            context: try await context(for: store), day: day,
+            localDay: Repository.localDayKey(now), generatedAt: Int(now.timeIntervalSince1970),
+            recovery: nil, strain: nil, sleepScore: 92, sleepDuration: nil,
+            authoritative: [.sleepScore]
+        )
+        _ = try await store.saveTodayHealthSnapshot(persisted)
+
+        let repository = Repository(deviceId: Repository.whoopSource)
+        repository.setStoreForTesting(store)
+        repository.todayHealthSnapshotSleepReadOverride = .failed
+
+        let didRefresh = await repository.refresh(days: 4_000)
+
+        XCTAssertTrue(didRefresh)
+        XCTAssertEqual(repository.todayHealthSnapshot?.displayDay, day)
+        XCTAssertEqual(repository.todayHealthSnapshot?.sleepScore?.value, 92)
+        XCTAssertTrue(repository.todayHealthSnapshot?.isAuthoritative(.sleepScore) == true)
+        let durable = try await store.todayHealthSnapshot(scopeId: persisted.scopeId)
+        XCTAssertEqual(durable?.displayDay, day)
+        XCTAssertEqual(durable?.sleepScore?.value, 92)
+        XCTAssertTrue(durable?.isAuthoritative(.sleepScore) == true)
+    }
+
     func testScalarOnlySleepScoreCreatesDurableFirstPaintSnapshot() async throws {
         let store = try await WhoopStore.inMemory()
         let day = Repository.logicalDayKey(Date())
@@ -185,6 +213,33 @@ final class TodayHealthSnapshotHydrationTests: XCTestCase {
         let durable = try await store.todayHealthSnapshot(scopeId: scopeId)
         XCTAssertEqual(durable?.displayDay, day)
         XCTAssertEqual(durable?.sleepScore?.value, 86)
+    }
+
+    func testRefreshReturnsFalseWhenDurableSnapshotWriteIsRejected() async throws {
+        let store = try await WhoopStore.inMemory()
+        let now = Date()
+        let day = Repository.logicalDayKey(now)
+        let persisted = snapshot(
+            context: try await context(for: store), day: day,
+            localDay: Repository.localDayKey(now), generatedAt: Int(now.timeIntervalSince1970) + 3_600,
+            sleepScore: 55
+        )
+        let seeded = try await store.saveTodayHealthSnapshot(persisted)
+        XCTAssertTrue(seeded)
+        try await store.upsertMetricSeries(
+            [MetricPoint(day: day, key: "sleep_performance", value: 86)],
+            deviceId: Repository.whoopSource
+        )
+
+        let repository = Repository(deviceId: Repository.whoopSource)
+        repository.setStoreForTesting(store)
+
+        let didRefresh = await repository.refresh(days: 4_000)
+
+        XCTAssertFalse(didRefresh)
+        XCTAssertEqual(repository.todayHealthSnapshot?.sleepScore?.value, 86)
+        let durable = try await store.todayHealthSnapshot(scopeId: persisted.scopeId)
+        XCTAssertEqual(durable?.sleepScore?.value, 55)
     }
 
     func testScalarSleepScoreKeepsTheWinningSourceProvenance() async throws {
