@@ -464,6 +464,7 @@ final class AppModel: ObservableObject {
                 self.live.batteryPct = 68
             }
             #endif
+            await self.repo.hydrateTodayStartupAnchor()        // bounded first-paint health projection
             _ = await self.repo.refresh(.initialLoad)          // surface any imported data at once
             await self.wireSourceCoordinator()                 // dormant unless a generic strap is active
             try? await Task.sleep(nanoseconds: 6_000_000_000)  // give the first offload a moment

@@ -221,6 +221,10 @@ final class Repository: ObservableObject {
     /// data load on this so they reload when fresh strap data lands , `today?.day` alone is a stable
     /// date string within a day and would freeze e.g. the Today HR trend until the date rolls over.
     @Published private(set) var refreshSeq = 0
+    /// Bounded, persisted first-paint projection. It never feeds analysis or the broad history cache.
+    @Published private(set) var todayStartupAnchor: TodayStartupAnchor
+    @Published private(set) var todayStartupAnchorRevision = 0
+    private let todayStartupAnchorStore: TodayStartupAnchorStore
 
     /// #989: bumped by every hydration mutation (log / edit / delete). Today's hydration card re-reads on
     /// this instead of waiting for a full `refreshSeq` data refresh, which a hydration write never causes,
@@ -256,7 +260,12 @@ final class Repository: ObservableObject {
         workoutsLog(build())
     }
 
-    init(deviceId: String) { self.deviceId = deviceId }
+    init(deviceId: String, startupDefaults: UserDefaults = .standard) {
+        self.deviceId = deviceId
+        let anchorStore = TodayStartupAnchorStore(defaults: startupDefaults)
+        self.todayStartupAnchorStore = anchorStore
+        self.todayStartupAnchor = anchorStore.load()
+    }
 
     /// Re-point the read model's ACTIVE-strap id at the device registry's active device, so a re-added
     /// strap's LIVE raw (written under its fresh "whoop-<uuid>" id) surfaces on the dashboard (#814).
@@ -775,6 +784,84 @@ final class Repository: ObservableObject {
         if let opened { store = opened }
         storeOpenTask = nil
         return opened
+    }
+
+    /// Refresh the tiny launch projection before the existing 4,000-day refresh starts.
+    /// Reads are fixed to 21 days and publishing never mutates `days`, `loaded`, or `refreshSeq`.
+    func hydrateTodayStartupAnchor(now: Date = Date()) async {
+        guard let store = await ensureStore() else { return }
+        let fromDay = Self.dayString(now.addingTimeInterval(-Double(TodayStartupAnchor.retainedDays) * 86_400))
+        let toDay = Self.dayString(now.addingTimeInterval(86_400))
+        let nowTs = Int(now.timeIntervalSince1970)
+        let lo = nowTs - TodayStartupAnchor.retainedDays * 86_400
+        let hi = nowTs + 86_400
+
+        do {
+            async let importedA = requiredUnionDailyMetrics(
+                store: store, ids: importedReadIds, from: fromDay, to: toDay)
+            async let computedA = requiredUnionDailyMetrics(
+                store: store, ids: computedReadIds, from: fromDay, to: toDay)
+            async let appleA = store.dailyMetrics(
+                deviceId: Self.appleHealthSource, from: fromDay, to: toDay)
+            async let activityA = store.dailyMetrics(
+                deviceId: Self.activityFileSource, from: fromDay, to: toDay)
+            async let computedSleepsA = requiredUnionSleepSessions(
+                store: store, ids: computedReadIds, from: lo, to: hi, limit: 128)
+            async let importedSleepA = requiredUnionMetricSeries(
+                store: store, ids: importedReadIds, key: "sleep_performance", from: fromDay, to: toDay)
+            async let computedSleepA = requiredUnionMetricSeries(
+                store: store, ids: computedReadIds, key: "sleep_performance", from: fromDay, to: toDay)
+            async let computedSleepV2A = requiredUnionMetricSeries(
+                store: store, ids: computedReadIds, key: Self.sleepPerformanceV2Key, from: fromDay, to: toDay)
+            async let importedVitalityA = requiredUnionMetricSeries(
+                store: store, ids: importedReadIds, key: "vitality", from: fromDay, to: toDay)
+            async let computedVitalityA = requiredUnionMetricSeries(
+                store: store, ids: computedReadIds, key: "vitality", from: fromDay, to: toDay)
+
+            let imported = try await importedA
+            let computed = try await computedA
+            let apple = try await appleA
+            let activity = try await activityA
+            let computedSleeps = try await computedSleepsA
+            let importedSleep = try await importedSleepA
+            let computedSleep = try await computedSleepA
+            let computedSleepV2 = try await computedSleepV2A
+            let importedVitality = try await importedVitalityA
+            let computedVitality = try await computedVitalityA
+
+            let editedDays = Self.userEditedDays(computedSleeps)
+            let merged = Self.mergeActivityFileSteps(
+                into: Self.mergeDaily(
+                    imported: Self.mergeDaily(imported: imported, computed: computed,
+                                              userEditedDays: editedDays),
+                    computed: apple),
+                activity)
+
+            func preferredPoints(low: [MetricPoint], middle: [MetricPoint] = [],
+                                 high: [MetricPoint]) -> [MetricPoint] {
+                var byDay = Dictionary(low.map { ($0.day, $0) }, uniquingKeysWith: { _, last in last })
+                for point in middle { byDay[point.day] = point }
+                for point in high { byDay[point.day] = point }
+                return byDay.values.sorted { $0.day < $1.day }
+            }
+
+            let strain = computed.compactMap { row -> MetricPoint? in
+                guard row.strainVersion == 2, let value = row.strain else { return nil }
+                return MetricPoint(day: row.day, key: "strain", value: value)
+            }
+            let anchor = TodayStartupAnchor(
+                days: merged,
+                canonicalStrainV2: strain,
+                sleepPerformance: preferredPoints(low: computedSleep, middle: computedSleepV2,
+                                                  high: importedSleep),
+                vitality: preferredPoints(low: computedVitality, high: importedVitality))
+            guard anchor != todayStartupAnchor else { return }
+            todayStartupAnchor = anchor
+            todayStartupAnchorRevision &+= 1
+            todayStartupAnchorStore.save(anchor)
+        } catch {
+            // Keep the last valid persisted projection. Startup display must not fail with the refresh.
+        }
     }
 
     /// Expose the shared store handle (used by the importer to persist mapped rows).
