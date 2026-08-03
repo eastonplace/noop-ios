@@ -790,11 +790,103 @@ struct TodayView: View {
         selectedDayOffset == 0 && displayDay <= max(logicalKey, localKey)
     }
 
-    private func carriedMetricDetail(_ value: TodayHealthMetricValue?, snapshot: TodayHealthSnapshot?) -> String? {
-        guard let value, let metricDay = value.metricDay,
-              metricDay != snapshot?.displayDay
+    /// Select one first-paint metric against the CURRENT day boundary. Recovery and Sleep may carry a
+    /// prior-night value. Strain is intraday and must never cross the current logical day. The local-day
+    /// allowance preserves the existing midnight-to-04:00 display handoff for completed overnight values.
+    nonisolated static func firstPaintMetric(
+        _ metric: TodayHealthSnapshot.Metric,
+        snapshot: TodayHealthSnapshot?,
+        selectedDayOffset: Int,
+        currentLogicalDay: String,
+        currentLocalDay: String
+    ) -> TodayHealthMetricValue? {
+        guard selectedDayOffset == 0,
+              let snapshot,
+              let value = snapshot.metric(metric)
         else { return nil }
+
+        let metricDay = value.metricDay ?? snapshot.displayDay
+        guard metricDay <= max(currentLogicalDay, currentLocalDay) else { return nil }
+        if metric == .strain, metricDay != currentLogicalDay { return nil }
+        return value
+    }
+
+    /// Recompute freshness at the UI boundary. A same-day value is fresh only when its newest raw frontier
+    /// (or snapshot write time when no frontier exists) is no more than 60 minutes old. A one-day carry is
+    /// aging; an older carry is stale. This reads only persisted snapshot evidence.
+    nonisolated static func firstPaintMetricFreshness(
+        _ value: TodayHealthMetricValue?,
+        snapshot: TodayHealthSnapshot?,
+        currentLogicalDay: String,
+        currentLocalDay: String,
+        nowTimestamp: Int
+    ) -> TodayHealthMetricFreshness? {
+        guard let value else { return nil }
+        let metricDay = value.metricDay ?? snapshot?.displayDay
+        guard let metricDay else { return .stale }
+
+        if metricDay != currentLogicalDay, metricDay != currentLocalDay {
+            guard let dayGap = dayDistance(from: metricDay, to: currentLogicalDay), dayGap > 0 else {
+                return .stale
+            }
+            return dayGap == 1 ? .aging : .stale
+        }
+
+        let evidenceTimestamp = value.rawFrontierTs ?? snapshot?.rawFrontierTs ?? snapshot?.generatedAt
+        guard let evidenceTimestamp else { return .stale }
+        let age = nowTimestamp - evidenceTimestamp
+        return age >= 0 && age <= 60 * 60 ? .fresh : .stale
+    }
+
+    /// A first-paint metric is current only when its own day matches the current logical day. The snapshot
+    /// display day is not an age anchor because it can lag the wall clock during the rollover handoff.
+    nonisolated static func firstPaintMetricDetail(
+        metricDay: String?, snapshotDisplayDay: String?, currentLogicalDay: String,
+        freshness: TodayHealthMetricFreshness? = nil
+    ) -> String? {
+        guard let metricDay = metricDay ?? snapshotDisplayDay,
+              metricDay != currentLogicalDay || freshness == .stale
+        else { return nil }
+        if freshness == .stale { return String(localized: "Stale · \(metricDay)") }
         return String(localized: "Last scored · \(metricDay)")
+    }
+
+    nonisolated private static func dayDistance(from earlierDay: String, to laterDay: String) -> Int? {
+        let parts: (String) -> Date? = { key in
+            let components = key.split(separator: "-").compactMap { Int($0) }
+            guard components.count == 3 else { return nil }
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+            return calendar.date(from: DateComponents(year: components[0], month: components[1],
+                                                       day: components[2]))
+        }
+        guard let earlier = parts(earlierDay), let later = parts(laterDay) else { return nil }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar.dateComponents([.day], from: earlier, to: later).day
+    }
+
+    /// Select the Strain value rendered by Today. Once a first-paint snapshot exists, a rejected Strain
+    /// metric must stay empty; its daily row can still contain the old snapshot value.
+    nonisolated static func renderedStrainValue(
+        firstPaint: TodayHealthSnapshot?, strainMetric: TodayHealthMetricValue?, fallback: Double?
+    ) -> Double? {
+        strainMetric?.value ?? (firstPaint == nil ? fallback : nil)
+    }
+
+    private func carriedMetricDetail(
+        _ value: TodayHealthMetricValue?, snapshot: TodayHealthSnapshot?, currentLogicalDay: String,
+        currentLocalDay: String, nowTimestamp: Int
+    ) -> String? {
+        guard value != nil else { return nil }
+        return Self.firstPaintMetricDetail(metricDay: value?.metricDay,
+                                           snapshotDisplayDay: snapshot?.displayDay,
+                                           currentLogicalDay: currentLogicalDay,
+                                           freshness: Self.firstPaintMetricFreshness(
+                                               value, snapshot: snapshot,
+                                               currentLogicalDay: currentLogicalDay,
+                                               currentLocalDay: currentLocalDay,
+                                               nowTimestamp: nowTimestamp))
     }
 
     private func resolvedDisplayDay(for key: DisplayDayKey) -> DailyMetric? {
@@ -810,7 +902,17 @@ struct TodayView: View {
     /// Once the day-scoped loader has a newer score it is incorporated into Repository's snapshot resolver.
     private var displayedRestScore: Double? {
         let key = displayDayKey
-        return firstPaintSnapshot(for: key)?.sleepScore?.value ?? restScore
+        if let snapshotValue = Self.firstPaintMetric(
+            .sleepScore,
+            snapshot: firstPaintSnapshot(for: key),
+            selectedDayOffset: key.offset,
+            currentLogicalDay: key.logicalKey,
+            currentLocalDay: key.localKey
+        ) {
+            return snapshotValue.value
+        }
+        guard restScoreLoadKey == restScorePresentationKey else { return nil }
+        return restScore
     }
 
     /// Recovery cold-start: recovery is nil until the HRV baseline crosses the seed gate
@@ -1542,21 +1644,38 @@ struct TodayView: View {
     // MARK: - Paper Today (S1)
 
     private func buildScreenSnapshot() -> TodayScreenSnapshot {
+        let key = displayDayKey
         let day = displayDay
-        let firstPaint = firstPaintSnapshot(for: displayDayKey)
-        // A morning handoff can contain yesterday's completed Recovery/Sleep and today's live Strain.
-        // The resolver preserves each metric's own day, and the card labels a carried value rather than
-        // blanking two pillars until the overnight scorer completes.
-        let charge = firstPaint?.recovery?.value ?? day?.recovery
-        let effort = firstPaint?.strain?.value ?? effortStrain(day)
+        let firstPaint = firstPaintSnapshot(for: key)
+        let nowTimestamp = Int(Date().timeIntervalSince1970)
+        // A morning handoff can contain yesterday's completed Recovery/Sleep. Those values remain visible
+        // with an explicit age label. Strain is different: an older snapshot value must not become today's
+        // current strain after the logical-day boundary.
+        let recoveryMetric = Self.firstPaintMetric(
+            .recovery, snapshot: firstPaint, selectedDayOffset: key.offset,
+            currentLogicalDay: key.logicalKey, currentLocalDay: key.localKey)
+        let strainMetric = Self.firstPaintMetric(
+            .strain, snapshot: firstPaint, selectedDayOffset: key.offset,
+            currentLogicalDay: key.logicalKey, currentLocalDay: key.localKey)
+        let sleepMetric = Self.firstPaintMetric(
+            .sleepScore, snapshot: firstPaint, selectedDayOffset: key.offset,
+            currentLogicalDay: key.logicalKey, currentLocalDay: key.localKey)
+        let charge = recoveryMetric?.value ?? (firstPaint == nil ? day?.recovery : nil)
+        let effort = Self.renderedStrainValue(
+            firstPaint: firstPaint,
+            strainMetric: strainMetric,
+            fallback: firstPaint == nil ? effortStrain(day) : nil
+        )
         let strain = effort.map { StrainScale.displayValue(fromStored: $0) }
-        let rest = firstPaint?.sleepScore?.value ?? restScore
+        let rest = sleepMetric?.value ?? displayedRestScore
         let pillars = [
             TodayPillarModel(
                 id: "recovery", label: String(localized: "Recovery"), value: charge, maximum: 100,
                 valueText: charge.map { "\(Int($0.rounded()))" } ?? "—",
                 state: paperScoreState(charge, kind: .charge),
-                detail: carriedMetricDetail(firstPaint?.recovery, snapshot: firstPaint),
+                detail: carriedMetricDetail(recoveryMetric, snapshot: firstPaint,
+                                            currentLogicalDay: key.logicalKey,
+                                            currentLocalDay: key.localKey, nowTimestamp: nowTimestamp),
                 accent: charge.map { RecoveryBands.color(for: $0) } ?? StrandPalette.recoveryData,
                 bandTicks: [0.34, 0.67]
             ),
@@ -1564,14 +1683,19 @@ struct TodayView: View {
                 id: "strain", label: String(localized: "Strain"), value: strain, maximum: 21,
                 valueText: strain.map { String(format: "%.1f", $0) } ?? "—",
                 state: paperScoreState(effort, kind: .effort),
-                detail: carriedMetricDetail(firstPaint?.strain, snapshot: firstPaint),
+                detail: carriedMetricDetail(strainMetric, snapshot: firstPaint,
+                                            currentLogicalDay: key.logicalKey,
+                                            currentLocalDay: key.localKey, nowTimestamp: nowTimestamp),
                 accent: StrandPalette.strainAccent
             ),
             TodayPillarModel(
                 id: "sleep", label: String(localized: "Sleep"), value: rest, maximum: 100,
                 valueText: rest.map { "\(Int($0.rounded()))" } ?? "—",
                 state: paperScoreState(rest, kind: .rest),
-                detail: carriedMetricDetail(firstPaint?.sleepScore, snapshot: firstPaint) ?? day.map(sleepValue),
+                detail: carriedMetricDetail(sleepMetric, snapshot: firstPaint,
+                                            currentLogicalDay: key.logicalKey,
+                                            currentLocalDay: key.localKey, nowTimestamp: nowTimestamp)
+                    ?? day.map(sleepValue),
                 accent: StrandPalette.sleepAccent
             ),
         ]
