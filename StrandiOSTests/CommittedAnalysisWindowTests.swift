@@ -135,11 +135,81 @@ final class CommittedAnalysisWindowTests: XCTestCase {
         XCTAssertEqual(days, [day(2026, 8, 12), healedDay])
     }
 
+    func testImpossibleCivilDateIsRejectedInsteadOfNormalized() throws {
+        let calendar = try calendar(timeZone: "America/New_York")
+
+        XCTAssertNil(AnalysisCivilDay(year: 2026, month: 2, day: 30))
+
+        let invalidPayload = Data(#"{"year":2026,"month":2,"day":30}"#.utf8)
+        XCTAssertThrowsError(try JSONDecoder().decode(AnalysisCivilDay.self, from: invalidPayload))
+
+        let validDay = try XCTUnwrap(AnalysisCivilDay(year: 2026, month: 2, day: 28))
+        XCTAssertEqual(validDay.date(in: calendar), try date(calendar, year: 2026, month: 2, day: 28, hour: 0))
+    }
+
+    func testTimestampExpansionRejectsAnUnboundedHistoryRange() throws {
+        let calendar = try calendar(timeZone: "America/New_York")
+        let start = try date(calendar, year: 2000, month: 1, day: 1, hour: 0)
+        let end = try date(calendar, year: 2100, month: 1, day: 1, hour: 0)
+
+        XCTAssertThrowsError(try CommittedAnalysisWindow(
+            minimumTimestamp: start,
+            maximumTimestamp: end
+        ).affectedDays(using: calendar)) { error in
+            XCTAssertEqual(error as? CommittedAnalysisWindowError, .tooManyAffectedDays)
+        }
+    }
+
+    func testAnalysisFenceConstructorsRejectInvalidValues() throws {
+        XCTAssertThrowsError(try AnalysisSourceDeviceLineage(sourceId: "")) { error in
+            XCTAssertEqual(error as? AnalysisFenceValidationError, .emptySourceId)
+        }
+        XCTAssertThrowsError(try AnalysisReceiptFrontier(generation: -1)) { error in
+            XCTAssertEqual(error as? AnalysisFenceValidationError, .invalidGeneration)
+        }
+
+        let lineage = try AnalysisSourceDeviceLineage(sourceId: "whoop", deviceId: "strap-a")
+        XCTAssertThrowsError(try CommittedAnalysisRequest(
+            databaseInstanceId: "",
+            sourceDeviceLineage: lineage,
+            throughReceiptGeneration: 0
+        )) { error in
+            XCTAssertEqual(error as? AnalysisFenceValidationError, .emptyDatabaseInstanceId)
+        }
+        XCTAssertThrowsError(try CommittedAnalysisRequest(
+            databaseInstanceId: "database-a",
+            sourceDeviceLineage: lineage,
+            throughReceiptGeneration: -1
+        )) { error in
+            XCTAssertEqual(error as? AnalysisFenceValidationError, .invalidGeneration)
+        }
+
+        let frontier = try AnalysisReceiptFrontier(generation: 0)
+        XCTAssertThrowsError(try AnalysisMutationReceipt(
+            databaseInstanceId: "database-a",
+            sourceDeviceLineage: lineage,
+            consumedReceiptFrontier: frontier,
+            analyzedDays: [],
+            algorithmBundleVersion: ""
+        )) { error in
+            XCTAssertEqual(error as? AnalysisFenceValidationError, .emptyAlgorithmBundleVersion)
+        }
+        XCTAssertThrowsError(try AnalysisMutationReceipt(
+            databaseInstanceId: "",
+            sourceDeviceLineage: lineage,
+            consumedReceiptFrontier: frontier,
+            analyzedDays: [],
+            algorithmBundleVersion: "contract-test-v1"
+        )) { error in
+            XCTAssertEqual(error as? AnalysisFenceValidationError, .emptyDatabaseInstanceId)
+        }
+    }
+
     func testRequestAndMutationReceiptCarryOnlyOpaqueAnalysisMetadata() throws {
         let calendar = try calendar(timeZone: "America/New_York")
         let timestamp = try date(calendar, year: 2026, month: 8, day: 12, hour: 12)
-        let lineage = AnalysisSourceDeviceLineage(sourceId: "whoop", deviceId: "strap-a")
-        let request = CommittedAnalysisRequest(
+        let lineage = try AnalysisSourceDeviceLineage(sourceId: "whoop", deviceId: "strap-a")
+        let request = try CommittedAnalysisRequest(
             databaseInstanceId: "database-a",
             sourceDeviceLineage: lineage,
             throughReceiptGeneration: 42,
@@ -147,10 +217,10 @@ final class CommittedAnalysisWindowTests: XCTestCase {
             maximumTimestamp: timestamp,
             timestampHealState: .completed
         )
-        let mutation = AnalysisMutationReceipt(
+        let mutation = try AnalysisMutationReceipt(
             databaseInstanceId: request.databaseInstanceId,
             sourceDeviceLineage: lineage,
-            consumedReceiptFrontier: AnalysisReceiptFrontier(
+            consumedReceiptFrontier: try AnalysisReceiptFrontier(
                 generation: request.throughReceiptGeneration,
                 timestamp: timestamp
             ),
@@ -190,6 +260,6 @@ final class CommittedAnalysisWindowTests: XCTestCase {
     }
 
     private func day(_ year: Int, _ month: Int, _ day: Int) -> AnalysisCivilDay {
-        AnalysisCivilDay(year: year, month: month, day: day)
+        AnalysisCivilDay(year: year, month: month, day: day)!
     }
 }

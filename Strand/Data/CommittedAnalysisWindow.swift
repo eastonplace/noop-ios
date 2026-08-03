@@ -10,7 +10,10 @@ struct AnalysisCivilDay: Codable, Comparable, CustomStringConvertible, Equatable
     let month: Int
     let day: Int
 
-    init(year: Int, month: Int, day: Int) {
+    init?(year: Int, month: Int, day: Int) {
+        guard Self.isValidGregorianDate(year: year, month: month, day: day) else {
+            return nil
+        }
         self.year = year
         self.month = month
         self.day = day
@@ -18,10 +21,43 @@ struct AnalysisCivilDay: Codable, Comparable, CustomStringConvertible, Equatable
 
     init?(date: Date, calendar: Calendar) {
         let components = calendar.dateComponents([.year, .month, .day], from: date)
-        guard let year = components.year, let month = components.month, let day = components.day else {
+        guard let year = components.year,
+              let month = components.month,
+              let day = components.day,
+              let normalizedDate = calendar.date(from: DateComponents(
+                  year: year,
+                  month: month,
+                  day: day
+              )) else {
             return nil
         }
-        self.init(year: year, month: month, day: day)
+        let normalizedComponents = calendar.dateComponents(
+            [.year, .month, .day],
+            from: normalizedDate
+        )
+        guard normalizedComponents.year == year,
+              normalizedComponents.month == month,
+              normalizedComponents.day == day else {
+            return nil
+        }
+        self.year = year
+        self.month = month
+        self.day = day
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let year = try container.decode(Int.self, forKey: .year)
+        let month = try container.decode(Int.self, forKey: .month)
+        let day = try container.decode(Int.self, forKey: .day)
+        guard let value = Self(year: year, month: month, day: day) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .day,
+                in: container,
+                debugDescription: "AnalysisCivilDay must contain a real Gregorian calendar date."
+            )
+        }
+        self = value
     }
 
     var dateComponents: DateComponents {
@@ -29,7 +65,12 @@ struct AnalysisCivilDay: Codable, Comparable, CustomStringConvertible, Equatable
     }
 
     func date(in calendar: Calendar) -> Date? {
-        calendar.date(from: dateComponents)
+        guard let date = calendar.date(from: dateComponents),
+              let reconstructed = Self(date: date, calendar: calendar),
+              reconstructed == self else {
+            return nil
+        }
+        return date
     }
 
     var key: String {
@@ -41,11 +82,38 @@ struct AnalysisCivilDay: Codable, Comparable, CustomStringConvertible, Equatable
     static func < (lhs: Self, rhs: Self) -> Bool {
         (lhs.year, lhs.month, lhs.day) < (rhs.year, rhs.month, rhs.day)
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case year
+        case month
+        case day
+    }
+
+    private static func isValidGregorianDate(year: Int, month: Int, day: Int) -> Bool {
+        guard year >= 1, (1...12).contains(month), (1...31).contains(day) else {
+            return false
+        }
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        guard let date = calendar.date(from: DateComponents(
+            year: year,
+            month: month,
+            day: day
+        )) else {
+            return false
+        }
+        let components = calendar.dateComponents([.year, .month, .day], from: date)
+        return components.year == year
+            && components.month == month
+            && components.day == day
+    }
 }
 
 enum CommittedAnalysisWindowError: Error, Equatable, Sendable {
     case invertedTimestampRange
     case invalidLogicalDayRolloverHour
+    case tooManyAffectedDays
     case unrepresentableCivilDay
 }
 
@@ -57,6 +125,7 @@ enum CommittedAnalysisWindowError: Error, Equatable, Sendable {
 /// daily projections without this seam guessing at sleep semantics.
 struct CommittedAnalysisWindow: Codable, Equatable, Sendable {
     static let defaultLogicalDayRolloverHour = 4
+    static let maximumExpandedDayCount = 4_000
 
     let minimumTimestamp: Date?
     let maximumTimestamp: Date?
@@ -90,6 +159,12 @@ struct CommittedAnalysisWindow: Codable, Equatable, Sendable {
 
         var affected = touchedCivilDays
         affected.formUnion(timestampHealDays)
+        let calendar = inputCalendar
+        for day in affected {
+            guard day.date(in: calendar) != nil else {
+                throw CommittedAnalysisWindowError.unrepresentableCivilDay
+            }
+        }
 
         guard minimumTimestamp != nil || maximumTimestamp != nil else {
             return affected
@@ -105,7 +180,6 @@ struct CommittedAnalysisWindow: Codable, Equatable, Sendable {
             throw CommittedAnalysisWindowError.unrepresentableCivilDay
         }
 
-        let calendar = inputCalendar
         let minimumCivilStart = calendar.startOfDay(for: lowerTimestamp)
         let maximumCivilStart = calendar.startOfDay(for: upperTimestamp)
         let civilDayDistance = calendar.dateComponents(
@@ -116,6 +190,9 @@ struct CommittedAnalysisWindow: Codable, Equatable, Sendable {
 
         guard let civilDayDistance, civilDayDistance >= 0 else {
             throw CommittedAnalysisWindowError.unrepresentableCivilDay
+        }
+        guard civilDayDistance < Self.maximumExpandedDayCount else {
+            throw CommittedAnalysisWindowError.tooManyAffectedDays
         }
 
         // Enumerate local calendar days. Never replace this with 86,400-second stepping: DST days and
