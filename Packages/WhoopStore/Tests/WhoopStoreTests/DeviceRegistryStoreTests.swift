@@ -72,53 +72,69 @@ final class DeviceRegistryStoreTests: XCTestCase {
         XCTAssertEqual(try store.historyCursorEpoch(for: "my-whoop"), 0)
 
         try store.setPeripheralId("my-whoop", peripheralId: "peripheral-a")
-        XCTAssertEqual(try store.historyLineage(for: "my-whoop"), initialLineage)
-        XCTAssertEqual(try store.historyCursorEpoch(for: "my-whoop"), 0)
+        let firstPeripheralLineage = try XCTUnwrap(store.historyLineage(for: "my-whoop"))
+        XCTAssertNotEqual(firstPeripheralLineage, initialLineage)
+        XCTAssertEqual(try store.historyCursorEpoch(for: "my-whoop"), 1)
+
+        // Re-adopting the same physical peripheral is a metadata-stable update.
+        try store.setPeripheralId("my-whoop", peripheralId: "peripheral-a")
+        XCTAssertEqual(try store.historyLineage(for: "my-whoop"), firstPeripheralLineage)
+        XCTAssertEqual(try store.historyCursorEpoch(for: "my-whoop"), 1)
 
         try store.setPeripheralId("my-whoop", peripheralId: "peripheral-b")
         let replacementLineage = try XCTUnwrap(store.historyLineage(for: "my-whoop"))
-        XCTAssertNotEqual(replacementLineage, initialLineage)
-        XCTAssertEqual(try store.historyCursorEpoch(for: "my-whoop"), 1)
+        XCTAssertNotEqual(replacementLineage, firstPeripheralLineage)
+        XCTAssertEqual(try store.historyCursorEpoch(for: "my-whoop"), 2)
 
         try store.setPeripheralId("my-whoop", peripheralId: nil)
         let clearedLineage = try XCTUnwrap(store.historyLineage(for: "my-whoop"))
         XCTAssertNotEqual(clearedLineage, replacementLineage)
-        XCTAssertEqual(try store.historyCursorEpoch(for: "my-whoop"), 2)
+        XCTAssertEqual(try store.historyCursorEpoch(for: "my-whoop"), 3)
 
         try store.setPeripheralId("my-whoop", peripheralId: "peripheral-c")
-        XCTAssertEqual(try store.historyLineage(for: "my-whoop"), clearedLineage)
-        XCTAssertEqual(try store.historyCursorEpoch(for: "my-whoop"), 2)
+        let readoptedLineage = try XCTUnwrap(store.historyLineage(for: "my-whoop"))
+        XCTAssertNotEqual(readoptedLineage, clearedLineage)
+        XCTAssertEqual(try store.historyCursorEpoch(for: "my-whoop"), 4)
 
         try store.deleteAllData(deviceId: "my-whoop")
-        XCTAssertNotEqual(try store.historyLineage(for: "my-whoop"), clearedLineage)
-        XCTAssertEqual(try store.historyCursorEpoch(for: "my-whoop"), 3)
+        XCTAssertNotEqual(try store.historyLineage(for: "my-whoop"), readoptedLineage)
+        XCTAssertEqual(try store.historyCursorEpoch(for: "my-whoop"), 5)
     }
 
-    func testUpsertAdvancesHistoryFenceWhenPeripheralChanges() throws {
+    func testUpsertFencesFirstPeripheralAdoptionAndKeepsSamePeripheralStable() throws {
         let store = DeviceRegistryStore(dbQueue: try makeDB())
         let id = "upsert-whoop"
         try store.add(PairedDevice(
-            id: id, brand: "WHOOP", model: "WHOOP 5.0", peripheralId: "peripheral-a",
+            id: id, brand: "WHOOP", model: "WHOOP 5.0", peripheralId: nil,
             sourceKind: .liveBLE, capabilities: [.hr], status: .paired, addedAt: 1, lastSeenAt: 1
         ))
-        let initialLineage = try XCTUnwrap(store.historyLineage(for: id))
+        let legacyLineage = try XCTUnwrap(store.historyLineage(for: id))
         XCTAssertEqual(try store.historyCursorEpoch(for: id), 0)
+
+        // Registering the first physical peripheral must fence history from the legacy no-identity row.
+        try store.add(PairedDevice(
+            id: id, brand: "WHOOP", model: "WHOOP 5.0", peripheralId: "peripheral-a",
+            sourceKind: .liveBLE, capabilities: [.hr], status: .paired, addedAt: 1, lastSeenAt: 2
+        ))
+        let firstPeripheralLineage = try XCTUnwrap(store.historyLineage(for: id))
+        XCTAssertNotEqual(firstPeripheralLineage, legacyLineage)
+        XCTAssertEqual(try store.historyCursorEpoch(for: id), 1)
 
         // A metadata refresh for the same physical peripheral preserves the fence.
         try store.add(PairedDevice(
             id: id, brand: "WHOOP", model: "WHOOP 5.0 / MG", peripheralId: "peripheral-a",
-            sourceKind: .liveBLE, capabilities: [.hr], status: .paired, addedAt: 1, lastSeenAt: 2
+            sourceKind: .liveBLE, capabilities: [.hr], status: .paired, addedAt: 1, lastSeenAt: 3
         ))
-        XCTAssertEqual(try store.historyLineage(for: id), initialLineage)
-        XCTAssertEqual(try store.historyCursorEpoch(for: id), 0)
+        XCTAssertEqual(try store.historyLineage(for: id), firstPeripheralLineage)
+        XCTAssertEqual(try store.historyCursorEpoch(for: id), 1)
 
         // Replacing the adopted peripheral advances both parts of the history fence.
         try store.add(PairedDevice(
             id: id, brand: "WHOOP", model: "WHOOP 5.0 / MG", peripheralId: "peripheral-b",
-            sourceKind: .liveBLE, capabilities: [.hr], status: .paired, addedAt: 1, lastSeenAt: 3
+            sourceKind: .liveBLE, capabilities: [.hr], status: .paired, addedAt: 1, lastSeenAt: 4
         ))
-        XCTAssertNotEqual(try store.historyLineage(for: id), initialLineage)
-        XCTAssertEqual(try store.historyCursorEpoch(for: id), 1)
+        XCTAssertNotEqual(try store.historyLineage(for: id), firstPeripheralLineage)
+        XCTAssertEqual(try store.historyCursorEpoch(for: id), 2)
     }
 
     func testDeviceForPeripheralIdFindsIt() throws {

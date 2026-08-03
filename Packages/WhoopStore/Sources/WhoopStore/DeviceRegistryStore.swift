@@ -63,9 +63,10 @@ public struct DeviceRegistryStore: Sendable {
                 sql: "SELECT peripheralId FROM pairedDevice WHERE id = ?",
                 arguments: [id]
             )
-            // A different adopted peripheral is a new history lineage. The old samples remain readable,
-            // but a trim from the old physical strap must never suppress a fresh strap's offload.
-            if let previous, previous != peripheralId {
+            // Any physical identity transition is a new history lineage, including first adoption from
+            // the legacy no-peripheral state. The old samples remain readable, but a trim from the old
+            // physical source must never suppress a fresh source's offload.
+            if previous != peripheralId {
                 try db.execute(
                     sql: """
                         UPDATE pairedDevice
@@ -205,9 +206,8 @@ public struct DeviceRegistryStore: Sendable {
         let previousLineage: String? = existing?["historyLineage"]
         let previousEpoch: Int? = existing?["historyCursorEpoch"]
         // A registry upsert is also a physical-source update. Preserve the current fence for a metadata
-        // refresh, but advance it when an already-adopted peripheral is replaced or cleared.
+        // refresh, but advance it whenever the physical identity changes, including first adoption.
         let physicalPeripheralChanged = existing != nil
-            && previousPeripheral != nil
             && previousPeripheral != d.peripheralId
         let lineage = physicalPeripheralChanged
             ? UUID().uuidString
