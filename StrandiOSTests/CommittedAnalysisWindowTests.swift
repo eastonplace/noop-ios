@@ -136,15 +136,61 @@ final class CommittedAnalysisWindowTests: XCTestCase {
     }
 
     func testImpossibleCivilDateIsRejectedInsteadOfNormalized() throws {
-        let calendar = try calendar(timeZone: "America/New_York")
+        let gregorianCalendar = try calendar(timeZone: "America/New_York")
+        let hebrewCalendar = try calendar(identifier: .hebrew, timeZone: "UTC")
 
         XCTAssertNil(AnalysisCivilDay(year: 2026, month: 2, day: 30))
+        XCTAssertNil(AnalysisCivilDay(year: 5787, month: 14, day: 1, calendar: hebrewCalendar))
 
         let invalidPayload = Data(#"{"year":2026,"month":2,"day":30}"#.utf8)
         XCTAssertThrowsError(try JSONDecoder().decode(AnalysisCivilDay.self, from: invalidPayload))
 
         let validDay = try XCTUnwrap(AnalysisCivilDay(year: 2026, month: 2, day: 28))
-        XCTAssertEqual(validDay.date(in: calendar), try date(calendar, year: 2026, month: 2, day: 28, hour: 0))
+        XCTAssertEqual(validDay.date(in: gregorianCalendar), try date(gregorianCalendar, year: 2026, month: 2, day: 28, hour: 0))
+    }
+
+    func testCivilDaySerializationPreservesGregorianAndHebrewLeapMonthValues() throws {
+        let gregorianCalendar = try calendar(timeZone: "UTC")
+        let hebrewCalendar = try calendar(identifier: .hebrew, timeZone: "UTC")
+        let gregorianDate = try date(gregorianCalendar, year: 2026, month: 2, day: 28, hour: 0)
+        let hebrewDate = try XCTUnwrap(hebrewCalendar.date(from: DateComponents(
+            year: 5787,
+            month: 13,
+            day: 1
+        )))
+        let gregorianDay = try XCTUnwrap(AnalysisCivilDay(date: gregorianDate, calendar: gregorianCalendar))
+        let hebrewDay = try XCTUnwrap(AnalysisCivilDay(date: hebrewDate, calendar: hebrewCalendar))
+
+        let encoder = JSONEncoder()
+        let decoder = JSONDecoder()
+        let decodedGregorian = try decoder.decode(
+            AnalysisCivilDay.self,
+            from: encoder.encode(gregorianDay)
+        )
+        let decodedHebrew = try decoder.decode(
+            AnalysisCivilDay.self,
+            from: encoder.encode(hebrewDay)
+        )
+
+        XCTAssertEqual(decodedGregorian, gregorianDay)
+        XCTAssertEqual(decodedGregorian.date(in: gregorianCalendar), gregorianDate)
+        XCTAssertEqual(decodedHebrew, hebrewDay)
+        XCTAssertEqual(decodedHebrew.calendarIdentifier, .hebrew)
+        XCTAssertEqual(decodedHebrew.date(in: hebrewCalendar), hebrewDate)
+        XCTAssertNil(decodedHebrew.date(in: gregorianCalendar))
+
+        let legacyGregorian = try decoder.decode(
+            AnalysisCivilDay.self,
+            from: Data(#"{"year":2026,"month":2,"day":28}"#.utf8)
+        )
+        XCTAssertEqual(legacyGregorian, gregorianDay)
+
+        let window = CommittedAnalysisWindow(touchedCivilDays: [gregorianDay, hebrewDay])
+        let decodedWindow = try decoder.decode(
+            CommittedAnalysisWindow.self,
+            from: encoder.encode(window)
+        )
+        XCTAssertEqual(decodedWindow, window)
     }
 
     func testTimestampExpansionRejectsAnUnboundedHistoryRange() throws {
@@ -236,9 +282,12 @@ final class CommittedAnalysisWindowTests: XCTestCase {
         XCTAssertEqual(mutation.algorithmBundleVersion, "contract-test-v1")
     }
 
-    private func calendar(timeZone identifier: String) throws -> Calendar {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: identifier))
+    private func calendar(
+        identifier: Calendar.Identifier = .gregorian,
+        timeZone timeZoneIdentifier: String
+    ) throws -> Calendar {
+        var calendar = Calendar(identifier: identifier)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: timeZoneIdentifier))
         return calendar
     }
 

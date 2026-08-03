@@ -2,47 +2,43 @@ import Foundation
 
 /// A calendar day identified by its year/month/day components in the calendar supplied to the planner.
 ///
-/// The value does not retain a `Date` or a time zone. A caller must use the same `Calendar` that assigned
-/// the day when it turns the value back into a date. This keeps travel-time-zone changes explicit instead of
-/// freezing a launch-time formatter into the analysis contract.
+/// The value does not retain a `Date` or a time zone. It retains the calendar identifier so serialization does
+/// not reinterpret valid non-Gregorian components as Gregorian components. A caller must use the same kind
+/// of `Calendar` that assigned the day when it turns the value back into a date. This keeps travel-time-zone
+/// changes explicit instead of freezing a launch-time formatter into the analysis contract.
 struct AnalysisCivilDay: Codable, Comparable, CustomStringConvertible, Equatable, Hashable, Sendable {
     let year: Int
     let month: Int
     let day: Int
+    let calendarIdentifier: Calendar.Identifier
 
     init?(year: Int, month: Int, day: Int) {
-        guard Self.isValidGregorianDate(year: year, month: month, day: day) else {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        self.init(year: year, month: month, day: day, calendar: calendar)
+    }
+
+    init?(year: Int, month: Int, day: Int, calendar: Calendar) {
+        guard Self.isValidDate(year: year, month: month, day: day, calendar: calendar) else {
             return nil
         }
         self.year = year
         self.month = month
         self.day = day
+        self.calendarIdentifier = calendar.identifier
     }
 
     init?(date: Date, calendar: Calendar) {
         let components = calendar.dateComponents([.year, .month, .day], from: date)
         guard let year = components.year,
               let month = components.month,
-              let day = components.day,
-              let normalizedDate = calendar.date(from: DateComponents(
-                  year: year,
-                  month: month,
-                  day: day
-              )) else {
+              let day = components.day else {
             return nil
         }
-        let normalizedComponents = calendar.dateComponents(
-            [.year, .month, .day],
-            from: normalizedDate
-        )
-        guard normalizedComponents.year == year,
-              normalizedComponents.month == month,
-              normalizedComponents.day == day else {
+        guard let value = Self(year: year, month: month, day: day, calendar: calendar) else {
             return nil
         }
-        self.year = year
-        self.month = month
-        self.day = day
+        self = value
     }
 
     init(from decoder: Decoder) throws {
@@ -50,11 +46,20 @@ struct AnalysisCivilDay: Codable, Comparable, CustomStringConvertible, Equatable
         let year = try container.decode(Int.self, forKey: .year)
         let month = try container.decode(Int.self, forKey: .month)
         let day = try container.decode(Int.self, forKey: .day)
-        guard let value = Self(year: year, month: month, day: day) else {
+        let calendarIdentifier = try container.decodeIfPresent(
+            Calendar.Identifier.self,
+            forKey: .calendarIdentifier
+        ) ?? .gregorian
+        guard let value = Self(
+            year: year,
+            month: month,
+            day: day,
+            calendar: Calendar(identifier: calendarIdentifier)
+        ) else {
             throw DecodingError.dataCorruptedError(
                 forKey: .day,
                 in: container,
-                debugDescription: "AnalysisCivilDay must contain a real Gregorian calendar date."
+                debugDescription: "AnalysisCivilDay must contain a real \(String(describing: calendarIdentifier)) calendar date."
             )
         }
         self = value
@@ -65,6 +70,9 @@ struct AnalysisCivilDay: Codable, Comparable, CustomStringConvertible, Equatable
     }
 
     func date(in calendar: Calendar) -> Date? {
+        guard calendar.identifier == calendarIdentifier else {
+            return nil
+        }
         guard let date = calendar.date(from: dateComponents),
               let reconstructed = Self(date: date, calendar: calendar),
               reconstructed == self else {
@@ -80,22 +88,29 @@ struct AnalysisCivilDay: Codable, Comparable, CustomStringConvertible, Equatable
     var description: String { key }
 
     static func < (lhs: Self, rhs: Self) -> Bool {
-        (lhs.year, lhs.month, lhs.day) < (rhs.year, rhs.month, rhs.day)
+        if lhs.calendarIdentifier != rhs.calendarIdentifier {
+            return String(describing: lhs.calendarIdentifier) < String(describing: rhs.calendarIdentifier)
+        }
+        return (lhs.year, lhs.month, lhs.day) < (rhs.year, rhs.month, rhs.day)
     }
 
     private enum CodingKeys: String, CodingKey {
         case year
         case month
         case day
+        case calendarIdentifier
     }
 
-    private static func isValidGregorianDate(year: Int, month: Int, day: Int) -> Bool {
-        guard year >= 1, (1...12).contains(month), (1...31).contains(day) else {
+    private static func isValidDate(
+        year: Int,
+        month: Int,
+        day: Int,
+        calendar: Calendar
+    ) -> Bool {
+        guard year >= 1, month >= 1, day >= 1 else {
             return false
         }
 
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         guard let date = calendar.date(from: DateComponents(
             year: year,
             month: month,
