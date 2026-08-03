@@ -761,6 +761,24 @@ struct TodayView: View {
         return days.last(where: { $0.day == selectedDayKey })
     }
 
+    /// A replaced `.task(id:)` may finish its actor-bound reads after SwiftUI has cancelled it. Keep every
+    /// day-scoped state mutation behind one identity check, so a result for an old refresh or day cannot
+    /// repaint the current screen while its replacement is still loading.
+    nonisolated static func shouldCommitDayScopedLoad(
+        loadSeq: Int,
+        currentSeq: Int,
+        loadDayKey: String,
+        currentDayKey: String,
+        loadRestScoreKey: String,
+        currentRestScoreKey: String,
+        isCancelled: Bool
+    ) -> Bool {
+        !isCancelled
+            && loadSeq == currentSeq
+            && loadDayKey == currentDayKey
+            && loadRestScoreKey == currentRestScoreKey
+    }
+
     /// The DailyMetric shown for the selected day. The normal path is the O(1) presentation snapshot. The
     /// fallback only covers the single render before SwiftUI commits a changed key; it is deliberately pure
     /// and has the identical resolver semantics, so a rollover or refresh never renders a stale row.
@@ -4705,12 +4723,14 @@ struct TodayView: View {
         let loadSeq = repo.refreshSeq
         let loadDayKey = selectedDayKey
         let loadRestScoreKey = restScorePresentationKey
+        let loadSelectedDayOffset = selectedDayOffset
+        let loadSelectedLogicalDay = selectedLogicalDay
         if repo.todayDayScopedLoadedSeq == loadSeq,
            repo.todayDayScopedLoadedDayKey == loadDayKey,
            let cached = repo.todayDayScopedCache,
-           selectedDayOffset != 0 || Date().timeIntervalSince(cached.bankedAt) < Self.todayCacheMaxAge {
+           loadSelectedDayOffset != 0 || Date().timeIntervalSince(cached.bankedAt) < Self.todayCacheMaxAge {
             restoreDayScoped(cached, loadKey: loadRestScoreKey)
-            if selectedDayOffset == 0, let axis = hrAxis {
+            if loadSelectedDayOffset == 0, let axis = hrAxis {
                 let nowEnd = Date()
                 if nowEnd > axis.upperBound {
                     let extended = axis.lowerBound ... nowEnd
@@ -4744,18 +4764,15 @@ struct TodayView: View {
         // trend didn't track the score it sat under. Plot the SAME merged `sleep_performance` 0–100 series
         // the score reads instead, windowed to the trailing 14 calendar days like every other spark.
         let restSparkLocal = trailingWindow(restSeries, days: 14).map { $0.value }
-        sparks["sleep_performance"] = restSparkLocal
         // The selected day's Sleep, falling back to the series tail only when today itself is selected (a
         // navigated past day with no Sleep row shows ", " rather than borrowing the newest value) AND that
         // tail night is still fresh. #977: a live 5.0 whose sleep never scores used to pin Sleep to the
         // weeks-old series tail forever; gate the tail-fallback on freshness so a stale tail falls through
         // to the No-Data state instead of freezing.
         let restScoreLocal = Self.freshRestScore(
-            todayValue: restByDay[selectedDayKey], lastDay: restSeries.last?.day,
-            lastValue: restSeries.last?.value, isTodaySelected: selectedDayOffset == 0,
-            todayKey: selectedDayKey)
-        restScore = restScoreLocal
-        restScoreLoadKey = loadRestScoreKey
+            todayValue: restByDay[loadDayKey], lastDay: restSeries.last?.day,
+            lastValue: restSeries.last?.value, isTodaySelected: loadSelectedDayOffset == 0,
+            todayKey: loadDayKey)
 
         // Component 4, resolve the REAL per-day merge winner for the selected day's derived scores. The
         // cross-source resolver applies the SAME imported-WHOOP > NOOP-computed > Apple-Health precedence
@@ -4764,14 +4781,13 @@ struct TodayView: View {
         // metric so the Charge ring and Sleep tile each badge their own winner.
         var provenance: [String: String] = [:]
         let recoveryResolved = await recoveryResolvedA
-        if let win = recoveryResolved.points.last(where: { $0.day == selectedDayKey })?.source {
+        if let win = recoveryResolved.points.last(where: { $0.day == loadDayKey })?.source {
             provenance["recovery"] = win
         }
         let restResolved = await restResolvedA
-        if let win = restResolved.points.last(where: { $0.day == selectedDayKey })?.source {
+        if let win = restResolved.points.last(where: { $0.day == loadDayKey })?.source {
             provenance["sleep_performance"] = win
         }
-        provenanceByMetric = provenance
         let sleepSourcePointLocal = Self.displayedSleepSourcePoint(
             day: loadDayKey,
             value: restScoreLocal,
@@ -4780,21 +4796,19 @@ struct TodayView: View {
             v2IsAuthoritative: SleepPerformanceV2Prefs.mode == .on,
             noopV2: await noopSleepV2A,
             whoop: await whoopSleepA)
-        displayedSleepScorePoint = sleepSourcePointLocal
 
         // HR trend for the SELECTED day, 5-minute bucket means from that logical day's local midnight.
         // For today the window runs to now (an in-progress curve); for a navigated past day it runs the
         // full 24h to the next midnight. The logical day rolls at 04:00 (Repository.logicalDayStart), so
         // in the small hours after midnight today still starts at yesterday's midnight rather than
         // blanking to an empty new-calendar-day axis (#144).
-        let dayStart = Calendar.current.startOfDay(for: selectedLogicalDay)
+        let dayStart = Calendar.current.startOfDay(for: loadSelectedLogicalDay)
         let windowStart = Int(dayStart.timeIntervalSince1970)
-        let windowEnd: Int = selectedDayOffset == 0
+        let windowEnd: Int = loadSelectedDayOffset == 0
             ? Int(Date().timeIntervalSince1970)
             : Int((Calendar.current.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart).timeIntervalSince1970)
         let hrPointsLocal = await repo.hrBuckets(from: windowStart, to: windowEnd, bucketSeconds: 300)
             .map { TrendPoint(date: Date(timeIntervalSince1970: TimeInterval($0.ts)), value: $0.bpm) }
-        hrPoints = hrPointsLocal
 
         // #316 / @63, the selected day's representative activity class for the Steps tile icon. Reads the
         // day's step samples (now carrying `activityClass` after the v19 column) and takes the LAST non-nil
@@ -4803,12 +4817,11 @@ struct TodayView: View {
         // under its OWN fresh id, so a read pinned to the canonical "my-whoop" would drop the icon for a
         // re-added strap (the #904/#908 family). nil (no classed sample) hides the icon.
         let stepClassLocal = await repo.stepActivityClassLatest(from: windowStart, to: windowEnd)
-        stepActivityClassToday = stepClassLocal
 
         // Resolve the main sleep before live Strain so both Today's continuation and the historical
         // engine start the physiological day at the same tracked-night boundary. This is also reused by
         // the chart's sleep band below; one query, one canonical context.
-        let sleepTodayLocal = await repo.allSleepSessions(days: selectedDayOffset + 2)
+        let sleepTodayLocal = await repo.allSleepSessions(days: loadSelectedDayOffset + 2)
             .filter { $0.endTs > windowStart && $0.startTs < windowEnd }
             .max(by: { ($0.endTs - $0.startTs) < ($1.endTs - $1.startTs) })
 
@@ -4827,16 +4840,11 @@ struct TodayView: View {
         // day opens at full scale; a same-day end-extension keeps the user's zoom but RE-CLAMPS it into the
         // grown bounds (preserving its span) so a live sync never yanks them out of their zoom yet the window
         // can never sit outside the day. `panned(deltaSeconds: 0)` is the pure re-clamp.
-        hrZoomDomain = Self.reclampHrZoom(hrZoomDomain, oldAxis: hrAxis, newAxis: newAxis)
-        hrAxis = newAxis
-
         // Sleep session overlapping the window. Uses `allSleepSessions` (BOTH the imported and the
         // on-device COMPUTED source), a Bluetooth-only user's sleep lives under the computed source,
         // so the imported-only `sleepSessions` returns nothing. Keep blocks that actually overlap the
         // displayed window, then pick the LONGEST, the main night, not an afternoon nap. Drives the
         // HR sleep band + the recovery marker's wake anchor.
-        sleepToday = sleepTodayLocal
-
         // #932: snapshot everything just computed onto the long-lived `repo`, keyed by the (seq, day) this
         // pass loaded FOR (both captured at entry), so a later re-mount with the same (seq, day) restores it
         // in-memory instead of re-running the heavy reads. Skip the store when the pass was overtaken
@@ -4844,11 +4852,28 @@ struct TodayView: View {
         // runs to completion, so its outputs can straddle two days; caching that mix under the ENTRY key
         // would serve it again later. The re-fired pass for the new key reloads + snapshots genuinely, so
         // skipping here costs nothing but a cache miss. The snapshot is built from the LOCALS captured at
-        // each computation point, never from `@State` at tail time: a cancelled sibling pass's interleaved
-        // `@State` writes (its awaits still complete) can therefore never leak into this pass's bank.
-        guard loadDayKey == selectedDayKey,
-              loadRestScoreKey == restScorePresentationKey,
-              !Task.isCancelled else { return }
+        // each computation point, never from `@State` at tail time. Do not publish ANY state before the
+        // identity check: a cancelled sibling pass can finish after its replacement and must not repaint the
+        // new day, even briefly.
+        guard Self.shouldCommitDayScopedLoad(
+            loadSeq: loadSeq,
+            currentSeq: repo.refreshSeq,
+            loadDayKey: loadDayKey,
+            currentDayKey: selectedDayKey,
+            loadRestScoreKey: loadRestScoreKey,
+            currentRestScoreKey: restScorePresentationKey,
+            isCancelled: Task.isCancelled
+        ) else { return }
+        sparks["sleep_performance"] = restSparkLocal
+        restScore = restScoreLocal
+        restScoreLoadKey = loadRestScoreKey
+        provenanceByMetric = provenance
+        displayedSleepScorePoint = sleepSourcePointLocal
+        hrPoints = hrPointsLocal
+        stepActivityClassToday = stepClassLocal
+        hrZoomDomain = Self.reclampHrZoom(hrZoomDomain, oldAxis: hrAxis, newAxis: newAxis)
+        hrAxis = newAxis
+        sleepToday = sleepTodayLocal
         repo.todayDayScopedCache = TodayDayScopedCache(
             restSpark: restSparkLocal,
             restScore: restScoreLocal,

@@ -61,6 +61,37 @@ final class TodayFirstPaintSemanticsTests: XCTestCase {
         ), 42)
     }
 
+    func testCancelledOrSupersededDayLoadCannotPublishItsState() {
+        let currentDay = "2026-08-03"
+        let currentKey = "2026-08-03|2026-08-03|2026-08-03|0"
+
+        XCTAssertTrue(TodayView.shouldCommitDayScopedLoad(
+            loadSeq: 42, currentSeq: 42,
+            loadDayKey: currentDay, currentDayKey: currentDay,
+            loadRestScoreKey: currentKey, currentRestScoreKey: currentKey,
+            isCancelled: false
+        ))
+        XCTAssertFalse(TodayView.shouldCommitDayScopedLoad(
+            loadSeq: 42, currentSeq: 43,
+            loadDayKey: currentDay, currentDayKey: currentDay,
+            loadRestScoreKey: currentKey, currentRestScoreKey: currentKey,
+            isCancelled: false
+        ))
+        XCTAssertFalse(TodayView.shouldCommitDayScopedLoad(
+            loadSeq: 42, currentSeq: 42,
+            loadDayKey: "2026-08-02", currentDayKey: currentDay,
+            loadRestScoreKey: "2026-08-02|2026-08-03|2026-08-02|1",
+            currentRestScoreKey: currentKey,
+            isCancelled: false
+        ))
+        XCTAssertFalse(TodayView.shouldCommitDayScopedLoad(
+            loadSeq: 42, currentSeq: 42,
+            loadDayKey: currentDay, currentDayKey: currentDay,
+            loadRestScoreKey: currentKey, currentRestScoreKey: currentKey,
+            isCancelled: true
+        ))
+    }
+
     func testSameDayOldFrontierIsStaleEvenWhenSnapshotWriteIsRecent() {
         let now = 2_000_000
         let currentDay = "2026-08-03"
