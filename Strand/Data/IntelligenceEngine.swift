@@ -2220,27 +2220,19 @@ final class IntelligenceEngine: ObservableObject {
     }
 }
 
-private extension DailyMetric {
+extension DailyMetric {
     /// Rebuild the immutable DailyMetric with a substituted recovery + skin-temp deviation
     /// (the struct has no `copy()`). (#78)
     func with(recovery r: Double?, skinTempDevC sd: Double?) -> DailyMetric {
-        DailyMetric(day: day, totalSleepMin: totalSleepMin, efficiency: efficiency, deepMin: deepMin,
-                    remMin: remMin, lightMin: lightMin, disturbances: disturbances, restingHr: restingHr,
-                    avgHrv: avgHrv, recovery: r, strain: strain, exerciseCount: exerciseCount,
-                    spo2Pct: spo2Pct, skinTempDevC: sd, respRateBpm: respRateBpm,
-                    steps: steps, activeKcalEst: activeKcalEst,
-                    spo2Red: spo2Red, spo2Ir: spo2Ir)
+        replacing(recovery: .some(r), skinTempDevC: .some(sd))
     }
 
     /// Rebuild with substituted sleep-derived fields (a user-corrected wake window), leaving every
     /// non-sleep field untouched. Used by `sleepEditedDaily` so Rest/recovery score the edited sleep. (#318)
     func with(totalSleepMin tsm: Double?, efficiency eff: Double?,
               deepMin dm: Double?, remMin rm: Double?, lightMin lm: Double?) -> DailyMetric {
-        DailyMetric(day: day, totalSleepMin: tsm, efficiency: eff, deepMin: dm, remMin: rm, lightMin: lm,
-                    disturbances: disturbances, restingHr: restingHr, avgHrv: avgHrv, recovery: recovery,
-                    strain: strain, exerciseCount: exerciseCount, spo2Pct: spo2Pct,
-                    skinTempDevC: skinTempDevC, respRateBpm: respRateBpm, steps: steps,
-                    activeKcalEst: activeKcalEst, spo2Red: spo2Red, spo2Ir: spo2Ir)
+        replacing(totalSleepMin: .some(tsm), efficiency: .some(eff), deepMin: .some(dm),
+                  remMin: .some(rm), lightMin: .some(lm))
     }
 }
 
