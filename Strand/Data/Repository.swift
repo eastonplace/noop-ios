@@ -231,8 +231,8 @@ final class Repository: ObservableObject {
     /// refreshSeq, so this dedicated revision prevents a newly hydrated snapshot being hidden by old nil UI.
     /// It changes only when visible data changes; writer metadata is intentionally excluded.
     @Published private(set) var todayHealthSnapshotRevision = 0
-    /// Coalesces the post-refresh enrichment/write. The immediate in-memory handoff stays synchronous;
-    /// the exact-day Sleep query and durable write never hold up the dashboard publication.
+    /// Coalesces live-Strain enrichment writes. Cache-first publication stays immediate; a full refresh
+    /// separately awaits the exact-day Sleep read and durable first-paint write.
     private var todayHealthSnapshotWriteTask: Task<Void, Never>?
     /// Bumped whenever a source or database replacement invalidates first-paint state. Every async reader
     /// and writer captures this before its first suspension, so cancellation races cannot resurrect a value.
@@ -258,6 +258,14 @@ final class Repository: ObservableObject {
             case .strain, .sleepScore: return nil
             }
         }
+    }
+
+    /// A metric read must distinguish a verified absence from a failed database read. Only `.value` and
+    /// `.absent` are authoritative; `.failed` is unknown and must preserve persisted evidence.
+    private enum TodayHealthMetricRead<Value> {
+        case value(Value)
+        case absent
+        case failed
     }
 
     private enum TodayHealthSnapshotWritePolicy: Equatable {
@@ -343,6 +351,15 @@ final class Repository: ObservableObject {
     /// Inject a pre-opened store so unit tests can exercise the read facades (e.g. `timelineSeries`)
     /// against an in-memory `WhoopStore` without touching the on-disk path. DEBUG-only test seam.
     func setStoreForTesting(_ s: WhoopStore) { self.store = s }
+
+    /// Deterministic test seam for the authoritative exact-day Sleep read. It exercises the database-failure
+    /// branch without scheduler timing or a damaged shared database. Production always uses `.database`.
+    enum TodayHealthSnapshotSleepReadOverride: Equatable {
+        case database
+        case failed
+    }
+
+    var todayHealthSnapshotSleepReadOverride: TodayHealthSnapshotSleepReadOverride = .database
     #endif
 
     // MARK: - Union reads (active strap + canonical)
@@ -1164,6 +1181,48 @@ final class Repository: ObservableObject {
         scheduleTodayHealthSnapshotWrite(policy: writePolicy)
     }
 
+    /// Publish the cache-first candidate now, then await the exact display-day Sleep read and durable save.
+    /// The candidate is captured before the first suspension so the Sleep query and snapshot share one day.
+    private func refreshTodayHealthSnapshotFromCurrentCachesAndPersist(
+        now: Date,
+        refreshGeneration: Int
+    ) async {
+        guard refreshGeneration == refreshGen,
+              let candidate = currentTodayHealthSnapshot(now: now)
+        else { return }
+        let resolved = TodayHealthSnapshotResolver.resolve(
+            persisted: todayHealthSnapshot, live: candidate
+        ) ?? candidate
+        publishTodayHealthSnapshot(resolved, persist: false)
+        await persistTodayHealthSnapshot(
+            candidate: candidate,
+            generation: todayHealthSnapshotGeneration,
+            refreshGeneration: refreshGeneration
+        )
+    }
+
+    /// An authoritative refresh owns its write until the exact-day read and SQLite save finish. Cancel the
+    /// optional throttled writer first, but do not make the awaited path depend on that unstructured task.
+    private func persistTodayHealthSnapshot(
+        candidate: TodayHealthSnapshot,
+        generation: Int,
+        refreshGeneration: Int
+    ) async {
+        guard generation == todayHealthSnapshotGeneration,
+              refreshGeneration == refreshGen
+        else { return }
+        todayHealthSnapshotWriteTask?.cancel()
+        todayHealthSnapshotWriteTask = nil
+        todayHealthSnapshotWriteDirty = false
+        todayHealthSnapshotWritePolicy = .immediate
+        todayHealthSnapshotWriteToken &+= 1
+        await enrichAndPersistTodayHealthSnapshot(
+            candidate: candidate,
+            generation: generation,
+            refreshGeneration: refreshGeneration
+        )
+    }
+
     private func publishTodayHealthSnapshot(_ snapshot: TodayHealthSnapshot, persist: Bool,
                                             writePolicy: TodayHealthSnapshotWritePolicy = .immediate) {
         if todayHealthSnapshot != snapshot {
@@ -1214,7 +1273,7 @@ final class Repository: ObservableObject {
                   generation == self.todayHealthSnapshotGeneration,
                   token == self.todayHealthSnapshotWriteToken
             else { return }
-            await self.enrichAndPersistTodayHealthSnapshot(generation: generation)
+            await self.enrichAndPersistTodayHealthSnapshot(generation: generation, writeToken: token)
             guard generation == self.todayHealthSnapshotGeneration,
                   token == self.todayHealthSnapshotWriteToken
             else { return }
@@ -1226,35 +1285,80 @@ final class Repository: ObservableObject {
         }
     }
 
-    private func enrichAndPersistTodayHealthSnapshot(generation: Int) async {
+    private func enrichAndPersistTodayHealthSnapshot(
+        candidate: TodayHealthSnapshot? = nil,
+        generation: Int,
+        refreshGeneration: Int? = nil,
+        writeToken: Int? = nil
+    ) async {
         let trace = PerformanceTrace.begin("today_health_snapshot_write")
         var changedRows = 0
         defer { PerformanceTrace.end(trace, changedRows: changedRows) }
+        let refreshIsCurrent = refreshGeneration.map { $0 == refreshGen } ?? true
+        let writerIsCurrent = writeToken.map { $0 == todayHealthSnapshotWriteToken } ?? true
         guard generation == todayHealthSnapshotGeneration,
-              let store = await ensureStore(),
-              generation == todayHealthSnapshotGeneration,
-              let base = currentTodayHealthSnapshot(now: Date())
+              refreshIsCurrent,
+              writerIsCurrent,
+              let store = await ensureStore()
+        else { return }
+        let base: TodayHealthSnapshot
+        if let candidate {
+            base = candidate
+        } else {
+            guard let current = currentTodayHealthSnapshot(now: Date()) else { return }
+            base = current
+        }
+
+        let sleepRead = await currentSleepScore(store: store, day: base.displayDay)
+        let isCurrentAfterSleepRead = refreshGeneration.map { $0 == refreshGen } ?? true
+        let writerIsCurrentAfterSleepRead = writeToken.map { $0 == todayHealthSnapshotWriteToken } ?? true
+        guard generation == todayHealthSnapshotGeneration,
+              isCurrentAfterSleepRead,
+              writerIsCurrentAfterSleepRead
         else { return }
 
-        let sleepScore = await currentSleepScore(store: store, day: base.displayDay)
-        guard generation == todayHealthSnapshotGeneration else { return }
         let rawFrontierTs = await unionLatestHRSampleTs(store: store)
-        guard generation == todayHealthSnapshotGeneration else { return }
+        let isCurrentAfterFrontierRead = refreshGeneration.map { $0 == refreshGen } ?? true
+        let writerIsCurrentAfterFrontierRead = writeToken.map { $0 == todayHealthSnapshotWriteToken } ?? true
+        guard generation == todayHealthSnapshotGeneration,
+              isCurrentAfterFrontierRead,
+              writerIsCurrentAfterFrontierRead
+        else { return }
+        let finalBase: TodayHealthSnapshot
+        if let current = currentTodayHealthSnapshot(now: Date()),
+           current.displayDay == base.displayDay {
+            finalBase = current
+        } else {
+            finalBase = base
+        }
+        let sleepScore: TodayHealthMetricValue?
+        let authoritativeMetrics: Set<TodayHealthSnapshot.Metric>
+        switch sleepRead {
+        case let .value(value):
+            sleepScore = value
+            authoritativeMetrics = finalBase.authoritativeMetrics.union([.sleepScore])
+        case .absent:
+            sleepScore = nil
+            authoritativeMetrics = finalBase.authoritativeMetrics.union([.sleepScore])
+        case .failed:
+            sleepScore = nil
+            authoritativeMetrics = finalBase.authoritativeMetrics.subtracting([.sleepScore])
+        }
         let enriched = TodayHealthSnapshot(
-            scopeId: base.scopeId,
-            context: base.context,
-            deviceId: base.deviceId,
-            displayDay: base.displayDay,
-            logicalDay: base.logicalDay,
-            localDay: base.localDay,
+            scopeId: finalBase.scopeId,
+            context: finalBase.context,
+            deviceId: finalBase.deviceId,
+            displayDay: finalBase.displayDay,
+            logicalDay: finalBase.logicalDay,
+            localDay: finalBase.localDay,
             generatedAt: Int(Date().timeIntervalSince1970),
             rawFrontierTs: rawFrontierTs,
-            authoritativeMetrics: base.authoritativeMetrics.union([.sleepScore]),
-            dailyMetric: base.dailyMetric,
-            recovery: base.recovery,
-            strain: base.strain,
+            authoritativeMetrics: authoritativeMetrics,
+            dailyMetric: finalBase.dailyMetric,
+            recovery: finalBase.recovery,
+            strain: finalBase.strain,
             sleepScore: sleepScore,
-            sleepDurationMinutes: base.sleepDurationMinutes
+            sleepDurationMinutes: finalBase.sleepDurationMinutes
         )
         let resolved = TodayHealthSnapshotResolver.resolve(
             persisted: todayHealthSnapshot, live: enriched
@@ -1262,15 +1366,23 @@ final class Repository: ObservableObject {
         let before = todayHealthSnapshot
         publishTodayHealthSnapshot(resolved, persist: false)
         changedRows = before == todayHealthSnapshot ? 0 : 1
-        guard generation == todayHealthSnapshotGeneration else { return }
-        if (try? await store.saveTodayHealthSnapshot(resolved)) == true {
+        let isCurrentBeforeSave = refreshGeneration.map { $0 == refreshGen } ?? true
+        let writerIsCurrentBeforeSave = writeToken.map { $0 == todayHealthSnapshotWriteToken } ?? true
+        guard generation == todayHealthSnapshotGeneration,
+              isCurrentBeforeSave,
+              writerIsCurrentBeforeSave
+        else { return }
+        do {
+            guard try await store.saveTodayHealthSnapshot(resolved) else { return }
             todayHealthSnapshotLastPersistedAt = Date()
             changedRows = 1
+        } catch {
+            return
         }
     }
 
     /// Build an in-memory candidate from the authoritative cache generation just published by `refresh()`.
-    /// It has no side effects and never reads the database, so a full refresh cannot wait behind snapshot I/O.
+    /// It has no side effects and never reads the database, so cache-first publication precedes snapshot I/O.
     private func currentTodayHealthSnapshot(now: Date) -> TodayHealthSnapshot? {
         guard let context = todayHealthSnapshotContext else { return nil }
         let logicalDay = Self.logicalDayKey(now)
@@ -1344,32 +1456,58 @@ final class Repository: ObservableObject {
 
     /// Exact-day Sleep/Rest resolution, using the same precedence PR #25 attempted to cache but without its
     /// 21-day startup scan: WHOOP import, then computed V2, then computed legacy score.
-    private func currentSleepScore(store: WhoopStore, day: String) async -> TodayHealthMetricValue? {
-        if let imported = try? await requiredUnionMetricSeriesWithSource(
-            store: store, ids: importedReadIds, key: "sleep_performance", from: day, to: day
-        ), let sourced = imported.last(where: {
-            $0.point.day == day && $0.point.value.isFinite && (0 ... 100).contains($0.point.value)
-        }) {
-            return TodayHealthMetricValue(value: sourced.point.value, metricDay: day, sourceId: sourced.sourceId,
-                                          algorithmVersion: "whoop-sleep-performance")
+    private func currentSleepScore(
+        store: WhoopStore,
+        day: String
+    ) async -> TodayHealthMetricRead<TodayHealthMetricValue> {
+        #if DEBUG
+        if todayHealthSnapshotSleepReadOverride == .failed { return .failed }
+        #endif
+        do {
+            let imported = try await requiredUnionMetricSeriesWithSource(
+                store: store, ids: importedReadIds, key: "sleep_performance", from: day, to: day
+            )
+            if let sourced = imported.last(where: {
+                $0.point.day == day && $0.point.value.isFinite && (0 ... 100).contains($0.point.value)
+            }) {
+                return .value(TodayHealthMetricValue(
+                    value: sourced.point.value, metricDay: day, sourceId: sourced.sourceId,
+                    algorithmVersion: "whoop-sleep-performance"))
+            }
+        } catch {
+            return .failed
         }
-        if let v2 = try? await requiredUnionMetricSeriesWithSource(
-            store: store, ids: computedReadIds, key: Self.sleepPerformanceV2Key, from: day, to: day
-        ), let sourced = v2.last(where: {
-            $0.point.day == day && $0.point.value.isFinite && (0 ... 100).contains($0.point.value)
-        }) {
-            return TodayHealthMetricValue(value: sourced.point.value, metricDay: day, sourceId: sourced.sourceId,
-                                          algorithmVersion: SleepPerformanceV2.modelVersion)
+
+        do {
+            let v2 = try await requiredUnionMetricSeriesWithSource(
+                store: store, ids: computedReadIds, key: Self.sleepPerformanceV2Key, from: day, to: day
+            )
+            if let sourced = v2.last(where: {
+                $0.point.day == day && $0.point.value.isFinite && (0 ... 100).contains($0.point.value)
+            }) {
+                return .value(TodayHealthMetricValue(
+                    value: sourced.point.value, metricDay: day, sourceId: sourced.sourceId,
+                    algorithmVersion: SleepPerformanceV2.modelVersion))
+            }
+        } catch {
+            return .failed
         }
-        if let computed = try? await requiredUnionMetricSeriesWithSource(
-            store: store, ids: computedReadIds, key: "sleep_performance", from: day, to: day
-        ), let sourced = computed.last(where: {
-            $0.point.day == day && $0.point.value.isFinite && (0 ... 100).contains($0.point.value)
-        }) {
-            return TodayHealthMetricValue(value: sourced.point.value, metricDay: day, sourceId: sourced.sourceId,
-                                          algorithmVersion: "noop-sleep-performance-v1")
+
+        do {
+            let computed = try await requiredUnionMetricSeriesWithSource(
+                store: store, ids: computedReadIds, key: "sleep_performance", from: day, to: day
+            )
+            if let sourced = computed.last(where: {
+                $0.point.day == day && $0.point.value.isFinite && (0 ... 100).contains($0.point.value)
+            }) {
+                return .value(TodayHealthMetricValue(
+                    value: sourced.point.value, metricDay: day, sourceId: sourced.sourceId,
+                    algorithmVersion: "noop-sleep-performance-v1"))
+            }
+        } catch {
+            return .failed
         }
-        return nil
+        return .absent
     }
 
     private func latestSleepEnd(for day: String) -> Int? {
@@ -1741,7 +1879,11 @@ final class Repository: ObservableObject {
             && merged.freshness == freshness
             && merged.persistedStrainByDay == persistedStrainByDay
             && merged.importedStrainByDay == importedStrainByDay
-        guard !unchanged else { return true }
+        guard !unchanged else {
+            await refreshTodayHealthSnapshotFromCurrentCachesAndPersist(
+                now: now, refreshGeneration: myGen)
+            return myGen == refreshGen
+        }
 
         // One consistent publish per refresh: assign every cache, flip `loaded`, then bump `refreshSeq` so
         // the intraday-updating views reload exactly once for this real change.
@@ -1756,8 +1898,9 @@ final class Repository: ObservableObject {
         rebuildCanonicalStrain()
         self.loaded = true
         self.refreshSeq += 1
-        refreshTodayHealthSnapshotFromCurrentCaches(now: now)
-        return true
+        await refreshTodayHealthSnapshotFromCurrentCachesAndPersist(
+            now: now, refreshGeneration: myGen)
+        return myGen == refreshGen
     }
 
     /// Per-source coverage counts for the Freshness Pipeline card. Pure over the rows already read.
