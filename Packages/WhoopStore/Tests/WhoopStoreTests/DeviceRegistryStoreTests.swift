@@ -183,6 +183,43 @@ final class DeviceRegistryStoreTests: XCTestCase {
         XCTAssertEqual(try store.activeDeviceId(), "my-whoop")
     }
 
+    func testDeleteAllDataClearsOnlyTheTargetDeviceCheckpointRows() throws {
+        let dbq = try makeDB()
+        let store = DeviceRegistryStore(dbQueue: dbq)
+
+        try dbq.write { db in
+            for (deviceId, consumerId, lineage) in [
+                ("apple-health", "analysis", "lineage-a"),
+                ("apple-health", "recovery", "lineage-a"),
+                ("my-whoop", "analysis", "lineage-b"),
+            ] {
+                try db.execute(sql: """
+                    INSERT INTO historicalAnalysisCheckpoint
+                        (databaseInstanceId, consumerId, deviceId, lineage, cursorEpoch, trimScope)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """, arguments: ["test-database", consumerId, deviceId, lineage, 0, "all"])
+            }
+        }
+
+        func countCheckpointRows(for deviceId: String) throws -> Int {
+            try dbq.read { db in
+                try Int.fetchOne(
+                    db,
+                    sql: "SELECT COUNT(*) FROM historicalAnalysisCheckpoint WHERE deviceId = ?",
+                    arguments: [deviceId]
+                ) ?? 0
+            }
+        }
+
+        XCTAssertEqual(try countCheckpointRows(for: "apple-health"), 2)
+        XCTAssertEqual(try countCheckpointRows(for: "my-whoop"), 1)
+
+        try store.deleteAllData(deviceId: "apple-health")
+
+        XCTAssertEqual(try countCheckpointRows(for: "apple-health"), 0)
+        XCTAssertEqual(try countCheckpointRows(for: "my-whoop"), 1)
+    }
+
     // Regression guard (audit finding): every table with a `deviceId` column MUST appear in
     // `deviceScopedTables`, or `deleteAllData` silently leaves that device's rows behind — a privacy
     // defect for a delete-means-gone app. Enumerate the live schema and fail if any deviceId-keyed table
