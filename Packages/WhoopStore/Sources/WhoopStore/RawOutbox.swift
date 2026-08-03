@@ -50,6 +50,12 @@ public struct RawBatchMeta: Equatable, Sendable {
     }
 }
 
+private struct RawBatchIdentity {
+    let deviceId: String
+    let lineage: String
+    let cursorEpoch: Int
+}
+
 extension WhoopStore {
     // MARK: - frame (de)serialization
     // Layout: [count u32 LE]{ [len u32 LE][bytes] } x count. zlib-compressed as a whole.
@@ -196,7 +202,25 @@ extension WhoopStore {
         return nil
     }
 
-    /// Decompress and return the exact frame bytes for a batch (empty if unknown).
+    /// Resolve a legacy batch ID only when exactly one physical-source identity owns it.
+    /// `nil` means unknown or ambiguous, so legacy callers fail closed without selecting a row.
+    private static func uniqueRawBatchIdentity(batchId: String, in db: Database) throws -> RawBatchIdentity? {
+        let rows = try Row.fetchAll(db, sql: """
+            SELECT deviceId, lineage, cursorEpoch
+            FROM rawBatch
+            WHERE batchId = ?
+            LIMIT 2
+            """, arguments: [batchId])
+        guard rows.count == 1 else { return nil }
+        let row = rows[0]
+        return RawBatchIdentity(
+            deviceId: row["deviceId"],
+            lineage: row["lineage"],
+            cursorEpoch: row["cursorEpoch"]
+        )
+    }
+
+    /// Decompress and return the exact frame bytes for a batch (empty if unknown or ambiguous).
     public func rawFrames(batchId: String) async throws -> [[UInt8]] {
         try await loadRawFrames(batchId: batchId, lineage: nil, cursorEpoch: nil)
     }
@@ -219,10 +243,16 @@ extension WhoopStore {
                     arguments: [batchId, lineage, cursorEpoch]
                 )
             }
+            guard let identity = try WhoopStore.uniqueRawBatchIdentity(batchId: batchId, in: db) else {
+                return nil
+            }
             return try Row.fetchOne(
                 db,
-                sql: "SELECT framesBlob FROM rawBatch WHERE batchId = ? ORDER BY rowid ASC LIMIT 1",
-                arguments: [batchId]
+                sql: """
+                    SELECT framesBlob FROM rawBatch
+                    WHERE batchId = ? AND deviceId = ? AND lineage = ? AND cursorEpoch = ?
+                    """,
+                arguments: [batchId, identity.deviceId, identity.lineage, identity.cursorEpoch]
             )
         }
         guard let row = row else { return [] }
@@ -254,11 +284,19 @@ extension WhoopStore {
         }
     }
 
-    /// Mark a batch synced (timestamp in unix seconds).
+    /// Mark a batch synced (timestamp in unix seconds). An ambiguous legacy batch ID is a no-op.
     public func markRawBatchSynced(batchId: String, at: Int) async throws {
         try syncWrite { db in
-            try db.execute(sql: "UPDATE rawBatch SET syncedAt = ? WHERE batchId = ?",
-                           arguments: [at, batchId])
+            guard let identity = try WhoopStore.uniqueRawBatchIdentity(batchId: batchId, in: db) else {
+                return
+            }
+            try db.execute(
+                sql: """
+                    UPDATE rawBatch SET syncedAt = ?
+                    WHERE batchId = ? AND deviceId = ? AND lineage = ? AND cursorEpoch = ?
+                    """,
+                arguments: [at, batchId, identity.deviceId, identity.lineage, identity.cursorEpoch]
+            )
         }
     }
 
