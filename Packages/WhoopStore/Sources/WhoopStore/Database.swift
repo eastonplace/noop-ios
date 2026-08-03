@@ -631,6 +631,25 @@ extension WhoopStore {
                           on: "healthKitObjectIndex",
                           columns: ["deviceId", "sampleType", "startTs", "endTs"])
         }
+        // v32: one durable, source-scoped first-paint snapshot for the current dashboard. This is
+        // deliberately a single keyed record, not a second 21-day daily-metrics cache: launch needs
+        // exactly one indexed read while the normal repository refresh starts independently.
+        migrator.registerMigration("v32-today-health-snapshot") { db in
+            try db.create(table: "todayHealthSnapshot") { t in
+                t.column("scopeId", .text).notNull().primaryKey()
+                t.column("deviceId", .text).notNull()
+                t.column("displayDay", .text).notNull()
+                t.column("logicalDay", .text).notNull()
+                t.column("localDay", .text).notNull()
+                t.column("generatedAt", .integer).notNull()
+                t.column("rawFrontierTs", .integer)
+                t.column("schemaVersion", .integer).notNull()
+                t.column("payload", .blob).notNull()
+            }
+            try db.create(index: "idx_todayHealthSnapshot_device_generated",
+                          on: "todayHealthSnapshot",
+                          columns: ["deviceId", "generatedAt"])
+        }
         return migrator
     }
 }

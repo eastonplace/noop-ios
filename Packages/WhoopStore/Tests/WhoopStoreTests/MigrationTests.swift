@@ -11,7 +11,7 @@ final class MigrationTests: XCTestCase {
             "device", "hrSample", "rrInterval", "event", "battery", "rawBatch",
             "coachingBehaviorSet", "coachingBehaviorMembership",
             "coachingStack", "coachingStackItem", "coachingStackUse",
-            "ppgWaveformSample",
+            "ppgWaveformSample", "todayHealthSnapshot",
         ] {
             XCTAssertTrue(tables.contains(t), "missing table \(t)")
         }
@@ -69,7 +69,7 @@ final class MigrationTests: XCTestCase {
             let cols = try await store.columnNamesForTest(table: table)
             XCTAssertTrue(cols.contains("synced"), "\(table) missing synced column")
         }
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 31)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 32)
     }
 
     func testRecoveryChargeContextMigrationUpgradesExistingOverrideTable() async throws {
