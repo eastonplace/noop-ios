@@ -221,6 +221,15 @@ final class Repository: ObservableObject {
     /// data load on this so they reload when fresh strap data lands , `today?.day` alone is a stable
     /// date string within a day and would freeze e.g. the Today HR trend until the date rolls over.
     @Published private(set) var refreshSeq = 0
+    /// One resolved first-paint snapshot. It carries each key metric's provenance and freshness evidence,
+    /// so a full cache refresh can never replace a visible value with nil during its handoff.
+    @Published private(set) var todayHealthSnapshot: TodayHealthSnapshot?
+    /// Separates a snapshot handoff from a repository refresh. Today keeps a presentation cache keyed on
+    /// refreshSeq, so this dedicated revision prevents a newly hydrated snapshot being hidden by old nil UI.
+    @Published private(set) var todayHealthSnapshotRevision = 0
+    /// Coalesces the post-refresh enrichment/write. The immediate in-memory handoff stays synchronous;
+    /// the exact-day Sleep query and durable write never hold up the dashboard publication.
+    private var todayHealthSnapshotWriteTask: Task<Void, Never>?
 
     /// #989: bumped by every hydration mutation (log / edit / delete). Today's hydration card re-reads on
     /// this instead of waiting for a full `refreshSeq` data refresh, which a hydration write never causes,
@@ -643,7 +652,20 @@ final class Repository: ObservableObject {
         vitalRows.isEmpty ? days.map { SourcedDailyMetric(metric: $0, source: .localCache) } : vitalRows
     }
 
-    func canonicalStrain(for day: String) -> ResolvedStrain? { canonicalStrainByDay[day] }
+    func canonicalStrain(for day: String) -> ResolvedStrain? {
+        if let snapshot = todayHealthSnapshot,
+           snapshot.displayDay == day,
+           let strain = snapshot.strain,
+           strain.strainVersion == 2 {
+            return ResolvedStrain(
+                day: day, storedValue: strain.value, version: 2, origin: .computedDailyV2,
+                sourceId: strain.sourceId,
+                asOf: strain.observedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                rawFrontierTs: strain.rawFrontierTs
+            )
+        }
+        return canonicalStrainByDay[day]
+    }
 
     /// Daily metrics projected through the canonical NOOP Strain chain. Consumers that
     /// need a complete multi-metric row (reports, digests, charts) use this instead of
@@ -677,6 +699,7 @@ final class Repository: ObservableObject {
         guard liveDayStrain != nil || value != nil else { return }
         liveDayStrain = value
         rebuildCanonicalStrain()
+        refreshTodayHealthSnapshotFromCurrentCaches(now: Date())
     }
 
     private func rebuildCanonicalStrain() {
@@ -703,6 +726,10 @@ final class Repository: ObservableObject {
     /// person's own baseline. Matches `WearableBrand.sourceId` plus Health Connect (Android imports HC's
     /// daily metrics under the strap source, but a sideloaded/standalone HC source id is covered too).
     static let wearableImportSources = ["oura-import", "fitbit-import", "garmin-import", "oura-api", healthConnectSource]
+
+    /// A stable scope survives an active-strap re-pair. Per-metric source ids remain inside the snapshot,
+    /// while the canonical dashboard scope is what makes startup a single keyed database read.
+    private var todayHealthSnapshotScopeId: String { "dashboard:\(canonicalDeviceId)" }
 
     /// `yyyy-MM-dd` in the device's local zone, matching how `DailyMetric.day` is stored.
     private static let dayKeyFormatter: DateFormatter = {
@@ -779,6 +806,193 @@ final class Repository: ObservableObject {
 
     /// Expose the shared store handle (used by the importer to persist mapped rows).
     func storeHandle() async -> WhoopStore? { await ensureStore() }
+
+    /// Load exactly one durable first-paint record. This intentionally does not touch `days`, `loaded`, or
+    /// `refreshSeq`; the normal repository refresh begins independently and later resolves metric-by-metric.
+    func hydrateTodayHealthSnapshot() async {
+        let trace = PerformanceTrace.begin("today_health_snapshot_read")
+        var changedRows = 0
+        defer { PerformanceTrace.end(trace, changedRows: changedRows) }
+        guard let store = await ensureStore(),
+              let persisted = try? await store.todayHealthSnapshot(scopeId: todayHealthSnapshotScopeId)
+        else { return }
+        let before = todayHealthSnapshot
+        publishTodayHealthSnapshot(
+            TodayHealthSnapshotResolver.resolve(persisted: persisted, live: todayHealthSnapshot) ?? persisted,
+            persist: false
+        )
+        changedRows = before == todayHealthSnapshot ? 0 : 1
+    }
+
+    /// Publish the current in-memory dashboard values immediately, then enrich the snapshot off the refresh
+    /// critical path with the exact-day Sleep score and raw-data frontier before writing it durably.
+    private func refreshTodayHealthSnapshotFromCurrentCaches(now: Date) {
+        guard let candidate = currentTodayHealthSnapshot(now: now) else { return }
+        let resolved = TodayHealthSnapshotResolver.resolve(
+            persisted: todayHealthSnapshot, live: candidate
+        ) ?? candidate
+        publishTodayHealthSnapshot(resolved, persist: false)
+        scheduleTodayHealthSnapshotWrite()
+    }
+
+    private func publishTodayHealthSnapshot(_ snapshot: TodayHealthSnapshot, persist: Bool) {
+        if todayHealthSnapshot != snapshot {
+            todayHealthSnapshot = snapshot
+            todayHealthSnapshotRevision &+= 1
+        }
+        guard persist else { return }
+        scheduleTodayHealthSnapshotWrite()
+    }
+
+    /// A real refresh can run several times during an offload. Retain one exact-day enrichment/write task;
+    /// it reads the current repository values at execution time, so coalescing cannot publish stale data.
+    private func scheduleTodayHealthSnapshotWrite() {
+        guard todayHealthSnapshotWriteTask == nil else { return }
+        todayHealthSnapshotWriteTask = Task(priority: .utility) { [weak self] in
+            guard let self else { return }
+            await self.enrichAndPersistTodayHealthSnapshot()
+            self.todayHealthSnapshotWriteTask = nil
+        }
+    }
+
+    private func enrichAndPersistTodayHealthSnapshot() async {
+        let trace = PerformanceTrace.begin("today_health_snapshot_write")
+        var changedRows = 0
+        defer { PerformanceTrace.end(trace, changedRows: changedRows) }
+        guard let store = await ensureStore(),
+              let base = currentTodayHealthSnapshot(now: Date())
+        else { return }
+
+        let sleepScore = await currentSleepScore(store: store, day: base.displayDay)
+        let rawFrontierTs = await unionLatestHRSampleTs(store: store)
+        let enriched = TodayHealthSnapshot(
+            scopeId: base.scopeId,
+            deviceId: base.deviceId,
+            displayDay: base.displayDay,
+            logicalDay: base.logicalDay,
+            localDay: base.localDay,
+            generatedAt: Int(Date().timeIntervalSince1970),
+            rawFrontierTs: rawFrontierTs,
+            dailyMetric: base.dailyMetric,
+            recovery: base.recovery,
+            strain: base.strain,
+            sleepScore: sleepScore,
+            sleepDurationMinutes: base.sleepDurationMinutes
+        )
+        let resolved = TodayHealthSnapshotResolver.resolve(
+            persisted: todayHealthSnapshot, live: enriched
+        ) ?? enriched
+        let before = todayHealthSnapshot
+        publishTodayHealthSnapshot(resolved, persist: false)
+        changedRows = before == todayHealthSnapshot ? 0 : 1
+        if (try? await store.saveTodayHealthSnapshot(resolved)) == true { changedRows = 1 }
+    }
+
+    /// Build an in-memory candidate from the authoritative cache generation just published by `refresh()`.
+    /// It has no side effects and never reads the database, so a full refresh cannot wait behind snapshot I/O.
+    private func currentTodayHealthSnapshot(now: Date) -> TodayHealthSnapshot? {
+        let logicalDay = Self.logicalDayKey(now)
+        let localDay = Self.localDayKey(now)
+        let fallback = todayHealthSnapshot.flatMap { snapshot in
+            snapshot.scopeId == todayHealthSnapshotScopeId
+                && snapshot.logicalDay == logicalDay
+                && snapshot.localDay == localDay
+                ? snapshot.dailyMetric
+                : nil
+        }
+        let daily = Self.resolveToday(days: days, logicalKey: logicalDay, localKey: localDay) ?? fallback
+        guard let daily else { return nil }
+        let day = daily.day
+        let sleepEnd = latestSleepEnd(for: day)
+
+        let recovery = daily.recovery.map {
+            TodayHealthMetricValue(
+                value: $0,
+                sourceId: sourceId(forDailyValue: $0, day: day, field: \.recovery),
+                observedAt: sleepEnd,
+                algorithmVersion: "daily-recovery-v1"
+            )
+        }
+        let strain = canonicalStrainByDay[day].map {
+            TodayHealthMetricValue(
+                value: $0.storedValue,
+                sourceId: $0.sourceId,
+                observedAt: $0.asOf.map { Int($0.timeIntervalSince1970) },
+                rawFrontierTs: $0.rawFrontierTs,
+                algorithmVersion: "strain-v\($0.version ?? 1)",
+                strainVersion: $0.version
+            )
+        }
+        let sleepDuration = daily.totalSleepMin.map {
+            TodayHealthMetricValue(
+                value: $0,
+                sourceId: sourceId(forDailyValue: $0, day: day, field: \.totalSleepMin),
+                observedAt: sleepEnd,
+                algorithmVersion: "daily-sleep-duration-v1"
+            )
+        }
+        guard recovery != nil || strain != nil || sleepDuration != nil else { return nil }
+
+        return TodayHealthSnapshot(
+            scopeId: todayHealthSnapshotScopeId,
+            deviceId: canonicalDeviceId,
+            displayDay: day,
+            logicalDay: logicalDay,
+            localDay: localDay,
+            generatedAt: Int(now.timeIntervalSince1970),
+            dailyMetric: daily,
+            recovery: recovery,
+            strain: strain,
+            sleepDurationMinutes: sleepDuration
+        )
+    }
+
+    /// Exact-day Sleep/Rest resolution, using the same precedence PR #25 attempted to cache but without its
+    /// 21-day startup scan: WHOOP import, then computed V2, then computed legacy score.
+    private func currentSleepScore(store: WhoopStore, day: String) async -> TodayHealthMetricValue? {
+        if let imported = try? await requiredUnionMetricSeries(
+            store: store, ids: importedReadIds, key: "sleep_performance", from: day, to: day
+        ), let point = imported.last(where: { $0.day == day && $0.value.isFinite && (0 ... 100).contains($0.value) }) {
+            return TodayHealthMetricValue(value: point.value, sourceId: deviceId,
+                                          algorithmVersion: "whoop-sleep-performance")
+        }
+        if let v2 = try? await requiredUnionMetricSeries(
+            store: store, ids: computedReadIds, key: Self.sleepPerformanceV2Key, from: day, to: day
+        ), let point = v2.last(where: { $0.day == day && $0.value.isFinite && (0 ... 100).contains($0.value) }) {
+            return TodayHealthMetricValue(value: point.value, sourceId: canonicalComputedId,
+                                          algorithmVersion: SleepPerformanceV2.modelVersion)
+        }
+        if let computed = try? await requiredUnionMetricSeries(
+            store: store, ids: computedReadIds, key: "sleep_performance", from: day, to: day
+        ), let point = computed.last(where: { $0.day == day && $0.value.isFinite && (0 ... 100).contains($0.value) }) {
+            return TodayHealthMetricValue(value: point.value, sourceId: canonicalComputedId,
+                                          algorithmVersion: "noop-sleep-performance-v1")
+        }
+        return nil
+    }
+
+    private func latestSleepEnd(for day: String) -> Int? {
+        sleeps
+            .filter { Self.localDayKey(Date(timeIntervalSince1970: TimeInterval($0.endTs))) == day }
+            .map(\.endTs)
+            .max()
+    }
+
+    private func sourceId(
+        forDailyValue value: Double,
+        day: String,
+        field: KeyPath<DailyMetric, Double?>
+    ) -> String {
+        for row in vitalRows where row.metric.day == day && row.metric[keyPath: field] == value {
+            switch row.source {
+            case .whoopImport: return deviceId
+            case .noopComputed: return canonicalComputedId
+            case .appleHealth: return Self.appleHealthSource
+            case .localCache: return "local-cache"
+            }
+        }
+        return "dashboard"
+    }
 
     func quiesceStoreForRestore() async throws {
         if let storeOpenTask { _ = await storeOpenTask.value }
@@ -1068,6 +1282,7 @@ final class Repository: ObservableObject {
         rebuildCanonicalStrain()
         self.loaded = true
         self.refreshSeq += 1
+        refreshTodayHealthSnapshotFromCurrentCaches(now: now)
         return true
     }
 

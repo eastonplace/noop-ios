@@ -17,11 +17,11 @@ enum RepositoryRefreshIntent: Equatable, Sendable, CustomStringConvertible {
 
     var days: Int {
         switch self {
-        case .currentDay, .postBackfill:
+        case .currentDay, .postBackfill, .initialLoad:
             return 120
         case .recentDashboard(let days):
             return min(4_000, max(120, days))
-        case .initialLoad, .activeDeviceChanged, .postImport, .fullHistoryMigration:
+        case .activeDeviceChanged, .postImport, .fullHistoryMigration:
             return 4_000
         }
     }

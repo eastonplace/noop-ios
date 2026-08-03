@@ -464,7 +464,13 @@ final class AppModel: ObservableObject {
                 self.live.batteryPct = 68
             }
             #endif
+            // First paint is one indexed durable snapshot read. It starts independently from the broad
+            // repository refresh, so a stale/missing snapshot can never delay authoritative data loading.
+            let firstPaintTask = Task(priority: .userInitiated) { [weak self] in
+                await self?.repo.hydrateTodayHealthSnapshot()
+            }
             _ = await self.repo.refresh(.initialLoad)          // surface any imported data at once
+            _ = await firstPaintTask.value
             await self.wireSourceCoordinator()                 // dormant unless a generic strap is active
             try? await Task.sleep(nanoseconds: 6_000_000_000)  // give the first offload a moment
             // FIX 2(a): DEFER the heavy one-shot 4000-day heal/rescore while an import is in flight. A

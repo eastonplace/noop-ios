@@ -7,6 +7,7 @@ final class RepositoryRefreshIntentTests: XCTestCase {
     func testIntentRangesAndDeterministicEqualRangeMerge() {
         XCTAssertEqual(RepositoryRefreshIntent.currentDay.days, 120)
         XCTAssertEqual(RepositoryRefreshIntent.postBackfill.days, 120)
+        XCTAssertEqual(RepositoryRefreshIntent.initialLoad.days, 120)
         XCTAssertEqual(RepositoryRefreshIntent.recentDashboard(days: 1).days, 120)
         XCTAssertEqual(RepositoryRefreshIntent.fullHistoryMigration.days, 4_000)
         XCTAssertEqual(

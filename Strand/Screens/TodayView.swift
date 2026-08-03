@@ -701,6 +701,7 @@ struct TodayView: View {
     /// because they intentionally differ during the rollover window.
     private struct DisplayDayKey: Equatable {
         let refreshSeq: Int
+        let todayHealthSnapshotRevision: Int
         let offset: Int
         let logicalKey: String
         let localKey: String
@@ -719,6 +720,7 @@ struct TodayView: View {
                                                 to: logicalDay) ?? logicalDay
         return DisplayDayKey(
             refreshSeq: repo.refreshSeq,
+            todayHealthSnapshotRevision: repo.todayHealthSnapshotRevision,
             offset: selectedDayOffset,
             logicalKey: Repository.logicalDayKey(now),
             localKey: Repository.localDayKey(now),
@@ -754,6 +756,29 @@ struct TodayView: View {
         if let snapshot = displayDaySnapshot, snapshot.key == key {
             return snapshot.day
         }
+        return resolvedDisplayDay(for: key)
+    }
+
+    private func refreshDisplayDaySnapshot() {
+        let key = displayDayKey
+        displayDaySnapshot = DisplayDaySnapshot(
+            key: key,
+            day: resolvedDisplayDay(for: key))
+    }
+
+    /// The current-day snapshot is a complete, per-metric-resolved daily row. It is only valid for the
+    /// same logical/local day pair that produced it; past-day navigation always reads the normal history.
+    private func firstPaintSnapshot(for key: DisplayDayKey) -> TodayHealthSnapshot? {
+        guard key.offset == 0,
+              let snapshot = repo.todayHealthSnapshot,
+              snapshot.logicalDay == key.logicalKey,
+              snapshot.localDay == key.localKey
+        else { return nil }
+        return snapshot
+    }
+
+    private func resolvedDisplayDay(for key: DisplayDayKey) -> DailyMetric? {
+        if let snapshot = firstPaintSnapshot(for: key) { return snapshot.dailyMetric }
         return Self.resolveDisplayDay(days: repo.days,
                                       selectedDayOffset: key.offset,
                                       logicalKey: key.logicalKey,
@@ -761,15 +786,11 @@ struct TodayView: View {
                                       selectedDayKey: key.selectedDayKey)
     }
 
-    private func refreshDisplayDaySnapshot() {
+    /// The exact Sleep/Rest score that shares the durable first-paint handoff with Recovery and Strain.
+    /// Once the day-scoped loader has a newer score it is incorporated into Repository's snapshot resolver.
+    private var displayedRestScore: Double? {
         let key = displayDayKey
-        displayDaySnapshot = DisplayDaySnapshot(
-            key: key,
-            day: Self.resolveDisplayDay(days: repo.days,
-                                        selectedDayOffset: key.offset,
-                                        logicalKey: key.logicalKey,
-                                        localKey: key.localKey,
-                                        selectedDayKey: key.selectedDayKey))
+        return firstPaintSnapshot(for: key)?.sleepScore?.value ?? restScore
     }
 
     /// Recovery cold-start: recovery is nil until the HRV baseline crosses the seed gate
@@ -946,7 +967,7 @@ struct TodayView: View {
         let respBase = Baselines.foldHistory(repo.days.map(\.respRateBpm), cfg: Baselines.respCfg)
         // Sleep-quality term = the Sleep composite ÷100, matching AnalyticsEngine's `sleepPerf`. `restScore`
         // is the same merged sleep_performance value the Sleep ring reads, so the term stays consistent.
-        let sleepPerf = restScore.map { $0 / 100.0 }
+        let sleepPerf = displayedRestScore.map { $0 / 100.0 }
         return RecoveryScorer.chargeDrivers(
             hrv: hrv, rhr: Double(rhr), resp: row.respRateBpm,
             hrvBaseline: hrvBase,
@@ -1140,7 +1161,7 @@ struct TodayView: View {
             conf = ScoreConfidence.charge(recovery: displayDay?.recovery, hrvBaseline: hrvBase)
         case "sleep_performance":
             // A watch night with a Sleep score reads as built; without one it's still calibrating.
-            conf = restScore != nil ? .building : .calibrating
+            conf = displayedRestScore != nil ? .building : .calibrating
         default:
             conf = .building
         }
@@ -1522,9 +1543,9 @@ struct TodayView: View {
                 accent: StrandPalette.strainAccent
             ),
             TodayPillarModel(
-                id: "sleep", label: String(localized: "Sleep"), value: restScore, maximum: 100,
-                valueText: restScore.map { "\(Int($0.rounded()))" } ?? "—",
-                state: paperScoreState(restScore, kind: .rest),
+                id: "sleep", label: String(localized: "Sleep"), value: displayedRestScore, maximum: 100,
+                valueText: displayedRestScore.map { "\(Int($0.rounded()))" } ?? "—",
+                state: paperScoreState(displayedRestScore, kind: .rest),
                 detail: day.map(sleepValue), accent: StrandPalette.sleepAccent
             ),
         ]
@@ -3290,7 +3311,7 @@ struct TodayView: View {
     private func ringHasValue(_ metricKey: String) -> Bool {
         switch metricKey {
         case "recovery":          return displayDay?.recovery != nil
-        case "sleep_performance": return restScore != nil
+        case "sleep_performance": return displayedRestScore != nil
         default:                  return false
         }
     }
@@ -3332,7 +3353,7 @@ struct TodayView: View {
     /// Sleep (sleep composite 0–100) hero ring.
     @ViewBuilder
     private func restRing(diameter: CGFloat) -> some View {
-        if let s = restScore {
+        if let s = displayedRestScore {
             ScoreRing(value: s, range: 0...100, accent: StrandPalette.restAccent,
                       size: diameter, format: { "\(Int($0.rounded()))" })
         } else if displayDay?.recovery != nil {
@@ -3803,13 +3824,13 @@ struct TodayView: View {
             // a scored day keeps its sleep-duration / efficiency caption.
             StatTile(
                 label: "Sleep",
-                value: restScore.map { "\(Int($0.rounded()))%" } ?? "—",
+                value: displayedRestScore.map { "\(Int($0.rounded()))%" } ?? "—",
                 // Component 2: a scored day shows its duration/efficiency caption; an unscored TODAY shows
                 // the "building" hint; a past day with no Sleep falls to the honest "Needs the strap" rather
                 // than a bare blank, so the tile always carries a state.
-                caption: restScore != nil ? restCaption(d)
+                caption: displayedRestScore != nil ? restCaption(d)
                     : (buildingHint(.rest) ?? restCaption(d) ?? Self.needsStrapCaption),
-                accent: restScore.map { _ in StrandPalette.sleepAccent } ?? StrandPalette.textPrimary,
+                accent: displayedRestScore.map { _ in StrandPalette.sleepAccent } ?? StrandPalette.textPrimary,
                 // The Sleep composite (0–100) trend, not raw sleep minutes, tracks the score above (#614).
                 sparkline: sparks["sleep_performance"],
                 sparkColor: StrandPalette.metricPurple,
