@@ -31,12 +31,13 @@ final class TodayHealthSnapshotHydrationTests: XCTestCase {
         strain: Double? = 64,
         sleepScore: Double? = 85,
         sleepDuration: Double? = 442,
+        rawFrontierTs: Int? = nil,
         authoritative: Set<TodayHealthSnapshot.Metric> = [.recovery, .strain, .sleepScore, .sleepDurationMinutes]
     ) -> TodayHealthSnapshot {
         TodayHealthSnapshot(
             scopeId: "dashboard:\(Repository.whoopSource)|\(context.identifier)", context: context,
             deviceId: Repository.whoopSource, displayDay: day, logicalDay: day, localDay: localDay,
-            generatedAt: generatedAt, authoritativeMetrics: authoritative,
+            generatedAt: generatedAt, rawFrontierTs: rawFrontierTs, authoritativeMetrics: authoritative,
             dailyMetric: daily(day, recovery: recovery, strain: strain, sleep: sleepDuration),
             recovery: recovery.map {
                 TodayHealthMetricValue(value: $0, metricDay: day, sourceId: "my-whoop-noop",
@@ -64,13 +65,18 @@ final class TodayHealthSnapshotHydrationTests: XCTestCase {
         let localDay = Repository.localDayKey(now)
         let expected = snapshot(context: try await context(for: store), day: logicalDay, localDay: localDay,
                                 generatedAt: Int(now.timeIntervalSince1970))
-        _ = try await store.saveTodayHealthSnapshot(expected)
+        let didSave = try await store.saveTodayHealthSnapshot(expected)
+        XCTAssertTrue(didSave)
+        let storedBefore = try await store.todayHealthSnapshot(scopeId: expected.scopeId)
+        let durableBefore = try XCTUnwrap(storedBefore)
 
         let repository = Repository(deviceId: Repository.whoopSource)
         repository.setStoreForTesting(store)
         await repository.hydrateTodayHealthSnapshot()
 
-        XCTAssertEqual(repository.todayHealthSnapshot, expected)
+        XCTAssertEqual(repository.todayHealthSnapshot, durableBefore)
+        let durableAfter = try await store.todayHealthSnapshot(scopeId: expected.scopeId)
+        XCTAssertEqual(durableAfter, durableBefore)
         XCTAssertEqual(repository.canonicalStrain(for: logicalDay)?.storedValue, 64)
         XCTAssertFalse(repository.loaded)
         XCTAssertTrue(repository.days.isEmpty)
@@ -221,8 +227,8 @@ final class TodayHealthSnapshotHydrationTests: XCTestCase {
         let day = Repository.logicalDayKey(now)
         let persisted = snapshot(
             context: try await context(for: store), day: day,
-            localDay: Repository.localDayKey(now), generatedAt: Int(now.timeIntervalSince1970) + 3_600,
-            sleepScore: 55
+            localDay: Repository.localDayKey(now), generatedAt: Int(now.timeIntervalSince1970),
+            sleepScore: 55, rawFrontierTs: 100
         )
         let seeded = try await store.saveTodayHealthSnapshot(persisted)
         XCTAssertTrue(seeded)

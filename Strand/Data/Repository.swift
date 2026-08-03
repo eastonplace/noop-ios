@@ -1092,6 +1092,27 @@ final class Repository: ObservableObject {
                                                 fallbackDay: snapshot.displayDay)
         }
 
+        func statePreservingExplicitAbsence(
+            _ original: TodayHealthMetricState,
+            replacement: TodayHealthMetricValue?
+        ) -> TodayHealthMetricState {
+            if let replacement { return .value(replacement) }
+            return original.value == nil ? original : .unknown
+        }
+
+        let recoveryState = statePreservingExplicitAbsence(
+            snapshot.recoveryState, replacement: recovery)
+        let strainState = statePreservingExplicitAbsence(snapshot.strainState, replacement: strain)
+        let sleepScoreState = statePreservingExplicitAbsence(
+            snapshot.sleepScoreState, replacement: sleepScore)
+        let sleepDurationState = statePreservingExplicitAbsence(
+            snapshot.sleepDurationMinutesState, replacement: sleepDuration)
+        let metricStates: [TodayHealthSnapshot.Metric: TodayHealthMetricState] = [
+            .recovery: recoveryState,
+            .strain: strainState,
+            .sleepScore: sleepScoreState,
+            .sleepDurationMinutes: sleepDurationState,
+        ]
         let repairedDaily = snapshot.dailyMetric.replacing(
             totalSleepMin: .some(sleepDuration?.value),
             recovery: .some(recovery?.value),
@@ -1107,13 +1128,11 @@ final class Repository: ObservableObject {
             localDay: snapshot.localDay,
             generatedAt: snapshot.generatedAt,
             rawFrontierTs: snapshot.rawFrontierTs,
+            generation: snapshot.generation,
             schemaVersion: TodayHealthSnapshot.currentSchemaVersion,
             authoritativeMetrics: snapshot.authoritativeMetrics,
             dailyMetric: repairedDaily,
-            recovery: recovery,
-            strain: strain,
-            sleepScore: sleepScore,
-            sleepDurationMinutes: sleepDuration
+            metricStates: metricStates
         )
         guard normalised != snapshot else { return snapshot }
         return TodayHealthSnapshot(
@@ -1125,13 +1144,11 @@ final class Repository: ObservableObject {
             localDay: normalised.localDay,
             generatedAt: max(snapshot.generatedAt + 1, Int(now.timeIntervalSince1970)),
             rawFrontierTs: normalised.rawFrontierTs,
+            generation: normalised.generation,
             schemaVersion: normalised.schemaVersion,
             authoritativeMetrics: normalised.authoritativeMetrics,
             dailyMetric: normalised.dailyMetric,
-            recovery: normalised.recovery,
-            strain: normalised.strain,
-            sleepScore: normalised.sleepScore,
-            sleepDurationMinutes: normalised.sleepDurationMinutes
+            metricStates: normalised.metricStates
         )
     }
 
@@ -1156,7 +1173,9 @@ final class Repository: ObservableObject {
             observedAt: value.observedAt,
             rawFrontierTs: value.rawFrontierTs,
             algorithmVersion: algorithm,
-            strainVersion: value.strainVersion
+            strainVersion: value.strainVersion,
+            generation: value.generation,
+            freshness: value.freshness
         )
     }
 
