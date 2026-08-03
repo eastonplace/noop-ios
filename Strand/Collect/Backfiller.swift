@@ -687,17 +687,15 @@ final class Backfiller {
             return
         }
 
-        // A retained raw batch needs a concrete range even when its frames carry no decodable unix field.
-        // Use the exact range stored in that batch for both contract fields. Raw-disabled chunks retain the
-        // received-frame range, including nil when no timestamp evidence was received.
-        let fingerprintMinReceivedTs = rawBatchForCommit?.meta.startTs ?? receivedMinTs
-        let fingerprintMaxReceivedTs = rawBatchForCommit?.meta.endTs ?? receivedMaxTs
+        // Raw metadata needs a concrete range even when its frames carry no decodable unix field, so the
+        // retained batch may use the HISTORY_END timestamp as a fallback. The fingerprint must preserve
+        // the actual range decoded from the received frames, including nil when no timestamp was present.
         let fingerprintInput = HistoricalReceivedFrameFingerprintInput(
             orderedFrames: frames,
             protocolMetadata: protocolMetadata,
             historyEndFrame: Data(endFrame),
-            minReceivedTs: fingerprintMinReceivedTs,
-            maxReceivedTs: fingerprintMaxReceivedTs)
+            minReceivedTs: receivedMinTs,
+            maxReceivedTs: receivedMaxTs)
         let fingerprint: String
         do {
             fingerprint = try WhoopStore.historicalReceivedFrameFingerprint(

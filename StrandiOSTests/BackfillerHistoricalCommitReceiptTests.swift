@@ -194,6 +194,32 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
     }
 
     @MainActor
+    private func commitDetails(enableRawCapture: Bool) async -> SourceCaptureStore.CommitDetails? {
+        let store = SourceCaptureStore()
+        let source = HistoricalReceiptWatermark.SourceIdentity(
+            deviceId: "strap-a", lineage: "ble:A", epoch: 7)
+        let scope = HistoricalCursorScope(
+            deviceId: "strap-a", lineage: "registry-lineage", cursorEpoch: 19,
+            trimScope: "historical")
+        let backfiller = Backfiller(
+            store: store,
+            deviceId: source.deviceId,
+            ackTrim: { _, _, _ in true },
+            enableRawCapture: enableRawCapture,
+            sourceIdentity: source,
+            extract: { _, _, _, _, _ in Streams() })
+        backfiller.begin(
+            family: .whoop4,
+            sourceIdentity: source,
+            historicalCursorScope: scope)
+
+        await backfiller.ingest(frameFromPayload([], type: 49, seq: 0, cmd: 1))
+        await backfiller.ingest(frameFromPayload([0x01, 0x02, 0x03], type: 47))
+        await backfiller.ingest(historyEndFrame(trim: 123))
+        return await store.commitDetails()
+    }
+
+    @MainActor
     func testSuccessfulCommitPrecedesHistoricalAck() async {
         let ledger = EventLedger()
         let backfiller = Backfiller(
@@ -296,6 +322,31 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
                 deviceId: "strap-a",
                 trim: 123,
                 chunkEndUnix: 1_700_000_000))
+    }
+
+    @MainActor
+    func testRawCaptureTogglePreservesFingerprintForTimestamplessFrames() async throws {
+        let rawDisabledDetails = await commitDetails(enableRawCapture: false)
+        let rawEnabledDetails = await commitDetails(enableRawCapture: true)
+        let rawDisabled = try XCTUnwrap(rawDisabledDetails)
+        let rawEnabled = try XCTUnwrap(rawEnabledDetails)
+
+        XCTAssertNil(rawDisabled.fingerprintInput.minReceivedTs)
+        XCTAssertNil(rawDisabled.fingerprintInput.maxReceivedTs)
+        XCTAssertEqual(rawDisabled.rawCaptureStatus, .disabled)
+        XCTAssertEqual(rawDisabled.rawRange?.source, .receivedFrames)
+        XCTAssertNil(rawDisabled.rawRange?.minReceivedTs)
+        XCTAssertNil(rawDisabled.rawRange?.maxReceivedTs)
+
+        XCTAssertNil(rawEnabled.fingerprintInput.minReceivedTs)
+        XCTAssertNil(rawEnabled.fingerprintInput.maxReceivedTs)
+        XCTAssertEqual(rawEnabled.rawCaptureStatus?.batchId, "hist-strap-a|registry-lineage|19|historical-123")
+        XCTAssertEqual(rawEnabled.rawRange?.source, .retainedRawBatch)
+        XCTAssertEqual(rawEnabled.rawRange?.minReceivedTs, 1_700_000_000)
+        XCTAssertEqual(rawEnabled.rawRange?.maxReceivedTs, 1_700_000_000)
+
+        XCTAssertEqual(rawEnabled.fingerprintInput, rawDisabled.fingerprintInput)
+        XCTAssertEqual(rawEnabled.fingerprint, rawDisabled.fingerprint)
     }
 
     @MainActor

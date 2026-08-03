@@ -650,15 +650,16 @@ extension WhoopStore {
             throw HistoricalDataCommitJournalError.invalidFingerprint
         }
         if let rawBatch {
+            // Raw metadata may use a fallback range when no incoming frame carries a timestamp. The
+            // fingerprint input remains the exact received-frame range, including nil, so it must not
+            // be required to equal the retained metadata range.
             let actualByteCount = rawBatch.frames.reduce(0) { $0 + $1.count }
             guard rawBatch.meta.frameCount == rawBatch.frames.count,
                   rawBatch.meta.byteSize == actualByteCount,
                   rawBatch.meta.startTs <= rawBatch.meta.endTs,
                   rawBatch.frames == fingerprintInput.orderedFrames,
                   rawBatch.protocolMetadata == fingerprintInput.protocolMetadata,
-                  rawBatch.historyEndFrame == fingerprintInput.historyEndFrame,
-                  fingerprintInput.minReceivedTs == rawBatch.meta.startTs,
-                  fingerprintInput.maxReceivedTs == rawBatch.meta.endTs else {
+                  rawBatch.historyEndFrame == fingerprintInput.historyEndFrame else {
                 throw HistoricalDataCommitJournalError.invalidReceipt
             }
         }
@@ -963,10 +964,22 @@ extension WhoopStore {
                 trimScope: trimScope,
                 in: db
             )
+            let resolvedLineage = lineage ?? registryScope.lineage
+            let resolvedEpoch: Int
+            if let cursorEpoch {
+                resolvedEpoch = cursorEpoch
+            } else if resolvedLineage == registryScope.lineage {
+                // A lineage-only query for the current source must stay on the current deletion epoch.
+                resolvedEpoch = registryScope.cursorEpoch
+            } else {
+                // A different lineage is ambiguous without its explicit epoch. Fail closed rather than
+                // silently querying epoch zero and returning a stale watermark.
+                return nil
+            }
             let scope = HistoricalCursorScope(
                 deviceId: deviceId,
-                lineage: lineage ?? registryScope.lineage,
-                cursorEpoch: cursorEpoch ?? (lineage == nil ? registryScope.cursorEpoch : 0),
+                lineage: resolvedLineage,
+                cursorEpoch: resolvedEpoch,
                 trimScope: trimScope
             )
             guard let row = try Row.fetchOne(db, sql: """

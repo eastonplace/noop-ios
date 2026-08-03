@@ -25,7 +25,9 @@ final class HistoricalDataCommitJournalTests: XCTestCase {
     private func rawBatch(
         deviceId: String,
         trim: Int,
-        batchId: String? = nil
+        batchId: String? = nil,
+        startTs: Int = 1_700_000_000,
+        endTs: Int = 1_700_000_005
     ) -> HistoricalRawBatch {
         HistoricalRawBatch(
             meta: RawBatchMeta(
@@ -33,8 +35,8 @@ final class HistoricalDataCommitJournalTests: XCTestCase {
                 deviceId: deviceId,
                 clockRef: ClockRef(device: 100, wall: 1_700_000_000),
                 capturedAt: 1_700_000_001,
-                startTs: 1_700_000_000,
-                endTs: 1_700_000_005,
+                startTs: startTs,
+                endTs: endTs,
                 frameCount: frames.count,
                 byteSize: frames.reduce(0) { $0 + $1.count }
             ),
@@ -390,6 +392,62 @@ final class HistoricalDataCommitJournalTests: XCTestCase {
         XCTAssertEqual(replay, first)
     }
 
+    func testRawCaptureToggleReplaysTimestamplessFrames() async throws {
+        let store = try await WhoopStore.inMemory()
+        try await store.upsertDevice(id: deviceId, mac: nil, name: nil)
+
+        let input = receivedInput(minReceivedTs: nil, maxReceivedTs: nil)
+        let raw = rawBatch(
+            deviceId: deviceId,
+            trim: 1003,
+            startTs: 1_700_000_005,
+            endTs: 1_700_000_005)
+        let fingerprint = try WhoopStore.historicalReceivedFrameFingerprint(
+            input: input,
+            deviceId: deviceId,
+            trim: 1003,
+            chunkEndUnix: 1_700_000_005)
+        let retainedRange = HistoricalRawRangeEvidence(
+            source: .retainedRawBatch,
+            minReceivedTs: raw.meta.startTs,
+            maxReceivedTs: raw.meta.endTs,
+            frameCount: raw.meta.frameCount,
+            byteCount: raw.meta.byteSize,
+            hasHistoryEnd: true)
+
+        let first = try await store.commitHistoricalChunk(
+            streams: Streams(),
+            deviceId: deviceId,
+            trim: 1003,
+            chunkEndUnix: 1_700_000_005,
+            rawBatch: raw,
+            committedAt: 1_700_000_010,
+            fingerprint: fingerprint,
+            fingerprintInput: input,
+            rawCaptureStatus: .captured(batchId: raw.meta.batchId),
+            rawRange: retainedRange)
+        let replay = try await store.commitHistoricalChunk(
+            streams: Streams(),
+            deviceId: deviceId,
+            trim: 1003,
+            chunkEndUnix: 1_700_000_005,
+            rawBatch: nil,
+            committedAt: 1_700_000_011,
+            fingerprint: fingerprint,
+            fingerprintInput: input,
+            rawCaptureStatus: .disabled,
+            rawRange: input.rawRangeEvidence)
+
+        XCTAssertNil(input.minReceivedTs)
+        XCTAssertNil(input.maxReceivedTs)
+        XCTAssertEqual(raw.meta.startTs, 1_700_000_005)
+        XCTAssertEqual(raw.meta.endTs, 1_700_000_005)
+        XCTAssertEqual(first.rawRange, retainedRange)
+        XCTAssertEqual(replay, first)
+        let receipts = try await store.historicalDataCommitReceipts(deviceId: deviceId)
+        XCTAssertEqual(receipts, [first])
+    }
+
     func testRawBatchIdCollisionFailsBeforeRowsCursorAndReceipt() async throws {
         let store = try await WhoopStore.inMemory()
         try await store.upsertDevice(id: deviceId, mac: nil, name: nil)
@@ -585,6 +643,50 @@ final class HistoricalDataCommitJournalTests: XCTestCase {
         let drained = try await store.historicalDataCommitReceipts(
             deviceId: deviceId, after: durable)
         XCTAssertEqual(drained, [])
+    }
+
+    func testLineageOnlyWatermarkUsesCurrentRegistryEpoch() async throws {
+        let store = try await WhoopStore.inMemory()
+        let registry = DeviceRegistryStore(dbQueue: store.registryWriter)
+        try registry.add(PairedDevice(
+            id: deviceId,
+            brand: "WHOOP",
+            model: "WHOOP 5.0",
+            peripheralId: "peripheral-a",
+            sourceKind: .liveBLE,
+            capabilities: [.hr],
+            status: .paired,
+            addedAt: 1,
+            lastSeenAt: 1))
+        let initialScope = try await store.historicalCursorScope(deviceId: deviceId)
+        try registry.setPeripheralId(deviceId, peripheralId: "peripheral-b")
+        let currentScope = try await store.historicalCursorScope(deviceId: deviceId)
+        XCTAssertNotEqual(currentScope.lineage, initialScope.lineage)
+        XCTAssertEqual(currentScope.cursorEpoch, initialScope.cursorEpoch + 1)
+
+        let receipt = try await store.commitHistoricalChunk(
+            streams: Streams(),
+            deviceId: deviceId,
+            trim: 2_400,
+            chunkEndUnix: 1_700_000_005,
+            rawBatch: nil,
+            committedAt: 1_700_000_010,
+            fingerprint: try fingerprint(trim: 2_400, chunkEndUnix: 1_700_000_005),
+            fingerprintInput: receivedInput(),
+            lineage: currentScope.lineage,
+            cursorEpoch: currentScope.cursorEpoch)
+
+        let currentLineageWatermark = try await store.historicalDataCommitWatermark(
+            deviceId: deviceId,
+            lineage: currentScope.lineage)
+        XCTAssertEqual(currentLineageWatermark?.cursorEpoch, currentScope.cursorEpoch)
+        XCTAssertEqual(currentLineageWatermark?.trim, receipt.trim)
+        XCTAssertEqual(currentLineageWatermark?.generation, receipt.generation)
+
+        let ambiguousWatermark = try await store.historicalDataCommitWatermark(
+            deviceId: deviceId,
+            lineage: initialScope.lineage)
+        XCTAssertNil(ambiguousWatermark)
     }
 
     func testRawStatusAndRangeMustMatchRawBatchAvailability() async throws {
