@@ -284,11 +284,7 @@ extension WhoopStore {
 
     /// Stable UUID generated in the database itself. It changes only when the database is replaced.
     public func todayHealthSnapshotDatabaseInstanceId() async throws -> String {
-        try syncRead { db in
-            guard let id = try String.fetchOne(db, sql: "SELECT id FROM todayHealthSnapshotDatabase LIMIT 1")
-            else { throw TodayHealthSnapshotStoreError.invalidSnapshot }
-            return id
-        }
+        try await databaseInstanceId()
     }
 
     private static func validate(_ snapshot: TodayHealthSnapshot) throws {

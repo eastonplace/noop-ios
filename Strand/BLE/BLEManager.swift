@@ -398,6 +398,13 @@ struct BackfillContinuation {
 struct BackfillBurstPublication: Equatable {
     private(set) var needsPublication = false
     private var persistedPasses = 0
+    private(set) var latestHistoricalCommitReceipt: HistoricalDataCommitReceipt?
+
+    /// Backfiller invokes this only after its SQLite transaction commits and before the strap ACK.
+    /// Keep it private to BLE until finalization so a deep offload causes no per-chunk SwiftUI work.
+    mutating func record(receipt: HistoricalDataCommitReceipt) {
+        latestHistoricalCommitReceipt = receipt
+    }
 
     /// Records one durable session. The returned value is cheap UI progress only: it does not start
     /// analysis or refresh Repository, both of which remain deferred to one burst-finalization edge.
@@ -411,6 +418,10 @@ struct BackfillBurstPublication: Equatable {
         return HistoricalSyncPassProgress(rowsPersisted: rowsPersisted,
                                           passNumber: persistedPasses,
                                           latestFrontierUnix: latestFrontierUnix,
+                                          latestCommitReceiptId: latestHistoricalCommitReceipt?.receiptId,
+                                          latestCommitGeneration: latestHistoricalCommitReceipt?.generation,
+                                          latestCommitDatabaseInstanceId: latestHistoricalCommitReceipt?.databaseInstanceId,
+                                          latestCommitDeviceId: latestHistoricalCommitReceipt?.deviceId,
                                           publishedAt: timestamp)
     }
 
@@ -418,6 +429,7 @@ struct BackfillBurstPublication: Equatable {
         defer {
             needsPublication = false
             persistedPasses = 0
+            latestHistoricalCommitReceipt = nil
         }
         return needsPublication
     }
@@ -425,6 +437,7 @@ struct BackfillBurstPublication: Equatable {
     mutating func reset() {
         needsPublication = false
         persistedPasses = 0
+        latestHistoricalCommitReceipt = nil
     }
 }
 
@@ -991,6 +1004,9 @@ public final class BLEManager: NSObject, ObservableObject {
                                 log: { [weak self] s in self?.log(s) },
                                 rejectedSink: { [weak self] frames, trim, family in
                                     self?.archiveRejectedFrames(frames, trim: trim, family: family) ?? true
+                                },
+                                onHistoricalCommit: { [weak self] receipt in
+                                    self?.backfillBurstPublication.record(receipt: receipt)
                                 },
                                 onChunk: { [weak self] decoded, console in
                                     if decoded { self?.state.decodedChunksThisSession += 1 }
@@ -1988,9 +2004,14 @@ public final class BLEManager: NSObject, ObservableObject {
     /// formal `HISTORY_COMPLETE`, so an idle-timeout with durable rows refreshes the dashboard without
     /// lying that the strap finished syncing.
     private func publishBackfillBurstIfNeeded() {
+        let receipt = backfillBurstPublication.latestHistoricalCommitReceipt
         guard backfillBurstPublication.consume() else { return }
-        state.finalizeHistoricalSyncBurst(at: Date().timeIntervalSince1970)
-        log("Backfill: durable history is ready after the sync burst; scheduling one dashboard refresh.")
+        state.finalizeHistoricalSyncBurst(at: Date().timeIntervalSince1970, receipt: receipt)
+        if let receipt {
+            log("Backfill: durable history is ready after the sync burst; receipt=\(receipt.receiptId), generation=\(receipt.generation); scheduling one dashboard refresh.")
+        } else {
+            log("Backfill: durable history is ready after the sync burst; scheduling one dashboard refresh.")
+        }
     }
 
     /// #364 / #25: evaluate (and, if warranted, fire) an immediate back-to-back backfill after a 60s

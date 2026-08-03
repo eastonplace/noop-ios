@@ -1,6 +1,7 @@
 import Combine
 import XCTest
 @testable import NOOP
+import WhoopStore
 
 final class HistoricalBurstProgressTests: XCTestCase {
     func testAutoContinuedSessionResetKeepsProgressMonotonic() {
@@ -96,6 +97,27 @@ final class HistoricalBurstProgressTests: XCTestCase {
 
         XCTAssertEqual(live.backfillDataAvailableAt, 20)
         XCTAssertNil(live.historicalSyncPassProgress)
+    }
+
+    @MainActor
+    func testBurstFinalizationPublishesReceiptContextWithTheExistingDurableEdge() {
+        let live = LiveState()
+        let receipt = HistoricalDataCommitReceipt(
+            receiptId: "receipt-42",
+            generation: 42,
+            databaseInstanceId: "database-a",
+            deviceId: "strap-a",
+            trim: 99,
+            chunkEndUnix: 1_700_000_000,
+            committedAt: 1_700_000_001,
+            rawBatchId: nil,
+            insertedRows: HistoricalStreamInsertCounts(hr: 3)
+        )
+
+        live.finalizeHistoricalSyncBurst(at: 20, receipt: receipt)
+
+        XCTAssertEqual(live.finalizedHistoricalDataCommitReceipt, receipt)
+        XCTAssertEqual(live.backfillDataAvailableAt, 20)
     }
 
     @MainActor

@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import StrandAnalytics
 import WhoopProtocol
+import WhoopStore
 
 /// Cheap, value-only observation after a historical session has durably persisted rows. It deliberately
 /// excludes analysis and Repository work: those expensive operations run exactly once when the complete
@@ -10,7 +11,49 @@ struct HistoricalSyncPassProgress: Equatable, Sendable {
     let rowsPersisted: Int
     let passNumber: Int
     let latestFrontierUnix: Int?
+    let latestCommitReceiptId: String?
+    let latestCommitGeneration: Int64?
+    let latestCommitDatabaseInstanceId: String?
+    let latestCommitDeviceId: String?
     let publishedAt: TimeInterval
+
+    init(
+        rowsPersisted: Int,
+        passNumber: Int,
+        latestFrontierUnix: Int?,
+        publishedAt: TimeInterval
+    ) {
+        self.init(
+            rowsPersisted: rowsPersisted,
+            passNumber: passNumber,
+            latestFrontierUnix: latestFrontierUnix,
+            latestCommitReceiptId: nil,
+            latestCommitGeneration: nil,
+            latestCommitDatabaseInstanceId: nil,
+            latestCommitDeviceId: nil,
+            publishedAt: publishedAt
+        )
+    }
+
+    init(
+        rowsPersisted: Int,
+        passNumber: Int,
+        latestFrontierUnix: Int?,
+        latestCommitReceiptId: String?,
+        latestCommitGeneration: Int64?,
+        latestCommitDatabaseInstanceId: String?,
+        latestCommitDeviceId: String?,
+        publishedAt: TimeInterval
+    ) {
+        self.rowsPersisted = rowsPersisted
+        self.passNumber = passNumber
+        self.latestFrontierUnix = latestFrontierUnix
+        self.latestCommitReceiptId = latestCommitReceiptId
+        self.latestCommitGeneration = latestCommitGeneration
+        self.latestCommitDatabaseInstanceId = latestCommitDatabaseInstanceId
+        self.latestCommitDeviceId = latestCommitDeviceId
+        self.publishedAt = publishedAt
+    }
 }
 
 /// Converts the Backfiller's per-session ACK count into one monotonic count for the complete logical burst.
@@ -130,6 +173,10 @@ public final class LiveState: ObservableObject {
             }
         }
     }
+    /// The receipt associated with the most recently finalized historical burst. This is observability
+    /// only in Phase 2A. The existing timestamp remains the sole analysis/Repository trigger until the
+    /// later receipt-consumer phase validates the database and device context.
+    @Published public private(set) var finalizedHistoricalDataCommitReceipt: HistoricalDataCommitReceipt?
     @Published private(set) var historicalSyncPassProgress: HistoricalSyncPassProgress?
     @Published public var lastSyncError: String?
     @Published public var backfilling = false
@@ -224,9 +271,13 @@ public final class LiveState: ObservableObject {
         historicalSyncPassProgress = progress
     }
 
-    /// Publish the durable-data edge first, then retire the pass receipt. AppModel observes the first
-    /// mutation and keeps its single post-burst analysis/Repository refresh even though UI progress clears.
-    func finalizeHistoricalSyncBurst(at timestamp: TimeInterval) {
+    /// Publish the durable receipt before the timestamp edge, then retire progress. AppModel still observes
+    /// only the timestamp in Phase 2A, so this adds context without changing the analysis pipeline.
+    func finalizeHistoricalSyncBurst(
+        at timestamp: TimeInterval,
+        receipt: HistoricalDataCommitReceipt? = nil
+    ) {
+        finalizedHistoricalDataCommitReceipt = receipt
         backfillDataAvailableAt = timestamp
         clearHistoricalSyncProgress()
     }

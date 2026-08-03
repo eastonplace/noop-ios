@@ -4,12 +4,17 @@ import GRDB
 extension WhoopStore {
     public func setCursor(_ name: String, _ value: Int) async throws {
         try syncWrite { db in
-            try db.execute(sql: """
-                INSERT INTO cursors (name, value) VALUES (?, ?)
-                ON CONFLICT(name) DO UPDATE SET value = excluded.value
-                """, arguments: [name, value])
+            try WhoopStore.setCursor(name, value, in: db)
         }
     }
+
+    static func setCursor(_ name: String, _ value: Int, in db: Database) throws {
+        try db.execute(sql: """
+            INSERT INTO cursors (name, value) VALUES (?, ?)
+            ON CONFLICT(name) DO UPDATE SET value = excluded.value
+            """, arguments: [name, value])
+    }
+
     public func cursor(_ name: String) async throws -> Int? {
         try syncRead { db in
             try Int.fetchOne(db, sql: "SELECT value FROM cursors WHERE name = ?", arguments: [name])

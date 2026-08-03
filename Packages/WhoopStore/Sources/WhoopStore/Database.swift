@@ -664,6 +664,29 @@ extension WhoopStore {
             try db.execute(sql: "INSERT INTO todayHealthSnapshotDatabase (id) VALUES (?)",
                            arguments: [UUID().uuidString])
         }
+        // v34: a historical chunk becomes visible to later analysis only after decoded rows, optional
+        // raw capture, its strap trim, and this receipt commit in one SQLite transaction. The database UUID
+        // plus device id fence restore, deletion, and re-pair boundaries; generation gives restart-safe order.
+        migrator.registerMigration("v34-historical-data-commit-journal") { db in
+            try db.execute(sql: """
+                CREATE TABLE historicalDataCommitJournal (
+                    generation INTEGER PRIMARY KEY AUTOINCREMENT,
+                    receiptId TEXT NOT NULL UNIQUE,
+                    databaseInstanceId TEXT NOT NULL,
+                    deviceId TEXT NOT NULL,
+                    trim INTEGER NOT NULL,
+                    chunkEndUnix INTEGER NOT NULL,
+                    committedAt INTEGER NOT NULL,
+                    rawBatchId TEXT,
+                    insertedRowsJSON BLOB NOT NULL,
+                    UNIQUE (databaseInstanceId, deviceId, trim)
+                )
+                """)
+            try db.execute(sql: """
+                CREATE INDEX idx_historicalDataCommitJournal_database_device_generation
+                ON historicalDataCommitJournal (databaseInstanceId, deviceId, generation)
+                """)
+        }
         return migrator
     }
 }

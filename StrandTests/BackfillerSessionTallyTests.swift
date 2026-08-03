@@ -165,6 +165,40 @@ final class BackfillerSessionTallyTests: XCTestCase {
     /// A store that forwards the real decoded counts so the session tally reflects rows that genuinely
     /// landed (the v25 record frames below each decode to one gravity sample).
     private final class TallyStore: BackfillStoreWriting {
+        func commitHistoricalChunk(
+            streams: Streams,
+            deviceId: String,
+            trim: Int,
+            chunkEndUnix: Int,
+            rawBatch: HistoricalRawBatch?,
+            committedAt: Int
+        ) async throws -> HistoricalDataCommitReceipt {
+            HistoricalDataCommitReceipt(
+                receiptId: "tally-\(trim)",
+                generation: Int64(trim),
+                databaseInstanceId: "test-db",
+                deviceId: deviceId,
+                trim: trim,
+                chunkEndUnix: chunkEndUnix,
+                committedAt: committedAt,
+                rawBatchId: rawBatch?.meta.batchId,
+                insertedRows: HistoricalStreamInsertCounts(
+                    hr: streams.hr.count,
+                    rr: streams.rr.count,
+                    events: streams.events.count,
+                    battery: streams.battery.count,
+                    spo2: streams.spo2.count,
+                    skinTemp: streams.skinTemp.count,
+                    resp: streams.resp.count,
+                    gravity: streams.gravity.count,
+                    steps: streams.steps.count,
+                    sleepState: streams.sleepState.count,
+                    ppgHr: streams.ppgHr.count,
+                    ppgWaveform: streams.ppgWaveform.count
+                )
+            )
+        }
+
         @discardableResult
         func insert(_ streams: Streams, deviceId: String) async throws
             -> (hr: Int, rr: Int, events: Int, battery: Int,

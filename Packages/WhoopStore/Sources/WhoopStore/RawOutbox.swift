@@ -116,17 +116,44 @@ extension WhoopStore {
         let packed = WhoopStore.packFrames(frames)
         let blob = try WhoopStore.zlibCompressWithLength(packed)
         try syncWrite { db in
-            try db.execute(sql: """
-                INSERT INTO rawBatch
-                    (batchId, deviceId, capturedAt, deviceClockRef, wallClockRef,
-                     startTs, endTs, frameCount, byteSize, framesBlob, syncedAt)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
-                ON CONFLICT(batchId) DO NOTHING
-                """, arguments: [
-                    meta.batchId, meta.deviceId, meta.capturedAt,
-                    meta.clockRef.device, meta.clockRef.wall,
-                    meta.startTs, meta.endTs, meta.frameCount, meta.byteSize, blob])
+            try WhoopStore.enqueueRawBatch(meta, blob: blob, in: db)
         }
+    }
+
+    static func enqueueRawBatch(_ meta: RawBatchMeta, blob: Data, in db: Database) throws {
+        try db.execute(sql: """
+            INSERT INTO rawBatch
+                (batchId, deviceId, capturedAt, deviceClockRef, wallClockRef,
+                 startTs, endTs, frameCount, byteSize, framesBlob, syncedAt)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+            ON CONFLICT(batchId) DO NOTHING
+            """, arguments: [
+                meta.batchId, meta.deviceId, meta.capturedAt,
+                meta.clockRef.device, meta.clockRef.wall,
+                meta.startTs, meta.endTs, meta.frameCount, meta.byteSize, blob])
+    }
+
+    /// `nil` means the batch id is not stored. `true` means its device and exact frame payload match.
+    /// `false` means another capture already owns that id, so an atomic history receipt must fail closed.
+    static func existingRawBatchMatches(_ meta: RawBatchMeta, blob: Data, in db: Database) throws -> Bool? {
+        guard let row = try Row.fetchOne(db, sql: """
+            SELECT deviceId, frameCount, byteSize, framesBlob
+            FROM rawBatch
+            WHERE batchId = ?
+            """, arguments: [meta.batchId]) else {
+            return nil
+        }
+        let existingDeviceId: String = row["deviceId"]
+        let existingFrameCount: Int = row["frameCount"]
+        let existingByteSize: Int = row["byteSize"]
+        let existingBlob: Data = row["framesBlob"]
+        guard existingDeviceId == meta.deviceId,
+              existingFrameCount == meta.frameCount,
+              existingByteSize == meta.byteSize else {
+            return false
+        }
+        return try WhoopStore.zlibDecompressWithLength(existingBlob)
+            == WhoopStore.zlibDecompressWithLength(blob)
     }
 
     /// Decompress and return the exact frame bytes for a batch (empty if unknown).
