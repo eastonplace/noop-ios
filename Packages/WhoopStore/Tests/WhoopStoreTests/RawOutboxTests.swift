@@ -144,4 +144,82 @@ final class RawOutboxTests: XCTestCase {
         let pendingAfterScopedB = try await store.pendingRawBatches(limit: 10)
         XCTAssertEqual(pendingAfterScopedB, [])
     }
+
+    func testScopedRawBatchApisFailClosedWhenScopeIsAmbiguousAcrossDevices() async throws {
+        let store = try await WhoopStore.inMemory()
+        let deviceA = "dev-a"
+        let deviceB = "dev-b"
+        try await store.upsertDevice(id: deviceA, mac: nil, name: nil)
+        try await store.upsertDevice(id: deviceB, mac: nil, name: nil)
+
+        let batchId = "same-batch"
+        let lineage = "same-lineage"
+        let cursorEpoch = 4
+        try await store.enqueueRawBatch(
+            meta(batchId, deviceId: deviceA, lineage: lineage, cursorEpoch: cursorEpoch,
+                 frames: [[0xA1]]),
+            frames: [[0xA1]]
+        )
+        try await store.enqueueRawBatch(
+            meta(batchId, deviceId: deviceB, lineage: lineage, cursorEpoch: cursorEpoch,
+                 frames: [[0xB2]]),
+            frames: [[0xB2]]
+        )
+
+        let scopedFrames = try await store.rawFrames(
+            batchId: batchId, lineage: lineage, cursorEpoch: cursorEpoch
+        )
+        XCTAssertEqual(scopedFrames, [])
+
+        try await store.markRawBatchSynced(
+            batchId: batchId, lineage: lineage, cursorEpoch: cursorEpoch, at: 4_000
+        )
+        let pending = try await store.pendingRawBatches(limit: 10)
+        XCTAssertEqual(Set(pending.map(\.deviceId)), Set([deviceA, deviceB]))
+    }
+
+    func testDeviceScopedRawBatchApisSelectAndSyncOnlyRequestedDevice() async throws {
+        let store = try await WhoopStore.inMemory()
+        let deviceA = "dev-a"
+        let deviceB = "dev-b"
+        try await store.upsertDevice(id: deviceA, mac: nil, name: nil)
+        try await store.upsertDevice(id: deviceB, mac: nil, name: nil)
+
+        let batchId = "same-batch"
+        let lineage = "same-lineage"
+        let cursorEpoch = 4
+        let framesA: [[UInt8]] = [[0xA1]]
+        let framesB: [[UInt8]] = [[0xB2]]
+        try await store.enqueueRawBatch(
+            meta(batchId, deviceId: deviceA, lineage: lineage, cursorEpoch: cursorEpoch,
+                 frames: framesA),
+            frames: framesA
+        )
+        try await store.enqueueRawBatch(
+            meta(batchId, deviceId: deviceB, lineage: lineage, cursorEpoch: cursorEpoch,
+                 frames: framesB),
+            frames: framesB
+        )
+
+        let deviceFramesA = try await store.rawFrames(
+            batchId: batchId, deviceId: deviceA, lineage: lineage, cursorEpoch: cursorEpoch
+        )
+        let deviceFramesB = try await store.rawFrames(
+            batchId: batchId, deviceId: deviceB, lineage: lineage, cursorEpoch: cursorEpoch
+        )
+        XCTAssertEqual(deviceFramesA, framesA)
+        XCTAssertEqual(deviceFramesB, framesB)
+
+        try await store.markRawBatchSynced(
+            batchId: batchId, deviceId: deviceA, lineage: lineage, cursorEpoch: cursorEpoch, at: 5_000
+        )
+        let pendingAfterA = try await store.pendingRawBatches(limit: 10)
+        XCTAssertEqual(pendingAfterA.map(\.deviceId), [deviceB])
+
+        try await store.markRawBatchSynced(
+            batchId: batchId, deviceId: deviceB, lineage: lineage, cursorEpoch: cursorEpoch, at: 6_000
+        )
+        let pendingAfterB = try await store.pendingRawBatches(limit: 10)
+        XCTAssertEqual(pendingAfterB, [])
+    }
 }

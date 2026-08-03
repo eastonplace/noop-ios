@@ -220,30 +220,74 @@ extension WhoopStore {
         )
     }
 
+    /// Resolve a scoped batch identity only when exactly one physical device owns it.
+    /// `nil` means unknown or cross-device ambiguous, so legacy scoped callers fail closed.
+    private static func uniqueRawBatchIdentity(
+        batchId: String,
+        lineage: String,
+        cursorEpoch: Int,
+        in db: Database
+    ) throws -> RawBatchIdentity? {
+        let rows = try Row.fetchAll(db, sql: """
+            SELECT deviceId, lineage, cursorEpoch
+            FROM rawBatch
+            WHERE batchId = ? AND lineage = ? AND cursorEpoch = ?
+            LIMIT 2
+            """, arguments: [batchId, lineage, cursorEpoch])
+        guard rows.count == 1 else { return nil }
+        let row = rows[0]
+        return RawBatchIdentity(
+            deviceId: row["deviceId"],
+            lineage: row["lineage"],
+            cursorEpoch: row["cursorEpoch"]
+        )
+    }
+
     /// Decompress and return the exact frame bytes for a batch (empty if unknown or ambiguous).
     public func rawFrames(batchId: String) async throws -> [[UInt8]] {
-        try await loadRawFrames(batchId: batchId, lineage: nil, cursorEpoch: nil)
+        try await loadRawFrames(batchId: batchId, deviceId: nil, lineage: nil, cursorEpoch: nil)
     }
 
     /// Decompress and return exact frame bytes for one scoped batch identity.
+    /// Returns empty when that identity is unknown or cross-device ambiguous.
     public func rawFrames(batchId: String, lineage: String, cursorEpoch: Int) async throws -> [[UInt8]] {
-        try await loadRawFrames(batchId: batchId, lineage: lineage, cursorEpoch: cursorEpoch)
+        try await loadRawFrames(
+            batchId: batchId, deviceId: nil, lineage: lineage, cursorEpoch: cursorEpoch
+        )
     }
 
-    private func loadRawFrames(batchId: String, lineage: String?, cursorEpoch: Int?) async throws -> [[UInt8]] {
+    /// Decompress and return exact frame bytes for the requested device and scoped batch identity.
+    public func rawFrames(
+        batchId: String,
+        deviceId: String,
+        lineage: String,
+        cursorEpoch: Int
+    ) async throws -> [[UInt8]] {
+        try await loadRawFrames(
+            batchId: batchId, deviceId: deviceId, lineage: lineage, cursorEpoch: cursorEpoch
+        )
+    }
+
+    private func loadRawFrames(
+        batchId: String,
+        deviceId: String?,
+        lineage: String?,
+        cursorEpoch: Int?
+    ) async throws -> [[UInt8]] {
         let row: Row? = try syncRead { db in
-            if let lineage, let cursorEpoch {
-                return try Row.fetchOne(
-                    db,
-                    sql: """
-                        SELECT framesBlob FROM rawBatch
-                        WHERE batchId = ? AND lineage = ? AND cursorEpoch = ?
-                        ORDER BY rowid ASC LIMIT 1
-                        """,
-                    arguments: [batchId, lineage, cursorEpoch]
+            let identity: RawBatchIdentity?
+            if let deviceId, let lineage, let cursorEpoch {
+                identity = RawBatchIdentity(
+                    deviceId: deviceId, lineage: lineage, cursorEpoch: cursorEpoch
                 )
+            } else if let lineage, let cursorEpoch {
+                identity = try WhoopStore.uniqueRawBatchIdentity(
+                    batchId: batchId, lineage: lineage, cursorEpoch: cursorEpoch, in: db
+                )
+            } else {
+                identity = try WhoopStore.uniqueRawBatchIdentity(batchId: batchId, in: db)
             }
-            guard let identity = try WhoopStore.uniqueRawBatchIdentity(batchId: batchId, in: db) else {
+            guard let identity else {
                 return nil
             }
             return try Row.fetchOne(
@@ -309,12 +353,36 @@ extension WhoopStore {
         at: Int
     ) async throws {
         try syncWrite { db in
+            guard let identity = try WhoopStore.uniqueRawBatchIdentity(
+                batchId: batchId, lineage: lineage, cursorEpoch: cursorEpoch, in: db
+            ) else {
+                return
+            }
             try db.execute(
                 sql: """
                     UPDATE rawBatch SET syncedAt = ?
-                    WHERE batchId = ? AND lineage = ? AND cursorEpoch = ?
+                    WHERE batchId = ? AND deviceId = ? AND lineage = ? AND cursorEpoch = ?
                     """,
-                arguments: [at, batchId, lineage, cursorEpoch]
+                arguments: [at, batchId, identity.deviceId, identity.lineage, identity.cursorEpoch]
+            )
+        }
+    }
+
+    /// Mark one requested device's physical-source batch identity synced.
+    public func markRawBatchSynced(
+        batchId: String,
+        deviceId: String,
+        lineage: String,
+        cursorEpoch: Int,
+        at: Int
+    ) async throws {
+        try syncWrite { db in
+            try db.execute(
+                sql: """
+                    UPDATE rawBatch SET syncedAt = ?
+                    WHERE batchId = ? AND deviceId = ? AND lineage = ? AND cursorEpoch = ?
+                    """,
+                arguments: [at, batchId, deviceId, lineage, cursorEpoch]
             )
         }
     }
