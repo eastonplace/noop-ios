@@ -4462,14 +4462,13 @@ struct TodayView: View {
     private func loadAll() async {
         let trace = PerformanceTrace.begin("today_load")
         defer { PerformanceTrace.end(trace) }
-        // One immutable, UI-shaped commit after every load path (including cache restores and early returns).
-        // This is intentionally after the scoped/history-wide writers so a Repository refresh only changes
-        // the sections whose rendered values differ.
-        defer { refreshScreenSnapshot() }
         // Always refresh the selected day (cheap, and it's what a day-switch / return-to-tab needs). Since
         // #860 retired the launch auto-land, this pass no longer changes `selectedDayOffset`, so there's no
         // re-fire to bail for: the history-wide set + the new-day announce run straight through below.
-        await loadDayScoped()
+        guard await loadDayScoped() else { return }
+        // One immutable, UI-shaped commit after every current load path, including cache restores. An obsolete
+        // day load returns above without publishing any screen state; its replacement owns the next commit.
+        defer { refreshScreenSnapshot() }
         // #849: a bare Today RE-MOUNT (tab-away + return, or an Apple-Health import that recreates the view)
         // re-fires this task with TodayView's `@State` reset, so the heavy history-wide pass re-ran in full
         // every time even when NOTHING in the data had changed: hundreds of redundant reads (incl. the
@@ -4693,8 +4692,8 @@ struct TodayView: View {
     /// #860 item 1: the launch "land on the most recent data day" (#605/#739) is RETIRED. A fresh launch now
     /// always shows today (offset 0, decided by `launchDayOffset` on the plain `@State selectedDayOffset`),
     /// so a calibrating user whose newest data is days back is no longer stranded on that old day after an
-    /// app update. This pass therefore no longer mutates `selectedDayOffset`, so it has nothing to signal to
-    /// the caller and returns void.
+    /// app update. This pass therefore no longer mutates `selectedDayOffset`. It returns `false` only when a
+    /// replacement load made its captured identity obsolete before any state could be published.
     ///
     /// #932: how long a TODAY snapshot may be served before a re-mount pays a genuine reload. Live banking
     /// does not bump `refreshSeq` (see the fast-path comment below), so this bounds the staleness of the
@@ -4703,7 +4702,7 @@ struct TodayView: View {
     /// Collector flush cadence), so two minutes of cache is the same order of freshness the screen had.
     private static let todayCacheMaxAge: TimeInterval = 120
 
-    private func loadDayScoped() async {
+    private func loadDayScoped() async -> Bool {
         // #932: same-state re-mount → restore the prior day-scoped snapshot (no store queries). The exact
         // twin of the #849 history-wide short-circuit in loadAll, for the reads that follow the SELECTED
         // day: on a big library the day's hrBuckets + hrSamples reads cover 170k+ HR rows, and macOS
@@ -4729,6 +4728,15 @@ struct TodayView: View {
            repo.todayDayScopedLoadedDayKey == loadDayKey,
            let cached = repo.todayDayScopedCache,
            loadSelectedDayOffset != 0 || Date().timeIntervalSince(cached.bankedAt) < Self.todayCacheMaxAge {
+            guard Self.shouldCommitDayScopedLoad(
+                loadSeq: loadSeq,
+                currentSeq: repo.refreshSeq,
+                loadDayKey: loadDayKey,
+                currentDayKey: selectedDayKey,
+                loadRestScoreKey: loadRestScoreKey,
+                currentRestScoreKey: restScorePresentationKey,
+                isCancelled: Task.isCancelled
+            ) else { return false }
             restoreDayScoped(cached, loadKey: loadRestScoreKey)
             if loadSelectedDayOffset == 0, let axis = hrAxis {
                 let nowEnd = Date()
@@ -4738,7 +4746,7 @@ struct TodayView: View {
                     hrAxis = extended
                 }
             }
-            return
+            return true
         }
         #if DEBUG
         // v7.7.2 regression guard: count only genuine day-scoped loads (the cache restore above returned
@@ -4863,7 +4871,7 @@ struct TodayView: View {
             loadRestScoreKey: loadRestScoreKey,
             currentRestScoreKey: restScorePresentationKey,
             isCancelled: Task.isCancelled
-        ) else { return }
+        ) else { return false }
         sparks["sleep_performance"] = restSparkLocal
         restScore = restScoreLocal
         restScoreLoadKey = loadRestScoreKey
@@ -4886,6 +4894,7 @@ struct TodayView: View {
             bankedAt: Date())
         repo.todayDayScopedLoadedSeq = loadSeq
         repo.todayDayScopedLoadedDayKey = loadDayKey
+        return true
     }
 
     /// Post a single honest `.reading` update to the inbox when a refresh brought in genuinely NEWER
