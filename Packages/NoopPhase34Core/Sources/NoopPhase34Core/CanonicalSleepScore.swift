@@ -24,6 +24,9 @@ public struct SleepScoreCandidate: Codable, Equatable, Sendable {
     /// Explicit precedence within one model. Higher values win. This preserves active-source order without
     /// relying on lexicographic source IDs or database row order.
     public let authorityRank: Int
+    /// True when this score comes from a user-edited or user-bounded sleep session. Imported values for
+    /// the old window must not mask the correction on any production surface.
+    public let isUserEditedAuthority: Bool
 
     public init(
         day: CivilDay,
@@ -33,7 +36,8 @@ public struct SleepScoreCandidate: Codable, Equatable, Sendable {
         modelVersion: String? = nil,
         observedAt: Int? = nil,
         generation: Int64 = 0,
-        authorityRank: Int = 0
+        authorityRank: Int = 0,
+        isUserEditedAuthority: Bool = false
     ) throws {
         guard value.isFinite, (0...100).contains(value), !sourceId.isEmpty,
               generation >= 0, authorityRank >= 0 else {
@@ -47,6 +51,30 @@ public struct SleepScoreCandidate: Codable, Equatable, Sendable {
         self.observedAt = observedAt
         self.generation = generation
         self.authorityRank = authorityRank
+        self.isUserEditedAuthority = isUserEditedAuthority
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case day, value, sourceId, model, modelVersion, observedAt, generation, authorityRank
+        case isUserEditedAuthority
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            day: container.decode(CivilDay.self, forKey: .day),
+            value: container.decode(Double.self, forKey: .value),
+            sourceId: container.decode(String.self, forKey: .sourceId),
+            model: container.decode(SleepScoreModel.self, forKey: .model),
+            modelVersion: container.decodeIfPresent(String.self, forKey: .modelVersion),
+            observedAt: container.decodeIfPresent(Int.self, forKey: .observedAt),
+            generation: container.decodeIfPresent(Int64.self, forKey: .generation) ?? 0,
+            authorityRank: container.decodeIfPresent(Int.self, forKey: .authorityRank) ?? 0,
+            isUserEditedAuthority: container.decodeIfPresent(
+                Bool.self,
+                forKey: .isUserEditedAuthority
+            ) ?? false
+        )
     }
 }
 
@@ -92,6 +120,39 @@ public enum CanonicalSleepScoreResolver {
         let legacyWinner = newest(legacy.filter { $0.model == .noopLegacy })
         let provisionalWinner = newest(provisional.filter { $0.model == .provisionalComposite })
 
+        let editedV2 = newest(v2.filter { $0.model == .noopV2 && $0.isUserEditedAuthority })
+        let editedLegacy = newest(
+            legacy.filter { $0.model == .noopLegacy && $0.isUserEditedAuthority }
+        )
+        let editedProvisional = newest(
+            provisional.filter {
+                $0.model == .provisionalComposite && $0.isUserEditedAuthority
+            }
+        )
+        let hasEditedAuthority = editedV2 != nil
+            || editedLegacy != nil
+            || editedProvisional != nil
+
+        if hasEditedAuthority {
+            switch mode {
+            case .off:
+                return CanonicalSleepScoreResolution(
+                    production: editedLegacy ?? editedProvisional,
+                    shadow: nil
+                )
+            case .shadow:
+                return CanonicalSleepScoreResolution(
+                    production: editedLegacy ?? editedV2 ?? editedProvisional,
+                    shadow: editedV2
+                )
+            case .on:
+                return CanonicalSleepScoreResolution(
+                    production: editedV2 ?? editedLegacy ?? editedProvisional,
+                    shadow: nil
+                )
+            }
+        }
+
         if let importedWinner {
             return CanonicalSleepScoreResolution(production: importedWinner, shadow: v2Winner)
         }
@@ -135,8 +196,20 @@ public enum CanonicalSleepScoreResolver {
 
     private static func newest(_ candidates: [SleepScoreCandidate]) -> SleepScoreCandidate? {
         candidates.max { lhs, rhs in
-            let lhsOrder = (lhs.authorityRank, lhs.generation, lhs.observedAt ?? -1, lhs.sourceId)
-            let rhsOrder = (rhs.authorityRank, rhs.generation, rhs.observedAt ?? -1, rhs.sourceId)
+            let lhsOrder = (
+                lhs.isUserEditedAuthority ? 1 : 0,
+                lhs.authorityRank,
+                lhs.generation,
+                lhs.observedAt ?? -1,
+                lhs.sourceId
+            )
+            let rhsOrder = (
+                rhs.isUserEditedAuthority ? 1 : 0,
+                rhs.authorityRank,
+                rhs.generation,
+                rhs.observedAt ?? -1,
+                rhs.sourceId
+            )
             return lhsOrder < rhsOrder
         }
     }

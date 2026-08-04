@@ -14,11 +14,11 @@ public struct AnalysisMutationReceipt: Codable, Equatable, Sendable {
         rawFrontierTs: Int?,
         algorithmBundleVersion: String
     ) throws {
-        // Receipt and analysis generations are separate monotonic domains. Both must be valid, but
-        // comparing their numeric values would create a false ordering contract.
         guard throughReceiptGeneration > 0,
               analysisGeneration > 0,
-              !algorithmBundleVersion.isEmpty else {
+              !analyzedDays.isEmpty,
+              rawFrontierTs.map({ $0 >= 0 }) ?? true,
+              !algorithmBundleVersion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw HistoricalWorkError.invalidGeneration
         }
         self.throughReceiptGeneration = throughReceiptGeneration
@@ -34,6 +34,9 @@ public struct SnapshotCommitReceipt: Codable, Equatable, Sendable {
     public let analysisGeneration: Int64
     public let snapshotGeneration: Int64
     public let analyzedDays: Set<CivilDay>
+    /// The zone used to interpret every civil-day key in this mutation. External writers must not reinterpret
+    /// these days through the phone's later zone after travel or a daylight-saving transition.
+    public let recordedTimeZoneIdentifier: String
     public let projection: VerifiedHealthProjection
 
     public init(
@@ -41,15 +44,14 @@ public struct SnapshotCommitReceipt: Codable, Equatable, Sendable {
         analysisGeneration: Int64,
         snapshotGeneration: Int64,
         analyzedDays: Set<CivilDay>,
+        recordedTimeZoneIdentifier: String = "UTC",
         projection: VerifiedHealthProjection
     ) throws {
-        // Receipt, analysis, and snapshot generations are separate monotonic domains. Preserve all three
-        // identities explicitly rather than comparing their numeric values. The projection's generation is
-        // the one exception: it must exactly equal the committed snapshot generation used by the outbox.
         guard throughReceiptGeneration > 0,
               analysisGeneration > 0,
               snapshotGeneration > 0,
               !analyzedDays.isEmpty,
+              TimeZone(identifier: recordedTimeZoneIdentifier) != nil,
               snapshotGeneration == projection.generation else {
             throw HistoricalWorkError.invalidGeneration
         }
@@ -57,49 +59,187 @@ public struct SnapshotCommitReceipt: Codable, Equatable, Sendable {
         self.analysisGeneration = analysisGeneration
         self.snapshotGeneration = snapshotGeneration
         self.analyzedDays = analyzedDays
+        self.recordedTimeZoneIdentifier = recordedTimeZoneIdentifier
         self.projection = projection
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case throughReceiptGeneration, analysisGeneration, snapshotGeneration, analyzedDays
+        case recordedTimeZoneIdentifier, projection
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            throughReceiptGeneration: container.decode(Int64.self, forKey: .throughReceiptGeneration),
+            analysisGeneration: container.decode(Int64.self, forKey: .analysisGeneration),
+            snapshotGeneration: container.decode(Int64.self, forKey: .snapshotGeneration),
+            analyzedDays: container.decode(Set<CivilDay>.self, forKey: .analyzedDays),
+            recordedTimeZoneIdentifier: container.decodeIfPresent(
+                String.self,
+                forKey: .recordedTimeZoneIdentifier
+            ) ?? "UTC",
+            projection: container.decode(VerifiedHealthProjection.self, forKey: .projection)
+        )
+    }
+}
+
+public enum PipelineFailureDisposition: String, Codable, Equatable, Sendable {
+    case retryable
+    /// The durable item waits for an explicit environmental signal. Attempts do not accumulate.
+    case blocked
+    case permanent
 }
 
 public struct PipelineFailureClassification: Equatable, Sendable {
     public let code: String
-    public let retryable: Bool
+    public let disposition: PipelineFailureDisposition
 
-    public init(code: String, retryable: Bool) {
-        self.code = code.isEmpty ? "unknown" : code
-        self.retryable = retryable
+    public init(code: String, disposition: PipelineFailureDisposition) {
+        self.code = code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "unknown" : code
+        self.disposition = disposition
     }
+
+    /// Compatibility initializer for older call sites.
+    public init(code: String, retryable: Bool) {
+        self.init(code: code, disposition: retryable ? .retryable : .permanent)
+    }
+
+    public var retryable: Bool { disposition == .retryable }
 }
 
 public struct HistoricalPipelineDependencies: Sendable {
-    public let leaseNext: @Sendable (_ owner: String, _ now: Date, _ leaseDuration: TimeInterval) async throws -> HistoricalAnalysisWork?
-    public let applyEvent: @Sendable (_ workId: UUID, _ event: HistoricalWorkEvent, _ now: Date) async throws -> HistoricalAnalysisWork
+    public let leaseNext: @Sendable (
+        _ owner: String,
+        _ now: Date,
+        _ leaseDuration: TimeInterval
+    ) async throws -> HistoricalAnalysisWork?
+    public let applyEvent: @Sendable (
+        _ workId: UUID,
+        _ event: HistoricalWorkEvent,
+        _ now: Date
+    ) async throws -> HistoricalAnalysisWork
+    /// Must be idempotent by `(databaseInstanceId, workId, lastReceiptGeneration)`.
     public let analyze: @Sendable (_ work: HistoricalAnalysisWork) async throws -> AnalysisMutationReceipt
-    public let verifyAndCommitSnapshot: @Sendable (_ work: HistoricalAnalysisWork, _ analysis: AnalysisMutationReceipt) async throws -> SnapshotCommitReceipt
-    public let publishRepository: @Sendable (_ work: HistoricalAnalysisWork, _ snapshot: SnapshotCommitReceipt) async throws -> Void
-    public let commitOutbox: @Sendable (_ snapshot: SnapshotCommitReceipt) async throws -> Set<DownstreamDestination>
+    public let loadAnalysis: @Sendable (
+        _ work: HistoricalAnalysisWork
+    ) async throws -> AnalysisMutationReceipt
+    /// Must verify persisted score rows and build the projection from one post-analysis SQLite read snapshot.
+    public let verifyAndCommitSnapshot: @Sendable (
+        _ work: HistoricalAnalysisWork,
+        _ analysis: AnalysisMutationReceipt
+    ) async throws -> SnapshotCommitReceipt
+    public let loadSnapshot: @Sendable (
+        _ work: HistoricalAnalysisWork
+    ) async throws -> SnapshotCommitReceipt
+    public let publishRepository: @Sendable (
+        _ work: HistoricalAnalysisWork,
+        _ snapshot: SnapshotCommitReceipt
+    ) async throws -> Void
+    public let commitOutbox: @Sendable (
+        _ snapshot: SnapshotCommitReceipt
+    ) async throws -> Set<DownstreamDestination>
     public let classifyError: @Sendable (_ error: any Error) -> PipelineFailureClassification
     public let now: @Sendable () -> Date
 
     public init(
-        leaseNext: @escaping @Sendable (_ owner: String, _ now: Date, _ leaseDuration: TimeInterval) async throws -> HistoricalAnalysisWork?,
-        applyEvent: @escaping @Sendable (_ workId: UUID, _ event: HistoricalWorkEvent, _ now: Date) async throws -> HistoricalAnalysisWork,
-        analyze: @escaping @Sendable (_ work: HistoricalAnalysisWork) async throws -> AnalysisMutationReceipt,
-        verifyAndCommitSnapshot: @escaping @Sendable (_ work: HistoricalAnalysisWork, _ analysis: AnalysisMutationReceipt) async throws -> SnapshotCommitReceipt,
-        publishRepository: @escaping @Sendable (_ work: HistoricalAnalysisWork, _ snapshot: SnapshotCommitReceipt) async throws -> Void,
-        commitOutbox: @escaping @Sendable (_ snapshot: SnapshotCommitReceipt) async throws -> Set<DownstreamDestination>,
-        classifyError: @escaping @Sendable (_ error: any Error) -> PipelineFailureClassification,
+        leaseNext: @escaping @Sendable (
+            _ owner: String,
+            _ now: Date,
+            _ leaseDuration: TimeInterval
+        ) async throws -> HistoricalAnalysisWork?,
+        applyEvent: @escaping @Sendable (
+            _ workId: UUID,
+            _ event: HistoricalWorkEvent,
+            _ now: Date
+        ) async throws -> HistoricalAnalysisWork,
+        analyze: @escaping @Sendable (
+            _ work: HistoricalAnalysisWork
+        ) async throws -> AnalysisMutationReceipt,
+        loadAnalysis: @escaping @Sendable (
+            _ work: HistoricalAnalysisWork
+        ) async throws -> AnalysisMutationReceipt,
+        verifyAndCommitSnapshot: @escaping @Sendable (
+            _ work: HistoricalAnalysisWork,
+            _ analysis: AnalysisMutationReceipt
+        ) async throws -> SnapshotCommitReceipt,
+        loadSnapshot: @escaping @Sendable (
+            _ work: HistoricalAnalysisWork
+        ) async throws -> SnapshotCommitReceipt,
+        publishRepository: @escaping @Sendable (
+            _ work: HistoricalAnalysisWork,
+            _ snapshot: SnapshotCommitReceipt
+        ) async throws -> Void,
+        commitOutbox: @escaping @Sendable (
+            _ snapshot: SnapshotCommitReceipt
+        ) async throws -> Set<DownstreamDestination>,
+        classifyError: @escaping @Sendable (
+            _ error: any Error
+        ) -> PipelineFailureClassification,
         now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.leaseNext = leaseNext
         self.applyEvent = applyEvent
         self.analyze = analyze
+        self.loadAnalysis = loadAnalysis
         self.verifyAndCommitSnapshot = verifyAndCommitSnapshot
+        self.loadSnapshot = loadSnapshot
         self.publishRepository = publishRepository
         self.commitOutbox = commitOutbox
         self.classifyError = classifyError
         self.now = now
     }
+
+    /// Source-compatible initializer for tests. Production must use the full initializer so crash recovery can
+    /// load durable artifacts without restarting analysis.
+    public init(
+        leaseNext: @escaping @Sendable (
+            _ owner: String,
+            _ now: Date,
+            _ leaseDuration: TimeInterval
+        ) async throws -> HistoricalAnalysisWork?,
+        applyEvent: @escaping @Sendable (
+            _ workId: UUID,
+            _ event: HistoricalWorkEvent,
+            _ now: Date
+        ) async throws -> HistoricalAnalysisWork,
+        analyze: @escaping @Sendable (
+            _ work: HistoricalAnalysisWork
+        ) async throws -> AnalysisMutationReceipt,
+        verifyAndCommitSnapshot: @escaping @Sendable (
+            _ work: HistoricalAnalysisWork,
+            _ analysis: AnalysisMutationReceipt
+        ) async throws -> SnapshotCommitReceipt,
+        publishRepository: @escaping @Sendable (
+            _ work: HistoricalAnalysisWork,
+            _ snapshot: SnapshotCommitReceipt
+        ) async throws -> Void,
+        commitOutbox: @escaping @Sendable (
+            _ snapshot: SnapshotCommitReceipt
+        ) async throws -> Set<DownstreamDestination>,
+        classifyError: @escaping @Sendable (
+            _ error: any Error
+        ) -> PipelineFailureClassification,
+        now: @escaping @Sendable () -> Date = Date.init
+    ) {
+        self.init(
+            leaseNext: leaseNext,
+            applyEvent: applyEvent,
+            analyze: analyze,
+            loadAnalysis: { _ in throw HistoricalPipelineArtifactError.missingAnalysisReceipt },
+            verifyAndCommitSnapshot: verifyAndCommitSnapshot,
+            loadSnapshot: { _ in throw HistoricalPipelineArtifactError.missingSnapshotReceipt },
+            publishRepository: publishRepository,
+            commitOutbox: commitOutbox,
+            classifyError: classifyError,
+            now: now
+        )
+    }
+}
+
+public enum HistoricalPipelineArtifactError: Error, Equatable, Sendable {
+    case missingAnalysisReceipt
+    case missingSnapshotReceipt
 }
 
 public struct HistoricalPipelineDrainResult: Equatable, Sendable {
@@ -107,11 +247,32 @@ public struct HistoricalPipelineDrainResult: Equatable, Sendable {
     public let deferredWorkCount: Int
     public let alreadyDraining: Bool
 
-    public static let alreadyActive = Self(completedWorkCount: 0, deferredWorkCount: 0, alreadyDraining: true)
+    public static let alreadyActive = Self(
+        completedWorkCount: 0,
+        deferredWorkCount: 0,
+        alreadyDraining: true
+    )
 }
 
-/// Single durable scoring owner. Every state transition is persisted through `applyEvent`; cancellation or a
-/// process death therefore leaves a lease that can expire and resume rather than losing the work edge.
+private actor PipelineLeaseHealth {
+    private var failure: (any Error)?
+
+    func invalidate(_ error: any Error) {
+        if failure == nil { failure = error }
+    }
+
+    func requireValid() throws {
+        if let failure { throw failure }
+    }
+}
+
+public enum HistoricalPipelineLeaseError: Error, Equatable, Sendable {
+    case renewalFailed
+}
+
+/// Single durable scoring owner. The persisted `resumePhase` prevents failures in publication or delivery from
+/// restarting analysis. Every repeated side effect has an idempotency key for the crash seam between the side
+/// effect and its following state transition.
 public actor HistoricalPipelineCoordinator {
     private let dependencies: HistoricalPipelineDependencies
     private let owner: String
@@ -151,10 +312,13 @@ public actor HistoricalPipelineCoordinator {
                     exhaustedBatchBudget = false
                     break
                 }
-                let now = dependencies.now()
                 let leased: HistoricalAnalysisWork
                 do {
-                    guard let next = try await dependencies.leaseNext(owner, now, leaseDuration) else {
+                    guard let next = try await dependencies.leaseNext(
+                        owner,
+                        dependencies.now(),
+                        leaseDuration
+                    ) else {
                         exhaustedBatchBudget = false
                         break
                     }
@@ -171,10 +335,17 @@ public actor HistoricalPipelineCoordinator {
                 } catch {
                     let failure = dependencies.classifyError(error)
                     do {
+                        let event: HistoricalWorkEvent
+                        switch failure.disposition {
+                        case .blocked:
+                            event = .blocked(owner: owner, code: failure.code)
+                        case .retryable:
+                            event = .failed(owner: owner, code: failure.code, retryable: true)
+                        case .permanent:
+                            event = .failed(owner: owner, code: failure.code, retryable: false)
+                        }
                         _ = try await dependencies.applyEvent(
-                            leased.id,
-                            .failed(owner: owner, code: failure.code, retryable: failure.retryable),
-                            dependencies.now()
+                            leased.id, event, dependencies.now()
                         )
                     } catch {
                         // The durable lease remains recoverable. Do not acknowledge or invent completion.
@@ -182,9 +353,6 @@ public actor HistoricalPipelineCoordinator {
                     deferred += 1
                 }
             }
-            // A batch limit is a cooperative-yield boundary, not a reason to leave durable ready work idle
-            // until some unrelated lifecycle signal arrives. One extra empty lease query terminates cleanly
-            // when the batch contained exactly the final N items.
             if exhaustedBatchBudget && !Task.isCancelled {
                 rerunRequested = true
                 await Task.yield()
@@ -197,13 +365,11 @@ public actor HistoricalPipelineCoordinator {
             alreadyDraining: false
         )
     }
+
     private func process(_ leased: HistoricalAnalysisWork) async throws {
-        // Exact analysis and Health snapshot verification can outlive the initial lease on large libraries.
-        // Renew the same durable lease while the owner is suspended so another lifecycle signal cannot recover
-        // and run the same work concurrently. A failed heartbeat does not invent success; the next persisted
-        // transition still validates ownership and expiry and will fail closed.
+        let leaseHealth = PipelineLeaseHealth()
         let heartbeatInterval = max(1, leaseDuration / 3)
-        let heartbeat = Task { [dependencies, owner, leaseDuration] in
+        let heartbeat = Task { [dependencies, owner, leaseDuration, leaseHealth] in
             while !Task.isCancelled {
                 do {
                     try await Task.sleep(for: .seconds(heartbeatInterval))
@@ -221,6 +387,7 @@ public actor HistoricalPipelineCoordinator {
                         dependencies.now()
                     )
                 } catch {
+                    await leaseHealth.invalidate(HistoricalPipelineLeaseError.renewalFailed)
                     return
                 }
             }
@@ -229,45 +396,86 @@ public actor HistoricalPipelineCoordinator {
 
         var work = try await dependencies.applyEvent(
             leased.id,
-            .beginAnalysis(owner: owner),
+            .beginCurrentPhase(owner: owner),
             dependencies.now()
         )
-        let analysis = try await dependencies.analyze(work)
-        work = try await dependencies.applyEvent(
-            work.id,
-            .analysisSucceeded(
-                owner: owner,
-                throughReceiptGeneration: analysis.throughReceiptGeneration,
-                analysisGeneration: analysis.analysisGeneration,
-                analyzedDays: analysis.analyzedDays
-            ),
-            dependencies.now()
-        )
-        let snapshot = try await dependencies.verifyAndCommitSnapshot(work, analysis)
-        work = try await dependencies.applyEvent(
-            work.id,
-            .verificationSucceeded(
-                owner: owner,
-                throughReceiptGeneration: snapshot.throughReceiptGeneration,
-                analysisGeneration: snapshot.analysisGeneration,
-                snapshotGeneration: snapshot.snapshotGeneration
-            ),
-            dependencies.now()
-        )
-        try await dependencies.publishRepository(work, snapshot)
-        work = try await dependencies.applyEvent(
-            work.id,
-            .repositoryPublished(owner: owner),
-            dependencies.now()
-        )
-        // The dependency must durably insert the exact projection and every outbox row before this event
-        // marks analysis work complete. Destination retries belong to the outbox worker, not this lease.
-        let destinations = try await dependencies.commitOutbox(snapshot)
-        _ = try await dependencies.applyEvent(
-            work.id,
-            .outboxCommitted(owner: owner, destinations: destinations),
-            dependencies.now()
-        )
-    }
+        var analysis: AnalysisMutationReceipt?
+        var snapshot: SnapshotCommitReceipt?
 
+        while true {
+            try Task.checkCancellation()
+            try await leaseHealth.requireValid()
+            switch work.resumePhase {
+            case .analysis:
+                let result = try await dependencies.analyze(work)
+                try await leaseHealth.requireValid()
+                analysis = result
+                work = try await dependencies.applyEvent(
+                    work.id,
+                    .analysisSucceeded(
+                        owner: owner,
+                        throughReceiptGeneration: result.throughReceiptGeneration,
+                        analysisGeneration: result.analysisGeneration,
+                        analyzedDays: result.analyzedDays
+                    ),
+                    dependencies.now()
+                )
+
+            case .verification:
+                let result: AnalysisMutationReceipt
+                if let analysis {
+                    result = analysis
+                } else {
+                    result = try await dependencies.loadAnalysis(work)
+                }
+                let committed = try await dependencies.verifyAndCommitSnapshot(work, result)
+                try await leaseHealth.requireValid()
+                snapshot = committed
+                work = try await dependencies.applyEvent(
+                    work.id,
+                    .verificationSucceeded(
+                        owner: owner,
+                        throughReceiptGeneration: committed.throughReceiptGeneration,
+                        analysisGeneration: committed.analysisGeneration,
+                        snapshotGeneration: committed.snapshotGeneration
+                    ),
+                    dependencies.now()
+                )
+
+            case .repositoryPublication:
+                let committed: SnapshotCommitReceipt
+                if let snapshot {
+                    committed = snapshot
+                } else {
+                    committed = try await dependencies.loadSnapshot(work)
+                }
+                try await dependencies.publishRepository(work, committed)
+                try await leaseHealth.requireValid()
+                work = try await dependencies.applyEvent(
+                    work.id,
+                    .repositoryPublished(owner: owner),
+                    dependencies.now()
+                )
+
+            case .outboxCommit:
+                let committed: SnapshotCommitReceipt
+                if let snapshot {
+                    committed = snapshot
+                } else {
+                    committed = try await dependencies.loadSnapshot(work)
+                }
+                let destinations = try await dependencies.commitOutbox(committed)
+                try await leaseHealth.requireValid()
+                _ = try await dependencies.applyEvent(
+                    work.id,
+                    .outboxCommitted(owner: owner, destinations: destinations),
+                    dependencies.now()
+                )
+                return
+
+            case .done:
+                return
+            }
+        }
+    }
 }

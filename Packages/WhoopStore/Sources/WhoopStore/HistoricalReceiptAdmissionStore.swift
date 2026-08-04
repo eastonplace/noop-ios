@@ -6,6 +6,14 @@ import Foundation
 import GRDB
 import NoopPhase34Core
 
+public enum HistoricalCursorWriteError: Error, Equatable, Sendable {
+    case invalidScope
+    case invalidGeneration
+    case generationRegression(existing: Int64, attempted: Int64)
+    case equalGenerationConflict(generation: Int64, existingTrim: Int, attemptedTrim: Int)
+    case concurrentMutation
+}
+
 public struct HistoricalReceiptAdmissionContext: Sendable {
     public let consumerId: String
     public let sourceId: String
@@ -401,4 +409,75 @@ private extension Optional {
         guard let self else { throw HistoricalReceiptAdmissionError.invalidContext }
         return self
     }
+}
+
+// MARK: - PR #28 root-fix support for WhoopStore
+extension WhoopStore {
+    static func setHistoricalCursorV2(
+            _ scope: HistoricalCursorScope,
+            value: Int,
+            watermarkGeneration: Int64,
+            in db: Database
+        ) throws {
+            guard !scope.deviceId.isEmpty,
+                  !scope.lineage.isEmpty,
+                  scope.cursorEpoch >= 0,
+                  !scope.trimScope.isEmpty else {
+                throw HistoricalCursorWriteError.invalidScope
+            }
+            guard watermarkGeneration > 0 else {
+                throw HistoricalCursorWriteError.invalidGeneration
+            }
+
+            let row = try Row.fetchOne(db, sql: """
+                SELECT trim, watermarkGeneration
+                FROM historicalCursor
+                WHERE deviceId = ? AND lineage = ? AND cursorEpoch = ? AND trimScope = ?
+                """, arguments: [scope.deviceId, scope.lineage, scope.cursorEpoch, scope.trimScope])
+
+            guard let row else {
+                try db.execute(sql: """
+                    INSERT INTO historicalCursor
+                        (deviceId, lineage, cursorEpoch, trimScope, trim, watermarkGeneration)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """, arguments: [
+                        scope.deviceId, scope.lineage, scope.cursorEpoch, scope.trimScope,
+                        value, watermarkGeneration,
+                    ])
+                return
+            }
+
+            let existingTrim: Int = row["trim"]
+            let existingGeneration: Int64 = row["watermarkGeneration"]
+            if watermarkGeneration < existingGeneration {
+                throw HistoricalCursorWriteError.generationRegression(
+                    existing: existingGeneration,
+                    attempted: watermarkGeneration
+                )
+            }
+            if watermarkGeneration == existingGeneration {
+                guard value == existingTrim else {
+                    throw HistoricalCursorWriteError.equalGenerationConflict(
+                        generation: watermarkGeneration,
+                        existingTrim: existingTrim,
+                        attemptedTrim: value
+                    )
+                }
+                return // exact idempotent replay
+            }
+
+            try db.execute(sql: """
+                UPDATE historicalCursor
+                SET trim = ?, watermarkGeneration = ?
+                WHERE deviceId = ? AND lineage = ? AND cursorEpoch = ? AND trimScope = ?
+                  AND watermarkGeneration = ?
+                """, arguments: [
+                    value, watermarkGeneration,
+                    scope.deviceId, scope.lineage, scope.cursorEpoch, scope.trimScope,
+                    existingGeneration,
+                ])
+            guard db.changesCount == 1 else {
+                throw HistoricalCursorWriteError.concurrentMutation
+            }
+        }
 }

@@ -10,6 +10,12 @@ enum HealthKitWritebackComponent: String, CaseIterable {
     case vitals, sleep, heartRate, workouts
 }
 
+enum ExactPublicationError: Error {
+    case authorizationUnavailable
+    case storeUnavailable
+    case invalidTimeZone
+}
+
 /// Deterministic, per-component six-hour success gate for NOOP → HealthKit write plans.
 /// Failed/unmarked plans retry immediately; authorization changes and repair reset all keys.
 enum HealthKitWritebackFingerprint {
@@ -426,44 +432,59 @@ final class HealthKitBridge: ObservableObject {
     /// destination never requests authorization and never widens a historical mutation into a rolling
     /// refresh window. The existing bounded write-back remains the user-invoked repair path; this method
     /// is the exact historical delivery path.
-    func publishExactHealthKit(changedDays: Set<CivilDay>) async throws {
-        guard auth == .authorized, !changedDays.isEmpty,
-              let store = await repo.storeHandle() else { return }
-
-        let dayKeys = Set(changedDays.map(\.key))
-        let sortedKeys = dayKeys.sorted()
-        guard let first = sortedKeys.first,
-              let last = sortedKeys.last,
-              let firstDate = Self.date(from: first),
-              let lastDate = Self.date(from: last) else { return }
-        let calendar = Calendar.current
-        let start = calendar.startOfDay(for: firstDate)
-        let endOfLastDay = calendar.date(
-            byAdding: .day,
-            value: 1,
-            to: calendar.startOfDay(for: lastDate)
-        ) ?? lastDate
-        let now = Date()
-        let fromTs = Int(start.timeIntervalSince1970) - 24 * 3_600
-        let toTs = min(Int(endOfLastDay.timeIntervalSince1970), Int(now.timeIntervalSince1970)) + 24 * 3_600
-        let sessions = try await HealthKitWritebackPlanner.sleepSessions(
-            store: store,
-            importedIds: repo.importedReadIds,
-            computedIds: repo.computedReadIds,
-            from: fromTs,
-            to: toTs
-        ).filter { session in
-            dayKeys.contains(Self.dayString(Date(timeIntervalSince1970: TimeInterval(session.endTs))))
+    func publishExactHealthKit(
+        changedDays: Set<CivilDay>,
+        recordedTimeZoneIdentifier: String
+    ) async throws {
+        guard auth == .authorized else { throw ExactPublicationError.authorizationUnavailable }
+        guard !changedDays.isEmpty else { return }
+        guard let whoopStore = await repo.storeHandle() else {
+            throw ExactPublicationError.storeUnavailable
         }
+        guard let timeZone = TimeZone(identifier: recordedTimeZoneIdentifier) else {
+            throw ExactPublicationError.invalidTimeZone
+        }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let importedIds = repo.importedReadIds
+        let computedIds = repo.computedReadIds
+        let dayKeys = Set(changedDays.map(\.key))
+
+        // Query each sparse day independently. A January and March mutation never scans February.
+        var sessionsByKey: [String: CachedSleepSession] = [:]
+        for day in changedDays.sorted() {
+            let start = try day.date(in: calendar)
+            guard let end = calendar.date(byAdding: .day, value: 1, to: start) else {
+                throw ExactPublicationError.invalidTimeZone
+            }
+            let rows = try await HealthKitWritebackPlanner.sleepSessions(
+                store: whoopStore,
+                importedIds: importedIds,
+                computedIds: computedIds,
+                from: Int(start.timeIntervalSince1970) - 24 * 3_600,
+                to: Int(end.timeIntervalSince1970) + 24 * 3_600
+            )
+            for session in rows {
+                let wake = calendar.dateComponents(
+                    [.year, .month, .day],
+                    from: Date(timeIntervalSince1970: TimeInterval(session.endTs))
+                )
+                guard let year = wake.year, let month = wake.month, let day = wake.day else { continue }
+                let wakeKey = String(format: "%04d-%02d-%02d", year, month, day)
+                guard dayKeys.contains(wakeKey) else { continue }
+                sessionsByKey["\(session.startTs)|\(session.endTs)"] = session
+            }
+        }
+        let sessions = sessionsByKey.values.sorted { $0.effectiveStartTs < $1.effectiveStartTs }
 
         var firstError: Error?
         do {
             try await writeVitals(
-                whoopStore: store,
+                whoopStore: whoopStore,
                 days: 0,
                 sessions: sessions,
-                importedIds: repo.importedReadIds,
-                computedIds: repo.computedReadIds,
+                importedIds: importedIds,
+                computedIds: computedIds,
                 dayKeys: dayKeys
             )
         } catch {

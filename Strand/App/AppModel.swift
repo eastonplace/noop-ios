@@ -484,7 +484,7 @@ final class AppModel: ObservableObject {
             // last-21-days sweep. A crash before acknowledgment leaves the same target staged for retry.
             let launchPipeline = await self.signalHistoricalPipeline()
             if launchPipeline.completedWork > 0 {
-                await self.publishAfterCommittedHistoricalAnalysis()
+                await self.refreshV5Signals()
             }
             try? await Task.sleep(nanoseconds: 6_000_000_000)  // give the first offload a moment
             // FIX 2(a): DEFER the heavy one-shot 4000-day heal/rescore while an import is in flight. A
@@ -567,6 +567,9 @@ final class AppModel: ObservableObject {
     }
 
     private func makeHistoricalPipelineRuntime() -> HistoricalPipelineRuntime {
+        let postAnalysisSnapshotBuilder = RepositoryPostAnalysisSnapshotBuilder.self
+        let classifyError: @Sendable (any Error) -> PipelineFailureClassification =
+            PR28PipelineErrorClassifier.classify
         let coordinator = HistoricalPipelineCoordinator(dependencies: HistoricalPipelineDependencies(
             leaseNext: { [weak self] owner, now, leaseDuration in
                 guard let self, let store = await self.repo.storeHandle() else {
@@ -574,36 +577,64 @@ final class AppModel: ObservableObject {
                 }
                 return try await store.leaseNextHistoricalAnalysisWork(
                     HistoricalAnalysisWorkLeaseRequest(
-                        owner: owner, now: now, leaseDuration: leaseDuration))
+                        owner: owner, now: now, leaseDuration: leaseDuration
+                    )
+                )
             },
             applyEvent: { [weak self] workId, event, now in
                 guard let self, let store = await self.repo.storeHandle() else {
                     throw HistoricalPipelineRuntimeError.storeUnavailable
                 }
                 return try await store.applyHistoricalAnalysisWorkEvent(
-                    workId: workId, event: event, now: now)
+                    workId: workId, event: event, now: now
+                )
             },
             analyze: { [weak self] work in
                 guard let self, let store = await self.repo.storeHandle() else {
                     throw HistoricalPipelineRuntimeError.storeUnavailable
                 }
                 return try await self.intelligence.analyzeCommittedWork(
-                    work, store: store, now: Date())
+                    work, store: store, now: Date()
+                )
+            },
+            loadAnalysis: { [weak self] work in
+                guard let self, let store = await self.repo.storeHandle() else {
+                    throw HistoricalPipelineRuntimeError.storeUnavailable
+                }
+                return try await self.repo.loadHistoricalAnalysisMutation(
+                    work: work, store: store
+                )
             },
             verifyAndCommitSnapshot: { [weak self] work, analysis in
-                guard let self, let store = await self.repo.storeHandle(),
-                      let candidate = await self.repo.verifiedTodaySnapshotCandidate(now: Date()) else {
+                guard let self, let store = await self.repo.storeHandle() else {
+                    throw HistoricalPipelineRuntimeError.storeUnavailable
+                }
+                return try await self.repo.buildAndCommitVerifiedHistoricalSnapshot(
+                    work: work,
+                    analysis: analysis,
+                    store: store,
+                    now: Date(),
+                    snapshotBuilder: postAnalysisSnapshotBuilder
+                )
+            },
+            loadSnapshot: { [weak self] work in
+                guard let self, let store = await self.repo.storeHandle() else {
+                    throw HistoricalPipelineRuntimeError.storeUnavailable
+                }
+                return try await self.repo.loadHistoricalSnapshotCommit(
+                    work: work, store: store
+                )
+            },
+            publishRepository: { [weak self] _, snapshot in
+                guard let self else { throw HistoricalPipelineRuntimeError.storeUnavailable }
+                let outcome = try await self.repo.publishVerifiedExactDays(
+                    snapshot.analyzedDays,
+                    recordedTimeZoneIdentifier: snapshot.recordedTimeZoneIdentifier,
+                    snapshot: snapshot
+                )
+                guard outcome.authoritativeDataPublished else {
                     throw HistoricalPipelineRuntimeError.snapshotUnavailable
                 }
-                return try await self.repo.verifyAndCommitHistoricalSnapshot(
-                    candidate: candidate, work: work, analysis: analysis, store: store)
-            },
-            publishRepository: { [weak self] work, snapshot in
-                guard let self else { throw HistoricalPipelineRuntimeError.storeUnavailable }
-                _ = try await self.repo.publishVerifiedExactDays(
-                    work.affectedDays,
-                    recordedTimeZoneIdentifier: work.recordedTimeZoneIdentifier,
-                    snapshot: snapshot)
             },
             commitOutbox: { [weak self] snapshot in
                 guard let self, let store = await self.repo.storeHandle() else {
@@ -611,15 +642,11 @@ final class AppModel: ObservableObject {
                 }
                 return try await store.enqueueExternalPublications(
                     snapshot: snapshot,
-                    // This repository has iOS widget, Live Activity, and HealthKit sinks. The generic
-                    // core also models Watch for a future watchOS target, but enqueueing an unavailable
-                    // destination would create durable rows that no runtime can ever acknowledge.
                     destinations: [.widget, .liveActivity, .healthKit],
-                    now: Date())
+                    now: Date()
+                )
             },
-            classifyError: { error in
-                PipelineFailureClassification(code: String(describing: error), retryable: true)
-            },
+            classifyError: classifyError,
             now: Date.init
         ))
 
@@ -629,26 +656,19 @@ final class AppModel: ObservableObject {
                     throw HistoricalPipelineRuntimeError.storeUnavailable
                 }
                 let registry = DeviceRegistryStore(dbQueue: store.registryWriter)
-                let registeredIds = (try? registry.all().map(\.id)) ?? []
-                let importedIds = await self.repo.importedReadIds
-                let computedIds = await self.repo.computedReadIds
-                var ids: [String] = []
-                for id in registeredIds + importedIds + computedIds {
-                    if !id.isEmpty, !ids.contains(id) { ids.append(id) }
-                }
-                var contexts: [HistoricalReceiptAdmissionContext] = []
-                for id in ids {
-                    let scope = try await store.historicalCursorScope(deviceId: id)
-                    contexts.append(HistoricalReceiptAdmissionContext(
-                        sourceId: id, scope: scope, now: Date()))
-                }
-                return contexts
+                let fallbackId = self.repo.deviceId
+                let activeId = try registry.activeDeviceId() ?? fallbackId
+                let scope = try await store.historicalCursorScope(deviceId: activeId)
+                return [HistoricalReceiptAdmissionContext(
+                    sourceId: activeId,
+                    scope: scope,
+                    now: Date()
+                )]
             },
             admit: { [weak self] context in
                 guard let self, let store = await self.repo.storeHandle() else {
                     throw HistoricalPipelineRuntimeError.storeUnavailable
                 }
-                _ = self
                 return try await store.admitHistoricalReceipts(context)
             },
             coordinator: coordinator,
@@ -658,17 +678,14 @@ final class AppModel: ObservableObject {
                 }
                 return try await store.pendingHistoricalAnalysisWorkCount()
             },
-            classifyAdmissionError: { error in
-                PipelineFailureClassification(code: String(describing: error), retryable: true)
-            },
+            classifyAdmissionError: PR28PipelineErrorClassifier.classify,
             onAdmissionFailure: { [weak self] failure in
-                guard let self else { return }
-                await self.live.append(log: "Historical admission deferred: \(failure.code)")
+                Task { @MainActor [weak self] in
+                    self?.live.append(log: "Historical admission deferred: \(failure.code)")
+                }
             },
             report: { [weak self] message in
-                Task { @MainActor [weak self] in
-                    self?.live.append(log: message)
-                }
+                Task { @MainActor [weak self] in self?.live.append(log: message) }
             }
         )
         return HistoricalPipelineRuntime(dependencies: dependencies)
@@ -760,7 +777,7 @@ final class AppModel: ObservableObject {
         }
         let pipeline = await signalHistoricalPipeline()
         if pipeline.completedWork > 0 {
-            await publishAfterCommittedHistoricalAnalysis()
+            await refreshV5Signals()
             return
         }
 

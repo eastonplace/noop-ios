@@ -17,7 +17,8 @@ struct ExternalPublicationWorkerDependencies: Sendable {
     let publishHealthKitWriteOnly: @Sendable @MainActor (
         _ projection: VerifiedHealthProjection,
         _ analysisGeneration: Int64,
-        _ changedDays: Set<CivilDay>
+        _ changedDays: Set<CivilDay>,
+        _ recordedTimeZoneIdentifier: String
     ) async throws -> Void
     /// The watch sink must ignore generations older than its last accepted generation.
     let publishWatch: @Sendable @MainActor (VerifiedHealthProjection) async throws -> Void
@@ -151,7 +152,8 @@ actor ExternalPublicationWorker {
                 try await dependencies.publishHealthKitWriteOnly(
                     projection,
                     leased.analysisGeneration,
-                    leased.changedDays
+                    leased.changedDays,
+                    leased.recordedTimeZoneIdentifier
                 )
             case .watch:
                 try await dependencies.publishWatch(projection)

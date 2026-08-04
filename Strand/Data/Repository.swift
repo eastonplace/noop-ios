@@ -4316,6 +4316,199 @@ final class Repository: ObservableObject {
 
 @MainActor
 extension Repository {
+    /// Load the scorer's durable mutation receipt. The coordinator must never infer analysis state from
+    /// the bounded Repository cache or from a receipt generation alone.
+    func loadHistoricalAnalysisMutation(
+        work: HistoricalAnalysisWork,
+        store: WhoopStore
+    ) async throws -> AnalysisMutationReceipt {
+        guard work.lastReceiptGeneration > 0 else {
+            throw PR28HistoricalPipelineError.invalidAnalysisReceipt
+        }
+        guard let record = try await store.analysisMutation(
+            workId: work.id,
+            throughReceiptGeneration: work.lastReceiptGeneration
+        ) else {
+            throw HistoricalPipelineArtifactError.missingAnalysisReceipt
+        }
+        guard record.workId == work.id,
+              record.scope == work.scope,
+              record.throughReceiptGeneration == work.lastReceiptGeneration,
+              work.affectedDays.isSubset(of: record.analyzedDays) else {
+            throw PR28HistoricalPipelineError.invalidAnalysisReceipt
+        }
+        do {
+            return try AnalysisMutationReceipt(
+                throughReceiptGeneration: record.throughReceiptGeneration,
+                analysisGeneration: record.generation,
+                analyzedDays: record.analyzedDays,
+                rawFrontierTs: record.rawFrontierTs,
+                algorithmBundleVersion: record.algorithmBundleVersion
+            )
+        } catch {
+            throw PR28HistoricalPipelineError.invalidAnalysisReceipt
+        }
+    }
+
+    /// Build Today from one post-analysis WAL snapshot, then save and read it back before creating the
+    /// analysis-to-snapshot receipt. The pre-analysis cache is never used as the source of metric values.
+    func buildAndCommitVerifiedHistoricalSnapshot(
+        work: HistoricalAnalysisWork,
+        analysis: AnalysisMutationReceipt,
+        store: WhoopStore,
+        now: Date,
+        snapshotBuilder: RepositoryPostAnalysisSnapshotBuilder.Type
+    ) async throws -> SnapshotCommitReceipt {
+        switch work.kind {
+        case .exactDays:
+            break
+        case .fullHistoryRepair:
+            throw PR28HistoricalPipelineError.unsupportedFullHistoryRepair
+        }
+        guard let context = todayHealthSnapshotContext,
+              work.scope.databaseInstanceId == context.databaseInstanceId,
+              work.lastReceiptGeneration == analysis.throughReceiptGeneration,
+              work.affectedDays.isSubset(of: analysis.analyzedDays),
+              TimeZone(identifier: work.recordedTimeZoneIdentifier) != nil else {
+            throw PR28HistoricalPipelineError.invalidAnalysisReceipt
+        }
+        if let existing = try await store.verifiedSnapshotCommit(
+            contextId: context.identifier,
+            analysisGeneration: analysis.analysisGeneration
+        ) {
+            guard existing.throughReceiptGeneration == analysis.throughReceiptGeneration,
+                  existing.analyzedDays == analysis.analyzedDays,
+                  existing.recordedTimeZoneIdentifier == work.recordedTimeZoneIdentifier else {
+                throw PR28HistoricalPipelineError.conflictingSnapshotReplay
+            }
+            return existing
+        }
+
+        guard let template = try await store.todayHealthSnapshot(scopeId: todayHealthSnapshotScopeId),
+              template.context == context,
+              template.schemaVersion == TodayHealthSnapshot.currentSchemaVersion else {
+            throw PR28HistoricalPipelineError.snapshotUnavailable
+        }
+
+        let healthCalendar = try HealthCalendar(timeZoneIdentifier: work.recordedTimeZoneIdentifier)
+        let runs = try Self.contiguousDayRuns(analysis.analyzedDays, healthCalendar: healthCalendar)
+        let windows = try runs.map { run -> CanonicalHealthSurfaceReadWindow in
+            let first = try healthCalendar.interval(for: run.first)
+            let last = try healthCalendar.interval(for: run.last)
+            return CanonicalHealthSurfaceReadWindow(
+                fromDay: run.first.key,
+                throughDay: run.last.key,
+                sleepFromTs: Int(first.start.timeIntervalSince1970) - 20 * 3_600,
+                sleepThroughTs: Int(last.end.timeIntervalSince1970) + 4 * 3_600
+            )
+        }
+        let read = try await store.canonicalHealthSurfaceSnapshot(
+            sourceIds: Self.stableUniqueSourceIds(
+                importedReadIds + computedReadIds + [Self.appleHealthSource]
+            ),
+            windows: windows,
+            metricKeys: [
+                "sleep_performance", "sleep_consistency", "sleep_need_min", "sleep_debt_min", "stress",
+                Self.sleepPerformanceV2Key, Self.sleepPerformanceV2ModelKey,
+                Self.sleepPerformanceV2SourceKey, Self.sleepNeedV2Key,
+                "noop_sleep_baseline_need_v2_min", "noop_sleep_strain_need_v2_min",
+                "noop_sleep_debt_need_v2_min", "noop_sleep_nap_credit_v2_min",
+            ]
+        )
+        guard read.databaseInstanceId == context.databaseInstanceId else {
+            throw PR28HistoricalPipelineError.databaseChanged
+        }
+
+        let candidate = try snapshotBuilder.build(PostAnalysisTodaySnapshotInput(
+            template: template,
+            read: read,
+            importedSourceIds: importedReadIds,
+            computedSourceIds: computedReadIds,
+            appleSourceId: Self.appleHealthSource,
+            sleepMode: SleepPerformanceV2Prefs.mode,
+            analysisGeneration: analysis.analysisGeneration,
+            recordedTimeZoneIdentifier: work.recordedTimeZoneIdentifier,
+            now: now
+        ))
+        guard try await store.saveTodayHealthSnapshot(candidate),
+              let stored = try await store.todayHealthSnapshot(scopeId: candidate.scopeId),
+              stored.context == context,
+              stored.schemaVersion == TodayHealthSnapshot.currentSchemaVersion else {
+            throw PR28HistoricalPipelineError.snapshotReadBackFailed
+        }
+
+        let projection: VerifiedHealthProjection
+        do {
+            projection = try VerifiedHealthProjectionBuilder.build(from: stored)
+        } catch {
+            throw PR28HistoricalPipelineError.snapshotReadBackFailed
+        }
+        let receipt: SnapshotCommitReceipt
+        do {
+            receipt = try SnapshotCommitReceipt(
+                throughReceiptGeneration: analysis.throughReceiptGeneration,
+                analysisGeneration: analysis.analysisGeneration,
+                snapshotGeneration: stored.generation,
+                analyzedDays: analysis.analyzedDays,
+                recordedTimeZoneIdentifier: work.recordedTimeZoneIdentifier,
+                projection: projection
+            )
+        } catch {
+            throw PR28HistoricalPipelineError.snapshotReadBackFailed
+        }
+        let committed = try await store.recordVerifiedSnapshotCommit(receipt, now: now)
+        verifiedHealthProjection = committed.projection
+        todayHealthSnapshot = stored
+        todayHealthSnapshotRevision &+= 1
+        return committed
+    }
+
+    /// Read the exact durable mapping during a resumed work item. A missing mapping is an artifact error,
+    /// not permission to rebuild or publish a new snapshot.
+    func loadHistoricalSnapshotCommit(
+        work: HistoricalAnalysisWork,
+        store: WhoopStore
+    ) async throws -> SnapshotCommitReceipt {
+        guard let context = todayHealthSnapshotContext,
+              let analysisGeneration = work.analysisGeneration,
+              analysisGeneration > 0 else {
+            throw HistoricalPipelineArtifactError.missingSnapshotReceipt
+        }
+        guard let receipt = try await store.verifiedSnapshotCommit(
+            contextId: context.identifier,
+            analysisGeneration: analysisGeneration
+        ) else {
+            throw HistoricalPipelineArtifactError.missingSnapshotReceipt
+        }
+        guard receipt.throughReceiptGeneration == work.lastReceiptGeneration,
+              receipt.recordedTimeZoneIdentifier == work.recordedTimeZoneIdentifier,
+              work.affectedDays.isSubset(of: receipt.analyzedDays) else {
+            throw PR28HistoricalPipelineError.invalidAnalysisReceipt
+        }
+        return receipt
+    }
+
+    private static func contiguousDayRuns(
+        _ days: Set<CivilDay>,
+        healthCalendar: HealthCalendar
+    ) throws -> [(first: CivilDay, last: CivilDay)] {
+        let sorted = days.sorted()
+        guard var first = sorted.first else { return [] }
+        var last = first
+        var result: [(first: CivilDay, last: CivilDay)] = []
+        for day in sorted.dropFirst() {
+            if try healthCalendar.adding(days: 1, to: last) == day {
+                last = day
+            } else {
+                result.append((first: first, last: last))
+                first = day
+                last = day
+            }
+        }
+        result.append((first: first, last: last))
+        return result
+    }
+
     /// Commit the analysis-to-snapshot mapping only after SQLite accepts and reads back the snapshot.
     /// Retries reuse an existing mapping for the same analysis generation.
     func verifyAndCommitHistoricalSnapshot(

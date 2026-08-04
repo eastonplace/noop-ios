@@ -56,6 +56,21 @@ private struct RawBatchIdentity {
     let cursorEpoch: Int
 }
 
+public enum RawOutboxIntegrityError: Error, Equatable, Sendable {
+    case truncatedCompressedLength
+    case unreasonableUncompressedLength(Int)
+    case uncompressedLengthMismatch(expected: Int, actual: Int)
+    case decompressionFailed(expected: Int, actual: Int)
+    case truncatedHeader
+    case unreasonableFrameCount(Int)
+    case truncatedFrameLength(index: Int)
+    case unreasonableFrameLength(index: Int, length: Int)
+    case truncatedFrame(index: Int, expected: Int, remaining: Int)
+    case trailingBytes(Int)
+    case invalidStoredMetadata
+    case conflictingBatchIdentity
+}
+
 extension WhoopStore {
     // MARK: - frame (de)serialization
     // Layout: [count u32 LE]{ [len u32 LE][bytes] } x count. zlib-compressed as a whole.
@@ -75,51 +90,7 @@ extension WhoopStore {
         return buf
     }
 
-    static func unpackFrames(_ data: Data) -> [[UInt8]] {
-        let bytes = [UInt8](data)
-        var off = 0
-        func readU32() -> Int? {
-            guard off + 4 <= bytes.count else { return nil }
-            let v = Int(bytes[off]) | (Int(bytes[off + 1]) << 8)
-                | (Int(bytes[off + 2]) << 16) | (Int(bytes[off + 3]) << 24)
-            off += 4
-            return v
-        }
-        guard let count = readU32() else { return [] }
-        guard count >= 0, count <= bytes.count / 4 else { return [] }
-        var out: [[UInt8]] = []
-        out.reserveCapacity(count)
-        for _ in 0..<count {
-            guard let len = readU32(), len >= 0, len <= bytes.count - off else { return [] }
-            out.append(Array(bytes[off..<off + len]))
-            off += len
-        }
-        return off == bytes.count ? out : []
-    }
-
     // MARK: - zlib helpers using Apple Compression framework
-
-    /// Decompress a blob that was produced by `zlibCompressWithLength`.
-    /// The first 4 bytes are the uncompressed length (UInt32 LE); the rest is the zlib payload.
-    static func zlibDecompressWithLength(_ input: Data) throws -> Data {
-        // Read the 4-byte uncompressed-length prefix (UInt32 LE).
-        guard input.count >= 4 else { throw CocoaError(.fileReadUnknown) }
-        let n = Int(input[input.startIndex])
-            | (Int(input[input.startIndex + 1]) << 8)
-            | (Int(input[input.startIndex + 2]) << 16)
-            | (Int(input[input.startIndex + 3]) << 24)
-        let compressed = input.dropFirst(4)
-        // n == 0 means packFrames returned empty data; return empty.
-        guard n > 0 else { return Data() }
-        var dst = [UInt8](repeating: 0, count: n)
-        let written: Int = compressed.withUnsafeBytes { src in
-            guard let srcPtr = src.baseAddress else { return 0 }
-            return compression_decode_buffer(&dst, n, srcPtr, compressed.count, nil, COMPRESSION_ZLIB)
-        }
-        // If written != n the blob is genuinely corrupt (not a sizing issue).
-        guard written == n else { throw CocoaError(.fileReadCorruptFile) }
-        return Data(dst)
-    }
 
     /// Compress `input` and prepend its uncompressed length as a UInt32 LE prefix.
     static func zlibCompressWithLength(_ input: Data) throws -> Data {
@@ -478,4 +449,145 @@ extension WhoopStore {
             try String.fetchAll(db, sql: "SELECT batchId FROM rawBatch ORDER BY capturedAt ASC")
         }
     }
+}
+
+// MARK: - PR #28 root-fix support for WhoopStore
+extension WhoopStore {
+    static func zlibDecompressWithLengthStrict(
+            _ input: Data,
+            expectedUncompressedLength: Int,
+            maximumUncompressedLength: Int = 256 * 1_024 * 1_024
+        ) throws -> Data {
+            guard input.count >= 4 else { throw RawOutboxIntegrityError.truncatedCompressedLength }
+            let actualLength = Int(input[input.startIndex])
+                | (Int(input[input.startIndex + 1]) << 8)
+                | (Int(input[input.startIndex + 2]) << 16)
+                | (Int(input[input.startIndex + 3]) << 24)
+            guard actualLength >= 0, actualLength <= maximumUncompressedLength else {
+                throw RawOutboxIntegrityError.unreasonableUncompressedLength(actualLength)
+            }
+            guard actualLength == expectedUncompressedLength else {
+                throw RawOutboxIntegrityError.uncompressedLengthMismatch(
+                    expected: expectedUncompressedLength,
+                    actual: actualLength
+                )
+            }
+            let compressed = input.dropFirst(4)
+            if actualLength == 0 {
+                guard compressed.isEmpty else { throw RawOutboxIntegrityError.trailingBytes(compressed.count) }
+                return Data()
+            }
+            var destination = [UInt8](repeating: 0, count: actualLength)
+            let written = compressed.withUnsafeBytes { source -> Int in
+                guard let base = source.baseAddress else { return 0 }
+                return compression_decode_buffer(
+                    &destination,
+                    actualLength,
+                    base,
+                    compressed.count,
+                    nil,
+                    COMPRESSION_ZLIB
+                )
+            }
+            guard written == actualLength else {
+                throw RawOutboxIntegrityError.decompressionFailed(expected: actualLength, actual: written)
+            }
+            return Data(destination)
+        }
+
+    static func unpackFramesStrict(
+            _ data: Data,
+            expectedFrameCount: Int? = nil,
+            expectedFrameBytes: Int? = nil,
+            maximumFrameCount: Int = 1_000_000,
+            maximumFrameLength: Int = 16 * 1_024 * 1_024
+        ) throws -> [[UInt8]] {
+            let bytes = [UInt8](data)
+            var offset = 0
+
+            func readU32() -> Int? {
+                guard offset + 4 <= bytes.count else { return nil }
+                let value = Int(bytes[offset])
+                    | (Int(bytes[offset + 1]) << 8)
+                    | (Int(bytes[offset + 2]) << 16)
+                    | (Int(bytes[offset + 3]) << 24)
+                offset += 4
+                return value
+            }
+
+            guard let count = readU32() else { throw RawOutboxIntegrityError.truncatedHeader }
+            // Every frame needs at least a four-byte length. Reject impossible counts before reserveCapacity.
+            let structuralMaximum = max(0, (bytes.count - 4) / 4)
+            guard count <= structuralMaximum, (0...maximumFrameCount).contains(count) else {
+                throw RawOutboxIntegrityError.unreasonableFrameCount(count)
+            }
+            if let expectedFrameCount, expectedFrameCount != count {
+                throw RawOutboxIntegrityError.invalidStoredMetadata
+            }
+
+            var frames: [[UInt8]] = []
+            frames.reserveCapacity(count)
+            var totalFrameBytes = 0
+            for index in 0..<count {
+                guard let length = readU32() else {
+                    throw RawOutboxIntegrityError.truncatedFrameLength(index: index)
+                }
+                guard (0...maximumFrameLength).contains(length) else {
+                    throw RawOutboxIntegrityError.unreasonableFrameLength(index: index, length: length)
+                }
+                let remaining = bytes.count - offset
+                guard length <= remaining else {
+                    throw RawOutboxIntegrityError.truncatedFrame(
+                        index: index,
+                        expected: length,
+                        remaining: remaining
+                    )
+                }
+                let (nextTotal, overflow) = totalFrameBytes.addingReportingOverflow(length)
+                guard !overflow else { throw RawOutboxIntegrityError.invalidStoredMetadata }
+                totalFrameBytes = nextTotal
+                frames.append(Array(bytes[offset..<(offset + length)]))
+                offset += length
+            }
+            guard offset == bytes.count else {
+                throw RawOutboxIntegrityError.trailingBytes(bytes.count - offset)
+            }
+            if let expectedFrameBytes, expectedFrameBytes != totalFrameBytes {
+                throw RawOutboxIntegrityError.invalidStoredMetadata
+            }
+            return frames
+        }
+
+    static func expectedPackedFrameLength(frameCount: Int, byteSize: Int) throws -> Int {
+            guard frameCount >= 0, byteSize >= 0 else {
+                throw RawOutboxIntegrityError.invalidStoredMetadata
+            }
+            let (lengthBytes, lengthOverflow) = frameCount.multipliedReportingOverflow(by: 4)
+            let (withHeader, headerOverflow) = lengthBytes.addingReportingOverflow(4)
+            let (total, totalOverflow) = withHeader.addingReportingOverflow(byteSize)
+            guard !lengthOverflow, !headerOverflow, !totalOverflow else {
+                throw RawOutboxIntegrityError.invalidStoredMetadata
+            }
+            return total
+        }
+
+    static func enqueueRawBatchV2(_ meta: RawBatchMeta, blob: Data, in db: Database) throws {
+            switch try existingRawBatchMatches(meta, blob: blob, in: db) {
+            case true:
+                return
+            case false:
+                throw RawOutboxIntegrityError.conflictingBatchIdentity
+            case nil:
+                try db.execute(sql: """
+                    INSERT INTO rawBatch
+                        (batchId, deviceId, lineage, cursorEpoch, capturedAt, deviceClockRef, wallClockRef,
+                         startTs, endTs, frameCount, byteSize, framesBlob, syncedAt)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                    """, arguments: [
+                        meta.batchId, meta.deviceId, meta.lineage, meta.cursorEpoch, meta.capturedAt,
+                        meta.clockRef.device, meta.clockRef.wall,
+                        meta.startTs, meta.endTs, meta.frameCount, meta.byteSize, blob,
+                    ])
+            }
+        }
 }

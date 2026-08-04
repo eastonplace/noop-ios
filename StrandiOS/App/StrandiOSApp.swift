@@ -94,14 +94,30 @@ struct StrandiOSApp: App {
                         effort: surface.effort,
                         workoutIsActive: model.activeWorkout != nil)
                 },
-                publishHealthKitWriteOnly: { _, _, changedDays in
-                    try await healthBridge.publishExactHealthKit(changedDays: changedDays)
+                publishHealthKitWriteOnly: { _, _, changedDays, recordedTimeZoneIdentifier in
+                    try await healthBridge.publishExactHealthKit(
+                        changedDays: changedDays,
+                        recordedTimeZoneIdentifier: recordedTimeZoneIdentifier
+                    )
                 },
                 publishWatch: { _ in
                     // project.yml has no watchOS target. Never acknowledge a watch row as delivered.
                     throw ExternalPublicationWorkerError.destinationUnavailable
                 },
                 classifyError: { error in
+                    if let error = error as? ExactPublicationError {
+                        switch error {
+                        case .authorizationUnavailable:
+                            return PipelineFailureClassification(
+                                code: "authorization_unavailable", disposition: .blocked)
+                        case .storeUnavailable:
+                            return PipelineFailureClassification(
+                                code: "store_unavailable", disposition: .retryable)
+                        case .invalidTimeZone:
+                            return PipelineFailureClassification(
+                                code: "invalid_time_zone", disposition: .permanent)
+                        }
+                    }
                     let retryable = !(error is ExternalPublicationWorkerError
                         && String(describing: error).contains("destinationUnavailable"))
                     return PipelineFailureClassification(

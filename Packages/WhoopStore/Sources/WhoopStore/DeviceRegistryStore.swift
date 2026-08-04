@@ -255,3 +255,31 @@ public struct DeviceRegistryStore: Sendable {
                             addedAt: row["addedAt"], lastSeenAt: row["lastSeenAt"])
     }
 }
+
+// MARK: - PR #28 root-fix support for DeviceRegistryStore
+extension DeviceRegistryStore {
+    public func setActiveV2(_ id: String, now: Int = Int(Date().timeIntervalSince1970)) throws {
+            try dbQueue.write { db in
+                guard let status = try String.fetchOne(
+                    db,
+                    sql: "SELECT status FROM pairedDevice WHERE id = ?",
+                    arguments: [id]
+                ) else {
+                    throw DeviceLifecycleStoreError.unknownDevice(id)
+                }
+                guard status != "archived" else {
+                    throw DeviceLifecycleStoreError.archivedDevice(id)
+                }
+                try db.execute(sql: """
+                    UPDATE pairedDevice
+                    SET status = CASE
+                            WHEN id = ? THEN 'active'
+                            WHEN status = 'active' THEN 'paired'
+                            ELSE status
+                        END,
+                        lastSeenAt = CASE WHEN id = ? THEN ? ELSE lastSeenAt END
+                    WHERE id = ? OR status = 'active'
+                    """, arguments: [id, id, now, id])
+            }
+        }
+}
