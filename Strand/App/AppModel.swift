@@ -570,6 +570,7 @@ final class AppModel: ObservableObject {
         let postAnalysisSnapshotBuilder = RepositoryPostAnalysisSnapshotBuilder.self
         let classifyError: @Sendable (any Error) -> PipelineFailureClassification =
             PR28PipelineErrorClassifier.classify
+        let fallbackDeviceId = repo.deviceId
         let coordinator = HistoricalPipelineCoordinator(dependencies: HistoricalPipelineDependencies(
             leaseNext: { [weak self] owner, now, leaseDuration in
                 guard let self, let store = await self.repo.storeHandle() else {
@@ -656,8 +657,7 @@ final class AppModel: ObservableObject {
                     throw HistoricalPipelineRuntimeError.storeUnavailable
                 }
                 let registry = DeviceRegistryStore(dbQueue: store.registryWriter)
-                let fallbackId = self.repo.deviceId
-                let activeId = try registry.activeDeviceId() ?? fallbackId
+                let activeId = try registry.activeDeviceId() ?? fallbackDeviceId
                 let scope = try await store.historicalCursorScope(deviceId: activeId)
                 return [HistoricalReceiptAdmissionContext(
                     sourceId: activeId,

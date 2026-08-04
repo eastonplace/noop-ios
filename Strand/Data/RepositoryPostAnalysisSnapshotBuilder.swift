@@ -4,6 +4,7 @@
 import Foundation
 import NoopPhase34Core
 import WhoopStore
+import StrandAnalytics
 
 struct PostAnalysisTodaySnapshotInput: Sendable {
     let template: TodayHealthSnapshot
@@ -13,6 +14,7 @@ struct PostAnalysisTodaySnapshotInput: Sendable {
     let appleSourceId: String
     let sleepMode: SleepPerformanceV2Prefs.Mode
     let analysisGeneration: Int64
+    let rawFrontierTs: Int?
     let recordedTimeZoneIdentifier: String
     let now: Date
 }
@@ -94,7 +96,10 @@ enum RepositoryPostAnalysisSnapshotBuilder {
             latestSleepEnd: latestSleepEnd
         )
 
-        let rawFrontier = input.read.latestRawFrontierTs
+        // The analysis journal is the durable frontier for this exact score commit. Keep a previously
+        // committed frontier when this exact work had no HR rows, so a replay cannot move the snapshot back.
+        let rawFrontier = max(input.template.rawFrontierTs ?? -1, input.rawFrontierTs ?? -1)
+            .nonNegativeOptional
         let recovery = recoverySource.flatMap { row -> TodayHealthMetricValue? in
             guard let value = row.metric.recovery else { return nil }
             return TodayHealthMetricValue(
@@ -404,4 +409,8 @@ enum RepositoryPostAnalysisSnapshotBuilder {
             exerciseCount: nil
         )
     }
+}
+
+private extension Int {
+    var nonNegativeOptional: Int? { self >= 0 ? self : nil }
 }

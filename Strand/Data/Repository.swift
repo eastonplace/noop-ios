@@ -4427,6 +4427,7 @@ extension Repository {
             appleSourceId: Self.appleHealthSource,
             sleepMode: SleepPerformanceV2Prefs.mode,
             analysisGeneration: analysis.analysisGeneration,
+            rawFrontierTs: analysis.rawFrontierTs,
             recordedTimeZoneIdentifier: work.recordedTimeZoneIdentifier,
             now: now
         ))
