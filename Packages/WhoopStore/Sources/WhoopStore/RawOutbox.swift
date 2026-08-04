@@ -86,14 +86,15 @@ extension WhoopStore {
             return v
         }
         guard let count = readU32() else { return [] }
+        guard count >= 0, count <= bytes.count / 4 else { return [] }
         var out: [[UInt8]] = []
         out.reserveCapacity(count)
         for _ in 0..<count {
-            guard let len = readU32(), off + len <= bytes.count else { break }
+            guard let len = readU32(), len >= 0, len <= bytes.count - off else { return [] }
             out.append(Array(bytes[off..<off + len]))
             off += len
         }
-        return out
+        return off == bytes.count ? out : []
     }
 
     // MARK: - zlib helpers using Apple Compression framework
@@ -151,16 +152,7 @@ extension WhoopStore {
     }
 
     static func enqueueRawBatch(_ meta: RawBatchMeta, blob: Data, in db: Database) throws {
-        try db.execute(sql: """
-            INSERT INTO rawBatch
-                (batchId, deviceId, lineage, cursorEpoch, capturedAt, deviceClockRef, wallClockRef,
-                 startTs, endTs, frameCount, byteSize, framesBlob, syncedAt)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
-            ON CONFLICT(batchId, deviceId, lineage, cursorEpoch) DO NOTHING
-            """, arguments: [
-                meta.batchId, meta.deviceId, meta.lineage, meta.cursorEpoch, meta.capturedAt,
-                meta.clockRef.device, meta.clockRef.wall,
-                meta.startTs, meta.endTs, meta.frameCount, meta.byteSize, blob])
+        try enqueueRawBatchV2(meta, blob: blob, in: db)
     }
 
     /// `nil` means this scoped batch identity is not stored. `true` means its metadata and exact frame
@@ -185,8 +177,29 @@ extension WhoopStore {
                   existingByteSize == meta.byteSize else {
                 return false
             }
-            return try WhoopStore.zlibDecompressWithLength(existingBlob)
-                == WhoopStore.zlibDecompressWithLength(blob)
+            let expectedLength = try WhoopStore.expectedPackedFrameLength(
+                frameCount: existingFrameCount,
+                byteSize: existingByteSize
+            )
+            let existingPacked = try WhoopStore.zlibDecompressWithLengthStrict(
+                existingBlob,
+                expectedUncompressedLength: expectedLength
+            )
+            let incomingPacked = try WhoopStore.zlibDecompressWithLengthStrict(
+                blob,
+                expectedUncompressedLength: expectedLength
+            )
+            _ = try WhoopStore.unpackFramesStrict(
+                existingPacked,
+                expectedFrameCount: existingFrameCount,
+                expectedFrameBytes: existingByteSize
+            )
+            _ = try WhoopStore.unpackFramesStrict(
+                incomingPacked,
+                expectedFrameCount: meta.frameCount,
+                expectedFrameBytes: meta.byteSize
+            )
+            return existingPacked == incomingPacked
         }
 
         // Keep batch IDs globally collision-safe across logical devices. A reused ID is only allowed
@@ -293,16 +306,29 @@ extension WhoopStore {
             return try Row.fetchOne(
                 db,
                 sql: """
-                    SELECT framesBlob FROM rawBatch
+                    SELECT frameCount, byteSize, framesBlob FROM rawBatch
                     WHERE batchId = ? AND deviceId = ? AND lineage = ? AND cursorEpoch = ?
                     """,
                 arguments: [batchId, identity.deviceId, identity.lineage, identity.cursorEpoch]
             )
         }
         guard let row = row else { return [] }
+        let frameCount: Int = row["frameCount"]
+        let byteSize: Int = row["byteSize"]
         let blob: Data = row["framesBlob"]
-        let raw = try WhoopStore.zlibDecompressWithLength(blob)
-        return WhoopStore.unpackFrames(raw)
+        let expectedLength = try WhoopStore.expectedPackedFrameLength(
+            frameCount: frameCount,
+            byteSize: byteSize
+        )
+        let raw = try WhoopStore.zlibDecompressWithLengthStrict(
+            blob,
+            expectedUncompressedLength: expectedLength
+        )
+        return try WhoopStore.unpackFramesStrict(
+            raw,
+            expectedFrameCount: frameCount,
+            expectedFrameBytes: byteSize
+        )
     }
 
     private static func metaFromRow(_ row: Row) -> RawBatchMeta {

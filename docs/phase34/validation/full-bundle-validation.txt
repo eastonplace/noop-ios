@@ -1,0 +1,124 @@
+[0/1] Planning build
+Building for debugging...
+[0/2] Write swift-version--1BA0962812E73E12.txt
+Build complete! (0.12s)
+Test Suite 'All tests' started at 2026-08-04 12:13:02.660
+Test Suite 'debug.xctest' started at 2026-08-04 12:13:02.661
+Test Suite 'debug.xctest' passed at 2026-08-04 12:13:02.661
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.0 (0.0) seconds
+Test Suite 'All tests' passed at 2026-08-04 12:13:02.661
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.0 (0.0) seconds
+◇ Test run started.
+↳ Testing Library Version: 6.2.1 (c9d57c83568b06d)
+↳ Target Platform: x86_64-unknown-linux-gnu
+◇ Test pendingLatestStateItemCanBeSuperseded() started.
+◇ Test fallBackRepeatedHourStillRollsAtLocalFourAM() started.
+◇ Test shadowKeepsLegacyAuthorityAndV2Diagnostic() started.
+◇ Test newCallbackCannotConsumeUnreturnedOldToken() started.
+◇ Test exactWorkRejectsMoreThanMaximumDayCount() started.
+◇ Test workFollowsVerifiedPublicationOrder() started.
+◇ Test civilDayDecoderRejectsNormalizedInvalidDates() started.
+◇ Test retryClearsLeaseAndBacksOff() started.
+◇ Test staleCallbackConsumesOnlyItsCharacteristicGeneration() started.
+◇ Test healthKitIdentityUsesAnalysisGenerationAndRetainsChangedDays() started.
+◇ Test verifiedMetricDecoderRejectsInvalidValue() started.
+◇ Test metadataChangesDoNotChangePresentationIdentity() started.
+◇ Test generationsAreValidatedOnlyInsideTheirOwnDomains() started.
+◇ Test exactDayMergeClearsAuthoritativeMissingAndPreservesOtherDays() started.
+◇ Test outboxRetriesDurably() started.
+◇ Test pendingWorkCoalescesExactDaysWithoutFillingGap() started.
+◇ Test largeExactBacklogIsSplitIntoBoundedWorkBatches() started.
+◇ Test outboxIdentityIsPerProjectionGenerationAndDestination() started.
+◇ Test pendingWorkRefusesMergeThatWouldExceedMaximumDayCount() started.
+◇ Test springForwardFourAMStartsNewPhysiologicalDay() started.
+◇ Test activeWorkLeaseCanBeRenewedWithoutChangingPipelineState() started.
+◇ Test coordinatorPersistsFullVerifiedOrder() started.
+◇ Test shadowUsesV2RatherThanBlankWhenLegacyMissing() started.
+◇ Test fallBackUsesCalendarDays() started.
+◇ Test latestStateIdentityUsesSnapshotGeneration() started.
+◇ Test decodedEvidenceRequiresAnalysisEvenWhenInsertCountIsZero() started.
+◇ Test verifiedProjectionDecoderRejectsZeroGeneration() started.
+◇ Test explicitSourceAuthorityBeatsLexicographicSourceOrder() started.
+◇ Test onUsesV2AheadOfLegacy() started.
+◇ Test streamCountsRejectIntegerOverflow() started.
+◇ Test healthKitCannotBeSuperseded() started.
+◇ Test mixedReceiptTimeZonesMustBeSplitBeforePlanning() started.
+◇ Test analysisCannotClaimReceiptsBeyondItsImmutableWorkEdge() started.
+◇ Test shadowUsesPersistedV2BeforeProvisionalWhenLegacyMissing() started.
+◇ Test springForwardUsesCalendarDays() started.
+◇ Test priorDayStrainIsNotVisibleAsCurrent() started.
+◇ Test pendingWorkDoesNotMergeAcrossRecordedTimeZones() started.
+◇ Test snapshotFailureDoesNotTurnAuthoritativeRefreshIntoFailure() started.
+◇ Test importedWinsEveryMode() started.
+◇ Test fingerprintPayloadIgnoresDerivedRangesAndCapturePolicyByConstruction() started.
+◇ Test coordinatorBatchLimitDoesNotLeaveReadyWorkIdle() started.
+◇ Test inFlightExternalPublicationLeaseCanBeRenewed() started.
+◇ Test sparseBucketsDoNotFillInterveningMonths() started.
+◇ Test rangeEvidenceWithoutDecodedRowsDoesNotCreateAnalysisWork() started.
+◇ Test latestStateGateRejectsOlderGeneration() started.
+◇ Test physiologicalDayRollsAtFourAM() started.
+✔ Test shadowKeepsLegacyAuthorityAndV2Diagnostic() passed after 0.006 seconds.
+✔ Test workFollowsVerifiedPublicationOrder() passed after 0.006 seconds.
+✔ Test newCallbackCannotConsumeUnreturnedOldToken() passed after 0.006 seconds.
+✔ Test staleCallbackConsumesOnlyItsCharacteristicGeneration() passed after 0.006 seconds.
+✔ Test pendingLatestStateItemCanBeSuperseded() passed after 0.007 seconds.
+✔ Test healthKitIdentityUsesAnalysisGenerationAndRetainsChangedDays() passed after 0.006 seconds.
+✔ Test retryClearsLeaseAndBacksOff() passed after 0.006 seconds.
+✔ Test metadataChangesDoNotChangePresentationIdentity() passed after 0.006 seconds.
+✔ Test generationsAreValidatedOnlyInsideTheirOwnDomains() passed after 0.006 seconds.
+✔ Test pendingWorkCoalescesExactDaysWithoutFillingGap() passed after 0.006 seconds.
+✔ Test exactDayMergeClearsAuthoritativeMissingAndPreservesOtherDays() passed after 0.006 seconds.
+✔ Test exactWorkRejectsMoreThanMaximumDayCount() passed after 0.006 seconds.
+✔ Test outboxIdentityIsPerProjectionGenerationAndDestination() passed after 0.006 seconds.
+✔ Test outboxRetriesDurably() passed after 0.006 seconds.
+✔ Test verifiedMetricDecoderRejectsInvalidValue() passed after 0.006 seconds.
+✔ Test fallBackRepeatedHourStillRollsAtLocalFourAM() passed after 0.007 seconds.
+✔ Test activeWorkLeaseCanBeRenewedWithoutChangingPipelineState() passed after 0.006 seconds.
+✔ Test coordinatorPersistsFullVerifiedOrder() passed after 0.006 seconds.
+✔ Test civilDayDecoderRejectsNormalizedInvalidDates() passed after 0.007 seconds.
+✔ Test springForwardFourAMStartsNewPhysiologicalDay() passed after 0.006 seconds.
+✔ Test latestStateIdentityUsesSnapshotGeneration() passed after 0.006 seconds.
+✔ Test fallBackUsesCalendarDays() passed after 0.006 seconds.
+✔ Test decodedEvidenceRequiresAnalysisEvenWhenInsertCountIsZero() passed after 0.006 seconds.
+✔ Test onUsesV2AheadOfLegacy() passed after 0.006 seconds.
+✔ Test explicitSourceAuthorityBeatsLexicographicSourceOrder() passed after 0.006 seconds.
+✔ Test healthKitCannotBeSuperseded() passed after 0.006 seconds.
+✔ Test streamCountsRejectIntegerOverflow() passed after 0.006 seconds.
+✔ Test shadowUsesV2RatherThanBlankWhenLegacyMissing() passed after 0.006 seconds.
+✔ Test verifiedProjectionDecoderRejectsZeroGeneration() passed after 0.006 seconds.
+✔ Test mixedReceiptTimeZonesMustBeSplitBeforePlanning() passed after 0.006 seconds.
+✔ Test shadowUsesPersistedV2BeforeProvisionalWhenLegacyMissing() passed after 0.006 seconds.
+✔ Test priorDayStrainIsNotVisibleAsCurrent() passed after 0.006 seconds.
+✔ Test pendingWorkDoesNotMergeAcrossRecordedTimeZones() passed after 0.006 seconds.
+✔ Test snapshotFailureDoesNotTurnAuthoritativeRefreshIntoFailure() passed after 0.006 seconds.
+✔ Test analysisCannotClaimReceiptsBeyondItsImmutableWorkEdge() passed after 0.006 seconds.
+✔ Test springForwardUsesCalendarDays() passed after 0.006 seconds.
+✔ Test inFlightExternalPublicationLeaseCanBeRenewed() passed after 0.006 seconds.
+✔ Test importedWinsEveryMode() passed after 0.006 seconds.
+✔ Test rangeEvidenceWithoutDecodedRowsDoesNotCreateAnalysisWork() passed after 0.006 seconds.
+✔ Test fingerprintPayloadIgnoresDerivedRangesAndCapturePolicyByConstruction() passed after 0.006 seconds.
+✔ Test sparseBucketsDoNotFillInterveningMonths() passed after 0.006 seconds.
+✔ Test latestStateGateRejectsOlderGeneration() passed after 0.006 seconds.
+✔ Test pendingWorkRefusesMergeThatWouldExceedMaximumDayCount() passed after 0.007 seconds.
+✔ Test physiologicalDayRollsAtFourAM() passed after 0.006 seconds.
+✔ Test coordinatorBatchLimitDoesNotLeaveReadyWorkIdle() passed after 0.006 seconds.
+✔ Test largeExactBacklogIsSplitIntoBoundedWorkBatches() passed after 0.008 seconds.
+✔ Test run with 46 tests in 0 suites passed after 0.009 seconds.
+test_clean_tree_is_clean (tools.qa.test_audit_phase34.AuditTests.test_clean_tree_is_clean) ... ok
+test_flags_fixed_repository_day_arithmetic (tools.qa.test_audit_phase34.AuditTests.test_flags_fixed_repository_day_arithmetic) ... ok
+test_flags_healthkit_snapshot_only_identity (tools.qa.test_audit_phase34.AuditTests.test_flags_healthkit_snapshot_only_identity) ... ok
+test_flags_healthkit_without_exact_mutation_identity (tools.qa.test_audit_phase34.AuditTests.test_flags_healthkit_without_exact_mutation_identity) ... ok
+test_flags_json_blob_work_identity (tools.qa.test_audit_phase34.AuditTests.test_flags_json_blob_work_identity) ... ok
+test_flags_oldest_latest_state_drain (tools.qa.test_audit_phase34.AuditTests.test_flags_oldest_latest_state_drain) ... ok
+test_flags_outbox_without_superseded_state (tools.qa.test_audit_phase34.AuditTests.test_flags_outbox_without_superseded_state) ... ok
+test_flags_publish_before_save (tools.qa.test_audit_phase34.AuditTests.test_flags_publish_before_save) ... ok
+test_flags_single_work_merge_candidate (tools.qa.test_audit_phase34.AuditTests.test_flags_single_work_merge_candidate) ... ok
+test_flags_trends_bypass (tools.qa.test_audit_phase34.AuditTests.test_flags_trends_bypass) ... ok
+test_flags_unordered_source_authority (tools.qa.test_audit_phase34.AuditTests.test_flags_unordered_source_authority) ... ok
+
+----------------------------------------------------------------------
+Ran 11 tests in 0.015s
+
+OK
+PASS: reconciled Phase 3/4 migration, ordering, and replay SQL smoke tests
+PASS: bundle validation

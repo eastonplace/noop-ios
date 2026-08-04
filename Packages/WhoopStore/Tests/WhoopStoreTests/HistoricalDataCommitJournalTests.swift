@@ -50,16 +50,25 @@ final class HistoricalDataCommitJournalTests: XCTestCase {
         deviceId: String? = nil,
         trim: Int,
         chunkEndUnix: Int,
-        frames: [[UInt8]]? = nil
+        frames: [[UInt8]]? = nil,
+        scope: HistoricalCursorScope? = nil
     ) throws -> String {
-        try WhoopStore.historicalReceivedFrameFingerprint(
-            input: HistoricalReceivedFrameFingerprintInput(
-                orderedFrames: frames ?? self.frames,
-                protocolMetadata: protocolMetadata,
-                historyEndFrame: historyEndFrame,
-                minReceivedTs: 1_700_000_000,
-                maxReceivedTs: 1_700_000_005
-            ),
+        let input = HistoricalReceivedFrameFingerprintInput(
+            orderedFrames: frames ?? self.frames,
+            protocolMetadata: protocolMetadata,
+            historyEndFrame: historyEndFrame,
+            minReceivedTs: 1_700_000_000,
+            maxReceivedTs: 1_700_000_005
+        )
+        if let scope {
+            return try WhoopStore.historicalReceivedFrameFingerprint(
+                input: input,
+                scope: scope,
+                trim: trim
+            )
+        }
+        return try WhoopStore.historicalReceivedFrameFingerprint(
+            input: input,
             deviceId: deviceId ?? self.deviceId,
             trim: trim,
             chunkEndUnix: chunkEndUnix
@@ -131,7 +140,7 @@ final class HistoricalDataCommitJournalTests: XCTestCase {
 
         XCTAssertNotEqual(firstFingerprint, reorderedFingerprint)
         XCTAssertNotEqual(firstFingerprint, changedMetadataFingerprint)
-        XCTAssertNotEqual(firstFingerprint, changedRangeFingerprint)
+        XCTAssertEqual(firstFingerprint, changedRangeFingerprint)
     }
 
     func testCommitDurablyJoinsRowsRawCursorAndReceipt() async throws {
@@ -598,19 +607,19 @@ final class HistoricalDataCommitJournalTests: XCTestCase {
         _ = try await store.commitHistoricalChunk(
             streams: Streams(hr: [HRSample(ts: 10, bpm: 60)]), deviceId: deviceId, trim: 10,
             chunkEndUnix: 10, rawBatch: nil, committedAt: 10, scope: firstScope,
-            fingerprint: try fingerprint(trim: 10, chunkEndUnix: 10), fingerprintInput: receivedInput())
+            fingerprint: try fingerprint(trim: 10, chunkEndUnix: 10, scope: firstScope), fingerprintInput: receivedInput())
         _ = try await store.commitHistoricalChunk(
             streams: Streams(hr: [HRSample(ts: 20, bpm: 61)]), deviceId: deviceId, trim: 20,
             chunkEndUnix: 20, rawBatch: nil, committedAt: 20, scope: secondScope,
-            fingerprint: try fingerprint(trim: 20, chunkEndUnix: 20), fingerprintInput: receivedInput())
+            fingerprint: try fingerprint(trim: 20, chunkEndUnix: 20, scope: secondScope), fingerprintInput: receivedInput())
         _ = try await store.commitHistoricalChunk(
             streams: Streams(hr: [HRSample(ts: 30, bpm: 62)]), deviceId: deviceId, trim: 30,
             chunkEndUnix: 30, rawBatch: nil, committedAt: 30, scope: nextEpoch,
-            fingerprint: try fingerprint(trim: 30, chunkEndUnix: 30), fingerprintInput: receivedInput())
+            fingerprint: try fingerprint(trim: 30, chunkEndUnix: 30, scope: nextEpoch), fingerprintInput: receivedInput())
         _ = try await store.commitHistoricalChunk(
             streams: Streams(hr: [HRSample(ts: 40, bpm: 63)]), deviceId: deviceId, trim: 40,
             chunkEndUnix: 40, rawBatch: nil, committedAt: 40, scope: otherProtocol,
-            fingerprint: try fingerprint(trim: 40, chunkEndUnix: 40), fingerprintInput: receivedInput())
+            fingerprint: try fingerprint(trim: 40, chunkEndUnix: 40, scope: otherProtocol), fingerprintInput: receivedInput())
 
         let firstCursor = try await store.cursor(firstScope)
         let secondCursor = try await store.cursor(secondScope)
@@ -671,7 +680,7 @@ final class HistoricalDataCommitJournalTests: XCTestCase {
             chunkEndUnix: 1_700_000_005,
             rawBatch: nil,
             committedAt: 1_700_000_010,
-            fingerprint: try fingerprint(trim: 2_400, chunkEndUnix: 1_700_000_005),
+            fingerprint: try fingerprint(trim: 2_400, chunkEndUnix: 1_700_000_005, scope: currentScope),
             fingerprintInput: receivedInput(),
             lineage: currentScope.lineage,
             cursorEpoch: currentScope.cursorEpoch)
@@ -750,7 +759,7 @@ final class HistoricalDataCommitJournalTests: XCTestCase {
         _ = try await store.commitHistoricalChunk(
             streams: Streams(), deviceId: deviceId, trim: 2_100,
             chunkEndUnix: 1_700_000_005, rawBatch: nil, committedAt: 1_700_000_010,
-            fingerprint: try fingerprint(trim: 2_100, chunkEndUnix: 1_700_000_005),
+            fingerprint: try fingerprint(trim: 2_100, chunkEndUnix: 1_700_000_005, scope: initialScope),
             fingerprintInput: input, lineage: initialScope.lineage,
             cursorEpoch: initialScope.cursorEpoch
         )
@@ -764,7 +773,7 @@ final class HistoricalDataCommitJournalTests: XCTestCase {
             _ = try await store.commitHistoricalChunk(
                 streams: Streams(), deviceId: deviceId, trim: 2_101,
                 chunkEndUnix: 1_700_000_005, rawBatch: nil, committedAt: 1_700_000_010,
-                fingerprint: try fingerprint(trim: 2_101, chunkEndUnix: 1_700_000_005),
+                fingerprint: try fingerprint(trim: 2_101, chunkEndUnix: 1_700_000_005, scope: currentScope),
                 fingerprintInput: input, lineage: initialScope.lineage,
                 cursorEpoch: initialScope.cursorEpoch
             )
@@ -773,7 +782,7 @@ final class HistoricalDataCommitJournalTests: XCTestCase {
             _ = try await store.commitHistoricalChunk(
                 streams: Streams(), deviceId: deviceId, trim: 2_102,
                 chunkEndUnix: 1_700_000_005, rawBatch: nil, committedAt: 1_700_000_010,
-                fingerprint: try fingerprint(trim: 2_102, chunkEndUnix: 1_700_000_005),
+                fingerprint: try fingerprint(trim: 2_102, chunkEndUnix: 1_700_000_005, scope: currentScope),
                 fingerprintInput: input, lineage: currentScope.lineage,
                 cursorEpoch: initialScope.cursorEpoch
             )
@@ -791,14 +800,14 @@ final class HistoricalDataCommitJournalTests: XCTestCase {
             streams: Streams(), deviceId: deviceId, trim: 2_200,
             chunkEndUnix: 1_700_000_005, rawBatch: raw, committedAt: 1_700_000_010,
             scope: scopeA,
-            fingerprint: try fingerprint(trim: 2_200, chunkEndUnix: 1_700_000_005),
+            fingerprint: try fingerprint(trim: 2_200, chunkEndUnix: 1_700_000_005, scope: scopeA),
             fingerprintInput: input
         )
         let second = try await store.commitHistoricalChunk(
             streams: Streams(), deviceId: deviceId, trim: 2_200,
             chunkEndUnix: 1_700_000_005, rawBatch: raw, committedAt: 1_700_000_011,
             scope: scopeB,
-            fingerprint: try fingerprint(trim: 2_200, chunkEndUnix: 1_700_000_005),
+            fingerprint: try fingerprint(trim: 2_200, chunkEndUnix: 1_700_000_005, scope: scopeB),
             fingerprintInput: input
         )
 

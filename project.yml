@@ -28,6 +28,8 @@ packages:
     path: Packages/WhoopProtocol
   WhoopStore:
     path: Packages/WhoopStore
+  NoopPhase34Core:
+    path: Packages/NoopPhase34Core
   StrandAnalytics:
     path: Packages/StrandAnalytics
   StrandImport:
@@ -107,6 +109,7 @@ targets:
     dependencies:
       - package: WhoopProtocol
       - package: WhoopStore
+      - package: NoopPhase34Core
       - package: OuraProtocol
       - package: StrandAnalytics
       - package: StrandImport
@@ -162,6 +165,7 @@ targets:
       - package: StrandAnalytics
       - package: WhoopProtocol
       - package: WhoopStore
+      - package: NoopPhase34Core
       - package: OuraProtocol
       - package: ZIPFoundation
     settings:

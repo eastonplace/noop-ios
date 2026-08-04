@@ -1,0 +1,108 @@
+// Copy into Packages/WhoopStore/Sources/WhoopStore after NoopPhase34Core is available.
+// This is the idempotency seam between a durable analysis generation and its committed Today projection.
+
+import Foundation
+import GRDB
+import NoopPhase34Core
+
+extension WhoopStore {
+    /// Persist one verified analysis -> snapshot mapping. A retry after process death returns the original
+    /// mapping. It never assigns another snapshot generation for the same analysis generation.
+    public func recordVerifiedSnapshotCommit(
+        _ receipt: SnapshotCommitReceipt,
+        now: Date
+    ) async throws -> SnapshotCommitReceipt {
+        try syncWrite { db in
+            if let existing = try Self.decodeVerifiedSnapshotCommit(
+                contextId: receipt.projection.contextId,
+                analysisGeneration: receipt.analysisGeneration,
+                in: db
+            ) {
+                guard existing == receipt else {
+                    throw VerifiedSnapshotCommitStoreError.conflictingReplay
+                }
+                return existing
+            }
+
+            try Self.persistVerifiedProjection(receipt.projection, now: now, in: db)
+            let changedDays = try JSONEncoder().encode(receipt.analyzedDays)
+            try db.execute(sql: """
+                INSERT INTO verifiedSnapshotCommit (
+                    contextId, deviceId, analysisGeneration, throughReceiptGeneration,
+                    snapshotGeneration, changedDaysJSON, createdAt
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [
+                    receipt.projection.contextId,
+                    receipt.projection.deviceId,
+                    receipt.analysisGeneration,
+                    receipt.throughReceiptGeneration,
+                    receipt.snapshotGeneration,
+                    changedDays,
+                    Int(now.timeIntervalSince1970),
+                ])
+            return receipt
+        }
+    }
+
+    public func verifiedSnapshotCommit(
+        contextId: String,
+        analysisGeneration: Int64
+    ) async throws -> SnapshotCommitReceipt? {
+        try syncRead { db in
+            try Self.decodeVerifiedSnapshotCommit(
+                contextId: contextId,
+                analysisGeneration: analysisGeneration,
+                in: db
+            )
+        }
+    }
+
+    private static func decodeVerifiedSnapshotCommit(
+        contextId: String,
+        analysisGeneration: Int64,
+        in db: Database
+    ) throws -> SnapshotCommitReceipt? {
+        guard let row = try Row.fetchOne(db, sql: """
+            SELECT c.*, p.projectionJSON
+            FROM verifiedSnapshotCommit c
+            JOIN verifiedHealthProjection p
+              ON p.contextId = c.contextId
+             AND p.snapshotGeneration = c.snapshotGeneration
+            WHERE c.contextId = ? AND c.analysisGeneration = ?
+            LIMIT 1
+            """, arguments: [contextId, analysisGeneration]) else {
+            return nil
+        }
+        let daysData: Data = row["changedDaysJSON"]
+        let projectionData: Data = row["projectionJSON"]
+        let days: Set<CivilDay>
+        let projection: VerifiedHealthProjection
+        do {
+            days = try JSONDecoder().decode(Set<CivilDay>.self, from: daysData)
+            projection = try JSONDecoder().decode(VerifiedHealthProjection.self, from: projectionData)
+        } catch {
+            throw VerifiedSnapshotCommitStoreError.invalidStoredRow
+        }
+        guard projection.contextId == contextId,
+              projection.deviceId == (row["deviceId"] as String),
+              projection.generation == (row["snapshotGeneration"] as Int64) else {
+            throw VerifiedSnapshotCommitStoreError.invalidStoredRow
+        }
+        do {
+            return try SnapshotCommitReceipt(
+                throughReceiptGeneration: row["throughReceiptGeneration"],
+                analysisGeneration: row["analysisGeneration"],
+                snapshotGeneration: row["snapshotGeneration"],
+                analyzedDays: days,
+                projection: projection
+            )
+        } catch {
+            throw VerifiedSnapshotCommitStoreError.invalidStoredRow
+        }
+    }
+}
+
+public enum VerifiedSnapshotCommitStoreError: Error {
+    case conflictingReplay
+    case invalidStoredRow
+}

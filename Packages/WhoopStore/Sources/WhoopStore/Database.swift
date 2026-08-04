@@ -1013,6 +1013,7 @@ extension WhoopStore {
                     )
                 """)
         }
+        Phase34DatabaseMigrations.register(on: &migrator)
         return migrator
     }
 }

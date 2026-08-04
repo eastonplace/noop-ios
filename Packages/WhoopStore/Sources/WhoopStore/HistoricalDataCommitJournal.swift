@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import GRDB
+import NoopPhase34Core
 import WhoopProtocol
 
 /// Exact counts from one idempotent decoded-stream insert.
@@ -401,6 +402,7 @@ public struct HistoricalDataCommitReceipt: Codable, Equatable, Sendable {
     /// Immutable received-frame identity. It covers exact ordered frames, protocol metadata, and HISTORY_END.
     /// Raw capture, commit time, and receipt UUID are excluded.
     public let fingerprint: String
+    public let fingerprintVersion: Int
     public let lineage: String
     public let cursorEpoch: Int
     public let trimScope: String
@@ -412,6 +414,9 @@ public struct HistoricalDataCommitReceipt: Codable, Equatable, Sendable {
     public let rawRange: HistoricalRawRangeEvidence
     public let burst: HistoricalDataCommitBurst?
     public let timestampHeal: HistoricalTimestampHeal
+    public let timestampBuckets: [HistoricalTimestampBucket]
+    public let recordedTimeZoneIdentifier: String
+    public let explicitAffectedDays: [String]
     public let isFinal: Bool
 
     public init(
@@ -425,6 +430,7 @@ public struct HistoricalDataCommitReceipt: Codable, Equatable, Sendable {
         rawBatchId: String?,
         insertedRows: HistoricalStreamInsertCounts,
         fingerprint: String,
+        fingerprintVersion: Int = 1,
         lineage: String? = nil,
         cursorEpoch: Int = 0,
         trimScope: String = HistoricalCursorScope.defaultTrimScope,
@@ -436,6 +442,9 @@ public struct HistoricalDataCommitReceipt: Codable, Equatable, Sendable {
         rawRange: HistoricalRawRangeEvidence? = nil,
         burst: HistoricalDataCommitBurst? = nil,
         timestampHeal: HistoricalTimestampHeal? = nil,
+        timestampBuckets: [HistoricalTimestampBucket] = [],
+        recordedTimeZoneIdentifier: String = TimeZone.current.identifier,
+        explicitAffectedDays: [String] = [],
         isFinal: Bool = false
     ) {
         self.receiptId = receiptId
@@ -447,6 +456,7 @@ public struct HistoricalDataCommitReceipt: Codable, Equatable, Sendable {
         self.committedAt = committedAt
         self.insertedRows = insertedRows
         self.fingerprint = fingerprint
+        self.fingerprintVersion = max(1, fingerprintVersion)
         self.lineage = lineage ?? "device:\(deviceId)"
         self.cursorEpoch = cursorEpoch
         self.trimScope = trimScope
@@ -460,6 +470,9 @@ public struct HistoricalDataCommitReceipt: Codable, Equatable, Sendable {
         self.rawRange = rawRange ?? .none
         self.burst = burst
         self.timestampHeal = timestampHeal ?? .none
+        self.timestampBuckets = timestampBuckets
+        self.recordedTimeZoneIdentifier = recordedTimeZoneIdentifier
+        self.explicitAffectedDays = explicitAffectedDays
         self.isFinal = isFinal
     }
 
@@ -503,6 +516,7 @@ public struct HistoricalDataCommitReceipt: Codable, Equatable, Sendable {
             rawBatchId: rawBatchId,
             insertedRows: insertedRows,
             fingerprint: fingerprint,
+            fingerprintVersion: fingerprintVersion,
             lineage: lineage,
             cursorEpoch: cursorEpoch,
             trimScope: trimScope,
@@ -514,6 +528,9 @@ public struct HistoricalDataCommitReceipt: Codable, Equatable, Sendable {
             rawRange: rawRange,
             burst: burst,
             timestampHeal: timestampHeal,
+            timestampBuckets: timestampBuckets,
+            recordedTimeZoneIdentifier: recordedTimeZoneIdentifier,
+            explicitAffectedDays: explicitAffectedDays,
             isFinal: isFinal
         )
     }
@@ -533,18 +550,6 @@ public enum HistoricalDataCommitJournalError: Error, Equatable, Sendable {
 private struct PackedHistoricalRawBatch: Sendable {
     let meta: RawBatchMeta
     let blob: Data
-}
-
-private struct HistoricalReceivedFrameFingerprintEnvelope: Codable {
-    let version: Int
-    let deviceId: String
-    let trim: Int
-    let chunkEndUnix: Int
-    let orderedFrames: [[UInt8]]
-    let protocolMetadata: Data
-    let historyEndFrame: Data
-    let minReceivedTs: Int?
-    let maxReceivedTs: Int?
 }
 
 extension WhoopStore {
@@ -637,6 +642,8 @@ extension WhoopStore {
         trimScope: String = HistoricalCursorScope.defaultTrimScope,
         burst: HistoricalDataCommitBurst? = nil,
         timestampHeal: HistoricalTimestampHeal? = nil,
+        recordedTimeZoneIdentifier: String = TimeZone.current.identifier,
+        explicitAffectedDays: [String] = [],
         isFinal: Bool = false
     ) async throws -> HistoricalDataCommitReceipt {
         guard (0...Int(UInt32.max)).contains(trim) else {
@@ -662,15 +669,6 @@ extension WhoopStore {
                   rawBatch.historyEndFrame == fingerprintInput.historyEndFrame else {
                 throw HistoricalDataCommitJournalError.invalidReceipt
             }
-        }
-        let derivedFingerprint = try WhoopStore.historicalReceivedFrameFingerprint(
-            input: fingerprintInput,
-            deviceId: deviceId,
-            trim: trim,
-            chunkEndUnix: chunkEndUnix
-        )
-        guard derivedFingerprint == fingerprint else {
-            throw HistoricalDataCommitJournalError.invalidFingerprint
         }
         if let rawBatch, rawBatch.meta.batchId.isEmpty {
             throw HistoricalDataCommitJournalError.invalidReceipt
@@ -712,6 +710,10 @@ extension WhoopStore {
         )
         let decodedRows = WhoopStore.decodedStreamCounts(streams)
         let timestamps = WhoopStore.decodedTimestamps(streams)
+        guard TimeZone(identifier: recordedTimeZoneIdentifier) != nil else {
+            throw HistoricalDataCommitJournalError.invalidReceipt
+        }
+        let timestampBuckets = try WhoopStore.historicalTimestampBuckets(for: streams)
         let minDecodedTs = timestamps.min()
         let maxDecodedTs = timestamps.max()
         let touchedDays = WhoopStore.touchedDays(for: timestamps)
@@ -726,6 +728,14 @@ extension WhoopStore {
                 requestedCursorEpoch: cursorEpoch,
                 in: db
             )
+            let derivedFingerprint = try WhoopStore.historicalReceivedFrameFingerprint(
+                input: fingerprintInput,
+                scope: resolvedScope,
+                trim: trim
+            )
+            guard derivedFingerprint == effectiveFingerprint else {
+                throw HistoricalDataCommitJournalError.invalidFingerprint
+            }
 
             if let existing = try WhoopStore.historicalDataCommitReceipt(
                 databaseInstanceId: databaseInstanceId,
@@ -794,13 +804,16 @@ extension WhoopStore {
             let encodedRawRange = try JSONEncoder().encode(effectiveRawRange)
             let encodedBurst = try burst.map { try JSONEncoder().encode($0) }
             let encodedTimestampHeal = try JSONEncoder().encode(effectiveHeal)
+            let encodedTimestampBuckets = try JSONEncoder().encode(timestampBuckets)
+            let encodedExplicitAffectedDays = try JSONEncoder().encode(explicitAffectedDays.sorted())
             try db.execute(sql: """
                 INSERT INTO historicalDataCommitJournal
                     (receiptId, databaseInstanceId, deviceId, lineage, cursorEpoch, trimScope, trim,
                      chunkEndUnix, committedAt, fingerprint, minDecodedTs, maxDecodedTs, touchedDaysJSON,
                      decodedRowsJSON, insertedRowsJSON, rawBatchId, rawStatus, burstJSON,
-                     rawRangeJSON, timestampHealJSON, isFinal)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     rawRangeJSON, timestampHealJSON, isFinal, fingerprintVersion,
+                     timestampBucketsJSON, recordedTimeZoneIdentifier, explicitAffectedDaysJSON)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, arguments: [
                     receiptId, databaseInstanceId, deviceId, resolvedScope.lineage, resolvedScope.cursorEpoch,
                     resolvedScope.trimScope, trim, chunkEndUnix, committedAt, effectiveFingerprint,
@@ -808,6 +821,10 @@ extension WhoopStore {
                     effectiveRawStatus.batchId, effectiveRawStatus.storageValue, encodedBurst, encodedRawRange,
                     encodedTimestampHeal,
                     finalReceipt ? 1 : 0,
+                    2,
+                    encodedTimestampBuckets,
+                    recordedTimeZoneIdentifier,
+                    encodedExplicitAffectedDays,
                 ])
             let generation = db.lastInsertedRowID
             try WhoopStore.setHistoricalCursor(
@@ -828,6 +845,7 @@ extension WhoopStore {
                 rawBatchId: effectiveRawStatus.batchId,
                 insertedRows: insertedRows,
                 fingerprint: effectiveFingerprint,
+                fingerprintVersion: 2,
                 lineage: resolvedScope.lineage,
                 cursorEpoch: resolvedScope.cursorEpoch,
                 trimScope: resolvedScope.trimScope,
@@ -839,6 +857,9 @@ extension WhoopStore {
                 rawRange: effectiveRawRange,
                 burst: burst,
                 timestampHeal: effectiveHeal,
+                timestampBuckets: timestampBuckets,
+                recordedTimeZoneIdentifier: recordedTimeZoneIdentifier,
+                explicitAffectedDays: explicitAffectedDays.sorted(),
                 isFinal: finalReceipt
             )
         }
@@ -901,7 +922,9 @@ extension WhoopStore {
                 SELECT generation, receiptId, databaseInstanceId, deviceId, trim, chunkEndUnix,
                        committedAt, rawBatchId, fingerprint, lineage, cursorEpoch, trimScope,
                        minDecodedTs, maxDecodedTs, touchedDaysJSON, decodedRowsJSON, insertedRowsJSON,
-                       rawStatus, burstJSON, rawRangeJSON, timestampHealJSON, isFinal
+                       rawStatus, burstJSON, rawRangeJSON, timestampHealJSON, isFinal,
+                       fingerprintVersion, timestampBucketsJSON, recordedTimeZoneIdentifier,
+                       explicitAffectedDaysJSON
                 FROM historicalDataCommitJournal
                 WHERE databaseInstanceId = ? AND deviceId = ? AND generation > ?
                 """
@@ -1012,7 +1035,9 @@ extension WhoopStore {
             SELECT generation, receiptId, databaseInstanceId, deviceId, trim, chunkEndUnix,
                    committedAt, rawBatchId, fingerprint, lineage, cursorEpoch, trimScope,
                    minDecodedTs, maxDecodedTs, touchedDaysJSON, decodedRowsJSON, insertedRowsJSON,
-                   rawStatus, burstJSON, rawRangeJSON, timestampHealJSON, isFinal
+                   rawStatus, burstJSON, rawRangeJSON, timestampHealJSON, isFinal,
+                   fingerprintVersion, timestampBucketsJSON, recordedTimeZoneIdentifier,
+                   explicitAffectedDaysJSON
             FROM historicalDataCommitJournal
             WHERE databaseInstanceId = ? AND deviceId = ? AND lineage = ? AND cursorEpoch = ?
               AND trimScope = ? AND trim = ?
@@ -1060,6 +1085,16 @@ extension WhoopStore {
         let timestampHeal = timestampHealJSON.flatMap {
             try? JSONDecoder().decode(HistoricalTimestampHeal.self, from: $0)
         } ?? .none
+        let fingerprintVersion: Int = row["fingerprintVersion"] ?? 1
+        let timestampBucketsJSON: Data? = row["timestampBucketsJSON"]
+        let timestampBuckets = timestampBucketsJSON.flatMap {
+            try? JSONDecoder().decode([HistoricalTimestampBucket].self, from: $0)
+        } ?? []
+        let recordedTimeZoneIdentifier: String = row["recordedTimeZoneIdentifier"] ?? "UTC"
+        let explicitAffectedDaysJSON: Data? = row["explicitAffectedDaysJSON"]
+        let explicitAffectedDays = explicitAffectedDaysJSON.flatMap {
+            try? JSONDecoder().decode([String].self, from: $0)
+        } ?? []
         let rawStatusString: String? = row["rawStatus"]
         let rawBatchId: String? = row["rawBatchId"]
         let rawStatus = try HistoricalRawCaptureStatus.fromStorage(rawStatusString, rawBatchId: rawBatchId)
@@ -1089,6 +1124,7 @@ extension WhoopStore {
             rawBatchId: rawBatchId,
             insertedRows: insertedRows,
             fingerprint: fingerprint,
+            fingerprintVersion: fingerprintVersion,
             lineage: row["lineage"],
             cursorEpoch: row["cursorEpoch"],
             trimScope: row["trimScope"],
@@ -1100,6 +1136,9 @@ extension WhoopStore {
             rawRange: rawRange,
             burst: burst,
             timestampHeal: timestampHeal,
+            timestampBuckets: timestampBuckets,
+            recordedTimeZoneIdentifier: recordedTimeZoneIdentifier,
+            explicitAffectedDays: explicitAffectedDays,
             isFinal: (row["isFinal"] as Int) == 1
         )
     }
@@ -1160,21 +1199,34 @@ extension WhoopStore {
               !input.historyEndFrame.isEmpty else {
             throw HistoricalDataCommitJournalError.invalidFingerprint
         }
-        let envelope = HistoricalReceivedFrameFingerprintEnvelope(
-            version: 1,
-            deviceId: deviceId,
-            trim: trim,
-            chunkEndUnix: chunkEndUnix,
+        // Keep the source-compatible overload for unrelated callers. `chunkEndUnix` is no longer replay
+        // identity. New production callers pass the transaction-resolved scope overload below.
+        return try historicalReceivedFrameFingerprintV2(
             orderedFrames: input.orderedFrames,
             protocolMetadata: input.protocolMetadata,
             historyEndFrame: input.historyEndFrame,
-            minReceivedTs: input.minReceivedTs,
-            maxReceivedTs: input.maxReceivedTs
+            scope: HistoricalCursorScope(
+                deviceId: deviceId,
+                lineage: "device:\(deviceId)",
+                cursorEpoch: 0,
+                trimScope: HistoricalCursorScope.defaultTrimScope
+            ),
+            trim: trim
         )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        let data = try encoder.encode(envelope)
-        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    public static func historicalReceivedFrameFingerprint(
+        input: HistoricalReceivedFrameFingerprintInput,
+        scope: HistoricalCursorScope,
+        trim: Int
+    ) throws -> String {
+        try historicalReceivedFrameFingerprintV2(
+            orderedFrames: input.orderedFrames,
+            protocolMetadata: input.protocolMetadata,
+            historyEndFrame: input.historyEndFrame,
+            scope: scope,
+            trim: trim
+        )
     }
 
     /// Convenience form for Backfiller call sites that already hold the exact received-frame fields.

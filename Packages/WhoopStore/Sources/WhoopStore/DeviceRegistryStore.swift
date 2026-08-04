@@ -33,12 +33,29 @@ public struct DeviceRegistryStore: Sendable {
         try dbQueue.write { db in try Self.upsert(db, d) }
     }
 
-    /// I1: promoting one device demotes whatever was active, atomically (single write transaction).
+    /// I1: prove the target exists, then promote it and demote the previous active row atomically.
     public func setActive(_ id: String) throws {
         try dbQueue.write { db in
-            try db.execute(sql: "UPDATE pairedDevice SET status = 'paired' WHERE status = 'active'")
-            try db.execute(sql: "UPDATE pairedDevice SET status = 'active', lastSeenAt = ? WHERE id = ?",
-                           arguments: [Int(Date().timeIntervalSince1970), id])
+            guard let status = try String.fetchOne(
+                db,
+                sql: "SELECT status FROM pairedDevice WHERE id = ?",
+                arguments: [id]
+            ) else {
+                throw DeviceLifecycleStoreError.unknownDevice(id)
+            }
+            guard status != "archived" else {
+                throw DeviceLifecycleStoreError.archivedDevice(id)
+            }
+            try db.execute(sql: """
+                UPDATE pairedDevice
+                SET status = CASE
+                        WHEN id = ? THEN 'active'
+                        WHEN status = 'active' THEN 'paired'
+                        ELSE status
+                    END,
+                    lastSeenAt = CASE WHEN id = ? THEN ? ELSE lastSeenAt END
+                WHERE id = ? OR status = 'active'
+                """, arguments: [id, id, Int(Date().timeIntervalSince1970), id])
         }
     }
 
@@ -141,6 +158,8 @@ public struct DeviceRegistryStore: Sendable {
         // this list exists to close).
         "ppgWaveformSample", "strainV2Shadow", "todayHealthSnapshot", "historicalDataCommitJournal", "historicalCursor",
         "historicalAnalysisCheckpoint",
+        "historicalReceiptConsumer", "historicalAnalysisWork", "analysisMutationJournal",
+        "verifiedHealthProjection", "verifiedSnapshotCommit", "externalPublicationOutbox",
     ]
 
     /// Permanently delete every recorded sample/derived row belonging to one device, across all

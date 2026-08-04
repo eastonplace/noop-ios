@@ -1,0 +1,27 @@
+PARSE integration/AnalysisMutationJournalStore.swift
+PARSE integration/BLEConfirmedWriteQueuePatch.swift
+PARSE integration/CanonicalHealthReadModel.swift
+PARSE integration/CanonicalHealthSurfaceStore.swift
+PARSE integration/CanonicalSurfacePatches.swift
+PARSE integration/DeviceLifecycleHardeningPatch.swift
+PARSE integration/ExactDayAnalysisIntegration.swift
+PARSE integration/ExternalPublicationOutboxStore.swift
+PARSE integration/ExternalPublicationWorker.swift
+PARSE integration/HistoricalAnalysisWorkStore.swift
+PARSE integration/HistoricalCursorHardeningPatch.swift
+PARSE integration/HistoricalPipelineRuntime.swift
+PARSE integration/HistoricalReceiptAdmissionStore.swift
+PARSE integration/HistoricalReceiptV2Integration.swift
+PARSE integration/Phase34DatabaseMigrations.swift
+PARSE integration/RawOutboxHardeningPatch.swift
+PARSE integration/RepositoryExactDayPublisher.swift
+PARSE integration/RepositoryHistoryExtentStore.swift
+PARSE integration/RepositoryRefreshV2.swift
+PARSE integration/TodaySnapshotPresentationPatch.swift
+PARSE integration/VerifiedExternalSurfaceIntegration.swift
+PARSE integration/VerifiedHealthProjectionBuilder.swift
+PARSE integration/VerifiedSnapshotCommitStore.swift
+PARSE integration/VerifiedTodaySnapshotCommit.swift
+PARSE repo-tests/CanonicalHealthSurfaceParityTests.swift
+
+PASS: parsed 25 Swift integration/test files.
