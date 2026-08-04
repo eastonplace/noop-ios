@@ -297,11 +297,11 @@ struct SleepView: View {
             // refreshSeq; snaps back to the newest day and rebuilds the model so offset 0 reflects
             // the freshly-loaded blocks. (#170)
             .task(id: repo.refreshSeq) {
-                allSessions = await repo.allSleepSessions()
-                invalidSessions = await repo.invalidSleepSessions()
+                allSessions = await repo.sleepHistoryPage(limit: 200)
+                invalidSessions = await repo.invalidSleepSessions(days: 30)
                 // Load the learned habitual midsleep the engine used, so the main-night pick aligns to it
                 // (a shift/late sleeper) instead of only the cold-start band. nil under threshold. (#547)
-                habitualMidsleepSec = await repo.habitualMidsleepSec()
+                habitualMidsleepSec = await repo.habitualMidsleepSec(days: 30)
                 // Per-epoch motion for every block (#407), keyed by detected start. mergeDay reads only the
                 // already-resolved group's entries — this just pre-fetches them all so the model build is sync.
                 motionByStart = await repo.sessionMotions(starts: allSessions.map { $0.startTs })
@@ -716,7 +716,10 @@ struct SleepView: View {
     /// Whether the night's sleep-performance score is WHOOP's own imported figure or NOOP's
     /// on-device approximation — so the hero is honest about provenance, like Today's badges.
     private func sleepScoreSource(_ model: SleepModel) -> LocalizedStringKey {
-        if let lastDay = repo.days.last?.day, repo.importedSleep[lastDay]?.performancePct != nil {
+        let displayedDay = Repository.localDayKey(
+            Date(timeIntervalSince1970: TimeInterval(model.night.session.endTs))
+        )
+        if let point = repo.canonicalHealth.sleepScore(day: displayedDay), point.isImported {
             return "Whoop"
         }
         return "On-device"
@@ -1969,7 +1972,8 @@ struct SleepView: View {
             lastDay: repo.days.last?.day,
             lastDayUpdated: repo.days.last,
             lastSleep: repo.sleeps.last,
-            refreshSeq: repo.refreshSeq)
+            refreshSeq: repo.refreshSeq,
+            canonicalPresentationRevision: repo.canonicalHealth.presentationRevision)
     }
 
     /// Build every expensive derivation exactly once. Called only when `dataKey` changes,
@@ -2412,23 +2416,17 @@ struct SleepView: View {
         return (series.last, mean(series), series)
     }
 
-    /// Sleep performance %: the imported WHOOP figure (sleep_performance, 0–100) when the
-    /// export carried one for that day; else the REAL resolved Sleep composite for that day —
-    /// the same single source of truth the Today Sleep score reads (AnalyticsEngine.Rest.composite,
-    /// what Repository.dailyColumn resolves "sleep_performance" to), NOT a local hours-vs-need
-    /// approximation. Keeps the Sleep detail graph in agreement with the Today Sleep score. (#614
-    /// follow-up) Values land 0–100 via the composite; the metric() finite filter drops the rest.
+    /// Sleep performance comes from the canonical Repository score model. The view does not recreate
+    /// precedence or compute a second production score.
     private var performanceSnapshot: (metric: Metric, byDay: [String: Double]) {
-        let imported = repo.importedSleep
         var series: [Double] = []
         var byDay: [String: Double] = [:]
         series.reserveCapacity(repo.days.count)
         byDay.reserveCapacity(repo.days.count)
 
         for day in repo.days {
-            let value = imported[day.day]?.performancePct
-                ?? AnalyticsEngine.Rest.composite(daily: day)
-            guard let value, value.isFinite else { continue }
+            guard let value = repo.canonicalHealth.sleepScore(day: day.day)?.value,
+                  value.isFinite else { continue }
             series.append(value)
             byDay[day.day] = value
         }
@@ -3042,6 +3040,8 @@ private struct SleepInputKey: Equatable {
     /// Bumped on every Repository.refresh — catches a re-import that changes only the
     /// imported metricSeries figures (importedSleep) without touching days/sleeps.
     let refreshSeq: Int
+    /// Canonical production Sleep can change without changing DailyMetric or session rows.
+    let canonicalPresentationRevision: Int64
 }
 
 /// One fully resolved per-night payload for the active paper cluster. It intentionally contains

@@ -66,7 +66,7 @@ private struct MissedSleepRecoveryBridge: View {
         let requestedStart = Int(seed.start.timeIntervalSince1970)
         let requestedEnd = Int(seed.end.timeIntervalSince1970)
         await intelligence.analyzeRecent(maxDays: 3, force: true)
-        _ = await repo.refresh(.recentDashboard(days: 120))
+        _ = await repo.refresh(.currentDay)
 
         let sessions = await repo.allSleepSessions()
         let recovered = sessions

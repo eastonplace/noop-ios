@@ -746,7 +746,7 @@ struct TodayView: View {
     /// without invalidating a completed score read for the same selected day.
     private var restScorePresentationKey: String {
         let key = displayDayKey
-        return "\(key.logicalKey)|\(key.localKey)|\(key.selectedDayKey)|\(key.offset)"
+        return "\(key.logicalKey)|\(key.localKey)|\(key.selectedDayKey)|\(key.offset)|canonical:\(repo.canonicalHealth.presentationRevision)"
     }
 
     /// Pure selection policy behind the snapshot. The selected-day case remains a backward lookup, while
@@ -2116,7 +2116,7 @@ struct TodayView: View {
         .task(id: TodayLoadKey(
             seq: repo.refreshSeq,
             offset: selectedDayOffset,
-            presentationDay: presentationDayLoadKey
+            presentationDay: "\(presentationDayLoadKey)|canonical:\(repo.canonicalHealth.presentationRevision)"
         )) { await loadAll() }
         // Freshness is time-based even while the repository is quiet. This is a one-shot task, not a
         // periodic redraw: it wakes only at the earliest direct metric-evidence expiry.
@@ -4754,18 +4754,15 @@ struct TodayView: View {
         repo.loadFireCounts["todayDayScoped", default: 0] += 1
         #endif
 
-        // Sleep series + the two provenance resolves, all day-keyed outputs, none consumes another's
-        // result, so fire them concurrently and await where first used.
-        async let restSeriesA       = repo.exploreSeries(key: "sleep_performance", source: "my-whoop")
+        // Capture the canonical auxiliary model once. Today, Sleep, and Trends must not select production
+        // Sleep precedence through separate async queries that can observe different WAL generations.
+        let canonical = repo.canonicalHealth
         async let recoveryResolvedA = repo.resolvedSeries(key: "recovery", source: Repository.whoopSource)
-        async let restResolvedA     = repo.resolvedSeries(key: "sleep_performance", source: Repository.whoopSource)
-        async let noopSleepV2A      = repo.noopSleepV2Series(from: loadDayKey, to: loadDayKey)
-        async let whoopSleepA       = repo.importedWhoopSleepSeries(from: loadDayKey, to: loadDayKey)
 
-        // Sleep SCORE for the logical day. `exploreSeries` already merges imported + computed
-        // `sleep_performance` (imported-wins), so a Bluetooth-only user sees the on-device Sleep
-        // composite and an importer sees the export's figure, exactly like the Sleep detail screen.
-        let restSeries = await restSeriesA
+        // Sleep SCORE for the logical day. The captured canonical model applies imported, V2, and legacy
+        // precedence once for every surface in this generation.
+        let restSeries = canonical.sleepSeries(from: "0000-01-01", through: "9999-12-31")
+            .map { (day: $0.day, value: $0.value) }
         let restByDay = Dictionary(restSeries.map { ($0.day, $0.value) }, uniquingKeysWith: { _, last in last })
         // The Sleep TILE's sparkline (#614 follow-up). The tile's number is `restScore` (the Sleep composite,
         // 0–100) but its mini-graph used to plot raw sleep MINUTES (`sparks["sleep_total_min"]`), so the
@@ -4792,18 +4789,18 @@ struct TodayView: View {
         if let win = recoveryResolved.points.last(where: { $0.day == loadDayKey })?.source {
             provenance["recovery"] = win
         }
-        let restResolved = await restResolvedA
-        if let win = restResolved.points.last(where: { $0.day == loadDayKey })?.source {
+        let canonicalSleepPoint = canonical.sleepScore(day: loadDayKey)
+        if let win = canonicalSleepPoint?.sourceId {
             provenance["sleep_performance"] = win
         }
-        let sleepSourcePointLocal = Self.displayedSleepSourcePoint(
-            day: loadDayKey,
-            value: restScoreLocal,
-            resolvedSource: provenance["sleep_performance"],
-            deviceId: repo.deviceId,
-            v2IsAuthoritative: SleepPerformanceV2Prefs.mode == .on,
-            noopV2: await noopSleepV2A,
-            whoop: await whoopSleepA)
+        let sleepSourcePointLocal = canonicalSleepPoint.map {
+            SleepScorePoint(
+                day: $0.day,
+                value: $0.value,
+                source: $0.isImported ? .whoopImport : .noopMeasured,
+                modelVersion: $0.modelVersion
+            )
+        }
 
         // HR trend for the SELECTED day, 5-minute bucket means from that logical day's local midnight.
         // For today the window runs to now (an in-progress curve); for a navigated past day it runs the

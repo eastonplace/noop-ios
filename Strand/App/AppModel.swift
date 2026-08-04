@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import NoopPhase34Core
 import WhoopProtocol
 import WhoopStore
 import StrandAnalytics
@@ -80,22 +81,9 @@ final class AppModel: ObservableObject {
     let behavior = BehaviorStore()
     /// On-device WHOOP-style recovery/strain/sleep computation from raw strap streams.
     let intelligence: IntelligenceEngine
-    /// Phase 2 receipt consumer. It has no UI state; its only durable state is the checkpoint stored with
-    /// the source journal. Keeping one instance prevents a launch drain and a burst-finalization drain from
-    /// executing the same staged run in parallel.
-    private lazy var historicalReceiptAnalysisConsumer = HistoricalReceiptAnalysisConsumer(
-        storeProvider: { [weak self] in
-            await self?.repo.storeHandle()
-        },
-        scopeIsCurrent: { store, scope in
-            let registry = DeviceRegistryStore(dbQueue: store.registryWriter)
-            return (try? registry.historicalCursorScope(for: scope.deviceId)) == scope
-        },
-        executeRun: { [weak self] run, context in
-            guard let self else { return false }
-            return await self.intelligence.analyzeCommittedHistoricalRun(run, context: context)
-        }
-    )
+    /// The single durable owner for receipt admission, exact-day analysis, verified snapshots, and
+    /// downstream outbox work. Launch, foreground, and burst-finalization signals all enter this actor.
+    private lazy var historicalPipelineRuntime = makeHistoricalPipelineRuntime()
 
     var backupRestoreLifecycle: DataBackup.RestoreLifecycle {
         DataBackup.RestoreLifecycle(
@@ -494,8 +482,8 @@ final class AppModel: ObservableObject {
             // Resume committed source work only after first paint. The receipt path has its own durable
             // checkpoint and exact civil-day scope, so it cannot delay hydration or widen into a launch-time
             // last-21-days sweep. A crash before acknowledgment leaves the same target staged for retry.
-            let launchReceiptDrain = await self.drainHistoricalReceiptAnalysis()
-            if launchReceiptDrain.didAdvance {
+            let launchPipeline = await self.signalHistoricalPipeline()
+            if launchPipeline.completedWork > 0 {
                 await self.publishAfterCommittedHistoricalAnalysis()
             }
             try? await Task.sleep(nanoseconds: 6_000_000_000)  // give the first offload a moment
@@ -576,6 +564,111 @@ final class AppModel: ObservableObject {
         // HRV pause is battery-%-aware like the offload lever — pass the same threshold.
         ble.setPauseCaptureOnPowerSave(on && PuffinExperiment.pauseHrvOnPowerSaveEnabled,
                                        thresholdPct: PuffinExperiment.powerSavingBatteryPct)
+    }
+
+    private func makeHistoricalPipelineRuntime() -> HistoricalPipelineRuntime {
+        let coordinator = HistoricalPipelineCoordinator(dependencies: HistoricalPipelineDependencies(
+            leaseNext: { [weak self] owner, now, leaseDuration in
+                guard let self, let store = await self.repo.storeHandle() else {
+                    throw HistoricalPipelineRuntimeError.storeUnavailable
+                }
+                return try await store.leaseNextHistoricalAnalysisWork(
+                    HistoricalAnalysisWorkLeaseRequest(
+                        owner: owner, now: now, leaseDuration: leaseDuration))
+            },
+            applyEvent: { [weak self] workId, event, now in
+                guard let self, let store = await self.repo.storeHandle() else {
+                    throw HistoricalPipelineRuntimeError.storeUnavailable
+                }
+                return try await store.applyHistoricalAnalysisWorkEvent(
+                    workId: workId, event: event, now: now)
+            },
+            analyze: { [weak self] work in
+                guard let self, let store = await self.repo.storeHandle() else {
+                    throw HistoricalPipelineRuntimeError.storeUnavailable
+                }
+                return try await self.intelligence.analyzeCommittedWork(
+                    work, store: store, now: Date())
+            },
+            verifyAndCommitSnapshot: { [weak self] work, analysis in
+                guard let self, let store = await self.repo.storeHandle(),
+                      let candidate = await self.repo.verifiedTodaySnapshotCandidate(now: Date()) else {
+                    throw HistoricalPipelineRuntimeError.snapshotUnavailable
+                }
+                return try await self.repo.verifyAndCommitHistoricalSnapshot(
+                    candidate: candidate, work: work, analysis: analysis, store: store)
+            },
+            publishRepository: { [weak self] work, snapshot in
+                guard let self else { throw HistoricalPipelineRuntimeError.storeUnavailable }
+                _ = try await self.repo.publishVerifiedExactDays(
+                    work.affectedDays,
+                    recordedTimeZoneIdentifier: work.recordedTimeZoneIdentifier,
+                    snapshot: snapshot)
+            },
+            commitOutbox: { [weak self] snapshot in
+                guard let self, let store = await self.repo.storeHandle() else {
+                    throw HistoricalPipelineRuntimeError.storeUnavailable
+                }
+                return try await store.enqueueExternalPublications(
+                    snapshot: snapshot,
+                    destinations: Set(DownstreamDestination.allCases),
+                    now: Date())
+            },
+            classifyError: { error in
+                PipelineFailureClassification(code: String(describing: error), retryable: true)
+            },
+            now: Date.init
+        ))
+
+        let dependencies = HistoricalPipelineRuntimeDependencies(
+            admissionContexts: { [weak self] in
+                guard let self, let store = await self.repo.storeHandle() else {
+                    throw HistoricalPipelineRuntimeError.storeUnavailable
+                }
+                let registry = DeviceRegistryStore(dbQueue: store.registryWriter)
+                let registeredIds = (try? registry.all().map(\.id)) ?? []
+                let importedIds = await self.repo.importedReadIds
+                let computedIds = await self.repo.computedReadIds
+                var ids: [String] = []
+                for id in registeredIds + importedIds + computedIds {
+                    if !id.isEmpty, !ids.contains(id) { ids.append(id) }
+                }
+                var contexts: [HistoricalReceiptAdmissionContext] = []
+                for id in ids {
+                    let scope = try await store.historicalCursorScope(deviceId: id)
+                    contexts.append(HistoricalReceiptAdmissionContext(
+                        sourceId: id, scope: scope, now: Date()))
+                }
+                return contexts
+            },
+            admit: { [weak self] context in
+                guard let self, let store = await self.repo.storeHandle() else {
+                    throw HistoricalPipelineRuntimeError.storeUnavailable
+                }
+                _ = self
+                return try await store.admitHistoricalReceipts(context)
+            },
+            coordinator: coordinator,
+            pendingWorkCount: { [weak self] in
+                guard let self, let store = await self.repo.storeHandle() else {
+                    throw HistoricalPipelineRuntimeError.storeUnavailable
+                }
+                return try await store.pendingHistoricalAnalysisWorkCount()
+            },
+            classifyAdmissionError: { error in
+                PipelineFailureClassification(code: String(describing: error), retryable: true)
+            },
+            onAdmissionFailure: { [weak self] failure in
+                guard let self else { return }
+                await self.live.append(log: "Historical admission deferred: \(failure.code)")
+            },
+            report: { [weak self] message in
+                Task { @MainActor [weak self] in
+                    self?.live.append(log: message)
+                }
+            }
+        )
+        return HistoricalPipelineRuntime(dependencies: dependencies)
     }
 
     /// Tiny and guarded: with no generic strap paired the active id is "my-whoop", so the coordinator
@@ -662,8 +755,8 @@ final class AppModel: ObservableObject {
         } else {
             live.append(log: "Backfill: refreshing dashboard cache from timestamp-heal publication")
         }
-        let receiptDrain = await drainHistoricalReceiptAnalysis()
-        if receiptDrain.didAdvance {
+        let pipeline = await signalHistoricalPipeline()
+        if pipeline.completedWork > 0 {
             await publishAfterCommittedHistoricalAnalysis()
             return
         }
@@ -671,7 +764,7 @@ final class AppModel: ObservableObject {
         // A timestamp-heal-only finalization has no receipt to checkpoint. Preserve its existing dedicated
         // recovery route; a receipt-bearing burst must fail closed instead of falling back to a broad scan.
         guard watermark == nil else {
-            if receiptDrain.deferredScopeCount > 0 {
+            if pipeline.deferredWork > 0 || pipeline.pendingWork ?? 0 > 0 {
                 live.append(log: "Backfill: durable receipt analysis remains pending; retaining the prior Home generation.")
             }
             return
@@ -684,11 +777,12 @@ final class AppModel: ObservableObject {
         await publishAfterCommittedHistoricalAnalysis()
     }
 
-    /// Run the durable receipt consumer and leave its target pending whenever execution cannot prove success.
-    private func drainHistoricalReceiptAnalysis() async -> HistoricalReceiptAnalysisDrainResult {
-        let result = await historicalReceiptAnalysisConsumer.drain()
-        if result.didAdvance {
-            live.append(log: "Backfill: acknowledged \(result.acknowledgedReceiptCount) committed historical receipt(s) after \(result.analysisRunCount) exact analysis run(s).")
+    /// Signal the durable pipeline. Counts are diagnostic only; durable work remains the source of truth.
+    private func signalHistoricalPipeline() async -> HistoricalPipelineRuntimeResult {
+        let result = await historicalPipelineRuntime.signal()
+        if result.admittedReceipts > 0 || result.completedWork > 0 {
+            let pending = result.pendingWork.map(String.init) ?? "unknown"
+            live.append(log: "Historical pipeline: admitted \(result.admittedReceipts) receipt(s), completed \(result.completedWork) exact work item(s), pending \(pending).")
         }
         return result
     }
@@ -697,7 +791,7 @@ final class AppModel: ObservableObject {
     /// after receipt acknowledgement or the pre-existing heal-only path, so it never replaces a visible
     /// dashboard generation with a half-analyzed result.
     private func publishAfterCommittedHistoricalAnalysis() async {
-        _ = await repo.refresh(.postBackfill)
+        _ = await repo.refresh(.currentDay)
         await refreshV5Signals()
         #if os(iOS)
         // #980: a strap backfill routinely completes while the app is BACKGROUNDED (it runs as a

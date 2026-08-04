@@ -661,7 +661,10 @@ final class IntelligenceEngine: ObservableObject {
                 // local midnight so the stager sees the whole night; TODAY keeps the 18:00 cap (the store
                 // clamps to `now` anyway, and an in-progress nap shouldn't be read as a finished night).
                 let nextMidnight = civilDay.nextStart
-                let to = (dayStart < nowLocalMidnight) ? nextMidnight : dayStart + 18 * 3_600
+                // Exact work uses the civil-day boundary supplied by the calendar. For the current
+                // partial day, clamp the read to the committed analysis reference instead of adding an
+                // elapsed-hour approximation that can cross a DST boundary.
+                let to = min(nextMidnight, now)
 
                 // I2: pick the single device that owns this day, and read ITS streams below. With one device
                 // this resolves to `deviceId` (active strap, has data → priority 0), so nothing changes; with
@@ -745,8 +748,7 @@ final class IntelligenceEngine: ObservableObject {
                 // LOCAL midnight; midnightLocal is idempotent on it (the store range is inclusive, so end
                 // at -1 s). (#277 , local-day bucketing.)
                 guard let dayMid = Self.midnightLocal(dayStart, offsetSec: tzOffset) else { continue }
-                let (dayEnd, dayEndOverflow) = dayMid.addingReportingOverflow(86_399)
-                guard !dayEndOverflow else { continue }
+                let dayEnd = civilDay.nextStart - 1
                 // Same `owner` as the night window above (I2): the additive day totals must come from the
                 // one device that owns the day, never a mix.
                 // #997 (ryanbr): for a PAST day (20 of 21 in the default scan) the night window above reads
@@ -1724,7 +1726,7 @@ final class IntelligenceEngine: ObservableObject {
         // pass (#899 dedup deleted stale session rows but no daily changed) must refresh too, so the
         // Sleep tab stops showing the removed duplicates right away.
         if persistedMutationCount > 0 && refreshRepository {
-            _ = await repo.refresh(.recentDashboard(days: 120))
+            _ = await repo.refresh(.currentDay)
         }
         performanceChangedRows = persistedMutationCount
 

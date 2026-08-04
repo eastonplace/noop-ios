@@ -330,41 +330,11 @@ extension IntelligenceEngine {
         }
     }
 
-    /// AppModel's post-backfill path intentionally asks analysis not to publish Repository itself; it performs
-    /// one explicit cache publication immediately after this call. Hold the call until one exact current-day
-    /// pass begins and ends with the same quiescent durable-data generation. If a reconnect or periodic burst
-    /// advances data during analysis, rerun before returning. Forced source work survives caller cancellation.
-    private func submitStablePostBackfillAnalysis() async -> Bool {
-        guard let live = AppModel.shared?.live else {
-            return await submitSerializedAnalysis(
-                maxDays: 21, startOffset: 0, force: true, refreshRepository: false)
-        }
-
-        while true {
-            let before = BackfillAnalysisSnapshot(
-                dataAvailableAt: live.backfillDataAvailableAt,
-                backfilling: live.backfilling)
-            if before.backfilling {
-                await Self.waitForAnalysisPoll()
-                continue
-            }
-
-            guard await submitSerializedAnalysis(
-                maxDays: 21, startOffset: 0, force: true, refreshRepository: false)
-            else { return false }
-
-            let after = BackfillAnalysisSnapshot(
-                dataAvailableAt: live.backfillDataAvailableAt,
-                backfilling: live.backfilling)
-            if after.isSettledAndUnchanged(since: before) { return true }
-        }
-    }
-
     // Define every proper subset of the original four labels. Swift prefers these exact signatures over the
     // original method's default arguments, so every production shorthand call is serialized. The fully-spelled
     // four-label call remains the private bypass used only by `submitSerializedAnalysis` above.
     func analyzeRecent() async {
-        await submitSerializedAnalysis(maxDays: 21, startOffset: 0, force: true, refreshRepository: true)
+        await submitSerializedAnalysis(maxDays: 1, startOffset: 0, force: true, refreshRepository: true)
     }
 
     func analyzeRecent(maxDays: Int) async {
@@ -372,21 +342,17 @@ extension IntelligenceEngine {
     }
 
     func analyzeRecent(startOffset: Int) async {
-        await submitSerializedAnalysis(maxDays: 21, startOffset: startOffset, force: true, refreshRepository: true)
+        await submitSerializedAnalysis(maxDays: 1, startOffset: startOffset, force: true, refreshRepository: true)
     }
 
     func analyzeRecent(force: Bool) async {
-        await submitSerializedAnalysis(maxDays: 21, startOffset: 0, force: force, refreshRepository: true)
+        await submitSerializedAnalysis(maxDays: 1, startOffset: 0, force: force, refreshRepository: true)
     }
 
     @discardableResult
     func analyzeRecent(refreshRepository: Bool) async -> Bool {
-        if refreshRepository {
-            return await submitSerializedAnalysis(
-                maxDays: 21, startOffset: 0, force: true, refreshRepository: true)
-        } else {
-            return await submitStablePostBackfillAnalysis()
-        }
+        await submitSerializedAnalysis(
+            maxDays: 1, startOffset: 0, force: true, refreshRepository: refreshRepository)
     }
 
     func analyzeRecent(maxDays: Int, startOffset: Int) async {
@@ -405,17 +371,17 @@ extension IntelligenceEngine {
     }
 
     func analyzeRecent(startOffset: Int, force: Bool) async {
-        await submitSerializedAnalysis(maxDays: 21, startOffset: startOffset, force: force,
+        await submitSerializedAnalysis(maxDays: 1, startOffset: startOffset, force: force,
                                        refreshRepository: true)
     }
 
     func analyzeRecent(startOffset: Int, refreshRepository: Bool) async {
-        await submitSerializedAnalysis(maxDays: 21, startOffset: startOffset, force: true,
+        await submitSerializedAnalysis(maxDays: 1, startOffset: startOffset, force: true,
                                        refreshRepository: refreshRepository)
     }
 
     func analyzeRecent(force: Bool, refreshRepository: Bool) async {
-        await submitSerializedAnalysis(maxDays: 21, startOffset: 0, force: force,
+        await submitSerializedAnalysis(maxDays: 1, startOffset: 0, force: force,
                                        refreshRepository: refreshRepository)
     }
 
@@ -431,22 +397,6 @@ extension IntelligenceEngine {
     func analyzeRecent(maxDays: Int, startOffset: Int, refreshRepository: Bool) async -> Bool {
         await submitSerializedAnalysis(maxDays: maxDays, startOffset: startOffset, force: true,
                                        refreshRepository: refreshRepository)
-    }
-
-    /// Score one receipt-derived run using the civil-day context that produced it. The work stays in the
-    /// shared coordinator, but it cannot coalesce with another context or publish the Repository itself.
-    @discardableResult
-    func analyzeCommittedHistoricalRun(
-        _ run: CommittedAnalysisRun,
-        context: CommittedAnalysisExecutionContext
-    ) async -> Bool {
-        await submitSerializedAnalysis(
-            maxDays: run.maxDays,
-            startOffset: run.startOffset,
-            force: true,
-            refreshRepository: false,
-            committedAnalysisExecutionContext: context
-        )
     }
 
     /// Stronger publication contract for a durable source handoff. The verifier runs against the exact results
@@ -473,7 +423,7 @@ extension IntelligenceEngine {
     }
 
     func analyzeRecent(startOffset: Int, force: Bool, refreshRepository: Bool) async {
-        await submitSerializedAnalysis(maxDays: 21, startOffset: startOffset, force: force,
+        await submitSerializedAnalysis(maxDays: 1, startOffset: startOffset, force: force,
                                        refreshRepository: refreshRepository)
     }
 }

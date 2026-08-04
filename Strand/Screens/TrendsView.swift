@@ -123,7 +123,7 @@ struct TrendsView: View {
         // A rescore can replace values without changing the number of day rows. `refreshSeq`, not count,
         // is the revision contract. `.task(id:)` cancels a superseded load; one assignment below prevents
         // Sleep, Stress, and Apple fallback data from briefly describing different revisions.
-        .task(id: "\(repo.refreshSeq)-\(civilContext.localDay)-\(civilContext.timeZoneIdentifier)") {
+        .task(id: "\(repo.refreshSeq)-\(repo.canonicalHealth.trendsRevision)-\(civilContext.localDay)-\(civilContext.timeZoneIdentifier)") {
             await loadDataForCurrentRevision()
         }
         .task(id: screenSnapshotKey) {
@@ -133,17 +133,24 @@ struct TrendsView: View {
 
     @MainActor
     private func loadDataForCurrentRevision() async {
-        let revision = repo.refreshSeq
+        let revision = Int(truncatingIfNeeded: repo.refreshSeq
+            &+ Int(repo.canonicalHealth.trendsRevision))
         let anchorDay = Repository.localDayKey(Date())
         let timeZoneIdentifier = TimeZone.autoupdatingCurrent.identifier
         let revisionDays = repo.canonicalDays
-        async let sleepSeries = repo.exploreSeries(key: "sleep_performance", source: "my-whoop")
-        async let stressSeries = repo.exploreSeries(key: "stress", source: "my-whoop")
-        async let appleRows = repo.appleDailyRows()
-
-        let (sleep, stress, apple) = await (sleepSeries, stressSeries, appleRows)
+        let canonical = repo.canonicalHealth
+        let sleep = canonical.sleepSeries(from: "0000-01-01", through: "9999-12-31")
+        let stress = canonical.stressSeries(from: "0000-01-01", through: "9999-12-31")
+        let apple = canonical.appleDailyByDay.values.map {
+            AppleDaily(
+                day: $0.day, steps: $0.steps, activeKcal: $0.activeKcal,
+                basalKcal: $0.basalKcal, vo2max: $0.vo2max, avgHr: $0.avgHr,
+                maxHr: $0.maxHr, walkingHr: $0.walkingHr, weightKg: $0.weightKg
+            )
+        }.sorted { $0.day < $1.day }
         guard !Task.isCancelled,
-              revision == repo.refreshSeq,
+              revision == Int(truncatingIfNeeded: repo.refreshSeq
+                &+ Int(repo.canonicalHealth.trendsRevision)),
               anchorDay == Repository.localDayKey(Date()),
               timeZoneIdentifier == TimeZone.autoupdatingCurrent.identifier
         else { return }

@@ -711,9 +711,8 @@ final class Backfiller {
         do {
             fingerprint = try WhoopStore.historicalReceivedFrameFingerprint(
                 input: fingerprintInput,
-                deviceId: admittedScope.deviceId,
-                trim: Int(trim),
-                chunkEndUnix: Int(unix))
+                scope: admittedScope,
+                trim: Int(trim))
         } catch {
             log?("Backfill: failed to fingerprint historical chunk (trim=\(trim)): \(error) — holding ack so the strap re-sends this chunk.")
             persistStalled = true

@@ -282,7 +282,7 @@ extension Repository {
                     sessionStart: nil,
                     sessionEnd: nil)
             case .inserted, .updated:
-                _ = await refresh(.recentDashboard(days: 120))
+                _ = await refresh(.currentDay)
                 if analysis.outcome == .partial {
                     let charge = scored.daily.recovery == nil
                         ? " Charge will remain in calibration until its personal HRV baseline is usable."

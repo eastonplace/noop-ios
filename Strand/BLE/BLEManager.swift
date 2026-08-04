@@ -4174,31 +4174,18 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
     public func peripheral(_ peripheral: CBPeripheral,
                            didWriteValueFor characteristic: CBCharacteristic,
                            error: Error?) {
-        guard isCurrentPeripheralCallback(peripheral) else {
-            log("Ignored stale confirmed-write callback for \(peripheral.identifier)")
-            return
-        }
-        guard isCurrentCharacteristicCallback(characteristic) else {
-            // A callback from an old characteristic instance is itself proof that the matching queued
-            // write is retired. Consume that token now; otherwise it would later swallow a real callback
-            // from the newly-discovered command characteristic and delay the next connection handshake.
-            if let index = confirmedCommandWrites.firstIndex(where: {
-                $0.peripheralID == peripheral.identifier && $0.characteristicUUID == characteristic.uuid
-            }) {
-                let retiredWrite = confirmedCommandWrites.remove(at: index)
-                log("Ignored stale confirmed-write callback for retired BLE generation \(retiredWrite.connectGeneration)")
-            } else {
-                log("Ignored stale confirmed-write callback for \(peripheral.identifier)")
-            }
-            return
-        }
-        // Consume the matching `.withResponse` write in FIFO order. This prevents a generic command
-        // already in flight on the command characteristic from being mistaken for the later safe-trim ACK.
-        if let index = confirmedCommandWrites.firstIndex(where: {
+        // Consume the matching `.withResponse` write before validating the active link. A callback from
+        // an old peripheral or characteristic still retires its exact queued token, so it cannot swallow
+        // a later write from the current connection.
+        let tokenIndex = confirmedCommandWrites.firstIndex(where: {
             $0.peripheralID == peripheral.identifier && $0.characteristicUUID == characteristic.uuid
-        }) {
-            let confirmedWrite = confirmedCommandWrites.remove(at: index)
-            guard Self.shouldAcceptConfirmedWriteCallback(
+        })
+        if tokenIndex == nil {
+            log("Ignored confirmed-write callback without a queued token for \(peripheral.identifier)")
+            return
+        }
+        let confirmedWrite = confirmedCommandWrites.remove(at: tokenIndex!)
+        let acceptsGeneration = Self.shouldAcceptConfirmedWriteCallback(
                 eventPeripheralID: peripheral.identifier,
                 eventCharacteristicUUID: characteristic.uuid,
                 activePeripheralID: self.peripheral?.identifier,
@@ -4206,33 +4193,33 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                 activeConnectGeneration: connectGeneration,
                 queuedPeripheralID: confirmedWrite.peripheralID,
                 queuedCharacteristicUUID: confirmedWrite.characteristicUUID,
-                queuedConnectGeneration: confirmedWrite.connectGeneration) else {
-                log("Ignored stale confirmed-write callback from BLE generation \(confirmedWrite.connectGeneration)")
-                return
-            }
-            if let historicalAck = confirmedWrite.historicalAck {
-                if let pending = pendingHistoricalAck,
-                   pending.characteristicUUID == characteristic.uuid,
-                   pending.admission.peripheralID == peripheral.identifier,
-                   pending.admission == historicalAck.admission,
-                   pending.trim == historicalAck.trim {
-                    let stillCurrent = isCurrentHistoricalBackfill(pending.admission)
-                    let acknowledged = error == nil && stillCurrent
-                    completePendingHistoricalAck(
-                        acknowledged,
-                        reason: error.map { "CoreBluetooth write failed: \($0.localizedDescription)" }
-                            ?? (stillCurrent ? nil : "admission is no longer current"))
-                    // The exact counter remains local for liveness; publish no more than 4 Hz so a
-                    // high-throughput backlog does not invalidate the whole Devices screen per ACK.
-                    if acknowledged,
-                       let visible = historicalProgress.acknowledge(now: Date().timeIntervalSince1970) {
-                        state.syncChunksThisSession = visible
-                    }
-                } else {
-                    log("Backfill: ignored delayed historical ACK callback after its session ended or changed")
+                queuedConnectGeneration: confirmedWrite.connectGeneration)
+        if !acceptsGeneration || !isCurrentPeripheralCallback(peripheral) || !isCurrentCharacteristicCallback(characteristic) {
+            log("Ignored stale confirmed-write callback from BLE generation \(confirmedWrite.connectGeneration)")
+            return
+        }
+        if let historicalAck = confirmedWrite.historicalAck {
+            if let pending = pendingHistoricalAck,
+               pending.characteristicUUID == characteristic.uuid,
+               pending.admission.peripheralID == peripheral.identifier,
+               pending.admission == historicalAck.admission,
+               pending.trim == historicalAck.trim {
+                let stillCurrent = isCurrentHistoricalBackfill(pending.admission)
+                let acknowledged = error == nil && stillCurrent
+                completePendingHistoricalAck(
+                    acknowledged,
+                    reason: error.map { "CoreBluetooth write failed: \($0.localizedDescription)" }
+                        ?? (stillCurrent ? nil : "admission is no longer current"))
+                // The exact counter remains local for liveness; publish no more than 4 Hz so a
+                // high-throughput backlog does not invalidate the whole Devices screen per ACK.
+                if acknowledged,
+                   let visible = historicalProgress.acknowledge(now: Date().timeIntervalSince1970) {
+                    state.syncChunksThisSession = visible
                 }
-                return
+            } else {
+                log("Backfill: ignored delayed historical ACK callback after its session ended or changed")
             }
+            return
         }
         if let error = error {
             log("Confirmed write failed: \(error.localizedDescription)")

@@ -1,11 +1,12 @@
 import Foundation
+import NoopPhase34Core
 
 enum RepositoryRefreshDataset: Hashable, Sendable {
     case dashboard
 }
 
-/// Explicit refresh purposes. The current cache is a full-history replacement model, so Phase 1 keeps its
-/// historic 4,000-day extent until Phase 2 introduces a separate recent dashboard projection.
+/// Explicit refresh purposes. Exact historical publication uses its committed civil-day set. These
+/// compatibility intents remain narrow and never widen a missing-day publication into a history sweep.
 enum RepositoryRefreshIntent: Equatable, Sendable, CustomStringConvertible {
     case currentDay
     case recentDashboard(days: Int)
@@ -18,11 +19,11 @@ enum RepositoryRefreshIntent: Equatable, Sendable, CustomStringConvertible {
     var days: Int {
         switch self {
         case .currentDay, .postBackfill, .initialLoad:
-            return 4_000
+            return 1
         case .recentDashboard(let days):
-            return min(4_000, max(120, days))
+            return min(30, max(1, days))
         case .activeDeviceChanged, .postImport, .fullHistoryMigration:
-            return 4_000
+            return 30
         }
     }
 
@@ -77,6 +78,24 @@ enum RepositoryRefreshIntent: Equatable, Sendable, CustomStringConvertible {
         case .activeDeviceChanged: return 4
         case .postImport: return 5
         case .fullHistoryMigration: return 6
+        }
+    }
+
+    /// One compatibility adapter. Production execution is typed by `RepositoryRefreshRequest`.
+    var request: RepositoryRefreshRequest {
+        switch self {
+        case .currentDay: return .currentDayRequest
+        case .recentDashboard(let days): return .recentDashboardRequest(days: days)
+        case .postBackfill: return .currentDayRequest
+        case .initialLoad: return .initialLoadRequest
+        case .activeDeviceChanged: return .activeDeviceChangedRequest
+        case .postImport: return .postImportRequest
+        case .fullHistoryMigration:
+            return RepositoryRefreshRequest(
+                recentDashboardDays: 30,
+                includeHistoryExtent: true,
+                fullHistory: true,
+                reasons: [.fullHistoryMigration])
         }
     }
 }
@@ -316,7 +335,7 @@ private enum RepositoryRefreshRegistry {
 
             let trace = PerformanceTrace.begin(intent.traceName)
             defer { PerformanceTrace.end(trace) }
-            return await repository.refresh(days: intent.days)
+            return (await repository.executeRefresh(intent.request)).succeeded
         }
         entries[key] = Entry(repository: repository, coordinator: coordinator)
         return coordinator
@@ -324,6 +343,39 @@ private enum RepositoryRefreshRegistry {
 }
 
 extension Repository {
+    /// Execute the typed refresh request after the caller owns the publication barrier. This is the single
+    /// production backend for both legacy intent adapters and new exact/recent callers.
+    @discardableResult
+    func executeRefresh(_ request: RepositoryRefreshRequest) async -> RepositoryRefreshExecutionStatus {
+        let requestedRecentDays = request.recentDashboardDays
+            ?? (request.exactDays.isEmpty ? 30 : 1)
+        let boundedRecentDays = min(30, max(1, requestedRecentDays))
+        let didPublish = await refresh(days: boundedRecentDays)
+        guard didPublish else {
+            return .failed(code: "repository_refresh_failed")
+        }
+        return .published(RepositoryRefreshOutcome(
+            authoritativeDataPublished: true,
+            changedDays: request.exactDays,
+            snapshotStatus: .persisted
+        ))
+    }
+
+    /// Typed refresh entry point. A source publication fence returns `.deferred`; it never reports a blocked
+    /// request as an authoritative failure.
+    @discardableResult
+    func refresh(_ request: RepositoryRefreshRequest) async -> RepositoryRefreshExecutionStatus {
+        switch RepositoryRefreshContext.disposition {
+        case .suppress:
+            return .deferred
+        case .allow:
+            let barrier = RepositoryPublicationBarrier.shared
+            guard barrier.beginRefreshIfAllowed() else { return .deferred }
+            defer { barrier.endRefresh() }
+            return await executeRefresh(request)
+        }
+    }
+
     @discardableResult
     func refresh(_ intent: RepositoryRefreshIntent) async -> Bool {
         switch RepositoryRefreshContext.disposition {
