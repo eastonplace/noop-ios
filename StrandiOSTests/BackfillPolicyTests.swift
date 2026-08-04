@@ -3,6 +3,61 @@ import XCTest
 
 @MainActor
 final class BackfillPolicyTests: XCTestCase {
+    func testStaleDisconnectCannotTearDownCurrentConnection() {
+        let active = UUID()
+        XCTAssertFalse(BLEManager.shouldApplyDisconnectEvent(
+            eventPeripheralID: UUID(),
+            activePeripheralID: active,
+            activePeripheralIsConnected: false))
+        XCTAssertFalse(BLEManager.shouldApplyDisconnectEvent(
+            eventPeripheralID: active,
+            activePeripheralID: active,
+            activePeripheralIsConnected: true))
+        XCTAssertTrue(BLEManager.shouldApplyDisconnectEvent(
+            eventPeripheralID: active,
+            activePeripheralID: active,
+            activePeripheralIsConnected: false))
+
+        XCTAssertFalse(BLEManager.shouldAcceptPeripheralCallback(
+            eventPeripheralID: UUID(),
+            activePeripheralID: active,
+            activePeripheralIsConnected: true))
+        XCTAssertFalse(BLEManager.shouldAcceptPeripheralCallback(
+            eventPeripheralID: active,
+            activePeripheralID: active,
+            activePeripheralIsConnected: false))
+        XCTAssertTrue(BLEManager.shouldAcceptPeripheralCallback(
+            eventPeripheralID: active,
+            activePeripheralID: active,
+            activePeripheralIsConnected: true))
+    }
+
+    func testSamePeripheralDelayedConfirmedWriteCannotCrossConnectionGeneration() {
+        let peripheral = UUID()
+        let characteristic = BLEManager.cmdWriteChar
+
+        XCTAssertFalse(BLEManager.shouldAcceptConfirmedWriteCallback(
+            eventPeripheralID: peripheral,
+            eventCharacteristicUUID: characteristic,
+            activePeripheralID: peripheral,
+            activePeripheralIsConnected: true,
+            activeConnectGeneration: 2,
+            queuedPeripheralID: peripheral,
+            queuedCharacteristicUUID: characteristic,
+            queuedConnectGeneration: 1),
+            "A delayed callback from the old connection must consume its retired token, never confirm the new session")
+
+        XCTAssertTrue(BLEManager.shouldAcceptConfirmedWriteCallback(
+            eventPeripheralID: peripheral,
+            eventCharacteristicUUID: characteristic,
+            activePeripheralID: peripheral,
+            activePeripheralIsConnected: true,
+            activeConnectGeneration: 2,
+            queuedPeripheralID: peripheral,
+            queuedCharacteristicUUID: characteristic,
+            queuedConnectGeneration: 2))
+    }
+
     func testDefaultPeriodicCadenceStaysAtFifteenMinutesAfterEmptyStreak() {
         let last = 10_000.0
 

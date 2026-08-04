@@ -278,6 +278,34 @@ extension WhoopStore {
         }
     }
 
+    /// Acknowledge the staged target only when the registry still carries the receipt's exact historical
+    /// scope. The registry read and checkpoint mutation run in the same database write, so a source switch
+    /// cannot land between a scope check and the durable acknowledgement.
+    ///
+    /// A nil result means the registry scope changed. The staged work remains pending for a source-aware
+    /// recovery path.
+    public func acknowledgeHistoricalAnalysisIfCurrentScope(
+        consumerId: String = HistoricalAnalysisCheckpoint.defaultConsumerId,
+        through receipt: HistoricalDataCommitReceipt
+    ) async throws -> HistoricalAnalysisCheckpoint? {
+        try validateHistoricalAnalysisConsumer(consumerId)
+        let scope = HistoricalCursorScope(
+            deviceId: receipt.deviceId,
+            lineage: receipt.lineage,
+            cursorEpoch: receipt.cursorEpoch,
+            trimScope: receipt.trimScope
+        )
+        return try syncWrite { db in
+            try WhoopStore.acknowledgeHistoricalAnalysisIfCurrentScope(
+                consumerId: consumerId,
+                throughGeneration: receipt.generation,
+                scope: scope,
+                expectedReceipt: receipt,
+                in: db
+            )
+        }
+    }
+
     private static func historicalAnalysisCheckpoint(
         consumerId: String,
         for scope: HistoricalCursorScope,
@@ -501,6 +529,42 @@ extension WhoopStore {
             throw HistoricalDataCommitJournalError.invalidReceipt
         }
         return try decodeHistoricalAnalysisCheckpoint(acknowledgedRow)
+    }
+
+    private static func acknowledgeHistoricalAnalysisIfCurrentScope(
+        consumerId: String,
+        throughGeneration generation: Int64,
+        scope: HistoricalCursorScope,
+        expectedReceipt: HistoricalDataCommitReceipt,
+        in db: Database
+    ) throws -> HistoricalAnalysisCheckpoint? {
+        try validateHistoricalAnalysisScope(scope)
+
+        let currentScope: HistoricalCursorScope
+        do {
+            currentScope = try historicalCursorScope(
+                deviceId: scope.deviceId,
+                trimScope: scope.trimScope,
+                requestedLineage: scope.lineage,
+                requestedCursorEpoch: scope.cursorEpoch,
+                in: db
+            )
+        } catch {
+            if let error = error as? HistoricalDataCommitJournalError,
+               error == .invalidCursorScope {
+                return nil
+            }
+            throw error
+        }
+        guard currentScope == scope else { return nil }
+
+        return try acknowledgeHistoricalAnalysis(
+            consumerId: consumerId,
+            throughGeneration: generation,
+            scope: scope,
+            expectedReceipt: expectedReceipt,
+            in: db
+        )
     }
 
     private static func checkpointRow(

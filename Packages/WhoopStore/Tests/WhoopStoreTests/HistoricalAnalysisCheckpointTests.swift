@@ -125,7 +125,7 @@ final class HistoricalAnalysisCheckpointTests: XCTestCase {
                 1
             )
         }
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 38)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 39)
     }
 
     func testStageReloadResumesPendingPayloadAndReceiptFrontier() async throws {
@@ -254,6 +254,43 @@ final class HistoricalAnalysisCheckpointTests: XCTestCase {
         XCTAssertEqual(lower, acknowledgedSecond)
         let readback = try await store.historicalAnalysisCheckpoint(for: sourceScope)
         XCTAssertEqual(readback, acknowledgedSecond)
+    }
+
+    func testScopedAcknowledgementDefersAfterRegistryHistorySwitch() async throws {
+        let store = try await WhoopStore.inMemory()
+        let registry = DeviceRegistryStore(dbQueue: store.registryWriter)
+        let initialScope = try registry.historicalCursorScope(for: "my-whoop")
+        let sourceScope = scope(
+            deviceId: initialScope.deviceId,
+            lineage: initialScope.lineage,
+            cursorEpoch: initialScope.cursorEpoch
+        )
+        let committed = try await commitReceipt(
+            in: store,
+            scope: sourceScope,
+            trim: 35,
+            seed: 1
+        )
+        let staged = try await store.stageHistoricalAnalysis(
+            for: sourceScope,
+            through: committed,
+            payload: Data([0x35])
+        )
+
+        try registry.setPeripheralId(sourceScope.deviceId, peripheralId: "replacement-peripheral")
+
+        let acknowledged = try await store.acknowledgeHistoricalAnalysisIfCurrentScope(
+            through: committed
+        )
+        let checkpoint = try await store.historicalAnalysisCheckpoint(for: sourceScope)
+
+        XCTAssertNil(acknowledged)
+        XCTAssertEqual(checkpoint?.throughGeneration, 0)
+        XCTAssertEqual(checkpoint?.pendingWork, staged.pendingWork)
+        XCTAssertNotEqual(
+            try registry.historicalCursorScope(for: sourceScope.deviceId),
+            sourceScope
+        )
     }
 
     func testWrongOrMissingReceiptCannotAdvanceCheckpoint() async throws {

@@ -80,6 +80,22 @@ final class AppModel: ObservableObject {
     let behavior = BehaviorStore()
     /// On-device WHOOP-style recovery/strain/sleep computation from raw strap streams.
     let intelligence: IntelligenceEngine
+    /// Phase 2 receipt consumer. It has no UI state; its only durable state is the checkpoint stored with
+    /// the source journal. Keeping one instance prevents a launch drain and a burst-finalization drain from
+    /// executing the same staged run in parallel.
+    private lazy var historicalReceiptAnalysisConsumer = HistoricalReceiptAnalysisConsumer(
+        storeProvider: { [weak self] in
+            await self?.repo.storeHandle()
+        },
+        scopeIsCurrent: { store, scope in
+            let registry = DeviceRegistryStore(dbQueue: store.registryWriter)
+            return (try? registry.historicalCursorScope(for: scope.deviceId)) == scope
+        },
+        executeRun: { [weak self] run, context in
+            guard let self else { return false }
+            return await self.intelligence.analyzeCommittedHistoricalRun(run, context: context)
+        }
+    )
 
     var backupRestoreLifecycle: DataBackup.RestoreLifecycle {
         DataBackup.RestoreLifecycle(
@@ -475,6 +491,13 @@ final class AppModel: ObservableObject {
             }
             _ = await self.repo.refresh(.initialLoad)          // surface any imported data at once
             _ = await firstPaintTask.value
+            // Resume committed source work only after first paint. The receipt path has its own durable
+            // checkpoint and exact civil-day scope, so it cannot delay hydration or widen into a launch-time
+            // last-21-days sweep. A crash before acknowledgment leaves the same target staged for retry.
+            let launchReceiptDrain = await self.drainHistoricalReceiptAnalysis()
+            if launchReceiptDrain.didAdvance {
+                await self.publishAfterCommittedHistoricalAnalysis()
+            }
             try? await Task.sleep(nanoseconds: 6_000_000_000)  // give the first offload a moment
             // FIX 2(a): DEFER the heavy one-shot 4000-day heal/rescore while an import is in flight. A
             // large Apple Health import is the worst-case launch overlap , running a 4000-iteration heal
@@ -639,17 +662,41 @@ final class AppModel: ObservableObject {
         } else {
             live.append(log: "Backfill: refreshing dashboard cache from timestamp-heal publication")
         }
-        // Score the freshly-offloaded raw data RIGHT NOW rather than waiting for the next 15-minute
-        // analyzeRecent tick , otherwise a just-synced night's Charge / Effort / Rest can take up to
-        // 15 minutes to appear on a strap-only (no-import) dashboard. analyzeRecent no-ops if a tick is
-        // already running and refreshes the dashboard itself once the new scores persist. (PR #218)
-        let analysisCompleted = await intelligence.analyzeRecent(refreshRepository: false)
-        guard analysisCompleted else {
-            live.append(log: "Backfill: analysis did not complete; retaining the prior Home generation for retry.")
+        let receiptDrain = await drainHistoricalReceiptAnalysis()
+        if receiptDrain.didAdvance {
+            await publishAfterCommittedHistoricalAnalysis()
             return
         }
-        // One post-analysis refresh publishes both the newly offloaded raw history and any computed
-        // mutations. Refreshing before analysis made the same cache tree rebuild twice per backfill.
+
+        // A timestamp-heal-only finalization has no receipt to checkpoint. Preserve its existing dedicated
+        // recovery route; a receipt-bearing burst must fail closed instead of falling back to a broad scan.
+        guard watermark == nil else {
+            if receiptDrain.deferredScopeCount > 0 {
+                live.append(log: "Backfill: durable receipt analysis remains pending; retaining the prior Home generation.")
+            }
+            return
+        }
+        let analysisCompleted = await intelligence.analyzeRecent(refreshRepository: false)
+        guard analysisCompleted else {
+            live.append(log: "Backfill: timestamp-heal analysis did not complete; retaining the prior Home generation for retry.")
+            return
+        }
+        await publishAfterCommittedHistoricalAnalysis()
+    }
+
+    /// Run the durable receipt consumer and leave its target pending whenever execution cannot prove success.
+    private func drainHistoricalReceiptAnalysis() async -> HistoricalReceiptAnalysisDrainResult {
+        let result = await historicalReceiptAnalysisConsumer.drain()
+        if result.didAdvance {
+            live.append(log: "Backfill: acknowledged \(result.acknowledgedReceiptCount) committed historical receipt(s) after \(result.analysisRunCount) exact analysis run(s).")
+        }
+        return result
+    }
+
+    /// One post-analysis refresh publishes both committed raw history and its computed rows. It runs only
+    /// after receipt acknowledgement or the pre-existing heal-only path, so it never replaces a visible
+    /// dashboard generation with a half-analyzed result.
+    private func publishAfterCommittedHistoricalAnalysis() async {
         _ = await repo.refresh(.postBackfill)
         await refreshV5Signals()
         #if os(iOS)

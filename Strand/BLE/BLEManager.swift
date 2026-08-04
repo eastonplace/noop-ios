@@ -582,6 +582,46 @@ public final class BLEManager: NSObject, ObservableObject {
     private var restoreInProgress = false
     /// True while a historical offload session is in progress (frames route to Backfiller).
     private var backfilling = false
+    /// One immutable admission for the physical BLE link currently allowed to ACK historical receipts.
+    /// A receipt from any older connection, peripheral, or registry lineage must stay durable-but-unacked.
+    private struct HistoricalBackfillAdmission: Equatable {
+        let scope: HistoricalCursorScope
+        let peripheralID: UUID
+        let connectGeneration: Int
+        /// Distinguishes two historical sessions on the same physical BLE connection. A late write
+        /// callback must not confirm a replacement session that happens to use the same trim.
+        let sessionGeneration: Int
+    }
+    /// The single safe-trim ACK currently waiting for CoreBluetooth's `.withResponse` completion.
+    /// Backfiller serializes chunk completion, so there can never be more than one legitimate request.
+    private struct PendingHistoricalAck {
+        let admission: HistoricalBackfillAdmission
+        let trim: UInt32
+        let characteristicUUID: CBUUID
+        let continuation: CheckedContinuation<Bool, Never>
+    }
+    /// The identity captured when a safe-trim write leaves this process. It binds the callback to one
+    /// physical connection and one historical session, rather than only to a reused peripheral UUID.
+    private struct HistoricalAckWriteIdentity: Equatable {
+        let admission: HistoricalBackfillAdmission
+        let trim: UInt32
+    }
+    /// CoreBluetooth confirms writes in order per characteristic. Track every `.withResponse` command so
+    /// an earlier non-history callback can never be mistaken for the safe-trim ACK that follows it. Keep
+    /// retired entries until their callback arrives: an old callback must consume its own entry, never a
+    /// new connection's write.
+    private struct ConfirmedCommandWrite {
+        let peripheralID: UUID
+        let characteristicUUID: CBUUID
+        let connectGeneration: Int
+        let historicalAck: HistoricalAckWriteIdentity?
+    }
+    private var admittedHistoricalBackfill: HistoricalBackfillAdmission?
+    private var historicalSessionGeneration = 0
+    private var pendingHistoricalAck: PendingHistoricalAck?
+    private var confirmedCommandWrites: [ConfirmedCommandWrite] = []
+    private var historicalAckTimeout: DispatchWorkItem?
+    static let historicalAckConfirmationTimeout: TimeInterval = 8
     /// Wall time of the most recent offload frame OR HISTORY_COMPLETE — drives the #174 deep-packet
     /// cooldown. A type-0x2F frame arriving just after a backfill ends (backfilling already flipped
     /// false) is a TRAILING historical frame, not the live R22 stream; it must not be miscounted as a
@@ -1015,8 +1055,12 @@ public final class BLEManager: NSObject, ObservableObject {
         // poweredOn), so apply the family/clock configuration here too — whichever runs last wins.
         configureCollectorFamily()
         backfiller = Backfiller(store: store, deviceId: deviceId,
-                                ackTrim: { [weak self] trim, endData in
-                                    self?.ackHistoricalChunk(trim: trim, endData: endData)
+                                ackTrim: { [weak self] scope, trim, endData in
+                                    guard let self else { return false }
+                                    return await self.ackHistoricalChunk(
+                                        scope: scope,
+                                        trim: trim,
+                                        endData: endData)
                                 },
                                 enableRawCapture: enableRawCapture,
                                 log: { [weak self] s in self?.log(s) },
@@ -1230,6 +1274,9 @@ public final class BLEManager: NSObject, ObservableObject {
         readoptingTo = nil   // #52: a clean teardown abandons any in-flight pin handoff
         standardHRFallback = false
         state.standardHRMode = nil
+        // `cancelPeripheralConnection` is asynchronous. Resolve a suspended safe-trim continuation before
+        // asking CoreBluetooth to tear down the link, not eight seconds later in its callback or timeout.
+        invalidateHistoricalBackfill(reason: "connection cancellation was requested")
         if let p = peripheral {
             central.cancelPeripheralConnection(p)
         }
@@ -1253,6 +1300,13 @@ public final class BLEManager: NSObject, ObservableObject {
         // so connect()/restoration can't re-target it.
         if target == nil || preferredPeripheralUUID == target { setPreferredPeripheral(nil) }
         if target == nil || restoredPeripheral?.identifier == target { restoredPeripheral = nil }
+        // Forgetting clears `peripheral` before CoreBluetooth later emits didDisconnect. Invalidate now so
+        // the stale delegate guard cannot leave an ACK continuation waiting for its full timeout.
+        if target == nil
+            || admittedHistoricalBackfill?.peripheralID == target
+            || pendingHistoricalAck?.admission.peripheralID == target {
+            invalidateHistoricalBackfill(reason: "device was forgotten")
+        }
         // Drop the live BLE link so the strap is free to enter pairing mode.
         if isCurrent, let p = peripheral {
             central.cancelPeripheralConnection(p)
@@ -1600,6 +1654,11 @@ public final class BLEManager: NSObject, ObservableObject {
             let puffinPayload: [UInt8] = isHaptics ? [0x01, 47, 152, 0, 0, 0, 0, 0, 0, 0, 0, 0] : payload
             seq = seq &+ 1
             let frame = puffinCommandFrame(cmd: puffinCmd, seq: seq, payload: puffinPayload)
+            recordConfirmedCommandWrite(
+                command: command,
+                peripheral: p,
+                characteristic: ch,
+                writeType: writeType)
             p.writeValue(Data(frame), for: ch, type: writeType)
             let cmdNote = isHaptics ? " cmd=0x13" : ""
             if command == .historicalDataResult {
@@ -1614,6 +1673,11 @@ public final class BLEManager: NSObject, ObservableObject {
         }
         seq = seq &+ 1
         let frame = command.frame(seq: seq, payload: payload)
+        recordConfirmedCommandWrite(
+            command: command,
+            peripheral: p,
+            characteristic: ch,
+            writeType: writeType)
         p.writeValue(Data(frame), for: ch, type: writeType)
         log("→ \(command.label) payload=\(hex(payload))")
     }
@@ -1664,20 +1728,192 @@ public final class BLEManager: NSObject, ObservableObject {
         }
     }
 
-    /// Ack one HISTORY_END chunk so the strap may trim it. Confirmed write — the strap forgets
-    /// the chunk once this lands (link-layer half of safe-trim; decoded + raw already persisted).
+    /// True only while the immutable admission still names the current physical BLE connection.
+    private func isCurrentHistoricalBackfill(_ admission: HistoricalBackfillAdmission) -> Bool {
+        guard admittedHistoricalBackfill == admission,
+              connectGeneration == admission.connectGeneration,
+              state.connected,
+              let current = peripheral,
+              current.identifier == admission.peripheralID,
+              current.state == .connected else {
+            return false
+        }
+        return true
+    }
+
+    /// Complete a pending safe-trim ACK exactly once. A disconnect, session replacement, timeout, or
+    /// failed CoreBluetooth write resolves false, leaving the durable receipt replayable next session.
+    private func completePendingHistoricalAck(_ confirmed: Bool, reason: String? = nil) {
+        guard let pending = pendingHistoricalAck else { return }
+        pendingHistoricalAck = nil
+        // Do not discard the queued write here. If CoreBluetooth emits its callback after a timeout,
+        // disconnect, or session replacement, that old callback must consume this exact retired token.
+        // Removing it would let the callback confirm the next session's same-UUID write.
+        historicalAckTimeout?.cancel()
+        historicalAckTimeout = nil
+        if let reason {
+            log("Backfill: historical ACK trim=\(pending.trim) not confirmed — \(reason)")
+        }
+        pending.continuation.resume(returning: confirmed)
+    }
+
+    /// Retire the local permission to safely trim history before any teardown or replacement. Durable
+    /// receipts remain replayable; only their ability to ACK over this BLE session is revoked.
+    private func invalidateHistoricalBackfill(reason: String) {
+        completePendingHistoricalAck(false, reason: reason)
+        admittedHistoricalBackfill = nil
+    }
+
+    /// Register a response write before issuing it. A queued generic write must consume its own
+    /// CoreBluetooth callback before a later historical ACK is allowed to consume the next callback.
+    private func recordConfirmedCommandWrite(
+        command: WhoopCommand,
+        peripheral: CBPeripheral,
+        characteristic: CBCharacteristic,
+        writeType: CBCharacteristicWriteType
+    ) {
+        guard writeType == .withResponse else { return }
+        let historicalAck: HistoricalAckWriteIdentity?
+        if command == .historicalDataResult,
+           let pending = pendingHistoricalAck,
+           pending.admission.peripheralID == peripheral.identifier,
+           pending.characteristicUUID == characteristic.uuid,
+           pending.admission.connectGeneration == connectGeneration {
+            historicalAck = HistoricalAckWriteIdentity(
+                admission: pending.admission,
+                trim: pending.trim)
+        } else {
+            historicalAck = nil
+        }
+        confirmedCommandWrites.append(ConfirmedCommandWrite(
+            peripheralID: peripheral.identifier,
+            characteristicUUID: characteristic.uuid,
+            connectGeneration: connectGeneration,
+            historicalAck: historicalAck))
+    }
+
+    /// CoreBluetooth can surface a delayed disconnect for a different peripheral while a newer link is
+    /// already healthy. Do not let that callback tear down the current connection. A reused peripheral
+    /// object is also ignored when CoreBluetooth reports it as connected again.
+    nonisolated static func shouldApplyDisconnectEvent(
+        eventPeripheralID: UUID,
+        activePeripheralID: UUID?,
+        activePeripheralIsConnected: Bool
+    ) -> Bool {
+        eventPeripheralID == activePeripheralID && !activePeripheralIsConnected
+    }
+
+    /// Non-disconnect CoreBluetooth callbacks are admitted only from the current live peripheral. A late
+    /// callback from another strap must never decode into, bond, or ACK through the active strap's session.
+    nonisolated static func shouldAcceptPeripheralCallback(
+        eventPeripheralID: UUID,
+        activePeripheralID: UUID?,
+        activePeripheralIsConnected: Bool
+    ) -> Bool {
+        eventPeripheralID == activePeripheralID && activePeripheralIsConnected
+    }
+
+    private func isCurrentPeripheralCallback(_ candidate: CBPeripheral) -> Bool {
+        Self.shouldAcceptPeripheralCallback(
+            eventPeripheralID: candidate.identifier,
+            activePeripheralID: peripheral?.identifier,
+            activePeripheralIsConnected: peripheral?.state == .connected
+        )
+    }
+
+    /// A reused `CBPeripheral` can report a callback from an earlier discovery pass. UUID equality is not
+    /// enough in that case: only the characteristic object retained for the active session may mutate state.
+    private func isCurrentCharacteristicCallback(_ candidate: CBCharacteristic) -> Bool {
+        switch candidate.uuid {
+        case Self.cmdWriteChar, Self.whoop5CmdWriteChar:
+            return candidate === cmdCharacteristic
+        case Self.cmdNotifyChar:
+            return candidate === cmdNotifyCharacteristic
+        case Self.eventNotifyChar:
+            return candidate === eventNotifyCharacteristic
+        case Self.dataNotifyChar:
+            return candidate === dataNotifyCharacteristic
+        case Self.heartRateChar:
+            return candidate === heartRateCharacteristic
+        case Self.batteryChar:
+            return candidate === batteryCharacteristic
+        default:
+            return whoop5NotifyCharacteristics.contains { $0 === candidate }
+        }
+    }
+
+    /// Characteristic discovery can also arrive late on a reused peripheral. Accept it only when the
+    /// service object is still part of the active discovery result, so an old pass cannot replace the
+    /// current session's characteristic identities.
+    private func isCurrentServiceCallback(_ candidate: CBService, on peripheral: CBPeripheral) -> Bool {
+        peripheral.services?.contains { $0 === candidate } == true
+    }
+
+    /// Confirmed-write callbacks do not include a CoreBluetooth connection generation. The queued write
+    /// does, so reject a delayed callback from a prior connection even when iOS reuses the peripheral UUID.
+    nonisolated static func shouldAcceptConfirmedWriteCallback(
+        eventPeripheralID: UUID,
+        eventCharacteristicUUID: CBUUID,
+        activePeripheralID: UUID?,
+        activePeripheralIsConnected: Bool,
+        activeConnectGeneration: Int,
+        queuedPeripheralID: UUID,
+        queuedCharacteristicUUID: CBUUID,
+        queuedConnectGeneration: Int
+    ) -> Bool {
+        shouldAcceptPeripheralCallback(
+            eventPeripheralID: eventPeripheralID,
+            activePeripheralID: activePeripheralID,
+            activePeripheralIsConnected: activePeripheralIsConnected)
+            && eventPeripheralID == queuedPeripheralID
+            && eventCharacteristicUUID == queuedCharacteristicUUID
+            && activeConnectGeneration == queuedConnectGeneration
+    }
+
+    /// Ack one HISTORY_END chunk so the strap may trim it. The durable scope, physical peripheral, and
+    /// connect generation must still match the original admission. A successful `writeValue` call is not
+    /// treated as an ACK: only `didWriteValueFor(..., error: nil)` confirms it.
     ///
     /// High-freq-sync ack form (matches re/sync_openwhoop.py, which pulled 762 type-47 records):
     /// HISTORICAL_DATA_RESULT(23) payload = `[0x01] + end_data`, where end_data is the verbatim
     /// 8 bytes of the HISTORY_END metadata.data[10:18] (trim u32 at [10:14] + next u32 at [14:18]).
     /// The `trim` argument (= end_data first u32) is already persisted as the strap_trim cursor by
     /// the Backfiller; it is passed here only for logging.
-    func ackHistoricalChunk(trim: UInt32, endData: [UInt8]) {
-        send(.historicalDataResult, payload: [0x01] + endData, writeType: .withResponse)
-        // The exact counter remains local for liveness; publish no more than 4 Hz so a high-throughput
-        // backlog does not invalidate the entire Devices screen once per safe chunk ACK.
-        if let visible = historicalProgress.acknowledge(now: Date().timeIntervalSince1970) {
-            state.syncChunksThisSession = visible
+    func ackHistoricalChunk(
+        scope: HistoricalCursorScope,
+        trim: UInt32,
+        endData: [UInt8]
+    ) async -> Bool {
+        guard let admission = admittedHistoricalBackfill,
+              admission.scope == scope,
+              isCurrentHistoricalBackfill(admission),
+              let characteristic = cmdCharacteristic else {
+            log("Backfill: refused historical ACK for stale or unadmitted scope \(scope.key), trim=\(trim)")
+            return false
+        }
+        guard pendingHistoricalAck == nil else {
+            log("Backfill: refused overlapping historical ACK for trim=\(trim)")
+            return false
+        }
+
+        return await withCheckedContinuation { continuation in
+            pendingHistoricalAck = PendingHistoricalAck(
+                admission: admission,
+                trim: trim,
+                characteristicUUID: characteristic.uuid,
+                continuation: continuation)
+            let timeout = DispatchWorkItem { [weak self] in
+                guard let self,
+                      let pending = self.pendingHistoricalAck,
+                      pending.admission == admission,
+                      pending.trim == trim else { return }
+                self.completePendingHistoricalAck(false, reason: "timed out waiting for CoreBluetooth confirmation")
+            }
+            historicalAckTimeout = timeout
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + Self.historicalAckConfirmationTimeout,
+                execute: timeout)
+            send(.historicalDataResult, payload: [0x01] + endData, writeType: .withResponse)
         }
     }
 
@@ -1709,10 +1945,20 @@ public final class BLEManager: NSObject, ObservableObject {
             log("Backfill: registry store not ready — deferring historical admission")
             return false
         }
+        guard let admittedPeripheral = peripheral,
+              let admittedPeripheralUUID = connectedPeripheralUUID,
+              admittedPeripheral.state == .connected,
+              admittedPeripheral.identifier.uuidString == admittedPeripheralUUID else {
+            log("Backfill: no current physical peripheral identity — deferring historical admission")
+            return false
+        }
         let admittedScope: HistoricalCursorScope
         do {
-            admittedScope = try DeviceRegistryStore(dbQueue: store.registryWriter)
-                .historicalCursorScope(for: deviceId)
+            let registry = DeviceRegistryStore(dbQueue: store.registryWriter)
+            // SourceCoordinator eventually observes this same seam. Admission cannot wait for that
+            // asynchronous publisher: bind the exact connected peripheral first, then resolve scope.
+            try registry.setPeripheralId(deviceId, peripheralId: admittedPeripheral.identifier.uuidString)
+            admittedScope = try registry.historicalCursorScope(for: deviceId)
         } catch {
             log("Backfill: failed to resolve durable cursor scope — deferring historical admission: \(error)")
             return false
@@ -1723,9 +1969,19 @@ public final class BLEManager: NSObject, ObservableObject {
         // the same burst banked rows — tell the backfiller so its no-cursor END reads as "caught up", not
         // "no banked history / charge to 100%". A fresh offload (count 0) keeps the honest guidance.
         let admittedSource = HistoricalReceiptWatermark.SourceIdentity(
-            deviceId: deviceId,
-            lineage: "ble:\(connectedPeripheralUUID ?? deviceId)",
-            epoch: historicalSourceEpoch)
+            deviceId: admittedScope.deviceId,
+            lineage: admittedScope.lineage,
+            epoch: Int64(admittedScope.cursorEpoch),
+            trimScope: admittedScope.trimScope)
+        // Replacing an admission intentionally invalidates any suspended completion from the prior
+        // session. It can remain committed, but it cannot ACK the new physical strap.
+        invalidateHistoricalBackfill(reason: "historical session was replaced")
+        historicalSessionGeneration &+= 1
+        admittedHistoricalBackfill = HistoricalBackfillAdmission(
+            scope: admittedScope,
+            peripheralID: admittedPeripheral.identifier,
+            connectGeneration: connectGeneration,
+            sessionGeneration: historicalSessionGeneration)
         backfiller.begin(
             family: selectedModel.deviceFamily,
             continuedAfterRows: consecutiveAutoContinues > 0,
@@ -2674,6 +2930,7 @@ public final class BLEManager: NSObject, ObservableObject {
             (selectedModel.deviceFamily == .whoop5 && whoop5EmptyOffload.historyEmpty) ? 600 : 120
         if Date().timeIntervalSince(lastDataAt) > bounceFuse {
             log("No data for >\(Int(bounceFuse))s — bouncing link to resume streaming")
+            invalidateHistoricalBackfill(reason: "the liveness watchdog is reconnecting the link")
             if let p = peripheral { central.cancelPeripheralConnection(p) }
             return
         }
@@ -3302,6 +3559,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         unauthorizedSettleWork?.cancel()
         unauthorizedSettleWork = nil
         guard central.state == .poweredOn else {
+            invalidateHistoricalBackfill(reason: "Bluetooth is no longer powered on")
             switch central.state {
             case .poweredOff:
                 state.bluetoothUnavailableMessage = "Bluetooth is off. Turn it on in Settings to connect a device."
@@ -3442,6 +3700,9 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
 
     public func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         cancelScanFallback()
+        // A new physical connection makes every prior historical ACK admission invalid, even when
+        // CoreBluetooth reuses the same CBPeripheral object across reconnects.
+        invalidateHistoricalBackfill(reason: "a newer BLE connection was admitted")
         failedConnectAttempts = 0   // a successful connect clears the reconnect backoff (#414)
         restoredPeripheral = nil
         preparePeripheral(peripheral)
@@ -3510,6 +3771,15 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
     public func centralManager(_ central: CBCentralManager,
                                didDisconnectPeripheral peripheral: CBPeripheral,
                                error: Error?) {
+        guard Self.shouldApplyDisconnectEvent(
+            eventPeripheralID: peripheral.identifier,
+            activePeripheralID: self.peripheral?.identifier,
+            activePeripheralIsConnected: self.peripheral?.state == .connected
+        ) else {
+            log("Ignored stale disconnect callback for \(peripheral.identifier)")
+            return
+        }
+        invalidateHistoricalBackfill(reason: "connection ended before write confirmation")
         Task { @MainActor in await collector?.flush() }
         // Reboot trail: if a user reboot is in flight, this drop is the strap acting on it. Log how long
         // the link stayed up (a real reboot drops within ~1-2 s) and cancel the no-disconnect watchdog. The
@@ -3775,8 +4045,10 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         // Ensure the store is ready before restored BLE data arrives (idempotent; no-op if already built).
         Task { @MainActor in await bootstrapStore() }
         if p.state == .connected {
+            invalidateHistoricalBackfill(reason: "a restored BLE connection replaced the prior session")
             connectGeneration &+= 1
             historicalSourceEpoch &+= 1
+            connectedPeripheralUUID = p.identifier.uuidString
             state.markConnected()
             log("Restored CONNECTED peripheral \(p.identifier) — re-discovering services")
             discoverPrimaryServices(on: p)
@@ -3791,6 +4063,10 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
 // MARK: - CBPeripheralDelegate
 extension BLEManager: @preconcurrency CBPeripheralDelegate {
     public func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
+        guard isCurrentPeripheralCallback(peripheral) else {
+            log("Ignored stale service-discovery callback for \(peripheral.identifier)")
+            return
+        }
         if let error {
             log("Service discovery failed: \(error.localizedDescription)")
             return
@@ -3823,6 +4099,11 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
     public func peripheral(_ peripheral: CBPeripheral,
                            didDiscoverCharacteristicsFor service: CBService,
                            error: Error?) {
+        guard isCurrentPeripheralCallback(peripheral),
+              isCurrentServiceCallback(service, on: peripheral) else {
+            log("Ignored stale characteristic-discovery callback for \(peripheral.identifier)")
+            return
+        }
         if let error {
             log("Characteristic discovery failed for \(service.uuid): \(error.localizedDescription)")
             return
@@ -3893,6 +4174,66 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
     public func peripheral(_ peripheral: CBPeripheral,
                            didWriteValueFor characteristic: CBCharacteristic,
                            error: Error?) {
+        guard isCurrentPeripheralCallback(peripheral) else {
+            log("Ignored stale confirmed-write callback for \(peripheral.identifier)")
+            return
+        }
+        guard isCurrentCharacteristicCallback(characteristic) else {
+            // A callback from an old characteristic instance is itself proof that the matching queued
+            // write is retired. Consume that token now; otherwise it would later swallow a real callback
+            // from the newly-discovered command characteristic and delay the next connection handshake.
+            if let index = confirmedCommandWrites.firstIndex(where: {
+                $0.peripheralID == peripheral.identifier && $0.characteristicUUID == characteristic.uuid
+            }) {
+                let retiredWrite = confirmedCommandWrites.remove(at: index)
+                log("Ignored stale confirmed-write callback for retired BLE generation \(retiredWrite.connectGeneration)")
+            } else {
+                log("Ignored stale confirmed-write callback for \(peripheral.identifier)")
+            }
+            return
+        }
+        // Consume the matching `.withResponse` write in FIFO order. This prevents a generic command
+        // already in flight on the command characteristic from being mistaken for the later safe-trim ACK.
+        if let index = confirmedCommandWrites.firstIndex(where: {
+            $0.peripheralID == peripheral.identifier && $0.characteristicUUID == characteristic.uuid
+        }) {
+            let confirmedWrite = confirmedCommandWrites.remove(at: index)
+            guard Self.shouldAcceptConfirmedWriteCallback(
+                eventPeripheralID: peripheral.identifier,
+                eventCharacteristicUUID: characteristic.uuid,
+                activePeripheralID: self.peripheral?.identifier,
+                activePeripheralIsConnected: self.peripheral?.state == .connected,
+                activeConnectGeneration: connectGeneration,
+                queuedPeripheralID: confirmedWrite.peripheralID,
+                queuedCharacteristicUUID: confirmedWrite.characteristicUUID,
+                queuedConnectGeneration: confirmedWrite.connectGeneration) else {
+                log("Ignored stale confirmed-write callback from BLE generation \(confirmedWrite.connectGeneration)")
+                return
+            }
+            if let historicalAck = confirmedWrite.historicalAck {
+                if let pending = pendingHistoricalAck,
+                   pending.characteristicUUID == characteristic.uuid,
+                   pending.admission.peripheralID == peripheral.identifier,
+                   pending.admission == historicalAck.admission,
+                   pending.trim == historicalAck.trim {
+                    let stillCurrent = isCurrentHistoricalBackfill(pending.admission)
+                    let acknowledged = error == nil && stillCurrent
+                    completePendingHistoricalAck(
+                        acknowledged,
+                        reason: error.map { "CoreBluetooth write failed: \($0.localizedDescription)" }
+                            ?? (stillCurrent ? nil : "admission is no longer current"))
+                    // The exact counter remains local for liveness; publish no more than 4 Hz so a
+                    // high-throughput backlog does not invalidate the whole Devices screen per ACK.
+                    if acknowledged,
+                       let visible = historicalProgress.acknowledge(now: Date().timeIntervalSince1970) {
+                        state.syncChunksThisSession = visible
+                    }
+                } else {
+                    log("Backfill: ignored delayed historical ACK callback after its session ended or changed")
+                }
+                return
+            }
+        }
         if let error = error {
             log("Confirmed write failed: \(error.localizedDescription)")
             // #78 hole-1: classify by ATT code first (locale-proof), English string fallback second.
@@ -4293,6 +4634,11 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
     public func peripheral(_ peripheral: CBPeripheral,
                            didUpdateValueFor characteristic: CBCharacteristic,
                            error: Error?) {
+        guard isCurrentPeripheralCallback(peripheral),
+              isCurrentCharacteristicCallback(characteristic) else {
+            log("Ignored stale notification callback for \(peripheral.identifier)")
+            return
+        }
         if let error {
             log("Notify update failed for \(characteristic.uuid): \(error.localizedDescription)")
             return
@@ -4482,6 +4828,11 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
     public func peripheral(_ peripheral: CBPeripheral,
                            didUpdateNotificationStateFor characteristic: CBCharacteristic,
                            error: Error?) {
+        guard isCurrentPeripheralCallback(peripheral),
+              isCurrentCharacteristicCallback(characteristic) else {
+            log("Ignored stale notification-state callback for \(peripheral.identifier)")
+            return
+        }
         if let error = error {
             log("Notify enable failed for \(characteristic.uuid): \(error.localizedDescription)")
         } else {

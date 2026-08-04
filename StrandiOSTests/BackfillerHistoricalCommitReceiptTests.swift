@@ -225,7 +225,7 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
         let backfiller = Backfiller(
             store: CommitSpy(ledger: ledger),
             deviceId: "strap-a",
-            ackTrim: { _, _ in ledger.append("ack") },
+            ackTrim: { _, _, _ in ledger.append("ack"); return true },
             onHistoricalCommit: { _ in ledger.append("receipt") }
         )
         backfiller.begin(
@@ -243,7 +243,7 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
         let backfiller = Backfiller(
             store: CommitSpy(ledger: ledger, failuresRemaining: 1),
             deviceId: "strap-a",
-            ackTrim: { _, _ in ledger.append("ack") },
+            ackTrim: { _, _, _ in ledger.append("ack"); return true },
             onHistoricalCommit: { _ in ledger.append("receipt") }
         )
         backfiller.begin(
@@ -257,12 +257,38 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
     }
 
     @MainActor
+    func testUnconfirmedHistoricalAckStallsTheDurableFrontier() async {
+        let ledger = EventLedger()
+        var requestedScopes: [HistoricalCursorScope] = []
+        let scope = HistoricalCursorScope(deviceId: "strap-a", lineage: "test-lineage")
+        let backfiller = Backfiller(
+            store: CommitSpy(ledger: ledger),
+            deviceId: "strap-a",
+            ackTrim: { receivedScope, _, _ in
+                requestedScopes.append(receivedScope)
+                ledger.append("ack")
+                return false
+            },
+            onHistoricalCommit: { _ in ledger.append("receipt") }
+        )
+        backfiller.begin(family: .whoop4, historicalCursorScope: scope)
+
+        await backfiller.ingest(historyEndFrame(trim: 43))
+        await backfiller.ingest(historyEndFrame(trim: 44))
+
+        XCTAssertEqual(requestedScopes, [scope])
+        XCTAssertEqual(ledger.events, ["commit", "receipt", "ack"])
+        XCTAssertTrue(backfiller.persistStalled)
+        XCTAssertNil(backfiller.lastAckedTrim)
+    }
+
+    @MainActor
     func testPersistStallPreventsLaterCursorReceiptAndAck() async {
         let ledger = EventLedger()
         let backfiller = Backfiller(
             store: CommitSpy(ledger: ledger, failuresRemaining: 1),
             deviceId: "strap-a",
-            ackTrim: { _, _ in ledger.append("ack") },
+            ackTrim: { _, _, _ in ledger.append("ack"); return true },
             onHistoricalCommit: { _ in ledger.append("receipt") }
         )
         backfiller.begin(
@@ -287,7 +313,7 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
         let backfiller = Backfiller(
             store: store,
             deviceId: source.deviceId,
-            ackTrim: { _, _ in },
+            ackTrim: { _, _, _ in true },
             sourceIdentity: source,
             extract: { _, _, _, _, _ in Streams() })
         backfiller.begin(
@@ -370,7 +396,7 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
         let backfiller = Backfiller(
             store: store,
             deviceId: "strap-a",
-            ackTrim: { _, _ in ackCount += 1 },
+            ackTrim: { _, _, _ in ackCount += 1; return true },
             sourceIdentity: displaySource,
             extract: { _, _, _, _, _ in Streams() })
         backfiller.begin(
@@ -412,7 +438,7 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
         let backfiller = Backfiller(
             store: store,
             deviceId: source.deviceId,
-            ackTrim: { _, _ in ackCount += 1 },
+            ackTrim: { _, _, _ in ackCount += 1; return true },
             sourceIdentity: source)
         backfiller.begin(
             family: .whoop4,
@@ -438,7 +464,7 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
         let backfiller = Backfiller(
             store: store,
             deviceId: "strap-a",
-            ackTrim: { _, _ in },
+            ackTrim: { _, _, _ in true },
             onHistoricalCommitContext: { contexts.append($0) },
             beforeHistoricalCommit: { await gate.wait() },
             sourceIdentity: sourceA,
@@ -473,5 +499,41 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
                 deviceId: "strap-a", lineage: scopeA.lineage, epoch: Int64(scopeA.cursorEpoch),
                 trimScope: scopeA.trimScope))
         XCTAssertEqual(contexts.first?.receipt.deviceId, "strap-a")
+    }
+
+    @MainActor
+    func testSupersededSessionCannotCommitOrAckAfterSuspension() async {
+        let gate = AsyncGate()
+        let store = SourceCaptureStore()
+        var ackedScopes: [HistoricalCursorScope] = []
+        let scopeA = HistoricalCursorScope(deviceId: "strap-a", lineage: "registry-A", cursorEpoch: 1)
+        let scopeB = HistoricalCursorScope(deviceId: "strap-b", lineage: "registry-B", cursorEpoch: 2)
+        let backfiller = Backfiller(
+            store: store,
+            deviceId: "strap-a",
+            ackTrim: { scope, _, _ in
+                ackedScopes.append(scope)
+                return true
+            },
+            beforeHistoricalCommit: { await gate.wait() },
+            extract: { _, _, _, _, _ in Streams() })
+        backfiller.begin(family: .whoop4, historicalCursorScope: scopeA)
+
+        let suspendedChunk = Task { @MainActor in
+            await backfiller.ingest(historyEndFrame(trim: 123))
+        }
+        while !(await gate.waiting) {
+            await Task.yield()
+        }
+
+        backfiller.begin(family: .whoop4, historicalCursorScope: scopeB)
+        await gate.open()
+        await suspendedChunk.value
+
+        let committedDeviceIds = await store.deviceIds()
+        XCTAssertEqual(committedDeviceIds, [])
+        XCTAssertEqual(ackedScopes, [])
+        XCTAssertFalse(backfiller.persistStalled)
+        XCTAssertNil(backfiller.lastAckedTrim)
     }
 }

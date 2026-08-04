@@ -265,7 +265,7 @@ final class BackfillerSessionTallyTests: XCTestCase {
         let backfiller = Backfiller(
             store: TallyStore(),
             deviceId: "test",
-            ackTrim: { _, _ in },
+            ackTrim: { _, _, _ in true },
             log: { lines.append($0) })
         backfiller.begin(
             family: .whoop4,
@@ -290,7 +290,7 @@ final class BackfillerSessionTallyTests: XCTestCase {
         let backfiller = Backfiller(
             store: TallyStore(),
             deviceId: "test",
-            ackTrim: { _, _ in },
+            ackTrim: { _, _, _ in true },
             log: { lines.append($0) })
         backfiller.begin(
             family: .whoop4,

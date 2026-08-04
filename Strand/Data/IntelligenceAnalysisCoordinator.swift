@@ -12,6 +12,9 @@ struct IntelligenceAnalysisRequest: Equatable, Sendable {
     let startOffset: Int
     let force: Bool
     let refreshRepository: Bool
+    /// Exact historical work pins both its reference instant and its Gregorian time zone. It cannot merge
+    /// with a similarly shaped live request because equal offsets can denote different civil days.
+    let committedAnalysisExecutionContext: CommittedAnalysisExecutionContext?
     /// Publication-sensitive source pipelines may require a durable postcondition before their caller is
     /// released. Keep that semantic in the request identity so such work can never coalesce into an otherwise
     /// identical best-effort batch and silently lose its verifier closure.
@@ -22,7 +25,8 @@ struct IntelligenceAnalysisRequest: Equatable, Sendable {
         startOffset: Int,
         force: Bool,
         refreshRepository: Bool,
-        requiresDurableRecoveryReceipt: Bool = false
+        requiresDurableRecoveryReceipt: Bool = false,
+        committedAnalysisExecutionContext: CommittedAnalysisExecutionContext? = nil
     ) {
         let boundedStart = min(max(0, startOffset), Self.maximumWindowDays - 1)
         let remaining = max(1, Self.maximumWindowDays - boundedStart)
@@ -31,6 +35,7 @@ struct IntelligenceAnalysisRequest: Equatable, Sendable {
         self.force = force
         self.refreshRepository = refreshRepository
         self.requiresDurableRecoveryReceipt = requiresDurableRecoveryReceipt
+        self.committedAnalysisExecutionContext = committedAnalysisExecutionContext
     }
 
     var endOffsetExclusive: Int { startOffset + maxDays }
@@ -42,6 +47,7 @@ struct IntelligenceAnalysisRequest: Equatable, Sendable {
     func canCoalesce(with other: Self) -> Bool {
         refreshRepository == other.refreshRepository
             && requiresDurableRecoveryReceipt == other.requiresDurableRecoveryReceipt
+            && committedAnalysisExecutionContext == other.committedAnalysisExecutionContext
             && startOffset <= other.endOffsetExclusive
             && other.startOffset <= endOffsetExclusive
     }
@@ -55,7 +61,8 @@ struct IntelligenceAnalysisRequest: Equatable, Sendable {
             startOffset: lower,
             force: force || other.force,
             refreshRepository: refreshRepository,
-            requiresDurableRecoveryReceipt: requiresDurableRecoveryReceipt)
+            requiresDurableRecoveryReceipt: requiresDurableRecoveryReceipt,
+            committedAnalysisExecutionContext: committedAnalysisExecutionContext)
     }
 }
 
@@ -276,14 +283,16 @@ extension IntelligenceEngine {
         startOffset: Int,
         force: Bool,
         refreshRepository: Bool,
-        durableRecoveryPostcondition: DurableRecoveryPostcondition? = nil
+        durableRecoveryPostcondition: DurableRecoveryPostcondition? = nil,
+        committedAnalysisExecutionContext: CommittedAnalysisExecutionContext? = nil
     ) async -> Bool {
         let request = IntelligenceAnalysisRequest(
             maxDays: maxDays,
             startOffset: startOffset,
             force: force,
             refreshRepository: refreshRepository,
-            requiresDurableRecoveryReceipt: durableRecoveryPostcondition != nil)
+            requiresDurableRecoveryReceipt: durableRecoveryPostcondition != nil,
+            committedAnalysisExecutionContext: committedAnalysisExecutionContext)
 
         return await IntelligenceAnalysisCoordinator.shared.submit(owner: self, request: request) { [weak self] queued in
             guard let self else { throw IntelligenceAnalysisCoordinatorError.ownerReleased }
@@ -298,11 +307,20 @@ extension IntelligenceEngine {
             }
             guard queued.force || !Task.isCancelled else { throw IntelligenceAnalysisCoordinatorError.deferred }
 
+            let analysisCalendar: Calendar
+            if let context = queued.committedAnalysisExecutionContext {
+                analysisCalendar = try context.gregorianCalendar()
+            } else {
+                analysisCalendar = .current
+            }
+
             guard await self.analyzeRecent(
                 maxDays: queued.maxDays,
                 startOffset: queued.startOffset,
                 force: queued.force,
-                refreshRepository: queued.refreshRepository)
+                refreshRepository: queued.refreshRepository,
+                analysisReference: queued.committedAnalysisExecutionContext?.reference,
+                analysisCalendar: analysisCalendar)
             else { throw IntelligenceAnalysisCoordinatorError.analysisDidNotComplete }
 
             if let durableRecoveryPostcondition,
@@ -413,6 +431,22 @@ extension IntelligenceEngine {
     func analyzeRecent(maxDays: Int, startOffset: Int, refreshRepository: Bool) async -> Bool {
         await submitSerializedAnalysis(maxDays: maxDays, startOffset: startOffset, force: true,
                                        refreshRepository: refreshRepository)
+    }
+
+    /// Score one receipt-derived run using the civil-day context that produced it. The work stays in the
+    /// shared coordinator, but it cannot coalesce with another context or publish the Repository itself.
+    @discardableResult
+    func analyzeCommittedHistoricalRun(
+        _ run: CommittedAnalysisRun,
+        context: CommittedAnalysisExecutionContext
+    ) async -> Bool {
+        await submitSerializedAnalysis(
+            maxDays: run.maxDays,
+            startOffset: run.startOffset,
+            force: true,
+            refreshRepository: false,
+            committedAnalysisExecutionContext: context
+        )
     }
 
     /// Stronger publication contract for a durable source handoff. The verifier runs against the exact results

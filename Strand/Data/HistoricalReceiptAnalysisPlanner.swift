@@ -21,7 +21,7 @@ enum HistoricalReceiptAnalysisPlannerError: Error, Equatable, Sendable {
 }
 
 /// The result of receipt admission. It carries no analysis result and performs no persistence.
-enum HistoricalReceiptAnalysisPlanOutcome: Equatable, Sendable {
+enum HistoricalReceiptAnalysisPlanOutcome: Codable, Equatable, Sendable {
     case analysis(window: CommittedAnalysisWindow)
     case noAnalysis
 }
@@ -31,7 +31,7 @@ enum HistoricalReceiptAnalysisPlanOutcome: Equatable, Sendable {
 /// `throughGeneration` always includes the last receipt in the admitted sequence. Therefore a zero-row
 /// final receipt can advance the durable edge after an earlier productive receipt without widening the
 /// analysis window.
-struct HistoricalReceiptAnalysisPlan: Equatable, Sendable {
+struct HistoricalReceiptAnalysisPlan: Codable, Equatable, Sendable {
     let databaseInstanceId: String
     let scope: HistoricalCursorScope
     let throughGeneration: Int64

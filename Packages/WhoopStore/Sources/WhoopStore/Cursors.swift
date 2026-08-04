@@ -78,7 +78,13 @@ extension WhoopStore {
                 (deviceId, lineage, cursorEpoch, trimScope, trim, watermarkGeneration)
             VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(deviceId, lineage, cursorEpoch, trimScope) DO UPDATE SET
-                trim = MAX(historicalCursor.trim, excluded.trim),
+                -- The trim and journal generation describe one durable receipt edge. Updating them
+                -- independently can manufacture a pair that never existed after an out-of-order replay.
+                trim = CASE
+                    WHEN excluded.watermarkGeneration >= historicalCursor.watermarkGeneration
+                        THEN excluded.trim
+                    ELSE historicalCursor.trim
+                END,
                 watermarkGeneration = MAX(historicalCursor.watermarkGeneration, excluded.watermarkGeneration)
             """, arguments: [
                 scope.deviceId, scope.lineage, scope.cursorEpoch, scope.trimScope,

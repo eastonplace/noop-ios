@@ -111,7 +111,8 @@ final class HistoricalBurstProgressTests: XCTestCase {
             chunkEndUnix: 1_700_000_000,
             committedAt: 1_700_000_001,
             rawBatchId: nil,
-            insertedRows: HistoricalStreamInsertCounts(hr: 3)
+            insertedRows: HistoricalStreamInsertCounts(hr: 3),
+            fingerprint: String(repeating: "0", count: 64)
         )
 
         live.finalizeHistoricalSyncBurst(at: 20, receipt: receipt)

@@ -126,7 +126,175 @@ final class MigrationTests: XCTestCase {
                 0
             )
         }
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 37)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 39)
+    }
+
+    func testV37MigratesLegacyRawBatchIntoItsReceiptScope() async throws {
+        let dbQueue = try DatabaseQueue()
+        let migrator = WhoopStore.makeMigrator()
+        try migrator.migrate(dbQueue, upTo: "v35-historical-data-commit-journal")
+        let countsJSON = try JSONEncoder().encode(HistoricalStreamInsertCounts(hr: 1))
+
+        try await dbQueue.write { db in
+            let databaseInstanceId = try XCTUnwrap(
+                String.fetchOne(db, sql: "SELECT id FROM todayHealthSnapshotDatabase LIMIT 1")
+            )
+            try db.execute(sql: """
+                INSERT INTO rawBatch
+                    (batchId, deviceId, capturedAt, deviceClockRef, wallClockRef,
+                     startTs, endTs, frameCount, byteSize, framesBlob, syncedAt)
+                VALUES ('legacy-batch', 'my-whoop', 1, 2, 3, 4, 5, 0, 0, ?, NULL)
+                """, arguments: [Data([0, 0, 0, 0])])
+            try db.execute(sql: """
+                INSERT INTO historicalDataCommitJournal
+                    (receiptId, databaseInstanceId, deviceId, trim, chunkEndUnix, committedAt,
+                     rawBatchId, insertedRowsJSON)
+                VALUES ('legacy-receipt', ?, 'my-whoop', 42, 100, 101, 'legacy-batch', ?)
+                """, arguments: [databaseInstanceId, countsJSON])
+        }
+
+        try migrator.migrate(dbQueue)
+
+        try await dbQueue.read { db in
+            let receiptLineage = try XCTUnwrap(String.fetchOne(
+                db,
+                sql: "SELECT lineage FROM historicalDataCommitJournal WHERE receiptId = 'legacy-receipt'"
+            ))
+            let receiptEpoch = try XCTUnwrap(Int.fetchOne(
+                db,
+                sql: "SELECT cursorEpoch FROM historicalDataCommitJournal WHERE receiptId = 'legacy-receipt'"
+            ))
+            XCTAssertEqual(
+                try String.fetchOne(db, sql: "SELECT lineage FROM rawBatch WHERE batchId = 'legacy-batch'"),
+                receiptLineage
+            )
+            XCTAssertEqual(
+                try Int.fetchOne(db, sql: "SELECT cursorEpoch FROM rawBatch WHERE batchId = 'legacy-batch'"),
+                receiptEpoch
+            )
+        }
+    }
+
+    func testV36MigratesCursorTrimWithItsWatermarkGeneration() async throws {
+        let dbQueue = try DatabaseQueue()
+        let migrator = WhoopStore.makeMigrator()
+        try migrator.migrate(dbQueue, upTo: "v35-historical-data-commit-journal")
+        let countsJSON = try JSONEncoder().encode(HistoricalStreamInsertCounts(hr: 1))
+
+        try await dbQueue.write { db in
+            let databaseInstanceId = try XCTUnwrap(
+                String.fetchOne(db, sql: "SELECT id FROM todayHealthSnapshotDatabase LIMIT 1")
+            )
+            for (receiptId, trim) in [("legacy-first", 90), ("legacy-second", 20)] {
+                try db.execute(sql: """
+                    INSERT INTO historicalDataCommitJournal
+                        (receiptId, databaseInstanceId, deviceId, trim, chunkEndUnix, committedAt,
+                         rawBatchId, insertedRowsJSON)
+                    VALUES (?, ?, 'my-whoop', ?, 100, 101, NULL, ?)
+                    """, arguments: [receiptId, databaseInstanceId, trim, countsJSON])
+            }
+        }
+
+        try migrator.migrate(dbQueue)
+
+        try await dbQueue.read { db in
+            XCTAssertEqual(
+                try Int.fetchOne(db, sql: "SELECT trim FROM historicalCursor WHERE deviceId = 'my-whoop'"),
+                20
+            )
+            XCTAssertEqual(
+                try Int64.fetchOne(
+                    db,
+                    sql: "SELECT watermarkGeneration FROM historicalCursor WHERE deviceId = 'my-whoop'"
+                ),
+                2
+            )
+        }
+    }
+
+    func testV39RepairsPreviouslyRecordedRawAndCursorScopes() async throws {
+        let dbQueue = try DatabaseQueue()
+        let migrator = WhoopStore.makeMigrator()
+        try migrator.migrate(dbQueue, upTo: "v35-historical-data-commit-journal")
+        let countsJSON = try JSONEncoder().encode(HistoricalStreamInsertCounts(hr: 1))
+
+        try await dbQueue.write { db in
+            let databaseInstanceId = try XCTUnwrap(
+                String.fetchOne(db, sql: "SELECT id FROM todayHealthSnapshotDatabase LIMIT 1")
+            )
+            try db.execute(sql: """
+                INSERT INTO rawBatch
+                    (batchId, deviceId, capturedAt, deviceClockRef, wallClockRef,
+                     startTs, endTs, frameCount, byteSize, framesBlob, syncedAt)
+                VALUES ('legacy-batch', 'my-whoop', 1, 2, 3, 4, 5, 0, 0, ?, NULL)
+                """, arguments: [Data([0, 0, 0, 0])])
+            for (receiptId, trim, rawBatchId) in [
+                ("legacy-first", 90, Optional("legacy-batch")),
+                ("legacy-second", 20, Optional<String>.none),
+            ] {
+                try db.execute(sql: """
+                    INSERT INTO historicalDataCommitJournal
+                        (receiptId, databaseInstanceId, deviceId, trim, chunkEndUnix, committedAt,
+                         rawBatchId, insertedRowsJSON)
+                    VALUES (?, ?, 'my-whoop', ?, 100, 101, ?, ?)
+                    """, arguments: [receiptId, databaseInstanceId, trim, rawBatchId, countsJSON])
+            }
+        }
+        try migrator.migrate(dbQueue, upTo: "v38-historical-analysis-checkpoint")
+
+        try await dbQueue.write { db in
+            // Model the old v36/v37 result: an independently maxed cursor and raw evidence left in the
+            // fallback device scope despite the registered receipt carrying its durable registry scope.
+            try db.execute(sql: """
+                UPDATE rawBatch
+                SET lineage = 'device:my-whoop', cursorEpoch = 0
+                WHERE batchId = 'legacy-batch' AND deviceId = 'my-whoop'
+                """)
+            try db.execute(sql: """
+                UPDATE historicalCursor
+                SET trim = 90, watermarkGeneration = 2
+                WHERE deviceId = 'my-whoop'
+                """)
+        }
+
+        try migrator.migrate(dbQueue)
+
+        try await dbQueue.read { db in
+            let receiptLineage = try XCTUnwrap(String.fetchOne(
+                db,
+                sql: "SELECT lineage FROM historicalDataCommitJournal WHERE receiptId = 'legacy-first'"
+            ))
+            let receiptEpoch = try XCTUnwrap(Int.fetchOne(
+                db,
+                sql: "SELECT cursorEpoch FROM historicalDataCommitJournal WHERE receiptId = 'legacy-first'"
+            ))
+            XCTAssertEqual(
+                try String.fetchOne(db, sql: "SELECT lineage FROM rawBatch WHERE batchId = 'legacy-batch'"),
+                receiptLineage
+            )
+            XCTAssertEqual(
+                try Int.fetchOne(db, sql: "SELECT cursorEpoch FROM rawBatch WHERE batchId = 'legacy-batch'"),
+                receiptEpoch
+            )
+            XCTAssertEqual(
+                try Int.fetchOne(db, sql: "SELECT trim FROM historicalCursor WHERE deviceId = 'my-whoop'"),
+                20
+            )
+            XCTAssertEqual(
+                try Int64.fetchOne(
+                    db,
+                    sql: "SELECT watermarkGeneration FROM historicalCursor WHERE deviceId = 'my-whoop'"
+                ),
+                2
+            )
+            XCTAssertEqual(
+                try Int.fetchOne(
+                    db,
+                    sql: "SELECT COUNT(*) FROM grdb_migrations WHERE identifier = 'v39-historical-receipt-scope-repair'"
+                ),
+                1
+            )
+        }
     }
 
     func testHrSamplePrimaryKeyIsDeviceIdTs() async throws {
@@ -168,7 +336,7 @@ final class MigrationTests: XCTestCase {
             let cols = try await store.columnNamesForTest(table: table)
             XCTAssertTrue(cols.contains("synced"), "\(table) missing synced column")
         }
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 37)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 39)
     }
 
     func testV34AddsDurableTodayHealthSnapshotGeneration() async throws {
@@ -191,6 +359,54 @@ final class MigrationTests: XCTestCase {
             "committedAt", "rawBatchId", "insertedRowsJSON",
         ] {
             XCTAssertTrue(columns.contains(column), "historicalDataCommitJournal missing \(column)")
+        }
+    }
+
+    func testV35RecoversJournalCreatedBeforeItsMigrationRecord() async throws {
+        let dbQueue = try DatabaseQueue()
+        let migrator = WhoopStore.makeMigrator()
+        try migrator.migrate(dbQueue, upTo: "v34-today-health-snapshot-generation")
+
+        try await dbQueue.write { db in
+            // Model the exact pre-release state: the v35 table exists, while GRDB has never recorded v35.
+            try db.execute(sql: """
+                CREATE TABLE historicalDataCommitJournal (
+                    generation INTEGER PRIMARY KEY AUTOINCREMENT,
+                    receiptId TEXT NOT NULL UNIQUE,
+                    databaseInstanceId TEXT NOT NULL,
+                    deviceId TEXT NOT NULL,
+                    trim INTEGER NOT NULL,
+                    chunkEndUnix INTEGER NOT NULL,
+                    committedAt INTEGER NOT NULL,
+                    rawBatchId TEXT,
+                    insertedRowsJSON BLOB NOT NULL,
+                    UNIQUE (databaseInstanceId, deviceId, trim)
+                )
+                """)
+        }
+
+        try migrator.migrate(dbQueue)
+
+        try await dbQueue.read { db in
+            let columns = Set(try db.columns(in: "historicalDataCommitJournal").map(\.name))
+            XCTAssertTrue(columns.isSuperset(of: ["lineage", "cursorEpoch", "trimScope", "fingerprint"]))
+            for identifier in [
+                "v35-historical-data-commit-journal",
+                "v36-historical-data-receipt-hardening",
+                "v37-scoped-raw-batch-identity",
+                "v38-historical-analysis-checkpoint",
+                "v39-historical-receipt-scope-repair",
+            ] {
+                XCTAssertEqual(
+                    try Int.fetchOne(
+                        db,
+                        sql: "SELECT COUNT(*) FROM grdb_migrations WHERE identifier = ?",
+                        arguments: [identifier]
+                    ),
+                    1,
+                    "missing migration record for \(identifier)"
+                )
+            }
         }
     }
 

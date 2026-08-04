@@ -69,10 +69,11 @@ final class Backfiller {
     /// Durable cursor scope captured at session admission. The caller resolves it from the registry before
     /// SEND_HISTORICAL. The store validates this unchanged scope, so a stale lineage or epoch fails closed.
     private(set) var historicalCursorScope: HistoricalCursorScope?
-    /// Confirms one HISTORY_END chunk to the strap. Carries both the trim cursor (= first u32
-    /// of end_data, used for the `strap_trim` cursor) and the 8-byte `end_data` (= the raw
-    /// HISTORY_END metadata.data[10:18]) that the high-freq-sync ack form requires verbatim.
-    private let ackTrim: (_ trim: UInt32, _ endData: [UInt8]) -> Void
+    /// Confirms one HISTORY_END chunk to the strap. Carries the admitted durable scope, the trim cursor
+    /// (= first u32 of end_data, used for the `strap_trim` cursor), and the 8-byte `end_data` (= the raw
+    /// HISTORY_END metadata.data[10:18]) that the high-freq-sync ack form requires verbatim. The caller
+    /// returns only after CoreBluetooth confirms this exact write on the admitted connection.
+    private let ackTrim: (_ scope: HistoricalCursorScope, _ trim: UInt32, _ endData: [UInt8]) async -> Bool
     private let extract: Extractor
     /// Research toggle. When false (DEFAULT) no raw frames are persisted — the chunk's
     /// decoded streams are still durable and the trim is still acked (decoded is the product of
@@ -92,6 +93,10 @@ final class Backfiller {
 
     /// True while a historical offload session is active.
     private(set) var isBackfilling = false
+    /// Monotonic admission token for this Backfiller instance. A decoded chunk may suspend while another
+    /// session is admitted; that older task may commit its own scoped receipt, but it must never mutate or
+    /// ACK through the newer session.
+    private var sessionGeneration = 0
 
     /// Buffered data frames for the current open chunk (between START and END).
     private var chunk: [[UInt8]] = []
@@ -211,7 +216,7 @@ final class Backfiller {
 
     init(store: BackfillStoreWriting,
          deviceId: String,
-         ackTrim: @escaping (_ trim: UInt32, _ endData: [UInt8]) -> Void,
+         ackTrim: @escaping (_ scope: HistoricalCursorScope, _ trim: UInt32, _ endData: [UInt8]) async -> Bool,
          enableRawCapture: Bool = false,
          log: ((String) -> Void)? = nil,
          rejectedSink: ((_ frames: [[UInt8]], _ trim: UInt32, _ family: DeviceFamily) -> Bool)? = nil,
@@ -265,6 +270,7 @@ final class Backfiller {
         sourceIdentity: HistoricalReceiptWatermark.SourceIdentity? = nil,
         historicalCursorScope: HistoricalCursorScope
     ) {
+        sessionGeneration &+= 1
         self.family = family
         self.historicalCursorScope = historicalCursorScope
         if let sourceIdentity {
@@ -467,6 +473,7 @@ final class Backfiller {
             persistStalled = true
             return
         }
+        let admittedSessionGeneration = sessionGeneration
         let protocolMetadata = sessionProtocolMetadata
 
         // #773: corrupt future-RTC detection. A HISTORY_END carries the strap's own clock; a genuine offload
@@ -520,6 +527,10 @@ final class Backfiller {
                 let rejected = rejectedHistoricalRecords(frames, family: fam)
                 return DecodedChunk(parsed: parsed, decoded: decoded, rejected: rejected)
             }.value
+            guard sessionGeneration == admittedSessionGeneration else {
+                log?("Backfill: dropped decoded trim=\(trim) from a superseded session before commit.")
+                return
+            }
             let parsed = d.parsed
             let range = Backfiller.receivedTimestampRange(from: parsed)
             receivedMinTs = range.min
@@ -728,6 +739,10 @@ final class Backfiller {
         if let beforeHistoricalCommit {
             await beforeHistoricalCommit()
         }
+        guard sessionGeneration == admittedSessionGeneration else {
+            log?("Backfill: dropped trim=\(trim) because its session was superseded before commit.")
+            return
+        }
 
         // Rows, optional raw capture, the trim cursor, and this receipt commit as one SQLite unit. The
         // receipt is the only object later Phase 2 stages may use to trigger analysis or UI publication.
@@ -751,8 +766,15 @@ final class Backfiller {
                 isFinal: trim == UInt32.max
             )
         } catch {
+            guard sessionGeneration == admittedSessionGeneration else { return }
             log?("Backfill: failed to atomically commit historical chunk (trim=\(trim)): \(error) — holding ack so the strap re-sends this chunk; history won't advance until the local commit succeeds.")
             persistStalled = true   // #57: an empty END must not advance past this failed chunk
+            return
+        }
+        guard sessionGeneration == admittedSessionGeneration else {
+            // The receipt is durable under its original scope, but a newer session now owns the strap.
+            // Never publish its state or ACK it through the new session.
+            log?("Backfill: committed trim=\(trim) from a superseded session — leaving it unacked for safe replay.")
             return
         }
         onHistoricalCommit?(receipt)
@@ -798,13 +820,26 @@ final class Backfiller {
             emitConnection(ConnectionTrace.noCursorLine())
         }
 
-        ackTrim(trim, endData)
+        let ackConfirmed = await ackTrim(admittedScope, trim, endData)
+        guard sessionGeneration == admittedSessionGeneration else {
+            log?("Backfill: ignored ACK result for trim=\(trim) after its session was superseded.")
+            return
+        }
+        guard ackConfirmed else {
+            // A receipt is durable, but the strap did not confirm the exact ACK on the admitted BLE
+            // session. Hold every later ACK: a fresh session can replay the idempotent receipt safely,
+            // while the strap retains this chunk rather than trimming beyond the unconfirmed frontier.
+            log?("Backfill: historical ACK was not confirmed for admitted scope \(admittedScope.key), trim=\(trim) — holding later ACKs so the strap re-sends this frontier.")
+            persistStalled = true
+            return
+        }
         lastAckedTrim = trim   // #364: record the advanced cursor for the auto-continue spin-detector
     }
 
     /// Called when a backfill watchdog timer fires (strap went silent mid-offload).
     /// Clears state without acking — the chunk was never durably committed.
     func timeoutFired() {
+        sessionGeneration &+= 1
         isBackfilling = false
         chunk.removeAll(keepingCapacity: true)
         chunkOpen = false

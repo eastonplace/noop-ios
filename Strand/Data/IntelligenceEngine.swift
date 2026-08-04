@@ -462,7 +462,8 @@ final class IntelligenceEngine: ObservableObject {
     /// live night can be scored against your norm.
     @discardableResult
     func analyzeRecent(maxDays: Int = 21, startOffset: Int = 0, force: Bool = true,
-                       refreshRepository: Bool = true) async -> Bool {
+                       refreshRepository: Bool = true, analysisReference: Date? = nil,
+                       analysisCalendar: Calendar = .current) async -> Bool {
         let performanceTrace = PerformanceTrace.begin("analyze_recent")
         var performanceChangedRows = -1
         defer { PerformanceTrace.end(performanceTrace, changedRows: performanceChangedRows) }
@@ -505,13 +506,13 @@ final class IntelligenceEngine: ObservableObject {
                              stepTicksPerStep: profile.stepTicksPerStep)
 
         let maxHR = profile.hrMaxOverride > 0 ? Double(profile.hrMaxOverride) : nil
-        let referenceNow = Date()
+        let referenceNow = analysisReference ?? Date()
         let now = Int(referenceNow.timeIntervalSince1970)
         // Device wall-clock offset (seconds east of UTC) for the sleep detector's daytime
         // false-sleep guard (#90): the stager places each window's center on the LOCAL clock
         // so only genuinely-daytime windows face the stricter nap bar. (Computed once; a DST
         // boundary inside the window is a negligible edge case for an hour-of-day band.)
-        let tzOffset = TimeZone.current.secondsFromGMT()
+        let tzOffset = analysisCalendar.timeZone.secondsFromGMT(for: referenceNow)
 
         // ── Pass 1: analyse each offloaded night against the IMPORTED-ONLY baseline. For a BLE-only
         // user the imported daily rows are empty, so the HRV baseline isn't usable yet and recovery is
@@ -581,7 +582,7 @@ final class IntelligenceEngine: ObservableObject {
             reference: referenceNow,
             startOffset: startOffset,
             count: maxDays,
-            calendar: .current)
+            calendar: analysisCalendar)
         guard civilDays.count == maxDays,
               let newestCivilDay = civilDays.first,
               let oldestCivilDay = civilDays.last else {
@@ -1105,7 +1106,8 @@ final class IntelligenceEngine: ObservableObject {
                                                  tzOffsetSeconds: tzOffset)
                 let edits = Dictionary(rows.map { ($0.startTs, $0) }, uniquingKeysWith: { a, _ in a })
                 let final = sleepEditedDaily(night.daily, detected: night.cachedSleep, editsByStart: edits,
-                                             habitualMidsleepSec: habitualMidsleepSec)
+                                             habitualMidsleepSec: habitualMidsleepSec,
+                                             tzOffsetSeconds: tzOffset)
                 finalDailyByDay[final.day] = final
                 let effective = Self.effectiveSleepSessions(detected: night.cachedSleep, edits: rows)
                 if let summary = SleepNightSummary.select(
@@ -1132,7 +1134,8 @@ final class IntelligenceEngine: ObservableObject {
             let editsByStart = Dictionary(dayEditedRows.map { ($0.startTs, $0) }, uniquingKeysWith: { a, _ in a })
             let daily = finalDailyByDay[night.daily.day] ?? sleepEditedDaily(
                 night.daily, detected: night.cachedSleep, editsByStart: editsByStart,
-                habitualMidsleepSec: habitualMidsleepSec)
+                habitualMidsleepSec: habitualMidsleepSec,
+                tzOffsetSeconds: tzOffset)
             let legacySleepQuality = AnalyticsEngine.Rest.composite(daily: daily).map { $0 / 100.0 }
                 ?? daily.efficiency
             let v2 = scoredSleepV2[daily.day]
@@ -1490,7 +1493,7 @@ final class IntelligenceEngine: ObservableObject {
         // [localMidnight, +24h) gravity volume, the same calendar-day window the daily totals use.
         let stepsCalDays = 60
         let stepCivilDays = Self.civilDayWindows(
-            reference: referenceNow, startOffset: 0, count: stepsCalDays, calendar: .current)
+            reference: referenceNow, startOffset: 0, count: stepsCalDays, calendar: analysisCalendar)
         let calOldest = stepCivilDays.last?.day ?? oldestDay
         // ── FIX 2 (main-actor jank): hoist the 60-day steps-calibration STORE READS off the main actor ──
         // Same residual stall FIX 1 fixed, smaller scale: this class is `@MainActor`, so each `await store.…`
@@ -1986,7 +1989,8 @@ final class IntelligenceEngine: ObservableObject {
 
     private func sleepEditedDaily(_ daily: DailyMetric, detected: [CachedSleepSession],
                                  editsByStart: [Int: CachedSleepSession],
-                                 habitualMidsleepSec: Int?) -> DailyMetric {
+                                 habitualMidsleepSec: Int?,
+                                 tzOffsetSeconds: Int) -> DailyMetric {
         guard !editsByStart.isEmpty else { return daily }
         let detectedTuples = detected.map { (startTs: $0.startTs, stagesJSON: $0.stagesJSON) }
         let editedStages = editsByStart.mapValues { $0.stagesJSON }
@@ -2017,7 +2021,7 @@ final class IntelligenceEngine: ObservableObject {
                                                                    edited: editedStages,
                                                                    manual: manualTuples,
                                                                    onsetByStart: onsetByStart,
-                                                                   offsetSec: TimeZone.current.secondsFromGMT(),
+                                                                   offsetSec: tzOffsetSeconds,
                                                                    habitualMidsleepSec: habitualMidsleepSec),
               r.editApplied else { return daily }
         let agg = r.sleep
