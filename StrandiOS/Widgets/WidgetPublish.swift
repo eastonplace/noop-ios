@@ -1,5 +1,6 @@
 #if os(iOS)
 import Foundation
+import NoopPhase34Core
 import StrandDesign
 import StrandAnalytics
 import WidgetKit
@@ -74,6 +75,18 @@ extension WidgetSnapshot {
     /// the rollover yet always describes today.
     @MainActor
     static func publish(from model: AppModel) async {
+        guard let verifiedProjection = model.repo.verifiedHealthProjection else { return }
+        await publish(from: model, verifiedProjection: verifiedProjection)
+    }
+
+    /// Publish the exact projection generation leased by the durable external-publication worker.
+    /// Auxiliary live fields may come from current app state, but headline health values remain pinned
+    /// to the stored generation named by the outbox item.
+    @MainActor
+    static func publish(
+        from model: AppModel,
+        verifiedProjection: VerifiedHealthProjection
+    ) async {
         let generation = WidgetLivePublishGate.beginFullPublish()
         let days = model.repo.days
         let now = Date()
@@ -84,11 +97,11 @@ extension WidgetSnapshot {
         // pre-04:00 carve-out and the #547 future-day guard it folds in). The `$0.day < carriedKey` bound
         // inside the helper (matching `TodayView.selectedDayKey`) means a stale scored row can never
         // re-surface AS today.
-        let day = Repository.widgetAnchor(days: days, now: now)
-        let verified = model.repo.verifiedHealthProjection
-        let recovery = verified?.visibleMetric(.recovery)?.value
-        let storedStrain = verified?.visibleMetric(.strain)?.value
-        let restScore = verified?.visibleMetric(.sleepScore)?.value
+        let day = days.first(where: { $0.day == verifiedProjection.logicalDay.key })
+            ?? Repository.widgetAnchor(days: days, now: now)
+        let recovery = verifiedProjection.visibleMetric(.recovery)?.value
+        let storedStrain = verifiedProjection.visibleMetric(.strain)?.value
+        let restScore = verifiedProjection.visibleMetric(.sleepScore)?.value
         guard WidgetLivePublishGate.isCurrentFullPublish(generation) else { return }
         let previousRecovery = day.flatMap { anchor in
             days.last(where: { $0.day < anchor.day && $0.recovery != nil })?.recovery
@@ -146,7 +159,16 @@ extension WidgetSnapshot {
     /// sparkline churn to a one-minute cadence.
     @MainActor
     static func publishLive(from model: AppModel) {
-        let verified = model.repo.verifiedHealthProjection
+        publishLive(from: model, verifiedProjection: model.repo.verifiedHealthProjection)
+    }
+
+    /// Fast publication lane with an explicitly pinned verified projection.
+    @MainActor
+    static func publishLive(
+        from model: AppModel,
+        verifiedProjection: VerifiedHealthProjection?
+    ) {
+        let verified = verifiedProjection
         let recovery = verified?.visibleMetric(.recovery)?.value
         let storedStrain = verified?.visibleMetric(.strain)?.value
         let now = Date()

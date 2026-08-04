@@ -1,6 +1,7 @@
 #if os(iOS)
 import Foundation
 import HealthKit
+import NoopPhase34Core
 import WhoopStore
 import StrandAnalytics
 import StrandImport
@@ -421,6 +422,61 @@ final class HealthKitBridge: ObservableObject {
         HealthKitWritebackFingerprint.reset()
     }
 
+    /// Deliver only the durable canonical days named by an external-publication outbox item. This
+    /// destination never requests authorization and never widens a historical mutation into a rolling
+    /// refresh window. The existing bounded write-back remains the user-invoked repair path; this method
+    /// is the exact historical delivery path.
+    func publishExactHealthKit(changedDays: Set<CivilDay>) async throws {
+        guard auth == .authorized, !changedDays.isEmpty,
+              let store = await repo.storeHandle() else { return }
+
+        let dayKeys = Set(changedDays.map(\.key))
+        let sortedKeys = dayKeys.sorted()
+        guard let first = sortedKeys.first,
+              let last = sortedKeys.last,
+              let firstDate = Self.date(from: first),
+              let lastDate = Self.date(from: last) else { return }
+        let calendar = Calendar.current
+        let start = calendar.startOfDay(for: firstDate)
+        let endOfLastDay = calendar.date(
+            byAdding: .day,
+            value: 1,
+            to: calendar.startOfDay(for: lastDate)
+        ) ?? lastDate
+        let now = Date()
+        let fromTs = Int(start.timeIntervalSince1970) - 24 * 3_600
+        let toTs = min(Int(endOfLastDay.timeIntervalSince1970), Int(now.timeIntervalSince1970)) + 24 * 3_600
+        let sessions = try await HealthKitWritebackPlanner.sleepSessions(
+            store: store,
+            importedIds: repo.importedReadIds,
+            computedIds: repo.computedReadIds,
+            from: fromTs,
+            to: toTs
+        ).filter { session in
+            dayKeys.contains(Self.dayString(Date(timeIntervalSince1970: TimeInterval(session.endTs))))
+        }
+
+        var firstError: Error?
+        do {
+            try await writeVitals(
+                whoopStore: store,
+                days: 0,
+                sessions: sessions,
+                importedIds: repo.importedReadIds,
+                computedIds: repo.computedReadIds,
+                dayKeys: dayKeys
+            )
+        } catch {
+            firstError = error
+        }
+        do {
+            try await writeSleep(sessions: sessions)
+        } catch {
+            if firstError == nil { firstError = error }
+        }
+        if let firstError { throw firstError }
+    }
+
     /// Drive an incremental sync off an observer wake. We use an `HKAnchoredObjectQuery` per type to
     /// learn the span of days touched since we last looked (persisting the anchor so the same samples
     /// aren't walked twice and nothing between wakes is missed), then re-aggregate just that day window
@@ -778,11 +834,19 @@ final class HealthKitBridge: ObservableObject {
     /// that day has a sleep session — a real timestamp inside the night the value describes, instead
     /// of a fabricated noon. Keys are unchanged, so re-stamped samples replace their noon ancestors.
     private func writeVitals(whoopStore: WhoopStore, days: Int, sessions: [CachedSleepSession],
-                             importedIds: [String], computedIds: [String]) async throws {
+                             importedIds: [String], computedIds: [String],
+                             dayKeys: Set<String>? = nil) async throws {
         let cal = Calendar.current
-        let to = HealthKitBridge.dayString(Date())
-        guard let fromDate = cal.date(byAdding: .day, value: -days, to: Date()) else { return }
-        let from = HealthKitBridge.dayString(fromDate)
+        let from: String
+        let to: String
+        if let dayKeys, let first = dayKeys.min(), let last = dayKeys.max() {
+            from = first
+            to = last
+        } else {
+            to = HealthKitBridge.dayString(Date())
+            guard let fromDate = cal.date(byAdding: .day, value: -days, to: Date()) else { return }
+            from = HealthKitBridge.dayString(fromDate)
+        }
 
         // day (of wake) → wake instant. Ascending session order means the latest wake of a day wins,
         // matching collectSleep's end-date day attribution.
@@ -793,7 +857,10 @@ final class HealthKitBridge: ObservableObject {
         }
         let rows = try await HealthKitWritebackPlanner.dailyMetrics(
             store: whoopStore, importedIds: importedIds, computedIds: computedIds,
-            from: from, to: to)
+            from: from, to: to
+        ).filter { row in
+            dayKeys?.contains(row.day) ?? true
+        }
 
         struct Candidate {
             let type: HKQuantityType

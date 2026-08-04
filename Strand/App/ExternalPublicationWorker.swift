@@ -6,23 +6,23 @@ import NoopPhase34Core
 import WhoopStore
 
 struct ExternalPublicationWorkerDependencies: Sendable {
-    let leaseNext: @Sendable (_ owner: String, _ now: Date, _ leaseDuration: TimeInterval) async throws -> ExternalPublicationOutboxItem?
-    let applyEvent: @Sendable (_ key: String, _ event: ExternalPublicationEvent, _ now: Date) async throws -> ExternalPublicationOutboxItem
-    let loadProjection: @Sendable (_ contextId: String, _ generation: Int64) async throws -> VerifiedHealthProjection?
+    let leaseNext: @Sendable @MainActor (_ owner: String, _ now: Date, _ leaseDuration: TimeInterval) async throws -> ExternalPublicationOutboxItem?
+    let applyEvent: @Sendable @MainActor (_ key: String, _ event: ExternalPublicationEvent, _ now: Date) async throws -> ExternalPublicationOutboxItem
+    let loadProjection: @Sendable @MainActor (_ contextId: String, _ generation: Int64) async throws -> VerifiedHealthProjection?
     /// Latest-state sinks must atomically ignore a projection older than the generation already stored.
-    let publishWidget: @Sendable (VerifiedHealthProjection) async throws -> Void
-    let publishLiveActivity: @Sendable (VerifiedHealthProjection) async throws -> Void
+    let publishWidget: @Sendable @MainActor (VerifiedHealthProjection) async throws -> Void
+    let publishLiveActivity: @Sendable @MainActor (VerifiedHealthProjection) async throws -> Void
     /// HealthKit is historical mutation delivery. Query and write the exact durable score rows for
     /// `changedDays` at `analysisGeneration`; the current projection is only shared context and provenance.
-    let publishHealthKitWriteOnly: @Sendable (
+    let publishHealthKitWriteOnly: @Sendable @MainActor (
         _ projection: VerifiedHealthProjection,
         _ analysisGeneration: Int64,
         _ changedDays: Set<CivilDay>
     ) async throws -> Void
     /// The watch sink must ignore generations older than its last accepted generation.
-    let publishWatch: @Sendable (VerifiedHealthProjection) async throws -> Void
+    let publishWatch: @Sendable @MainActor (VerifiedHealthProjection) async throws -> Void
     let classifyError: @Sendable (any Error) -> PipelineFailureClassification
-    let pruneCompleted: @Sendable () async throws -> Void
+    let pruneCompleted: @Sendable @MainActor () async throws -> Void
     /// Privacy-safe diagnostic sink. It receives stable operation codes and error text only.
     let report: @Sendable (String) -> Void
     let now: @Sendable () -> Date
@@ -185,5 +185,6 @@ actor ExternalPublicationWorker {
 enum ExternalPublicationWorkerError: Error {
     case projectionMissing
     case projectionMismatch
+    case destinationUnavailable
 }
 #endif

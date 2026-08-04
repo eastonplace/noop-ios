@@ -1,8 +1,10 @@
 #if os(iOS)
 import SwiftUI
 import Combine
+import NoopPhase34Core
 import StrandDesign
 import StrandAnalytics
+import WhoopStore
 import UserNotifications
 
 /// A manual workout republishes the same reference after every accepted HR sample. External surfaces need
@@ -23,6 +25,7 @@ struct StrandiOSApp: App {
     @State private var liveActivity = LiveActivityController()
     @State private var workoutProjection = WorkoutLiveProjectionCache()
     @State private var externalSurface: ExternalSurfaceProjection?
+    @State private var externalPublicationWorker: ExternalPublicationWorker
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage(AppearanceMode.storageKey) private var appearanceRaw = AppearanceMode.system.rawValue
     @AppStorage(ChartStyle.storageKey) private var chartStyleRaw = ChartStyle.titanium.rawValue
@@ -48,11 +51,78 @@ struct StrandiOSApp: App {
         _model = StateObject(wrappedValue: model)
         _alarmMode = StateObject(wrappedValue: alarmMode)
         _alarmRuntime = StateObject(wrappedValue: alarmRuntime)
-        _health = StateObject(wrappedValue: HealthKitBridge(
+        let healthBridge = HealthKitBridge(
             repo: model.repo,
             appleDeviceId: model.appleDeviceId,
             noopDeviceId: model.deviceId
-        ))
+        )
+        let liveActivityController = LiveActivityController()
+        let worker = ExternalPublicationWorker(
+            dependencies: ExternalPublicationWorkerDependencies(
+                leaseNext: { owner, now, leaseDuration in
+                    guard let store = await model.repo.storeHandle() else {
+                        throw HistoricalPipelineRuntimeError.storeUnavailable
+                    }
+                    return try await store.leaseNextExternalPublication(
+                        owner: owner, now: now, leaseDuration: leaseDuration)
+                },
+                applyEvent: { key, event, now in
+                    guard let store = await model.repo.storeHandle() else {
+                        throw HistoricalPipelineRuntimeError.storeUnavailable
+                    }
+                    return try await store.applyExternalPublicationEvent(
+                        idempotencyKey: key, event: event, now: now)
+                },
+                loadProjection: { contextId, generation in
+                    guard let store = await model.repo.storeHandle() else {
+                        throw HistoricalPipelineRuntimeError.storeUnavailable
+                    }
+                    return try await store.verifiedHealthProjection(
+                        contextId: contextId, generation: generation)
+                },
+                publishWidget: { projection in
+                    await WidgetSnapshot.publish(
+                        from: model,
+                        verifiedProjection: projection)
+                },
+                publishLiveActivity: { projection in
+                    let surface = ExternalSurfaceProjection(projection)
+                    liveActivityController.update(
+                        bpm: model.bpm ?? model.live.heartRate,
+                        recovery: surface.recovery,
+                        connected: model.live.connected,
+                        effort: surface.effort,
+                        workoutIsActive: model.activeWorkout != nil)
+                },
+                publishHealthKitWriteOnly: { _, _, changedDays in
+                    try await healthBridge.publishExactHealthKit(changedDays: changedDays)
+                },
+                publishWatch: { _ in
+                    // project.yml has no watchOS target. Never acknowledge a watch row as delivered.
+                    throw ExternalPublicationWorkerError.destinationUnavailable
+                },
+                classifyError: { error in
+                    let retryable = !(error is ExternalPublicationWorkerError
+                        && String(describing: error).contains("destinationUnavailable"))
+                    return PipelineFailureClassification(
+                        code: String(describing: error),
+                        retryable: retryable)
+                },
+                pruneCompleted: {
+                    guard let store = await model.repo.storeHandle() else {
+                        throw HistoricalPipelineRuntimeError.storeUnavailable
+                    }
+                    _ = try await store.pruneCompletedVerifiedProjections()
+                },
+                report: { message in
+                    NSLog("NOOP external publication: %@", message)
+                },
+                now: Date.init
+            )
+        )
+        _liveActivity = State(initialValue: liveActivityController)
+        _health = StateObject(wrappedValue: healthBridge)
+        _externalPublicationWorker = State(initialValue: worker)
     }
 
     private var workoutActivityState: WorkoutLiveActivityState? {
@@ -106,6 +176,7 @@ struct StrandiOSApp: App {
                 refreshExternalSurface()
                 driveLiveActivity()
                 await WidgetSnapshot.publish(from: model)
+                await externalPublicationWorker.signal()
                 return true
             })
     }
@@ -202,6 +273,7 @@ struct StrandiOSApp: App {
                     refreshExternalSurface()
                     alarmRuntime.start()
                     await drainCommittedHealthScoring()
+                    await externalPublicationWorker.signal()
                     #if DEBUG
                     if CommandLine.arguments.contains("--component41-live-qa") {
                         await liveActivity.startComponent41QA()
@@ -224,10 +296,14 @@ struct StrandiOSApp: App {
                     // subscription is active. Foreground is the second deterministic drain, not a blind widget
                     // publish: wait for the durable scoring journal to settle first, then publish the snapshot.
                     await drainCommittedHealthScoring()
+                    await externalPublicationWorker.signal()
                     await WidgetSnapshot.publish(from: model)
                 }
             } else if phase == .background {
-                Task { await WidgetSnapshot.publish(from: model) }
+                Task {
+                    await externalPublicationWorker.signal()
+                    await WidgetSnapshot.publish(from: model)
+                }
                 Task { await ShortcutHealthExport.writeIfEnabled(repo: model.repo) }
             }
         }

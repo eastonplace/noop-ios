@@ -611,7 +611,10 @@ final class AppModel: ObservableObject {
                 }
                 return try await store.enqueueExternalPublications(
                     snapshot: snapshot,
-                    destinations: Set(DownstreamDestination.allCases),
+                    // This repository has iOS widget, Live Activity, and HealthKit sinks. The generic
+                    // core also models Watch for a future watchOS target, but enqueueing an unavailable
+                    // destination would create durable rows that no runtime can ever acknowledge.
+                    destinations: [.widget, .liveActivity, .healthKit],
                     now: Date())
             },
             classifyError: { error in
