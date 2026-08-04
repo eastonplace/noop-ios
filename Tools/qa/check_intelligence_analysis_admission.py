@@ -3,9 +3,9 @@
 
 The implementation keeps one four-argument ``analyzeRecent`` body in ``IntelligenceEngine.swift``.
 Every production call using one or more defaults must resolve through the admitted overloads in
-``IntelligenceAnalysisCoordinator.swift``. Exactly one full-signature invocation is allowed there: the
-coordinator's private executor calling the original implementation. Any other full call can reintroduce the
-post-backfill missing-Recovery race.
+``IntelligenceAnalysisCoordinator.swift``. One full-signature invocation belongs to serialized live work.
+One exact-work invocation belongs to ``ExactDayAnalysisIntegration.swift`` and its durable historical
+pipeline. Any other full call can reintroduce the post-backfill missing-Recovery race.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from typing import Iterator
 CALL_NAME = "analyzeRecent"
 REQUIRED_LABELS = ("maxDays", "startOffset", "force", "refreshRepository")
 ADMISSION = Path("Strand/Data/IntelligenceAnalysisCoordinator.swift")
+EXACT_ADMISSION = Path("Strand/Data/ExactDayAnalysisIntegration.swift")
 FORBIDDEN_DUPLICATES = (
     Path("Strand/Data/IntelligenceAnalysisAdmission.swift"),
     Path("Strand/Data/IntelligenceEngine+AnalysisAdmission.swift"),
@@ -192,17 +193,17 @@ def main() -> int:
     for path in swift_files(repository_root):
         calls = list(direct_full_calls(path))
         relative = path.relative_to(repository_root)
-        if relative == ADMISSION:
+        if relative in (ADMISSION, EXACT_ADMISSION):
             allowed_calls.extend(calls)
         else:
             violations.extend((relative, line, reason) for line, reason in calls)
 
-    if len(allowed_calls) != 1:
+    if len(allowed_calls) != 2:
         violations.append(
             (
                 ADMISSION,
                 allowed_calls[0][0] if allowed_calls else 0,
-                f"expected exactly one original-engine invocation, found {len(allowed_calls)}",
+                f"expected exactly one serialized and one exact-work engine invocation, found {len(allowed_calls)}",
             )
         )
 
@@ -212,13 +213,13 @@ def main() -> int:
             where = f"{path}:{line}" if line > 0 else str(path)
             print(f"  {where}: {reason}", file=sys.stderr)
         print(
-            f"Use an admitted overload, or route the sole implementation call through {ADMISSION}.",
+            f"Use an admitted overload, or route the call through {ADMISSION} or {EXACT_ADMISSION}.",
             file=sys.stderr,
         )
         return 1
 
     print(
-        f"Intelligence analysis admission audit passed; raw call at {ADMISSION}:{allowed_calls[0][0]}."
+        "Intelligence analysis admission audit passed; serialized and exact-work engine calls are admitted."
     )
     return 0
 

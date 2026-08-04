@@ -68,10 +68,14 @@ try:
         "WorkoutLifecycleProjection",
         ".map(WorkoutLifecycleProjection.identity)",
         ".removeDuplicates()",
-        "ExternalSurfaceDayProjection",
-        "externalSurfaceDay.effort",
-        "Int(exactly: value.rounded())",
+        "ExternalSurfaceProjection",
+        "externalSurface?.effort",
+    )
+    require(
+        "StrandiOS/App/VerifiedExternalSurfaceIntegration.swift",
+        "static func recoveryValue",
         "static func effortValue",
+        "value.isFinite",
     )
     forbid(
         "StrandiOS/App/StrandiOSApp.swift",
@@ -90,7 +94,7 @@ try:
         "testBoundaryMinuteDropsExpiredExtremaInsteadOfRenderingOutsideWindow",
     )
     require(
-        "StrandiOSTests/ExternalSurfaceDayProjectionTests.swift",
+        "StrandiOSTests/ExternalSurfaceProjectionTests.swift",
         "testRecoveryConversionRejectsUnrepresentableAndOutOfRangeValues",
         "testEffortConversionRejectsNonFiniteStoredValues",
     )

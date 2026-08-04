@@ -40,10 +40,6 @@ struct HealthKitAnalysisRange: Equatable, Sendable {
         maxDays = min(forwardSpan, Self.maximumWindowDays)
     }
 
-    var publicationDays: Int {
-        min(Self.maximumWindowDays, max(120, maxDays))
-    }
-
     func reconciledDays(now: Date = Date(), calendar input: Calendar = .current) -> ClosedRange<String> {
         let calendar = input
         let newest = calendar.startOfDay(for: now)

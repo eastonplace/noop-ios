@@ -6,11 +6,11 @@ import WhoopStore
 @MainActor
 final class RepositoryRefreshIntentTests: XCTestCase {
     func testIntentRangesAndDeterministicEqualRangeMerge() {
-        XCTAssertEqual(RepositoryRefreshIntent.currentDay.days, 4_000)
-        XCTAssertEqual(RepositoryRefreshIntent.postBackfill.days, 4_000)
-        XCTAssertEqual(RepositoryRefreshIntent.initialLoad.days, 4_000)
-        XCTAssertEqual(RepositoryRefreshIntent.recentDashboard(days: 1).days, 120)
-        XCTAssertEqual(RepositoryRefreshIntent.fullHistoryMigration.days, 4_000)
+        XCTAssertEqual(RepositoryRefreshIntent.currentDay.days, 1)
+        XCTAssertEqual(RepositoryRefreshIntent.postBackfill.days, 1)
+        XCTAssertEqual(RepositoryRefreshIntent.initialLoad.days, 1)
+        XCTAssertEqual(RepositoryRefreshIntent.recentDashboard(days: 120).days, 30)
+        XCTAssertEqual(RepositoryRefreshIntent.fullHistoryMigration.days, 30)
         XCTAssertEqual(
             RepositoryRefreshIntent.merged(.currentDay, .postBackfill),
             .postBackfill
@@ -40,7 +40,7 @@ final class RepositoryRefreshIntentTests: XCTestCase {
         )
     }
 
-    func testInitialLoadPreservesMultiYearHistoryWindow() async throws {
+    func testInitialLoadPreservesMultiYearHistoryExtent() async throws {
         let store = try await WhoopStore.inMemory()
         let calendar = Calendar.current
         let oldDate = calendar.date(byAdding: .day, value: -730, to: Date())!
@@ -56,7 +56,7 @@ final class RepositoryRefreshIntentTests: XCTestCase {
         let didRefresh = await repository.refresh(.initialLoad)
 
         XCTAssertTrue(didRefresh)
-        XCTAssertEqual(repository.freshness.earliestDay, oldDay)
+        XCTAssertEqual(repository.historyExtent.earliestDay?.key, oldDay)
     }
 
     func testOverlappingNarrowRequestsCoalesceToWidestPendingRange() async {

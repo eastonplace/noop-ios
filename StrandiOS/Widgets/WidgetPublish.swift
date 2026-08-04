@@ -61,10 +61,8 @@ extension WidgetSnapshot {
     /// Build a glance snapshot from the live app state and publish it to the shared App Group, then
     /// ask WidgetKit to refresh. Called when the app becomes active and after a Health sync.
     ///
-    /// `async` because the Sleep score (#446) lives in a computed metric series, not a `DailyMetric`
-    /// column, so it needs an `exploreSeries` read. The sole caller already runs inside a `Task`, so it
-    /// just gains an `await`. Charge / Strain / HRV / Resting HR all read synchronously off the SAME
-    /// anchor day, so the richer fields and the headline never disagree about which day they describe.
+    /// Headline Recovery, Strain, and Sleep values come from the verified projection committed by the
+    /// durable pipeline. Auxiliary sparklines remain exploratory reads and never replace those values.
     ///
     /// #911: the anchor is resolved the way Today resolves it (the current LOGICAL local day, `Date()`
     /// read here so the day rolls live as the extension republishes), NOT "the most recent day with any
@@ -87,21 +85,11 @@ extension WidgetSnapshot {
         // inside the helper (matching `TodayView.selectedDayKey`) means a stale scored row can never
         // re-surface AS today.
         let day = Repository.widgetAnchor(days: days, now: now)
-        // Sleep (sleep_performance) for that same anchor day. exploreSeries merges imported + on-device,
-        // exactly like the Today Sleep tile. The tail fallback (restSeries.last) is ONLY valid when the
-        // anchor day IS the local today: early in a fresh day today's Sleep row may not exist yet, so we
-        // borrow the latest value. For an anchor that is NOT today, borrowing the tail would surface a
-        // DIFFERENT day's Sleep as this day's (the cross-day bug), so we leave it nil. Mirrors TodayView's
-        // `restByDay[selectedDayKey] ?? (selectedDayOffset == 0 ? restSeries.last?.value : nil)` and the
-        // matching guard in WatchSessionBridge.
-        var restScore: Double?
-        if let day {
-            let restSeries = await model.repo.exploreSeries(key: "sleep_performance", source: "my-whoop")
-            guard WidgetLivePublishGate.isCurrentFullPublish(generation) else { return }
-            let restByDay = Dictionary(restSeries.map { ($0.day, $0.value) }, uniquingKeysWith: { _, last in last })
-            let anchorIsToday = day.day == Repository.localDayKey(now)
-            restScore = restByDay[day.day] ?? (anchorIsToday ? restSeries.last?.value : nil)
-        }
+        let verified = model.repo.verifiedHealthProjection
+        let recovery = verified?.visibleMetric(.recovery)?.value
+        let storedStrain = verified?.visibleMetric(.strain)?.value
+        let restScore = verified?.visibleMetric(.sleepScore)?.value
+        guard WidgetLivePublishGate.isCurrentFullPublish(generation) else { return }
         let previousRecovery = day.flatMap { anchor in
             days.last(where: { $0.day < anchor.day && $0.recovery != nil })?.recovery
         }
@@ -119,8 +107,8 @@ extension WidgetSnapshot {
         guard WidgetLivePublishGate.isCurrentFullPublish(generation) else { return }
         let sparkline = model.activeWorkout.map { Array($0.samples.suffix(48).map(\.bpm)) }
         let snap = WidgetSnapshot.publishing(
-            recovery: day?.recovery,
-            storedStrain: day.flatMap { model.repo.canonicalStrain(for: $0.day)?.storedValue },
+            recovery: recovery,
+            storedStrain: storedStrain,
             sleepScore: restScore,
             bpm: model.bpm ?? model.live.heartRate,
             batteryPct: model.live.batteryPct,
@@ -158,12 +146,13 @@ extension WidgetSnapshot {
     /// sparkline churn to a one-minute cadence.
     @MainActor
     static func publishLive(from model: AppModel) {
-        let day = Repository.widgetAnchor(days: model.repo.days)
-        let storedStrain = day.flatMap { model.repo.canonicalStrain(for: $0.day)?.storedValue }
+        let verified = model.repo.verifiedHealthProjection
+        let recovery = verified?.visibleMetric(.recovery)?.value
+        let storedStrain = verified?.visibleMetric(.strain)?.value
         let now = Date()
         let previous = WidgetLivePublishGate.currentSnapshot(now: now)
         let base = previous ?? WidgetSnapshot(
-            recovery: day?.recovery.map { Int($0.rounded()) }, bpm: nil, batteryPct: nil,
+            recovery: recovery.map { Int($0.rounded()) }, bpm: nil, batteryPct: nil,
             bonded: model.live.bonded, updated: now)
         let sparkline = model.activeWorkout.map { Array($0.samples.suffix(48).map(\.bpm)) }
         var next = base.mergingLive(

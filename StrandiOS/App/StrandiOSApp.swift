@@ -13,37 +13,6 @@ enum WorkoutLifecycleProjection {
     }
 }
 
-/// Repository-backed fields needed by widgets/Live Activity. Rebuilt only when repository state changes
-/// (or the logical day rolls), never on a raw heart-rate callback.
-struct ExternalSurfaceDayProjection: Equatable {
-    let logicalDayKey: String
-    let recovery: Int?
-    let effort: Double?
-
-    static func recoveryValue(_ value: Double?) -> Int? {
-        guard let value, value.isFinite, (0...100).contains(value) else { return nil }
-        // A bounds comparison against Double(Int.max) is insufficient on 64-bit platforms because
-        // Double(Int.max) rounds to 2^63. Exact conversion is the only non-trapping representability gate.
-        return Int(exactly: value.rounded())
-    }
-
-    static func effortValue(_ storedValue: Double?) -> Double? {
-        guard let storedValue, storedValue.isFinite else { return nil }
-        let display = StrainScale.displayValue(fromStored: storedValue)
-        return display.isFinite ? display : nil
-    }
-
-    @MainActor
-    static func make(repository: Repository, now: Date = Date()) -> Self {
-        let day = Repository.widgetAnchor(days: repository.days, now: now)
-        return Self(
-            logicalDayKey: Repository.logicalDayKey(now),
-            recovery: recoveryValue(day?.recovery),
-            effort: effortValue(day.flatMap { repository.canonicalStrain(for: $0.day)?.storedValue })
-        )
-    }
-}
-
 @main
 struct StrandiOSApp: App {
     @StateObject private var model: AppModel
@@ -53,9 +22,7 @@ struct StrandiOSApp: App {
     @StateObject private var router = NavRouter()
     @State private var liveActivity = LiveActivityController()
     @State private var workoutProjection = WorkoutLiveProjectionCache()
-    @State private var externalSurfaceDay = ExternalSurfaceDayProjection(
-        logicalDayKey: "", recovery: nil, effort: nil
-    )
+    @State private var externalSurface: ExternalSurfaceProjection?
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage(AppearanceMode.storageKey) private var appearanceRaw = AppearanceMode.system.rawValue
     @AppStorage(ChartStyle.storageKey) private var chartStyleRaw = ChartStyle.titanium.rawValue
@@ -94,22 +61,19 @@ struct StrandiOSApp: App {
     }
 
     private func driveLiveActivity(connected: Bool? = nil) {
-        if externalSurfaceDay.logicalDayKey != Repository.logicalDayKey(Date()) {
-            refreshExternalSurfaceDay()
-        }
         let isConnected = connected ?? model.live.connected
         liveActivity.update(
             bpm: isConnected ? (model.bpm ?? model.live.heartRate) : nil,
-            recovery: externalSurfaceDay.recovery,
+            recovery: externalSurface?.recovery,
             connected: isConnected,
-            effort: externalSurfaceDay.effort,
+            effort: externalSurface?.effort,
             workoutIsActive: model.activeWorkout != nil,
             workout: workoutActivityState
         )
     }
 
-    private func refreshExternalSurfaceDay() {
-        externalSurfaceDay = ExternalSurfaceDayProjection.make(repository: model.repo)
+    private func refreshExternalSurface() {
+        externalSurface = model.repo.verifiedHealthProjection.map(ExternalSurfaceProjection.init)
     }
 
     /// Drain the crash-safe HealthKit → Intelligence handoff. The scoring coordinator retains the widest
@@ -133,12 +97,13 @@ struct StrandiOSApp: App {
                     })
             },
             publish: { window in
-                let range = HealthKitAnalysisRange(window: window)
                 // The scoring coordinator is the exclusive publication owner here. Call the underlying coherent
                 // refresh directly: routing through the normal typed queue would correctly defer behind this
                 // same fence and deadlock its owner. Every non-owner publisher remains fenced and replayed.
-                guard await model.repo.refresh(days: range.publicationDays) else { return false }
-                refreshExternalSurfaceDay()
+                // The exact HealthKit analysis above owns the historical changed-day set. This narrow refresh
+                // only hydrates the current-day snapshot; it never widens historical publication to 120 days.
+                guard await model.repo.refresh(days: 1) else { return false }
+                refreshExternalSurface()
                 driveLiveActivity()
                 await WidgetSnapshot.publish(from: model)
                 return true
@@ -184,7 +149,7 @@ struct StrandiOSApp: App {
                 }
                 .onReceive(model.repo.$refreshSeq.dropFirst()) { _ in
                     guard scenePhase == .active else { return }
-                    refreshExternalSurfaceDay()
+                    refreshExternalSurface()
                     Task { await WidgetSnapshot.publish(from: model) }
                 }
                 .onReceive(TodayDayBoundaryScheduler.shared.$presentationGeneration.dropFirst()) { _ in
@@ -192,7 +157,7 @@ struct StrandiOSApp: App {
                     // The midnight/04:00 transition can be purely temporal: no store row needs to change for
                     // Home, widget, and Live Activity day labels to become stale. Publish from the same boundary
                     // source that invalidated Today instead of waiting for the next sync.
-                    refreshExternalSurfaceDay()
+                    refreshExternalSurface()
                     driveLiveActivity()
                     Task { await WidgetSnapshot.publish(from: model) }
                 }
@@ -205,9 +170,9 @@ struct StrandiOSApp: App {
                         await drainCommittedHealthScoring()
                     }
                 }
-                .onReceive(model.repo.$canonicalStrainByDay.dropFirst()) { _ in
+                .onReceive(model.repo.$verifiedHealthProjection.dropFirst()) { _ in
                     guard scenePhase == .active else { return }
-                    refreshExternalSurfaceDay()
+                    refreshExternalSurface()
                     driveLiveActivity()
                     WidgetSnapshot.publishLive(from: model)
                 }
@@ -234,7 +199,7 @@ struct StrandiOSApp: App {
                     TodayDayBoundaryScheduler.shared.setActive(
                         scenePhase == .active,
                         repository: model.repo)
-                    refreshExternalSurfaceDay()
+                    refreshExternalSurface()
                     alarmRuntime.start()
                     await drainCommittedHealthScoring()
                     #if DEBUG

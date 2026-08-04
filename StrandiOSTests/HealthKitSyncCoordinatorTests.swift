@@ -488,7 +488,6 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(range.startOffset, 0)
         XCTAssertEqual(range.maxDays, 3)
-        XCTAssertEqual(range.publicationDays, 120)
     }
 
     func testAnalysisRangeRecomputesForwardDependencyClosureFromHistoricalChange() throws {
@@ -503,7 +502,6 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
         XCTAssertEqual(range.startOffset, 0)
         XCTAssertEqual(range.maxDays, 18,
                        "historical HRV/RHR can affect every later baseline-dependent day")
-        XCTAssertEqual(range.publicationDays, 120)
     }
 
     func testAnalysisRangeUsesCalendarDaysAcrossSpringDST() throws {

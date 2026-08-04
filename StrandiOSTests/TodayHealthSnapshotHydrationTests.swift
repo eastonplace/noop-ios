@@ -98,7 +98,7 @@ final class TodayHealthSnapshotHydrationTests: XCTestCase {
         let hydrationTask = Task { await repository.hydrateTodayHealthSnapshot() }
         await hydrationGate.waitUntilEntered()
 
-        let didRefresh = await repository.refresh(days: 4_000)
+        let didRefresh = await repository.refresh(days: 1)
         XCTAssertTrue(didRefresh)
         XCTAssertEqual(repository.todayHealthSnapshot?.sleepScore?.value, 91)
 
@@ -126,7 +126,7 @@ final class TodayHealthSnapshotHydrationTests: XCTestCase {
         let sleepGate = AsyncTestGate()
         repository.todayHealthSnapshotSleepReadHook = { await sleepGate.wait() }
 
-        let refreshTask = Task { await repository.refresh(days: 4_000) }
+        let refreshTask = Task { await repository.refresh(days: 1) }
         await sleepGate.waitUntilEntered()
         repository.scheduleTodayHealthSnapshotWriteForTesting()
         repository.todayHealthSnapshotSleepReadHook = nil
@@ -149,7 +149,7 @@ final class TodayHealthSnapshotHydrationTests: XCTestCase {
         repository.setStoreForTesting(store)
         repository.todayHealthSnapshotDatabaseIdentityUnavailableForTesting = true
 
-        let didRefresh = await repository.refresh(days: 4_000)
+        let didRefresh = await repository.refresh(days: 1)
 
         XCTAssertFalse(didRefresh)
         XCTAssertNil(repository.todayHealthSnapshot)
@@ -227,7 +227,7 @@ final class TodayHealthSnapshotHydrationTests: XCTestCase {
         repository.setStoreForTesting(store)
         await repository.hydrateTodayHealthSnapshot()
         await repository.invalidateTodayHealthSnapshot()
-        let didRefresh = await repository.refresh(days: 4_000)
+        let didRefresh = await repository.refresh(days: 1)
 
         XCTAssertTrue(didRefresh)
         XCTAssertNil(repository.todayHealthSnapshot?.recovery)
@@ -254,7 +254,7 @@ final class TodayHealthSnapshotHydrationTests: XCTestCase {
         await repository.hydrateTodayHealthSnapshot()
         repository.todayHealthSnapshotSleepReadOverride = .failed
 
-        let didRefresh = await repository.refresh(days: 4_000)
+        let didRefresh = await repository.refresh(days: 1)
 
         XCTAssertTrue(didRefresh)
         XCTAssertEqual(repository.todayHealthSnapshot?.displayDay, day)
@@ -282,7 +282,7 @@ final class TodayHealthSnapshotHydrationTests: XCTestCase {
         repository.setStoreForTesting(store)
         repository.todayHealthSnapshotSleepReadOverride = .failed
 
-        let didRefresh = await repository.refresh(days: 4_000)
+        let didRefresh = await repository.refresh(days: 1)
 
         XCTAssertTrue(didRefresh)
         XCTAssertEqual(repository.todayHealthSnapshot?.displayDay, day)
@@ -304,7 +304,7 @@ final class TodayHealthSnapshotHydrationTests: XCTestCase {
         let repository = Repository(deviceId: Repository.whoopSource)
         repository.setStoreForTesting(store)
 
-        let didRefresh = await repository.refresh(days: 4_000)
+        let didRefresh = await repository.refresh(days: 1)
         XCTAssertTrue(didRefresh)
 
         XCTAssertEqual(repository.todayHealthSnapshot?.displayDay, day)
@@ -339,10 +339,10 @@ final class TodayHealthSnapshotHydrationTests: XCTestCase {
         let repository = Repository(deviceId: Repository.whoopSource)
         repository.setStoreForTesting(store)
 
-        let didRefresh = await repository.refresh(days: 4_000)
+        let didRefresh = await repository.refresh(days: 1)
 
-        XCTAssertFalse(didRefresh)
-        XCTAssertEqual(repository.todayHealthSnapshot?.sleepScore?.value, 86)
+        XCTAssertTrue(didRefresh)
+        XCTAssertNil(repository.todayHealthSnapshot)
         let durable = try await store.todayHealthSnapshot(scopeId: persisted.scopeId)
         XCTAssertEqual(durable?.sleepScore?.value, 55)
     }
@@ -358,7 +358,7 @@ final class TodayHealthSnapshotHydrationTests: XCTestCase {
         repository.setStoreForTesting(store)
         XCTAssertTrue(repository.adoptActiveDeviceId("active-strap"))
 
-        let didRefresh = await repository.refresh(days: 4_000)
+        let didRefresh = await repository.refresh(days: 1)
 
         XCTAssertTrue(didRefresh)
         XCTAssertEqual(repository.todayHealthSnapshot?.sleepScore?.sourceId, "active-strap")
@@ -374,7 +374,7 @@ final class TodayHealthSnapshotHydrationTests: XCTestCase {
         repository.setStoreForTesting(store)
         XCTAssertTrue(repository.adoptActiveDeviceId("active-strap"))
 
-        let didRefresh = await repository.refresh(days: 4_000)
+        let didRefresh = await repository.refresh(days: 1)
         XCTAssertTrue(didRefresh)
 
         XCTAssertEqual(repository.todayHealthSnapshot?.recovery?.sourceId, "active-strap")
@@ -434,7 +434,7 @@ final class TodayHealthSnapshotHydrationTests: XCTestCase {
         repository.setStoreForTesting(oldStore)
         await repository.hydrateTodayHealthSnapshot()
         XCTAssertEqual(repository.todayHealthSnapshot?.context, oldContext)
-        _ = await repository.refresh(days: 4_000) // completes a write against the old database generation
+        _ = await repository.refresh(days: 1) // completes a write against the old database generation
 
         try await repository.quiesceStoreForRestore()
         let restoredStore = try await WhoopStore.inMemory()

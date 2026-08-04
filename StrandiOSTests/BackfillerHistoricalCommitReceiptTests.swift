@@ -345,9 +345,8 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
             details.fingerprint,
             try WhoopStore.historicalReceivedFrameFingerprint(
                 input: details.fingerprintInput,
-                deviceId: "strap-a",
-                trim: 123,
-                chunkEndUnix: 1_700_000_000))
+                scope: scope,
+                trim: 123))
     }
 
     @MainActor

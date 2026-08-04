@@ -46,10 +46,9 @@ def forbid(path: str, *markers: str) -> None:
 
 
 def audit_direct_repository_refreshes() -> None:
-    """Only the typed executor and exclusive HealthKit publisher may bypass typed refresh admission."""
+    """Only the typed backend and exclusive HealthKit publisher may call the bounded legacy adapter."""
     allowed = {
-        ("Strand/Data/RepositoryRefreshIntent.swift", "await repository.refresh(days: intent.days)"),
-        ("StrandiOS/App/StrandiOSApp.swift", "await model.repo.refresh(days: range.publicationDays)"),
+        ("StrandiOS/App/StrandiOSApp.swift", "await model.repo.refresh(days: 1)"),
     }
     pattern = re.compile(r"\b(?:model\.)?repo\.refresh\s*\(\s*days:|\brepository\.refresh\s*\(\s*days:")
     found: set[tuple[str, str]] = set()
@@ -148,7 +147,7 @@ try:
         "func performAfterOpen",
         "guard barrier.beginRefreshIfAllowed() else",
         "barrier.performAfterOpen",
-        "await repository.refresh(days: intent.days)",
+        "await refresh(days: boundedRecentDays)",
     )
 
     bridge = "StrandiOS/Health/HealthKitBridge.swift"
@@ -190,7 +189,7 @@ try:
         "analyzeRecentForPublication(",
         "IntelligenceRecoveryPersistenceReceipt.verify(",
         "publish: { window in",
-        "guard await model.repo.refresh(days: range.publicationDays) else { return false }",
+        "guard await model.repo.refresh(days: 1) else { return false }",
         "await health.foregroundCatchUp()",
         "await drainCommittedHealthScoring()",
     )
