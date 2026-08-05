@@ -50,7 +50,7 @@ extension AppModel {
 
         do {
             guard try registry.setModelIfGenericWhoop(activeId, model: corrected) else { return }
-            deviceRegistry?.reload()
+            try deviceRegistry?.reload()
             live.append(log: "Device registry model corrected to \(corrected) after family detection.")
         } catch {
             live.append(log: "Device registry model correction deferred: \(error.localizedDescription)")

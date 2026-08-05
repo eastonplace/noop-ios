@@ -57,11 +57,33 @@ enum HistoricalPipelineRuntimeError: Error {
 /// The durable journal remains the source of truth; a missed in-memory signal is repaired by the next call.
 actor HistoricalPipelineRuntime {
     private let dependencies: HistoricalPipelineRuntimeDependencies
+    private let quiescence = PipelineQuiescence()
     private var running = false
     private var rerunRequested = false
+    private var activeSignalTask: Task<HistoricalPipelineRuntimeResult, Never>?
+    private var coordinatorEpochByRuntimeEpoch: [UInt64: UInt64] = [:]
 
     init(dependencies: HistoricalPipelineRuntimeDependencies) {
         self.dependencies = dependencies
+    }
+
+    func quiesce() async throws -> UInt64 {
+        activeSignalTask?.cancel()
+
+        // The runtime can be suspended while it is awaiting the coordinator. Quiesce the coordinator first so
+        // that cancellation reaches the actual lease owner instead of waiting only on this wrapper task.
+        let coordinatorEpoch = try await dependencies.coordinator.quiesce()
+        let runtimeEpoch = try await quiescence.quiesce(cancelOwners: { })
+        coordinatorEpochByRuntimeEpoch[runtimeEpoch] = coordinatorEpoch
+        return runtimeEpoch
+    }
+
+    func resume(expectedEpoch: UInt64) async throws {
+        guard let coordinatorEpoch = coordinatorEpochByRuntimeEpoch.removeValue(forKey: expectedEpoch) else {
+            throw PipelineQuiescenceError.superseded
+        }
+        try await quiescence.resume(expectedEpoch: expectedEpoch)
+        try await dependencies.coordinator.resume(expectedEpoch: coordinatorEpoch)
     }
 
     func signal() async -> HistoricalPipelineRuntimeResult {
@@ -76,13 +98,44 @@ actor HistoricalPipelineRuntime {
             )
         }
         running = true
-        defer { running = false }
+        let task = Task { [weak self] in
+            await self?.drain() ?? HistoricalPipelineRuntimeResult(
+                admittedReceipts: 0,
+                completedWork: 0,
+                deferredWork: 1,
+                pendingWork: nil,
+                alreadyRunning: false
+            )
+        }
+        activeSignalTask = task
+        let result = await task.value
+        activeSignalTask = nil
+        running = false
+        return result
+    }
+
+    private func drain() async -> HistoricalPipelineRuntimeResult {
+        let token: PipelineEpochToken
+        do {
+            token = try await quiescence.begin()
+        } catch {
+            return HistoricalPipelineRuntimeResult(
+                admittedReceipts: 0,
+                completedWork: 0,
+                deferredWork: 1,
+                pendingWork: await readPendingWorkCount(),
+                alreadyRunning: false
+            )
+        }
+        defer { Task { await quiescence.end(token) } }
 
         var admitted = 0
         var completed = 0
         var deferred = 0
         repeat {
             rerunRequested = false
+            do { try await quiescence.validate(token) }
+            catch { deferred += 1; break }
             if let rearmEnvironmental = dependencies.rearmEnvironmental {
                 do {
                     try await rearmEnvironmental()
@@ -103,9 +156,11 @@ actor HistoricalPipelineRuntime {
 
             for context in contexts where !Task.isCancelled {
                 do {
+                    try await quiescence.validate(token)
                     var hasMoreReceipts = true
                     while hasMoreReceipts && !Task.isCancelled {
                         let result = try await dependencies.admit(context)
+                        try await quiescence.validate(token)
                         admitted += result.admittedReceiptCount
                         hasMoreReceipts = result.hasMoreReceipts
                     }
@@ -117,7 +172,12 @@ actor HistoricalPipelineRuntime {
                 }
             }
 
+            try? await quiescence.validate(token)
+            guard !Task.isCancelled else { break }
             let drain = await dependencies.coordinator.signal()
+            guard !Task.isCancelled else { break }
+            do { try await quiescence.validate(token) }
+            catch { deferred += 1; break }
             completed += drain.completedWorkCount
             deferred += drain.deferredWorkCount
         } while rerunRequested && !Task.isCancelled

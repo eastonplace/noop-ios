@@ -71,7 +71,8 @@ enum AppleWatchDevice {
             existing: existing,
             now: now
         ) else { return }
-        registry.add(value)
+        do { try registry.add(value) }
+        catch { return }
     }
 
     private static let dayFormatter: DateFormatter = {

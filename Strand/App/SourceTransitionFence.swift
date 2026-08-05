@@ -46,4 +46,27 @@ final class SourceTransitionFence {
         tail = current
         await current.value
     }
+
+    /// Throwing variant for durable source transitions. The queued operation remains serialized with BLE and
+    /// UI callbacks, but its failure is returned to the caller so the registry cannot advance fail-open.
+    func runThrowing<T: Sendable>(_ operation: @escaping @MainActor () async throws -> T) async throws -> T {
+        pendingRunCount += 1
+        let previous = tail
+        let current = Task { @MainActor () throws -> T in
+            await previous?.value
+            executing = true
+            defer {
+                pendingRunCount -= 1
+                executing = false
+                if pendingRunCount == 0 {
+                    let queued = queuedSynchronousOperations
+                    queuedSynchronousOperations.removeAll(keepingCapacity: true)
+                    for operation in queued { operation() }
+                }
+            }
+            return try await operation()
+        }
+        tail = Task { @MainActor in _ = try? await current.value }
+        return try await current.value
+    }
 }

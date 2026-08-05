@@ -2,6 +2,12 @@ import Foundation
 import Combine
 import WhoopStore
 
+enum DeviceRegistryMutationError: Error, Equatable {
+    case readFailed
+    case writeFailed
+    case activeDeviceArchivedWithoutReplacement
+}
+
 // MARK: - DeviceRegistry
 //
 // Observable @MainActor cache over the synchronous `DeviceRegistryStore` (device-foundation
@@ -16,9 +22,8 @@ import WhoopStore
 final class DeviceRegistry: ObservableObject {
     /// All paired devices (any status), oldest-added first — the store's `all()` ordering.
     @Published private(set) var devices: [PairedDevice] = []
-    /// The active device's id. Defaults to "my-whoop" so callers have a safe value before the
-    /// first `reload()` and if the registry can't be read.
-    @Published private(set) var activeDeviceId: String = "my-whoop"
+    /// The active device's id. `nil` is a real state after archiving the active source without a replacement.
+    @Published private(set) var activeDeviceId: String?
 
     private let store: DeviceRegistryStore
 
@@ -26,14 +31,13 @@ final class DeviceRegistry: ObservableObject {
         self.store = store
     }
 
-    /// Load the device list and active id from the store. Best-effort: on any error the published
-    /// values are left untouched (keeping the safe "my-whoop" fallback), never crashing.
-    func reload() {
-        guard let rows = try? store.all() else { return }
+    /// Load the device list and active id from the store. A transition cannot continue on stale cached state.
+    func reload() throws {
+        let rows: [PairedDevice]
+        do { rows = try store.all() }
+        catch { throw DeviceRegistryMutationError.readFailed }
         devices = rows
-        if let active = rows.first(where: { $0.status == .active })?.id {
-            activeDeviceId = active
-        }
+        activeDeviceId = rows.first(where: { $0.status == .active })?.id
     }
 
     // MARK: - UI mutations (Devices screen)
@@ -43,32 +47,42 @@ final class DeviceRegistry: ObservableObject {
     // published state untouched (we never crash the UI on a write error).
 
     /// Add or upsert a paired device (the Add wizard's chosen strap). Refreshes the published list.
-    func add(_ device: PairedDevice) {
-        try? store.add(device)
-        reload()
+    func add(_ device: PairedDevice) throws {
+        do { try store.add(device) }
+        catch { throw DeviceRegistryMutationError.writeFailed }
+        try reload()
     }
 
     /// Make `id` the single active device. The store demotes whatever was active in the same
     /// transaction (invariant I1); changing `activeDeviceId` drives the `SourceCoordinator` to run the
     /// right live source.
-    func setActive(_ id: String) {
-        try? store.setActive(id)
-        reload()
+    func setActive(_ id: String) throws {
+        do { try store.setActive(id) }
+        catch { throw DeviceRegistryMutationError.writeFailed }
+        try reload()
+        guard activeDeviceId == id else { throw DeviceRegistryMutationError.writeFailed }
     }
 
-    /// Archive (remove) a device: NOOP stops connecting to it, but its recorded data is kept. If the
-    /// archived device was the active one, `activeDeviceId` is left as-is here — the caller decides the
-    /// next active device (or leaves none active) and calls `setActive` explicitly.
-    func archive(_ id: String) {
-        try? store.archive(id)
-        reload()
+    /// Archive a device and optionally promote a replacement in the same transition boundary.
+    func archive(_ id: String, replacementActiveId: String? = nil) throws {
+        do {
+            try store.archive(id)
+            if let replacementActiveId { try store.setActive(replacementActiveId) }
+        } catch {
+            throw DeviceRegistryMutationError.writeFailed
+        }
+        try reload()
+        guard activeDeviceId != id else {
+            throw DeviceRegistryMutationError.activeDeviceArchivedWithoutReplacement
+        }
     }
 
     /// Rename a device. `name` nil/empty clears the nickname so it falls back to brand+model.
-    func rename(_ id: String, to name: String?) {
+    func rename(_ id: String, to name: String?) throws {
         let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines)
-        try? store.rename(id, nickname: (trimmed?.isEmpty == false) ? trimmed : nil)
-        reload()
+        do { try store.rename(id, nickname: (trimmed?.isEmpty == false) ? trimmed : nil) }
+        catch { throw DeviceRegistryMutationError.writeFailed }
+        try reload()
     }
 
     /// Permanently delete every recorded sample/derived row for a device across all `deviceId`-keyed
@@ -80,33 +94,34 @@ final class DeviceRegistry: ObservableObject {
     /// the whole transaction on the main actor and freeze the UI on a large device/Apple-Health dataset.
     /// Best-effort: a store failure leaves the recordings and published state untouched. Awaits the delete
     /// BEFORE `reload()` so the refreshed device list reflects the emptied recordings.
-    func deleteDeviceData(_ id: String, store: WhoopStore) async {
-        do {
-            try await store.deleteAllData(deviceId: id)
-        } catch {
-            return
-        }
-        reload()
+    func deleteDeviceData(_ id: String, store: WhoopStore) async throws {
+        do { try await store.deleteAllData(deviceId: id) }
+        catch { throw DeviceRegistryMutationError.writeFailed }
+        try reload()
     }
 
     /// Adopt (or clear, when nil) the stable BLE identity for a device — the
     /// CBPeripheral.identifier.uuidString on iOS/Mac. Lets NOOP tell physical straps apart and map a
     /// connected peripheral back to its registry row. Refreshes the published list. Best-effort.
     @discardableResult
-    func setPeripheralId(_ id: String, peripheralId: String?) -> Bool {
-        let changed = (try? store.setPeripheralId(id, peripheralId: peripheralId)) ?? false
-        reload()
+    func setPeripheralId(_ id: String, peripheralId: String?) throws -> Bool {
+        let changed: Bool
+        do { changed = try store.setPeripheralId(id, peripheralId: peripheralId) }
+        catch { throw DeviceRegistryMutationError.writeFailed }
+        try reload()
         return changed
     }
 
     /// Capture the complete durable scope before a physical peripheral replacement changes the lineage.
-    func historicalCursorScope(for id: String) -> HistoricalCursorScope? {
-        try? store.historicalCursorScope(for: id)
+    func historicalCursorScope(for id: String) throws -> HistoricalCursorScope {
+        do { return try store.historicalCursorScope(for: id) }
+        catch { throw DeviceRegistryMutationError.readFailed }
     }
 
     /// Find the paired device that has adopted a given BLE peripheral, if any. A plain read of the
     /// store (no reload) — returns nil on any error or when no row has adopted that peripheral yet.
-    func device(forPeripheralId peripheralId: String) -> PairedDevice? {
-        (try? store.device(forPeripheralId: peripheralId)) ?? nil
+    func device(forPeripheralId peripheralId: String) throws -> PairedDevice? {
+        do { return try store.device(forPeripheralId: peripheralId) }
+        catch { throw DeviceRegistryMutationError.readFailed }
     }
 }

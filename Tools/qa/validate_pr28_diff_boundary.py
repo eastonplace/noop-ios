@@ -5,30 +5,55 @@ from pathlib import Path
 
 root = Path(sys.argv[1]).resolve()
 allowed_exact = {
+    'Packages/NoopPhase34Core/Sources/NoopPhase34Core/HistoricalHealthKitMutationPayload.swift',
     'Packages/NoopPhase34Core/Sources/NoopPhase34Core/HistoricalPipelineCoordinator.swift',
-    'Packages/NoopPhase34Core/Sources/NoopPhase34Core/HistoricalAnalysisWork.swift',
-    'Packages/NoopPhase34Core/Sources/NoopPhase34Core/HistoricalAnalysisWorkReducer.swift',
-    'Packages/NoopPhase34Core/Sources/NoopPhase34Core/ExternalPublicationOutbox.swift',
-    'Packages/NoopPhase34Core/Sources/NoopPhase34Core/CanonicalSleepScore.swift',
-    'Packages/NoopPhase34Core/Tests/NoopPhase34CoreTests/BlockedPipelineTests.swift',
-    'Strand/Data/ExactDayAnalysisIntegration.swift',
-    'Strand/Data/RepositoryPostAnalysisSnapshotBuilder.swift',
-    'Strand/App/PR28HistoricalPipelineErrors.swift',
+    'Packages/NoopPhase34Core/Sources/NoopPhase34Core/PipelineQuiescence.swift',
+    'Packages/NoopPhase34Core/Tests/NoopPhase34CoreTests/PR28RootFixRegressionTests.swift',
+    'Packages/WhoopStore/Sources/WhoopStore/AnalysisMutationJournalStore.swift',
+    'Packages/WhoopStore/Sources/WhoopStore/CanonicalHealthSurfaceStore.swift',
+    'Packages/WhoopStore/Sources/WhoopStore/Database.swift',
+    'Packages/WhoopStore/Sources/WhoopStore/DeviceRegistryStore.swift',
+    'Packages/WhoopStore/Sources/WhoopStore/ExternalPublicationOutboxStore.swift',
+    'Packages/WhoopStore/Sources/WhoopStore/HealthKitMutationWatermarkStore.swift',
+    'Packages/WhoopStore/Sources/WhoopStore/HealthKitSleepKeyLedger.swift',
+    'Packages/WhoopStore/Sources/WhoopStore/PR28V47Migration.swift',
+    'Packages/WhoopStore/Sources/WhoopStore/WhoopStore.swift',
+    'Packages/WhoopStore/Tests/WhoopStoreTests/LabMarkerStoreTests.swift',
+    'Packages/WhoopStore/Tests/WhoopStoreTests/MetricsCacheTests.swift',
+    'Packages/WhoopStore/Tests/WhoopStoreTests/MigrationTests.swift',
+    'Packages/WhoopStore/Tests/WhoopStoreTests/PR28RootFixMigrationTests.swift',
+    'Packages/WhoopStore/Tests/WhoopStoreTests/ScaffoldTests.swift',
+    'Packages/WhoopStore/Tests/WhoopStoreTests/SleepMotionStateTests.swift',
+    'Packages/WhoopStore/Tests/WhoopStoreTests/SleepRecoveryStoreTests.swift',
     'Strand/App/AppModel.swift',
     'Strand/App/ExternalPublicationWorker.swift',
-    'StrandiOS/Health/HealthKitBridge.swift',
-    'StrandiOS/App/StrandiOSApp.swift',
+    'Strand/App/HistoricalPipelineRuntime.swift',
+    'Strand/App/SourceTransitionFence.swift',
+    'Strand/BLE/SourceCoordinator.swift',
+    'Strand/Data/AppleWatchDevice.swift',
+    'Strand/Data/CanonicalTrendsRangeLoader.swift',
+    'Strand/Data/DeviceRegistry.swift',
     'Strand/Data/Repository.swift',
-    'Packages/WhoopStore/Sources/WhoopStore/HistoricalReceiptAdmissionStore.swift',
-    'Packages/WhoopStore/Sources/WhoopStore/DeviceRegistryStore.swift',
-    'Packages/WhoopStore/Sources/WhoopStore/DeviceRegistry.swift',
-    'Packages/WhoopStore/Sources/WhoopStore/RawOutboxStore.swift',
-    'Packages/WhoopStore/Sources/WhoopStore/RawPacketOutboxStore.swift',
-    'Packages/WhoopStore/Sources/WhoopStore/RawOutbox.swift',
-    'Packages/WhoopStore/Sources/WhoopStore/HistoricalCursorHardeningPatch.swift',
-    'Packages/WhoopStore/Sources/WhoopStore/RawOutboxHardeningPatch.swift',
-    'Tools/qa/audit_pr28_root_fix.py',
+    'Strand/Data/RepositoryExactAuthoritativeMerge.swift',
+    'Strand/Data/RepositoryHistoricalSnapshotWindows.swift',
+    'Strand/Data/TrendsBounds.swift',
+    'Strand/Screens/DevicesView.swift',
+    'Strand/Screens/TrendsSnapshotModels.swift',
+    'Strand/Screens/TrendsView+WeeklyReview.swift',
+    'Strand/Screens/TrendsView.swift',
+    'StrandiOS/App/AppModel+SeededWhoopModel.swift',
+    'StrandiOS/App/StrandiOSApp.swift',
+    'StrandiOS/Health/HealthKitBridge.swift',
+    'StrandiOS/Widgets/LiveActivityController.swift',
+    'StrandiOS/Widgets/SerializedLiveActivityPublication.swift',
+    'StrandiOS/Widgets/WidgetCorePublication.swift',
+    'StrandiOS/Widgets/WidgetPublish.swift',
+    'StrandiOSShared/ActiveVerifiedSinkEpoch.swift',
+    'StrandiOSShared/WidgetSnapshot.swift',
+    'StrandiOSWidgets/NOOPWidget.swift',
+    'StrandiOSTests/PR28Round3RootFixTests.swift',
     'Tools/qa/validate_pr28_diff_boundary.py',
+    'Tools/qa/trends_snapshot_contract_audit.py',
 }
 
 def git(*args: str) -> str:
@@ -38,19 +63,23 @@ def git(*args: str) -> str:
         raise SystemExit(p.returncode)
     return p.stdout
 
-files = [x for x in git('diff', '--name-only').splitlines() if x]
+files = sorted(set(
+    [x for x in git('diff', '--name-only').splitlines() if x]
+    + [x for x in git('ls-files', '--others', '--exclude-standard').splitlines() if x]
+))
 unexpected = [x for x in files if x not in allowed_exact]
 if unexpected:
     print('Unexpected changed files:', *unexpected, sep='\n  ', file=sys.stderr)
     raise SystemExit(1)
-# The recovered bundle is applied on top of the already-integrated Phase 3/4 branch. Its
-# root fix therefore includes the 16 existing integration paths plus five required new/deleted
-# artifacts listed above. Keep this exact count so unrelated files cannot enter the patch.
-if len(files) != 21:
-    print(f'Unexpected changed-file count: {len(files)}; expected 21', file=sys.stderr)
+if len(files) != len(allowed_exact):
+    print(
+        f'Unexpected changed-file count: {len(files)}; expected {len(allowed_exact)}',
+        file=sys.stderr,
+    )
     raise SystemExit(1)
 
 numstat = git('diff', '--numstat').splitlines()
+tracked_numstat_paths = {line.split('\t', 2)[-1] for line in numstat}
 added = deleted = 0
 for line in numstat:
     a, d, path = line.split('\t', 2)
@@ -62,11 +91,24 @@ for line in numstat:
     if di > 900:
         print(f'Large deletion needs manual review: {path} ({di} lines)', file=sys.stderr)
         raise SystemExit(1)
+
+for path in files:
+    if path in tracked_numstat_paths:
+        continue
+    data = (root / path).read_bytes()
+    if b'\x00' in data:
+        print(f'Binary diff is not allowed: {path}', file=sys.stderr)
+        raise SystemExit(1)
+    added += data.count(b'\n') + (1 if data and not data.endswith(b'\n') else 0)
 if added > 5000 or deleted > 3000:
     print(f'Diff budget exceeded: +{added}/-{deleted}', file=sys.stderr)
     raise SystemExit(1)
 
 patch = git('diff', '--no-ext-diff', '--unified=0')
+for path in files:
+    if path in tracked_numstat_paths:
+        continue
+    patch += '\n' + (root / path).read_text(encoding='utf-8')
 # Build conflict markers at runtime so this validator can itself be included in the audited diff.
 for token in ('<' * 7, '=' * 7, '>' * 7, '<' + '#code#' + '>', 'IMPLEMENT' + ' ME'):
     if token in patch:

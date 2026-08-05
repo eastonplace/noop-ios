@@ -240,7 +240,7 @@ struct TrendsScreenSnapshotKey: Hashable, Sendable {
         self.timeZoneIdentifier = timeZoneIdentifier
         self.metric = metric
         self.range = range
-        self.weekOffset = weekOffset
+        self.weekOffset = TrendsBounds.clampWeekOffset(weekOffset)
         self.completedLoadIdentity = completedLoadIdentity
     }
 }
@@ -346,7 +346,8 @@ struct TrendsScreenSnapshot: Sendable {
         let baseline = stableMean(values) ?? 0
         let spread = stableSpread(values, around: baseline)
 
-        let weekAnchorDay = WeeklyDigestEngine.addDays(data.anchorDay, weekOffset * 7)
+        let boundedWeekOffset = TrendsBounds.clampWeekOffset(weekOffset)
+        let weekAnchorDay = WeeklyDigestEngine.addDays(data.anchorDay, boundedWeekOffset * 7)
         let digestDays: [DailyMetric]
         if let monday = WeeklyDigestEngine.mondayOfWeek(containing: weekAnchorDay) {
             let first = WeeklyDigestEngine.addDays(
@@ -374,7 +375,7 @@ struct TrendsScreenSnapshot: Sendable {
                   let thisDate = calendar.date(from: Self.components(for: thisMonday))
             else { return 0 }
             let days = calendar.dateComponents([.day], from: earliestDate, to: thisDate).day ?? 0
-            return -min(520, max(0, days / 7))
+            return TrendsBounds.clampWeekOffset(-min(520, max(0, days / 7)))
         }()
 
         return TrendsScreenSnapshot(

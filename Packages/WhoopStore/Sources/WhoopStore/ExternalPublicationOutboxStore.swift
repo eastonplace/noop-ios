@@ -92,7 +92,8 @@ extension WhoopStore {
     public func leaseNextExternalPublication(
         owner: String,
         now: Date,
-        leaseDuration: TimeInterval = 60
+        leaseDuration: TimeInterval = 60,
+        preferredDestination: DownstreamDestination? = nil
     ) async throws -> ExternalPublicationOutboxItem? {
         try syncWrite { db in
             let nowTs = Int(now.timeIntervalSince1970)
@@ -107,10 +108,12 @@ extension WhoopStore {
                 try Self.updateExternalPublication(item, in: db)
             }
 
+            let destinationPredicate = preferredDestination.map { "AND destination = '\($0.rawValue)'" } ?? ""
             guard let row = try Row.fetchOne(db, sql: """
                 SELECT * FROM externalPublicationOutbox
                 WHERE state IN ('pending', 'retryable')
                   AND leaseOwner IS NULL
+                  \(destinationPredicate)
                   AND (nextAttemptAt IS NULL OR nextAttemptAt <= ?)
                 ORDER BY
                   CASE destination
@@ -170,6 +173,36 @@ extension WhoopStore {
             if try db.tableExists("healthKitMutationWatermark") {
                 try db.execute(sql: "DELETE FROM healthKitMutationWatermark WHERE deviceId = ?", arguments: [deviceId])
             }
+            if try db.tableExists("healthKitSleepKeyLedger") {
+                try db.execute(sql: "DELETE FROM healthKitSleepKeyLedger WHERE deviceId = ?", arguments: [deviceId])
+            }
+            if try db.tableExists("healthKitSleepDayLedger") {
+                try db.execute(sql: "DELETE FROM healthKitSleepDayLedger WHERE deviceId = ?", arguments: [deviceId])
+            }
+        }
+    }
+
+    /// Invalidate only latest-state sinks for an old verified context. Historical HealthKit rows and their
+    /// watermarks are intentionally untouched; ordinary A->B selection must preserve that durable history.
+    @discardableResult
+    public func retireLatestStatePublications(contextId: String?) async throws -> Int {
+        guard let contextId, !contextId.isEmpty else { return 0 }
+        return try syncWrite { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT * FROM externalPublicationOutbox
+                WHERE contextId = ?
+                  AND destination IN ('widget', 'liveActivity', 'watch')
+                  AND state IN ('pending', 'retryable')
+                  AND leaseOwner IS NULL
+                """, arguments: [contextId])
+            var retired = 0
+            for row in rows {
+                var item = try Self.decodeExternalPublication(row)
+                try ExternalPublicationReducer.apply(.supersede, to: &item, now: Date())
+                try Self.updateExternalPublication(item, in: db)
+                retired += 1
+            }
+            return retired
         }
     }
 

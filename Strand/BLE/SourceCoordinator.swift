@@ -55,9 +55,9 @@ final class SourceCoordinator: ObservableObject {
     private let transitionFence: SourceTransitionFence
     /// Durable cleanup that runs before a physical peripheral identity changes. The old scope is captured
     /// before the registry write so its receipts and nonterminal work cannot leak into the new lineage.
-    private let onPeripheralIdentityWillChange: (String, HistoricalCursorScope?) async -> Void
+    private let onPeripheralIdentityWillChange: (String, HistoricalCursorScope) async throws -> Void
     /// Admission is signalled only after the new peripheral identity and lineage are committed.
-    private let onPeripheralIdentityDidChange: (String) async -> Void
+    private let onPeripheralIdentityDidChange: (String) async throws -> Void
     /// Diagnostic sink for the ISOLATED generic-HR source's connect lifecycle. Wired at the composition
     /// root (`AppModel`) to the SAME strap log `BLEManager` writes to (`live.append(log:)`), so generic-HR
     /// lines land in the one log the user exports (issue #421 — the Polar/Wahoo/Coospo/Garmin-HRM path was
@@ -124,8 +124,8 @@ final class SourceCoordinator: ObservableObject {
          setWhoopActiveDeviceId: @escaping (String) -> Void,
          connectedPeripheralUUID: AnyPublisher<String?, Never>,
          transitionFence: SourceTransitionFence = SourceTransitionFence(),
-         onPeripheralIdentityWillChange: @escaping (String, HistoricalCursorScope?) async -> Void = { _, _ in },
-         onPeripheralIdentityDidChange: @escaping (String) async -> Void = { _ in },
+         onPeripheralIdentityWillChange: @escaping (String, HistoricalCursorScope) async throws -> Void = { _, _ in },
+         onPeripheralIdentityDidChange: @escaping (String) async throws -> Void = { _ in },
          straplog: @escaping (String) -> Void = { _ in }) {
         self.registry = registry
         self.live = live
@@ -171,13 +171,17 @@ final class SourceCoordinator: ObservableObject {
     ///   • A DIFFERENT WHOOP → re-point the WHOOP connection (preferred peripheral + deviceId) + reconnect.
     ///   • WHOOP active after a strap → stop the strap source + resume WHOOP.
     ///   • A generic strap → pause WHOOP + (re)start `StandardHRSource` for that strap's id.
-    func activeDeviceChanged(to id: String) {
+    func activeDeviceChanged(to id: String?) {
         transitionFence.runSync { [weak self] in
             self?.reconcileActiveDevice(to: id)
         }
     }
 
-    private func reconcileActiveDevice(to id: String) {
+    private func reconcileActiveDevice(to id: String?) {
+        guard let id else {
+            stopForTransition()
+            return
+        }
         // The Apple Watch is a HealthKit source with `peripheralId: nil` (see `AppleWatchDevice`): there is
         // no BLE peripheral to connect, and the M1 live read happens entirely in `HealthKitBridge`'s
         // observers + sync, off this BLE coordinator. Short-circuit BEFORE the WHOOP branch so we never
@@ -402,6 +406,18 @@ final class SourceCoordinator: ObservableObject {
         ouraSource = nil
     }
 
+    /// Stop every live source before a durable registry/lineage mutation. The transition owner calls this
+    /// while its critical section is open; the registry publisher later starts only the committed target.
+    func stopForTransition() {
+        tearDownNonWhoopSource()
+        activeStrapId = nil
+        onStrap = false
+        if activeWhoopId != nil {
+            stopWhoop()
+        }
+        activeWhoopId = nil
+    }
+
     // MARK: - Identity adoption
 
     /// The BLE engine connected to a WHOOP peripheral (`uuid`). Persist that stable identity onto the
@@ -434,14 +450,15 @@ final class SourceCoordinator: ObservableObject {
         connectedWhoopUuid = uuid
         guard let uuid else { return }
 
-        let activeId = registry.activeDeviceId
+        guard let activeId = registry.activeDeviceId else { return }
         guard isWhoop(activeId),
               let device = registry.devices.first(where: { $0.id == activeId }) else { return }
 
         switch device.peripheralId {
         case .none:
             // First connect for this WHOOP row → adopt the strap's stable identity.
-            await adoptPeripheralIdentity(uuid, for: activeId)
+            do { try await adoptPeripheralIdentity(uuid, for: activeId) }
+            catch { live.append(log: "Physical source transition deferred: \(error)") }
         case .some(uuid):
             break                               // already adopted this exact strap → nothing to do
         case .some(let existing):
@@ -453,18 +470,19 @@ final class SourceCoordinator: ObservableObject {
             // "don't clobber" path below is preserved for every normal/transient different-strap connect.
             if live.encryptedBond {
                 live.append(log: "Multi-WHOOP (#52): active device \(activeId) was pinned to strap \(existing) which refused to bond — re-adopting the working strap \(uuid).")
-                await adoptPeripheralIdentity(uuid, for: activeId)
+                do { try await adoptPeripheralIdentity(uuid, for: activeId) }
+                catch { live.append(log: "Physical source transition deferred: \(error)") }
             } else {
                 live.append(log: "Multi-WHOOP: active device \(activeId) is registered to strap \(existing) but \(uuid) connected — not overwriting.")
             }
         }
     }
 
-    private func adoptPeripheralIdentity(_ uuid: String, for activeId: String) async {
-        let oldScope = registry.historicalCursorScope(for: activeId)
-        await onPeripheralIdentityWillChange(activeId, oldScope)
-        guard registry.setPeripheralId(activeId, peripheralId: uuid) else { return }
-        await onPeripheralIdentityDidChange(activeId)
+    private func adoptPeripheralIdentity(_ uuid: String, for activeId: String) async throws {
+        let oldScope = try registry.historicalCursorScope(for: activeId)
+        try await onPeripheralIdentityWillChange(activeId, oldScope)
+        guard try registry.setPeripheralId(activeId, peripheralId: uuid) else { return }
+        try await onPeripheralIdentityDidChange(activeId)
     }
 
     // MARK: - Lookups / classification

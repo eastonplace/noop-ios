@@ -61,12 +61,15 @@ struct StrandiOSApp: App {
         let liveActivityController = LiveActivityController()
         let worker = ExternalPublicationWorker(
             dependencies: ExternalPublicationWorkerDependencies(
-                leaseNext: { owner, now, leaseDuration in
+                leaseNext: { owner, now, leaseDuration, preferredDestination in
                     guard let store = await model.repo.storeHandle() else {
                         throw HistoricalPipelineRuntimeError.storeUnavailable
                     }
                     return try await store.leaseNextExternalPublication(
-                        owner: owner, now: now, leaseDuration: leaseDuration)
+                        owner: owner,
+                        now: now,
+                        leaseDuration: leaseDuration,
+                        preferredDestination: preferredDestination)
                 },
                 applyEvent: { key, event, now in
                     guard let store = await model.repo.storeHandle() else {
@@ -115,7 +118,7 @@ struct StrandiOSApp: App {
                     guard let store = await model.repo.storeHandle() else {
                         throw HistoricalPipelineRuntimeError.storeUnavailable
                     }
-                    let eligible = try await store.eligibleHealthKitMutationDays(
+                    let eligible = try await store.eligibleHealthKitMutationDaysBatched(
                         contextId: payload.contextId,
                         deviceId: payload.deviceId,
                         days: payload.changedDays,
@@ -125,7 +128,7 @@ struct StrandiOSApp: App {
                         return .superseded
                     }
                     try await healthBridge.publishExactHealthKit(payload: restricted)
-                    try await store.recordHealthKitMutationDelivery(
+                    try await store.recordHealthKitMutationDeliveryBatched(
                         contextId: payload.contextId,
                         deviceId: payload.deviceId,
                         days: restricted.changedDays,
@@ -190,6 +193,7 @@ struct StrandiOSApp: App {
                 now: Date.init
             )
         )
+        model.attachExternalPublicationWorker(worker)
         _liveActivity = State(initialValue: liveActivityController)
         _health = StateObject(wrappedValue: healthBridge)
         _externalPublicationWorker = State(initialValue: worker)

@@ -188,8 +188,13 @@ private struct DevicesContent: View {
             TextField("Name", text: $renameDraft)
             Button("Cancel", role: .cancel) { renameTarget = nil }
             Button("Save") {
-                registry.rename(device.id, to: renameDraft)
-                renameTarget = nil
+                do {
+                    try registry.rename(device.id, to: renameDraft)
+                    renameTarget = nil
+                } catch {
+                    // Keep the rename sheet open when the registry write fails. The cached name is not
+                    // presented as durable until the read-back succeeds.
+                }
             }
         } message: { device in
             Text("Give \(device.brand) \(device.model) a name you'll recognise.")

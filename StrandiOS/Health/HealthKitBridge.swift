@@ -600,17 +600,47 @@ final class HealthKitBridge: ObservableObject {
         }
 
         let plan = HealthWriteback.mergedSleepPlan(groups: groups)
-        let existingKeys = try await noopAuthoredSleepKeys(
-            changedDays: payload.changedDays,
-            calendar: calendar,
-            type: type
-        )
+        guard let durableStore = await repo.storeHandle() else {
+            throw ExactPublicationError.storeUnavailable
+        }
+        let ledger = try await durableStore.healthKitSleepLedger(
+            contextId: payload.contextId,
+            deviceId: payload.deviceId,
+            days: payload.changedDays)
+        let repairDays = payload.changedDays.subtracting(ledger.coveredDays)
+        let repairedKeys = repairDays.isEmpty
+            ? []
+            : try await noopAuthoredSleepKeys(
+                changedDays: repairDays,
+                calendar: calendar,
+                type: type)
         try await saveExactSleepPlan(
             plan,
             type: type,
             analysisGeneration: payload.analysisGeneration,
-            existingKeys: existingKeys
+            existingKeys: ledger.keys.union(repairedKeys),
+            forceWrite: !repairDays.isEmpty
         )
+
+        let ledgerEntries = try plan.flatMap { entry in
+            let wakeDate = Date(timeIntervalSince1970: TimeInterval(entry.spanEnd))
+            let components = calendar.dateComponents([.year, .month, .day], from: wakeDate)
+            let wakeDay = try CivilDay(key: String(format: "%04d-%02d-%02d",
+                                                    components.year!, components.month!, components.day!))
+            return entry.allKeyStartTs.map { start in
+                HealthKitSleepLedgerEntry(
+                    wakeDay: wakeDay,
+                    stableStartTimestamp: start,
+                    externalUUID: "noop:\(noopDeviceId):sleep:\(start)")
+            }
+        }
+        try await durableStore.replaceHealthKitSleepLedger(
+            contextId: payload.contextId,
+            deviceId: payload.deviceId,
+            days: payload.changedDays,
+            entries: ledgerEntries,
+            analysisGeneration: payload.analysisGeneration,
+            now: Date())
     }
 
     private func noopAuthoredSleepKeys(
@@ -620,30 +650,35 @@ final class HealthKitBridge: ObservableObject {
     ) async throws -> Set<String> {
         var keys = Set<String>()
         let prefix = "noop:\(noopDeviceId):sleep:"
-        for day in changedDays {
-            let start = try day.date(in: calendar).addingTimeInterval(-30 * 3_600)
-            let end = try calendar.date(byAdding: .day, value: 1, to: day.date(in: calendar))!
-                .addingTimeInterval(2 * 3_600)
-            let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
-                HKQuery.predicateForObjects(from: HKSource.default()),
-                HKQuery.predicateForSamples(withStart: start, end: end, options: []),
-            ])
-            let samples: [String] = try await withCheckedThrowingContinuation {
-                (continuation: CheckedContinuation<[String], any Error>) in
-                let query = HKSampleQuery(
-                    sampleType: type,
-                    predicate: predicate,
-                    limit: HKObjectQueryNoLimit,
-                    sortDescriptors: nil
-                ) { _, objects, error in
-                    if let error { continuation.resume(throwing: error); return }
-                    continuation.resume(returning: (objects ?? []).compactMap { sample in
-                        (sample.metadata?[HKMetadataKeyExternalUUID] as? String)
-                    })
-                }
-                store.execute(query)
+        guard let first = changedDays.min(), let last = changedDays.max() else { return keys }
+        let start = try first.date(in: calendar).addingTimeInterval(-30 * 3_600)
+        let end = try calendar.date(byAdding: .day, value: 1, to: last.date(in: calendar))!
+            .addingTimeInterval(2 * 3_600)
+        let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
+            HKQuery.predicateForObjects(from: HKSource.default()),
+            HKQuery.predicateForSamples(withStart: start, end: end, options: []),
+        ])
+        let samples: [HKSample] = try await withCheckedThrowingContinuation {
+            (continuation: CheckedContinuation<[HKSample], any Error>) in
+            let query = HKSampleQuery(
+                sampleType: type,
+                predicate: predicate,
+                limit: HKObjectQueryNoLimit,
+                sortDescriptors: nil
+            ) { _, objects, error in
+                if let error { continuation.resume(throwing: error); return }
+                continuation.resume(returning: objects ?? [])
             }
-            for key in samples where key.hasPrefix(prefix) { keys.insert(key) }
+            store.execute(query)
+        }
+        for sample in samples {
+            guard let key = sample.metadata?[HKMetadataKeyExternalUUID] as? String,
+                  key.hasPrefix(prefix) else { continue }
+            let components = calendar.dateComponents([.year, .month, .day], from: sample.endDate)
+            guard let year = components.year, let month = components.month, let day = components.day,
+                  let wakeDay = try? CivilDay(key: String(format: "%04d-%02d-%02d", year, month, day)),
+                  changedDays.contains(wakeDay) else { continue }
+            keys.insert(key)
         }
         return keys
     }
@@ -652,7 +687,8 @@ final class HealthKitBridge: ObservableObject {
         _ plan: [HealthWriteback.MergedSleepEntry],
         type: HKCategoryType,
         analysisGeneration: Int64,
-        existingKeys: Set<String>
+        existingKeys: Set<String>,
+        forceWrite: Bool
     ) async throws {
         let fingerprint = HealthKitWritebackFingerprint.fingerprint(
             ["analysis|\(analysisGeneration)"] + plan.flatMap { entry in
@@ -660,7 +696,7 @@ final class HealthKitBridge: ObservableObject {
                     + entry.intervals.map { "stage|\($0.kind)|\($0.start)|\($0.end)" }
             }
         )
-        guard HealthKitWritebackFingerprint.shouldWrite(.sleep, fingerprint: fingerprint) else { return }
+        guard forceWrite || HealthKitWritebackFingerprint.shouldWrite(.sleep, fingerprint: fingerprint) else { return }
 
         var samples: [HKCategorySample] = []
         var keys: [String] = Array(existingKeys)

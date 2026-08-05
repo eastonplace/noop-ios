@@ -185,6 +185,29 @@ public struct WidgetSnapshot: Codable, Equatable {
         return snap
     }
 
+    /// Merge a matching live overlay only at read time. A nil or mismatched overlay leaves the verified
+    /// snapshot untouched, so the widget cannot display live values under a different source identity.
+    public static func loadForDisplay() -> WidgetSnapshot? {
+        guard let verified = load() else { return nil }
+        guard let defaults = UserDefaults(suiteName: suiteName),
+              let data = defaults.data(forKey: ActiveVerifiedSinkEpochStore.widgetLiveOverlayKey),
+              let overlay = try? JSONDecoder().decode(WidgetLiveOverlay.self, from: data),
+              let active = ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults),
+              verified.verifiedContextId == overlay.contextId,
+              verified.verifiedProjectionGeneration == overlay.generation,
+              active.epoch == overlay.epoch,
+              active.contextId == overlay.contextId else {
+            return verified
+        }
+        var merged = verified
+        merged.bpm = overlay.bpm
+        merged.batteryPct = overlay.batteryPct
+        merged.bonded = overlay.bonded
+        merged.hrSparkline = overlay.hrSparkline
+        merged.updated = overlay.updated
+        return merged
+    }
+
     /// Persist this snapshot into the shared suite. The result lets publishers avoid updating their
     /// in-process throttle cache or asking WidgetKit to reload when the App Group write could not happen.
     @discardableResult
@@ -199,6 +222,48 @@ public struct WidgetSnapshot: Codable, Equatable {
         guard let defaults, let data = try? JSONEncoder().encode(self) else { return false }
         defaults.set(data, forKey: WidgetSnapshot.storageKey)
         return true
+    }
+
+    @discardableResult
+    public func saveAndReadBack(to defaults: UserDefaults?) -> Bool {
+        guard let defaults, let data = try? JSONEncoder().encode(self) else { return false }
+        defaults.set(data, forKey: Self.storageKey)
+        guard let stored = defaults.data(forKey: Self.storageKey),
+              let decoded = try? JSONDecoder().decode(Self.self, from: stored) else { return false }
+        return decoded == self
+    }
+}
+
+/// Fast live values are an overlay, never a relabelled copy of the last verified snapshot. The exact
+/// epoch/context/generation is checked again by the App Group sink before this record is written.
+public struct WidgetLiveOverlay: Codable, Equatable, Sendable {
+    public let epoch: UInt64
+    public let contextId: String
+    public let generation: Int64
+    public let bpm: Int?
+    public let batteryPct: Int?
+    public let bonded: Bool
+    public let hrSparkline: [Int]?
+    public let updated: Date
+
+    public init(
+        epoch: UInt64,
+        contextId: String,
+        generation: Int64,
+        bpm: Int?,
+        batteryPct: Int?,
+        bonded: Bool,
+        hrSparkline: [Int]?,
+        updated: Date
+    ) {
+        self.epoch = epoch
+        self.contextId = contextId
+        self.generation = generation
+        self.bpm = bpm
+        self.batteryPct = batteryPct
+        self.bonded = bonded
+        self.hrSparkline = hrSparkline.map { Array($0.filter { (30...240).contains($0) }.suffix(48)) }
+        self.updated = updated
     }
 }
 

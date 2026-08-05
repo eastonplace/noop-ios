@@ -102,3 +102,97 @@ private func pr28Scope() throws -> HistoricalAnalysisScope {
         recordedTimeZoneIdentifier: "America/Los_Angeles"
     ))
 }
+
+@Test func quiescenceCancelsOldEpochAndWaitsForOwners() async throws {
+    let gate = PipelineQuiescence()
+    let oldToken = try await gate.begin()
+
+    let quiesceTask = Task { try await gate.quiesce(cancelOwners: {}) }
+    await Task.yield()
+    await gate.end(oldToken)
+    let newEpoch = try await quiesceTask.value
+
+    do {
+        try await gate.validate(oldToken)
+        Issue.record("an old pipeline token remained valid after quiescence")
+    } catch PipelineQuiescenceError.superseded {
+        // Expected: old work cannot pass a lifecycle boundary.
+    }
+
+    try await gate.resume(expectedEpoch: newEpoch)
+    let newToken = try await gate.begin()
+    try await gate.validate(newToken)
+    await gate.end(newToken)
+}
+
+@Test func payloadRestrictionKeepsSleepMutationPairingAfterAnIneligibleMiddleDay() throws {
+    let day1 = try pr28Day("2026-08-01")
+    let day2 = try pr28Day("2026-08-02")
+    let day3 = try pr28Day("2026-08-03")
+    let payload = try HistoricalHealthKitMutationPayload(
+        contextId: "context",
+        deviceId: "my-whoop",
+        analysisGeneration: 9,
+        recordedTimeZoneIdentifier: "UTC",
+        changedDays: [day1, day2, day3],
+        dailyMutations: [],
+        sleepMutations: [
+            try HistoricalHealthKitSleepMutation(
+                stableStartTimestamp: 1_785_542_400,
+                effectiveStartTimestamp: 1_785_542_400,
+                endTimestamp: 1_785_585_600,
+                stagesJSON: nil),
+            try HistoricalHealthKitSleepMutation(
+                stableStartTimestamp: 1_785_628_800,
+                effectiveStartTimestamp: 1_785_628_800,
+                endTimestamp: 1_785_672_000,
+                stagesJSON: nil),
+            try HistoricalHealthKitSleepMutation(
+                stableStartTimestamp: 1_785_715_200,
+                effectiveStartTimestamp: 1_785_715_200,
+                endTimestamp: 1_785_758_400,
+                stagesJSON: nil)
+        ])
+
+    let restricted = try payload.restricted(to: [day3])
+    #expect(restricted?.sleepMutations.map(\.stableStartTimestamp) == [1_785_715_200])
+    #expect(restricted?.changedDays == [day3])
+}
+
+@Test func payloadDecoderRejectsCorruptVersionAndChildValues() throws {
+    let day = try pr28Day("2026-08-01")
+    let payload = try HistoricalHealthKitMutationPayload(
+        contextId: "context",
+        deviceId: "my-whoop",
+        analysisGeneration: 7,
+        recordedTimeZoneIdentifier: "UTC",
+        changedDays: [day],
+        dailyMutations: [
+            try HistoricalHealthKitDailyMutation(
+                day: day,
+                wakeTimestamp: 1_754_000_000,
+                restingHR: 52,
+                hrvMilliseconds: 64,
+                oxygenSaturationPercent: 97,
+                respiratoryRate: 14)
+        ],
+        sleepMutations: [])
+    let encoder = JSONEncoder()
+    let decoder = JSONDecoder()
+
+    var wrongVersion = try JSONSerialization.jsonObject(with: encoder.encode(payload)) as! [String: Any]
+    wrongVersion["version"] = 99
+    let wrongVersionData = try JSONSerialization.data(withJSONObject: wrongVersion)
+    #expect(throws: HistoricalHealthKitPayloadError.unsupportedVersion(99)) {
+        try decoder.decode(HistoricalHealthKitMutationPayload.self, from: wrongVersionData)
+    }
+
+    var invalidChild = try JSONSerialization.jsonObject(with: encoder.encode(payload)) as! [String: Any]
+    var daily = invalidChild["dailyMutations"] as! [[String: Any]]
+    daily[0]["restingHR"] = 1
+    invalidChild["dailyMutations"] = daily
+    let invalidChildData = try JSONSerialization.data(withJSONObject: invalidChild)
+    #expect(throws: HistoricalHealthKitPayloadError.invalidDailyMutation) {
+        try decoder.decode(HistoricalHealthKitMutationPayload.self, from: invalidChildData)
+    }
+}

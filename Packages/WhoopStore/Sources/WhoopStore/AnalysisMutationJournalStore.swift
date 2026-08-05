@@ -62,6 +62,7 @@ public struct DurableAnalysisMutationRecord: Codable, Equatable, Sendable {
 public enum AnalysisMutationJournalError: Error, Equatable, Sendable {
     case invalidRecord
     case databaseChanged
+    case leaseOrScopeChanged
     case conflictingReplay
     case invalidStoredRow
 }
@@ -90,6 +91,47 @@ extension WhoopStore {
             let currentDatabaseInstanceId = try WhoopStore.databaseInstanceId(in: db)
             guard currentDatabaseInstanceId == work.scope.databaseInstanceId else {
                 throw AnalysisMutationJournalError.databaseChanged
+            }
+
+            // Score rows are written before this receipt. Re-check the durable execution edge in the same
+            // transaction so a worker that crossed a source transition cannot publish an old-lineage mutation.
+            // The in-memory `work` value is only a proposal; the current row is authoritative.
+            guard let current = try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT state, leaseOwner, leaseExpiresAt, databaseInstanceId, sourceId, deviceId,
+                           lineage, cursorEpoch, trimScope, lastReceiptGeneration
+                    FROM historicalAnalysisWork
+                    WHERE workId = ?
+                    LIMIT 1
+                    """,
+                arguments: [work.id.uuidString]
+            ),
+            let expectedOwner = work.lease?.owner,
+            !expectedOwner.isEmpty else {
+                throw AnalysisMutationJournalError.leaseOrScopeChanged
+            }
+            let currentState: String = current["state"]
+            let currentOwner: String? = current["leaseOwner"]
+            let currentLeaseExpiry: Int? = current["leaseExpiresAt"]
+            let rowDatabaseInstanceId: String = current["databaseInstanceId"]
+            let currentSourceId: String = current["sourceId"]
+            let currentDeviceId: String = current["deviceId"]
+            let currentLineage: String = current["lineage"]
+            let currentCursorEpoch: Int = current["cursorEpoch"]
+            let currentTrimScope: String = current["trimScope"]
+            let currentLastReceiptGeneration: Int64 = current["lastReceiptGeneration"]
+            guard !["complete", "quarantined"].contains(currentState),
+                  currentOwner == expectedOwner,
+                  currentLeaseExpiry.map({ $0 > Int(now.timeIntervalSince1970) }) ?? false,
+                  rowDatabaseInstanceId == work.scope.databaseInstanceId,
+                  currentSourceId == work.scope.sourceId,
+                  currentDeviceId == work.scope.deviceId,
+                  currentLineage == work.scope.deviceLineageId,
+                  currentCursorEpoch == work.scope.cursorEpoch,
+                  currentTrimScope == work.scope.trimScope,
+                  currentLastReceiptGeneration == work.lastReceiptGeneration else {
+                throw AnalysisMutationJournalError.leaseOrScopeChanged
             }
 
             if let row = try Row.fetchOne(db, sql: """

@@ -3,6 +3,7 @@ import Foundation
 import NoopPhase34Core
 import StrandDesign
 import StrandAnalytics
+import WhoopStore
 import WidgetKit
 
 enum WidgetPublicationError: Error {
@@ -21,7 +22,7 @@ private enum WidgetLivePublishGate {
     /// of repeatedly decoding a missing value on every sensor event.
     static func currentSnapshot(now: Date) -> WidgetSnapshot? {
         if let cachedSnapshot { return cachedSnapshot }
-        guard let loaded = WidgetSnapshot.load() else { return nil }
+        guard let loaded = WidgetSnapshot.loadForDisplay() else { return nil }
         cachedSnapshot = loaded
         // A wall-clock correction can leave a persisted `updated` timestamp in the future. Do not let
         // that suppress live publication until the clock catches up.
@@ -96,12 +97,11 @@ extension WidgetSnapshot {
         guard expectedActiveContextId == nil || expectedActiveContextId == verifiedProjection.contextId else {
             return .superseded
         }
-        let stored = WidgetSnapshot.load()
-        guard stored?.acceptsVerifiedProjection(
-            contextId: verifiedProjection.contextId,
-            generation: verifiedProjection.generation
-        ) ?? true else { return .superseded }
-        let generation = WidgetLivePublishGate.beginFullPublish()
+        guard let defaults = UserDefaults(suiteName: WidgetSnapshot.suiteName),
+              let token = ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults),
+              token.contextId == verifiedProjection.contextId else {
+            return .superseded
+        }
         let days = model.repo.days
         let now = Date()
         // The recovery-derived anchor: today's row when it's scored, else the freshest STRICTLY-PRIOR
@@ -113,10 +113,6 @@ extension WidgetSnapshot {
         // re-surface AS today.
         let day = days.first(where: { $0.day == verifiedProjection.logicalDay.key })
             ?? Repository.widgetAnchor(days: days, now: now)
-        let recovery = verifiedProjection.visibleMetric(.recovery)?.value
-        let storedStrain = ExternalSurfaceProjection(verifiedProjection).effort
-        let restScore = verifiedProjection.visibleMetric(.sleepScore)?.value
-        guard WidgetLivePublishGate.isCurrentFullPublish(generation) else { return .superseded }
         let previousRecovery = day.flatMap { anchor in
             days.last(where: { $0.day < anchor.day && $0.recovery != nil })?.recovery
         }
@@ -124,72 +120,84 @@ extension WidgetSnapshot {
             guard let current = day?.recovery, let previousRecovery else { return nil }
             return Int((current - previousRecovery).rounded())
         }()
-        let hrvSeries = await model.repo.exploreSeries(key: "hrv", source: "my-whoop")
-        guard WidgetLivePublishGate.isCurrentFullPublish(generation) else { return .superseded }
-        let hrvSparkline = hrvSeries
-            .filter { point in day.map { point.day <= $0.day } ?? true }
-            .suffix(12)
-            .map { Int($0.value.rounded()) }
-        let stress = await dashboardStress(from: model)
-        guard WidgetLivePublishGate.isCurrentFullPublish(generation) else { return .superseded }
-        let sparkline = model.activeWorkout.map { Array($0.samples.suffix(48).map(\.bpm)) }
-        let snap = WidgetSnapshot.publishing(
-            recovery: recovery,
-            storedStrain: storedStrain,
-            sleepScore: restScore,
-            bpm: model.bpm ?? model.live.heartRate,
-            batteryPct: model.live.batteryPct,
-            bonded: model.live.bonded,
-            hrv: day?.avgHrv,
-            restingHr: day?.restingHr,
-            recoveryDelta: recoveryDelta,
-            sleepMinutes: day?.totalSleepMin.map { Int($0.rounded()) },
-            steps: day?.steps,
-            calories: day?.activeKcalEst.map { Int($0.rounded()) },
-            hourlyStress: stress.hours,
-            stressSummary: stress.summary,
-            hrSparkline: sparkline,
-            hrvSparkline: hrvSparkline,
-            verifiedContextId: verifiedProjection.contextId,
-            verifiedProjectionGeneration: verifiedProjection.generation,
-            updated: now
-        )
-        guard WidgetLivePublishGate.isCurrentFullPublish(generation) else { return .superseded }
-        // A refreshSeq change unrelated to widget data must not rewrite the same App Group blob or reload
-        // every timeline. Re-read the in-process latest snapshot only after all awaits; a live-lane publish
-        // may have advanced it while this slower projection was suspended.
-        let previous = WidgetLivePublishGate.currentSnapshot(now: now)
-        guard WidgetLivePublishGate.shouldPublishFull(previous: previous, next: snap, now: now) else {
-            return .alreadyCurrent
-        }
-        guard snap.acceptsVerifiedProjection(
-            contextId: verifiedProjection.contextId,
-            generation: verifiedProjection.generation
-        ) else { return .superseded }
-        guard let defaults = UserDefaults(suiteName: WidgetSnapshot.suiteName) else {
-            throw WidgetPublicationError.appGroupUnavailable
-        }
-        let result = VerifiedProjectionGenerationStore.commitIfAccepted(
-            contextId: verifiedProjection.contextId,
+        // This is the durable acknowledgement path. It contains only the verified core and in-memory Today
+        // fields. HRV history, raw stress scans, and other enrichment run after the caller receives success.
+        var snap = WidgetCorePublication.makeCoreSnapshot(
+            model: model,
+            projection: verifiedProjection,
+            now: now)
+        snap.recoveryDelta = recoveryDelta
+        let result = ActiveVerifiedSinkEpochStore.commitIfCurrent(
+            token: token,
             generation: verifiedProjection.generation,
-            expectedActiveContextId: expectedActiveContextId,
             defaults: defaults,
-            key: "noop.widget.verified-projection-generation",
-            write: { snap.save() }
+            generationKey: ActiveVerifiedSinkEpochStore.widgetGenerationKey,
+            writeAndReadBackPayload: { snap.saveAndReadBack(to: $0) }
         )
         switch result {
         case .published:
             WidgetLivePublishGate.notePublished(snap, at: now)
             WidgetCenter.shared.reloadAllTimelines()
+            Task { @MainActor in
+                await publishOptionalWidgetEnrichment(
+                    from: model,
+                    projection: verifiedProjection,
+                    anchor: day,
+                    token: token)
+            }
             return .published
         case .alreadyCurrent:
             WidgetLivePublishGate.notePublished(snap, at: now)
+            Task { @MainActor in
+                await publishOptionalWidgetEnrichment(
+                    from: model,
+                    projection: verifiedProjection,
+                    anchor: day,
+                    token: token)
+            }
             return .alreadyCurrent
         case .superseded:
             return .superseded
         case .failed:
             throw WidgetPublicationError.sinkWriteFailed
         }
+    }
+
+    /// Optional Widget enrichment is deliberately detached from the durable outbox acknowledgement. The
+    /// epoch/generation check on the second write prevents a late enrichment task from crossing a transition.
+    @MainActor
+    private static func publishOptionalWidgetEnrichment(
+        from model: AppModel,
+        projection: VerifiedHealthProjection,
+        anchor: DailyMetric?,
+        token: VerifiedSinkToken
+    ) async {
+        let hrvSeries = await model.repo.exploreSeries(key: "hrv", source: "my-whoop")
+        let hrvSparkline = hrvSeries
+            .filter { point in anchor.map { point.day <= $0.day } ?? true }
+            .suffix(12)
+            .map { Int($0.value.rounded()) }
+        let stress = await dashboardStress(from: model)
+        guard let defaults = UserDefaults(suiteName: WidgetSnapshot.suiteName),
+              let active = ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults),
+              active == token,
+              let base = WidgetSnapshot.load(),
+              base.verifiedContextId == projection.contextId,
+              base.verifiedProjectionGeneration == projection.generation else { return }
+        var enriched = base
+        enriched.hrvSparkline = hrvSparkline
+        enriched.hourlyStress = stress.hours
+        enriched.stressSummary = stress.summary
+        let result = ActiveVerifiedSinkEpochStore.commitIfCurrent(
+            token: token,
+            generation: projection.generation,
+            defaults: defaults,
+            generationKey: ActiveVerifiedSinkEpochStore.widgetGenerationKey,
+            writeAndReadBackPayload: { enriched.saveAndReadBack(to: $0) }
+        )
+        guard result == .published || result == .alreadyCurrent else { return }
+        WidgetLivePublishGate.notePublished(enriched, at: Date())
+        WidgetCenter.shared.reloadAllTimelines()
     }
 
     /// Fast publication lane for live fields. No history query and no sleep/stress recomputation.
@@ -211,49 +219,40 @@ extension WidgetSnapshot {
         from model: AppModel,
         verifiedProjection: VerifiedHealthProjection?
     ) {
-        let verified = verifiedProjection
-        let recovery = verified?.visibleMetric(.recovery)?.value
-        let storedStrain = verified.flatMap { ExternalSurfaceProjection($0).effort }
+        guard let verified = verifiedProjection,
+              let defaults = UserDefaults(suiteName: WidgetSnapshot.suiteName),
+              let token = ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults),
+              token.contextId == verified.contextId,
+              let base = WidgetSnapshot.load(),
+              base.verifiedContextId == verified.contextId,
+              base.verifiedProjectionGeneration == verified.generation else {
+            return
+        }
         let now = Date()
         let previous = WidgetLivePublishGate.currentSnapshot(now: now)
-        let base = previous ?? WidgetSnapshot(
-            recovery: recovery.map { Int($0.rounded()) }, bpm: nil, batteryPct: nil,
-            bonded: model.live.bonded, updated: now)
         let sparkline = model.activeWorkout.map { Array($0.samples.suffix(48).map(\.bpm)) }
-        var next = base.mergingLive(
+        var next = previous ?? base
+        next.bpm = model.bpm ?? model.live.heartRate
+        next.batteryPct = model.live.batteryPct.map { Int($0.rounded()) }
+        next.bonded = model.live.connected
+        next.updated = now
+        next.hrSparkline = sparkline
+        if model.activeWorkout == nil { next.hrSparkline = nil }
+        let overlay = WidgetLiveOverlay(
+            epoch: token.epoch,
+            contextId: verified.contextId,
+            generation: verified.generation,
             bpm: model.bpm ?? model.live.heartRate,
-            batteryPct: model.live.batteryPct,
+            batteryPct: model.live.batteryPct.map { Int($0.rounded()) },
             bonded: model.live.connected,
-            storedStrain: storedStrain,
             hrSparkline: sparkline,
             updated: now)
-        if let verified {
-            guard next.acceptsVerifiedProjection(
-                contextId: verified.contextId,
-                generation: verified.generation
-            ) else { return }
-            next.verifiedContextId = verified.contextId
-            next.verifiedProjectionGeneration = verified.generation
-        }
-        // `mergingLive` preserves a nil optional by design, but here nil specifically means the workout
-        // ended. Clear the old trace so the widget exits workout mode immediately instead of retaining the
-        // last session's graph forever.
-        if model.activeWorkout == nil { next.hrSparkline = nil }
         guard WidgetLivePublishGate.shouldPublish(previous: previous, next: next, now: now) else { return }
-        if let verified,
-           let defaults = UserDefaults(suiteName: WidgetSnapshot.suiteName) {
-            let result = VerifiedProjectionGenerationStore.commitIfAccepted(
-                contextId: verified.contextId,
-                generation: verified.generation,
-                expectedActiveContextId: verified.contextId,
-                defaults: defaults,
-                key: "noop.widget.verified-projection-generation",
-                write: { next.save() }
-            )
-            guard result == .published || result == .alreadyCurrent else { return }
-        } else {
-            guard next.save() else { return }
-        }
+        guard ActiveVerifiedSinkEpochStore.commitLiveOverlayIfCurrent(
+            token: token,
+            generation: verified.generation,
+            defaults: defaults,
+            overlay: overlay) else { return }
         WidgetLivePublishGate.notePublished(next, at: now)
         WidgetCenter.shared.reloadAllTimelines()
     }

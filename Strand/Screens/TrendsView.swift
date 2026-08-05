@@ -27,7 +27,7 @@ struct TrendsView: View {
     @State var weekOffset: Int
 
     init(initialWeekOffset: Int = 0) {
-        _weekOffset = State(initialValue: min(0, initialWeekOffset))
+        _weekOffset = State(initialValue: TrendsBounds.clampWeekOffset(initialWeekOffset))
     }
 
     /// During the first frame, use Repository's already-published canonical projection. After the auxiliary
@@ -50,7 +50,7 @@ struct TrendsView: View {
             timeZoneIdentifier: loadedData.timeZoneIdentifier,
             metric: selectedMetric.rawValue,
             range: selectedRange.rawValue,
-            weekOffset: weekOffset,
+            weekOffset: TrendsBounds.clampWeekOffset(weekOffset),
             completedLoadIdentity: loadedData.loadIdentity
         )
     }
@@ -134,12 +134,18 @@ struct TrendsView: View {
 
     @MainActor
     private func loadDataForCurrentRevision() async {
+        let boundedRangeDays = TrendsBounds.clampRangeDays(selectedRange.days)
+        let boundedOffset = TrendsBounds.clampWeekOffset(weekOffset)
+        guard boundedOffset == weekOffset else {
+            weekOffset = boundedOffset
+            return
+        }
         let revision = Int(truncatingIfNeeded: repo.refreshSeq
             &+ Int(repo.canonicalHealth.trendsRevision))
         let anchorDay = civilContext.localDay
         let timeZoneIdentifier = civilContext.timeZoneIdentifier
-        let rangeDays = selectedRange.days
-        let offset = weekOffset
+        let rangeDays = boundedRangeDays
+        let offset = boundedOffset
         guard let next = await repo.loadCanonicalTrendsData(
             anchorDay: anchorDay,
             timeZoneIdentifier: timeZoneIdentifier,
@@ -151,8 +157,8 @@ struct TrendsView: View {
                 &+ Int(repo.canonicalHealth.trendsRevision)),
               anchorDay == civilContext.localDay,
               timeZoneIdentifier == civilContext.timeZoneIdentifier,
-              rangeDays == selectedRange.days,
-              offset == weekOffset
+              rangeDays == TrendsBounds.clampRangeDays(selectedRange.days),
+              offset == TrendsBounds.clampWeekOffset(weekOffset)
         else { return }
         let revisionAdjusted = TrendsLoadedData(
             loadIdentity: next.loadIdentity,
@@ -177,7 +183,7 @@ struct TrendsView: View {
         let referenceDate = localDate(data.anchorDay, calendar: calendar) ?? Date()
         let metric = selectedMetric
         let range = selectedRange
-        let offset = weekOffset
+        let offset = TrendsBounds.clampWeekOffset(weekOffset)
         guard let identity = data.loadIdentity,
               identity.rangeDays == range.days,
               identity.weekOffset == offset,

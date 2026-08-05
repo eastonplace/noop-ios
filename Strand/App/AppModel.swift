@@ -41,6 +41,30 @@ enum WorkoutFinishError: LocalizedError {
     }
 }
 
+enum AppModelSourceTransitionError: Error, Equatable {
+    case storeUnavailable
+    case registryUnavailable
+    case targetUnavailable
+    case externalWorkerUnavailable
+    case sinkUnavailable
+    case sinkActivationFailed
+    case physicalTransitionMissing
+}
+
+enum DurableSourceTransitionKind: Equatable {
+    case selectExisting
+    case replacePeripheral
+    case archive
+    case deleteData
+}
+
+private struct PendingPhysicalSourceTransition {
+    let deviceId: String
+    let historicalEpoch: UInt64
+    let externalEpoch: UInt64
+    let sinkEpoch: UInt64
+}
+
 /// Root app state: owns the live BLE connection state and the CoreBluetooth engine.
 /// More subsystems (Repository, AnalyticsEngine, ImportCoordinator) get wired in here
 /// in later milestones.
@@ -126,6 +150,9 @@ final class AppModel: ObservableObject {
     /// every no-strap case): it only acts when a non-WHOOP generic strap becomes the active device,
     /// pausing WHOOP and running the isolated `StandardHRSource`. nil until wired (post store-open).
     private(set) var sourceCoordinator: SourceCoordinator?
+    private var externalPublicationQuiesce: (() async throws -> UInt64)?
+    private var externalPublicationResume: ((UInt64) async throws -> Void)?
+    private var pendingPhysicalSourceTransition: PendingPhysicalSourceTransition?
 
     /// Timestamps of moments marked via a double-tap (persisted).
     @Published var moments: [Date] = []
@@ -569,6 +596,58 @@ final class AppModel: ObservableObject {
                                        thresholdPct: PuffinExperiment.powerSavingBatteryPct)
     }
 
+    /// Attach the single durable external worker after the app composition root creates it. Source
+    /// transitions fail closed until this hook is installed; no old sink task may run through a mutation.
+    func attachExternalPublicationWorker(_ worker: ExternalPublicationWorker) {
+        externalPublicationQuiesce = { try await worker.quiesce() }
+        externalPublicationResume = { epoch in try await worker.resume(expectedEpoch: epoch) }
+    }
+
+    private func quiesceExternalPublication() async throws -> UInt64 {
+        guard let externalPublicationQuiesce else {
+            throw AppModelSourceTransitionError.externalWorkerUnavailable
+        }
+        return try await externalPublicationQuiesce()
+    }
+
+    private func resumeExternalPublication(_ epoch: UInt64) async throws {
+        guard let externalPublicationResume else {
+            throw AppModelSourceTransitionError.externalWorkerUnavailable
+        }
+        try await externalPublicationResume(epoch)
+    }
+
+    private func sinkDefaults() throws -> UserDefaults {
+        guard let defaults = UserDefaults(suiteName: WidgetSnapshot.suiteName) else {
+            throw AppModelSourceTransitionError.sinkUnavailable
+        }
+        return defaults
+    }
+
+    private func beginVerifiedSinkTransition() throws -> UInt64 {
+        let defaults = try sinkDefaults()
+        guard let epoch = ActiveVerifiedSinkEpochStore.beginTransition(defaults: defaults) else {
+            throw AppModelSourceTransitionError.sinkUnavailable
+        }
+        ActiveVerifiedSinkEpochStore.clearLegacyKeys(defaults: defaults)
+        return epoch
+    }
+
+    private func activateVerifiedSinkTransition(epoch: UInt64) throws {
+        let defaults = try sinkDefaults()
+        guard let contextId = repo.currentVerifiedSinkContextIdForActivation else {
+            // An archived/deleted active source is an explicit closed-sink state. Leave the App Group record
+            // at (epoch, nil); writers will return superseded until a source is selected again.
+            return
+        }
+        guard ActiveVerifiedSinkEpochStore.activate(
+            contextId: contextId,
+            epoch: epoch,
+            defaults: defaults) != nil else {
+            throw AppModelSourceTransitionError.sinkActivationFailed
+        }
+    }
+
     private func makeHistoricalPipelineRuntime() -> HistoricalPipelineRuntime {
         let postAnalysisSnapshotBuilder = RepositoryPostAnalysisSnapshotBuilder.self
         let classifyError: @Sendable (any Error) -> PipelineFailureClassification =
@@ -716,10 +795,18 @@ final class AppModel: ObservableObject {
     private func wireSourceCoordinator() async {
         guard sourceCoordinator == nil, let store = await repo.storeHandle() else { return }
         let registry = DeviceRegistry(store: DeviceRegistryStore(dbQueue: store.registryWriter))
-        registry.reload()
+        do { try registry.reload() }
+        catch {
+            live.append(log: "Device registry unavailable; source wiring deferred: \(error)")
+            return
+        }
         // Establish the source lineage synchronously. The subscription below is still needed for future
         // changes, but its asynchronous initial emission is too late for the startup snapshot contract.
-        _ = repo.adoptActiveDeviceId(registry.activeDeviceId)
+        if let activeDeviceId = registry.activeDeviceId {
+            _ = repo.adoptActiveDeviceId(activeDeviceId)
+        } else {
+            repo.invalidateVerifiedExternalSurface()
+        }
         let coordinator = SourceCoordinator(
             registry: registry,
             live: live,
@@ -736,10 +823,10 @@ final class AppModel: ObservableObject {
             connectedPeripheralUUID: ble.$connectedPeripheralUUID.eraseToAnyPublisher(),
             transitionFence: sourceTransitionFence,
             onPeripheralIdentityWillChange: { [weak self] deviceId, oldScope in
-                await self?.preparePeripheralIdentityTransition(deviceId: deviceId, oldScope: oldScope)
+                try await self?.preparePeripheralIdentityTransition(deviceId: deviceId, oldScope: oldScope)
             },
             onPeripheralIdentityDidChange: { [weak self] deviceId in
-                await self?.finishPeripheralIdentityTransition(deviceId: deviceId)
+                try await self?.finishPeripheralIdentityTransition(deviceId: deviceId)
             },
             // Generic-HR connect lifecycle → the SAME strap log BLEManager writes to (`live.append(log:)`),
             // so a "connected but no data" report (issue #421) is no longer blind to the Polar/Wahoo/etc
@@ -779,36 +866,73 @@ final class AppModel: ObservableObject {
     /// already resolves the active strap per day via the registry's own active id (`resolveDayOwner`), so it
     /// reads + scores the re-added strap's raw and writes the computed result to the STABLE canonical
     /// `-noop` sibling, no engine re-point needed.
-    private func adoptActiveDevice(_ activeId: String) async {
+    private func adoptActiveDevice(_ activeId: String?) async {
+        guard let activeId else {
+            repo.invalidateVerifiedExternalSurface()
+            return
+        }
         await sourceTransitionFence.run { @MainActor [weak self] in
             await self?.adoptActiveDeviceUnfenced(activeId)
         }
     }
 
-    /// Retire the old physical-source lineage before the registry adopts a replacement peripheral.
+    /// Quiesce every durable writer before the physical registry identity changes. Old HealthKit outbox rows and
+    /// watermarks remain intact; only the historical receipt scope is retired for the new physical lineage.
     private func preparePeripheralIdentityTransition(
         deviceId: String,
-        oldScope: HistoricalCursorScope?
-    ) async {
-        repo.invalidateVerifiedExternalSurface()
-        await repo.invalidateTodayHealthSnapshot()
-        guard let store = await repo.storeHandle() else { return }
-        if let oldScope {
-            _ = try? await store.retireHistoricalReceiptScope(
+        oldScope: HistoricalCursorScope
+    ) async throws {
+        var historicalEpoch: UInt64?
+        var externalEpoch: UInt64?
+        do {
+            historicalEpoch = try await historicalPipelineRuntime.quiesce()
+            externalEpoch = try await quiesceExternalPublication()
+            // Stop live source callbacks only after both durable workers have cancelled and awaited their
+            // old owners. This keeps the physical-lineage mutation behind the same quiescence boundary.
+            sourceCoordinator?.stopForTransition()
+            let sinkEpoch = try beginVerifiedSinkTransition()
+            repo.invalidateVerifiedExternalSurface()
+            await repo.invalidateTodayHealthSnapshot()
+            guard let store = await repo.storeHandle() else {
+                throw AppModelSourceTransitionError.storeUnavailable
+            }
+            try await store.retireHistoricalReceiptScope(
                 consumerId: "phase34.analysis",
                 scope: oldScope,
                 reason: "peripheral_identity_transition")
+            guard let historicalEpoch, let externalEpoch else {
+                throw AppModelSourceTransitionError.externalWorkerUnavailable
+            }
+            pendingPhysicalSourceTransition = PendingPhysicalSourceTransition(
+                deviceId: deviceId,
+                historicalEpoch: historicalEpoch,
+                externalEpoch: externalEpoch,
+                sinkEpoch: sinkEpoch)
+        } catch {
+            if let externalEpoch {
+                do { try await resumeExternalPublication(externalEpoch) }
+                catch { live.append(log: "External worker resume failed after physical preflight: \(error)") }
+            }
+            if let historicalEpoch {
+                do { try await historicalPipelineRuntime.resume(expectedEpoch: historicalEpoch) }
+                catch { live.append(log: "Historical worker resume failed after physical preflight: \(error)") }
+            }
+            throw error
         }
-        try? await store.deleteExternalPublicationState(deviceId: deviceId)
-        let defaults = UserDefaults.standard
-        defaults.removeObject(forKey: "noop.widget.verified-projection-generation")
-        defaults.removeObject(forKey: "noop.live-activity.verified-projection-generation")
     }
 
-    /// Re-open admission only after the new physical lineage is durable.
-    private func finishPeripheralIdentityTransition(deviceId: String) async {
-        _ = await repo.refresh(.activeDeviceChanged)
-        _ = await signalHistoricalPipeline()
+    /// Re-open admission only after the new physical lineage and registry write are durable. Heavy refresh and
+    /// rescoring are scheduled after the fence closes so the short transition cannot be held by SQLite work.
+    private func finishPeripheralIdentityTransition(deviceId: String) async throws {
+        guard let pending = pendingPhysicalSourceTransition, pending.deviceId == deviceId else {
+            throw AppModelSourceTransitionError.physicalTransitionMissing
+        }
+        try activateVerifiedSinkTransition(epoch: pending.sinkEpoch)
+        try await historicalPipelineRuntime.resume(expectedEpoch: pending.historicalEpoch)
+        try await resumeExternalPublication(pending.externalEpoch)
+        pendingPhysicalSourceTransition = nil
+        sourceCoordinator?.activeDeviceChanged(to: deviceRegistry?.activeDeviceId)
+        schedulePostCommitSourceWork(targetDeviceId: deviceRegistry?.activeDeviceId)
         live.append(log: "Source transition committed for \(deviceId).")
     }
 
@@ -821,34 +945,103 @@ final class AppModel: ObservableObject {
         await intelligence.analyzeRecent()
     }
 
-    /// Source transitions are a durable boundary, not only a registry UI update. Retire the old receipt
-    /// scope, invalidate the old Repository/projection generation, clear latest-state sink identities, then
-    /// publish the replacement source. All callers use the same fence so a late BLE or foreground callback
-    /// cannot reopen the old context between those steps.
-    private func performSourceTransition(to id: String, from oldId: String) async {
-        guard oldId != id, let registry = deviceRegistry else { return }
-        guard let store = await repo.storeHandle() else { return }
-        let registryStore = DeviceRegistryStore(dbQueue: store.registryWriter)
-        let oldScope = try? registryStore.historicalCursorScope(for: oldId)
-
-        repo.invalidateVerifiedExternalSurface()
-        await repo.invalidateTodayHealthSnapshot()
-        if let oldScope {
-            _ = try? await store.retireHistoricalReceiptScope(
-                consumerId: "phase34.analysis",
-                scope: oldScope,
-                reason: "source_transition")
+    /// One-size-fits-all source cleanup caused ordinary A->B selection to retire A and delete its pending
+    /// HealthKit state. This operation keeps the four lifecycle cases explicit.
+    private func performSourceTransition(
+        to targetDeviceId: String?,
+        from oldDeviceId: String?,
+        kind: DurableSourceTransitionKind,
+        archivedDeviceId: String? = nil
+    ) async throws {
+        guard let registry = deviceRegistry else {
+            throw AppModelSourceTransitionError.registryUnavailable
         }
-        for owner in Set([oldId, id, deviceId]) {
-            try? await store.deleteExternalPublicationState(deviceId: owner)
+        if let targetDeviceId,
+           !registry.devices.contains(where: { $0.id == targetDeviceId && $0.status != .archived }) {
+            throw AppModelSourceTransitionError.targetUnavailable
         }
-        let defaults = UserDefaults.standard
-        defaults.removeObject(forKey: "noop.widget.verified-projection-generation")
-        defaults.removeObject(forKey: "noop.live-activity.verified-projection-generation")
+        guard let store = await repo.storeHandle() else {
+            throw AppModelSourceTransitionError.storeUnavailable
+        }
 
-        registry.setActive(id)
-        await adoptActiveDeviceUnfenced(id)
-        _ = await signalHistoricalPipeline()
+        var historicalEpoch: UInt64?
+        var externalEpoch: UInt64?
+        var historicalResumed = false
+        var externalResumed = false
+
+        do {
+            historicalEpoch = try await historicalPipelineRuntime.quiesce()
+            externalEpoch = try await quiesceExternalPublication()
+            let liveSourceAffected = oldDeviceId == registry.activeDeviceId || kind == .selectExisting
+            if liveSourceAffected { sourceCoordinator?.stopForTransition() }
+            let sinkEpoch = try beginVerifiedSinkTransition()
+            let oldContext = repo.currentVerifiedSinkContextIdForActivation
+            repo.invalidateVerifiedExternalSurface()
+            await repo.invalidateTodayHealthSnapshot()
+
+            var oldScope: HistoricalCursorScope?
+            if let oldDeviceId {
+                oldScope = try registry.historicalCursorScope(for: oldDeviceId)
+            }
+
+            switch kind {
+            case .selectExisting:
+                guard let targetDeviceId else { throw AppModelSourceTransitionError.targetUnavailable }
+                // Ordinary Make Active intentionally does not retire the old scope or delete external state.
+                try registry.setActive(targetDeviceId)
+            case .replacePeripheral:
+                throw AppModelSourceTransitionError.physicalTransitionMissing
+            case .archive:
+                guard let archivedDeviceId else { throw AppModelSourceTransitionError.targetUnavailable }
+                if let oldScope {
+                    try await store.retireHistoricalReceiptScope(
+                        consumerId: "phase34.analysis", scope: oldScope, reason: "source_archived")
+                }
+                try registry.archive(archivedDeviceId, replacementActiveId: targetDeviceId)
+            case .deleteData:
+                guard let oldDeviceId else { throw AppModelSourceTransitionError.targetUnavailable }
+                if let oldScope {
+                    try await store.retireHistoricalReceiptScope(
+                        consumerId: "phase34.analysis", scope: oldScope, reason: "source_deleted")
+                }
+                try await store.deleteAllData(deviceId: oldDeviceId)
+                try await store.deleteExternalPublicationState(deviceId: oldDeviceId)
+            }
+
+            if let targetDeviceId {
+                _ = repo.adoptActiveDeviceId(targetDeviceId)
+            }
+            try await store.retireLatestStatePublications(contextId: oldContext)
+            try activateVerifiedSinkTransition(epoch: sinkEpoch)
+            guard let historicalEpoch, let externalEpoch else {
+                throw AppModelSourceTransitionError.externalWorkerUnavailable
+            }
+            try await historicalPipelineRuntime.resume(expectedEpoch: historicalEpoch)
+            historicalResumed = true
+            try await resumeExternalPublication(externalEpoch)
+            externalResumed = true
+            sourceCoordinator?.activeDeviceChanged(to: targetDeviceId)
+        } catch {
+            if let historicalEpoch, !historicalResumed {
+                do { try await historicalPipelineRuntime.resume(expectedEpoch: historicalEpoch) }
+                catch { live.append(log: "Historical worker resume failed during source rollback: \(error)") }
+            }
+            if let externalEpoch, !externalResumed {
+                do { try await resumeExternalPublication(externalEpoch) }
+                catch { live.append(log: "External worker resume failed during source rollback: \(error)") }
+            }
+            throw error
+        }
+    }
+
+    private func schedulePostCommitSourceWork(targetDeviceId: String?) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if let targetDeviceId { _ = self.repo.adoptActiveDeviceId(targetDeviceId) }
+            _ = await self.repo.refresh(.activeDeviceChanged)
+            await self.intelligence.analyzeRecent()
+            _ = await self.signalHistoricalPipeline()
+        }
     }
 
     /// Devices screen and pairing-wizard entry point. The mutation itself is queued with old-scope cleanup.
@@ -856,8 +1049,16 @@ final class AppModel: ObservableObject {
         Task { @MainActor [weak self] in
             guard let self, let registry = self.deviceRegistry else { return }
             let oldId = registry.activeDeviceId
-            await self.sourceTransitionFence.run { @MainActor [weak self] in
-                await self?.performSourceTransition(to: id, from: oldId)
+            guard oldId != id else { return }
+            do {
+                try await self.sourceTransitionFence.runThrowing { @MainActor [weak self] in
+                    guard let self else { throw AppModelSourceTransitionError.registryUnavailable }
+                    try await self.performSourceTransition(
+                        to: id, from: oldId, kind: .selectExisting)
+                }
+                self.schedulePostCommitSourceWork(targetDeviceId: id)
+            } catch {
+                self.live.append(log: "Make Active failed closed: \(error)")
             }
         }
     }
@@ -866,20 +1067,20 @@ final class AppModel: ObservableObject {
     /// separate delete-data action, but pending work and external projections for that source are retired.
     func archiveDevice(_ id: String) {
         Task { @MainActor [weak self] in
-            guard let self, let registry = self.deviceRegistry,
-                  let store = await self.repo.storeHandle() else { return }
-            let wasActive = registry.activeDeviceId == id
-            let scope = try? DeviceRegistryStore(dbQueue: store.registryWriter).historicalCursorScope(for: id)
-            await self.sourceTransitionFence.run { @MainActor [weak self] in
-                guard let self else { return }
-                self.repo.invalidateVerifiedExternalSurface()
-                if wasActive { await self.repo.invalidateTodayHealthSnapshot() }
-                if let scope {
-                    _ = try? await store.retireHistoricalReceiptScope(
-                        consumerId: "phase34.analysis", scope: scope, reason: "source_archived")
+            guard let self, let registry = self.deviceRegistry else { return }
+            let replacement = registry.activeDeviceId == id ? nil : registry.activeDeviceId
+            do {
+                try await self.sourceTransitionFence.runThrowing { @MainActor [weak self] in
+                    guard let self else { throw AppModelSourceTransitionError.registryUnavailable }
+                    try await self.performSourceTransition(
+                        to: replacement,
+                        from: id,
+                        kind: .archive,
+                        archivedDeviceId: id)
                 }
-                try? await store.deleteExternalPublicationState(deviceId: id)
-                registry.archive(id)
+                self.schedulePostCommitSourceWork(targetDeviceId: replacement)
+            } catch {
+                self.live.append(log: "Archive failed closed: \(error)")
             }
         }
     }
@@ -888,17 +1089,18 @@ final class AppModel: ObservableObject {
     /// external publication state and advances the source lineage before the dashboard refreshes.
     func deleteDeviceData(_ id: String) {
         Task { @MainActor [weak self] in
-            guard let self, let registry = self.deviceRegistry,
-                  let store = await self.repo.storeHandle() else { return }
-            await self.sourceTransitionFence.run { @MainActor [weak self] in
-                guard let self else { return }
-                self.repo.invalidateVerifiedExternalSurface()
-                await self.repo.invalidateTodayHealthSnapshot()
-                try? await store.deleteAllData(deviceId: id)
-                try? await store.deleteExternalPublicationState(deviceId: id)
-                registry.reload()
-                _ = await self.repo.refresh(.activeDeviceChanged)
-                _ = await self.signalHistoricalPipeline()
+            guard let self, let registry = self.deviceRegistry else { return }
+            do {
+                try await self.sourceTransitionFence.runThrowing { @MainActor [weak self] in
+                    guard let self else { throw AppModelSourceTransitionError.registryUnavailable }
+                    try await self.performSourceTransition(
+                        to: registry.activeDeviceId,
+                        from: id,
+                        kind: .deleteData)
+                }
+                self.schedulePostCommitSourceWork(targetDeviceId: registry.activeDeviceId)
+            } catch {
+                self.live.append(log: "Privacy delete failed closed: \(error)")
             }
         }
     }
@@ -1506,13 +1708,21 @@ final class AppModel: ObservableObject {
         guard deviceRegistry != nil else { return }
         Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.sourceTransitionFence.run { @MainActor [weak self] in
-                guard let self, let registry = self.deviceRegistry else { return }
-                registry.add(device)
-                if makeActive {
+            do {
+                try await self.sourceTransitionFence.runThrowing { @MainActor [weak self] in
+                    guard let self, let registry = self.deviceRegistry else {
+                        throw AppModelSourceTransitionError.registryUnavailable
+                    }
                     let oldId = registry.activeDeviceId
-                    await self.performSourceTransition(to: device.id, from: oldId)
+                    try registry.add(device)
+                    if makeActive {
+                        try await self.performSourceTransition(
+                            to: device.id, from: oldId, kind: .selectExisting)
+                    }
                 }
+                if makeActive { self.schedulePostCommitSourceWork(targetDeviceId: device.id) }
+            } catch {
+                self.live.append(log: "Device registration failed closed: \(error)")
             }
         }
     }

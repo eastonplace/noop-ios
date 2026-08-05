@@ -1788,6 +1788,12 @@ final class Repository: ObservableObject {
         return todayHealthSnapshotContext?.identifier ?? verifiedHealthProjection?.contextId
     }
 
+    /// Context identity for the transition coordinator after it has invalidated the old sink. This is not a
+    /// publication permission; it only lets the App Group epoch activate the newly durable source context.
+    var currentVerifiedSinkContextIdForActivation: String? {
+        todayHealthSnapshotContext?.identifier ?? verifiedHealthProjection?.contextId
+    }
+
     /// Public invalidation boundary for a source-data delete. It clears memory immediately and removes the
     /// matching durable snapshot before the caller begins the replacement refresh.
     func invalidateTodayHealthSnapshot() async {
@@ -4671,36 +4677,44 @@ extension Repository {
 
         let importedIds = Set(importedReadIds)
         let computedIds = Set(computedReadIds)
-        func bestRows(_ rows: [StoredSourcedDailyMetric]) -> [DailyMetric] {
-            Dictionary(grouping: rows, by: { $0.metric.day })
-                .compactMapValues { $0.max { ($0.sourcePriority, $0.sourceId) < ($1.sourcePriority, $1.sourceId) }?.metric }
-                .values.sorted { $0.day < $1.day }
-        }
-        let importedDaily = bestRows(read.dailyRows.filter { importedIds.contains($0.sourceId) })
-        let computedDaily = bestRows(read.dailyRows.filter { computedIds.contains($0.sourceId) })
-        let appleDaily = bestRows(read.dailyRows.filter { $0.sourceId == Self.appleHealthSource })
-        let editedDays = Set(read.sleepRows.compactMap { row -> String? in
-            guard row.session.userEdited, computedIds.contains(row.sourceId) else { return nil }
-            let offset = (TimeZone(identifier: recordedTimeZoneIdentifier) ?? .current)
-                .secondsFromGMT(for: Date(timeIntervalSince1970: TimeInterval(row.session.endTs)))
-            return AnalyticsEngine.dayString(row.session.endTs, offsetSec: offset)
+        let authoritativeKeys = RepositoryExactAuthoritativeMerge.authoritativeDayKeys(exactDays)
+        let importedWinners = RepositoryExactAuthoritativeMerge.bestRowsPreservingSource(
+            read.dailyRows.filter { importedIds.contains($0.sourceId) })
+        let computedWinners = RepositoryExactAuthoritativeMerge.bestRowsPreservingSource(
+            read.dailyRows.filter { computedIds.contains($0.sourceId) })
+        let appleWinners = RepositoryExactAuthoritativeMerge.bestRowsPreservingSource(
+            read.dailyRows.filter { $0.sourceId == Self.appleHealthSource })
+        let importedDaily = importedWinners.values.map(\.metric).sorted { $0.day < $1.day }
+        let computedDaily = computedWinners.values.map(\.metric).sorted { $0.day < $1.day }
+        let appleDaily = appleWinners.values.map(\.metric).sorted { $0.day < $1.day }
+        let exactSleepRows = try RepositoryExactAuthoritativeMerge.exactSleepRows(
+            read.sleepRows,
+            importedSourceIds: importedIds,
+            computedSourceIds: computedIds,
+            authoritativeDayKeys: authoritativeKeys,
+            timeZoneIdentifier: recordedTimeZoneIdentifier)
+        let exactEditedDays = Set(exactSleepRows.computed.compactMap { session -> String? in
+            guard session.userEdited else { return nil }
+            let zone = TimeZone(identifier: recordedTimeZoneIdentifier) ?? .current
+            let offset = zone.secondsFromGMT(
+                for: Date(timeIntervalSince1970: TimeInterval(session.endTs)))
+            return AnalyticsEngine.dayString(session.endTs, offsetSec: offset)
         })
         let exactDaily = Self.mergeDaily(
-            imported: Self.mergeDaily(imported: importedDaily, computed: computedDaily, userEditedDays: editedDays),
+            imported: Self.mergeDaily(
+                imported: importedDaily,
+                computed: computedDaily,
+                userEditedDays: exactEditedDays),
             computed: appleDaily
         )
-        let exactImportedSource = Dictionary(
-            uniqueKeysWithValues: importedDaily.map { ($0.day, importedReadIds.first ?? canonicalDeviceId) }
-        )
-        let exactComputedSource = Dictionary(
-            uniqueKeysWithValues: computedDaily.map { ($0.day, computedReadIds.first ?? canonicalComputedId) }
-        )
+        let exactImportedSource = importedWinners.mapValues(\.sourceId)
+        let exactComputedSource = computedWinners.mapValues(\.sourceId)
         let exactVitalRows = Self.sourceRows(imported: importedDaily, computed: computedDaily, apple: appleDaily)
         let exactMetricSources = Self.todayHealthMetricSources(
             imported: importedDaily,
             computed: computedDaily,
             apple: appleDaily,
-            userEditedDays: editedDays,
+            userEditedDays: exactEditedDays,
             importedSourceByDay: exactImportedSource,
             computedSourceByDay: exactComputedSource
         )
@@ -4736,30 +4750,58 @@ extension Repository {
             guard let resolved = StrainResolver.importedComparison(day: row.day, importedRows: [candidate]) else { return nil }
             return (row.day, resolved)
         })
-        let dayKeys = Set(exactDaily.map(\.day))
         let wakeDay: (CachedSleepSession) -> String = { session in
             let zone = TimeZone(identifier: recordedTimeZoneIdentifier) ?? .current
             let offset = zone.secondsFromGMT(for: Date(timeIntervalSince1970: TimeInterval(session.endTs)))
             return AnalyticsEngine.dayString(session.endTs, offsetSec: offset)
         }
         let exactSleeps = Self.mergeSleep(
-            imported: read.sleepRows.filter { importedIds.contains($0.sourceId) }.map(\.session),
-            computed: read.sleepRows.filter { computedIds.contains($0.sourceId) }.map(\.session),
+            imported: exactSleepRows.imported,
+            computed: exactSleepRows.computed,
             timeZoneIdentifier: recordedTimeZoneIdentifier
         )
-        let nextDays = (days.filter { !dayKeys.contains($0.day) } + exactDaily).sorted { $0.day < $1.day }
-        let nextSleeps = (sleeps.filter { !dayKeys.contains(wakeDay($0)) } + exactSleeps)
-            .sorted { $0.effectiveStartTs < $1.effectiveStartTs }
-        let nextVitals = (vitalRows.filter { !dayKeys.contains($0.metric.day) } + exactVitalRows)
-            .sorted { $0.metric.day < $1.metric.day }
-        let nextImportedSleep = importedSleep.filter { !dayKeys.contains($0.key) }
-            .merging(exactImportedSleep) { _, new in new }
-        let nextMetricSources = todayHealthMetricSources.filter { !dayKeys.contains($0.key) }
-            .merging(exactMetricSources) { _, new in new }
-        let nextPersistedStrain = persistedStrainByDay.filter { !dayKeys.contains($0.key) }
-            .merging(exactPersistedStrain) { _, new in new }
-        let nextImportedStrain = importedStrainByDay.filter { !dayKeys.contains($0.key) }
-            .merging(exactImportedStrain) { _, new in new }
+        let nextDays = RepositoryExactAuthoritativeMerge.replaceAuthoritative(
+            existing: days,
+            incoming: exactDaily,
+            authoritativeKeys: authoritativeKeys,
+            key: \.day,
+            areInIncreasingOrder: { $0.day < $1.day })
+        let nextSleeps = RepositoryExactAuthoritativeMerge.replaceAuthoritative(
+            existing: sleeps,
+            incoming: exactSleeps,
+            authoritativeKeys: authoritativeKeys,
+            key: wakeDay,
+            areInIncreasingOrder: {
+                ($0.effectiveStartTs, $0.endTs, $0.startTs)
+                    < ($1.effectiveStartTs, $1.endTs, $1.startTs)
+            })
+        let nextVitals = RepositoryExactAuthoritativeMerge.replaceAuthoritative(
+            existing: vitalRows,
+            incoming: exactVitalRows,
+            authoritativeKeys: authoritativeKeys,
+            key: { $0.metric.day },
+            areInIncreasingOrder: {
+                if $0.metric.day == $1.metric.day {
+                    return $0.source.vitalPriority < $1.source.vitalPriority
+                }
+                return $0.metric.day < $1.metric.day
+            })
+        let nextImportedSleep = RepositoryExactAuthoritativeMerge.replaceAuthoritative(
+            existing: importedSleep,
+            incoming: exactImportedSleep,
+            authoritativeKeys: authoritativeKeys)
+        let nextMetricSources = RepositoryExactAuthoritativeMerge.replaceAuthoritative(
+            existing: todayHealthMetricSources,
+            incoming: exactMetricSources,
+            authoritativeKeys: authoritativeKeys)
+        let nextPersistedStrain = RepositoryExactAuthoritativeMerge.replaceAuthoritative(
+            existing: persistedStrainByDay,
+            incoming: exactPersistedStrain,
+            authoritativeKeys: authoritativeKeys)
+        let nextImportedStrain = RepositoryExactAuthoritativeMerge.replaceAuthoritative(
+            existing: importedStrainByDay,
+            incoming: exactImportedStrain,
+            authoritativeKeys: authoritativeKeys)
         let presentationChanged = nextDays != days
             || nextSleeps != sleeps
             || nextVitals != vitalRows

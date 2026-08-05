@@ -15,13 +15,15 @@ extension Repository {
         guard let store = await storeHandle(),
               let anchor = try? CivilDay(key: anchorDay),
               let timeZone = TimeZone(identifier: timeZoneIdentifier) else { return nil }
+        let boundedRangeDays = TrendsBounds.clampRangeDays(rangeDays)
+        let boundedWeekOffset = TrendsBounds.clampWeekOffset(weekOffset)
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
         guard let anchorDate = try? anchor.date(in: calendar) else { return nil }
 
-        let currentAndPrevious = max(2, rangeDays * 2)
-        let weeklyBaseline = (8 + max(0, -weekOffset) + 2) * 7
-        let requiredDays = max(42, currentAndPrevious, weeklyBaseline)
+        let requiredDays = TrendsBounds.requiredDays(
+            rangeDays: boundedRangeDays,
+            weekOffset: boundedWeekOffset)
         guard let fromDate = calendar.date(byAdding: .day, value: -(requiredDays - 1), to: anchorDate),
               let sleepFrom = calendar.date(byAdding: .day, value: -1, to: fromDate),
               let sleepThrough = calendar.date(byAdding: .day, value: 2, to: anchorDate) else { return nil }
@@ -102,8 +104,8 @@ extension Repository {
                 revision: refreshSeq,
                 anchorDay: anchorDay,
                 timeZoneIdentifier: timeZoneIdentifier,
-                rangeDays: rangeDays,
-                weekOffset: weekOffset
+                rangeDays: boundedRangeDays,
+                weekOffset: boundedWeekOffset
             ),
             revision: refreshSeq,
             anchorDay: anchorDay,

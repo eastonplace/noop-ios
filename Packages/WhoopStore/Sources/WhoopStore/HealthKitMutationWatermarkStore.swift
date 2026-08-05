@@ -19,30 +19,106 @@ public enum PR28HealthKitGenerationPolicy {
     }
 }
 
+public enum HealthKitWatermarkStoreError: Error, Equatable, Sendable {
+    case invalidIdentity
+    case conflictingDevice
+}
+
 extension WhoopStore {
+    /// One indexed lookup for the complete exact mutation. A conflicting device is a durable identity error;
+    /// silently treating it as an empty fence would allow one source to overwrite another source's HealthKit.
+    public func eligibleHealthKitMutationDaysBatched(
+        contextId: String,
+        deviceId: String,
+        days: Set<CivilDay>,
+        analysisGeneration: Int64
+    ) async throws -> Set<CivilDay> {
+        guard !contextId.isEmpty,
+              !deviceId.isEmpty,
+              !days.isEmpty,
+              days.count <= HistoricalAnalysisWork.maximumExactDayCount,
+              analysisGeneration > 0 else {
+            throw HealthKitWatermarkStoreError.invalidIdentity
+        }
+
+        return try syncRead { db in
+            let ordered = days.sorted()
+            let placeholders = Array(repeating: "?", count: ordered.count).joined(separator: ",")
+            var arguments: [DatabaseValueConvertible] = [contextId]
+            arguments.append(contentsOf: ordered.map(\.key))
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT deviceId, day, analysisGeneration
+                FROM healthKitMutationWatermark
+                WHERE contextId = ? AND day IN (\(placeholders))
+                """, arguments: StatementArguments(arguments))
+            var currentByDay: [String: Int64] = [:]
+            for row in rows {
+                let storedDeviceId: String = row["deviceId"]
+                guard storedDeviceId == deviceId else {
+                    throw HealthKitWatermarkStoreError.conflictingDevice
+                }
+                currentByDay[row["day"]] = row["analysisGeneration"]
+            }
+            return Set(ordered.filter { day in
+                PR28HealthKitGenerationPolicy.accepts(
+                    incoming: analysisGeneration, current: currentByDay[day.key])
+            })
+        }
+    }
+
+    /// One multi-row UPSERT after the HealthKit sink has completed. MAX makes equal-generation replay and
+    /// concurrent retries idempotent without lowering a newer per-day fence.
+    public func recordHealthKitMutationDeliveryBatched(
+        contextId: String,
+        deviceId: String,
+        days: Set<CivilDay>,
+        analysisGeneration: Int64,
+        now: Date
+    ) async throws {
+        guard !contextId.isEmpty,
+              !deviceId.isEmpty,
+              !days.isEmpty,
+              days.count <= HistoricalAnalysisWork.maximumExactDayCount,
+              analysisGeneration > 0,
+              now.timeIntervalSinceReferenceDate.isFinite else {
+            throw HealthKitWatermarkStoreError.invalidIdentity
+        }
+        try syncWrite { db in
+            let ordered = days.sorted()
+            let valuesSQL = ordered.map { _ in "(?, ?, ?, ?, ?)" }.joined(separator: ",")
+            var values: [DatabaseValueConvertible] = []
+            values.reserveCapacity(ordered.count * 5)
+            let timestamp = Int(now.timeIntervalSince1970)
+            for day in ordered {
+                values += [contextId, deviceId, day.key, analysisGeneration, timestamp]
+            }
+            try db.execute(sql: """
+                INSERT INTO healthKitMutationWatermark
+                    (contextId, deviceId, day, analysisGeneration, updatedAt)
+                VALUES \(valuesSQL)
+                ON CONFLICT(contextId, day) DO UPDATE SET
+                    deviceId = excluded.deviceId,
+                    analysisGeneration = MAX(
+                        healthKitMutationWatermark.analysisGeneration,
+                        excluded.analysisGeneration
+                    ),
+                    updatedAt = MAX(healthKitMutationWatermark.updatedAt, excluded.updatedAt)
+                """, arguments: StatementArguments(values))
+        }
+    }
+
     public func eligibleHealthKitMutationDays(
         contextId: String,
         deviceId: String,
         days: Set<CivilDay>,
         analysisGeneration: Int64
     ) async throws -> Set<CivilDay> {
-        guard !days.isEmpty, analysisGeneration > 0 else { return [] }
-        return try syncRead { db in
-            let result = try days.reduce(into: Set<CivilDay>()) { result, day in
-                let current: Int64? = try Int64.fetchOne(db, sql: """
-                    SELECT analysisGeneration
-                    FROM healthKitMutationWatermark
-                    WHERE contextId = ? AND day = ?
-                    """, arguments: [contextId, day.key])
-                if PR28HealthKitGenerationPolicy.accepts(
-                    incoming: analysisGeneration,
-                    current: current
-                ) {
-                    result.insert(day)
-                }
-            }
-            return result
-        }
+        guard !days.isEmpty else { return [] }
+        return try await eligibleHealthKitMutationDaysBatched(
+            contextId: contextId,
+            deviceId: deviceId,
+            days: days,
+            analysisGeneration: analysisGeneration)
     }
 
     /// Record only after the HealthKit sink has completed. MAX protects a
@@ -54,29 +130,13 @@ extension WhoopStore {
         analysisGeneration: Int64,
         now: Date
     ) async throws {
-        guard !days.isEmpty, analysisGeneration > 0 else { return }
-        try syncWrite { db in
-            for day in days {
-                try db.execute(sql: """
-                    INSERT INTO healthKitMutationWatermark
-                        (contextId, deviceId, day, analysisGeneration, updatedAt)
-                    VALUES (?, ?, ?, ?, ?)
-                    ON CONFLICT(contextId, day) DO UPDATE SET
-                        deviceId = excluded.deviceId,
-                        analysisGeneration = MAX(
-                            healthKitMutationWatermark.analysisGeneration,
-                            excluded.analysisGeneration
-                        ),
-                        updatedAt = excluded.updatedAt
-                    """, arguments: [
-                        contextId,
-                        deviceId,
-                        day.key,
-                        analysisGeneration,
-                        Int(now.timeIntervalSince1970),
-                    ])
-            }
-        }
+        guard !days.isEmpty else { return }
+        try await recordHealthKitMutationDeliveryBatched(
+            contextId: contextId,
+            deviceId: deviceId,
+            days: days,
+            analysisGeneration: analysisGeneration,
+            now: now)
     }
 
     public func deleteHealthKitMutationWatermarks(deviceId: String) async throws {

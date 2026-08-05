@@ -290,11 +290,13 @@ public enum HistoricalPipelineLeaseError: Error, Equatable, Sendable {
 /// effect and its following state transition.
 public actor HistoricalPipelineCoordinator {
     private let dependencies: HistoricalPipelineDependencies
+    private let quiescence = PipelineQuiescence()
     private let owner: String
     private let leaseDuration: TimeInterval
     private let maximumItemsPerDrain: Int
     private var draining = false
     private var rerunRequested = false
+    private var activeDrainTask: Task<HistoricalPipelineDrainResult, Never>?
 
     public init(
         dependencies: HistoricalPipelineDependencies,
@@ -308,13 +310,47 @@ public actor HistoricalPipelineCoordinator {
         self.maximumItemsPerDrain = max(1, maximumItemsPerDrain)
     }
 
+    /// Close admission, cancel the active drain task, and await every in-flight operation before a source
+    /// transition mutates lineage or Repository state.
+    public func quiesce() async throws -> UInt64 {
+        activeDrainTask?.cancel()
+        return try await quiescence.quiesce(cancelOwners: { })
+    }
+
+    public func resume(expectedEpoch: UInt64) async throws {
+        try await quiescence.resume(expectedEpoch: expectedEpoch)
+    }
+
     public func signal() async -> HistoricalPipelineDrainResult {
         guard !draining else {
             rerunRequested = true
             return .alreadyActive
         }
         draining = true
-        defer { draining = false }
+        let task = Task { [weak self] in
+            await self?.drainSignal() ?? HistoricalPipelineDrainResult(
+                completedWorkCount: 0,
+                deferredWorkCount: 1,
+                alreadyDraining: false)
+        }
+        activeDrainTask = task
+        let result = await task.value
+        if activeDrainTask != nil { activeDrainTask = nil }
+        draining = false
+        return result
+    }
+
+    private func drainSignal() async -> HistoricalPipelineDrainResult {
+        let token: PipelineEpochToken
+        do {
+            token = try await quiescence.begin()
+        } catch {
+            return HistoricalPipelineDrainResult(
+                completedWorkCount: 0,
+                deferredWorkCount: 1,
+                alreadyDraining: false)
+        }
+        defer { Task { await quiescence.end(token) } }
 
         var completed = 0
         var deferred = 0
@@ -345,11 +381,12 @@ public actor HistoricalPipelineCoordinator {
                 }
 
                 do {
-                    try await process(leased)
+                    try await process(leased, token: token)
                     completed += 1
                 } catch {
                     let failure = dependencies.classifyError(error)
                     do {
+                        if Task.isCancelled { deferred += 1; continue }
                         let event: HistoricalWorkEvent
                         switch failure.disposition {
                         case .blocked:
@@ -372,7 +409,7 @@ public actor HistoricalPipelineCoordinator {
                 rerunRequested = true
                 await Task.yield()
             }
-        } while rerunRequested
+        } while rerunRequested && !Task.isCancelled
 
         return HistoricalPipelineDrainResult(
             completedWorkCount: completed,
@@ -381,7 +418,10 @@ public actor HistoricalPipelineCoordinator {
         )
     }
 
-    private func process(_ leased: HistoricalAnalysisWork) async throws {
+    private func process(
+        _ leased: HistoricalAnalysisWork,
+        token: PipelineEpochToken
+    ) async throws {
         let leaseHealth = PipelineLeaseHealth()
         let heartbeatInterval = max(1, leaseDuration / 3)
         let heartbeat = Task { [dependencies, owner, leaseDuration, leaseHealth] in
@@ -419,10 +459,12 @@ public actor HistoricalPipelineCoordinator {
 
         while true {
             try Task.checkCancellation()
+            try await quiescence.validate(token)
             try await leaseHealth.requireValid()
             switch work.resumePhase {
             case .analysis:
                 let result = try await dependencies.analyze(work)
+                try await quiescence.validate(token)
                 try await leaseHealth.requireValid()
                 analysis = result
                 work = try await dependencies.applyEvent(
@@ -444,6 +486,7 @@ public actor HistoricalPipelineCoordinator {
                     result = try await dependencies.loadAnalysis(work)
                 }
                 let committed = try await dependencies.verifyAndCommitSnapshot(work, result)
+                try await quiescence.validate(token)
                 try await leaseHealth.requireValid()
                 snapshot = committed
                 work = try await dependencies.applyEvent(
@@ -465,6 +508,7 @@ public actor HistoricalPipelineCoordinator {
                     committed = try await dependencies.loadSnapshot(work)
                 }
                 try await dependencies.publishRepository(work, committed)
+                try await quiescence.validate(token)
                 try await leaseHealth.requireValid()
                 work = try await dependencies.applyEvent(
                     work.id,
@@ -480,6 +524,7 @@ public actor HistoricalPipelineCoordinator {
                     committed = try await dependencies.loadSnapshot(work)
                 }
                 let destinations = try await dependencies.commitOutbox(committed)
+                try await quiescence.validate(token)
                 try await leaseHealth.requireValid()
                 _ = try await dependencies.applyEvent(
                     work.id,

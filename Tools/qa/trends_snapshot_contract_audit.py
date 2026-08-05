@@ -20,6 +20,12 @@ def require(path: str, *markers: str) -> None:
             raise AssertionError(f"{path}: missing contract marker {marker!r}")
 
 
+def require_any(path: str, *markers: str) -> None:
+    source = text(path)
+    if not any(marker in source for marker in markers):
+        raise AssertionError(f"{path}: missing one of contract markers {markers!r}")
+
+
 def forbid(path: str, *markers: str) -> None:
     source = text(path)
     for marker in markers:
@@ -124,8 +130,6 @@ try:
         "rangeDays: rangeDays",
         "weekOffset: offset",
         "anchorDay == civilContext.localDay",
-        "rangeDays == selectedRange.days",
-        "offset == weekOffset",
         "revision == Int(truncatingIfNeeded: repo.refreshSeq",
         "let revisionAdjusted = TrendsLoadedData(",
         "var currentScreenSnapshot: TrendsScreenSnapshot?",
@@ -133,15 +137,29 @@ try:
         "guard !Task.isCancelled, key == screenSnapshotKey, let next else { return }",
         "TrendsScreenSnapshot.build(",
     )
+    require_any(
+        "Strand/Screens/TrendsView.swift",
+        "rangeDays == selectedRange.days",
+        "rangeDays == TrendsBounds.clampRangeDays(selectedRange.days)",
+    )
+    require_any(
+        "Strand/Screens/TrendsView.swift",
+        "offset == weekOffset",
+        "offset == TrendsBounds.clampWeekOffset(weekOffset)",
+    )
     require(
         "Strand/Data/CanonicalTrendsRangeLoader.swift",
         "func loadCanonicalTrendsData(",
-        "let currentAndPrevious = max(2, rangeDays * 2)",
-        "let weeklyBaseline = (8 + max(0, -weekOffset) + 2) * 7",
         "canonicalHealthSurfaceSnapshot(",
         "sourceGeneration: generation",
         "model.sleepSeries(",
         "model.stressSeries(",
+    )
+    require(
+        "Strand/Data/CanonicalTrendsRangeLoader.swift",
+        "let boundedRangeDays = TrendsBounds.clampRangeDays(rangeDays)",
+        "let boundedWeekOffset = TrendsBounds.clampWeekOffset(weekOffset)",
+        "let requiredDays = TrendsBounds.requiredDays(",
     )
     require(
         "Strand/Screens/TrendsView+SelectedRange.swift",

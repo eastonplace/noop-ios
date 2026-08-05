@@ -30,7 +30,7 @@ enum LiveActivityPublicationError: Error {
 /// update, end, and mode-transition operations so an older async update cannot land after workout end.
 @MainActor
 final class LiveActivityController {
-    private struct DriveInput {
+    private struct DriveInput: @unchecked Sendable {
         let bpm: Int?
         let recovery: Int?
         let connected: Bool
@@ -49,10 +49,16 @@ final class LiveActivityController {
     private let authInfo = ActivityAuthorizationInfo()
     private var lastModeWasWorkout: Bool?
 
-    /// Latest desired drive state. A new HR callback replaces this value while ActivityKit is busy;
-    /// only the newest state is reconciled after the current mutation completes.
-    private var pendingDrive: DriveInput?
-    private var reconcileTask: Task<Void, Never>?
+    /// One queue owns every ActivityKit operation. Live inputs coalesce; durable verified inputs stay FIFO.
+    private lazy var serializedPublication = SerializedLiveActivityPublication<DriveInput>(
+        validateToken: { [weak self] token in self?.isCurrentSinkToken(token) ?? false },
+        perform: { [weak self] input, token in
+            guard let self else { return .superseded }
+            return try await self.reconcile(
+                input,
+                expectedActiveContextId: token?.contextId,
+                expectedToken: token)
+        })
 
     /// The expensive workout projection (calories + time-in-zone rescan over the growing sample array)
     /// is supplied lazily and cached here. A long workout used to rebuild it before the existing ActivityKit
@@ -62,8 +68,6 @@ final class LiveActivityController {
     /// Last payload handed to ActivityKit. Equal payloads do not need another async bridge call every 2 s;
     /// a periodic heartbeat still refreshes the stale date for a quiet-but-healthy stream.
     private var lastContentState: NOOPActivityAttributes.ContentState?
-    private static let verifiedGenerationKey = "noop.live-activity.verified-projection-generation"
-
     #if DEBUG
     private var component41QAMode = false
     #endif
@@ -93,7 +97,7 @@ final class LiveActivityController {
         #if DEBUG
         guard !component41QAMode else { return }
         #endif
-        pendingDrive = DriveInput(
+        let input = DriveInput(
             bpm: bpm,
             recovery: recovery,
             connected: connected,
@@ -103,33 +107,20 @@ final class LiveActivityController {
             workoutIsActive: workoutIsActive ?? LiveActivityWorkoutStatus.isActive,
             workoutProjection: workout
         )
-        startReconcilerIfNeeded()
-    }
-
-    private func startReconcilerIfNeeded() {
-        guard reconcileTask == nil else { return }
-        reconcileTask = Task { @MainActor [weak self] in
-            await self?.drainPendingDrive()
-        }
-    }
-
-    private func drainPendingDrive() async {
-        while !Task.isCancelled, let input = pendingDrive {
-            pendingDrive = nil
-            _ = try? await reconcile(input)
-        }
-        reconcileTask = nil
-        // An input can arrive after the loop's final condition check but before the task clears itself.
-        // The main actor makes this check/start atomic with respect to `update`.
-        if pendingDrive != nil { startReconcilerIfNeeded() }
+        serializedPublication.submitLive(input)
     }
 
     private func reconcile(
         _ input: DriveInput,
-        expectedActiveContextId: String? = nil
+        expectedActiveContextId: String? = nil,
+        expectedToken: VerifiedSinkToken? = nil
     ) async throws -> ExternalSinkPublicationResult {
         guard expectedActiveContextId == nil || expectedActiveContextId == input.verifiedContextId else {
             return .superseded
+        }
+        if let expectedToken {
+            guard input.verifiedContextId == expectedToken.contextId,
+                  isCurrentSinkToken(expectedToken) else { return .superseded }
         }
         guard authInfo.areActivitiesEnabled else { return .notApplicable }
 
@@ -167,7 +158,7 @@ final class LiveActivityController {
            let lastModeWasWorkout,
            lastModeWasWorkout != desiredModeIsWorkout {
             await performEnd()
-            guard !Task.isCancelled, pendingDrive == nil else { return .alreadyCurrent }
+            guard !Task.isCancelled else { return .alreadyCurrent }
             now = Date()
         }
 
@@ -213,30 +204,38 @@ final class LiveActivityController {
 
         if let activity {
             let heartbeatElapsed = now.timeIntervalSince(lastPush)
-            guard acceptsVerifiedGeneration(
-                input,
-                expectedActiveContextId: expectedActiveContextId
-            ) else { return .superseded }
+            if let expectedToken {
+                guard acceptsVerifiedGeneration(
+                    input,
+                    expectedActiveContextId: expectedActiveContextId,
+                    token: expectedToken
+                ) else { return .superseded }
+            }
             if state == lastContentState,
                heartbeatElapsed >= 0,
                heartbeatElapsed < Self.unchangedHeartbeatInterval {
-                guard recordVerifiedGeneration(input) else { return .superseded }
+                if let expectedToken,
+                   !recordVerifiedGeneration(input, token: expectedToken) { return .superseded }
                 return .alreadyCurrent
             }
             // Await directly inside the single reconciliation worker. This serializes ActivityKit updates
             // and coalesces any HR callbacks that arrive while the bridge is suspended.
             await activity.update(ActivityContent(state: state, staleDate: staleDate))
-            guard recordVerifiedGeneration(input) else { return .superseded }
+            if let expectedToken,
+               !recordVerifiedGeneration(input, token: expectedToken) { return .superseded }
             lastPush = now
             lastContentState = state
             lastModeWasWorkout = desiredModeIsWorkout
             return .published
         } else {
             do {
-                guard acceptsVerifiedGeneration(
-                    input,
-                    expectedActiveContextId: expectedActiveContextId
-                ) else { return .superseded }
+                if let expectedToken {
+                    guard acceptsVerifiedGeneration(
+                        input,
+                        expectedActiveContextId: expectedActiveContextId,
+                        token: expectedToken
+                    ) else { return .superseded }
+                }
                 activity = try Activity.request(
                     attributes: NOOPActivityAttributes(
                         title: workoutState?.sport ?? String(localized: "Live HR")
@@ -244,7 +243,8 @@ final class LiveActivityController {
                     content: ActivityContent(state: state, staleDate: staleDate),
                     pushType: nil
                 )
-                guard recordVerifiedGeneration(input) else {
+                if let expectedToken,
+                   !recordVerifiedGeneration(input, token: expectedToken) {
                     await performEnd()
                     return .superseded
                 }
@@ -272,6 +272,9 @@ final class LiveActivityController {
         workoutProjection: @escaping () -> WorkoutLiveActivityState?
     ) async throws -> ExternalSinkPublicationResult {
         guard projection.contextId == expectedActiveContextId else { return .superseded }
+        guard let defaults = UserDefaults(suiteName: WidgetSnapshot.suiteName),
+              let token = ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults),
+              token.contextId == projection.contextId else { return .superseded }
         let input = DriveInput(
             bpm: bpm,
             recovery: recovery,
@@ -282,41 +285,51 @@ final class LiveActivityController {
             workoutIsActive: workoutIsActive,
             workoutProjection: workoutProjection
         )
-        return try await reconcile(input, expectedActiveContextId: expectedActiveContextId)
+        return try await serializedPublication.submitVerified(input, token: token)
+    }
+
+    private func isCurrentSinkToken(_ token: VerifiedSinkToken) -> Bool {
+        guard let defaults = UserDefaults(suiteName: WidgetSnapshot.suiteName),
+              let active = ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults) else { return false }
+        return active == token
     }
 
     /// Persist the verified generation immediately before the ActivityKit sink. Nil identity belongs to the
     /// ordinary live lane and remains compatible with pre-verification updates.
     private func acceptsVerifiedGeneration(
         _ input: DriveInput,
-        expectedActiveContextId: String? = nil
+        expectedActiveContextId: String? = nil,
+        token: VerifiedSinkToken
     ) -> Bool {
         guard let contextId = input.verifiedContextId,
               let generation = input.verifiedProjectionGeneration,
-              let defaults = UserDefaults(suiteName: WidgetSnapshot.suiteName) else {
+              let defaults = UserDefaults(suiteName: WidgetSnapshot.suiteName),
+              let active = ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults) else { return false }
+        guard expectedActiveContextId == nil || expectedActiveContextId == contextId,
+              active == token else { return false }
+        guard let data = defaults.data(forKey: ActiveVerifiedSinkEpochStore.liveActivityGenerationKey),
+              let existing = try? JSONDecoder().decode(VerifiedSinkGenerationRecord.self, from: data) else {
             return true
         }
-        guard expectedActiveContextId == nil || expectedActiveContextId == contextId else { return false }
-        guard let data = defaults.data(forKey: Self.verifiedGenerationKey),
-              let existing = try? JSONDecoder().decode(
-                VerifiedProjectionGenerationRecord.self,
-                from: data
-              ) else { return true }
-        return existing.contextId == contextId && generation >= existing.generation
+        guard existing.epoch == token.epoch, existing.contextId == contextId else { return false }
+        return generation >= existing.generation
     }
 
-    private func recordVerifiedGeneration(_ input: DriveInput) -> Bool {
+    private func recordVerifiedGeneration(_ input: DriveInput, token: VerifiedSinkToken) -> Bool {
         guard let contextId = input.verifiedContextId,
               let generation = input.verifiedProjectionGeneration,
               let defaults = UserDefaults(suiteName: WidgetSnapshot.suiteName) else {
-            return true
+            return false
         }
-        return VerifiedProjectionGenerationStore.acceptsAndRecord(
-            contextId: contextId,
+        guard contextId == token.contextId else { return false }
+        let result = ActiveVerifiedSinkEpochStore.commitIfCurrent(
+            token: token,
             generation: generation,
             defaults: defaults,
-            key: Self.verifiedGenerationKey
+            generationKey: ActiveVerifiedSinkEpochStore.liveActivityGenerationKey,
+            writeAndReadBackPayload: { _ in true }
         )
+        return result == .published || result == .alreadyCurrent
     }
 
     /// Explicit shutdown used by QA and any future lifecycle owner. Production drive calls normally reach
@@ -325,13 +338,17 @@ final class LiveActivityController {
         #if DEBUG
         guard !component41QAMode else { return }
         #endif
-        pendingDrive = nil
-        if let task = reconcileTask {
-            task.cancel()
-            await task.value
-        }
-        reconcileTask = nil
-        await performEnd()
+        let input = DriveInput(
+            bpm: nil,
+            recovery: nil,
+            connected: false,
+            effort: nil,
+            verifiedContextId: nil,
+            verifiedProjectionGeneration: nil,
+            workoutIsActive: false,
+            workoutProjection: { nil }
+        )
+        await serializedPublication.submitLiveAndWait(input)
     }
 
     private func performEnd() async {
