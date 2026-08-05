@@ -92,13 +92,12 @@ struct StrandiOSApp: App {
                         recovery: surface.recovery,
                         connected: model.live.connected,
                         effort: surface.effort,
+                        verifiedContextId: surface.contextId,
+                        verifiedProjectionGeneration: surface.generation,
                         workoutIsActive: model.activeWorkout != nil)
                 },
-                publishHealthKitWriteOnly: { _, _, changedDays, recordedTimeZoneIdentifier in
-                    try await healthBridge.publishExactHealthKit(
-                        changedDays: changedDays,
-                        recordedTimeZoneIdentifier: recordedTimeZoneIdentifier
-                    )
+                publishHealthKitWriteOnly: { payload in
+                    try await healthBridge.publishExactHealthKit(payload: payload)
                 },
                 publishWatch: { _ in
                     // project.yml has no watchOS target. Never acknowledge a watch row as delivered.
@@ -118,11 +117,24 @@ struct StrandiOSApp: App {
                                 code: "invalid_time_zone", disposition: .permanent)
                         }
                     }
-                    let retryable = !(error is ExternalPublicationWorkerError
-                        && String(describing: error).contains("destinationUnavailable"))
+                    if let error = error as? ExternalPublicationWorkerError {
+                        switch error {
+                        case .destinationUnavailable, .payloadMissingOrMismatched:
+                            return PipelineFailureClassification(
+                                code: String(describing: error),
+                                disposition: .permanent
+                            )
+                        case .projectionMissing, .projectionMismatch, .leaseRenewalFailed:
+                            return PipelineFailureClassification(
+                                code: String(describing: error),
+                                disposition: .retryable
+                            )
+                        }
+                    }
                     return PipelineFailureClassification(
                         code: String(describing: error),
-                        retryable: retryable)
+                        disposition: .retryable
+                    )
                 },
                 pruneCompleted: {
                     guard let store = await model.repo.storeHandle() else {
@@ -153,6 +165,8 @@ struct StrandiOSApp: App {
             recovery: externalSurface?.recovery,
             connected: isConnected,
             effort: externalSurface?.effort,
+            verifiedContextId: externalSurface?.contextId,
+            verifiedProjectionGeneration: externalSurface?.generation,
             workoutIsActive: model.activeWorkout != nil,
             workout: workoutActivityState
         )
@@ -160,6 +174,22 @@ struct StrandiOSApp: App {
 
     private func refreshExternalSurface() {
         externalSurface = model.repo.verifiedHealthProjection.map(ExternalSurfaceProjection.init)
+    }
+
+    @MainActor
+    private func resumeBlockedWork(includeHealthKit: Bool) async {
+        guard let store = await model.repo.storeHandle() else { return }
+        _ = try? await store.resumeBlockedHistoricalAnalysisWork(now: Date())
+        _ = try? await store.resumeBlockedExternalPublications(
+            destinations: [.widget, .liveActivity],
+            now: Date()
+        )
+        if includeHealthKit, health.auth == .authorized {
+            _ = try? await store.resumeBlockedExternalPublications(
+                destinations: [.healthKit],
+                now: Date()
+            )
+        }
     }
 
     /// Drain the crash-safe HealthKit → Intelligence handoff. The scoring coordinator retains the widest
@@ -296,6 +326,16 @@ struct StrandiOSApp: App {
                     }
                     #endif
                 }
+                .onReceive(
+                    NotificationCenter.default.publisher(
+                        for: UIApplication.protectedDataDidBecomeAvailableNotification
+                    )
+                ) { _ in
+                    Task { @MainActor in
+                        await resumeBlockedWork(includeHealthKit: health.auth == .authorized)
+                        await externalPublicationWorker.signal()
+                    }
+                }
         }
         .onChange(of: scenePhase) { _, phase in
             model.setApplicationActiveOptimized(phase == .active)
@@ -306,7 +346,9 @@ struct StrandiOSApp: App {
                 Task {
                     let trace = PerformanceTrace.begin("foreground_refresh")
                     defer { PerformanceTrace.end(trace) }
+                    await resumeBlockedWork(includeHealthKit: false)
                     health.refreshAuthIfPreviouslyGranted()
+                    await resumeBlockedWork(includeHealthKit: health.auth == .authorized)
                     await health.foregroundCatchUp()
                     // Observer delivery can be suspended or its notification can land before this view's
                     // subscription is active. Foreground is the second deterministic drain, not a blind widget

@@ -15,10 +15,7 @@ struct ExternalPublicationWorkerDependencies: Sendable {
     /// HealthKit is historical mutation delivery. Query and write the exact durable score rows for
     /// `changedDays` at `analysisGeneration`; the current projection is only shared context and provenance.
     let publishHealthKitWriteOnly: @Sendable @MainActor (
-        _ projection: VerifiedHealthProjection,
-        _ analysisGeneration: Int64,
-        _ changedDays: Set<CivilDay>,
-        _ recordedTimeZoneIdentifier: String
+        HistoricalHealthKitMutationPayload
     ) async throws -> Void
     /// The watch sink must ignore generations older than its last accepted generation.
     let publishWatch: @Sendable @MainActor (VerifiedHealthProjection) async throws -> Void
@@ -96,6 +93,7 @@ actor ExternalPublicationWorker {
     }
 
     private func process(_ leased: ExternalPublicationOutboxItem) async {
+        let leaseHealth = ExternalPublicationLeaseHealth()
         do {
             _ = try await dependencies.applyEvent(
                 leased.idempotencyKey,
@@ -125,11 +123,14 @@ actor ExternalPublicationWorker {
                         )
                     } catch {
                         dependencies.report("external_outbox_lease_renew_failed: \(error)")
+                        await leaseHealth.invalidate()
                         return
                     }
                 }
             }
             defer { heartbeat.cancel() }
+
+            try await leaseHealth.requireValid()
 
             guard let projection = try await dependencies.loadProjection(
                 leased.contextId,
@@ -149,15 +150,24 @@ actor ExternalPublicationWorker {
             case .liveActivity:
                 try await dependencies.publishLiveActivity(projection)
             case .healthKit:
-                try await dependencies.publishHealthKitWriteOnly(
-                    projection,
-                    leased.analysisGeneration,
-                    leased.changedDays,
-                    leased.recordedTimeZoneIdentifier
-                )
+                guard let payload = leased.healthKitPayload,
+                      payload.validates(
+                          contextId: leased.contextId,
+                          deviceId: leased.deviceId,
+                          analysisGeneration: leased.analysisGeneration,
+                          changedDays: leased.changedDays,
+                          recordedTimeZoneIdentifier: leased.recordedTimeZoneIdentifier
+                      ) else {
+                    throw ExternalPublicationWorkerError.payloadMissingOrMismatched
+                }
+                try await dependencies.publishHealthKitWriteOnly(payload)
             case .watch:
                 try await dependencies.publishWatch(projection)
             }
+
+            // A writer that lost its durable lease may have completed an idempotent destination call,
+            // but it is no longer allowed to acknowledge the outbox row. The next owner safely replays it.
+            try await leaseHealth.requireValid()
 
             _ = try await dependencies.applyEvent(
                 leased.idempotencyKey,
@@ -167,13 +177,18 @@ actor ExternalPublicationWorker {
         } catch {
             let classification = dependencies.classifyError(error)
             do {
+                let event: ExternalPublicationEvent
+                switch classification.disposition {
+                case .blocked:
+                    event = .blocked(owner: owner, code: classification.code)
+                case .retryable:
+                    event = .failed(owner: owner, code: classification.code, retryable: true)
+                case .permanent:
+                    event = .failed(owner: owner, code: classification.code, retryable: false)
+                }
                 _ = try await dependencies.applyEvent(
                     leased.idempotencyKey,
-                    .failed(
-                        owner: owner,
-                        code: classification.code,
-                        retryable: classification.retryable
-                    ),
+                    event,
                     dependencies.now()
                 )
             } catch {
@@ -184,9 +199,21 @@ actor ExternalPublicationWorker {
     }
 }
 
+private actor ExternalPublicationLeaseHealth {
+    private var valid = true
+
+    func invalidate() { valid = false }
+
+    func requireValid() throws {
+        guard valid else { throw ExternalPublicationWorkerError.leaseRenewalFailed }
+    }
+}
+
 enum ExternalPublicationWorkerError: Error {
     case projectionMissing
     case projectionMismatch
     case destinationUnavailable
+    case payloadMissingOrMismatched
+    case leaseRenewalFailed
 }
 #endif

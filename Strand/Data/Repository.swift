@@ -2194,6 +2194,13 @@ final class Repository: ObservableObject {
         })
         let imported = Set(importedReadIds)
         let computed = Set(computedReadIds)
+        let editedWakeDays = Set(read.sleepRows.compactMap { row -> String? in
+            guard row.session.userEdited, computed.contains(row.sourceId) else { return nil }
+            let offsetSec = TimeZone.current.secondsFromGMT(
+                for: Date(timeIntervalSince1970: TimeInterval(row.session.endTs))
+            )
+            return AnalyticsEngine.dayString(row.session.endTs, offsetSec: offsetSec)
+        })
 
         func authorityRank(for sourceId: String, fallback: Int = 0) -> Int {
             sourceRanks[sourceId] ?? fallback
@@ -2223,7 +2230,9 @@ final class Repository: ObservableObject {
                 modelVersion: modelVersion,
                 observedAt: nil,
                 authorityRank: row.sourcePriority,
-                generation: sourceGeneration
+                generation: sourceGeneration,
+                isUserEditedAuthority: computed.contains(row.sourceId)
+                    && editedWakeDays.contains(row.day)
             ))
         }
 
@@ -2235,7 +2244,8 @@ final class Repository: ObservableObject {
                 PersistedSleepScoreRow(
                     day: point.day, value: point.value, sourceId: point.sourceId, model: point.model,
                     modelVersion: point.modelVersion, observedAt: point.observedAt,
-                    authorityRank: authorityRank(for: point.sourceId), generation: point.generation
+                    authorityRank: authorityRank(for: point.sourceId), generation: point.generation,
+                    isUserEditedAuthority: point.isUserEditedAuthority
                 )
             }
         preservedDays += previous.sleepV2ShadowByDay.values
@@ -2244,7 +2254,8 @@ final class Repository: ObservableObject {
                 PersistedSleepScoreRow(
                     day: point.day, value: point.value, sourceId: point.sourceId, model: point.model,
                     modelVersion: point.modelVersion, observedAt: point.observedAt,
-                    authorityRank: authorityRank(for: point.sourceId), generation: point.generation
+                    authorityRank: authorityRank(for: point.sourceId), generation: point.generation,
+                    isUserEditedAuthority: point.isUserEditedAuthority
                 )
             }
         sleepRows.append(contentsOf: preservedDays)
@@ -4334,7 +4345,7 @@ extension Repository {
         guard record.workId == work.id,
               record.scope == work.scope,
               record.throughReceiptGeneration == work.lastReceiptGeneration,
-              work.affectedDays.isSubset(of: record.analyzedDays) else {
+              work.acceptsAnalyzedDays(record.analyzedDays) else {
             throw PR28HistoricalPipelineError.invalidAnalysisReceipt
         }
         do {
@@ -4368,7 +4379,7 @@ extension Repository {
         guard let context = todayHealthSnapshotContext,
               work.scope.databaseInstanceId == context.databaseInstanceId,
               work.lastReceiptGeneration == analysis.throughReceiptGeneration,
-              work.affectedDays.isSubset(of: analysis.analyzedDays),
+              work.acceptsAnalyzedDays(analysis.analyzedDays),
               TimeZone(identifier: work.recordedTimeZoneIdentifier) != nil else {
             throw PR28HistoricalPipelineError.invalidAnalysisReceipt
         }
@@ -4419,7 +4430,7 @@ extension Repository {
             throw PR28HistoricalPipelineError.databaseChanged
         }
 
-        let candidate = try snapshotBuilder.build(PostAnalysisTodaySnapshotInput(
+        let postAnalysisInput = PostAnalysisTodaySnapshotInput(
             template: template,
             read: read,
             importedSourceIds: importedReadIds,
@@ -4430,7 +4441,20 @@ extension Repository {
             rawFrontierTs: analysis.rawFrontierTs,
             recordedTimeZoneIdentifier: work.recordedTimeZoneIdentifier,
             now: now
-        ))
+        )
+        let candidate = try snapshotBuilder.build(postAnalysisInput)
+        let healthKitPayload = try RepositoryHistoricalHealthKitPayloadBuilder.build(
+            .init(
+                contextId: context.identifier,
+                deviceId: candidate.deviceId,
+                analysisGeneration: analysis.analysisGeneration,
+                recordedTimeZoneIdentifier: work.recordedTimeZoneIdentifier,
+                changedDays: analysis.analyzedDays,
+                read: read,
+                importedSourceIds: Set(importedReadIds),
+                computedSourceIds: Set(computedReadIds)
+            )
+        )
         guard try await store.saveTodayHealthSnapshot(candidate),
               let stored = try await store.todayHealthSnapshot(scopeId: candidate.scopeId),
               stored.context == context,
@@ -4452,6 +4476,7 @@ extension Repository {
                 snapshotGeneration: stored.generation,
                 analyzedDays: analysis.analyzedDays,
                 recordedTimeZoneIdentifier: work.recordedTimeZoneIdentifier,
+                healthKitPayload: healthKitPayload,
                 projection: projection
             )
         } catch {
@@ -4483,7 +4508,7 @@ extension Repository {
         }
         guard receipt.throughReceiptGeneration == work.lastReceiptGeneration,
               receipt.recordedTimeZoneIdentifier == work.recordedTimeZoneIdentifier,
-              work.affectedDays.isSubset(of: receipt.analyzedDays) else {
+              work.acceptsAnalyzedDays(receipt.analyzedDays) else {
             throw PR28HistoricalPipelineError.invalidAnalysisReceipt
         }
         return receipt
@@ -4522,7 +4547,7 @@ extension Repository {
               candidate.schemaVersion == TodayHealthSnapshot.currentSchemaVersion,
               context.databaseInstanceId == work.scope.databaseInstanceId,
               work.lastReceiptGeneration == analysis.throughReceiptGeneration,
-              work.affectedDays.isSubset(of: analysis.analyzedDays) else {
+              work.acceptsAnalyzedDays(analysis.analyzedDays) else {
             throw VerifiedTodaySnapshotCommitError.invalidContext
         }
         if let existing = try await store.verifiedSnapshotCommit(
@@ -4557,8 +4582,22 @@ extension Repository {
         recordedTimeZoneIdentifier: String,
         snapshot: SnapshotCommitReceipt
     ) async throws -> RepositoryRefreshOutcome {
+        try await publishVerifiedExactDays(
+            exactDays,
+            recordedTimeZoneIdentifier: recordedTimeZoneIdentifier,
+            projection: snapshot.projection
+        )
+    }
+
+    /// Publish exact days against a verified projection when no full snapshot receipt is available. This
+    /// overload is for typed Repository refresh requests. It does not synthesize a durable receipt.
+    func publishVerifiedExactDays(
+        _ exactDays: Set<CivilDay>,
+        recordedTimeZoneIdentifier: String,
+        projection: VerifiedHealthProjection
+    ) async throws -> RepositoryRefreshOutcome {
         guard !exactDays.isEmpty else {
-            verifiedHealthProjection = snapshot.projection
+            verifiedHealthProjection = projection
             return RepositoryRefreshOutcome(
                 authoritativeDataPublished: true,
                 changedDays: [],
@@ -4566,8 +4605,8 @@ extension Repository {
             )
         }
         guard let store = await ensureStore(),
-              snapshot.projection.contextId == todayHealthSnapshotContext?.identifier,
-              snapshot.projection.deviceId == canonicalDeviceId else {
+              projection.contextId == todayHealthSnapshotContext?.identifier,
+              projection.deviceId == canonicalDeviceId else {
             return RepositoryRefreshOutcome(
                 authoritativeDataPublished: false,
                 changedDays: [],
@@ -4609,10 +4648,10 @@ extension Repository {
             sourceGeneration: sourceGeneration
         )
         let presentationChanged = nextCanonical.presentationRevision != canonicalHealth.presentationRevision
-            || snapshot.projection.presentationIdentity
+            || projection.presentationIdentity
                 != verifiedHealthProjection?.presentationIdentity
         canonicalHealth = nextCanonical
-        verifiedHealthProjection = snapshot.projection
+        verifiedHealthProjection = projection
         if presentationChanged {
             refreshSeq &+= 1
         }
@@ -4621,6 +4660,21 @@ extension Repository {
             changedDays: exactDays,
             snapshotStatus: .persisted
         )
+    }
+
+    /// Refresh only source coverage metadata. This deliberately does not touch the bounded dashboard cache.
+    func refreshHistoryExtent() async {
+        guard let store = await ensureStore(),
+              let extent = try? await store.repositoryHistoryExtent(
+                  importedDeviceIds: importedReadIds,
+                  computedDeviceIds: computedReadIds,
+                  appleDeviceIds: [Self.appleHealthSource]
+              ) else {
+            return
+        }
+        if extent != historyExtent {
+            historyExtent = extent
+        }
     }
 }
 

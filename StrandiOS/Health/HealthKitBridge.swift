@@ -432,70 +432,226 @@ final class HealthKitBridge: ObservableObject {
     /// destination never requests authorization and never widens a historical mutation into a rolling
     /// refresh window. The existing bounded write-back remains the user-invoked repair path; this method
     /// is the exact historical delivery path.
-    func publishExactHealthKit(
-        changedDays: Set<CivilDay>,
-        recordedTimeZoneIdentifier: String
-    ) async throws {
+    func publishExactHealthKit(payload: HistoricalHealthKitMutationPayload) async throws {
         guard auth == .authorized else { throw ExactPublicationError.authorizationUnavailable }
-        guard !changedDays.isEmpty else { return }
-        guard let whoopStore = await repo.storeHandle() else {
-            throw ExactPublicationError.storeUnavailable
-        }
-        guard let timeZone = TimeZone(identifier: recordedTimeZoneIdentifier) else {
+        guard payload.deviceId == noopDeviceId,
+              let timeZone = TimeZone(identifier: payload.recordedTimeZoneIdentifier) else {
             throw ExactPublicationError.invalidTimeZone
         }
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
-        let importedIds = repo.importedReadIds
-        let computedIds = repo.computedReadIds
-        let dayKeys = Set(changedDays.map(\.key))
-
-        // Query each sparse day independently. A January and March mutation never scans February.
-        var sessionsByKey: [String: CachedSleepSession] = [:]
-        for day in changedDays.sorted() {
-            let start = try day.date(in: calendar)
-            guard let end = calendar.date(byAdding: .day, value: 1, to: start) else {
-                throw ExactPublicationError.invalidTimeZone
-            }
-            let rows = try await HealthKitWritebackPlanner.sleepSessions(
-                store: whoopStore,
-                importedIds: importedIds,
-                computedIds: computedIds,
-                from: Int(start.timeIntervalSince1970) - 24 * 3_600,
-                to: Int(end.timeIntervalSince1970) + 24 * 3_600
-            )
-            for session in rows {
-                let wake = calendar.dateComponents(
-                    [.year, .month, .day],
-                    from: Date(timeIntervalSince1970: TimeInterval(session.endTs))
-                )
-                guard let year = wake.year, let month = wake.month, let day = wake.day else { continue }
-                let wakeKey = String(format: "%04d-%02d-%02d", year, month, day)
-                guard dayKeys.contains(wakeKey) else { continue }
-                sessionsByKey["\(session.startTs)|\(session.endTs)"] = session
-            }
-        }
-        let sessions = sessionsByKey.values.sorted { $0.effectiveStartTs < $1.effectiveStartTs }
 
         var firstError: Error?
         do {
-            try await writeVitals(
-                whoopStore: whoopStore,
-                days: 0,
-                sessions: sessions,
-                importedIds: importedIds,
-                computedIds: computedIds,
-                dayKeys: dayKeys
-            )
+            try await writeExactVitals(payload, calendar: calendar)
         } catch {
             firstError = error
         }
         do {
-            try await writeSleep(sessions: sessions)
+            try await writeExactSleep(payload, calendar: calendar)
         } catch {
             if firstError == nil { firstError = error }
         }
         if let firstError { throw firstError }
+    }
+
+    private func writeExactVitals(
+        _ payload: HistoricalHealthKitMutationPayload,
+        calendar: Calendar
+    ) async throws {
+        struct Candidate {
+            let type: HKQuantityType
+            let key: String
+            let value: Double
+            let at: Date
+            let sample: HKQuantitySample
+        }
+
+        var candidates: [Candidate] = []
+        func add(
+            _ id: HKQuantityTypeIdentifier,
+            _ unit: HKUnit,
+            _ value: Double,
+            _ day: CivilDay,
+            _ at: Date
+        ) {
+            guard value.isFinite,
+                  let type = HKQuantityType.quantityType(forIdentifier: id),
+                  store.authorizationStatus(for: type) == .sharingAuthorized else { return }
+            let key = "noop:\(noopDeviceId):\(id.rawValue):\(day.key)"
+            candidates.append(Candidate(
+                type: type,
+                key: key,
+                value: value,
+                at: at,
+                sample: HKQuantitySample(
+                    type: type,
+                    quantity: HKQuantity(unit: unit, doubleValue: value),
+                    start: at,
+                    end: at,
+                    metadata: [HKMetadataKeyExternalUUID: key]
+                )
+            ))
+        }
+
+        for mutation in payload.dailyMutations {
+            let start = try mutation.day.date(in: calendar)
+            let noon = calendar.date(bySettingHour: 12, minute: 0, second: 0, of: start) ?? start
+            let at = mutation.wakeTimestamp.map {
+                Date(timeIntervalSince1970: TimeInterval($0))
+            } ?? noon
+            if let value = mutation.restingHR {
+                add(
+                    .restingHeartRate,
+                    HKUnit.count().unitDivided(by: .minute()),
+                    Double(value),
+                    mutation.day,
+                    at
+                )
+            }
+            if let value = mutation.hrvMilliseconds {
+                add(.heartRateVariabilitySDNN, .secondUnit(with: .milli), value, mutation.day, at)
+            }
+            if let value = mutation.oxygenSaturationPercent {
+                add(.oxygenSaturation, .percent(), value / 100, mutation.day, at)
+            }
+            if let value = mutation.respiratoryRate {
+                add(
+                    .respiratoryRate,
+                    HKUnit.count().unitDivided(by: .minute()),
+                    value,
+                    mutation.day,
+                    at
+                )
+            }
+        }
+        guard !candidates.isEmpty else { return }
+
+        let fingerprint = HealthKitWritebackFingerprint.fingerprint(
+            candidates.sorted { $0.key < $1.key }.map {
+                "\(payload.analysisGeneration)|\($0.key)|\($0.value)|\(Int($0.at.timeIntervalSince1970))"
+            }
+        )
+        guard HealthKitWritebackFingerprint.shouldWrite(.vitals, fingerprint: fingerprint) else { return }
+
+        let bySource = HKQuery.predicateForObjects(from: HKSource.default())
+        for (type, items) in Dictionary(grouping: candidates, by: { $0.type }) {
+            let keys = Array(Set(items.map(\.key)))
+            let byKey = HKQuery.predicateForObjects(
+                withMetadataKey: HKMetadataKeyExternalUUID,
+                allowedValues: keys
+            )
+            _ = try await store.deleteObjects(
+                of: type,
+                predicate: NSCompoundPredicate(andPredicateWithSubpredicates: [bySource, byKey])
+            )
+        }
+        try await store.save(candidates.map(\.sample))
+        HealthKitWritebackFingerprint.markSuccess(.vitals, fingerprint: fingerprint)
+    }
+
+    private func writeExactSleep(
+        _ payload: HistoricalHealthKitMutationPayload,
+        calendar: Calendar
+    ) async throws {
+        guard let type = HKObjectType.categoryType(forIdentifier: .sleepAnalysis),
+              store.authorizationStatus(for: type) == .sharingAuthorized else { return }
+
+        let fragments = payload.sleepMutations.map {
+            HealthWriteback.SleepFragment(
+                startTs: $0.stableStartTimestamp,
+                effectiveStartTs: $0.effectiveStartTimestamp,
+                endTs: $0.endTimestamp,
+                stagesJSON: $0.stagesJSON
+            )
+        }
+        let byDay = Dictionary(grouping: fragments) { fragment -> String in
+            let date = Date(timeIntervalSince1970: TimeInterval(fragment.endTs))
+            let components = calendar.dateComponents([.year, .month, .day], from: date)
+            return String(format: "%04d-%02d-%02d", components.year!, components.month!, components.day!)
+        }
+
+        var groups: [[HealthWriteback.SleepFragment]] = []
+        for dayFragments in byDay.values {
+            let ordered = dayFragments.sorted { $0.effectiveStartTs < $1.effectiveStartTs }
+            let blocks = ordered.map {
+                SleepStageTotals.NightBlock(start: $0.effectiveStartTs, end: $0.endTs)
+            }
+            guard let reference = ordered.first else { continue }
+            let wake = Date(timeIntervalSince1970: TimeInterval(reference.endTs))
+            let offset = calendar.timeZone.secondsFromGMT(for: wake)
+            let bridged = SleepStageTotals.bridgedNightGroups(blocks, offsetSec: offset)
+            groups.append(contentsOf: bridged.map { group in
+                group.indices.map { ordered[$0] }
+            })
+        }
+
+        let plan = HealthWriteback.mergedSleepPlan(groups: groups)
+        try await saveExactSleepPlan(
+            plan,
+            type: type,
+            analysisGeneration: payload.analysisGeneration
+        )
+    }
+
+    private func saveExactSleepPlan(
+        _ plan: [HealthWriteback.MergedSleepEntry],
+        type: HKCategoryType,
+        analysisGeneration: Int64
+    ) async throws {
+        let fingerprint = HealthKitWritebackFingerprint.fingerprint(
+            ["analysis|\(analysisGeneration)"] + plan.flatMap { entry in
+                ["night|\(entry.keyStartTs)|\(entry.spanStart)|\(entry.spanEnd)"]
+                    + entry.intervals.map { "stage|\($0.kind)|\($0.start)|\($0.end)" }
+            }
+        )
+        guard HealthKitWritebackFingerprint.shouldWrite(.sleep, fingerprint: fingerprint) else { return }
+
+        var samples: [HKCategorySample] = []
+        var keys: [String] = []
+        for entry in plan {
+            let key = "noop:\(noopDeviceId):sleep:\(entry.keyStartTs)"
+            let metadata = [HKMetadataKeyExternalUUID: key]
+            keys.append(contentsOf: entry.allKeyStartTs.map {
+                "noop:\(noopDeviceId):sleep:\($0)"
+            })
+            samples.append(HKCategorySample(
+                type: type,
+                value: HKCategoryValueSleepAnalysis.inBed.rawValue,
+                start: Date(timeIntervalSince1970: TimeInterval(entry.spanStart)),
+                end: Date(timeIntervalSince1970: TimeInterval(entry.spanEnd)),
+                metadata: metadata
+            ))
+            for interval in entry.intervals {
+                let value: HKCategoryValueSleepAnalysis
+                switch interval.kind {
+                case .awake: value = .awake
+                case .light: value = .asleepCore
+                case .deep: value = .asleepDeep
+                case .rem: value = .asleepREM
+                case .unspecified: value = .asleepUnspecified
+                }
+                samples.append(HKCategorySample(
+                    type: type,
+                    value: value.rawValue,
+                    start: Date(timeIntervalSince1970: TimeInterval(interval.start)),
+                    end: Date(timeIntervalSince1970: TimeInterval(interval.end)),
+                    metadata: metadata
+                ))
+            }
+        }
+        guard !samples.isEmpty else { return }
+
+        let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
+            HKQuery.predicateForObjects(from: HKSource.default()),
+            HKQuery.predicateForObjects(
+                withMetadataKey: HKMetadataKeyExternalUUID,
+                allowedValues: Array(Set(keys))
+            ),
+        ])
+        _ = try await store.deleteObjects(of: type, predicate: predicate)
+        try await store.save(samples)
+        HealthKitWritebackFingerprint.markSuccess(.sleep, fingerprint: fingerprint)
     }
 
     /// Drive an incremental sync off an observer wake. We use an `HKAnchoredObjectQuery` per type to
