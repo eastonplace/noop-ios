@@ -10,6 +10,9 @@ public struct WidgetSnapshot: Codable, Equatable {
     public var batteryPct: Int?
     public var bonded: Bool
     public var updated: Date
+    /// Durable identity of the verified projection that supplied the headline values.
+    public var verifiedContextId: String?
+    public var verifiedProjectionGeneration: Int64?
     // Richer glance fields (#446). All OPTIONAL with nil defaults so a snapshot written by an OLDER app
     // build (which never encoded these keys) still decodes — Codable fills a missing optional with nil.
     public var effort: Double?   // Strain on the canonical 0–21 display axis
@@ -40,12 +43,16 @@ public struct WidgetSnapshot: Codable, Equatable {
                 recoveryDelta: Int? = nil, sleepMinutes: Int? = nil, steps: Int? = nil,
                 calories: Int? = nil, hourlyStress: [Double?]? = nil,
                 stressSummary: String? = nil, hrSparkline: [Int]? = nil,
-                hrvSparkline: [Int]? = nil) {
+                hrvSparkline: [Int]? = nil,
+                verifiedContextId: String? = nil,
+                verifiedProjectionGeneration: Int64? = nil) {
         self.recovery = recovery
         self.bpm = bpm
         self.batteryPct = batteryPct
         self.bonded = bonded
         self.updated = updated
+        self.verifiedContextId = verifiedContextId
+        self.verifiedProjectionGeneration = verifiedProjectionGeneration
         self.effort = effort
         self.rest = rest
         self.hrv = hrv
@@ -79,6 +86,8 @@ public struct WidgetSnapshot: Codable, Equatable {
         stressSummary: String? = nil,
         hrSparkline: [Int]? = nil,
         hrvSparkline: [Int]? = nil,
+        verifiedContextId: String? = nil,
+        verifiedProjectionGeneration: Int64? = nil,
         updated: Date = Date()
     ) -> WidgetSnapshot {
         WidgetSnapshot(
@@ -98,7 +107,9 @@ public struct WidgetSnapshot: Codable, Equatable {
             hourlyStress: hourlyStress,
             stressSummary: stressSummary,
             hrSparkline: hrSparkline,
-            hrvSparkline: hrvSparkline
+            hrvSparkline: hrvSparkline,
+            verifiedContextId: verifiedContextId,
+            verifiedProjectionGeneration: verifiedProjectionGeneration
         )
     }
 
@@ -188,5 +199,17 @@ public struct WidgetSnapshot: Codable, Equatable {
         guard let defaults, let data = try? JSONEncoder().encode(self) else { return false }
         defaults.set(data, forKey: WidgetSnapshot.storageKey)
         return true
+    }
+}
+
+extension WidgetSnapshot {
+    /// Reject an older verified generation for the same context at the persisted App Group sink.
+    public func acceptsVerifiedProjection(contextId: String, generation: Int64) -> Bool {
+        guard let storedContext = verifiedContextId,
+              let storedGeneration = verifiedProjectionGeneration,
+              storedContext == contextId else {
+            return true
+        }
+        return generation >= storedGeneration
     }
 }

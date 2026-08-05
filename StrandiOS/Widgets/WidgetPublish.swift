@@ -87,6 +87,11 @@ extension WidgetSnapshot {
         from model: AppModel,
         verifiedProjection: VerifiedHealthProjection
     ) async {
+        let stored = WidgetSnapshot.load()
+        guard stored?.acceptsVerifiedProjection(
+            contextId: verifiedProjection.contextId,
+            generation: verifiedProjection.generation
+        ) ?? true else { return }
         let generation = WidgetLivePublishGate.beginFullPublish()
         let days = model.repo.days
         let now = Date()
@@ -136,6 +141,8 @@ extension WidgetSnapshot {
             stressSummary: stress.summary,
             hrSparkline: sparkline,
             hrvSparkline: hrvSparkline,
+            verifiedContextId: verifiedProjection.contextId,
+            verifiedProjectionGeneration: verifiedProjection.generation,
             updated: now
         )
         guard WidgetLivePublishGate.isCurrentFullPublish(generation) else { return }
@@ -144,6 +151,10 @@ extension WidgetSnapshot {
         // may have advanced it while this slower projection was suspended.
         let previous = WidgetLivePublishGate.currentSnapshot(now: now)
         guard WidgetLivePublishGate.shouldPublishFull(previous: previous, next: snap, now: now) else { return }
+        guard snap.acceptsVerifiedProjection(
+            contextId: verifiedProjection.contextId,
+            generation: verifiedProjection.generation
+        ) else { return }
         guard snap.save() else { return }
         WidgetLivePublishGate.notePublished(snap, at: now)
         WidgetCenter.shared.reloadAllTimelines()
@@ -184,6 +195,14 @@ extension WidgetSnapshot {
             storedStrain: storedStrain,
             hrSparkline: sparkline,
             updated: now)
+        if let verified {
+            guard next.acceptsVerifiedProjection(
+                contextId: verified.contextId,
+                generation: verified.generation
+            ) else { return }
+            next.verifiedContextId = verified.contextId
+            next.verifiedProjectionGeneration = verified.generation
+        }
         // `mergingLive` preserves a nil optional by design, but here nil specifically means the workout
         // ended. Clear the old trace so the widget exits workout mode immediately instead of retaining the
         // last session's graph forever.

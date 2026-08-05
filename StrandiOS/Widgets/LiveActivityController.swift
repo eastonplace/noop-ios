@@ -28,6 +28,8 @@ final class LiveActivityController {
         let recovery: Int?
         let connected: Bool
         let effort: Double?
+        let verifiedContextId: String?
+        let verifiedProjectionGeneration: Int64?
         let workoutIsActive: Bool
         let workoutProjection: () -> WorkoutLiveActivityState?
     }
@@ -53,6 +55,7 @@ final class LiveActivityController {
     /// Last payload handed to ActivityKit. Equal payloads do not need another async bridge call every 2 s;
     /// a periodic heartbeat still refreshes the stale date for a quiet-but-healthy stream.
     private var lastContentState: NOOPActivityAttributes.ContentState?
+    private static let verifiedGenerationKey = "noop.live-activity.verified-projection-generation"
 
     #if DEBUG
     private var component41QAMode = false
@@ -75,6 +78,8 @@ final class LiveActivityController {
         recovery: Int?,
         connected: Bool,
         effort: Double? = nil,
+        verifiedContextId: String? = nil,
+        verifiedProjectionGeneration: Int64? = nil,
         workoutIsActive: Bool? = nil,
         workout: @autoclosure @escaping () -> WorkoutLiveActivityState? = nil
     ) {
@@ -86,6 +91,8 @@ final class LiveActivityController {
             recovery: recovery,
             connected: connected,
             effort: effort,
+            verifiedContextId: verifiedContextId,
+            verifiedProjectionGeneration: verifiedProjectionGeneration,
             workoutIsActive: workoutIsActive ?? LiveActivityWorkoutStatus.isActive,
             workoutProjection: workout
         )
@@ -195,9 +202,10 @@ final class LiveActivityController {
             let heartbeatElapsed = now.timeIntervalSince(lastPush)
             if state == lastContentState,
                heartbeatElapsed >= 0,
-               heartbeatElapsed < Self.unchangedHeartbeatInterval {
+                heartbeatElapsed < Self.unchangedHeartbeatInterval {
                 return
             }
+            guard acceptsVerifiedGeneration(input) else { return }
             lastPush = now
             lastContentState = state
             lastModeWasWorkout = desiredModeIsWorkout
@@ -206,6 +214,7 @@ final class LiveActivityController {
             await activity.update(ActivityContent(state: state, staleDate: staleDate))
         } else {
             do {
+                guard acceptsVerifiedGeneration(input) else { return }
                 activity = try Activity.request(
                     attributes: NOOPActivityAttributes(
                         title: workoutState?.sport ?? String(localized: "Live HR")
@@ -220,6 +229,22 @@ final class LiveActivityController {
                 resetCachedState()
             }
         }
+    }
+
+    /// Persist the verified generation immediately before the ActivityKit sink. Nil identity belongs to the
+    /// ordinary live lane and remains compatible with pre-verification updates.
+    private func acceptsVerifiedGeneration(_ input: DriveInput) -> Bool {
+        guard let contextId = input.verifiedContextId,
+              let generation = input.verifiedProjectionGeneration,
+              let defaults = UserDefaults(suiteName: WidgetSnapshot.suiteName) else {
+            return true
+        }
+        return VerifiedProjectionGenerationStore.acceptsAndRecord(
+            contextId: contextId,
+            generation: generation,
+            defaults: defaults,
+            key: Self.verifiedGenerationKey
+        )
     }
 
     /// Explicit shutdown used by QA and any future lifecycle owner. Production drive calls normally reach
