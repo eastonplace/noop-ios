@@ -1015,6 +1015,7 @@ extension WhoopStore {
         }
         Phase34DatabaseMigrations.register(on: &migrator)
         PR28RootFixMigrations.register(on: &migrator)
+        PR28FollowupMigrations.register(on: &migrator)
         return migrator
     }
 }

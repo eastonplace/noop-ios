@@ -10,15 +10,15 @@ struct ExternalPublicationWorkerDependencies: Sendable {
     let applyEvent: @Sendable @MainActor (_ key: String, _ event: ExternalPublicationEvent, _ now: Date) async throws -> ExternalPublicationOutboxItem
     let loadProjection: @Sendable @MainActor (_ contextId: String, _ generation: Int64) async throws -> VerifiedHealthProjection?
     /// Latest-state sinks must atomically ignore a projection older than the generation already stored.
-    let publishWidget: @Sendable @MainActor (VerifiedHealthProjection) async throws -> Void
-    let publishLiveActivity: @Sendable @MainActor (VerifiedHealthProjection) async throws -> Void
+    let publishWidget: @Sendable @MainActor (VerifiedHealthProjection) async throws -> ExternalSinkPublicationResult
+    let publishLiveActivity: @Sendable @MainActor (VerifiedHealthProjection) async throws -> ExternalSinkPublicationResult
     /// HealthKit is historical mutation delivery. Query and write the exact durable score rows for
     /// `changedDays` at `analysisGeneration`; the current projection is only shared context and provenance.
     let publishHealthKitWriteOnly: @Sendable @MainActor (
         HistoricalHealthKitMutationPayload
-    ) async throws -> Void
+    ) async throws -> ExternalSinkPublicationResult
     /// The watch sink must ignore generations older than its last accepted generation.
-    let publishWatch: @Sendable @MainActor (VerifiedHealthProjection) async throws -> Void
+    let publishWatch: @Sendable @MainActor (VerifiedHealthProjection) async throws -> ExternalSinkPublicationResult
     let classifyError: @Sendable (any Error) -> PipelineFailureClassification
     let pruneCompleted: @Sendable @MainActor () async throws -> Void
     /// Privacy-safe diagnostic sink. It receives stable operation codes and error text only.
@@ -144,11 +144,12 @@ actor ExternalPublicationWorker {
                 throw ExternalPublicationWorkerError.projectionMismatch
             }
 
+            let result: ExternalSinkPublicationResult
             switch leased.destination {
             case .widget:
-                try await dependencies.publishWidget(projection)
+                result = try await dependencies.publishWidget(projection)
             case .liveActivity:
-                try await dependencies.publishLiveActivity(projection)
+                result = try await dependencies.publishLiveActivity(projection)
             case .healthKit:
                 guard let payload = leased.healthKitPayload,
                       payload.validates(
@@ -160,20 +161,19 @@ actor ExternalPublicationWorker {
                       ) else {
                     throw ExternalPublicationWorkerError.payloadMissingOrMismatched
                 }
-                try await dependencies.publishHealthKitWriteOnly(payload)
+                result = try await dependencies.publishHealthKitWriteOnly(payload)
             case .watch:
-                try await dependencies.publishWatch(projection)
+                result = try await dependencies.publishWatch(projection)
             }
 
             // A writer that lost its durable lease may have completed an idempotent destination call,
             // but it is no longer allowed to acknowledge the outbox row. The next owner safely replays it.
             try await leaseHealth.requireValid()
 
-            _ = try await dependencies.applyEvent(
-                leased.idempotencyKey,
-                .succeeded(owner: owner),
-                dependencies.now()
-            )
+            let event: ExternalPublicationEvent = result == .superseded
+                ? .superseded(owner: owner)
+                : .succeeded(owner: owner)
+            _ = try await dependencies.applyEvent(leased.idempotencyKey, event, dependencies.now())
         } catch {
             let classification = dependencies.classifyError(error)
             do {

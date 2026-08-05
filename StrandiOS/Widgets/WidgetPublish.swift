@@ -5,6 +5,11 @@ import StrandDesign
 import StrandAnalytics
 import WidgetKit
 
+enum WidgetPublicationError: Error {
+    case appGroupUnavailable
+    case sinkWriteFailed
+}
+
 @MainActor
 private enum WidgetLivePublishGate {
     private(set) static var cachedSnapshot: WidgetSnapshot?
@@ -74,9 +79,9 @@ extension WidgetSnapshot {
     /// recovery-derived fields (the same carry-over Today does), so the widget never blanks right after
     /// the rollover yet always describes today.
     @MainActor
-    static func publish(from model: AppModel) async {
-        guard let verifiedProjection = model.repo.verifiedHealthProjection else { return }
-        await publish(from: model, verifiedProjection: verifiedProjection)
+    static func publish(from model: AppModel) async -> ExternalSinkPublicationResult {
+        guard let verifiedProjection = model.repo.verifiedHealthProjection else { return .notApplicable }
+        return (try? await publish(from: model, verifiedProjection: verifiedProjection)) ?? .superseded
     }
 
     /// Publish the exact projection generation leased by the durable external-publication worker.
@@ -85,13 +90,17 @@ extension WidgetSnapshot {
     @MainActor
     static func publish(
         from model: AppModel,
-        verifiedProjection: VerifiedHealthProjection
-    ) async {
+        verifiedProjection: VerifiedHealthProjection,
+        expectedActiveContextId: String? = nil
+    ) async throws -> ExternalSinkPublicationResult {
+        guard expectedActiveContextId == nil || expectedActiveContextId == verifiedProjection.contextId else {
+            return .superseded
+        }
         let stored = WidgetSnapshot.load()
         guard stored?.acceptsVerifiedProjection(
             contextId: verifiedProjection.contextId,
             generation: verifiedProjection.generation
-        ) ?? true else { return }
+        ) ?? true else { return .superseded }
         let generation = WidgetLivePublishGate.beginFullPublish()
         let days = model.repo.days
         let now = Date()
@@ -105,9 +114,9 @@ extension WidgetSnapshot {
         let day = days.first(where: { $0.day == verifiedProjection.logicalDay.key })
             ?? Repository.widgetAnchor(days: days, now: now)
         let recovery = verifiedProjection.visibleMetric(.recovery)?.value
-        let storedStrain = verifiedProjection.visibleMetric(.strain)?.value
+        let storedStrain = ExternalSurfaceProjection(verifiedProjection).effort
         let restScore = verifiedProjection.visibleMetric(.sleepScore)?.value
-        guard WidgetLivePublishGate.isCurrentFullPublish(generation) else { return }
+        guard WidgetLivePublishGate.isCurrentFullPublish(generation) else { return .superseded }
         let previousRecovery = day.flatMap { anchor in
             days.last(where: { $0.day < anchor.day && $0.recovery != nil })?.recovery
         }
@@ -116,13 +125,13 @@ extension WidgetSnapshot {
             return Int((current - previousRecovery).rounded())
         }()
         let hrvSeries = await model.repo.exploreSeries(key: "hrv", source: "my-whoop")
-        guard WidgetLivePublishGate.isCurrentFullPublish(generation) else { return }
+        guard WidgetLivePublishGate.isCurrentFullPublish(generation) else { return .superseded }
         let hrvSparkline = hrvSeries
             .filter { point in day.map { point.day <= $0.day } ?? true }
             .suffix(12)
             .map { Int($0.value.rounded()) }
         let stress = await dashboardStress(from: model)
-        guard WidgetLivePublishGate.isCurrentFullPublish(generation) else { return }
+        guard WidgetLivePublishGate.isCurrentFullPublish(generation) else { return .superseded }
         let sparkline = model.activeWorkout.map { Array($0.samples.suffix(48).map(\.bpm)) }
         let snap = WidgetSnapshot.publishing(
             recovery: recovery,
@@ -145,19 +154,42 @@ extension WidgetSnapshot {
             verifiedProjectionGeneration: verifiedProjection.generation,
             updated: now
         )
-        guard WidgetLivePublishGate.isCurrentFullPublish(generation) else { return }
+        guard WidgetLivePublishGate.isCurrentFullPublish(generation) else { return .superseded }
         // A refreshSeq change unrelated to widget data must not rewrite the same App Group blob or reload
         // every timeline. Re-read the in-process latest snapshot only after all awaits; a live-lane publish
         // may have advanced it while this slower projection was suspended.
         let previous = WidgetLivePublishGate.currentSnapshot(now: now)
-        guard WidgetLivePublishGate.shouldPublishFull(previous: previous, next: snap, now: now) else { return }
+        guard WidgetLivePublishGate.shouldPublishFull(previous: previous, next: snap, now: now) else {
+            return .alreadyCurrent
+        }
         guard snap.acceptsVerifiedProjection(
             contextId: verifiedProjection.contextId,
             generation: verifiedProjection.generation
-        ) else { return }
-        guard snap.save() else { return }
-        WidgetLivePublishGate.notePublished(snap, at: now)
-        WidgetCenter.shared.reloadAllTimelines()
+        ) else { return .superseded }
+        guard let defaults = UserDefaults(suiteName: WidgetSnapshot.suiteName) else {
+            throw WidgetPublicationError.appGroupUnavailable
+        }
+        let result = VerifiedProjectionGenerationStore.commitIfAccepted(
+            contextId: verifiedProjection.contextId,
+            generation: verifiedProjection.generation,
+            expectedActiveContextId: expectedActiveContextId,
+            defaults: defaults,
+            key: "noop.widget.verified-projection-generation",
+            write: { snap.save() }
+        )
+        switch result {
+        case .published:
+            WidgetLivePublishGate.notePublished(snap, at: now)
+            WidgetCenter.shared.reloadAllTimelines()
+            return .published
+        case .alreadyCurrent:
+            WidgetLivePublishGate.notePublished(snap, at: now)
+            return .alreadyCurrent
+        case .superseded:
+            return .superseded
+        case .failed:
+            throw WidgetPublicationError.sinkWriteFailed
+        }
     }
 
     /// Fast publication lane for live fields. No history query and no sleep/stress recomputation.
@@ -181,7 +213,7 @@ extension WidgetSnapshot {
     ) {
         let verified = verifiedProjection
         let recovery = verified?.visibleMetric(.recovery)?.value
-        let storedStrain = verified?.visibleMetric(.strain)?.value
+        let storedStrain = verified.flatMap { ExternalSurfaceProjection($0).effort }
         let now = Date()
         let previous = WidgetLivePublishGate.currentSnapshot(now: now)
         let base = previous ?? WidgetSnapshot(
@@ -208,7 +240,20 @@ extension WidgetSnapshot {
         // last session's graph forever.
         if model.activeWorkout == nil { next.hrSparkline = nil }
         guard WidgetLivePublishGate.shouldPublish(previous: previous, next: next, now: now) else { return }
-        guard next.save() else { return }
+        if let verified,
+           let defaults = UserDefaults(suiteName: WidgetSnapshot.suiteName) {
+            let result = VerifiedProjectionGenerationStore.commitIfAccepted(
+                contextId: verified.contextId,
+                generation: verified.generation,
+                expectedActiveContextId: verified.contextId,
+                defaults: defaults,
+                key: "noop.widget.verified-projection-generation",
+                write: { next.save() }
+            )
+            guard result == .published || result == .alreadyCurrent else { return }
+        } else {
+            guard next.save() else { return }
+        }
         WidgetLivePublishGate.notePublished(next, at: now)
         WidgetCenter.shared.reloadAllTimelines()
     }

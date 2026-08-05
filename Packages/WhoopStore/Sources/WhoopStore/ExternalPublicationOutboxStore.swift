@@ -10,6 +10,14 @@ extension WhoopStore {
         destinations: Set<DownstreamDestination>,
         now: Date
     ) async throws -> Int {
+        try await resumeEnvironmentalBlockedExternalPublications(destinations: destinations, now: now)
+    }
+
+    @discardableResult
+    public func resumeEnvironmentalBlockedExternalPublications(
+        destinations: Set<DownstreamDestination>,
+        now: Date
+    ) async throws -> Int {
         guard !destinations.isEmpty else { return 0 }
         return try syncWrite { db in
             let values = destinations.map(\.rawValue).sorted()
@@ -20,11 +28,14 @@ extension WhoopStore {
                 arguments: StatementArguments(values)
             )
             for row in rows {
+                guard PR28BlockedRearmPolicy.mayRearm(code: row["lastErrorCode"]) else { continue }
                 var item = try Self.decodeExternalPublication(row)
                 try ExternalPublicationReducer.apply(.resumeBlocked, to: &item, now: now)
                 try Self.updateExternalPublication(item, in: db)
             }
-            return rows.count
+            return rows.reduce(into: 0) { count, row in
+                if PR28BlockedRearmPolicy.mayRearm(code: row["lastErrorCode"]) { count += 1 }
+            }
         }
     }
 
@@ -41,6 +52,7 @@ extension WhoopStore {
         try syncWrite { db in
             try Self.persistVerifiedProjection(snapshot.projection, now: now, in: db)
             for destination in destinations {
+                try HealthKitPayloadAdmissionGuard.validate(destination: destination, snapshot: snapshot)
                 let item = try ExternalPublicationOutboxItem(
                     contextId: snapshot.projection.contextId,
                     deviceId: snapshot.projection.deviceId,
@@ -155,6 +167,9 @@ extension WhoopStore {
             try db.execute(sql: "DELETE FROM externalPublicationOutbox WHERE deviceId = ?", arguments: [deviceId])
             try db.execute(sql: "DELETE FROM verifiedSnapshotCommit WHERE deviceId = ?", arguments: [deviceId])
             try db.execute(sql: "DELETE FROM verifiedHealthProjection WHERE deviceId = ?", arguments: [deviceId])
+            if try db.tableExists("healthKitMutationWatermark") {
+                try db.execute(sql: "DELETE FROM healthKitMutationWatermark WHERE deviceId = ?", arguments: [deviceId])
+            }
         }
     }
 

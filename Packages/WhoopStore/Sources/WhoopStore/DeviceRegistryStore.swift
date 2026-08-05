@@ -73,28 +73,29 @@ public struct DeviceRegistryStore: Sendable {
 
     /// Adopt (or clear) the stable BLE identity for a registry row. `peripheralId` is the
     /// CBPeripheral.identifier.uuidString on iOS/Mac; passing nil un-adopts it.
-    public func setPeripheralId(_ id: String, peripheralId: String?) throws {
+    @discardableResult
+    public func setPeripheralId(_ id: String, peripheralId: String?) throws -> Bool {
         try dbQueue.write { db in
             let previous = try String.fetchOne(
                 db,
                 sql: "SELECT peripheralId FROM pairedDevice WHERE id = ?",
                 arguments: [id]
             )
+            guard previous != peripheralId else { return false }
             // Any physical identity transition is a new history lineage, including first adoption from
             // the legacy no-peripheral state. The old samples remain readable, but a trim from the old
             // physical source must never suppress a fresh source's offload.
-            if previous != peripheralId {
-                try db.execute(
-                    sql: """
-                        UPDATE pairedDevice
-                        SET historyLineage = ?, historyCursorEpoch = historyCursorEpoch + 1
-                        WHERE id = ?
-                        """,
-                    arguments: [UUID().uuidString, id]
-                )
-            }
+            try db.execute(
+                sql: """
+                    UPDATE pairedDevice
+                    SET historyLineage = ?, historyCursorEpoch = historyCursorEpoch + 1
+                    WHERE id = ?
+                    """,
+                arguments: [UUID().uuidString, id]
+            )
             try db.execute(sql: "UPDATE pairedDevice SET peripheralId = ? WHERE id = ?",
                            arguments: [peripheralId, id])
+            return true
         }
     }
 
@@ -160,6 +161,7 @@ public struct DeviceRegistryStore: Sendable {
         "historicalAnalysisCheckpoint",
         "historicalReceiptConsumer", "historicalAnalysisWork", "analysisMutationJournal",
         "verifiedHealthProjection", "verifiedSnapshotCommit", "externalPublicationOutbox",
+        "healthKitMutationWatermark",
     ]
 
     /// Permanently delete every recorded sample/derived row belonging to one device, across all

@@ -1,5 +1,6 @@
 #if os(iOS)
 import Foundation
+import NoopPhase34Core
 // ActivityKit's generic Activity/ActivityContent bridge is not fully Sendable-annotated in the iOS 17
 // SDK even though this controller serializes every mutation on MainActor. Keep that framework boundary
 // pre-concurrency-scoped; NOOP-owned state remains under complete strict concurrency checking.
@@ -13,6 +14,12 @@ struct WorkoutLiveActivityState {
     let calories: Int?
     let hrTrace: [Int]
     let zoneSeconds: [Int]
+}
+
+enum LiveActivityPublicationError: Error {
+    case unavailable
+    case requestFailed
+    case generationRejected
 }
 
 /// Starts, updates, and ends the live-HR Live Activity. The activity appears on the Lock Screen and
@@ -109,7 +116,7 @@ final class LiveActivityController {
     private func drainPendingDrive() async {
         while !Task.isCancelled, let input = pendingDrive {
             pendingDrive = nil
-            await reconcile(input)
+            _ = try? await reconcile(input)
         }
         reconcileTask = nil
         // An input can arrive after the loop's final condition check but before the task clears itself.
@@ -117,8 +124,14 @@ final class LiveActivityController {
         if pendingDrive != nil { startReconcilerIfNeeded() }
     }
 
-    private func reconcile(_ input: DriveInput) async {
-        guard authInfo.areActivitiesEnabled else { return }
+    private func reconcile(
+        _ input: DriveInput,
+        expectedActiveContextId: String? = nil
+    ) async throws -> ExternalSinkPublicationResult {
+        guard expectedActiveContextId == nil || expectedActiveContextId == input.verifiedContextId else {
+            return .superseded
+        }
+        guard authInfo.areActivitiesEnabled else { return .notApplicable }
 
         // Re-adopt an activity that outlived a previous app session. Recover its actual content mode so
         // the first post-launch workout start/end can still trigger the required title-changing restart.
@@ -133,9 +146,9 @@ final class LiveActivityController {
         // serialized worker, preventing an older queued update from reviving content after the end.
         guard UnitPrefs.liveActivityEnabled(), input.connected else {
             await performEnd()
-            return
+            return .notApplicable
         }
-        guard input.bpm != nil else { return }
+        guard input.bpm != nil else { return .notApplicable }
 
         let desiredModeIsWorkout = input.workoutIsActive
         var now = Date()
@@ -145,7 +158,7 @@ final class LiveActivityController {
             desiredModeIsWorkout: desiredModeIsWorkout,
             lastPushedAt: lastPush,
             now: now
-        ) else { return }
+        ) else { return .alreadyCurrent }
 
         // Activity attributes are immutable, so changing between generic Live HR and a named workout
         // requires an end/restart. Mode edges bypass the 2-second content throttle above. If a newer drive
@@ -154,7 +167,7 @@ final class LiveActivityController {
            let lastModeWasWorkout,
            lastModeWasWorkout != desiredModeIsWorkout {
             await performEnd()
-            guard !Task.isCancelled, pendingDrive == nil else { return }
+            guard !Task.isCancelled, pendingDrive == nil else { return .alreadyCurrent }
             now = Date()
         }
 
@@ -173,7 +186,7 @@ final class LiveActivityController {
                     // violates that contract, stay ended/generic rather than publish contradictory workout UI.
                     cachedWorkoutState = nil
                     lastWorkoutProjectionAt = .distantPast
-                    return
+                    return .notApplicable
                 }
             }
         } else {
@@ -200,21 +213,30 @@ final class LiveActivityController {
 
         if let activity {
             let heartbeatElapsed = now.timeIntervalSince(lastPush)
+            guard acceptsVerifiedGeneration(
+                input,
+                expectedActiveContextId: expectedActiveContextId
+            ) else { return .superseded }
             if state == lastContentState,
                heartbeatElapsed >= 0,
-                heartbeatElapsed < Self.unchangedHeartbeatInterval {
-                return
+               heartbeatElapsed < Self.unchangedHeartbeatInterval {
+                guard recordVerifiedGeneration(input) else { return .superseded }
+                return .alreadyCurrent
             }
-            guard acceptsVerifiedGeneration(input) else { return }
-            lastPush = now
-            lastContentState = state
-            lastModeWasWorkout = desiredModeIsWorkout
             // Await directly inside the single reconciliation worker. This serializes ActivityKit updates
             // and coalesces any HR callbacks that arrive while the bridge is suspended.
             await activity.update(ActivityContent(state: state, staleDate: staleDate))
+            guard recordVerifiedGeneration(input) else { return .superseded }
+            lastPush = now
+            lastContentState = state
+            lastModeWasWorkout = desiredModeIsWorkout
+            return .published
         } else {
             do {
-                guard acceptsVerifiedGeneration(input) else { return }
+                guard acceptsVerifiedGeneration(
+                    input,
+                    expectedActiveContextId: expectedActiveContextId
+                ) else { return .superseded }
                 activity = try Activity.request(
                     attributes: NOOPActivityAttributes(
                         title: workoutState?.sport ?? String(localized: "Live HR")
@@ -222,18 +244,68 @@ final class LiveActivityController {
                     content: ActivityContent(state: state, staleDate: staleDate),
                     pushType: nil
                 )
+                guard recordVerifiedGeneration(input) else {
+                    await performEnd()
+                    return .superseded
+                }
                 lastPush = now
                 lastContentState = state
                 lastModeWasWorkout = desiredModeIsWorkout
+                return .published
             } catch {
                 resetCachedState()
+                throw LiveActivityPublicationError.requestFailed
             }
         }
     }
 
+    /// Durable-worker entry point. It runs the same serial reconciler and
+    /// returns only after the ActivityKit operation has completed.
+    func publishVerified(
+        projection: VerifiedHealthProjection,
+        expectedActiveContextId: String,
+        bpm: Int?,
+        recovery: Int?,
+        connected: Bool,
+        effort: Double?,
+        workoutIsActive: Bool,
+        workoutProjection: @escaping () -> WorkoutLiveActivityState?
+    ) async throws -> ExternalSinkPublicationResult {
+        guard projection.contextId == expectedActiveContextId else { return .superseded }
+        let input = DriveInput(
+            bpm: bpm,
+            recovery: recovery,
+            connected: connected,
+            effort: effort,
+            verifiedContextId: projection.contextId,
+            verifiedProjectionGeneration: projection.generation,
+            workoutIsActive: workoutIsActive,
+            workoutProjection: workoutProjection
+        )
+        return try await reconcile(input, expectedActiveContextId: expectedActiveContextId)
+    }
+
     /// Persist the verified generation immediately before the ActivityKit sink. Nil identity belongs to the
     /// ordinary live lane and remains compatible with pre-verification updates.
-    private func acceptsVerifiedGeneration(_ input: DriveInput) -> Bool {
+    private func acceptsVerifiedGeneration(
+        _ input: DriveInput,
+        expectedActiveContextId: String? = nil
+    ) -> Bool {
+        guard let contextId = input.verifiedContextId,
+              let generation = input.verifiedProjectionGeneration,
+              let defaults = UserDefaults(suiteName: WidgetSnapshot.suiteName) else {
+            return true
+        }
+        guard expectedActiveContextId == nil || expectedActiveContextId == contextId else { return false }
+        guard let data = defaults.data(forKey: Self.verifiedGenerationKey),
+              let existing = try? JSONDecoder().decode(
+                VerifiedProjectionGenerationRecord.self,
+                from: data
+              ) else { return true }
+        return existing.contextId == contextId && generation >= existing.generation
+    }
+
+    private func recordVerifiedGeneration(_ input: DriveInput) -> Bool {
         guard let contextId = input.verifiedContextId,
               let generation = input.verifiedProjectionGeneration,
               let defaults = UserDefaults(suiteName: WidgetSnapshot.suiteName) else {

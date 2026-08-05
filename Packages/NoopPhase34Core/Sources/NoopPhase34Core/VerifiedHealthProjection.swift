@@ -178,6 +178,14 @@ public struct VerifiedHealthProjection: Codable, Equatable, Sendable {
         return metric
     }
 
+    /// Shared external-surface accessor. Keeping the day-validity rule here prevents Widget, Live Activity,
+    /// and HealthKit adapters from each re-implementing the current-day Strain guard.
+    public var visibleStrainValue: Double? {
+        guard let entry = metrics.first(where: { $0.key.rawValue == "strain" }),
+              entry.value.metricDay == logicalDay else { return nil }
+        return entry.value.value
+    }
+
     public var presentationIdentity: SnapshotPresentationIdentity {
         SnapshotPresentationIdentity(
             logicalDay: logicalDay,

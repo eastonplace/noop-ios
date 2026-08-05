@@ -20,17 +20,25 @@ public struct HistoricalAnalysisWorkLeaseRequest: Sendable {
 extension WhoopStore {
     @discardableResult
     public func resumeBlockedHistoricalAnalysisWork(now: Date) async throws -> Int {
+        try await resumeEnvironmentalBlockedHistoricalAnalysisWork(now: now)
+    }
+
+    @discardableResult
+    public func resumeEnvironmentalBlockedHistoricalAnalysisWork(now: Date) async throws -> Int {
         try syncWrite { db in
             let rows = try Row.fetchAll(
                 db,
                 sql: "SELECT * FROM historicalAnalysisWork WHERE state = 'blocked' AND leaseOwner IS NULL"
             )
             for row in rows {
+                guard PR28BlockedRearmPolicy.mayRearm(code: row["lastErrorCode"]) else { continue }
                 var work = try Self.decodeHistoricalAnalysisWork(row)
                 try HistoricalAnalysisWorkReducer.apply(.resumeBlocked, to: &work, now: now)
                 try Self.updateHistoricalAnalysisWork(work, priority: row["priority"], in: db)
             }
-            return rows.count
+            return rows.reduce(into: 0) { count, row in
+                if PR28BlockedRearmPolicy.mayRearm(code: row["lastErrorCode"]) { count += 1 }
+            }
         }
     }
 

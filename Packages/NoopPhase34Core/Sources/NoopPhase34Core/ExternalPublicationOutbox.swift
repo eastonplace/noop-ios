@@ -167,6 +167,8 @@ public enum ExternalPublicationEvent: Equatable, Sendable {
     case succeeded(owner: String)
     /// Store-side latest-state coalescing. Only an unleased pending/retryable item may be superseded.
     case supersede
+    /// Sink-side monotonic generation gate superseded an already-leased item.
+    case superseded(owner: String)
     case failed(owner: String, code: String, retryable: Bool)
     case blocked(owner: String, code: String)
     case resumeBlocked
@@ -227,6 +229,15 @@ public enum ExternalPublicationReducer {
             item.state = .superseded
             item.nextAttemptAt = nil
             item.lastErrorCode = "superseded_by_newer_snapshot"
+            item.updatedAt = now
+
+        case let .superseded(owner):
+            try requireLease(owner, item: item, now: now)
+            guard item.state == .inFlight else { throw ExternalPublicationError.invalidTransition }
+            item.state = .superseded
+            item.lease = nil
+            item.nextAttemptAt = nil
+            item.lastErrorCode = "superseded_at_sink"
             item.updatedAt = now
 
         case let .failed(owner, code, retryable):

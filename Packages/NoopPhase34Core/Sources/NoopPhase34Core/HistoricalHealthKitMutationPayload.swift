@@ -115,6 +115,38 @@ public struct HistoricalHealthKitMutationPayload: Codable, Equatable, Sendable {
             && self.changedDays == changedDays
             && self.recordedTimeZoneIdentifier == recordedTimeZoneIdentifier
     }
+
+    public func validatedSleepWakeDays() -> [CivilDay] {
+        guard let calendar = try? HealthCalendar(timeZoneIdentifier: recordedTimeZoneIdentifier) else {
+            return []
+        }
+        return sleepMutations.compactMap { mutation in
+            try? calendar.civilDay(
+                containing: Date(timeIntervalSince1970: TimeInterval(mutation.endTimestamp))
+            )
+        }
+    }
+
+    /// Restrict a historical mutation to days that have not already been
+    /// delivered at a newer analysis generation. The outbox identity remains
+    /// the original generation; only the admitted sink scope is narrowed.
+    public func restricted(to eligibleDays: Set<CivilDay>) throws -> HistoricalHealthKitMutationPayload? {
+        guard !eligibleDays.isEmpty else { return nil }
+        let resolvedSleepDays = validatedSleepWakeDays()
+        let sleep = sleepMutations.enumerated().filter { index, _ in
+            guard index < resolvedSleepDays.count else { return false }
+            return eligibleDays.contains(resolvedSleepDays[index])
+        }.map(\.element)
+        return try HistoricalHealthKitMutationPayload(
+            contextId: contextId,
+            deviceId: deviceId,
+            analysisGeneration: analysisGeneration,
+            recordedTimeZoneIdentifier: recordedTimeZoneIdentifier,
+            changedDays: eligibleDays,
+            dailyMutations: dailyMutations.filter { eligibleDays.contains($0.day) },
+            sleepMutations: sleep
+        )
+    }
 }
 
 public enum HistoricalHealthKitPayloadError: Error, Equatable, Sendable {

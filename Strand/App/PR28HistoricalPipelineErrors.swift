@@ -1,6 +1,7 @@
 import Foundation
 import GRDB
 import NoopPhase34Core
+import WhoopStore
 
 /// Stable failure classes. Validation, incompatible source, unsupported work, and corrupt durable artifacts
 /// quarantine immediately. Store protection, busy SQLite, and background expiration remain retryable.
@@ -20,6 +21,14 @@ enum PR28HistoricalPipelineError: Error {
 
 enum PR28PipelineErrorClassifier {
     static func classify(_ error: any Error) -> PipelineFailureClassification {
+        if let error = error as? HealthKitPayloadAdmissionError {
+            switch error {
+            case .missingImmutablePayload:
+                return .init(code: "healthkit_payload_missing", disposition: .permanent)
+            case .payloadIdentityMismatch:
+                return .init(code: "invalid_healthkit_payload", disposition: .permanent)
+            }
+        }
         if let error = error as? PR28HistoricalPipelineError {
             switch error {
             case .snapshotUnavailable:

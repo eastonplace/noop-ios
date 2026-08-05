@@ -30,7 +30,7 @@ struct ExternalSurfaceProjection: Equatable {
         generation = projection.generation
         logicalDayKey = projection.logicalDay.key
         recovery = projection.visibleMetric(.recovery).flatMap { Self.recoveryValue($0.value) }
-        effort = projection.visibleMetric(.strain).flatMap { Self.effortValue($0.value) }
+        effort = projection.visibleStrainValue.flatMap(Self.effortValue)
         sleepScore = projection.visibleMetric(.sleepScore).flatMap { Int(exactly: $0.value.rounded()) }
     }
 }

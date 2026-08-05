@@ -5,6 +5,9 @@ import NoopPhase34Core
 import WhoopStore
 
 struct HistoricalPipelineRuntimeDependencies: Sendable {
+    /// Rearm only environmental blocked work before admission and coordinator drain.
+    /// Structural repair rows stay quarantined.
+    let rearmEnvironmental: (@Sendable () async throws -> Void)?
     /// Return every currently valid source scope. Old scopes must first be retired transactionally through
     /// `retireHistoricalReceiptScope`; they are not left as invisible pending work.
     let admissionContexts: @Sendable () async throws -> [HistoricalReceiptAdmissionContext]
@@ -16,6 +19,7 @@ struct HistoricalPipelineRuntimeDependencies: Sendable {
     let report: @Sendable (String) -> Void
 
     init(
+        rearmEnvironmental: (@Sendable () async throws -> Void)? = nil,
         admissionContexts: @escaping @Sendable () async throws -> [HistoricalReceiptAdmissionContext],
         admit: @escaping @Sendable (HistoricalReceiptAdmissionContext) async throws -> HistoricalReceiptAdmissionResult,
         coordinator: HistoricalPipelineCoordinator,
@@ -24,6 +28,7 @@ struct HistoricalPipelineRuntimeDependencies: Sendable {
         onAdmissionFailure: @escaping @Sendable (PipelineFailureClassification) async -> Void,
         report: @escaping @Sendable (String) -> Void
     ) {
+        self.rearmEnvironmental = rearmEnvironmental
         self.admissionContexts = admissionContexts
         self.admit = admit
         self.coordinator = coordinator
@@ -78,6 +83,13 @@ actor HistoricalPipelineRuntime {
         var deferred = 0
         repeat {
             rerunRequested = false
+            if let rearmEnvironmental = dependencies.rearmEnvironmental {
+                do {
+                    try await rearmEnvironmental()
+                } catch {
+                    dependencies.report("historical_blocked_rearm_failed: \(error)")
+                }
+            }
             let contexts: [HistoricalReceiptAdmissionContext]
             do {
                 contexts = try await dependencies.admissionContexts()

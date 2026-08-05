@@ -49,7 +49,8 @@ enum RepositoryHistoricalHealthKitPayloadBuilder {
             let hrv = importedRow?.avgHrv ?? computedRow?.avgHrv
             let spo2 = importedRow?.spo2Pct ?? computedRow?.spo2Pct
             let respiration = importedRow?.respRateBpm ?? computedRow?.respRateBpm
-            guard rhr != nil || hrv != nil || spo2 != nil || respiration != nil else { return nil }
+            // Every changed day is an authoritative replacement scope.  Keep a
+            // deletion-only mutation when all four values disappeared.
             return try HistoricalHealthKitDailyMutation(
                 day: day,
                 wakeTimestamp: wakeByDay[day.key],

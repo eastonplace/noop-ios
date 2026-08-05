@@ -51,6 +51,8 @@ struct StrandiOSApp: App {
         _model = StateObject(wrappedValue: model)
         _alarmMode = StateObject(wrappedValue: alarmMode)
         _alarmRuntime = StateObject(wrappedValue: alarmRuntime)
+        let workoutProjectionCache = WorkoutLiveProjectionCache()
+        _workoutProjection = State(initialValue: workoutProjectionCache)
         let healthBridge = HealthKitBridge(
             repo: model.repo,
             appleDeviceId: model.appleDeviceId,
@@ -81,27 +83,61 @@ struct StrandiOSApp: App {
                         contextId: contextId, generation: generation)
                 },
                 publishWidget: { projection in
-                    await WidgetSnapshot.publish(
+                    guard let expected = model.repo.activeVerifiedSinkContextId else {
+                        return .superseded
+                    }
+                    return try await WidgetSnapshot.publish(
                         from: model,
-                        verifiedProjection: projection)
+                        verifiedProjection: projection,
+                        expectedActiveContextId: expected)
                 },
                 publishLiveActivity: { projection in
                     let surface = ExternalSurfaceProjection(projection)
-                    liveActivityController.update(
+                    guard let expected = model.repo.activeVerifiedSinkContextId else {
+                        return .superseded
+                    }
+                    return try await liveActivityController.publishVerified(
+                        projection: projection,
+                        expectedActiveContextId: expected,
                         bpm: model.bpm ?? model.live.heartRate,
                         recovery: surface.recovery,
                         connected: model.live.connected,
                         effort: surface.effort,
-                        verifiedContextId: surface.contextId,
-                        verifiedProjectionGeneration: surface.generation,
-                        workoutIsActive: model.activeWorkout != nil)
+                        workoutIsActive: model.activeWorkout != nil,
+                        workoutProjection: {
+                            model.activeWorkout.map {
+                                workoutProjectionCache.state(workout: $0, profile: model.profile)
+                            }
+                        }
+                    )
                 },
                 publishHealthKitWriteOnly: { payload in
-                    try await healthBridge.publishExactHealthKit(payload: payload)
+                    guard let store = await model.repo.storeHandle() else {
+                        throw HistoricalPipelineRuntimeError.storeUnavailable
+                    }
+                    let eligible = try await store.eligibleHealthKitMutationDays(
+                        contextId: payload.contextId,
+                        deviceId: payload.deviceId,
+                        days: payload.changedDays,
+                        analysisGeneration: payload.analysisGeneration
+                    )
+                    guard let restricted = try payload.restricted(to: eligible) else {
+                        return .superseded
+                    }
+                    try await healthBridge.publishExactHealthKit(payload: restricted)
+                    try await store.recordHealthKitMutationDelivery(
+                        contextId: payload.contextId,
+                        deviceId: payload.deviceId,
+                        days: restricted.changedDays,
+                        analysisGeneration: restricted.analysisGeneration,
+                        now: Date()
+                    )
+                    return .published
                 },
                 publishWatch: { _ in
-                    // project.yml has no watchOS target. Never acknowledge a watch row as delivered.
-                    throw ExternalPublicationWorkerError.destinationUnavailable
+                    // project.yml has no watchOS target. This row is intentionally
+                    // non-applicable, not a fake write.
+                    return .notApplicable
                 },
                 classifyError: { error in
                     if let error = error as? ExactPublicationError {
@@ -116,6 +152,12 @@ struct StrandiOSApp: App {
                             return PipelineFailureClassification(
                                 code: "invalid_time_zone", disposition: .permanent)
                         }
+                    }
+                    if error is WidgetPublicationError {
+                        return PipelineFailureClassification(code: "widget_sink_write_failed", disposition: .retryable)
+                    }
+                    if error is LiveActivityPublicationError {
+                        return PipelineFailureClassification(code: "live_activity_sink_failed", disposition: .retryable)
                     }
                     if let error = error as? ExternalPublicationWorkerError {
                         switch error {
@@ -179,17 +221,18 @@ struct StrandiOSApp: App {
     @MainActor
     private func resumeBlockedWork(includeHealthKit: Bool) async {
         guard let store = await model.repo.storeHandle() else { return }
-        _ = try? await store.resumeBlockedHistoricalAnalysisWork(now: Date())
-        _ = try? await store.resumeBlockedExternalPublications(
+        _ = try? await store.resumeEnvironmentalBlockedHistoricalAnalysisWork(now: Date())
+        _ = try? await store.resumeEnvironmentalBlockedExternalPublications(
             destinations: [.widget, .liveActivity],
             now: Date()
         )
         if includeHealthKit, health.auth == .authorized {
-            _ = try? await store.resumeBlockedExternalPublications(
+            _ = try? await store.resumeEnvironmentalBlockedExternalPublications(
                 destinations: [.healthKit],
                 now: Date()
             )
         }
+        await model.resumeEnvironmentalBlockedHistoricalWorkAndDrain()
     }
 
     /// Drain the crash-safe HealthKit → Intelligence handoff. The scoring coordinator retains the widest
@@ -221,7 +264,7 @@ struct StrandiOSApp: App {
                 guard await model.repo.refresh(days: 1) else { return false }
                 refreshExternalSurface()
                 driveLiveActivity()
-                await WidgetSnapshot.publish(from: model)
+                _ = await WidgetSnapshot.publish(from: model)
                 await externalPublicationWorker.signal()
                 return true
             })
@@ -355,12 +398,12 @@ struct StrandiOSApp: App {
                     // publish: wait for the durable scoring journal to settle first, then publish the snapshot.
                     await drainCommittedHealthScoring()
                     await externalPublicationWorker.signal()
-                    await WidgetSnapshot.publish(from: model)
+                    _ = await WidgetSnapshot.publish(from: model)
                 }
             } else if phase == .background {
                 Task {
                     await externalPublicationWorker.signal()
-                    await WidgetSnapshot.publish(from: model)
+                    _ = await WidgetSnapshot.publish(from: model)
                 }
                 Task { await ShortcutHealthExport.writeIfEnabled(repo: model.repo) }
             }

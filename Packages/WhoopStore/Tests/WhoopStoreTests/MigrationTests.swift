@@ -17,7 +17,7 @@ final class MigrationTests: XCTestCase {
         ] {
             XCTAssertTrue(tables.contains(t), "missing table \(t)")
         }
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 45)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 46)
     }
 
     func testFileInitRunsMigrations() async throws {
@@ -129,7 +129,7 @@ final class MigrationTests: XCTestCase {
                 0
             )
         }
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 45)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 46)
     }
 
     func testV37MigratesLegacyRawBatchIntoItsReceiptScope() async throws {
@@ -339,7 +339,7 @@ final class MigrationTests: XCTestCase {
             let cols = try await store.columnNamesForTest(table: table)
             XCTAssertTrue(cols.contains("synced"), "\(table) missing synced column")
         }
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 45)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 46)
     }
 
     func testV34AddsDurableTodayHealthSnapshotGeneration() async throws {

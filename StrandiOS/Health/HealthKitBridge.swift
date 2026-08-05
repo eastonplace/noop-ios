@@ -494,6 +494,18 @@ final class HealthKitBridge: ObservableObject {
             ))
         }
 
+        let allDays = payload.changedDays.sorted()
+        var deletionKeysByType: [HKQuantityType: [String]] = [:]
+        for day in allDays {
+            for id in HealthKitBridge.quantityWriteIds {
+                guard let type = HKQuantityType.quantityType(forIdentifier: id),
+                      store.authorizationStatus(for: type) == .sharingAuthorized else { continue }
+                deletionKeysByType[type, default: []].append(
+                    "noop:\(noopDeviceId):\(id.rawValue):\(day.key)"
+                )
+            }
+        }
+
         for mutation in payload.dailyMutations {
             let start = try mutation.day.date(in: calendar)
             let noon = calendar.date(bySettingHour: 12, minute: 0, second: 0, of: start) ?? start
@@ -525,28 +537,29 @@ final class HealthKitBridge: ObservableObject {
                 )
             }
         }
-        guard !candidates.isEmpty else { return }
-
         let fingerprint = HealthKitWritebackFingerprint.fingerprint(
-            candidates.sorted { $0.key < $1.key }.map {
-                "\(payload.analysisGeneration)|\($0.key)|\($0.value)|\(Int($0.at.timeIntervalSince1970))"
-            }
+            ["analysis|\(payload.analysisGeneration)"]
+                + deletionKeysByType.values.flatMap { $0.sorted().map { "delete|\($0)" } }
+                + candidates.sorted { $0.key < $1.key }.map {
+                    "\($0.key)|\($0.value)|\(Int($0.at.timeIntervalSince1970))"
+                }
         )
         guard HealthKitWritebackFingerprint.shouldWrite(.vitals, fingerprint: fingerprint) else { return }
 
         let bySource = HKQuery.predicateForObjects(from: HKSource.default())
-        for (type, items) in Dictionary(grouping: candidates, by: { $0.type }) {
-            let keys = Array(Set(items.map(\.key)))
+        for (type, keys) in deletionKeysByType {
             let byKey = HKQuery.predicateForObjects(
                 withMetadataKey: HKMetadataKeyExternalUUID,
-                allowedValues: keys
+                allowedValues: Array(Set(keys))
             )
             _ = try await store.deleteObjects(
                 of: type,
                 predicate: NSCompoundPredicate(andPredicateWithSubpredicates: [bySource, byKey])
             )
         }
-        try await store.save(candidates.map(\.sample))
+        if !candidates.isEmpty {
+            try await store.save(candidates.map(\.sample))
+        }
         HealthKitWritebackFingerprint.markSuccess(.vitals, fingerprint: fingerprint)
     }
 
@@ -587,17 +600,59 @@ final class HealthKitBridge: ObservableObject {
         }
 
         let plan = HealthWriteback.mergedSleepPlan(groups: groups)
+        let existingKeys = try await noopAuthoredSleepKeys(
+            changedDays: payload.changedDays,
+            calendar: calendar,
+            type: type
+        )
         try await saveExactSleepPlan(
             plan,
             type: type,
-            analysisGeneration: payload.analysisGeneration
+            analysisGeneration: payload.analysisGeneration,
+            existingKeys: existingKeys
         )
+    }
+
+    private func noopAuthoredSleepKeys(
+        changedDays: Set<CivilDay>,
+        calendar: Calendar,
+        type: HKCategoryType
+    ) async throws -> Set<String> {
+        var keys = Set<String>()
+        let prefix = "noop:\(noopDeviceId):sleep:"
+        for day in changedDays {
+            let start = try day.date(in: calendar).addingTimeInterval(-30 * 3_600)
+            let end = try calendar.date(byAdding: .day, value: 1, to: day.date(in: calendar))!
+                .addingTimeInterval(2 * 3_600)
+            let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
+                HKQuery.predicateForObjects(from: HKSource.default()),
+                HKQuery.predicateForSamples(withStart: start, end: end, options: []),
+            ])
+            let samples: [String] = try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<[String], any Error>) in
+                let query = HKSampleQuery(
+                    sampleType: type,
+                    predicate: predicate,
+                    limit: HKObjectQueryNoLimit,
+                    sortDescriptors: nil
+                ) { _, objects, error in
+                    if let error { continuation.resume(throwing: error); return }
+                    continuation.resume(returning: (objects ?? []).compactMap { sample in
+                        (sample.metadata?[HKMetadataKeyExternalUUID] as? String)
+                    })
+                }
+                store.execute(query)
+            }
+            for key in samples where key.hasPrefix(prefix) { keys.insert(key) }
+        }
+        return keys
     }
 
     private func saveExactSleepPlan(
         _ plan: [HealthWriteback.MergedSleepEntry],
         type: HKCategoryType,
-        analysisGeneration: Int64
+        analysisGeneration: Int64,
+        existingKeys: Set<String>
     ) async throws {
         let fingerprint = HealthKitWritebackFingerprint.fingerprint(
             ["analysis|\(analysisGeneration)"] + plan.flatMap { entry in
@@ -608,7 +663,7 @@ final class HealthKitBridge: ObservableObject {
         guard HealthKitWritebackFingerprint.shouldWrite(.sleep, fingerprint: fingerprint) else { return }
 
         var samples: [HKCategorySample] = []
-        var keys: [String] = []
+        var keys: [String] = Array(existingKeys)
         for entry in plan {
             let key = "noop:\(noopDeviceId):sleep:\(entry.keyStartTs)"
             let metadata = [HKMetadataKeyExternalUUID: key]
@@ -640,8 +695,6 @@ final class HealthKitBridge: ObservableObject {
                 ))
             }
         }
-        guard !samples.isEmpty else { return }
-
         let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
             HKQuery.predicateForObjects(from: HKSource.default()),
             HKQuery.predicateForObjects(
@@ -649,8 +702,12 @@ final class HealthKitBridge: ObservableObject {
                 allowedValues: Array(Set(keys))
             ),
         ])
-        _ = try await store.deleteObjects(of: type, predicate: predicate)
-        try await store.save(samples)
+        if !keys.isEmpty {
+            _ = try await store.deleteObjects(of: type, predicate: predicate)
+        }
+        if !samples.isEmpty {
+            try await store.save(samples)
+        }
         HealthKitWritebackFingerprint.markSuccess(.sleep, fingerprint: fingerprint)
     }
 
