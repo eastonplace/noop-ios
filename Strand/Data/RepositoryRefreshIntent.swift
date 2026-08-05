@@ -349,7 +349,8 @@ extension Repository {
     func executeRefresh(_ request: RepositoryRefreshRequest) async -> RepositoryRefreshExecutionStatus {
         // Exact publication must use an already verified generation. A bounded refresh is not evidence that
         // the requested historical days were published.
-        if !request.exactDays.isEmpty {
+        if !request.exactDays.isEmpty,
+           !request.reasons.contains(.currentDay) {
             guard let projection = verifiedHealthProjection,
                   Set(projection.metrics.values.map(\.metricDay)).isSuperset(of: request.exactDays) else {
                 return .failed(code: "verified_projection_missing_exact_days")

@@ -224,6 +224,25 @@ struct TrendsScreenSnapshotKey: Hashable, Sendable {
     let metric: String
     let range: String
     let weekOffset: Int
+    let completedLoadIdentity: TrendsLoadIdentity?
+
+    init(
+        revision: Int,
+        anchorDay: String,
+        timeZoneIdentifier: String,
+        metric: String,
+        range: String,
+        weekOffset: Int,
+        completedLoadIdentity: TrendsLoadIdentity? = nil
+    ) {
+        self.revision = revision
+        self.anchorDay = anchorDay
+        self.timeZoneIdentifier = timeZoneIdentifier
+        self.metric = metric
+        self.range = range
+        self.weekOffset = weekOffset
+        self.completedLoadIdentity = completedLoadIdentity
+    }
 }
 
 struct TrendsScreenSnapshot: Sendable {

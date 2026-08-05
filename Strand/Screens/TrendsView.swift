@@ -50,7 +50,8 @@ struct TrendsView: View {
             timeZoneIdentifier: loadedData.timeZoneIdentifier,
             metric: selectedMetric.rawValue,
             range: selectedRange.rawValue,
-            weekOffset: weekOffset
+            weekOffset: weekOffset,
+            completedLoadIdentity: loadedData.loadIdentity
         )
     }
 
@@ -154,6 +155,7 @@ struct TrendsView: View {
               offset == weekOffset
         else { return }
         let revisionAdjusted = TrendsLoadedData(
+            loadIdentity: next.loadIdentity,
             revision: revision,
             anchorDay: next.anchorDay,
             timeZoneIdentifier: next.timeZoneIdentifier,
@@ -176,6 +178,11 @@ struct TrendsView: View {
         let metric = selectedMetric
         let range = selectedRange
         let offset = weekOffset
+        guard let identity = data.loadIdentity,
+              identity.rangeDays == range.days,
+              identity.weekOffset == offset,
+              identity.anchorDay == civilContext.localDay,
+              identity.timeZoneIdentifier == civilContext.timeZoneIdentifier else { return }
         let effortDisplayFactor = UnitPrefs.currentEffortDisplayFactor()
 
         let worker = Task { @concurrent in

@@ -25,7 +25,7 @@ extension Repository {
         guard let fromDate = calendar.date(byAdding: .day, value: -(requiredDays - 1), to: anchorDate),
               let sleepFrom = calendar.date(byAdding: .day, value: -1, to: fromDate),
               let sleepThrough = calendar.date(byAdding: .day, value: 2, to: anchorDate) else { return nil }
-        let fromDay = Repository.localDayKey(fromDate)
+        let fromDay = Repository.localDayKey(fromDate, calendar: calendar)
         let sourceIds = importedReadIds + computedReadIds + [Self.appleHealthSource]
 
         let read: CanonicalHealthSurfaceStoreSnapshot
@@ -98,6 +98,13 @@ extension Repository {
         let canonicalDays = Repository.mergeDaily(imported: merged, computed: appleDaily)
 
         return TrendsLoadedData(
+            loadIdentity: TrendsLoadIdentity(
+                revision: refreshSeq,
+                anchorDay: anchorDay,
+                timeZoneIdentifier: timeZoneIdentifier,
+                rangeDays: rangeDays,
+                weekOffset: weekOffset
+            ),
             revision: refreshSeq,
             anchorDay: anchorDay,
             timeZoneIdentifier: timeZoneIdentifier,

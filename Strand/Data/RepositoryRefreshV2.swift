@@ -64,11 +64,9 @@ public struct RepositoryRefreshRequest: Equatable, Sendable {
     /// Compatibility constructors for existing UI call sites. They all produce the typed request consumed by
     /// Repository; they do not select a second refresh implementation.
     public static var currentDayRequest: Self {
-        let calendar = try! HealthCalendar(timeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier)
-        let now = Date()
-        let physiological = try! calendar.physiologicalDay(containing: now)
-        let civil = try! calendar.civilDay(containing: now)
-        return Self(exactDays: [physiological, civil], reasons: [.currentDay])
+        // A generic dashboard refresh is hydration, not exact authority. The
+        // exact two-day window belongs to a verified historical receipt.
+        return Self(recentDashboardDays: 2, reasons: [.currentDay])
     }
 
     public static var initialLoadRequest: Self {

@@ -232,6 +232,9 @@ final class Repository: ObservableObject {
     @Published private(set) var canonicalHealth = CanonicalHealthReadModel.empty
     /// The last projection that passed the verified snapshot boundary.
     @Published private(set) var verifiedHealthProjection: VerifiedHealthProjection?
+    /// Source-transition fence for latest-state sinks. An old context cannot
+    /// publish while this flag is set, even if an older task is still alive.
+    private var verifiedExternalSurfaceFenced = false
     /// Coverage metadata is separate from the bounded dashboard cache.
     @Published private(set) var historyExtent = RepositoryHistoryExtent(
         earliestDay: nil, latestDay: nil, importedDayCount: 0, computedDayCount: 0, appleDayCount: 0)
@@ -369,6 +372,7 @@ final class Repository: ObservableObject {
         // The canonical dashboard namespace can span a re-pair, but the source lineage cannot. Clear the
         // old first-paint state before the next refresh establishes values for the new active source.
         let generation = invalidateTodayHealthSnapshotInMemory()
+        verifiedHealthProjection = nil
         Task { [weak self] in
             await self?.clearDurableTodayHealthSnapshot(
                 scopeId: oldScopeId, matchingContextId: oldContextId, generation: generation)
@@ -1408,6 +1412,7 @@ final class Repository: ObservableObject {
 
     private func publishTodayHealthSnapshot(_ snapshot: TodayHealthSnapshot, persist: Bool,
                                             writePolicy: TodayHealthSnapshotWritePolicy = .immediate) {
+        verifiedExternalSurfaceFenced = false
         if todayHealthSnapshot != snapshot {
             let presentationChanged = todayHealthSnapshot.map {
                 !$0.hasSamePresentation(as: snapshot)
@@ -1752,6 +1757,7 @@ final class Repository: ObservableObject {
     /// this returns, even if its cancellation handler never runs.
     @discardableResult
     private func invalidateTodayHealthSnapshotInMemory() -> Int {
+        verifiedExternalSurfaceFenced = true
         todayHealthSnapshotGeneration &+= 1
         todayHealthSnapshotWriteTask?.cancel()
         todayHealthSnapshotWriteTask = nil
@@ -1767,6 +1773,19 @@ final class Repository: ObservableObject {
         // Drop its detached merge rather than allowing it to publish the stale cache afterward.
         refreshGen &+= 1
         return todayHealthSnapshotGeneration
+    }
+
+    /// Clear the in-memory verified sink context before a source/database
+    /// transition. New writers must wait for the replacement projection.
+    func invalidateVerifiedExternalSurface() {
+        verifiedExternalSurfaceFenced = true
+        verifiedHealthProjection = nil
+        refreshGen &+= 1
+    }
+
+    var activeVerifiedSinkContextId: String? {
+        guard !verifiedExternalSurfaceFenced else { return nil }
+        return todayHealthSnapshotContext?.identifier ?? verifiedHealthProjection?.contextId
     }
 
     /// Public invalidation boundary for a source-data delete. It clears memory immediately and removes the
@@ -2186,7 +2205,8 @@ final class Repository: ObservableObject {
         computedReadIds: [String],
         authoritativeDayKeys: Set<String>,
         previous: CanonicalHealthReadModel,
-        sourceGeneration: Int64
+        sourceGeneration: Int64,
+        timeZoneIdentifier: String? = nil
     ) throws -> CanonicalHealthReadModel {
         let sourceIds = stableUniqueSourceIds(importedReadIds + computedReadIds + [Self.appleHealthSource])
         let sourceRanks = Dictionary(uniqueKeysWithValues: sourceIds.enumerated().map { index, sourceId in
@@ -2194,9 +2214,10 @@ final class Repository: ObservableObject {
         })
         let imported = Set(importedReadIds)
         let computed = Set(computedReadIds)
+        let editTimeZone = timeZoneIdentifier.flatMap(TimeZone.init(identifier:)) ?? .current
         let editedWakeDays = Set(read.sleepRows.compactMap { row -> String? in
             guard row.session.userEdited, computed.contains(row.sourceId) else { return nil }
-            let offsetSec = TimeZone.current.secondsFromGMT(
+            let offsetSec = editTimeZone.secondsFromGMT(
                 for: Date(timeIntervalSince1970: TimeInterval(row.session.endTs))
             )
             return AnalyticsEngine.dayString(row.session.endTs, offsetSec: offsetSec)
@@ -2444,9 +2465,14 @@ final class Repository: ObservableObject {
     /// in whatever the live device zone is and so disagreed with the engine's cached-offset attribution
     /// across a midnight boundary for non-UTC users (the Swift half of #406; mirrors the Android #304 fix
     /// pinned by MergeSleepLocalDayTest).
-    nonisolated private static func mergeSleep(imported: [CachedSleepSession], computed: [CachedSleepSession]) -> [CachedSleepSession] {
+    nonisolated private static func mergeSleep(
+        imported: [CachedSleepSession],
+        computed: [CachedSleepSession],
+        timeZoneIdentifier: String? = nil
+    ) -> [CachedSleepSession] {
         func endDay(_ s: CachedSleepSession) -> String {
-            let offsetSec = TimeZone.current.secondsFromGMT(for: Date(timeIntervalSince1970: TimeInterval(s.endTs)))
+            let zone = timeZoneIdentifier.flatMap(TimeZone.init(identifier:)) ?? .current
+            let offsetSec = zone.secondsFromGMT(for: Date(timeIntervalSince1970: TimeInterval(s.endTs)))
             return AnalyticsEngine.dayString(s.endTs, offsetSec: offsetSec)
         }
         // #715, preserve EVERY session (a day with a main night + a nap must keep both); imported still
@@ -4401,18 +4427,12 @@ extension Repository {
             throw PR28HistoricalPipelineError.snapshotUnavailable
         }
 
-        let healthCalendar = try HealthCalendar(timeZoneIdentifier: work.recordedTimeZoneIdentifier)
-        let runs = try Self.contiguousDayRuns(analysis.analyzedDays, healthCalendar: healthCalendar)
-        let windows = try runs.map { run -> CanonicalHealthSurfaceReadWindow in
-            let first = try healthCalendar.interval(for: run.first)
-            let last = try healthCalendar.interval(for: run.last)
-            return CanonicalHealthSurfaceReadWindow(
-                fromDay: run.first.key,
-                throughDay: run.last.key,
-                sleepFromTs: Int(first.start.timeIntervalSince1970) - 20 * 3_600,
-                sleepThroughTs: Int(last.end.timeIntervalSince1970) + 4 * 3_600
-            )
-        }
+        let windows = try RepositoryHistoricalSnapshotWindows.make(
+            analyzedDays: analysis.analyzedDays,
+            recordedTimeZoneIdentifier: work.recordedTimeZoneIdentifier,
+            template: template,
+            now: now
+        )
         let read = try await store.canonicalHealthSurfaceSnapshot(
             sourceIds: Self.stableUniqueSourceIds(
                 importedReadIds + computedReadIds + [Self.appleHealthSource]
@@ -4645,16 +4665,124 @@ extension Repository {
             computedReadIds: computedReadIds,
             authoritativeDayKeys: Set(exactDays.map(\.key)),
             previous: canonicalHealth,
-            sourceGeneration: sourceGeneration
+            sourceGeneration: sourceGeneration,
+            timeZoneIdentifier: recordedTimeZoneIdentifier
         )
-        let presentationChanged = nextCanonical.presentationRevision != canonicalHealth.presentationRevision
-            || projection.presentationIdentity
-                != verifiedHealthProjection?.presentationIdentity
+
+        let importedIds = Set(importedReadIds)
+        let computedIds = Set(computedReadIds)
+        func bestRows(_ rows: [StoredSourcedDailyMetric]) -> [DailyMetric] {
+            Dictionary(grouping: rows, by: { $0.metric.day })
+                .compactMapValues { $0.max { ($0.sourcePriority, $0.sourceId) < ($1.sourcePriority, $1.sourceId) }?.metric }
+                .values.sorted { $0.day < $1.day }
+        }
+        let importedDaily = bestRows(read.dailyRows.filter { importedIds.contains($0.sourceId) })
+        let computedDaily = bestRows(read.dailyRows.filter { computedIds.contains($0.sourceId) })
+        let appleDaily = bestRows(read.dailyRows.filter { $0.sourceId == Self.appleHealthSource })
+        let editedDays = Set(read.sleepRows.compactMap { row -> String? in
+            guard row.session.userEdited, computedIds.contains(row.sourceId) else { return nil }
+            let offset = (TimeZone(identifier: recordedTimeZoneIdentifier) ?? .current)
+                .secondsFromGMT(for: Date(timeIntervalSince1970: TimeInterval(row.session.endTs)))
+            return AnalyticsEngine.dayString(row.session.endTs, offsetSec: offset)
+        })
+        let exactDaily = Self.mergeDaily(
+            imported: Self.mergeDaily(imported: importedDaily, computed: computedDaily, userEditedDays: editedDays),
+            computed: appleDaily
+        )
+        let exactImportedSource = Dictionary(
+            uniqueKeysWithValues: importedDaily.map { ($0.day, importedReadIds.first ?? canonicalDeviceId) }
+        )
+        let exactComputedSource = Dictionary(
+            uniqueKeysWithValues: computedDaily.map { ($0.day, computedReadIds.first ?? canonicalComputedId) }
+        )
+        let exactVitalRows = Self.sourceRows(imported: importedDaily, computed: computedDaily, apple: appleDaily)
+        let exactMetricSources = Self.todayHealthMetricSources(
+            imported: importedDaily,
+            computed: computedDaily,
+            apple: appleDaily,
+            userEditedDays: editedDays,
+            importedSourceByDay: exactImportedSource,
+            computedSourceByDay: exactComputedSource
+        )
+        var exactImportedSleep: [String: ImportedSleepFigures] = [:]
+        for point in read.metricRows where importedIds.contains(point.sourceId) {
+            switch point.key {
+            case "sleep_performance": exactImportedSleep[point.day, default: ImportedSleepFigures()].performancePct = point.value
+            case "sleep_consistency": exactImportedSleep[point.day, default: ImportedSleepFigures()].consistencyPct = point.value
+            case "sleep_need_min": exactImportedSleep[point.day, default: ImportedSleepFigures()].needMin = point.value
+            case "sleep_debt_min": exactImportedSleep[point.day, default: ImportedSleepFigures()].debtMin = point.value
+            default: break
+            }
+        }
+        let exactPersistedStrain = Dictionary(uniqueKeysWithValues: computedDaily.compactMap { row -> (String, ResolvedStrain)? in
+            guard row.strainVersion == StrainScorerV2.version, row.strain != nil else { return nil }
+            let candidate = DailyStrainCandidate(
+                metric: row,
+                sourceId: exactComputedSource[row.day] ?? canonicalComputedId,
+                asOf: Date(),
+                rawFrontierTs: nil
+            )
+            guard let resolved = StrainResolver.canonicalDay(
+                day: row.day, computedRows: [candidate], importedRows: [], live: nil
+            ) else { return nil }
+            return (row.day, resolved)
+        })
+        let exactImportedStrain = Dictionary(uniqueKeysWithValues: importedDaily.compactMap { row -> (String, ResolvedStrain)? in
+            guard row.strain != nil else { return nil }
+            let candidate = DailyStrainCandidate(
+                metric: row,
+                sourceId: exactImportedSource[row.day] ?? canonicalDeviceId
+            )
+            guard let resolved = StrainResolver.importedComparison(day: row.day, importedRows: [candidate]) else { return nil }
+            return (row.day, resolved)
+        })
+        let dayKeys = Set(exactDaily.map(\.day))
+        let wakeDay: (CachedSleepSession) -> String = { session in
+            let zone = TimeZone(identifier: recordedTimeZoneIdentifier) ?? .current
+            let offset = zone.secondsFromGMT(for: Date(timeIntervalSince1970: TimeInterval(session.endTs)))
+            return AnalyticsEngine.dayString(session.endTs, offsetSec: offset)
+        }
+        let exactSleeps = Self.mergeSleep(
+            imported: read.sleepRows.filter { importedIds.contains($0.sourceId) }.map(\.session),
+            computed: read.sleepRows.filter { computedIds.contains($0.sourceId) }.map(\.session),
+            timeZoneIdentifier: recordedTimeZoneIdentifier
+        )
+        let nextDays = (days.filter { !dayKeys.contains($0.day) } + exactDaily).sorted { $0.day < $1.day }
+        let nextSleeps = (sleeps.filter { !dayKeys.contains(wakeDay($0)) } + exactSleeps)
+            .sorted { $0.effectiveStartTs < $1.effectiveStartTs }
+        let nextVitals = (vitalRows.filter { !dayKeys.contains($0.metric.day) } + exactVitalRows)
+            .sorted { $0.metric.day < $1.metric.day }
+        let nextImportedSleep = importedSleep.filter { !dayKeys.contains($0.key) }
+            .merging(exactImportedSleep) { _, new in new }
+        let nextMetricSources = todayHealthMetricSources.filter { !dayKeys.contains($0.key) }
+            .merging(exactMetricSources) { _, new in new }
+        let nextPersistedStrain = persistedStrainByDay.filter { !dayKeys.contains($0.key) }
+            .merging(exactPersistedStrain) { _, new in new }
+        let nextImportedStrain = importedStrainByDay.filter { !dayKeys.contains($0.key) }
+            .merging(exactImportedStrain) { _, new in new }
+        let presentationChanged = nextDays != days
+            || nextSleeps != sleeps
+            || nextVitals != vitalRows
+            || nextImportedSleep != importedSleep
+            || nextMetricSources != todayHealthMetricSources
+            || nextPersistedStrain != persistedStrainByDay
+            || nextImportedStrain != importedStrainByDay
+            || nextCanonical.presentationRevision != canonicalHealth.presentationRevision
+            || projection.presentationIdentity != verifiedHealthProjection?.presentationIdentity
+            || !loaded
+        days = nextDays
+        sleeps = nextSleeps
+        vitalRows = nextVitals
+        importedSleep = nextImportedSleep
+        todayHealthMetricSources = nextMetricSources
+        persistedStrainByDay = nextPersistedStrain
+        importedStrainByDay = nextImportedStrain
         canonicalHealth = nextCanonical
         verifiedHealthProjection = projection
-        if presentationChanged {
-            refreshSeq &+= 1
-        }
+        verifiedExternalSurfaceFenced = false
+        rebuildCanonicalStrain()
+        loaded = true
+        if presentationChanged { refreshSeq &+= 1 }
         return RepositoryRefreshOutcome(
             authoritativeDataPublished: true,
             changedDays: exactDays,
