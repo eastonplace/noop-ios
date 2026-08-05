@@ -174,7 +174,7 @@ private struct DevicesContent: View {
                presenting: switchTarget) { device in
             Button("Cancel", role: .cancel) { switchTarget = nil }
             Button("Make active") {
-                registry.setActive(device.id)
+                model.makeActiveDevice(device.id)
                 switchTarget = nil
             }
         } message: { device in
@@ -225,7 +225,7 @@ private struct DevicesContent: View {
                             isPresented: $pickNewActive,
                             titleVisibility: .visible) {
             ForEach(activeDevices) { device in
-                Button(device.displayName) { registry.setActive(device.id) }
+                Button(device.displayName) { model.makeActiveDevice(device.id) }
             }
             Button("Leave none active", role: .cancel) { }
         } message: {
@@ -540,7 +540,7 @@ private struct DevicesContent: View {
                     onMakeActive: { switchTarget = device },
                     onRename: { renameDraft = device.nickname ?? device.displayName; renameTarget = device },
                     onRemove: nil,
-                    onReAdd: { registry.setActive(device.id) },
+                    onReAdd: { model.makeActiveDevice(device.id) },
                     onDeleteData: { deleteDataTarget = device })
             }
         }
@@ -586,7 +586,7 @@ private struct DevicesContent: View {
         // re-grabbing the strap (reconnect timer + targeted-connect pin + iOS state restoration), holding
         // it connected so it can never enter pairing mode to be re-paired.
         model.ble.forgetDevice(device.peripheralId)
-        registry.archive(device.id)
+        model.archiveDevice(device.id)
         removeTarget = nil
         if wasActive {
             Task {
@@ -603,10 +603,7 @@ private struct DevicesContent: View {
     private func confirmDeleteData(_ device: PairedDevice) {
         let deviceId = device.id
         Task {
-            guard let store = await model.repo.storeHandle() else { return }
-            await model.repo.invalidateTodayHealthSnapshot()
-            await registry.deleteDeviceData(deviceId, store: store)
-            _ = await model.repo.refresh(.activeDeviceChanged)
+            model.deleteDeviceData(deviceId)
         }
         deleteDataTarget = nil
     }

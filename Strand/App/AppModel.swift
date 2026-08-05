@@ -119,6 +119,9 @@ final class AppModel: ObservableObject {
     /// `@Published` so the Devices screen re-renders the moment the registry is wired in (it observes
     /// `model.deviceRegistry`); nested `registry.$devices` changes are observed by the screen directly.
     @Published private(set) var deviceRegistry: DeviceRegistry?
+    /// Shared serialization boundary for source changes, durable scope retirement, Repository invalidation,
+    /// and latest-state sink cleanup. BLE callbacks and UI actions can arrive concurrently.
+    private let sourceTransitionFence = SourceTransitionFence()
     /// Runs exactly one device's live BLE at a time. DORMANT whenever WHOOP is active (the default and
     /// every no-strap case): it only acts when a non-WHOOP generic strap becomes the active device,
     /// pausing WHOOP and running the isolated `StandardHRSource`. nil until wired (post store-open).
@@ -652,18 +655,32 @@ final class AppModel: ObservableObject {
         ))
 
         let dependencies = HistoricalPipelineRuntimeDependencies(
+            rearmEnvironmental: { [weak self] in
+                guard let self, let store = await self.repo.storeHandle() else {
+                    throw HistoricalPipelineRuntimeError.storeUnavailable
+                }
+                _ = try await store.resumeEnvironmentalBlockedHistoricalAnalysisWork(now: Date())
+            },
             admissionContexts: { [weak self] in
                 guard let self, let store = await self.repo.storeHandle() else {
                     throw HistoricalPipelineRuntimeError.storeUnavailable
                 }
                 let registry = DeviceRegistryStore(dbQueue: store.registryWriter)
-                let activeId = try registry.activeDeviceId() ?? fallbackDeviceId
-                let scope = try await store.historicalCursorScope(deviceId: activeId)
-                return [HistoricalReceiptAdmissionContext(
-                    sourceId: activeId,
-                    scope: scope,
-                    now: Date()
-                )]
+                let rows = try registry.all().filter { $0.status != .archived }
+                let candidates = rows.isEmpty
+                    ? [fallbackDeviceId]
+                    : rows.map(\.id)
+                var contexts: [HistoricalReceiptAdmissionContext] = []
+                for sourceId in candidates {
+                    guard let scope = try? await store.historicalCursorScope(deviceId: sourceId) else {
+                        continue
+                    }
+                    contexts.append(HistoricalReceiptAdmissionContext(
+                        sourceId: sourceId,
+                        scope: scope,
+                        now: Date()))
+                }
+                return contexts
             },
             admit: { [weak self] context in
                 guard let self, let store = await self.repo.storeHandle() else {
@@ -717,6 +734,13 @@ final class AppModel: ObservableObject {
             setWhoopActiveDeviceId: { [weak self] id in self?.ble.setActiveDeviceId(id) },
             // The engine's last-connected WHOOP uuid drives first-connect identity adoption.
             connectedPeripheralUUID: ble.$connectedPeripheralUUID.eraseToAnyPublisher(),
+            transitionFence: sourceTransitionFence,
+            onPeripheralIdentityWillChange: { [weak self] deviceId, oldScope in
+                await self?.preparePeripheralIdentityTransition(deviceId: deviceId, oldScope: oldScope)
+            },
+            onPeripheralIdentityDidChange: { [weak self] deviceId in
+                await self?.finishPeripheralIdentityTransition(deviceId: deviceId)
+            },
             // Generic-HR connect lifecycle → the SAME strap log BLEManager writes to (`live.append(log:)`),
             // so a "connected but no data" report (issue #421) is no longer blind to the Polar/Wahoo/etc
             // path. Timestamp matches BLEManager.log()'s "HH:mm:ss" so the lines read consistently.
@@ -756,12 +780,127 @@ final class AppModel: ObservableObject {
     /// reads + scores the re-added strap's raw and writes the computed result to the STABLE canonical
     /// `-noop` sibling, no engine re-point needed.
     private func adoptActiveDevice(_ activeId: String) async {
+        await sourceTransitionFence.run { @MainActor [weak self] in
+            await self?.adoptActiveDeviceUnfenced(activeId)
+        }
+    }
+
+    /// Retire the old physical-source lineage before the registry adopts a replacement peripheral.
+    private func preparePeripheralIdentityTransition(
+        deviceId: String,
+        oldScope: HistoricalCursorScope?
+    ) async {
+        repo.invalidateVerifiedExternalSurface()
+        await repo.invalidateTodayHealthSnapshot()
+        guard let store = await repo.storeHandle() else { return }
+        if let oldScope {
+            _ = try? await store.retireHistoricalReceiptScope(
+                consumerId: "phase34.analysis",
+                scope: oldScope,
+                reason: "peripheral_identity_transition")
+        }
+        try? await store.deleteExternalPublicationState(deviceId: deviceId)
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: "noop.widget.verified-projection-generation")
+        defaults.removeObject(forKey: "noop.live-activity.verified-projection-generation")
+    }
+
+    /// Re-open admission only after the new physical lineage is durable.
+    private func finishPeripheralIdentityTransition(deviceId: String) async {
+        _ = await repo.refresh(.activeDeviceChanged)
+        _ = await signalHistoricalPipeline()
+        live.append(log: "Source transition committed for \(deviceId).")
+    }
+
+    private func adoptActiveDeviceUnfenced(_ activeId: String) async {
         let trimmed = activeId.trimmingCharacters(in: .whitespaces)
         let repoMoved = repo.adoptActiveDeviceId(trimmed)
         guard repoMoved else { return }
         live.append(log: "Read spine re-pointed to active device after registry change (#814).")
         _ = await repo.refresh(.activeDeviceChanged)
         await intelligence.analyzeRecent()
+    }
+
+    /// Source transitions are a durable boundary, not only a registry UI update. Retire the old receipt
+    /// scope, invalidate the old Repository/projection generation, clear latest-state sink identities, then
+    /// publish the replacement source. All callers use the same fence so a late BLE or foreground callback
+    /// cannot reopen the old context between those steps.
+    private func performSourceTransition(to id: String, from oldId: String) async {
+        guard oldId != id, let registry = deviceRegistry else { return }
+        guard let store = await repo.storeHandle() else { return }
+        let registryStore = DeviceRegistryStore(dbQueue: store.registryWriter)
+        let oldScope = try? registryStore.historicalCursorScope(for: oldId)
+
+        repo.invalidateVerifiedExternalSurface()
+        await repo.invalidateTodayHealthSnapshot()
+        if let oldScope {
+            _ = try? await store.retireHistoricalReceiptScope(
+                consumerId: "phase34.analysis",
+                scope: oldScope,
+                reason: "source_transition")
+        }
+        for owner in Set([oldId, id, deviceId]) {
+            try? await store.deleteExternalPublicationState(deviceId: owner)
+        }
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: "noop.widget.verified-projection-generation")
+        defaults.removeObject(forKey: "noop.live-activity.verified-projection-generation")
+
+        registry.setActive(id)
+        await adoptActiveDeviceUnfenced(id)
+        _ = await signalHistoricalPipeline()
+    }
+
+    /// Devices screen and pairing-wizard entry point. The mutation itself is queued with old-scope cleanup.
+    func makeActiveDevice(_ id: String) {
+        Task { @MainActor [weak self] in
+            guard let self, let registry = self.deviceRegistry else { return }
+            let oldId = registry.activeDeviceId
+            await self.sourceTransitionFence.run { @MainActor [weak self] in
+                await self?.performSourceTransition(to: id, from: oldId)
+            }
+        }
+    }
+
+    /// Archive a device through the same source-lineage fence. Raw data remains until the user chooses the
+    /// separate delete-data action, but pending work and external projections for that source are retired.
+    func archiveDevice(_ id: String) {
+        Task { @MainActor [weak self] in
+            guard let self, let registry = self.deviceRegistry,
+                  let store = await self.repo.storeHandle() else { return }
+            let wasActive = registry.activeDeviceId == id
+            let scope = try? DeviceRegistryStore(dbQueue: store.registryWriter).historicalCursorScope(for: id)
+            await self.sourceTransitionFence.run { @MainActor [weak self] in
+                guard let self else { return }
+                self.repo.invalidateVerifiedExternalSurface()
+                if wasActive { await self.repo.invalidateTodayHealthSnapshot() }
+                if let scope {
+                    _ = try? await store.retireHistoricalReceiptScope(
+                        consumerId: "phase34.analysis", scope: scope, reason: "source_archived")
+                }
+                try? await store.deleteExternalPublicationState(deviceId: id)
+                registry.archive(id)
+            }
+        }
+    }
+
+    /// Delete one source's durable rows behind the existing destructive UI gate. The operation also clears
+    /// external publication state and advances the source lineage before the dashboard refreshes.
+    func deleteDeviceData(_ id: String) {
+        Task { @MainActor [weak self] in
+            guard let self, let registry = self.deviceRegistry,
+                  let store = await self.repo.storeHandle() else { return }
+            await self.sourceTransitionFence.run { @MainActor [weak self] in
+                guard let self else { return }
+                self.repo.invalidateVerifiedExternalSurface()
+                await self.repo.invalidateTodayHealthSnapshot()
+                try? await store.deleteAllData(deviceId: id)
+                try? await store.deleteExternalPublicationState(deviceId: id)
+                registry.reload()
+                _ = await self.repo.refresh(.activeDeviceChanged)
+                _ = await self.signalHistoricalPipeline()
+            }
+        }
     }
 
     private func refreshAfterBackfillBurst(watermark: HistoricalReceiptWatermark? = nil) async {
@@ -807,6 +946,12 @@ final class AppModel: ObservableObject {
         return result
     }
 
+    /// Lifecycle re-arm for environmental failures. The runtime performs the
+    /// whitelist re-arm and drains immediately; structural rows remain blocked.
+    func resumeEnvironmentalBlockedHistoricalWorkAndDrain() async {
+        _ = await signalHistoricalPipeline()
+    }
+
     /// One post-analysis refresh publishes both committed raw history and its computed rows. It runs only
     /// after receipt acknowledgement or the pre-existing heal-only path, so it never replaces a visible
     /// dashboard generation with a half-analyzed result.
@@ -820,7 +965,7 @@ final class AppModel: ObservableObject {
         // never rewrite the shared App-Group snapshot or call WidgetCenter.reloadAllTimelines — the
         // widget kept showing yesterday's numbers. Publishing here, on the real "new data landed"
         // signal, pushes the fresh snapshot to the home-screen widget without needing a foreground.
-        await WidgetSnapshot.publish(from: self)
+        _ = await WidgetSnapshot.publish(from: self)
         #endif
     }
 
@@ -1358,16 +1503,17 @@ final class AppModel: ObservableObject {
     /// (the SourceCoordinator reacts to the active-device change and connects). No-op if the registry
     /// hasn't been wired yet (pre store-open) , the wizard is only reachable once it has.
     func registerDevice(_ device: PairedDevice, makeActive: Bool) {
-        guard let registry = deviceRegistry else { return }
-        registry.add(device)
-        if makeActive {
-            // `setActive` republishes `registry.$activeDeviceId`, which the read-spine subscription
-            // (`readSpineCancellable`, wired in `wireSourceCoordinator`) observes and re-points the reads
-            // off, so the dashboard follows a re-add without a one-shot call here. The explicit adopt below
-            // is kept as a belt-and-braces immediate re-point (idempotent, so it's a safe no-op once the
-            // subscription has also fired). The just-activated id IS `device.id` (`setActive` made it active).
-            registry.setActive(device.id)
-            Task { [weak self] in await self?.adoptActiveDevice(device.id) }
+        guard deviceRegistry != nil else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.sourceTransitionFence.run { @MainActor [weak self] in
+                guard let self, let registry = self.deviceRegistry else { return }
+                registry.add(device)
+                if makeActive {
+                    let oldId = registry.activeDeviceId
+                    await self.performSourceTransition(to: device.id, from: oldId)
+                }
+            }
         }
     }
 
