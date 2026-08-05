@@ -123,7 +123,7 @@ enum ExactAnalysisMutationCommitter {
     ) async throws -> AnalysisMutationReceipt {
         let databaseInstanceId = try await store.databaseInstanceId()
         guard result.completed,
-              work.affectedDays.isSubset(of: result.analyzedDays),
+              work.acceptsAnalyzedDays(result.analyzedDays),
               work.scope.databaseInstanceId == databaseInstanceId else {
             throw ExactCommittedAnalysisError.incompleteAnalysis
         }
@@ -202,7 +202,7 @@ extension IntelligenceEngine {
                 analyzedDays: analyzedDays,
                 rawFrontierTs: rawFrontierTs,
                 algorithmBundleVersion: "noop-health-v2|strain-v2|sleep-performance-v2",
-                completed: work.affectedDays.isSubset(of: analyzedDays)
+                completed: work.acceptsAnalyzedDays(analyzedDays)
             ),
             store: store,
             now: now

@@ -79,7 +79,7 @@ extension WhoopStore {
     ) async throws -> DurableAnalysisMutationRecord {
         guard work.lastReceiptGeneration > 0,
               !analyzedDays.isEmpty,
-              work.affectedDays.isSubset(of: analyzedDays),
+              work.acceptsAnalyzedDays(analyzedDays),
               rawFrontierTs.map({ $0 >= 0 }) ?? true,
               !algorithmBundleVersion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               now.timeIntervalSinceReferenceDate.isFinite else {

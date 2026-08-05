@@ -18,7 +18,7 @@ Add one structured commit method:
               candidate.schemaVersion == TodayHealthSnapshot.currentSchemaVersion,
               work.scope.databaseInstanceId == candidate.context?.databaseInstanceId,
               work.lastReceiptGeneration == analysis.throughReceiptGeneration,
-              work.affectedDays.isSubset(of: analysis.analyzedDays) else {
+              work.acceptsAnalyzedDays(analysis.analyzedDays) else {
             throw VerifiedTodaySnapshotCommitError.invalidContext
         }
 

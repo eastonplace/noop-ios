@@ -347,16 +347,53 @@ extension Repository {
     /// production backend for both legacy intent adapters and new exact/recent callers.
     @discardableResult
     func executeRefresh(_ request: RepositoryRefreshRequest) async -> RepositoryRefreshExecutionStatus {
+        // Exact publication must use an already verified generation. A bounded refresh is not evidence that
+        // the requested historical days were published.
+        if !request.exactDays.isEmpty {
+            guard let projection = verifiedHealthProjection,
+                  Set(projection.metrics.values.map(\.metricDay)).isSuperset(of: request.exactDays) else {
+                return .failed(code: "verified_projection_missing_exact_days")
+            }
+            do {
+                let outcome = try await publishVerifiedExactDays(
+                    request.exactDays,
+                    recordedTimeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier,
+                    projection: projection
+                )
+                guard outcome.authoritativeDataPublished else {
+                    return .failed(code: "exact_repository_publication_failed")
+                }
+                if request.includeHistoryExtent {
+                    await refreshHistoryExtent()
+                }
+                return .published(outcome)
+            } catch {
+                return .failed(code: "exact_repository_publication_failed")
+            }
+        }
+
+        // Full history is a maintenance lane. It updates extent metadata only and never hydrates the
+        // dashboard cache with an unbounded read.
+        if request.fullHistory {
+            if request.includeHistoryExtent {
+                await refreshHistoryExtent()
+            }
+            return .deferred
+        }
+
         let requestedRecentDays = request.recentDashboardDays
-            ?? (request.exactDays.isEmpty ? 30 : 1)
+            ?? 30
         let boundedRecentDays = min(30, max(1, requestedRecentDays))
         let didPublish = await refresh(days: boundedRecentDays)
         guard didPublish else {
             return .failed(code: "repository_refresh_failed")
         }
+        if request.includeHistoryExtent {
+            await refreshHistoryExtent()
+        }
         return .published(RepositoryRefreshOutcome(
             authoritativeDataPublished: true,
-            changedDays: request.exactDays,
+            changedDays: [],
             snapshotStatus: .persisted
         ))
     }

@@ -72,9 +72,9 @@ public struct RepositoryRefreshRequest: Equatable, Sendable {
     }
 
     public static var initialLoadRequest: Self {
-        let calendar = try! HealthCalendar(timeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier)
-        return (try? launch(now: Date(), calendar: calendar))
-            ?? Self(recentDashboardDays: 30, includeHistoryExtent: true, reasons: [.launch])
+        // Today hydrates its durable first-paint snapshot before this bounded dashboard pass. Do not invent
+        // an exact publication claim before a verified projection exists.
+        return Self(recentDashboardDays: 30, includeHistoryExtent: true, reasons: [.launch])
     }
 
     public static func recentDashboardRequest(days: Int) -> Self {
