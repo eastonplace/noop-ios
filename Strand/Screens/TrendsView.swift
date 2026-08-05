@@ -123,7 +123,7 @@ struct TrendsView: View {
         // A rescore can replace values without changing the number of day rows. `refreshSeq`, not count,
         // is the revision contract. `.task(id:)` cancels a superseded load; one assignment below prevents
         // Sleep, Stress, and Apple fallback data from briefly describing different revisions.
-        .task(id: "\(repo.refreshSeq)-\(repo.canonicalHealth.trendsRevision)-\(civilContext.localDay)-\(civilContext.timeZoneIdentifier)") {
+        .task(id: "\(repo.refreshSeq)-\(repo.canonicalHealth.trendsRevision)-\(civilContext.localDay)-\(civilContext.timeZoneIdentifier)-\(selectedRange.rawValue)-\(weekOffset)") {
             await loadDataForCurrentRevision()
         }
         .task(id: screenSnapshotKey) {
@@ -135,44 +135,34 @@ struct TrendsView: View {
     private func loadDataForCurrentRevision() async {
         let revision = Int(truncatingIfNeeded: repo.refreshSeq
             &+ Int(repo.canonicalHealth.trendsRevision))
-        let anchorDay = Repository.localDayKey(Date())
-        let timeZoneIdentifier = TimeZone.autoupdatingCurrent.identifier
-        let revisionDays = repo.canonicalDays
-        let canonical = repo.canonicalHealth
-        let sleep = canonical.sleepSeries(from: "0000-01-01", through: "9999-12-31")
-        let stress = canonical.stressSeries(from: "0000-01-01", through: "9999-12-31")
-        let apple = canonical.appleDailyByDay.values.map {
-            AppleDaily(
-                day: $0.day, steps: $0.steps, activeKcal: $0.activeKcal,
-                basalKcal: $0.basalKcal, vo2max: $0.vo2max, avgHr: $0.avgHr,
-                maxHr: $0.maxHr, walkingHr: $0.walkingHr, weightKg: $0.weightKg
-            )
-        }.sorted { $0.day < $1.day }
+        let anchorDay = civilContext.localDay
+        let timeZoneIdentifier = civilContext.timeZoneIdentifier
+        let rangeDays = selectedRange.days
+        let offset = weekOffset
+        guard let next = await repo.loadCanonicalTrendsData(
+            anchorDay: anchorDay,
+            timeZoneIdentifier: timeZoneIdentifier,
+            rangeDays: rangeDays,
+            weekOffset: offset
+        ) else { return }
         guard !Task.isCancelled,
               revision == Int(truncatingIfNeeded: repo.refreshSeq
                 &+ Int(repo.canonicalHealth.trendsRevision)),
-              anchorDay == Repository.localDayKey(Date()),
-              timeZoneIdentifier == TimeZone.autoupdatingCurrent.identifier
+              anchorDay == civilContext.localDay,
+              timeZoneIdentifier == civilContext.timeZoneIdentifier,
+              rangeDays == selectedRange.days,
+              offset == weekOffset
         else { return }
-
-        let next = TrendsLoadedData(
+        let revisionAdjusted = TrendsLoadedData(
             revision: revision,
-            anchorDay: anchorDay,
-            timeZoneIdentifier: timeZoneIdentifier,
-            canonicalDays: revisionDays,
-            sleepPerfByDay: Dictionary(
-                sleep.map { ($0.day, $0.value) },
-                uniquingKeysWith: { _, latest in latest }
-            ),
-            stressByDay: Dictionary(
-                stress.map { ($0.day, $0.value) },
-                uniquingKeysWith: { _, latest in latest }
-            ),
-            appleDays: apple
+            anchorDay: next.anchorDay,
+            timeZoneIdentifier: next.timeZoneIdentifier,
+            canonicalDays: next.canonicalDays,
+            sleepPerfByDay: next.sleepPerfByDay,
+            stressByDay: next.stressByDay,
+            appleDays: next.appleDays
         )
-        if next != loadedData {
-            loadedData = next
-        }
+        if revisionAdjusted != loadedData { loadedData = revisionAdjusted }
     }
 
     @MainActor
