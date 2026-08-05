@@ -64,7 +64,7 @@ public enum HistoricalAnalysisWorkReducer {
                   work.resumePhase == .analysis,
                   throughReceiptGeneration == work.lastReceiptGeneration,
                   analysisGeneration > 0,
-                  work.affectedDays.isSubset(of: analyzedDays) else {
+                  work.acceptsAnalyzedDays(analyzedDays) else {
                 throw HistoricalWorkError.invalidTransition
             }
             work.analyzedThroughReceiptGeneration = throughReceiptGeneration

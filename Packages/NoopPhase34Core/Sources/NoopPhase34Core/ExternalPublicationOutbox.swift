@@ -25,6 +25,8 @@ public struct ExternalPublicationOutboxItem: Codable, Equatable, Sendable {
     /// The recorded calendar context for changed day keys. HealthKit must not reinterpret them through a
     /// later phone time zone after travel or a daylight-saving transition.
     public let recordedTimeZoneIdentifier: String
+    /// HealthKit receives the exact mutation projection produced by the analysis generation.
+    public let healthKitPayload: HistoricalHealthKitMutationPayload?
     public let destination: DownstreamDestination
     public var state: ExternalPublicationState
     public var attemptCount: Int
@@ -41,6 +43,7 @@ public struct ExternalPublicationOutboxItem: Codable, Equatable, Sendable {
         analysisGeneration: Int64,
         changedDays: Set<CivilDay>,
         recordedTimeZoneIdentifier: String = "UTC",
+        healthKitPayload: HistoricalHealthKitMutationPayload? = nil,
         destination: DownstreamDestination,
         createdAt: Date
     ) throws {
@@ -65,6 +68,7 @@ public struct ExternalPublicationOutboxItem: Codable, Equatable, Sendable {
         self.analysisGeneration = analysisGeneration
         self.changedDays = changedDays
         self.recordedTimeZoneIdentifier = recordedTimeZoneIdentifier
+        self.healthKitPayload = healthKitPayload
         self.destination = destination
         self.state = .pending
         self.attemptCount = 0
@@ -77,7 +81,7 @@ public struct ExternalPublicationOutboxItem: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case idempotencyKey, contextId, deviceId, snapshotGeneration, analysisGeneration
-        case changedDays, recordedTimeZoneIdentifier, destination, state, attemptCount
+        case changedDays, recordedTimeZoneIdentifier, healthKitPayload, destination, state, attemptCount
         case nextAttemptAt, lease, lastErrorCode, createdAt, updatedAt
     }
 
@@ -95,6 +99,10 @@ public struct ExternalPublicationOutboxItem: Codable, Equatable, Sendable {
             String.self,
             forKey: .recordedTimeZoneIdentifier
         ) ?? "UTC"
+        healthKitPayload = try container.decodeIfPresent(
+            HistoricalHealthKitMutationPayload.self,
+            forKey: .healthKitPayload
+        )
         destination = try container.decode(DownstreamDestination.self, forKey: .destination)
         state = try container.decode(ExternalPublicationState.self, forKey: .state)
         attemptCount = try container.decode(Int.self, forKey: .attemptCount)

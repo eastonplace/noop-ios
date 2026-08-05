@@ -18,6 +18,22 @@ public struct HistoricalAnalysisWorkLeaseRequest: Sendable {
 }
 
 extension WhoopStore {
+    @discardableResult
+    public func resumeBlockedHistoricalAnalysisWork(now: Date) async throws -> Int {
+        try syncWrite { db in
+            let rows = try Row.fetchAll(
+                db,
+                sql: "SELECT * FROM historicalAnalysisWork WHERE state = 'blocked' AND leaseOwner IS NULL"
+            )
+            for row in rows {
+                var work = try Self.decodeHistoricalAnalysisWork(row)
+                try HistoricalAnalysisWorkReducer.apply(.resumeBlocked, to: &work, now: now)
+                try Self.updateHistoricalAnalysisWork(work, priority: row["priority"], in: db)
+            }
+            return rows.count
+        }
+    }
+
     /// Insert a new work item or coalesce it into one unleased pending item with the same source fence.
     /// Running work is immutable: receipts that arrive during analysis become a follow-up item, which the
     /// coordinator will prioritize and execute before declaring the pipeline quiescent.
@@ -168,10 +184,10 @@ extension WhoopStore {
                 workId, databaseInstanceId, sourceId, deviceId, lineage, cursorEpoch, trimScope,
                 firstReceiptGeneration, lastReceiptGeneration, minimumTs, maximumTs,
                 affectedDaysJSON, recordedTimeZoneIdentifier, workKindKey, workKindJSON,
-                priority, state, attemptCount, nextAttemptAt,
+                priority, state, resumePhase, attemptCount, nextAttemptAt,
                 leaseOwner, leaseExpiresAt, analyzedThroughReceiptGeneration, analysisGeneration, snapshotGeneration,
                 pendingDestinationsJSON, lastErrorCode, createdAt, updatedAt
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, arguments: Self.workArguments(
                 work,
                 priority: priority,
@@ -192,7 +208,7 @@ extension WhoopStore {
         try db.execute(sql: """
             UPDATE historicalAnalysisWork SET
                 firstReceiptGeneration = ?, lastReceiptGeneration = ?, minimumTs = ?, maximumTs = ?,
-                affectedDaysJSON = ?, priority = ?, state = ?, attemptCount = ?, nextAttemptAt = ?,
+                affectedDaysJSON = ?, priority = ?, state = ?, resumePhase = ?, attemptCount = ?, nextAttemptAt = ?,
                 leaseOwner = ?, leaseExpiresAt = ?, analyzedThroughReceiptGeneration = ?, analysisGeneration = ?, snapshotGeneration = ?,
                 pendingDestinationsJSON = ?, lastErrorCode = ?, updatedAt = ?
             WHERE workId = ?
@@ -204,6 +220,7 @@ extension WhoopStore {
                 days,
                 priority,
                 work.state.rawValue,
+                work.resumePhase.rawValue,
                 work.attemptCount,
                 work.nextAttemptAt.map { Int($0.timeIntervalSince1970) },
                 work.lease?.owner,
@@ -244,6 +261,7 @@ extension WhoopStore {
             workKindJSON,
             priority,
             work.state.rawValue,
+            work.resumePhase.rawValue,
             work.attemptCount,
             work.nextAttemptAt.map { Int($0.timeIntervalSince1970) },
             work.lease?.owner,
@@ -295,7 +313,8 @@ extension WhoopStore {
 
         let workIdString: String = row["workId"]
         guard let workId = UUID(uuidString: workIdString),
-              let state = HistoricalAnalysisWorkState(rawValue: row["state"]) else {
+              let state = HistoricalAnalysisWorkState(rawValue: row["state"]),
+              let resumePhase = HistoricalPipelineResumePhase(rawValue: row["resumePhase"]) else {
             throw HistoricalWorkStoreError.invalidRow
         }
 
@@ -334,6 +353,7 @@ extension WhoopStore {
         }
 
         work.state = state
+        work.resumePhase = resumePhase
         work.attemptCount = attemptCount
         work.nextAttemptAt = nextAttemptAt
         if let owner = leaseOwner, let expiryRaw = leaseExpiryRaw {

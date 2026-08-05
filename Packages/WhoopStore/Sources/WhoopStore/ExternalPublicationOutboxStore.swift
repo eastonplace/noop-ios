@@ -5,6 +5,29 @@ import GRDB
 import NoopPhase34Core
 
 extension WhoopStore {
+    @discardableResult
+    public func resumeBlockedExternalPublications(
+        destinations: Set<DownstreamDestination>,
+        now: Date
+    ) async throws -> Int {
+        guard !destinations.isEmpty else { return 0 }
+        return try syncWrite { db in
+            let values = destinations.map(\.rawValue).sorted()
+            let placeholders = Array(repeating: "?", count: values.count).joined(separator: ",")
+            let rows = try Row.fetchAll(
+                db,
+                sql: "SELECT * FROM externalPublicationOutbox WHERE state = 'blocked' AND leaseOwner IS NULL AND destination IN (\(placeholders))",
+                arguments: StatementArguments(values)
+            )
+            for row in rows {
+                var item = try Self.decodeExternalPublication(row)
+                try ExternalPublicationReducer.apply(.resumeBlocked, to: &item, now: now)
+                try Self.updateExternalPublication(item, in: db)
+            }
+            return rows.count
+        }
+    }
+
     /// Persist the verified current projection and all destination rows in one transaction.
     ///
     /// Latest-state surfaces are keyed by snapshot generation. HealthKit is keyed by analysis generation and
@@ -24,6 +47,8 @@ extension WhoopStore {
                     snapshotGeneration: snapshot.snapshotGeneration,
                     analysisGeneration: snapshot.analysisGeneration,
                     changedDays: snapshot.analyzedDays,
+                    recordedTimeZoneIdentifier: snapshot.recordedTimeZoneIdentifier,
+                    healthKitPayload: destination == .healthKit ? snapshot.healthKitPayload : nil,
                     destination: destination,
                     createdAt: now
                 )
@@ -262,6 +287,8 @@ extension WhoopStore {
                   decoded.deviceId == item.deviceId,
                   decoded.analysisGeneration == item.analysisGeneration,
                   decoded.changedDays == item.changedDays,
+                  decoded.recordedTimeZoneIdentifier == item.recordedTimeZoneIdentifier,
+                  decoded.healthKitPayload == item.healthKitPayload,
                   decoded.destination == item.destination else {
                 throw ExternalPublicationStoreError.conflictingItem
             }
@@ -277,9 +304,10 @@ extension WhoopStore {
         try db.execute(sql: """
             INSERT INTO externalPublicationOutbox (
                 idempotencyKey, contextId, deviceId, snapshotGeneration, analysisGeneration,
-                changedDaysJSON, destination, state, attemptCount, nextAttemptAt,
+                changedDaysJSON, recordedTimeZoneIdentifier, destinationPayloadJSON,
+                destination, state, attemptCount, nextAttemptAt,
                 leaseOwner, leaseExpiresAt, lastErrorCode, createdAt, updatedAt
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, arguments: Self.externalPublicationArguments(item))
     }
 
@@ -311,9 +339,18 @@ extension WhoopStore {
             throw ExternalPublicationStoreError.invalidRow
         }
         let changedDaysData: Data = row["changedDaysJSON"]
+        let payloadData: Data? = row["destinationPayloadJSON"]
         let changedDays: Set<CivilDay>
         do {
             changedDays = try JSONDecoder().decode(Set<CivilDay>.self, from: changedDaysData)
+        } catch {
+            throw ExternalPublicationStoreError.invalidRow
+        }
+        let payload: HistoricalHealthKitMutationPayload?
+        do {
+            payload = try payloadData.map {
+                try JSONDecoder().decode(HistoricalHealthKitMutationPayload.self, from: $0)
+            }
         } catch {
             throw ExternalPublicationStoreError.invalidRow
         }
@@ -341,6 +378,8 @@ extension WhoopStore {
                 snapshotGeneration: row["snapshotGeneration"],
                 analysisGeneration: row["analysisGeneration"],
                 changedDays: changedDays,
+                recordedTimeZoneIdentifier: row["recordedTimeZoneIdentifier"],
+                healthKitPayload: payload,
                 destination: destination,
                 createdAt: createdAt
             )
@@ -377,6 +416,7 @@ extension WhoopStore {
         _ item: ExternalPublicationOutboxItem
     ) throws -> StatementArguments {
         let changedDays = try JSONEncoder().encode(item.changedDays)
+        let payload = try item.healthKitPayload.map(JSONEncoder().encode)
         return [
             item.idempotencyKey,
             item.contextId,
@@ -384,6 +424,8 @@ extension WhoopStore {
             item.snapshotGeneration,
             item.analysisGeneration,
             changedDays,
+            item.recordedTimeZoneIdentifier,
+            payload,
             item.destination.rawValue,
             item.state.rawValue,
             item.attemptCount,

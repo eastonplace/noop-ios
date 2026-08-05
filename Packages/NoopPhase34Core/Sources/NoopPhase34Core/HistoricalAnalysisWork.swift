@@ -235,6 +235,17 @@ public struct HistoricalAnalysisWork: Codable, Equatable, Sendable {
         return nextAttemptAt.map { $0 <= now } ?? true
     }
 
+    /// Exact work must be satisfied by the exact analyzed day set. A full-history repair may cover the
+    /// affected days as part of a larger maintenance result, but it still must produce at least one day.
+    public func acceptsAnalyzedDays(_ analyzedDays: Set<CivilDay>) -> Bool {
+        switch kind {
+        case .exactDays:
+            return analyzedDays == affectedDays
+        case .fullHistoryRepair:
+            return !analyzedDays.isEmpty && affectedDays.isSubset(of: analyzedDays)
+        }
+    }
+
     /// Coalesce only work that has not crossed the analysis edge. A running or published item retains its
     /// immutable receipt range; new receipts become a follow-up work item.
     public mutating func mergePending(_ other: HistoricalAnalysisWork, now: Date) throws {

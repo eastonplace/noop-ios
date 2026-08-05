@@ -37,6 +37,8 @@ public struct SnapshotCommitReceipt: Codable, Equatable, Sendable {
     /// The zone used to interpret every civil-day key in this mutation. External writers must not reinterpret
     /// these days through the phone's later zone after travel or a daylight-saving transition.
     public let recordedTimeZoneIdentifier: String
+    /// Immutable HealthKit mutations captured from the same post-analysis WAL snapshot as the projection.
+    public let healthKitPayload: HistoricalHealthKitMutationPayload?
     public let projection: VerifiedHealthProjection
 
     public init(
@@ -45,6 +47,7 @@ public struct SnapshotCommitReceipt: Codable, Equatable, Sendable {
         snapshotGeneration: Int64,
         analyzedDays: Set<CivilDay>,
         recordedTimeZoneIdentifier: String = "UTC",
+        healthKitPayload: HistoricalHealthKitMutationPayload? = nil,
         projection: VerifiedHealthProjection
     ) throws {
         guard throughReceiptGeneration > 0,
@@ -52,6 +55,13 @@ public struct SnapshotCommitReceipt: Codable, Equatable, Sendable {
               snapshotGeneration > 0,
               !analyzedDays.isEmpty,
               TimeZone(identifier: recordedTimeZoneIdentifier) != nil,
+              healthKitPayload?.validates(
+                  contextId: projection.contextId,
+                  deviceId: projection.deviceId,
+                  analysisGeneration: analysisGeneration,
+                  changedDays: analyzedDays,
+                  recordedTimeZoneIdentifier: recordedTimeZoneIdentifier
+              ) ?? true,
               snapshotGeneration == projection.generation else {
             throw HistoricalWorkError.invalidGeneration
         }
@@ -60,12 +70,13 @@ public struct SnapshotCommitReceipt: Codable, Equatable, Sendable {
         self.snapshotGeneration = snapshotGeneration
         self.analyzedDays = analyzedDays
         self.recordedTimeZoneIdentifier = recordedTimeZoneIdentifier
+        self.healthKitPayload = healthKitPayload
         self.projection = projection
     }
 
     private enum CodingKeys: String, CodingKey {
         case throughReceiptGeneration, analysisGeneration, snapshotGeneration, analyzedDays
-        case recordedTimeZoneIdentifier, projection
+        case recordedTimeZoneIdentifier, healthKitPayload, projection
     }
 
     public init(from decoder: Decoder) throws {
@@ -79,6 +90,10 @@ public struct SnapshotCommitReceipt: Codable, Equatable, Sendable {
                 String.self,
                 forKey: .recordedTimeZoneIdentifier
             ) ?? "UTC",
+            healthKitPayload: container.decodeIfPresent(
+                HistoricalHealthKitMutationPayload.self,
+                forKey: .healthKitPayload
+            ),
             projection: container.decode(VerifiedHealthProjection.self, forKey: .projection)
         )
     }

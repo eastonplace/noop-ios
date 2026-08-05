@@ -26,11 +26,13 @@ extension WhoopStore {
 
             try Self.persistVerifiedProjection(receipt.projection, now: now, in: db)
             let changedDays = try JSONEncoder().encode(receipt.analyzedDays)
+            let healthKitPayload = try receipt.healthKitPayload.map(JSONEncoder().encode)
             try db.execute(sql: """
                 INSERT INTO verifiedSnapshotCommit (
                     contextId, deviceId, analysisGeneration, throughReceiptGeneration,
-                    snapshotGeneration, changedDaysJSON, createdAt
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    snapshotGeneration, changedDaysJSON, recordedTimeZoneIdentifier,
+                    healthKitPayloadJSON, createdAt
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, arguments: [
                     receipt.projection.contextId,
                     receipt.projection.deviceId,
@@ -38,6 +40,8 @@ extension WhoopStore {
                     receipt.throughReceiptGeneration,
                     receipt.snapshotGeneration,
                     changedDays,
+                    receipt.recordedTimeZoneIdentifier,
+                    healthKitPayload,
                     Int(now.timeIntervalSince1970),
                 ])
             return receipt
@@ -75,11 +79,20 @@ extension WhoopStore {
         }
         let daysData: Data = row["changedDaysJSON"]
         let projectionData: Data = row["projectionJSON"]
+        let payloadData: Data? = row["healthKitPayloadJSON"]
         let days: Set<CivilDay>
         let projection: VerifiedHealthProjection
         do {
             days = try JSONDecoder().decode(Set<CivilDay>.self, from: daysData)
             projection = try JSONDecoder().decode(VerifiedHealthProjection.self, from: projectionData)
+        } catch {
+            throw VerifiedSnapshotCommitStoreError.invalidStoredRow
+        }
+        let payload: HistoricalHealthKitMutationPayload?
+        do {
+            payload = try payloadData.map {
+                try JSONDecoder().decode(HistoricalHealthKitMutationPayload.self, from: $0)
+            }
         } catch {
             throw VerifiedSnapshotCommitStoreError.invalidStoredRow
         }
@@ -94,6 +107,8 @@ extension WhoopStore {
                 analysisGeneration: row["analysisGeneration"],
                 snapshotGeneration: row["snapshotGeneration"],
                 analyzedDays: days,
+                recordedTimeZoneIdentifier: row["recordedTimeZoneIdentifier"],
+                healthKitPayload: payload,
                 projection: projection
             )
         } catch {
