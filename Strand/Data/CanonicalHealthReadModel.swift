@@ -17,6 +17,8 @@ struct PersistedSleepScoreRow: Equatable, Sendable {
     /// One Repository source-publication generation. Every candidate read in one WAL snapshot receives the
     /// same generation. Do not compare this value with receipt, analysis, or Today-snapshot generations.
     let generation: Int64
+    /// True when the canonical score carries a user-edited sleep authority.
+    let isUserEditedAuthority: Bool
 }
 
 struct CanonicalSleepScorePoint: Equatable, Sendable {
@@ -27,6 +29,7 @@ struct CanonicalSleepScorePoint: Equatable, Sendable {
     let modelVersion: String?
     let observedAt: Int?
     let generation: Int64
+    let isUserEditedAuthority: Bool
 
     var isImported: Bool { model == .importedWhoop }
     var isComputedV2: Bool { model == .noopV2 }
@@ -190,7 +193,8 @@ enum CanonicalHealthReadModelBuilder {
                     modelVersion: row.modelVersion,
                     observedAt: row.observedAt,
                     generation: row.generation,
-                    authorityRank: row.authorityRank
+                    authorityRank: row.authorityRank,
+                    isUserEditedAuthority: row.isUserEditedAuthority
                   ) else {
                 continue
             }
@@ -271,7 +275,8 @@ private extension SleepScoreCandidate {
             model: model,
             modelVersion: modelVersion,
             observedAt: observedAt,
-            generation: generation
+            generation: generation,
+            isUserEditedAuthority: isUserEditedAuthority
         )
     }
 }

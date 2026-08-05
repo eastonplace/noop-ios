@@ -136,20 +136,17 @@ public enum CanonicalSleepScoreResolver {
         if hasEditedAuthority {
             switch mode {
             case .off:
-                return CanonicalSleepScoreResolution(
-                    production: editedLegacy ?? editedProvisional,
-                    shadow: nil
-                )
+                if let edited = editedLegacy ?? editedProvisional {
+                    return CanonicalSleepScoreResolution(production: edited, shadow: nil)
+                }
             case .shadow:
-                return CanonicalSleepScoreResolution(
-                    production: editedLegacy ?? editedV2 ?? editedProvisional,
-                    shadow: editedV2
-                )
+                if let edited = editedLegacy ?? editedV2 ?? editedProvisional {
+                    return CanonicalSleepScoreResolution(production: edited, shadow: editedV2)
+                }
             case .on:
-                return CanonicalSleepScoreResolution(
-                    production: editedV2 ?? editedLegacy ?? editedProvisional,
-                    shadow: nil
-                )
+                if let edited = editedV2 ?? editedLegacy ?? editedProvisional {
+                    return CanonicalSleepScoreResolution(production: edited, shadow: nil)
+                }
             }
         }
 
