@@ -67,9 +67,21 @@ public enum VerifiedWidgetEnvelopeStore {
         return try? JSONDecoder().decode(VerifiedWidgetEnvelope.self, from: data)
     }
 
+    /// Return the immutable verified envelope only when its epoch/context is the
+    /// App Group's current active sink identity. A crashed/no-active transition
+    /// therefore fails closed instead of continuing to display an old source.
+    public static func rawActiveEnvelope(defaults: UserDefaults) -> VerifiedWidgetEnvelope? {
+        guard let envelope = load(defaults: defaults),
+              let active = ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults),
+              active.epoch == envelope.epoch,
+              active.contextId == envelope.contextId else {
+            return nil
+        }
+        return envelope
+    }
 
     public static func loadForDisplay(defaults: UserDefaults) -> WidgetSnapshot? {
-        guard let envelope = load(defaults: defaults) else { return nil }
+        guard let envelope = rawActiveEnvelope(defaults: defaults) else { return nil }
         var snapshot = envelope.snapshot
         guard let overlayData = defaults.data(
             forKey: ActiveVerifiedSinkEpochStore.widgetLiveOverlayKey
@@ -78,9 +90,6 @@ public enum VerifiedWidgetEnvelopeStore {
             WidgetLiveOverlay.self,
             from: overlayData
         ),
-        let active = ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults),
-        active.epoch == envelope.epoch,
-        active.contextId == envelope.contextId,
         overlay.epoch == envelope.epoch,
         overlay.contextId == envelope.contextId,
         overlay.generation == envelope.generation else {
@@ -144,13 +153,3 @@ public enum VerifiedWidgetEnvelopeStore {
         defaults.removeObject(forKey: ActiveVerifiedSinkEpochStore.widgetLiveOverlayKey)
     }
 }
-
-/*
-Widget integration:
-
-- `WidgetSnapshot.loadForDisplay` first loads VerifiedWidgetEnvelope, then applies
-  a matching live overlay.
-- Migrate one legacy `WidgetSnapshot.storageKey` value into an envelope only when
-  an active token and matching verified identity exist; otherwise discard it.
-- Stop using a separate Widget generation key after the envelope migration.
-*/
