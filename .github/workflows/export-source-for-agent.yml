@@ -1,0 +1,29 @@
+name: Export source for agent
+
+on:
+  push:
+    branches:
+      - fix/pr28-round5-root-fixes
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create source archive
+        run: |
+          tar --exclude=.git --exclude='./noop-source.tar.gz' -czf noop-source.tar.gz .
+
+      - name: Upload source archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: noop-source
+          path: noop-source.tar.gz
+          if-no-files-found: error
+          retention-days: 1
