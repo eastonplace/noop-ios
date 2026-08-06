@@ -16,6 +16,7 @@ public enum PR28V48Migrations {
             try backfillHealthKitWatermarksFailClosed(db)
             try validate(db)
         }
+        PR28V49Migrations.register(on: &migrator)
     }
 
     private static func createSourceTransitionJournal(_ db: Database) throws {
@@ -104,7 +105,6 @@ public enum PR28V48Migrations {
             options: [.ifNotExists]
         )
     }
-
 
     private static func addVerifiedWidgetCorePayload(_ db: Database) throws {
         guard try db.tableExists("verifiedHealthProjection") else { return }
@@ -238,7 +238,6 @@ public enum PR28V48Migrations {
                 if existingGeneration > winner.generation { continue }
                 if existingGeneration == winner.generation,
                    existingDevice != winner.deviceId {
-                    // Preserve the already-delivered fence and surface the conflict.
                     continue
                 }
             }
