@@ -6,7 +6,8 @@ public enum ActiveSinkEpochRecovery {
         activeKey: String = ActiveVerifiedSinkEpochStore.activeKey,
         widgetGenerationKey: String = ActiveVerifiedSinkEpochStore.widgetGenerationKey,
         liveActivityGenerationKey: String = ActiveVerifiedSinkEpochStore.liveActivityGenerationKey,
-        overlayKey: String = ActiveVerifiedSinkEpochStore.widgetLiveOverlayKey
+        overlayKey: String = ActiveVerifiedSinkEpochStore.widgetLiveOverlayKey,
+        verifiedEnvelopeKey: String = VerifiedWidgetEnvelopeStore.storageKey
     ) -> UInt64? {
         let decoder = JSONDecoder()
         var epochs: [UInt64] = []
@@ -25,6 +26,10 @@ public enum ActiveSinkEpochRecovery {
            let overlay = try? decoder.decode(WidgetLiveOverlay.self, from: data) {
             epochs.append(overlay.epoch)
         }
+        if let data = defaults.data(forKey: verifiedEnvelopeKey),
+           let envelope = try? decoder.decode(VerifiedWidgetEnvelope.self, from: data) {
+            epochs.append(envelope.epoch)
+        }
 
         let maximum = epochs.max() ?? 0
         let (next, overflow) = maximum.addingReportingOverflow(1)
@@ -32,7 +37,7 @@ public enum ActiveSinkEpochRecovery {
     }
 
     /// Replacement for beginTransition. A missing/corrupt active record does not
-    /// reset ordering below surviving Widget/Live records.
+    /// reset ordering below surviving Widget/Live/envelope records.
     public static func beginTransitionRecovering(
         defaults: UserDefaults
     ) -> UInt64? {
@@ -71,17 +76,3 @@ public enum ActiveSinkEpochRecovery {
         return decoded == record
     }
 }
-
-/*
-Source-transition integration:
-
-- Replace `ActiveVerifiedSinkEpochStore.beginTransition` with
-  `ActiveSinkEpochRecovery.beginTransitionRecovering`.
-- For archive-final-source/privacy-delete:
-    1. close epoch;
-    2. call clearVerifiedWidgetState;
-    3. enqueue and await an ActivityKit end barrier;
-    4. reload WidgetCenter timelines.
-- Add a regression where activeKey is removed while generation records are at
-  epoch 41; the next transition must use 42.
-*/
