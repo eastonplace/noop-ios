@@ -40,7 +40,6 @@ extension WhoopStore {
     }
 
     /// Persist the verified current projection and all destination rows in one transaction.
-    ///
     /// Latest-state surfaces are keyed by snapshot generation. HealthKit is keyed by analysis generation and
     /// retains the exact analyzed days, so a historical-only mutation is not lost when the current Today
     /// snapshot is unchanged or reused.
@@ -75,48 +74,18 @@ extension WhoopStore {
 
     /// HealthKit is always exact-work delivery. Latest-state sinks are admitted only when the immutable
     /// presentation or Widget core changes, the logical day changes, or the bounded heartbeat is due.
-    /// The previous checkpoint is reconstructed from the last successful Widget row, so this decision is
-    /// durable across process death and does not depend on mutable Repository caches.
+    /// The compact checkpoint survives projection pruning and process death.
     public func selectiveExternalPublicationDestinations(
         snapshot: SnapshotCommitReceipt,
         bundle: VerifiedExternalProjectionBundle,
         now: Date
     ) async throws -> Set<DownstreamDestination> {
         try syncRead { db in
-            let previous: LatestStateDeliveryCheckpoint?
-            if let row = try Row.fetchOne(db, sql: """
-                SELECT snapshotGeneration, updatedAt
-                FROM externalPublicationOutbox
-                WHERE contextId = ? AND deviceId = ?
-                  AND destination = 'widget' AND state = 'succeeded'
-                ORDER BY snapshotGeneration DESC, updatedAt DESC
-                LIMIT 1
-                """, arguments: [snapshot.projection.contextId, snapshot.projection.deviceId]),
-               let generation: Int64 = row["snapshotGeneration"],
-               let deliveredAtSeconds: Int = row["updatedAt"] {
-                guard let payload: Data = try Data.fetchOne(db, sql: """
-                    SELECT projectionJSON FROM verifiedHealthProjection
-                    WHERE contextId = ? AND snapshotGeneration = ?
-                    """, arguments: [snapshot.projection.contextId, generation]),
-                      let coreData: Data = try Data.fetchOne(db, sql: """
-                    SELECT widgetCoreJSON FROM verifiedHealthProjection
-                    WHERE contextId = ? AND snapshotGeneration = ?
-                    """, arguments: [snapshot.projection.contextId, generation]),
-                      let projection = try? JSONDecoder().decode(VerifiedHealthProjection.self, from: payload),
-                      let widgetCore = try? JSONDecoder().decode(VerifiedWidgetCorePayload.self, from: coreData)
-                else {
-                    throw ExternalPublicationStoreError.invalidProjection
-                }
-                previous = LatestStateDeliveryCheckpoint(
-                    contextId: projection.contextId,
-                    presentationIdentity: projection.presentationIdentity,
-                    widgetCore: widgetCore,
-                    logicalDay: projection.logicalDay,
-                    deliveredAt: Date(timeIntervalSince1970: TimeInterval(deliveredAtSeconds))
-                )
-            } else {
-                previous = nil
-            }
+            let previous = try Self.decodeLatestStateCheckpoint(
+                contextId: snapshot.projection.contextId,
+                expectedDeviceId: snapshot.projection.deviceId,
+                in: db
+            )
             return SelectiveExternalPublicationPlan.destinations(
                 snapshot: snapshot,
                 bundle: bundle,
@@ -212,6 +181,9 @@ extension WhoopStore {
             var item = try Self.decodeExternalPublication(row)
             try ExternalPublicationReducer.apply(event, to: &item, now: now)
             try Self.updateExternalPublication(item, in: db)
+            if item.state == .succeeded, item.isLatestStateDestination {
+                try Self.recordLatestStateCheckpoint(for: item, deliveredAt: now, in: db)
+            }
             return item
         }
     }
@@ -220,9 +192,20 @@ extension WhoopStore {
     /// analysis work, snapshots, and receipt consumers.
     public func deleteExternalPublicationState(deviceId: String) async throws {
         try syncWrite { db in
+            let contexts = try String.fetchAll(db, sql: """
+                SELECT DISTINCT contextId FROM verifiedHealthProjection WHERE deviceId = ?
+                UNION
+                SELECT DISTINCT contextId FROM externalPublicationOutbox WHERE deviceId = ?
+                """, arguments: [deviceId, deviceId])
             try db.execute(sql: "DELETE FROM externalPublicationOutbox WHERE deviceId = ?", arguments: [deviceId])
             try db.execute(sql: "DELETE FROM verifiedSnapshotCommit WHERE deviceId = ?", arguments: [deviceId])
             try db.execute(sql: "DELETE FROM verifiedHealthProjection WHERE deviceId = ?", arguments: [deviceId])
+            for contextId in contexts {
+                try db.execute(
+                    sql: "DELETE FROM latestStateDeliveryCheckpoint WHERE contextId = ?",
+                    arguments: [contextId]
+                )
+            }
             if try db.tableExists("healthKitMutationWatermark") {
                 try db.execute(sql: "DELETE FROM healthKitMutationWatermark WHERE deviceId = ?", arguments: [deviceId])
             }
@@ -260,7 +243,8 @@ extension WhoopStore {
     }
 
     /// Retain a small completed projection history for diagnostics. Never delete a payload referenced by a
-    /// pending, in-flight, retryable, or quarantined outbox item.
+    /// pending, in-flight, retryable, or quarantined outbox item. The compact latest-state checkpoint is a
+    /// standalone table and is intentionally unaffected by this pruning.
     public func pruneCompletedVerifiedProjections(keepMostRecent: Int = 8) async throws -> Int {
         try syncWrite { db in
             let keep = max(1, keepMostRecent)
@@ -329,7 +313,6 @@ extension WhoopStore {
             } catch {
                 throw ExternalPublicationStoreError.invalidProjection
             }
-            // Dictionary encoding order is not a replay identity. Compare the decoded value graph.
             guard deviceId == projection.deviceId, existingProjection == projection else {
                 throw ExternalPublicationStoreError.conflictingProjection
             }
@@ -345,6 +328,99 @@ extension WhoopStore {
                 projection.generation,
                 payload,
                 Int(now.timeIntervalSince1970),
+            ])
+    }
+
+    private static func decodeLatestStateCheckpoint(
+        contextId: String,
+        expectedDeviceId: String,
+        in db: Database
+    ) throws -> LatestStateDeliveryCheckpoint? {
+        guard let row = try Row.fetchOne(db, sql: """
+            SELECT deviceId, presentationJSON, widgetCoreJSON, logicalDay, deliveredAt
+            FROM latestStateDeliveryCheckpoint
+            WHERE contextId = ?
+            """, arguments: [contextId]) else { return nil }
+        let deviceId: String = row["deviceId"]
+        let presentationData: Data = row["presentationJSON"]
+        let widgetData: Data = row["widgetCoreJSON"]
+        let logicalDayKey: String = row["logicalDay"]
+        let deliveredAtSeconds: Int = row["deliveredAt"]
+        guard deviceId == expectedDeviceId,
+              let presentation = try? JSONDecoder().decode(
+                SnapshotPresentationIdentity.self,
+                from: presentationData
+              ),
+              let widgetCore = try? JSONDecoder().decode(
+                VerifiedWidgetCorePayload.self,
+                from: widgetData
+              ),
+              let logicalDay = try? CivilDay(key: logicalDayKey),
+              deliveredAtSeconds >= 0 else {
+            throw ExternalPublicationStoreError.invalidCheckpoint
+        }
+        return LatestStateDeliveryCheckpoint(
+            contextId: contextId,
+            presentationIdentity: presentation,
+            widgetCore: widgetCore,
+            logicalDay: logicalDay,
+            deliveredAt: Date(timeIntervalSince1970: TimeInterval(deliveredAtSeconds))
+        )
+    }
+
+    private static func recordLatestStateCheckpoint(
+        for item: ExternalPublicationOutboxItem,
+        deliveredAt: Date,
+        in db: Database
+    ) throws {
+        guard let row = try Row.fetchOne(db, sql: """
+            SELECT projectionJSON, widgetCoreJSON
+            FROM verifiedHealthProjection
+            WHERE contextId = ? AND snapshotGeneration = ?
+            """, arguments: [item.contextId, item.snapshotGeneration]) else {
+            throw ExternalPublicationStoreError.invalidProjection
+        }
+        let projectionData: Data = row["projectionJSON"]
+        let widgetData: Data? = row["widgetCoreJSON"]
+        guard let widgetData,
+              let projection = try? JSONDecoder().decode(
+                VerifiedHealthProjection.self,
+                from: projectionData
+              ),
+              let widgetCore = try? JSONDecoder().decode(
+                VerifiedWidgetCorePayload.self,
+                from: widgetData
+              ),
+              projection.contextId == item.contextId,
+              projection.deviceId == item.deviceId,
+              projection.generation == item.snapshotGeneration else {
+            throw ExternalPublicationStoreError.invalidProjection
+        }
+        let presentationData = try JSONEncoder().encode(projection.presentationIdentity)
+        let widgetCoreData = try JSONEncoder().encode(widgetCore)
+        try db.execute(sql: """
+            INSERT INTO latestStateDeliveryCheckpoint (
+                contextId, deviceId, snapshotGeneration, presentationJSON,
+                widgetCoreJSON, logicalDay, deliveredAt
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(contextId) DO UPDATE SET
+                deviceId = excluded.deviceId,
+                snapshotGeneration = excluded.snapshotGeneration,
+                presentationJSON = excluded.presentationJSON,
+                widgetCoreJSON = excluded.widgetCoreJSON,
+                logicalDay = excluded.logicalDay,
+                deliveredAt = excluded.deliveredAt
+            WHERE excluded.snapshotGeneration >=
+                  latestStateDeliveryCheckpoint.snapshotGeneration
+              AND excluded.deviceId = latestStateDeliveryCheckpoint.deviceId
+            """, arguments: [
+                projection.contextId,
+                projection.deviceId,
+                projection.generation,
+                presentationData,
+                widgetCoreData,
+                projection.logicalDay.key,
+                Int(deliveredAt.timeIntervalSince1970),
             ])
     }
 
@@ -393,9 +469,6 @@ extension WhoopStore {
                   decoded.destination == item.destination else {
                 throw ExternalPublicationStoreError.conflictingItem
             }
-            // HealthKit identity is the durable analysis mutation. A retry after the outbox transaction
-            // committed may rebuild or reuse a different current snapshot; retain the original HealthKit row
-            // instead of treating that unrelated current-state generation as a mutation conflict.
             if decoded.isLatestStateDestination,
                decoded.snapshotGeneration != item.snapshotGeneration {
                 throw ExternalPublicationStoreError.conflictingItem
@@ -544,6 +617,7 @@ public enum ExternalPublicationStoreError: Error {
     case missingItem
     case invalidRow
     case invalidProjection
+    case invalidCheckpoint
     case conflictingProjection
     case conflictingItem
 }
