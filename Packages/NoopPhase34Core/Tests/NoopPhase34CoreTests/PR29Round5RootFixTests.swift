@@ -67,9 +67,11 @@ final class PR29Round5RootFixTests: XCTestCase {
         await sequence.releaseFirst()
 
         let result = await first.value
+        let finalEdgeResult = await finalEdge.value
+        let calls = await sequence.callCount()
         XCTAssertEqual(result, .init(completed: 4, deferred: 1))
-        XCTAssertEqual(await finalEdge.value, result)
-        XCTAssertEqual(await sequence.callCount(), 2)
+        XCTAssertEqual(finalEdgeResult, result)
+        XCTAssertEqual(calls, 2)
     }
 
     func testExactNamespaceKeepsDerivedWritesWithCommittedSource() throws {
@@ -93,8 +95,10 @@ final class PR29Round5RootFixTests: XCTestCase {
 
         let quiesceA = Task { await fence.quiesce(sourceId: "source-A") }
         await Task.yield()
-        XCTAssertTrue(await fence.isBlocked(sourceId: "source-A"))
-        XCTAssertFalse(await fence.isBlocked(sourceId: "source-B"))
+        let sourceABlocked = await fence.isBlocked(sourceId: "source-A")
+        let sourceBBlocked = await fence.isBlocked(sourceId: "source-B")
+        XCTAssertTrue(sourceABlocked)
+        XCTAssertFalse(sourceBBlocked)
 
         await fence.end(sourceId: "source-A")
         await quiesceA.value
