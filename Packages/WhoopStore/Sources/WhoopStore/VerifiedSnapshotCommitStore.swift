@@ -1,19 +1,23 @@
-// Copy into Packages/WhoopStore/Sources/WhoopStore after NoopPhase34Core is available.
-// This is the idempotency seam between a durable analysis generation and its committed Today projection.
-
 import Foundation
 import GRDB
 import NoopPhase34Core
 
 extension WhoopStore {
     /// Persist one verified analysis -> snapshot mapping. A retry after process death returns the original
-    /// mapping. It never assigns another snapshot generation for the same analysis generation.
+    /// mapping. Compatible replays fill immutable snapshot/Widget artifacts that an older build omitted;
+    /// conflicting artifacts fail closed.
     public func recordVerifiedSnapshotCommit(
         _ receipt: SnapshotCommitReceipt,
         now: Date,
         widgetCore: VerifiedWidgetCorePayload? = nil
     ) async throws -> SnapshotCommitReceipt {
         try syncWrite { db in
+            let snapshotJSON: Data? = try Data.fetchOne(db, sql: """
+                SELECT payload FROM todayHealthSnapshot
+                WHERE contextId = ? AND generation = ?
+                LIMIT 1
+                """, arguments: [receipt.projection.contextId, receipt.snapshotGeneration])
+
             if let existing = try Self.decodeVerifiedSnapshotCommit(
                 contextId: receipt.projection.contextId,
                 analysisGeneration: receipt.analysisGeneration,
@@ -21,6 +25,40 @@ extension WhoopStore {
             ) {
                 guard existing == receipt else {
                     throw VerifiedSnapshotCommitStoreError.conflictingReplay
+                }
+
+                if let widgetCore {
+                    let bundle = try VerifiedExternalProjectionBundle(
+                        projection: receipt.projection,
+                        widgetCore: widgetCore
+                    )
+                    try Self.persistVerifiedExternalProjectionBundle(bundle, now: now, in: db)
+                }
+
+                if let snapshotJSON {
+                    let existingJSON: Data? = try Data.fetchOne(db, sql: """
+                        SELECT snapshotJSON FROM verifiedSnapshotCommit
+                        WHERE contextId = ? AND analysisGeneration = ?
+                        """, arguments: [receipt.projection.contextId, receipt.analysisGeneration])
+                    if let existingJSON {
+                        guard existingJSON == snapshotJSON else {
+                            throw VerifiedSnapshotCommitStoreError.conflictingReplay
+                        }
+                    } else {
+                        try db.execute(sql: """
+                            UPDATE verifiedSnapshotCommit
+                            SET snapshotJSON = ?
+                            WHERE contextId = ? AND analysisGeneration = ?
+                              AND snapshotJSON IS NULL
+                            """, arguments: [
+                                snapshotJSON,
+                                receipt.projection.contextId,
+                                receipt.analysisGeneration,
+                            ])
+                        guard db.changesCount == 1 else {
+                            throw VerifiedSnapshotCommitStoreError.conflictingReplay
+                        }
+                    }
                 }
                 return existing
             }
@@ -40,8 +78,8 @@ extension WhoopStore {
                 INSERT INTO verifiedSnapshotCommit (
                     contextId, deviceId, analysisGeneration, throughReceiptGeneration,
                     snapshotGeneration, changedDaysJSON, recordedTimeZoneIdentifier,
-                    healthKitPayloadJSON, createdAt
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    healthKitPayloadJSON, snapshotJSON, createdAt
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, arguments: [
                     receipt.projection.contextId,
                     receipt.projection.deviceId,
@@ -51,6 +89,7 @@ extension WhoopStore {
                     changedDays,
                     receipt.recordedTimeZoneIdentifier,
                     healthKitPayload,
+                    snapshotJSON,
                     Int(now.timeIntervalSince1970),
                 ])
             return receipt
@@ -70,8 +109,6 @@ extension WhoopStore {
         }
     }
 
-    /// Load the durable receipt by the immutable snapshot generation when a caller owns a verified
-    /// projection but does not have the original analysis lease row.
     public func verifiedSnapshotCommit(
         contextId: String,
         snapshotGeneration: Int64
@@ -82,6 +119,27 @@ extension WhoopStore {
                 snapshotGeneration: snapshotGeneration,
                 in: db
             )
+        }
+    }
+
+    /// Immutable read-back for resumed publication. Never rebuild a historical
+    /// generation from the mutable one-row Today cache.
+    public func verifiedTodaySnapshot(
+        contextId: String,
+        analysisGeneration: Int64
+    ) async throws -> TodayHealthSnapshot? {
+        try syncRead { db in
+            guard let payload: Data = try Data.fetchOne(db, sql: """
+                SELECT snapshotJSON FROM verifiedSnapshotCommit
+                WHERE contextId = ? AND analysisGeneration = ?
+                """, arguments: [contextId, analysisGeneration]) else {
+                return nil
+            }
+            do {
+                return try JSONDecoder().decode(TodayHealthSnapshot.self, from: payload)
+            } catch {
+                throw VerifiedSnapshotCommitStoreError.invalidStoredRow
+            }
         }
     }
 
