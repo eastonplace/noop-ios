@@ -573,11 +573,11 @@ extension WhoopStore {
 
     static func enqueueRawBatchV2(_ meta: RawBatchMeta, blob: Data, in db: Database) throws {
             switch try existingRawBatchMatches(meta, blob: blob, in: db) {
-            case true:
+            case .some(true):
                 return
-            case false:
+            case .some(false):
                 throw RawOutboxIntegrityError.conflictingBatchIdentity
-            case nil:
+            case .none:
                 try db.execute(sql: """
                     INSERT INTO rawBatch
                         (batchId, deviceId, lineage, cursorEpoch, capturedAt, deviceClockRef, wallClockRef,
