@@ -106,6 +106,26 @@ extension WhoopStore {
             now: context.now
         )
 
+        let exactPlans = plans.filter {
+            if case .exactDays = $0.work.kind { return true }
+            return false
+        }
+        let maintenancePlans = plans.compactMap {
+            plan -> (
+                scope: HistoricalAnalysisScope,
+                through: Int64,
+                reasons: Set<String>,
+                recordedTimeZoneIdentifier: String
+            )? in
+            guard case .fullHistoryRepair(let reason) = plan.work.kind else { return nil }
+            return (
+                plan.work.scope,
+                plan.work.lastReceiptGeneration,
+                [reason],
+                plan.work.recordedTimeZoneIdentifier
+            )
+        }
+
         let coalescedCount = try syncWrite { db -> Int in
             let actualGeneration = try Self.historicalReceiptConsumerGeneration(
                 consumerId: context.consumerId,
@@ -120,8 +140,18 @@ extension WhoopStore {
                 )
             }
 
-            for plan in plans {
+            for plan in exactPlans {
                 try Self.upsertPlannedHistoricalWork(plan, in: db)
+            }
+            for maintenance in maintenancePlans {
+                try Self.upsertFullHistoryRepairMaintenance(
+                    scope: maintenance.scope,
+                    throughReceiptGeneration: maintenance.through,
+                    reasons: maintenance.reasons,
+                    recordedTimeZoneIdentifier: maintenance.recordedTimeZoneIdentifier,
+                    now: context.now,
+                    in: db
+                )
             }
             try Self.setHistoricalReceiptConsumerGeneration(
                 consumerId: context.consumerId,
@@ -131,7 +161,7 @@ extension WhoopStore {
                 now: context.now,
                 in: db
             )
-            return plans.count
+            return exactPlans.count + maintenancePlans.count
         }
 
         let hasMore = receipts.count == context.maximumReceiptsPerDrain

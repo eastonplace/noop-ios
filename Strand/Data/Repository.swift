@@ -165,6 +165,10 @@ final class Repository: ObservableObject {
     /// read side follows the same active id the write side does. NOT a `let` for that reason; `private(set)`
     /// so only `adoptActiveDeviceId` can move it.
     private(set) var deviceId: String
+    /// The active live source identity. `.none` is durable state after the last source is archived; it is
+    /// not the legacy `my-whoop` fallback and therefore cannot accidentally admit new work for an archived
+    /// source.
+    private(set) var liveSourceState: RepositoryLiveSourceState = .none
     /// Source id for on-device computed scores (recovery/strain/sleep derived from the raw strap
     /// streams by IntelligenceEngine). Merged UNDER the imported `deviceId` rows at read time, so a
     /// real WHOOP import always wins and the strap-only user still gets a populated dashboard.
@@ -184,13 +188,17 @@ final class Repository: ObservableObject {
     /// #814) and the canonical imported id. Active strap FIRST so per-day dedup lets the measured/live row
     /// win over the imported one. Deduped, so a single-device install (active id == canonical) reads one id.
     var importedReadIds: [String] {
-        deviceId == canonicalDeviceId ? [deviceId] : [deviceId, canonicalDeviceId]
+        ActiveSourceReadPolicy.importedReadIds(
+            liveState: liveSourceState,
+            canonicalDeviceId: canonicalDeviceId)
     }
     /// The engine's stable canonical writer must win over a legacy active-strap sibling. Keeping the legacy
     /// source as a fallback preserves older history without letting a stale re-pair row shadow newly verified
     /// `my-whoop-noop` Recovery on the same day.
     var computedReadIds: [String] {
-        computedDeviceId == canonicalComputedId ? [canonicalComputedId] : [canonicalComputedId, computedDeviceId]
+        ActiveSourceReadPolicy.computedReadIds(
+            liveState: liveSourceState,
+            canonicalComputedId: canonicalComputedId)
     }
     private var store: WhoopStore?
 
@@ -206,16 +214,16 @@ final class Repository: ObservableObject {
     @Published private(set) var freshness: RepositoryFreshness = .empty
     /// Daily metric rows with source provenance, used by vital-sign surfaces that need honest
     /// "WHOOP import / NOOP computed / Apple Health" captions instead of a silent merged row.
-    @Published private(set) var vitalRows: [SourcedDailyMetric] = []
+    @Published var vitalRows: [SourcedDailyMetric] = []
     /// Field-level origin for the two daily values that enter the durable first-paint snapshot. It is built
     /// from merge precedence, never reconstructed by comparing potentially equal numeric values.
-    private var todayHealthMetricSources: [String: TodayHealthMetricSources] = [:]
+    var todayHealthMetricSources: [String: TodayHealthMetricSources] = [:]
     /// Canonical NOOP V2 headline series. Imported/legacy values live separately and
     /// never enter this dictionary.
     @Published private(set) var canonicalStrainByDay: [String: ResolvedStrain] = [:]
-    @Published private(set) var importedStrainByDay: [String: ResolvedStrain] = [:]
+    @Published var importedStrainByDay: [String: ResolvedStrain] = [:]
     @Published private(set) var liveDayStrain: ResolvedStrain?
-    private var persistedStrainByDay: [String: ResolvedStrain] = [:]
+    var persistedStrainByDay: [String: ResolvedStrain] = [:]
     private var liveStrainAccumulator: StrainScorerV2.PhysiologicalDayAccumulator?
     private var liveStrainCycleStart: Int?
     private var liveStrainDayKey: String?
@@ -224,24 +232,24 @@ final class Repository: ObservableObject {
     /// Monotonic counter bumped on every successful `refresh()`. Intraday-updating views key their
     /// data load on this so they reload when fresh strap data lands , `today?.day` alone is a stable
     /// date string within a day and would freeze e.g. the Today HR trend until the date rolls over.
-    @Published private(set) var refreshSeq = 0
+    @Published var refreshSeq = 0
     /// One resolved first-paint snapshot. It carries each key metric's provenance and freshness evidence,
     /// so a full cache refresh can never replace a visible value with nil during its handoff.
-    @Published private(set) var todayHealthSnapshot: TodayHealthSnapshot?
+    @Published var todayHealthSnapshot: TodayHealthSnapshot?
     /// One source-generation read model shared by Today, Sleep, Trends, widgets, Watch, and exports.
-    @Published private(set) var canonicalHealth = CanonicalHealthReadModel.empty
+    @Published var canonicalHealth = CanonicalHealthReadModel.empty
     /// The last projection that passed the verified snapshot boundary.
-    @Published private(set) var verifiedHealthProjection: VerifiedHealthProjection?
+    @Published var verifiedHealthProjection: VerifiedHealthProjection?
     /// Source-transition fence for latest-state sinks. An old context cannot
     /// publish while this flag is set, even if an older task is still alive.
-    private var verifiedExternalSurfaceFenced = false
+    var verifiedExternalSurfaceFenced = false
     /// Coverage metadata is separate from the bounded dashboard cache.
     @Published private(set) var historyExtent = RepositoryHistoryExtent(
         earliestDay: nil, latestDay: nil, importedDayCount: 0, computedDayCount: 0, appleDayCount: 0)
     /// Separates a snapshot handoff from a repository refresh. Today keeps a presentation cache keyed on
     /// refreshSeq, so this dedicated revision prevents a newly hydrated snapshot being hidden by old nil UI.
     /// It changes only when visible data changes; writer metadata is intentionally excluded.
-    @Published private(set) var todayHealthSnapshotRevision = 0
+    @Published var todayHealthSnapshotRevision = 0
     /// Coalesces live-Strain enrichment writes. Cache-first publication stays immediate; a full refresh
     /// separately awaits the exact-day Sleep read and durable first-paint write.
     private var todayHealthSnapshotWriteTask: Task<Void, Never>?
@@ -266,7 +274,7 @@ final class Repository: ObservableObject {
     private var todayHealthSnapshotTestNow: Date?
     #endif
 
-    private struct TodayHealthMetricSources: Equatable, Sendable {
+    struct TodayHealthMetricSources: Equatable, Sendable {
         let recovery: String?
         let sleepDuration: String?
 
@@ -364,11 +372,25 @@ final class Repository: ObservableObject {
     @discardableResult
     func adoptActiveDeviceId(_ id: String) -> Bool {
         let trimmed = id.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty, trimmed != deviceId else { return false }
+        guard let descriptor = try? RepositoryLiveSourceDescriptor(
+            id: trimmed,
+            historyLineage: "device:\(trimmed)",
+            cursorEpoch: 0) else { return false }
+        return adoptActiveSource(descriptor)
+    }
+
+    /// Set the complete active source fence. This is the only read-spine mutation used by the registry
+    /// integration; the id-only method above remains a legacy/test compatibility seam.
+    @discardableResult
+    func adoptActiveSource(_ descriptor: RepositoryLiveSourceDescriptor?) -> Bool {
+        let nextState: RepositoryLiveSourceState = descriptor.map(RepositoryLiveSourceState.active) ?? .none
+        let nextDeviceId = descriptor?.id ?? canonicalDeviceId
+        guard nextDeviceId != deviceId || nextState != liveSourceState else { return false }
         let oldContextId = todayHealthSnapshotContext?.identifier
         let oldScopeId = todayHealthSnapshotScopeId
         let legacyScopeId = todayHealthDashboardScopeId
-        deviceId = trimmed
+        deviceId = nextDeviceId
+        liveSourceState = nextState
         // The canonical dashboard namespace can span a re-pair, but the source lineage cannot. Clear the
         // old first-paint state before the next refresh establishes values for the new active source.
         let generation = invalidateTodayHealthSnapshotInMemory()
@@ -870,7 +892,7 @@ final class Repository: ObservableObject {
             now: todayHealthSnapshotNow(), writePolicy: .throttledLiveStrain)
     }
 
-    private func rebuildCanonicalStrain() {
+    func rebuildCanonicalStrain() {
         var resolved = persistedStrainByDay
         if let liveDayStrain, let day = liveDayStrain.day {
             if let value = StrainResolver.freshest(
@@ -904,13 +926,14 @@ final class Repository: ObservableObject {
         return "\(todayHealthDashboardScopeId)|\(context.identifier)"
     }
 
-    private var todayHealthSnapshotScopeId: String {
+    var todayHealthSnapshotScopeId: String {
         todayHealthSnapshotScopeId(for: todayHealthSnapshotContext)
     }
 
     private var todayHealthSnapshotContext: TodayHealthSnapshotContext? {
         guard let databaseInstanceId = todayHealthSnapshotDatabaseInstanceId else { return nil }
-        let sourceLineage = (importedReadIds + computedReadIds + [Self.appleHealthSource])
+        let sourceLineage = ([liveSourceState.lineageComponent]
+            + importedReadIds + computedReadIds + [Self.appleHealthSource])
             .sorted()
             .joined(separator: ",")
         return TodayHealthSnapshotContext(
@@ -4406,6 +4429,7 @@ extension Repository {
         case .exactDays:
             break
         case .fullHistoryRepair:
+            // Admission owns this kind in historicalMaintenanceWork. Legacy callers fail closed here.
             throw PR28HistoricalPipelineError.unsupportedFullHistoryRepair
         }
         guard let context = todayHealthSnapshotContext,
@@ -4508,11 +4532,24 @@ extension Repository {
         } catch {
             throw PR28HistoricalPipelineError.snapshotReadBackFailed
         }
-        let committed = try await store.recordVerifiedSnapshotCommit(receipt, now: now)
-        verifiedHealthProjection = committed.projection
-        todayHealthSnapshot = stored
-        todayHealthSnapshotRevision &+= 1
-        return committed
+        let widgetCore = try VerifiedWidgetCorePayload(
+            contextId: projection.contextId,
+            projectionGeneration: projection.generation,
+            logicalDay: projection.logicalDay,
+            restingHR: stored.dailyMetric.restingHr,
+            sleepMinutes: stored.dailyMetric.totalSleepMin.map { Int($0.rounded()) },
+            steps: stored.dailyMetric.steps,
+            calories: stored.dailyMetric.activeKcalEst.map { Int($0.rounded()) },
+            recoveryDelta: nil
+        )
+        _ = try await store.recordVerifiedSnapshotCommit(
+            receipt,
+            now: now,
+            widgetCore: widgetCore
+        )
+        // Durable verification is intentionally not observable publication. The exact publication phase
+        // loads this receipt and the immutable snapshot again, then commits every cache family together.
+        return receipt
     }
 
     /// Read the exact durable mapping during a resumed work item. A missing mapping is an artifact error,
@@ -4596,8 +4633,21 @@ extension Repository {
             analyzedDays: analysis.analyzedDays,
             projection: projection
         )
-        let committed = try await store.recordVerifiedSnapshotCommit(receipt, now: Date())
-        verifiedHealthProjection = committed.projection
+        let widgetCore = try VerifiedWidgetCorePayload(
+            contextId: projection.contextId,
+            projectionGeneration: projection.generation,
+            logicalDay: projection.logicalDay,
+            restingHR: stored.dailyMetric.restingHr,
+            sleepMinutes: stored.dailyMetric.totalSleepMin.map { Int($0.rounded()) },
+            steps: stored.dailyMetric.steps,
+            calories: stored.dailyMetric.activeKcalEst.map { Int($0.rounded()) },
+            recoveryDelta: nil
+        )
+        let committed = try await store.recordVerifiedSnapshotCommit(
+            receipt,
+            now: Date(),
+            widgetCore: widgetCore
+        )
         return committed
     }
 
@@ -4611,7 +4661,8 @@ extension Repository {
         try await publishVerifiedExactDays(
             exactDays,
             recordedTimeZoneIdentifier: recordedTimeZoneIdentifier,
-            projection: snapshot.projection
+            projection: snapshot.projection,
+            snapshotReceipt: snapshot
         )
     }
 
@@ -4622,13 +4673,43 @@ extension Repository {
         recordedTimeZoneIdentifier: String,
         projection: VerifiedHealthProjection
     ) async throws -> RepositoryRefreshOutcome {
+        try await publishVerifiedExactDays(
+            exactDays,
+            recordedTimeZoneIdentifier: recordedTimeZoneIdentifier,
+            projection: projection,
+            snapshotReceipt: nil
+        )
+    }
+
+    private func publishVerifiedExactDays(
+        _ exactDays: Set<CivilDay>,
+        recordedTimeZoneIdentifier: String,
+        projection: VerifiedHealthProjection,
+        snapshotReceipt: SnapshotCommitReceipt?
+    ) async throws -> RepositoryRefreshOutcome {
         guard !exactDays.isEmpty else {
-            verifiedHealthProjection = projection
-            return RepositoryRefreshOutcome(
-                authoritativeDataPublished: true,
-                changedDays: [],
-                snapshotStatus: .persisted
-            )
+            guard let snapshotReceipt else {
+                return RepositoryRefreshOutcome(
+                    authoritativeDataPublished: false,
+                    changedDays: [],
+                    snapshotStatus: .deferred
+                )
+            }
+            guard let store = await ensureStore(),
+                  let storedSnapshot = try await store.todayHealthSnapshot(scopeId: todayHealthSnapshotScopeId)
+            else {
+                return RepositoryRefreshOutcome(
+                    authoritativeDataPublished: false,
+                    changedDays: [],
+                    snapshotStatus: .deferred
+                )
+            }
+            return try commitHistoricalPresentationAtomically(
+                HistoricalPublicationPreparedState(
+                    exactDays: [], snapshotReceipt: snapshotReceipt, storedSnapshot: storedSnapshot,
+                    days: days, sleeps: sleeps, vitals: vitalRows, importedSleep: importedSleep,
+                    metricSources: todayHealthMetricSources, persistedStrain: persistedStrainByDay,
+                    importedStrain: importedStrainByDay, canonicalHealth: canonicalHealth))
         }
         guard let store = await ensureStore(),
               projection.contextId == todayHealthSnapshotContext?.identifier,
@@ -4802,34 +4883,44 @@ extension Repository {
             existing: importedStrainByDay,
             incoming: exactImportedStrain,
             authoritativeKeys: authoritativeKeys)
-        let presentationChanged = nextDays != days
-            || nextSleeps != sleeps
-            || nextVitals != vitalRows
-            || nextImportedSleep != importedSleep
-            || nextMetricSources != todayHealthMetricSources
-            || nextPersistedStrain != persistedStrainByDay
-            || nextImportedStrain != importedStrainByDay
-            || nextCanonical.presentationRevision != canonicalHealth.presentationRevision
-            || projection.presentationIdentity != verifiedHealthProjection?.presentationIdentity
-            || !loaded
-        days = nextDays
-        sleeps = nextSleeps
-        vitalRows = nextVitals
-        importedSleep = nextImportedSleep
-        todayHealthMetricSources = nextMetricSources
-        persistedStrainByDay = nextPersistedStrain
-        importedStrainByDay = nextImportedStrain
-        canonicalHealth = nextCanonical
-        verifiedHealthProjection = projection
-        verifiedExternalSurfaceFenced = false
-        rebuildCanonicalStrain()
-        loaded = true
-        if presentationChanged { refreshSeq &+= 1 }
-        return RepositoryRefreshOutcome(
-            authoritativeDataPublished: true,
-            changedDays: exactDays,
-            snapshotStatus: .persisted
-        )
+        let durableReceipt: SnapshotCommitReceipt
+        if let snapshotReceipt {
+            durableReceipt = snapshotReceipt
+        } else if let existing = try await store.verifiedSnapshotCommit(
+            contextId: projection.contextId,
+            snapshotGeneration: projection.generation
+        ) {
+            durableReceipt = existing
+        } else {
+            return RepositoryRefreshOutcome(
+                authoritativeDataPublished: false,
+                changedDays: [],
+                snapshotStatus: .deferred
+            )
+        }
+        guard durableReceipt.analyzedDays == exactDays,
+              let storedSnapshot = try await store.todayHealthSnapshot(scopeId: todayHealthSnapshotScopeId),
+              storedSnapshot.generation == durableReceipt.snapshotGeneration else {
+            return RepositoryRefreshOutcome(
+                authoritativeDataPublished: false,
+                changedDays: [],
+                snapshotStatus: .deferred
+            )
+        }
+        return try commitHistoricalPresentationAtomically(
+            HistoricalPublicationPreparedState(
+                exactDays: exactDays,
+                snapshotReceipt: durableReceipt,
+                storedSnapshot: storedSnapshot,
+                days: nextDays,
+                sleeps: nextSleeps,
+                vitals: nextVitals,
+                importedSleep: nextImportedSleep,
+                metricSources: nextMetricSources,
+                persistedStrain: nextPersistedStrain,
+                importedStrain: nextImportedStrain,
+                canonicalHealth: nextCanonical
+            ))
     }
 
     /// Refresh only source coverage metadata. This deliberately does not touch the bounded dashboard cache.
@@ -4848,7 +4939,7 @@ extension Repository {
     }
 }
 
-private enum CanonicalRepositoryPublicationError: Error {
+enum CanonicalRepositoryPublicationError: Error {
     case databaseChanged
     case generationExhausted
 }

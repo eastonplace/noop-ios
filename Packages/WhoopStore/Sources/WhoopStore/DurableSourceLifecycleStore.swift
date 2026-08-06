@@ -1,0 +1,309 @@
+// Store-level source lifecycle transaction. Adapt table/helper visibility to WhoopStore.
+
+import Foundation
+import GRDB
+import NoopPhase34Core
+
+public enum DeviceLifecycleStoreError: Error, Equatable, Sendable {
+    case unknownDevice(String)
+    case archivedDevice(String)
+    case invalidScope
+}
+
+public enum DurableSourceLifecycleMutation: Sendable {
+    case replacePeripheral(
+        deviceId: String,
+        expectedOldLineage: String,
+        peripheralId: String,
+        consumerId: String
+    )
+    case archive(
+        deviceId: String,
+        replacementActiveId: String?,
+        consumerId: String
+    )
+    case deleteData(
+        deviceId: String,
+        consumerId: String
+    )
+}
+
+public struct DurableSourceLifecycleCommit: Equatable, Sendable {
+    public let deviceId: String
+    public let previousScope: HistoricalCursorScope
+    public let nextScope: HistoricalCursorScope
+    public let activeDeviceId: String?
+}
+
+public enum DurableSourceLifecycleError: Error, Equatable, Sendable {
+    case unknownDevice(String)
+    case archivedDevice(String)
+    case invalidReplacement(String)
+    case lineageChanged
+    case invalidMutation
+}
+
+extension WhoopStore {
+    public func persistSourceTransitionRecovery(
+        _ record: SourceTransitionRecoveryRecord,
+        now: Date = Date()
+    ) async throws {
+        try syncWrite { db in
+            try db.execute(sql: """
+                INSERT INTO sourceTransitionJournal (
+                    transitionId, mutationKind, sourceDeviceId, targetDeviceId,
+                    historicalEpoch, externalEpoch, sinkEpoch, stage,
+                    commitJSON, lastErrorCode, createdAt, updatedAt
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
+                ON CONFLICT(transitionId) DO UPDATE SET
+                    stage = excluded.stage,
+                    lastErrorCode = excluded.lastErrorCode,
+                    updatedAt = excluded.updatedAt
+                """, arguments: [
+                    record.id.uuidString,
+                    record.mutationKind,
+                    record.sourceDeviceId,
+                    record.targetDeviceId,
+                    Int64(record.historicalEpoch),
+                    Int64(record.externalEpoch),
+                    Int64(record.sinkEpoch),
+                    record.stage.rawValue,
+                    record.lastErrorCode,
+                    Int(now.timeIntervalSince1970),
+                    Int(now.timeIntervalSince1970),
+                ])
+        }
+    }
+
+    public func latestSourceTransitionRecovery() async throws -> SourceTransitionRecoveryRecord? {
+        try syncRead { db in
+            guard let row = try Row.fetchOne(db, sql: """
+                SELECT transitionId, mutationKind, sourceDeviceId, targetDeviceId,
+                       historicalEpoch, externalEpoch, sinkEpoch, stage, lastErrorCode
+                FROM sourceTransitionJournal
+                WHERE stage NOT IN ('complete', 'aborted')
+                ORDER BY updatedAt DESC LIMIT 1
+                """) else { return nil }
+            guard let id = UUID(uuidString: row["transitionId"] as String),
+                  let stage = SourceTransitionStage(rawValue: row["stage"] as String) else { return nil }
+            return SourceTransitionRecoveryRecord(
+                id: id,
+                mutationKind: row["mutationKind"],
+                sourceDeviceId: row["sourceDeviceId"],
+                targetDeviceId: row["targetDeviceId"],
+                historicalEpoch: UInt64(row["historicalEpoch"] as Int64),
+                externalEpoch: UInt64(row["externalEpoch"] as Int64),
+                sinkEpoch: UInt64(row["sinkEpoch"] as Int64),
+                stage: stage,
+                lastErrorCode: row["lastErrorCode"]
+            )
+        }
+    }
+
+    public func commitSourceLifecycleMutation(
+        _ mutation: DurableSourceLifecycleMutation,
+        now: Date = Date()
+    ) async throws -> DurableSourceLifecycleCommit {
+        try syncWrite { db in
+            let nowTs = Int(now.timeIntervalSince1970)
+            let deviceId: String
+            let expectedOldLineage: String?
+            let replacement: String?
+
+            switch mutation {
+            case let .replacePeripheral(id, lineage, _, _):
+                deviceId = id
+                expectedOldLineage = lineage
+                replacement = nil
+            case let .archive(id, replacementId, _):
+                deviceId = id
+                expectedOldLineage = nil
+                replacement = replacementId
+            case let .deleteData(id, _):
+                deviceId = id
+                expectedOldLineage = nil
+                replacement = nil
+            }
+
+            guard let row = try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT id, status, historyLineage, historyCursorEpoch
+                    FROM pairedDevice WHERE id = ?
+                    """,
+                arguments: [deviceId]
+            ) else {
+                throw DurableSourceLifecycleError.unknownDevice(deviceId)
+            }
+            let oldLineage: String = row["historyLineage"]
+            let oldEpoch: Int = row["historyCursorEpoch"]
+            let oldScope = HistoricalCursorScope(
+                deviceId: deviceId,
+                lineage: oldLineage,
+                cursorEpoch: oldEpoch
+            )
+            if let expectedOldLineage, expectedOldLineage != oldLineage {
+                throw DurableSourceLifecycleError.lineageChanged
+            }
+
+            if let replacement {
+                guard let replacementStatus: String = try String.fetchOne(
+                    db,
+                    sql: "SELECT status FROM pairedDevice WHERE id = ?",
+                    arguments: [replacement]
+                ) else {
+                    throw DurableSourceLifecycleError.invalidReplacement(replacement)
+                }
+                guard replacementStatus != "archived" else {
+                    throw DurableSourceLifecycleError.archivedDevice(replacement)
+                }
+            }
+
+            // Archive and physical replacement close the old ingest scope but preserve every
+            // already-committed receipt for analysis. Privacy deletion is the only operation allowed
+            // to discard that work. All lifecycle state is written inside this transaction.
+            switch mutation {
+            case let .replacePeripheral(_, _, peripheralId, _):
+                _ = try Self.closeHistoricalScopeForDrain(
+                    oldScope,
+                    reason: Self.lifecycleReason(mutation),
+                    now: now,
+                    in: db
+                )
+                let nextLineage = UUID().uuidString
+                try db.execute(sql: """
+                    UPDATE pairedDevice
+                    SET peripheralId = ?, historyLineage = ?,
+                        historyCursorEpoch = historyCursorEpoch + 1,
+                        lastSeenAt = ?
+                    WHERE id = ? AND historyLineage = ?
+                    """, arguments: [
+                        peripheralId, nextLineage, nowTs, deviceId, oldLineage,
+                    ])
+                guard db.changesCount == 1 else {
+                    throw DurableSourceLifecycleError.lineageChanged
+                }
+
+            case .archive:
+                _ = try Self.closeHistoricalScopeForDrain(
+                    oldScope,
+                    reason: Self.lifecycleReason(mutation),
+                    now: now,
+                    in: db
+                )
+                try db.execute(
+                    sql: "UPDATE pairedDevice SET status = 'archived' WHERE id = ?",
+                    arguments: [deviceId]
+                )
+                guard db.changesCount == 1 else {
+                    throw DurableSourceLifecycleError.unknownDevice(deviceId)
+                }
+                if let replacement {
+                    try db.execute(sql: """
+                        UPDATE pairedDevice
+                        SET status = CASE
+                            WHEN id = ? THEN 'active'
+                            WHEN status = 'active' THEN 'paired'
+                            ELSE status END,
+                            lastSeenAt = CASE WHEN id = ? THEN ? ELSE lastSeenAt END
+                        WHERE id = ? OR status = 'active'
+                        """, arguments: [replacement, replacement, nowTs, replacement])
+                    guard try String.fetchOne(
+                        db,
+                        sql: "SELECT id FROM pairedDevice WHERE status = 'active' LIMIT 1"
+                    ) == replacement else {
+                        throw DurableSourceLifecycleError.invalidReplacement(replacement)
+                    }
+                }
+
+            case .deleteData:
+                try Self.discardHistoricalScope(
+                    oldScope,
+                    reason: Self.lifecycleReason(mutation),
+                    now: now,
+                    in: db
+                )
+                let existing = Set(try String.fetchAll(
+                    db,
+                    sql: "SELECT name FROM sqlite_master WHERE type = 'table'"
+                ))
+                for table in DeviceRegistryStore.deviceScopedTables where existing.contains(table) {
+                    try db.execute(
+                        sql: "DELETE FROM \(table) WHERE deviceId = ?",
+                        arguments: [deviceId]
+                    )
+                }
+                // v48 lifecycle/maintenance tables are also device-scoped. Keep these explicit
+                // until the production deviceScopedTables audit includes every new migration.
+                if existing.contains("historicalReceiptScopeLifecycle") {
+                    try db.execute(
+                        sql: "DELETE FROM historicalReceiptScopeLifecycle WHERE deviceId = ?",
+                        arguments: [deviceId]
+                    )
+                }
+                if existing.contains("historicalMaintenanceWork") {
+                    try db.execute(
+                        sql: "DELETE FROM historicalMaintenanceWork WHERE deviceId = ?",
+                        arguments: [deviceId]
+                    )
+                }
+                if existing.contains("sourceTransitionJournal") {
+                    try db.execute(sql: """
+                        DELETE FROM sourceTransitionJournal
+                        WHERE sourceDeviceId = ? OR targetDeviceId = ?
+                        """, arguments: [deviceId, deviceId])
+                }
+                try db.execute(sql: """
+                    UPDATE pairedDevice
+                    SET historyLineage = ?, historyCursorEpoch = historyCursorEpoch + 1
+                    WHERE id = ? AND historyLineage = ?
+                    """, arguments: [UUID().uuidString, deviceId, oldLineage])
+                guard db.changesCount == 1 else {
+                    throw DurableSourceLifecycleError.lineageChanged
+                }
+            }
+
+            guard let next = try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT historyLineage, historyCursorEpoch
+                    FROM pairedDevice WHERE id = ?
+                    """,
+                arguments: [deviceId]
+            ) else {
+                throw DurableSourceLifecycleError.unknownDevice(deviceId)
+            }
+            let nextScope = HistoricalCursorScope(
+                deviceId: deviceId,
+                lineage: next["historyLineage"],
+                cursorEpoch: next["historyCursorEpoch"]
+            )
+            let active: String? = try String.fetchOne(
+                db,
+                sql: "SELECT id FROM pairedDevice WHERE status = 'active' LIMIT 1"
+            )
+            return DurableSourceLifecycleCommit(
+                deviceId: deviceId,
+                previousScope: oldScope,
+                nextScope: nextScope,
+                activeDeviceId: active
+            )
+        }
+    }
+
+    private static func lifecycleReason(
+        _ mutation: DurableSourceLifecycleMutation
+    ) -> String {
+        switch mutation {
+        case .replacePeripheral: return "peripheral_identity_transition"
+        case .archive: return "source_archived"
+        case .deleteData: return "source_deleted"
+        }
+    }
+
+    /*
+    Archive/re-pair integration continues through HistoricalScopeDrainLifecycle.swift.
+    Add the v48 tables above to `DeviceRegistryStore.deviceScopedTables` and its schema audit.
+    Do not call the legacy retire/quarantine helper from these mutations.
+    */
+}

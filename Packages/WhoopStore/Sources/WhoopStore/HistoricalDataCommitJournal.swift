@@ -784,6 +784,9 @@ extension WhoopStore {
                 existingRawBatchMatches = nil
             }
 
+            // A closed physical scope may replay an already-committed receipt, but it cannot create a
+            // new receipt after archive or re-pair froze its durable frontier.
+            try WhoopStore.assertHistoricalScopeAcceptingIngest(resolvedScope, in: db)
             let insertedRows = try WhoopStore.insertDecodedStreams(
                 streams,
                 deviceId: deviceId,

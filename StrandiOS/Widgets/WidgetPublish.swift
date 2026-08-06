@@ -64,6 +64,14 @@ private enum WidgetLivePublishGate {
     }
 }
 
+/// One app-wide enrichment flight. Core publications are frequent, so the actor is shared instead of
+/// constructing a new coordinator for each outbox acknowledgement. A new immutable generation cancels
+/// the older flight and a repeated generation is suppressed by the actor's key/TTL gate.
+@MainActor
+private enum WidgetEnrichmentRuntime {
+    static let coordinator = WidgetEnrichmentCoordinator()
+}
+
 extension WidgetSnapshot {
     /// Build a glance snapshot from the live app state and publish it to the shared App Group, then
     /// ask WidgetKit to refresh. Called when the app becomes active and after a Health sync.
@@ -81,8 +89,12 @@ extension WidgetSnapshot {
     /// the rollover yet always describes today.
     @MainActor
     static func publish(from model: AppModel) async -> ExternalSinkPublicationResult {
-        guard let verifiedProjection = model.repo.verifiedHealthProjection else { return .notApplicable }
-        return (try? await publish(from: model, verifiedProjection: verifiedProjection)) ?? .superseded
+        guard let verifiedProjection = model.repo.verifiedHealthProjection,
+              let store = await model.repo.storeHandle(),
+              let bundle = try? await store.verifiedExternalProjectionBundle(
+                contextId: verifiedProjection.contextId,
+                generation: verifiedProjection.generation) else { return .notApplicable }
+        return (try? await publish(from: model, verifiedBundle: bundle)) ?? .superseded
     }
 
     /// Publish the exact projection generation leased by the durable external-publication worker.
@@ -94,6 +106,27 @@ extension WidgetSnapshot {
         verifiedProjection: VerifiedHealthProjection,
         expectedActiveContextId: String? = nil
     ) async throws -> ExternalSinkPublicationResult {
+        guard let store = await model.repo.storeHandle(),
+              let bundle = try await store.verifiedExternalProjectionBundle(
+                contextId: verifiedProjection.contextId,
+                generation: verifiedProjection.generation) else {
+            return .superseded
+        }
+        return try await publish(
+            from: model,
+            verifiedBundle: bundle,
+            expectedActiveContextId: expectedActiveContextId
+        )
+    }
+
+    /// Publish the exact immutable projection and Widget core captured in one durable generation.
+    @MainActor
+    static func publish(
+        from model: AppModel,
+        verifiedBundle: VerifiedExternalProjectionBundle,
+        expectedActiveContextId: String? = nil
+    ) async throws -> ExternalSinkPublicationResult {
+        let verifiedProjection = verifiedBundle.projection
         guard expectedActiveContextId == nil || expectedActiveContextId == verifiedProjection.contextId else {
             return .superseded
         }
@@ -102,59 +135,28 @@ extension WidgetSnapshot {
               token.contextId == verifiedProjection.contextId else {
             return .superseded
         }
-        let days = model.repo.days
         let now = Date()
-        // The recovery-derived anchor: today's row when it's scored, else the freshest STRICTLY-PRIOR
-        // scored day carried over. Resolved through the SHARED `Repository.widgetAnchor`, the ONE selector
-        // the watch snapshot and the iOS Live Activity now also use, so all four surfaces describe the same
-        // day (the #911 fix; see `Repository.widgetAnchor` for the rollover-drift rationale, the #304
-        // pre-04:00 carve-out and the #547 future-day guard it folds in). The `$0.day < carriedKey` bound
-        // inside the helper (matching `TodayView.selectedDayKey`) means a stale scored row can never
-        // re-surface AS today.
-        let day = days.first(where: { $0.day == verifiedProjection.logicalDay.key })
-            ?? Repository.widgetAnchor(days: days, now: now)
-        let previousRecovery = day.flatMap { anchor in
-            days.last(where: { $0.day < anchor.day && $0.recovery != nil })?.recovery
-        }
-        let recoveryDelta: Int? = {
-            guard let current = day?.recovery, let previousRecovery else { return nil }
-            return Int((current - previousRecovery).rounded())
-        }()
         // This is the durable acknowledgement path. It contains only the verified core and in-memory Today
         // fields. HRV history, raw stress scans, and other enrichment run after the caller receives success.
-        var snap = WidgetCorePublication.makeCoreSnapshot(
+        let snap = WidgetCorePublication.makeCoreSnapshot(
             model: model,
-            projection: verifiedProjection,
+            bundle: verifiedBundle,
             now: now)
-        snap.recoveryDelta = recoveryDelta
-        let result = ActiveVerifiedSinkEpochStore.commitIfCurrent(
+        let result = VerifiedWidgetEnvelopeStore.commit(
             token: token,
             generation: verifiedProjection.generation,
-            defaults: defaults,
-            generationKey: ActiveVerifiedSinkEpochStore.widgetGenerationKey,
-            writeAndReadBackPayload: { snap.saveAndReadBack(to: $0) }
+            snapshot: snap,
+            defaults: defaults
         )
         switch result {
         case .published:
             WidgetLivePublishGate.notePublished(snap, at: now)
             WidgetCenter.shared.reloadAllTimelines()
-            Task { @MainActor in
-                await publishOptionalWidgetEnrichment(
-                    from: model,
-                    projection: verifiedProjection,
-                    anchor: day,
-                    token: token)
-            }
+            scheduleOptionalWidgetEnrichment(from: model, bundle: verifiedBundle, token: token)
             return .published
         case .alreadyCurrent:
             WidgetLivePublishGate.notePublished(snap, at: now)
-            Task { @MainActor in
-                await publishOptionalWidgetEnrichment(
-                    from: model,
-                    projection: verifiedProjection,
-                    anchor: day,
-                    token: token)
-            }
+            scheduleOptionalWidgetEnrichment(from: model, bundle: verifiedBundle, token: token)
             return .alreadyCurrent
         case .superseded:
             return .superseded
@@ -163,37 +165,57 @@ extension WidgetSnapshot {
         }
     }
 
+    @MainActor
+    private static func scheduleOptionalWidgetEnrichment(
+        from model: AppModel,
+        bundle: VerifiedExternalProjectionBundle,
+        token: VerifiedSinkToken
+    ) {
+        let key = WidgetEnrichmentKey(
+            epoch: token.epoch,
+            contextId: bundle.projection.contextId,
+            generation: bundle.projection.generation)
+        Task { @MainActor in
+            await WidgetEnrichmentRuntime.coordinator.schedule(key: key, now: Date()) { _ in
+                await Self.publishOptionalWidgetEnrichment(
+                    from: model,
+                    bundle: bundle,
+                    token: token)
+            }
+        }
+    }
+
     /// Optional Widget enrichment is deliberately detached from the durable outbox acknowledgement. The
     /// epoch/generation check on the second write prevents a late enrichment task from crossing a transition.
     @MainActor
     private static func publishOptionalWidgetEnrichment(
         from model: AppModel,
-        projection: VerifiedHealthProjection,
-        anchor: DailyMetric?,
+        bundle: VerifiedExternalProjectionBundle,
         token: VerifiedSinkToken
     ) async {
-        let hrvSeries = await model.repo.exploreSeries(key: "hrv", source: "my-whoop")
+        let projection = bundle.projection
+        let anchorDay = bundle.widgetCore.logicalDay.key
+        let hrvSeries = await model.repo.exploreSeries(key: "hrv", source: "my-whoop", days: 30)
         let hrvSparkline = hrvSeries
-            .filter { point in anchor.map { point.day <= $0.day } ?? true }
+            .filter { point in point.day <= anchorDay }
             .suffix(12)
             .map { Int($0.value.rounded()) }
         let stress = await dashboardStress(from: model)
         guard let defaults = UserDefaults(suiteName: WidgetSnapshot.suiteName),
               let active = ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults),
               active == token,
-              let base = WidgetSnapshot.load(),
+              let base = VerifiedWidgetEnvelopeStore.loadForDisplay(defaults: defaults),
               base.verifiedContextId == projection.contextId,
               base.verifiedProjectionGeneration == projection.generation else { return }
         var enriched = base
         enriched.hrvSparkline = hrvSparkline
         enriched.hourlyStress = stress.hours
         enriched.stressSummary = stress.summary
-        let result = ActiveVerifiedSinkEpochStore.commitIfCurrent(
+        let result = VerifiedWidgetEnvelopeStore.commit(
             token: token,
             generation: projection.generation,
-            defaults: defaults,
-            generationKey: ActiveVerifiedSinkEpochStore.widgetGenerationKey,
-            writeAndReadBackPayload: { enriched.saveAndReadBack(to: $0) }
+            snapshot: enriched,
+            defaults: defaults
         )
         guard result == .published || result == .alreadyCurrent else { return }
         WidgetLivePublishGate.notePublished(enriched, at: Date())
@@ -223,7 +245,7 @@ extension WidgetSnapshot {
               let defaults = UserDefaults(suiteName: WidgetSnapshot.suiteName),
               let token = ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults),
               token.contextId == verified.contextId,
-              let base = WidgetSnapshot.load(),
+              let base = VerifiedWidgetEnvelopeStore.loadForDisplay(defaults: defaults),
               base.verifiedContextId == verified.contextId,
               base.verifiedProjectionGeneration == verified.generation else {
             return
@@ -262,10 +284,12 @@ extension WidgetSnapshot {
         let now = Date()
         let start = Int(Calendar.current.startOfDay(for: now).timeIntervalSince1970)
         let end = Int(now.timeIntervalSince1970)
-        let hr = await model.repo.hrSamples(from: start, to: end, limit: 200_000)
+        // Enrichment is optional. Keep this raw fallback bounded until the persisted hourly aggregate
+        // exists; the coordinator's generation/TTL gate prevents this cap from becoming a hot loop.
+        let hr = await model.repo.hrSamples(from: start, to: end, limit: 20_000)
         guard hr.count >= DaytimeStress.minHourHRSamples else { return (nil, nil) }
         let rr = (try? await model.repo.storeHandle()?.rrIntervals(
-            deviceId: model.repo.deviceId, from: start, to: end, limit: 200_000)) ?? []
+            deviceId: model.repo.deviceId, from: start, to: end, limit: 20_000)) ?? []
         let tzOffset = TimeZone.current.secondsFromGMT(for: now)
 
         // DaytimeStress fingerprints and then buckets as many as 200k HR + 200k R-R rows. `publish` is

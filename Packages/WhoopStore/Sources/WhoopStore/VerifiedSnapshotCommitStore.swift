@@ -10,7 +10,8 @@ extension WhoopStore {
     /// mapping. It never assigns another snapshot generation for the same analysis generation.
     public func recordVerifiedSnapshotCommit(
         _ receipt: SnapshotCommitReceipt,
-        now: Date
+        now: Date,
+        widgetCore: VerifiedWidgetCorePayload? = nil
     ) async throws -> SnapshotCommitReceipt {
         try syncWrite { db in
             if let existing = try Self.decodeVerifiedSnapshotCommit(
@@ -24,7 +25,15 @@ extension WhoopStore {
                 return existing
             }
 
-            try Self.persistVerifiedProjection(receipt.projection, now: now, in: db)
+            if let widgetCore {
+                let bundle = try VerifiedExternalProjectionBundle(
+                    projection: receipt.projection,
+                    widgetCore: widgetCore
+                )
+                try Self.persistVerifiedExternalProjectionBundle(bundle, now: now, in: db)
+            } else {
+                try Self.persistVerifiedProjection(receipt.projection, now: now, in: db)
+            }
             let changedDays = try JSONEncoder().encode(receipt.analyzedDays)
             let healthKitPayload = try receipt.healthKitPayload.map(JSONEncoder().encode)
             try db.execute(sql: """
@@ -61,20 +70,47 @@ extension WhoopStore {
         }
     }
 
+    /// Load the durable receipt by the immutable snapshot generation when a caller owns a verified
+    /// projection but does not have the original analysis lease row.
+    public func verifiedSnapshotCommit(
+        contextId: String,
+        snapshotGeneration: Int64
+    ) async throws -> SnapshotCommitReceipt? {
+        try syncRead { db in
+            try Self.decodeVerifiedSnapshotCommit(
+                contextId: contextId,
+                snapshotGeneration: snapshotGeneration,
+                in: db
+            )
+        }
+    }
+
     private static func decodeVerifiedSnapshotCommit(
         contextId: String,
-        analysisGeneration: Int64,
+        analysisGeneration: Int64? = nil,
+        snapshotGeneration: Int64? = nil,
         in db: Database
     ) throws -> SnapshotCommitReceipt? {
+        let predicate: String
+        let argument: Int64
+        if let analysisGeneration {
+            predicate = "c.analysisGeneration = ?"
+            argument = analysisGeneration
+        } else if let snapshotGeneration {
+            predicate = "c.snapshotGeneration = ?"
+            argument = snapshotGeneration
+        } else {
+            return nil
+        }
         guard let row = try Row.fetchOne(db, sql: """
             SELECT c.*, p.projectionJSON
             FROM verifiedSnapshotCommit c
             JOIN verifiedHealthProjection p
               ON p.contextId = c.contextId
              AND p.snapshotGeneration = c.snapshotGeneration
-            WHERE c.contextId = ? AND c.analysisGeneration = ?
+            WHERE c.contextId = ? AND \(predicate)
             LIMIT 1
-            """, arguments: [contextId, analysisGeneration]) else {
+            """, arguments: [contextId, argument]) else {
             return nil
         }
         let daysData: Data = row["changedDaysJSON"]

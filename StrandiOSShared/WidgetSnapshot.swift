@@ -4,7 +4,7 @@ import StrandDesign
 /// Small, Codable glance snapshot shared between the iOS app and its widget/Live-Activity extension
 /// via an App Group. The app writes it; the widget reads it. Keeping it tiny avoids any cross-process
 /// database access — the widget never opens SQLite.
-public struct WidgetSnapshot: Codable, Equatable {
+public struct WidgetSnapshot: Codable, Equatable, Sendable {
     public var recovery: Int?    // Recovery (0–100)
     public var bpm: Int?
     public var batteryPct: Int?
@@ -188,6 +188,10 @@ public struct WidgetSnapshot: Codable, Equatable {
     /// Merge a matching live overlay only at read time. A nil or mismatched overlay leaves the verified
     /// snapshot untouched, so the widget cannot display live values under a different source identity.
     public static func loadForDisplay() -> WidgetSnapshot? {
+        if let defaults = UserDefaults(suiteName: suiteName),
+           let envelopeSnapshot = VerifiedWidgetEnvelopeStore.loadForDisplay(defaults: defaults) {
+            return envelopeSnapshot
+        }
         guard let verified = load() else { return nil }
         guard let defaults = UserDefaults(suiteName: suiteName),
               let data = defaults.data(forKey: ActiveVerifiedSinkEpochStore.widgetLiveOverlayKey),

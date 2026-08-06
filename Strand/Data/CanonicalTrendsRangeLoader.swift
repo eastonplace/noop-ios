@@ -14,30 +14,29 @@ extension Repository {
     ) async -> TrendsLoadedData? {
         guard let store = await storeHandle(),
               let anchor = try? CivilDay(key: anchorDay),
-              let timeZone = TimeZone(identifier: timeZoneIdentifier) else { return nil }
+              TimeZone(identifier: timeZoneIdentifier) != nil else { return nil }
         let boundedRangeDays = TrendsBounds.clampRangeDays(rangeDays)
         let boundedWeekOffset = TrendsBounds.clampWeekOffset(weekOffset)
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = timeZone
-        guard let anchorDate = try? anchor.date(in: calendar) else { return nil }
-
+        // Keep the existing bounded-state contract visible while the actual read stays sparse.
         let requiredDays = TrendsBounds.requiredDays(
             rangeDays: boundedRangeDays,
             weekOffset: boundedWeekOffset)
-        guard let fromDate = calendar.date(byAdding: .day, value: -(requiredDays - 1), to: anchorDate),
-              let sleepFrom = calendar.date(byAdding: .day, value: -1, to: fromDate),
-              let sleepThrough = calendar.date(byAdding: .day, value: 2, to: anchorDate) else { return nil }
-        let fromDay = Repository.localDayKey(fromDate, calendar: calendar)
+        guard requiredDays >= 42 else { return nil }
+
+        guard let windows = try? SparseTrendsLoadPlan.windows(
+            anchorDay: anchor,
+            timeZoneIdentifier: timeZoneIdentifier,
+            rangeDays: boundedRangeDays,
+            weekOffset: boundedWeekOffset),
+              !windows.isEmpty else { return nil }
+        let fromDay = windows.map(\.fromDay).min() ?? anchorDay
         let sourceIds = importedReadIds + computedReadIds + [Self.appleHealthSource]
 
         let read: CanonicalHealthSurfaceStoreSnapshot
         do {
             read = try await store.canonicalHealthSurfaceSnapshot(
                 sourceIds: sourceIds,
-                fromDay: fromDay,
-                throughDay: anchorDay,
-                sleepFromTs: Int(sleepFrom.timeIntervalSince1970),
-                sleepThroughTs: Int(sleepThrough.timeIntervalSince1970),
+                windows: windows,
                 metricKeys: ["sleep_performance", Self.sleepPerformanceV2Key, "stress"]
             )
         } catch { return nil }

@@ -56,6 +56,10 @@ final class SourceCoordinator: ObservableObject {
     /// Durable cleanup that runs before a physical peripheral identity changes. The old scope is captured
     /// before the registry write so its receipts and nonterminal work cannot leak into the new lineage.
     private let onPeripheralIdentityWillChange: (String, HistoricalCursorScope) async throws -> Void
+    /// Store-owned replacement seam. The callback commits the physical identity and frozen drain frontier in
+    /// one transaction, so the legacy two-argument callback remains source-compatible for package tests.
+    private let onPeripheralIdentityWillChangeWithPeripheral:
+        ((String, HistoricalCursorScope, String) async throws -> Void)?
     /// Admission is signalled only after the new peripheral identity and lineage are committed.
     private let onPeripheralIdentityDidChange: (String) async throws -> Void
     /// Diagnostic sink for the ISOLATED generic-HR source's connect lifecycle. Wired at the composition
@@ -125,6 +129,7 @@ final class SourceCoordinator: ObservableObject {
          connectedPeripheralUUID: AnyPublisher<String?, Never>,
          transitionFence: SourceTransitionFence = SourceTransitionFence(),
          onPeripheralIdentityWillChange: @escaping (String, HistoricalCursorScope) async throws -> Void = { _, _ in },
+         onPeripheralIdentityWillChangeWithPeripheral: ((String, HistoricalCursorScope, String) async throws -> Void)? = nil,
          onPeripheralIdentityDidChange: @escaping (String) async throws -> Void = { _ in },
          straplog: @escaping (String) -> Void = { _ in }) {
         self.registry = registry
@@ -137,6 +142,7 @@ final class SourceCoordinator: ObservableObject {
         self.connectedPeripheralUUID = connectedPeripheralUUID
         self.transitionFence = transitionFence
         self.onPeripheralIdentityWillChange = onPeripheralIdentityWillChange
+        self.onPeripheralIdentityWillChangeWithPeripheral = onPeripheralIdentityWillChangeWithPeripheral
         self.onPeripheralIdentityDidChange = onPeripheralIdentityDidChange
         self.straplog = straplog
     }
@@ -479,7 +485,13 @@ final class SourceCoordinator: ObservableObject {
     }
 
     private func adoptPeripheralIdentity(_ uuid: String, for activeId: String) async throws {
+        guard peripheralId(for: activeId) != uuid else { return }
         let oldScope = try registry.historicalCursorScope(for: activeId)
+        if let callback = onPeripheralIdentityWillChangeWithPeripheral {
+            try await callback(activeId, oldScope, uuid)
+            try await onPeripheralIdentityDidChange(activeId)
+            return
+        }
         try await onPeripheralIdentityWillChange(activeId, oldScope)
         guard try registry.setPeripheralId(activeId, peripheralId: uuid) else { return }
         try await onPeripheralIdentityDidChange(activeId)

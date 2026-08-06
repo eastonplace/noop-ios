@@ -21,6 +21,7 @@ public enum HistoricalWorkEvent: Equatable, Sendable {
     )
     case repositoryPublished(owner: String)
     case outboxCommitted(owner: String, destinations: Set<DownstreamDestination>)
+    case cancelOwnedLease(owner: String, code: String = "owner_cancelled")
     case failed(owner: String?, code: String, retryable: Bool)
     case blocked(owner: String?, code: String)
     case resumeBlocked
@@ -112,6 +113,21 @@ public enum HistoricalAnalysisWorkReducer {
             work.lease = nil
             work.nextAttemptAt = nil
             work.lastErrorCode = nil
+            work.updatedAt = now
+
+        case let .cancelOwnedLease(owner, code):
+            try requireLease(owner, work: work, now: now)
+            guard !work.isTerminal,
+                  work.resumePhase != .done,
+                  !code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw HistoricalWorkError.invalidTransition
+            }
+            // Cancellation is an ownership handoff, not a failed attempt. Preserve the durable
+            // phase and every committed generation so the next owner can resume immediately.
+            work.lease = nil
+            work.nextAttemptAt = nil
+            work.lastErrorCode = code
+            work.state = work.analysisGeneration == nil ? .pending : .retryable
             work.updatedAt = now
 
         case let .failed(owner, code, retryable):

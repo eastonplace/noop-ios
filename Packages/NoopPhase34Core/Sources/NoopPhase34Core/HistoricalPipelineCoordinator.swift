@@ -294,9 +294,13 @@ public actor HistoricalPipelineCoordinator {
     private let owner: String
     private let leaseDuration: TimeInterval
     private let maximumItemsPerDrain: Int
-    private var draining = false
-    private var rerunRequested = false
-    private var activeDrainTask: Task<HistoricalPipelineDrainResult, Never>?
+    private lazy var drainGate = LosslessDrainSignalGate<HistoricalPipelineDrainResult> { [weak self] in
+        await self?.drainSignal() ?? HistoricalPipelineDrainResult(
+            completedWorkCount: 0,
+            deferredWorkCount: 1,
+            alreadyDraining: false
+        )
+    }
 
     public init(
         dependencies: HistoricalPipelineDependencies,
@@ -313,31 +317,17 @@ public actor HistoricalPipelineCoordinator {
     /// Close admission, cancel the active drain task, and await every in-flight operation before a source
     /// transition mutates lineage or Repository state.
     public func quiesce() async throws -> UInt64 {
-        activeDrainTask?.cancel()
+        await drainGate.suspendAndCancel()
         return try await quiescence.quiesce(cancelOwners: { })
     }
 
     public func resume(expectedEpoch: UInt64) async throws {
         try await quiescence.resume(expectedEpoch: expectedEpoch)
+        await drainGate.resume()
     }
 
     public func signal() async -> HistoricalPipelineDrainResult {
-        guard !draining else {
-            rerunRequested = true
-            return .alreadyActive
-        }
-        draining = true
-        let task = Task { [weak self] in
-            await self?.drainSignal() ?? HistoricalPipelineDrainResult(
-                completedWorkCount: 0,
-                deferredWorkCount: 1,
-                alreadyDraining: false)
-        }
-        activeDrainTask = task
-        let result = await task.value
-        if activeDrainTask != nil { activeDrainTask = nil }
-        draining = false
-        return result
+        await drainGate.signal()
     }
 
     private func drainSignal() async -> HistoricalPipelineDrainResult {
@@ -354,8 +344,7 @@ public actor HistoricalPipelineCoordinator {
 
         var completed = 0
         var deferred = 0
-        repeat {
-            rerunRequested = false
+        while !Task.isCancelled {
             var exhaustedBatchBudget = true
             for _ in 0..<maximumItemsPerDrain {
                 if Task.isCancelled {
@@ -386,7 +375,15 @@ public actor HistoricalPipelineCoordinator {
                 } catch {
                     let failure = dependencies.classifyError(error)
                     do {
-                        if Task.isCancelled { deferred += 1; continue }
+                        if Task.isCancelled || error is CancellationError {
+                            _ = try? await dependencies.applyEvent(
+                                leased.id,
+                                .cancelOwnedLease(owner: owner),
+                                dependencies.now()
+                            )
+                            deferred += 1
+                            continue
+                        }
                         let event: HistoricalWorkEvent
                         switch failure.disposition {
                         case .blocked:
@@ -406,10 +403,11 @@ public actor HistoricalPipelineCoordinator {
                 }
             }
             if exhaustedBatchBudget && !Task.isCancelled {
-                rerunRequested = true
                 await Task.yield()
+                continue
             }
-        } while rerunRequested && !Task.isCancelled
+            break
+        }
 
         return HistoricalPipelineDrainResult(
             completedWorkCount: completed,

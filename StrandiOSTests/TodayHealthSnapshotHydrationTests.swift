@@ -9,7 +9,7 @@ final class TodayHealthSnapshotHydrationTests: XCTestCase {
         TodayHealthSnapshotContext(
             databaseInstanceId: try await store.todayHealthSnapshotDatabaseInstanceId(),
             dashboardProfileId: "dashboard:\(Repository.whoopSource)",
-            sourceLineage: "apple-health,my-whoop,my-whoop-noop",
+            sourceLineage: "apple-health,my-whoop,my-whoop-noop,no-live-source",
             algorithmBundleVersion: "today-health-v3|strain-v2|sleep-performance-v2"
         )
     }

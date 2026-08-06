@@ -3,6 +3,7 @@ import NoopPhase34Core
 import WhoopStore
 
 struct ExactCommittedAnalysisRequest: Equatable, Sendable {
+    let sourceContext: ExactWorkSourceContext
     let databaseInstanceId: String
     let sourceId: String
     let throughReceiptGeneration: Int64
@@ -23,6 +24,7 @@ struct ExactCommittedAnalysisRequest: Equatable, Sendable {
         }
         databaseInstanceId = work.scope.databaseInstanceId
         sourceId = work.scope.sourceId
+        sourceContext = ExactWorkSourceContext(work: work)
         throughReceiptGeneration = work.lastReceiptGeneration
         affectedDays = work.affectedDays
         recordedTimeZoneIdentifier = work.recordedTimeZoneIdentifier
@@ -166,9 +168,8 @@ extension IntelligenceEngine {
             )
         }
         guard case .exactDays = work.kind else {
-            // Full repair has no exact civil-day evidence. It belongs to the low-priority maintenance lane,
-            // never to this current-day exact pipeline. The classifier quarantines this item instead of
-            // retrying it forever or silently widening one morning sync to 4,000 days.
+            // Admission routes broad evidence to the low-priority maintenance table. Keep this fail-closed
+            // guard for legacy callers; a full-repair row must never execute in the exact-day pipeline.
             throw PR28HistoricalPipelineError.unsupportedFullHistoryRepair
         }
         let request = try ExactCommittedAnalysisRequest(work: work)
@@ -184,18 +185,24 @@ extension IntelligenceEngine {
         )
         var analyzedDays = Set<CivilDay>()
         for run in runs {
+            try CooperativeAnalysisCancellation.checkpoint()
             let completed = await analyzeRecent(
                 maxDays: run.maxDays,
                 startOffset: run.startOffset,
                 force: true,
                 refreshRepository: false,
                 analysisReference: now,
-                analysisCalendar: calendar
+                analysisCalendar: calendar,
+                sourceContext: request.sourceContext
             )
+            try CooperativeAnalysisCancellation.checkpoint()
             guard completed else { throw ExactCommittedAnalysisError.incompleteAnalysis }
             analyzedDays.formUnion(run.days)
         }
+        try CooperativeAnalysisCancellation.checkpoint()
         let rawFrontierTs = try await store.latestHRSampleTs(deviceId: work.scope.deviceId)
+        try CooperativeAnalysisCancellation.checkpoint()
+        try CooperativeAnalysisCancellation.checkpoint()
         return try await ExactAnalysisMutationCommitter.commit(
             work: work,
             result: ExactAnalysisPersistedResult(

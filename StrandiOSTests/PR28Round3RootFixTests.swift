@@ -214,26 +214,27 @@ final class PR28Round3RootFixTests: XCTestCase {
     func testLiveAndVerifiedActivityKitCommandsRemainStrictlySerialized() async throws {
         let token = VerifiedSinkToken(epoch: 1, contextId: "context")
         var calls: [String] = []
-        let publication = SerializedLiveActivityPublication<String>(
-            validateToken: { candidate in candidate == token },
+        let publication = SerializedLiveActivityCommands<String>(
+            validate: { candidate in candidate == token },
             perform: { payload, _ in
                 if payload == "verified" {
                     try await Task.sleep(for: .milliseconds(25))
                 }
                 calls.append(payload)
                 return .published
-            })
+            },
+            repairStale: {})
 
         let verified = Task { @MainActor in
             try await publication.submitVerified("verified", token: token)
         }
         try await Task.sleep(for: .milliseconds(5))
-        publication.submitLive("live-old")
-        publication.submitLive("live-new")
+        publication.submitLive("live-old", token: nil)
+        publication.submitLive("live-new", token: nil)
 
         let verifiedResult = try await verified.value
         XCTAssertEqual(verifiedResult, .published)
-        await publication.submitLiveAndWait("live-final")
+        _ = try await publication.submitBarrier("live-final")
         XCTAssertEqual(calls, ["verified", "live-new", "live-final"])
     }
 
@@ -266,7 +267,7 @@ final class PR28Round3RootFixTests: XCTestCase {
                     await probe.append("event:\(event)")
                     return item
                 },
-                loadProjection: { _, _ in
+                loadBundle: { _, _ in
                     await probe.append("projection")
                     return nil
                 },
@@ -332,7 +333,7 @@ final class PR28Round3RootFixTests: XCTestCase {
                     await probe.append("event")
                     return item
                 },
-                loadProjection: { _, _ in
+                loadBundle: { _, _ in
                     await probe.append("projection")
                     return nil
                 },

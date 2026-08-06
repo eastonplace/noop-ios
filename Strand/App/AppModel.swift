@@ -108,6 +108,13 @@ final class AppModel: ObservableObject {
     /// The single durable owner for receipt admission, exact-day analysis, verified snapshots, and
     /// downstream outbox work. Launch, foreground, and burst-finalization signals all enter this actor.
     private lazy var historicalPipelineRuntime = makeHistoricalPipelineRuntime()
+    /// Broad-repair evidence has no exact civil-day authority. It is therefore owned by a separate durable
+    /// maintenance lane and only runs after Today first paint when the app is idle/backgrounded.
+    private lazy var fullHistoryRepairMaintenance = makeFullHistoryRepairMaintenance()
+    private var pendingFullHistoryRepairPublication: (
+        days: Set<CivilDay>,
+        snapshot: SnapshotCommitReceipt
+    )?
 
     var backupRestoreLifecycle: DataBackup.RestoreLifecycle {
         DataBackup.RestoreLifecycle(
@@ -509,6 +516,7 @@ final class AppModel: ObservableObject {
             }
             _ = await self.repo.refresh(.initialLoad)          // surface any imported data at once
             _ = await firstPaintTask.value
+            await self.recoverDurableSourceTransitionIfNeeded()
             // Resume committed source work only after first paint. The receipt path has its own durable
             // checkpoint and exact civil-day scope, so it cannot delay hydration or widen into a launch-time
             // last-21-days sweep. A crash before acknowledgment leaves the same target staged for retry.
@@ -534,10 +542,11 @@ final class AppModel: ObservableObject {
                 importWaited += 1
             }
             // One-shot on-upgrade heal (#547): purge rows a bad-clock strap dated to scattered garbage
-            // (far-past / bogus-2027 / FUTURE) from an older build, then rescore the real days. Runs
-            // BEFORE the Effort rescore + analyzeRecent loop so both operate on a cleaned DB. Persisted
-            // flag → no-op on every subsequent launch; idempotent on a clean DB.
+            // (far-past / bogus-2027 / FUTURE) from an older build, then admit a bounded maintenance lane.
+            // The persisted flag makes this idempotent on a clean DB; the lane owns all later exact-day work.
             await self.intelligence.runTimestampHealIfNeeded()
+            await self.intelligence.enqueuePendingTimestampHealMaintenance()
+            await self.fullHistoryRepairMaintenance.signal()
             // One-shot on-upgrade Effort rescore (#313): recompute strain from source across the FULL
             // history once, so any deep-history rows an older build left on the 0–21 axis regenerate on
             // the 0–100 axis. Guarded by a persisted flag, so this is a no-op on every subsequent launch.
@@ -626,7 +635,7 @@ final class AppModel: ObservableObject {
 
     private func beginVerifiedSinkTransition() throws -> UInt64 {
         let defaults = try sinkDefaults()
-        guard let epoch = ActiveVerifiedSinkEpochStore.beginTransition(defaults: defaults) else {
+        guard let epoch = ActiveSinkEpochRecovery.beginTransitionRecovering(defaults: defaults) else {
             throw AppModelSourceTransitionError.sinkUnavailable
         }
         ActiveVerifiedSinkEpochStore.clearLegacyKeys(defaults: defaults)
@@ -638,6 +647,8 @@ final class AppModel: ObservableObject {
         guard let contextId = repo.currentVerifiedSinkContextIdForActivation else {
             // An archived/deleted active source is an explicit closed-sink state. Leave the App Group record
             // at (epoch, nil); writers will return superseded until a source is selected again.
+            ActiveSinkEpochRecovery.clearVerifiedWidgetState(defaults: defaults)
+            ActiveSinkEpochRecovery.clearLiveActivityGeneration(defaults: defaults)
             return
         }
         guard ActiveVerifiedSinkEpochStore.activate(
@@ -652,7 +663,6 @@ final class AppModel: ObservableObject {
         let postAnalysisSnapshotBuilder = RepositoryPostAnalysisSnapshotBuilder.self
         let classifyError: @Sendable (any Error) -> PipelineFailureClassification =
             PR28PipelineErrorClassifier.classify
-        let fallbackDeviceId = repo.deviceId
         let coordinator = HistoricalPipelineCoordinator(dependencies: HistoricalPipelineDependencies(
             leaseNext: { [weak self] owner, now, leaseDuration in
                 guard let self, let store = await self.repo.storeHandle() else {
@@ -723,11 +733,19 @@ final class AppModel: ObservableObject {
                 guard let self, let store = await self.repo.storeHandle() else {
                     throw HistoricalPipelineRuntimeError.storeUnavailable
                 }
+                let bundle = try await store.verifiedExternalProjectionBundle(
+                    contextId: snapshot.projection.contextId,
+                    generation: snapshot.snapshotGeneration
+                )
+                guard let bundle else { return [.healthKit] }
+                let destinations = try await store.selectiveExternalPublicationDestinations(
+                    snapshot: snapshot,
+                    bundle: bundle,
+                    now: Date())
                 return try await store.enqueueExternalPublications(
                     snapshot: snapshot,
-                    destinations: [.widget, .liveActivity, .healthKit],
-                    now: Date()
-                )
+                    destinations: destinations,
+                    now: Date())
             },
             classifyError: classifyError,
             now: Date.init
@@ -746,16 +764,20 @@ final class AppModel: ObservableObject {
                 }
                 let registry = DeviceRegistryStore(dbQueue: store.registryWriter)
                 let rows = try registry.all().filter { $0.status != .archived }
-                let candidates = rows.isEmpty
-                    ? [fallbackDeviceId]
-                    : rows.map(\.id)
                 var contexts: [HistoricalReceiptAdmissionContext] = []
-                for sourceId in candidates {
+                for sourceId in rows.map(\.id) {
                     guard let scope = try? await store.historicalCursorScope(deviceId: sourceId) else {
                         continue
                     }
                     contexts.append(HistoricalReceiptAdmissionContext(
                         sourceId: sourceId,
+                        scope: scope,
+                        now: Date()))
+                }
+                for scope in try await store.drainingHistoricalReceiptScopes()
+                    where !contexts.contains(where: { $0.scope == scope }) {
+                    contexts.append(HistoricalReceiptAdmissionContext(
+                        sourceId: scope.deviceId,
                         scope: scope,
                         now: Date()))
                 }
@@ -774,6 +796,19 @@ final class AppModel: ObservableObject {
                 }
                 return try await store.pendingHistoricalAnalysisWorkCount()
             },
+            finalizeDrainedScopes: { [weak self] in
+                guard let self, let store = await self.repo.storeHandle() else {
+                    throw HistoricalPipelineRuntimeError.storeUnavailable
+                }
+                _ = try await store.finalizeDrainedHistoricalScopes()
+                // Terminal-row pruning is maintenance only. Never let it race first paint or remove a
+                // referenced artifact that a delayed publication still needs.
+                let canPrune = await MainActor.run {
+                    self.repo.loaded && self.repo.todayHealthSnapshot != nil
+                }
+                guard canPrune else { return }
+                _ = try await store.pruneDurablePipelineHistory()
+            },
             classifyAdmissionError: PR28PipelineErrorClassifier.classify,
             onAdmissionFailure: { [weak self] failure in
                 Task { @MainActor [weak self] in
@@ -785,6 +820,211 @@ final class AppModel: ObservableObject {
             }
         )
         return HistoricalPipelineRuntime(dependencies: dependencies)
+    }
+
+    private func makeFullHistoryRepairMaintenance() -> FullHistoryRepairMaintenanceCoordinator {
+        FullHistoryRepairMaintenanceCoordinator(dependencies: .init(
+            isIdle: { [weak self] in
+                guard let self else { return false }
+                let state = await self.fullHistoryRepairIdleSnapshot()
+                guard state.canRun, let store = await self.fullHistoryRepairStore() else { return false }
+                return (try? await store.pendingHistoricalAnalysisWorkCount()) == 0
+            },
+            leaseNext: { [weak self] owner, now in
+                guard let self else { return nil }
+                let state = await self.fullHistoryRepairIdleSnapshot()
+                guard state.canRun, let sourceId = state.sourceId,
+                      let store = await self.fullHistoryRepairStore() else { return nil }
+                let scope = try await store.historicalCursorScope(deviceId: sourceId)
+                return try await store.leaseNextFullHistoryRepair(
+                    owner: owner,
+                    now: now,
+                    scope: scope)
+            },
+            processNextBatch: { [weak self] work in
+                guard let self else { throw FullHistoryRepairMaintenanceError.notIdle }
+                return try await self.processFullHistoryRepairBatch(work)
+            },
+            publishChangedDays: { [weak self] days in
+                guard let self else { throw FullHistoryRepairMaintenanceError.leaseLost }
+                try await self.publishFullHistoryRepairDays(days)
+            },
+            markProgress: { [weak self] work, hasMore, now in
+                guard let self, let store = await self.fullHistoryRepairStore(),
+                      let owner = work.leaseOwner else {
+                    throw FullHistoryRepairMaintenanceError.leaseLost
+                }
+                try await store.markFullHistoryRepairProgress(
+                    work,
+                    owner: owner,
+                    hasMore: hasMore,
+                    now: now)
+            },
+            markProgressWithCursor: { [weak self] work, result, now in
+                guard let self, let store = await self.fullHistoryRepairStore(),
+                      let owner = work.leaseOwner else {
+                    throw FullHistoryRepairMaintenanceError.leaseLost
+                }
+                try await store.markFullHistoryRepairProgress(
+                    work,
+                    owner: owner,
+                    hasMore: result.hasMore,
+                    nextStartDay: result.nextStartDay,
+                    now: now)
+            },
+            markFailure: { [weak self] work, error, now in
+                guard let self, let store = await self.fullHistoryRepairStore(),
+                      let owner = work.leaseOwner else {
+                    throw FullHistoryRepairMaintenanceError.leaseLost
+                }
+                try await store.markFullHistoryRepairFailure(
+                    work,
+                    owner: owner,
+                    error: error,
+                    now: now)
+            },
+            releaseLease: { [weak self] work, now in
+                guard let self, let store = await self.fullHistoryRepairStore(),
+                      let owner = work.leaseOwner else {
+                    throw FullHistoryRepairMaintenanceError.leaseLost
+                }
+                try await store.cancelFullHistoryRepairLease(
+                    work,
+                    owner: owner,
+                    now: now)
+            }
+        ))
+    }
+
+    private func fullHistoryRepairIdleSnapshot() -> (canRun: Bool, sourceId: String?) {
+        (
+            !applicationIsActive
+                && repo.loaded
+                && repo.todayHealthSnapshot != nil
+                && !hasActiveImport
+                && !live.backfilling
+                && activeWorkout == nil,
+            repo.liveSourceState.id
+        )
+    }
+
+    private func fullHistoryRepairStore() async -> WhoopStore? {
+        await repo.storeHandle()
+    }
+
+    private func publishFullHistoryRepairDays(_ days: Set<CivilDay>) async throws {
+        guard let pending = pendingFullHistoryRepairPublication,
+              pending.days == days else {
+            throw FullHistoryRepairMaintenanceError.leaseLost
+        }
+        pendingFullHistoryRepairPublication = nil
+        let outcome = try await repo.publishVerifiedExactDays(
+            days,
+            recordedTimeZoneIdentifier: pending.snapshot.recordedTimeZoneIdentifier,
+            snapshot: pending.snapshot)
+        guard outcome.authoritativeDataPublished else {
+            throw HistoricalPipelineRuntimeError.snapshotUnavailable
+        }
+    }
+
+    /// Process one bounded oldest-to-newest maintenance window by handing it to the same durable exact-day
+    /// executor used by receipt work. The exact executor publishes the verified generation; the maintenance
+    /// lane then reuses that immutable receipt for its explicit changed-day publication seam.
+    private func processFullHistoryRepairBatch(
+        _ work: FullHistoryRepairWork
+    ) async throws -> FullHistoryRepairBatchResult {
+        guard case let .active(source) = repo.liveSourceState,
+              source.id == work.scope.deviceId,
+              source.historyLineage == work.scope.deviceLineageId,
+              source.cursorEpoch == work.scope.cursorEpoch,
+              let store = await repo.storeHandle()
+        else { throw FullHistoryRepairMaintenanceError.notIdle }
+        try Task.checkCancellation()
+
+        guard let bounds = try await store.hrTimestampBounds(deviceId: work.scope.deviceId) else {
+            return FullHistoryRepairBatchResult(changedDays: [], hasMore: false)
+        }
+        let calendar = try HealthCalendar(timeZoneIdentifier: work.recordedTimeZoneIdentifier)
+        let earliest = try calendar.civilDay(containing: Date(timeIntervalSince1970: TimeInterval(bounds.earliest)))
+        let latest = try calendar.civilDay(containing: Date(timeIntervalSince1970: TimeInterval(bounds.latest)))
+        let start = work.nextStartDay ?? earliest
+        guard start <= latest else {
+            return FullHistoryRepairBatchResult(changedDays: [], hasMore: false)
+        }
+        let proposedEnd = try calendar.adding(days: 29, to: start)
+        let end = min(proposedEnd, latest)
+        let batchDays = try calendar.days(from: start, through: end, limit: 31)
+        guard let last = batchDays.last else {
+            return FullHistoryRepairBatchResult(changedDays: [], hasMore: false)
+        }
+        let nextStartDay = try calendar.adding(days: 1, to: last)
+        let hasMore = nextStartDay <= latest
+        let batchId = Self.deterministicMaintenanceBatchID(
+            maintenanceWorkId: work.id,
+            startDay: start)
+        let interval = try calendar.interval(for: batchDays[0])
+        let lastInterval = try calendar.interval(for: last)
+        let exact = try HistoricalAnalysisWork(
+            id: batchId,
+            scope: work.scope,
+            firstReceiptGeneration: work.throughReceiptGeneration,
+            lastReceiptGeneration: work.throughReceiptGeneration,
+            minimumTs: Int(interval.start.timeIntervalSince1970),
+            maximumTs: Int(lastInterval.end.timeIntervalSince1970),
+            affectedDays: Set(batchDays),
+            kind: .exactDays,
+            recordedTimeZoneIdentifier: work.recordedTimeZoneIdentifier,
+            createdAt: Date())
+        let queuedWork: HistoricalAnalysisWork
+        if let existing = try await store.historicalAnalysisWork(workId: batchId) {
+            queuedWork = existing
+        } else {
+            queuedWork = try await store.enqueueHistoricalAnalysisWork(exact, priority: 20)
+        }
+
+        var completedWork = try await store.historicalAnalysisWork(workId: queuedWork.id)
+        for _ in 0..<120 where completedWork?.state != .complete {
+            if completedWork?.state == .quarantined {
+                throw FullHistoryRepairMaintenanceError.invalidWork
+            }
+            _ = await historicalPipelineRuntime.signal()
+            try Task.checkCancellation()
+            try await Task.sleep(for: .milliseconds(100))
+            completedWork = try await store.historicalAnalysisWork(workId: queuedWork.id)
+        }
+        guard let completedWork, completedWork.state == .complete else {
+            throw FullHistoryRepairMaintenanceError.notIdle
+        }
+        let snapshot = try await repo.loadHistoricalSnapshotCommit(work: completedWork, store: store)
+        pendingFullHistoryRepairPublication = (completedWork.affectedDays, snapshot)
+        return FullHistoryRepairBatchResult(
+            changedDays: completedWork.affectedDays,
+            hasMore: hasMore,
+            nextStartDay: hasMore ? nextStartDay : nil)
+    }
+
+    private static func deterministicMaintenanceBatchID(
+        maintenanceWorkId: UUID,
+        startDay: CivilDay
+    ) -> UUID {
+        var first: UInt64 = 14_695_981_039_346_656_037
+        var second: UInt64 = 10_995_116_282_114_631_977
+        let seed = maintenanceWorkId.uuidString + "|" + startDay.key
+        for byte in seed.utf8 {
+            first ^= UInt64(byte)
+            first &*= 1_099_511_628_211
+            second ^= UInt64(byte)
+            second = (second &* 1_099_511_628_211) &+ 0x9E37_79B9_7F4A_7C15
+        }
+        var bytes = [UInt8](repeating: 0, count: 16)
+        for index in 0..<8 { bytes[index] = UInt8((first >> UInt64(index * 8)) & 0xff) }
+        for index in 0..<8 { bytes[index + 8] = UInt8((second >> UInt64(index * 8)) & 0xff) }
+        bytes[6] = (bytes[6] & 0x0f) | 0x50
+        bytes[8] = (bytes[8] & 0x3f) | 0x80
+        return UUID(uuid: (
+            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+            bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]
+        ))
     }
 
     /// Tiny and guarded: with no generic strap paired the active id is "my-whoop", so the coordinator
@@ -802,10 +1042,11 @@ final class AppModel: ObservableObject {
         }
         // Establish the source lineage synchronously. The subscription below is still needed for future
         // changes, but its asynchronous initial emission is too late for the startup snapshot contract.
-        if let activeDeviceId = registry.activeDeviceId {
-            _ = repo.adoptActiveDeviceId(activeDeviceId)
+        if let activeDeviceId = registry.activeDeviceId,
+           let descriptor = try? registry.sourceDescriptor(for: activeDeviceId) {
+            _ = repo.adoptActiveSource(descriptor)
         } else {
-            repo.invalidateVerifiedExternalSurface()
+            _ = repo.adoptActiveSource(nil)
         }
         let coordinator = SourceCoordinator(
             registry: registry,
@@ -823,7 +1064,12 @@ final class AppModel: ObservableObject {
             connectedPeripheralUUID: ble.$connectedPeripheralUUID.eraseToAnyPublisher(),
             transitionFence: sourceTransitionFence,
             onPeripheralIdentityWillChange: { [weak self] deviceId, oldScope in
-                try await self?.preparePeripheralIdentityTransition(deviceId: deviceId, oldScope: oldScope)
+                try await self?.preparePeripheralIdentityTransition(
+                    deviceId: deviceId, oldScope: oldScope, peripheralId: nil)
+            },
+            onPeripheralIdentityWillChangeWithPeripheral: { [weak self] deviceId, oldScope, peripheralId in
+                try await self?.preparePeripheralIdentityTransition(
+                    deviceId: deviceId, oldScope: oldScope, peripheralId: peripheralId)
             },
             onPeripheralIdentityDidChange: { [weak self] deviceId in
                 try await self?.finishPeripheralIdentityTransition(deviceId: deviceId)
@@ -868,7 +1114,7 @@ final class AppModel: ObservableObject {
     /// `-noop` sibling, no engine re-point needed.
     private func adoptActiveDevice(_ activeId: String?) async {
         guard let activeId else {
-            repo.invalidateVerifiedExternalSurface()
+            _ = repo.adoptActiveSource(nil)
             return
         }
         await sourceTransitionFence.run { @MainActor [weak self] in
@@ -880,12 +1126,14 @@ final class AppModel: ObservableObject {
     /// watermarks remain intact; only the historical receipt scope is retired for the new physical lineage.
     private func preparePeripheralIdentityTransition(
         deviceId: String,
-        oldScope: HistoricalCursorScope
+        oldScope: HistoricalCursorScope,
+        peripheralId: String?
     ) async throws {
         var historicalEpoch: UInt64?
         var externalEpoch: UInt64?
         do {
             historicalEpoch = try await historicalPipelineRuntime.quiesce()
+            await fullHistoryRepairMaintenance.cancelAndWait()
             externalEpoch = try await quiesceExternalPublication()
             // Stop live source callbacks only after both durable workers have cancelled and awaited their
             // old owners. This keeps the physical-lineage mutation behind the same quiescence boundary.
@@ -896,10 +1144,14 @@ final class AppModel: ObservableObject {
             guard let store = await repo.storeHandle() else {
                 throw AppModelSourceTransitionError.storeUnavailable
             }
-            try await store.retireHistoricalReceiptScope(
-                consumerId: "phase34.analysis",
-                scope: oldScope,
-                reason: "peripheral_identity_transition")
+            if let peripheralId {
+                _ = try await store.commitSourceLifecycleMutation(
+                    .replacePeripheral(
+                        deviceId: deviceId,
+                        expectedOldLineage: oldScope.lineage,
+                        peripheralId: peripheralId,
+                        consumerId: "phase34.analysis"))
+            }
             guard let historicalEpoch, let externalEpoch else {
                 throw AppModelSourceTransitionError.externalWorkerUnavailable
             }
@@ -936,13 +1188,50 @@ final class AppModel: ObservableObject {
         live.append(log: "Source transition committed for \(deviceId).")
     }
 
+    /// A source mutation commits registry/lineage state before it activates sinks. If the process dies in
+    /// that seam, the next launch repairs the committed source and restarts durable workers. It never tries to
+    /// roll back SQLite or resurrect the old sink generation.
+    private func recoverDurableSourceTransitionIfNeeded() async {
+        guard let store = await repo.storeHandle(),
+              let record = try? await store.latestSourceTransitionRecovery() else { return }
+        do {
+            guard record.stage != .prepared else {
+                var aborted = record
+                aborted.stage = .aborted
+                aborted.lastErrorCode = "process_ended_before_store_commit"
+                try await store.persistSourceTransitionRecovery(aborted)
+                return
+            }
+            try? deviceRegistry?.reload()
+            if let activeId = deviceRegistry?.activeDeviceId,
+               let registry = deviceRegistry,
+               let descriptor = try? registry.sourceDescriptor(for: activeId) {
+                _ = repo.adoptActiveSource(descriptor)
+                sourceCoordinator?.activeDeviceChanged(to: activeId)
+            } else {
+                _ = repo.adoptActiveSource(nil)
+                sourceCoordinator?.activeDeviceChanged(to: nil)
+            }
+            repo.invalidateVerifiedExternalSurface()
+            try? activateVerifiedSinkTransition(epoch: record.sinkEpoch)
+            _ = await signalHistoricalPipeline()
+            var completed = record
+            completed.stage = .complete
+            completed.lastErrorCode = nil
+            try await store.persistSourceTransitionRecovery(completed)
+        } catch {
+            live.append(log: "Durable source transition recovery deferred: \(error)")
+        }
+    }
+
     private func adoptActiveDeviceUnfenced(_ activeId: String) async {
         let trimmed = activeId.trimmingCharacters(in: .whitespaces)
-        let repoMoved = repo.adoptActiveDeviceId(trimmed)
+        let descriptor = deviceRegistry.flatMap { try? $0.sourceDescriptor(for: trimmed) }
+        let repoMoved = repo.adoptActiveSource(descriptor)
         guard repoMoved else { return }
         live.append(log: "Read spine re-pointed to active device after registry change (#814).")
         _ = await repo.refresh(.activeDeviceChanged)
-        await intelligence.analyzeRecent()
+        _ = await signalHistoricalPipeline()
     }
 
     /// One-size-fits-all source cleanup caused ordinary A->B selection to retire A and delete its pending
@@ -964,13 +1253,48 @@ final class AppModel: ObservableObject {
             throw AppModelSourceTransitionError.storeUnavailable
         }
 
+        // Ordinary selection is a read-spine change. It is not a source retirement, data deletion, or
+        // sink-generation transition. Keep historical scopes and the current verified projection intact.
+        if kind == .selectExisting {
+            guard let targetDeviceId else { throw AppModelSourceTransitionError.targetUnavailable }
+            try registry.setActive(targetDeviceId)
+            if let descriptor = try? registry.sourceDescriptor(for: targetDeviceId) {
+                _ = repo.adoptActiveSource(descriptor)
+            }
+            sourceCoordinator?.activeDeviceChanged(to: targetDeviceId)
+            return
+        }
+
+        // A non-active cleanup has no authority to fence the active projection or quiesce unrelated
+        // writers. Its one durable registry/data transaction is sufficient.
+        if (kind == .deleteData && oldDeviceId != registry.activeDeviceId)
+            || (kind == .archive && archivedDeviceId != registry.activeDeviceId && targetDeviceId == nil) {
+            switch kind {
+            case .archive:
+                guard let archivedDeviceId else { throw AppModelSourceTransitionError.targetUnavailable }
+                _ = try await store.commitSourceLifecycleMutation(
+                    .archive(deviceId: archivedDeviceId, replacementActiveId: nil, consumerId: "phase34.analysis"))
+            case .deleteData:
+                guard let oldDeviceId else { throw AppModelSourceTransitionError.targetUnavailable }
+                _ = try await store.commitSourceLifecycleMutation(
+                    .deleteData(deviceId: oldDeviceId, consumerId: "phase34.analysis"))
+            case .selectExisting, .replacePeripheral:
+                break
+            }
+            try registry.reload()
+            return
+        }
+
         var historicalEpoch: UInt64?
         var externalEpoch: UInt64?
         var historicalResumed = false
         var externalResumed = false
+        var storeCommitted = false
+        var recoveryRecord: SourceTransitionRecoveryRecord?
 
         do {
             historicalEpoch = try await historicalPipelineRuntime.quiesce()
+            await fullHistoryRepairMaintenance.cancelAndWait()
             externalEpoch = try await quiesceExternalPublication()
             let liveSourceAffected = oldDeviceId == registry.activeDeviceId || kind == .selectExisting
             if liveSourceAffected { sourceCoordinator?.stopForTransition() }
@@ -979,9 +1303,23 @@ final class AppModel: ObservableObject {
             repo.invalidateVerifiedExternalSurface()
             await repo.invalidateTodayHealthSnapshot()
 
-            var oldScope: HistoricalCursorScope?
-            if let oldDeviceId {
-                oldScope = try registry.historicalCursorScope(for: oldDeviceId)
+            if let sourceDeviceId = oldDeviceId ?? archivedDeviceId ?? targetDeviceId,
+               let historicalEpoch, let externalEpoch {
+                let mutationName: String = switch kind {
+                case .selectExisting: "selectExisting"
+                case .replacePeripheral: "replacePeripheral"
+                case .archive: "archive"
+                case .deleteData: "deleteData"
+                }
+                let record = SourceTransitionRecoveryRecord(
+                    mutationKind: mutationName,
+                    sourceDeviceId: sourceDeviceId,
+                    targetDeviceId: targetDeviceId,
+                    historicalEpoch: historicalEpoch,
+                    externalEpoch: externalEpoch,
+                    sinkEpoch: sinkEpoch)
+                try await store.persistSourceTransitionRecovery(record)
+                recoveryRecord = record
             }
 
             switch kind {
@@ -993,26 +1331,38 @@ final class AppModel: ObservableObject {
                 throw AppModelSourceTransitionError.physicalTransitionMissing
             case .archive:
                 guard let archivedDeviceId else { throw AppModelSourceTransitionError.targetUnavailable }
-                if let oldScope {
-                    try await store.retireHistoricalReceiptScope(
-                        consumerId: "phase34.analysis", scope: oldScope, reason: "source_archived")
-                }
-                try registry.archive(archivedDeviceId, replacementActiveId: targetDeviceId)
+                _ = try await store.commitSourceLifecycleMutation(
+                    .archive(
+                        deviceId: archivedDeviceId,
+                        replacementActiveId: targetDeviceId,
+                        consumerId: "phase34.analysis"))
             case .deleteData:
                 guard let oldDeviceId else { throw AppModelSourceTransitionError.targetUnavailable }
-                if let oldScope {
-                    try await store.retireHistoricalReceiptScope(
-                        consumerId: "phase34.analysis", scope: oldScope, reason: "source_deleted")
-                }
-                try await store.deleteAllData(deviceId: oldDeviceId)
-                try await store.deleteExternalPublicationState(deviceId: oldDeviceId)
+                _ = try await store.commitSourceLifecycleMutation(
+                    .deleteData(deviceId: oldDeviceId, consumerId: "phase34.analysis"))
+            }
+            storeCommitted = true
+            if var record = recoveryRecord {
+                record.stage = .storeCommitted
+                try await store.persistSourceTransitionRecovery(record)
+                recoveryRecord = record
             }
 
-            if let targetDeviceId {
-                _ = repo.adoptActiveDeviceId(targetDeviceId)
+            try registry.reload()
+
+            if let targetDeviceId,
+               let descriptor = try? registry.sourceDescriptor(for: targetDeviceId) {
+                _ = repo.adoptActiveSource(descriptor)
+            } else if registry.activeDeviceId == nil {
+                _ = repo.adoptActiveSource(nil)
             }
             try await store.retireLatestStatePublications(contextId: oldContext)
             try activateVerifiedSinkTransition(epoch: sinkEpoch)
+            if var record = recoveryRecord {
+                record.stage = .sinkActivated
+                try await store.persistSourceTransitionRecovery(record)
+                recoveryRecord = record
+            }
             guard let historicalEpoch, let externalEpoch else {
                 throw AppModelSourceTransitionError.externalWorkerUnavailable
             }
@@ -1020,15 +1370,35 @@ final class AppModel: ObservableObject {
             historicalResumed = true
             try await resumeExternalPublication(externalEpoch)
             externalResumed = true
+            if var record = recoveryRecord {
+                record.stage = .workersResumed
+                try await store.persistSourceTransitionRecovery(record)
+                recoveryRecord = record
+            }
             sourceCoordinator?.activeDeviceChanged(to: targetDeviceId)
+            if var record = recoveryRecord {
+                record.stage = .complete
+                record.lastErrorCode = nil
+                try await store.persistSourceTransitionRecovery(record)
+            }
         } catch {
+            if var record = recoveryRecord {
+                record.stage = storeCommitted ? record.stage : .aborted
+                record.lastErrorCode = String(describing: error)
+                try? await store.persistSourceTransitionRecovery(record)
+            }
             if let historicalEpoch, !historicalResumed {
                 do { try await historicalPipelineRuntime.resume(expectedEpoch: historicalEpoch) }
-                catch { live.append(log: "Historical worker resume failed during source rollback: \(error)") }
+                catch { live.append(log: "Historical worker resume failed after source transition: \(error)") }
             }
             if let externalEpoch, !externalResumed {
                 do { try await resumeExternalPublication(externalEpoch) }
-                catch { live.append(log: "External worker resume failed during source rollback: \(error)") }
+                catch { live.append(log: "External worker resume failed after source transition: \(error)") }
+            }
+            if storeCommitted {
+                try? registry.reload()
+                sourceCoordinator?.activeDeviceChanged(to: registry.activeDeviceId)
+                schedulePostCommitSourceWork(targetDeviceId: registry.activeDeviceId)
             }
             throw error
         }
@@ -1037,9 +1407,14 @@ final class AppModel: ObservableObject {
     private func schedulePostCommitSourceWork(targetDeviceId: String?) {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            if let targetDeviceId { _ = self.repo.adoptActiveDeviceId(targetDeviceId) }
+            if let targetDeviceId,
+               let registry = self.deviceRegistry,
+               let descriptor = try? registry.sourceDescriptor(for: targetDeviceId) {
+                _ = self.repo.adoptActiveSource(descriptor)
+            } else if self.deviceRegistry?.activeDeviceId == nil {
+                _ = self.repo.adoptActiveSource(nil)
+            }
             _ = await self.repo.refresh(.activeDeviceChanged)
-            await self.intelligence.analyzeRecent()
             _ = await self.signalHistoricalPipeline()
         }
     }
@@ -1130,17 +1505,19 @@ final class AppModel: ObservableObject {
             }
             return
         }
-        let analysisCompleted = await intelligence.analyzeRecent(refreshRepository: false)
-        guard analysisCompleted else {
-            live.append(log: "Backfill: timestamp-heal analysis did not complete; retaining the prior Home generation for retry.")
-            return
-        }
-        await publishAfterCommittedHistoricalAnalysis()
+        await intelligence.enqueuePendingTimestampHealMaintenance()
+        await fullHistoryRepairMaintenance.signal()
+        live.append(log: "Backfill: timestamp-heal evidence remains in the bounded maintenance lane.")
     }
 
     /// Signal the durable pipeline. Counts are diagnostic only; durable work remains the source of truth.
     private func signalHistoricalPipeline() async -> HistoricalPipelineRuntimeResult {
+        await intelligence.enqueuePendingTimestampHealMaintenance()
         let result = await historicalPipelineRuntime.signal()
+        // Broad repair is intentionally separate from the exact receipt drain. It can only acquire work
+        // after this call has had a chance to admit/finish current-day work, and its own idle gate enforces
+        // Today-first-paint plus background/no-import/no-workout conditions.
+        await fullHistoryRepairMaintenance.signal()
         if result.admittedReceipts > 0 || result.completedWork > 0 {
             let pending = result.pendingWork.map(String.init) ?? "unknown"
             live.append(log: "Historical pipeline: admitted \(result.admittedReceipts) receipt(s), completed \(result.completedWork) exact work item(s), pending \(pending).")
@@ -1460,6 +1837,11 @@ final class AppModel: ObservableObject {
                         || self.live.backfilling || self.activeWorkout != nil
                 }
             }
+        }
+        // Re-arm the broad-repair lane at both scene edges. Its durable idle gate rejects the active edge,
+        // while the inactive edge allows one bounded chronological batch after Today is already visible.
+        Task { [weak self] in
+            _ = await self?.signalHistoricalPipeline()
         }
     }
 

@@ -24,7 +24,7 @@ final class PR28RootFixMigrationTests: XCTestCase {
     func testRootFixMigrationPersistsDurableStateColumns() async throws {
         let store = try await WhoopStore.inMemory()
 
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 47)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 48)
         let workColumns = Set(try await store.columnNamesForTest(table: "historicalAnalysisWork"))
         let snapshotColumns = Set(try await store.columnNamesForTest(table: "verifiedSnapshotCommit"))
         let outboxColumns = Set(try await store.columnNamesForTest(table: "externalPublicationOutbox"))
@@ -161,6 +161,18 @@ final class PR28RootFixMigrationTests: XCTestCase {
             try insert("hk-succeeded-8", generation: 8, state: "succeeded", updatedAt: 200)
             try insert("hk-retryable-99", generation: 99, state: "retryable", updatedAt: 300)
             try insert("hk-quarantined-100", generation: 100, state: "quarantined", updatedAt: 400)
+
+            try db.execute(sql: """
+                INSERT INTO externalPublicationOutbox (
+                    idempotencyKey, contextId, deviceId, snapshotGeneration, analysisGeneration,
+                    changedDaysJSON, recordedTimeZoneIdentifier, destination, state, attemptCount,
+                    nextAttemptAt, leaseOwner, leaseExpiresAt, lastErrorCode, createdAt, updatedAt
+                ) VALUES (?, ?, ?, ?, ?, ?, 'UTC', 'healthKit', 'succeeded', 0,
+                          NULL, NULL, NULL, NULL, ?, ?)
+                """, arguments: [
+                    "hk-malformed-succeeded", "context", "device", 1, 77,
+                    Data("not-json".utf8), 500, 500
+                ])
         }
 
         try migrator.migrate(dbQueue)
@@ -171,6 +183,22 @@ final class PR28RootFixMigrationTests: XCTestCase {
                 WHERE contextId = 'context' AND day = '2026-08-01'
                 """)
             XCTAssertEqual(generation, 8)
+
+            let malformed = try XCTUnwrap(Row.fetchOne(
+                db,
+                sql: """
+                    SELECT state, lastErrorCode, leaseOwner, leaseExpiresAt
+                    FROM externalPublicationOutbox
+                    WHERE idempotencyKey = 'hk-malformed-succeeded'
+                    """
+            ))
+            XCTAssertEqual(malformed["state"] as String?, "quarantined")
+            XCTAssertEqual(
+                malformed["lastErrorCode"] as String?,
+                "v48_malformed_succeeded_healthkit_evidence"
+            )
+            XCTAssertNil(malformed["leaseOwner"] as String?)
+            XCTAssertNil(malformed["leaseExpiresAt"] as Int?)
 
             let tables = Set(try String.fetchAll(db, sql: """
                 SELECT name FROM sqlite_master
@@ -393,10 +421,133 @@ final class PR28RootFixMigrationTests: XCTestCase {
         let statements = trace.snapshot()
         let tableQueries = statements.filter { sql in
             let normalized = sql.replacingOccurrences(of: "\n", with: " ")
-            return ["FROM dailyMetric", "FROM sleepSession", "FROM metricSeries", "FROM appleDaily"]
+            return ["dailyMetric", "sleepSession", "metricSeries", "appleDaily"]
                 .contains { normalized.range(of: $0, options: .caseInsensitive) != nil }
         }
         XCTAssertEqual(tableQueries.count, 4, statements.joined(separator: "\n"))
+    }
+
+    func testCanonicalHealthSurfaceUsesIndexedRangeSeeksForEveryTable() async throws {
+        let store = try await WhoopStore.inMemory()
+        let writer = await store.dbWriter
+        try await writer.read { db in
+            let dayRanges = [CanonicalHealthIndexedRangePlanner.DayRange(
+                from: "2016-01-01", through: "2016-01-03")]
+            let sleepRanges = [CanonicalHealthIndexedRangePlanner.TimestampRange(
+                fromExclusive: 1_451_600_000, throughInclusive: 1_451_900_000)]
+
+            func detail(_ sql: String, _ arguments: StatementArguments) throws -> String {
+                try Row.fetchAll(db, sql: "EXPLAIN QUERY PLAN \(sql)", arguments: arguments)
+                    .compactMap { $0["detail"] as String? }
+                    .joined(separator: "\n")
+            }
+
+            let daily = try detail(
+                WhoopStore.indexedCanonicalDailySQL(sourceCount: 1, rangeCount: 1),
+                WhoopStore.canonicalDailyArguments(ranges: dayRanges, sourceIds: ["device"]))
+            let metric = try detail(
+                WhoopStore.indexedCanonicalMetricSQL(sourceCount: 1, keyCount: 1, rangeCount: 1),
+                WhoopStore.canonicalMetricArguments(
+                    ranges: dayRanges, sourceIds: ["device"], metricKeys: ["stress"]))
+            let apple = try detail(
+                WhoopStore.indexedCanonicalAppleSQL(sourceCount: 1, rangeCount: 1),
+                WhoopStore.canonicalDailyArguments(ranges: dayRanges, sourceIds: ["apple-health"]))
+            let sleep = try detail(
+                WhoopStore.indexedCanonicalSleepSQL(sourceCount: 1, rangeCount: 1),
+                WhoopStore.canonicalSleepArguments(ranges: sleepRanges, sourceIds: ["device"]))
+
+            XCTAssertTrue(daily.contains("SEARCH d USING INDEX") && daily.contains("day>?"), daily)
+            XCTAssertTrue(metric.contains("SEARCH m USING INDEX") && metric.contains("key=?") && metric.contains("day>?"), metric)
+            XCTAssertTrue(apple.contains("SEARCH a USING INDEX") && apple.contains("day>?"), apple)
+            XCTAssertTrue(sleep.contains("SEARCH s USING INDEX") && sleep.contains("endTs>?"), sleep)
+            XCTAssertFalse([daily, metric, apple, sleep].joined().contains("CORRELATED SCALAR"))
+        }
+    }
+
+    func testFullHistoryRepairLeaseCancellationIsImmediateAndDoesNotConsumeAttempt() async throws {
+        let store = try await WhoopStore.inMemory()
+        let databaseId = try await store.databaseInstanceId()
+        let scope = try HistoricalAnalysisScope(
+            databaseInstanceId: databaseId,
+            sourceId: "legacy-source",
+            deviceId: "legacy-device",
+            deviceLineageId: "legacy-lineage",
+            cursorEpoch: 0,
+            trimScope: "historical")
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let writer = await store.dbWriter
+        try await writer.write { db in
+            try WhoopStore.upsertFullHistoryRepairMaintenance(
+                scope: scope,
+                throughReceiptGeneration: 7,
+                reasons: ["legacy_receipt_v1"],
+                now: now,
+                in: db)
+        }
+
+        let leased = try await store.leaseNextFullHistoryRepair(
+            owner: "maintenance-test", now: now, leaseDuration: 90)
+        let work = try XCTUnwrap(leased)
+        XCTAssertEqual(work.state, .running)
+        XCTAssertEqual(work.attemptCount, 0)
+
+        try await store.cancelFullHistoryRepairLease(work, owner: "maintenance-test", now: now)
+        try await writer.read { db in
+            let row = try XCTUnwrap(Row.fetchOne(
+                db,
+                sql: "SELECT state, attemptCount, leaseOwner, lastErrorCode FROM historicalMaintenanceWork WHERE workId = ?",
+                arguments: [work.id.uuidString]))
+            XCTAssertEqual(row["state"] as String?, "retryable")
+            XCTAssertEqual(row["attemptCount"] as Int?, 0)
+            XCTAssertNil(row["leaseOwner"] as String?)
+            XCTAssertEqual(row["lastErrorCode"] as String?, "owner_cancelled")
+        }
+    }
+
+    func testFullHistoryRepairProgressPersistsChronologicalCursorAndRecordedZone() async throws {
+        let store = try await WhoopStore.inMemory()
+        let databaseId = try await store.databaseInstanceId()
+        let scope = try HistoricalAnalysisScope(
+            databaseInstanceId: databaseId,
+            sourceId: "legacy-source",
+            deviceId: "legacy-device",
+            deviceLineageId: "legacy-lineage",
+            cursorEpoch: 0,
+            trimScope: "historical")
+        let cursorScope = HistoricalCursorScope(
+            deviceId: scope.deviceId,
+            lineage: scope.deviceLineageId,
+            cursorEpoch: scope.cursorEpoch,
+            trimScope: scope.trimScope)
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let writer = await store.dbWriter
+        try await writer.write { db in
+            try WhoopStore.upsertFullHistoryRepairMaintenance(
+                scope: scope,
+                throughReceiptGeneration: 7,
+                reasons: ["legacy_receipt_v1"],
+                recordedTimeZoneIdentifier: "America/New_York",
+                now: now,
+                in: db)
+        }
+
+        let first = try await store.leaseNextFullHistoryRepair(
+            owner: "maintenance-cursor-test", now: now, leaseDuration: 90, scope: cursorScope)
+        let work = try XCTUnwrap(first)
+        let nextDay = try CivilDay(key: "2016-01-15")
+        try await store.markFullHistoryRepairProgress(
+            work,
+            owner: "maintenance-cursor-test",
+            hasMore: true,
+            nextStartDay: nextDay,
+            now: now)
+
+        let resumed = try await store.leaseNextFullHistoryRepair(
+            owner: "maintenance-cursor-test-2", now: now, leaseDuration: 90, scope: cursorScope)
+        let resumedWork = try XCTUnwrap(resumed)
+        XCTAssertEqual(resumedWork.nextStartDay, nextDay)
+        XCTAssertEqual(resumedWork.recordedTimeZoneIdentifier, "America/New_York")
+        XCTAssertEqual(resumedWork.attemptCount, 0)
     }
 
     private func consecutiveDays(count: Int) throws -> Set<CivilDay> {

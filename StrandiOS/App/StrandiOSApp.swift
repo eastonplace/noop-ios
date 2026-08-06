@@ -78,23 +78,24 @@ struct StrandiOSApp: App {
                     return try await store.applyExternalPublicationEvent(
                         idempotencyKey: key, event: event, now: now)
                 },
-                loadProjection: { contextId, generation in
+                loadBundle: { contextId, generation in
                     guard let store = await model.repo.storeHandle() else {
                         throw HistoricalPipelineRuntimeError.storeUnavailable
                     }
-                    return try await store.verifiedHealthProjection(
+                    return try await store.verifiedExternalProjectionBundle(
                         contextId: contextId, generation: generation)
                 },
-                publishWidget: { projection in
+                publishWidget: { bundle in
                     guard let expected = model.repo.activeVerifiedSinkContextId else {
                         return .superseded
                     }
                     return try await WidgetSnapshot.publish(
                         from: model,
-                        verifiedProjection: projection,
+                        verifiedBundle: bundle,
                         expectedActiveContextId: expected)
                 },
-                publishLiveActivity: { projection in
+                publishLiveActivity: { bundle in
+                    let projection = bundle.projection
                     let surface = ExternalSurfaceProjection(projection)
                     guard let expected = model.repo.activeVerifiedSinkContextId else {
                         return .superseded
@@ -128,7 +129,7 @@ struct StrandiOSApp: App {
                         return .superseded
                     }
                     try await healthBridge.publishExactHealthKit(payload: restricted)
-                    try await store.recordHealthKitMutationDeliveryBatched(
+                    try await store.recordHealthKitMutationDeliveryIdentitySafe(
                         contextId: payload.contextId,
                         deviceId: payload.deviceId,
                         days: restricted.changedDays,
@@ -169,7 +170,7 @@ struct StrandiOSApp: App {
                                 code: String(describing: error),
                                 disposition: .permanent
                             )
-                        case .projectionMissing, .projectionMismatch, .leaseRenewalFailed:
+                        case .bundleMissing, .projectionMismatch, .leaseRenewalFailed:
                             return PipelineFailureClassification(
                                 code: String(describing: error),
                                 disposition: .retryable

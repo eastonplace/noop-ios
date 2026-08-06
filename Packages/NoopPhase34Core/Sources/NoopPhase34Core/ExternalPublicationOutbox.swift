@@ -169,6 +169,7 @@ public enum ExternalPublicationEvent: Equatable, Sendable {
     case supersede
     /// Sink-side monotonic generation gate superseded an already-leased item.
     case superseded(owner: String)
+    case cancelOwnedLease(owner: String, code: String = "owner_cancelled")
     case failed(owner: String, code: String, retryable: Bool)
     case blocked(owner: String, code: String)
     case resumeBlocked
@@ -238,6 +239,20 @@ public enum ExternalPublicationReducer {
             item.lease = nil
             item.nextAttemptAt = nil
             item.lastErrorCode = "superseded_at_sink"
+            item.updatedAt = now
+
+        case let .cancelOwnedLease(owner, code):
+            try requireLease(owner, item: item, now: now)
+            guard !item.isTerminal,
+                  item.state == .inFlight,
+                  !code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw ExternalPublicationError.invalidTransition
+            }
+            // Cancellation returns the row to the ready queue without consuming an attempt.
+            item.lease = nil
+            item.nextAttemptAt = nil
+            item.lastErrorCode = code
+            item.state = .retryable
             item.updatedAt = now
 
         case let .failed(owner, code, retryable):

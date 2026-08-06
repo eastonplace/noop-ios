@@ -13,10 +13,10 @@ struct ExternalPublicationWorkerDependencies: Sendable {
         _ preferredDestination: DownstreamDestination?
     ) async throws -> ExternalPublicationOutboxItem?
     let applyEvent: @Sendable @MainActor (_ key: String, _ event: ExternalPublicationEvent, _ now: Date) async throws -> ExternalPublicationOutboxItem
-    let loadProjection: @Sendable @MainActor (_ contextId: String, _ generation: Int64) async throws -> VerifiedHealthProjection?
+    let loadBundle: @Sendable @MainActor (_ contextId: String, _ generation: Int64) async throws -> VerifiedExternalProjectionBundle?
     /// Latest-state sinks must atomically ignore a projection older than the generation already stored.
-    let publishWidget: @Sendable @MainActor (VerifiedHealthProjection) async throws -> ExternalSinkPublicationResult
-    let publishLiveActivity: @Sendable @MainActor (VerifiedHealthProjection) async throws -> ExternalSinkPublicationResult
+    let publishWidget: @Sendable @MainActor (VerifiedExternalProjectionBundle) async throws -> ExternalSinkPublicationResult
+    let publishLiveActivity: @Sendable @MainActor (VerifiedExternalProjectionBundle) async throws -> ExternalSinkPublicationResult
     /// HealthKit is historical mutation delivery. Query and write the exact durable score rows for
     /// `changedDays` at `analysisGeneration`; the current projection is only shared context and provenance.
     let publishHealthKitWriteOnly: @Sendable @MainActor (
@@ -36,10 +36,11 @@ actor ExternalPublicationWorker {
     private let quiescence = PipelineQuiescence()
     private let owner = UUID().uuidString
     private let leaseDuration: TimeInterval
-    private var running = false
-    private var rerunRequested = false
-    private var activeTask: Task<Void, Never>?
     private var nonHistoricalItemsSinceFairnessYield = 0
+    private lazy var drainGate = LosslessDrainSignalGate<Void> { [weak self] in
+        await self?.drain(maximumItems: self?.maximumItemsPerDrain ?? 32)
+    }
+    private var maximumItemsPerDrain = 32
 
     init(
         dependencies: ExternalPublicationWorkerDependencies,
@@ -47,31 +48,22 @@ actor ExternalPublicationWorker {
     ) {
         self.dependencies = dependencies
         self.leaseDuration = max(15, leaseDuration)
+        self.maximumItemsPerDrain = 32
     }
 
     func quiesce() async throws -> UInt64 {
-        activeTask?.cancel()
+        await drainGate.suspendAndCancel()
         return try await quiescence.quiesce(cancelOwners: { })
     }
 
     func resume(expectedEpoch: UInt64) async throws {
         try await quiescence.resume(expectedEpoch: expectedEpoch)
+        await drainGate.resume()
     }
 
     func signal(maximumItems: Int = 32) async {
-        guard !running else {
-            rerunRequested = true
-            return
-        }
-        running = true
-        let task = Task { [weak self] in
-            guard let self else { return }
-            await self.drain(maximumItems: maximumItems)
-        }
-        activeTask = task
-        await task.value
-        activeTask = nil
-        running = false
+        maximumItemsPerDrain = max(1, maximumItems)
+        _ = await drainGate.signal()
     }
 
     private func drain(maximumItems: Int) async {
@@ -83,8 +75,7 @@ actor ExternalPublicationWorker {
         }
         defer { Task { await quiescence.end(token) } }
 
-        repeat {
-            rerunRequested = false
+        while !Task.isCancelled {
             var exhaustedBatchBudget = true
             for _ in 0..<max(1, maximumItems) {
                 if Task.isCancelled {
@@ -131,10 +122,11 @@ actor ExternalPublicationWorker {
 
             // A batch cap yields to the app. It does not strand ready durable work until another lifecycle event.
             if exhaustedBatchBudget && !Task.isCancelled {
-                rerunRequested = true
                 await Task.yield()
+                continue
             }
-        } while rerunRequested && !Task.isCancelled
+            break
+        }
 
         do {
             try await dependencies.pruneCompleted()
@@ -202,12 +194,13 @@ actor ExternalPublicationWorker {
                 }
                 result = try await dependencies.publishHealthKitWriteOnly(payload)
             } else {
-                guard let projection = try await dependencies.loadProjection(
+                guard let bundle = try await dependencies.loadBundle(
                     leased.contextId,
                     leased.snapshotGeneration
                 ) else {
-                    throw ExternalPublicationWorkerError.projectionMissing
+                    throw ExternalPublicationWorkerError.bundleMissing
                 }
+                let projection = bundle.projection
                 guard projection.contextId == leased.contextId,
                       projection.deviceId == leased.deviceId,
                       projection.generation == leased.snapshotGeneration else {
@@ -216,9 +209,9 @@ actor ExternalPublicationWorker {
 
                 switch leased.destination {
                 case .widget:
-                    result = try await dependencies.publishWidget(projection)
+                    result = try await dependencies.publishWidget(bundle)
                 case .liveActivity:
-                    result = try await dependencies.publishLiveActivity(projection)
+                    result = try await dependencies.publishLiveActivity(bundle)
                 case .watch:
                     result = try await dependencies.publishWatch(projection)
                 case .healthKit:
@@ -236,12 +229,14 @@ actor ExternalPublicationWorker {
                 : .succeeded(owner: owner)
             _ = try await dependencies.applyEvent(leased.idempotencyKey, event, dependencies.now())
         } catch {
-            if Task.isCancelled,
-               let quiescenceError = error as? PipelineQuiescenceError,
-               quiescenceError == .superseded || quiescenceError == .suspended {
+            if Task.isCancelled || error is CancellationError {
+                _ = try? await dependencies.applyEvent(
+                    leased.idempotencyKey,
+                    .cancelOwnedLease(owner: owner),
+                    dependencies.now()
+                )
                 return
             }
-            if Task.isCancelled { return }
             let classification = dependencies.classifyError(error)
             do {
                 let event: ExternalPublicationEvent
@@ -277,7 +272,7 @@ private actor ExternalPublicationLeaseHealth {
 }
 
 enum ExternalPublicationWorkerError: Error {
-    case projectionMissing
+    case bundleMissing
     case projectionMismatch
     case destinationUnavailable
     case payloadMissingOrMismatched

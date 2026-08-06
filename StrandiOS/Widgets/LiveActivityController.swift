@@ -49,15 +49,21 @@ final class LiveActivityController {
     private let authInfo = ActivityAuthorizationInfo()
     private var lastModeWasWorkout: Bool?
 
-    /// One queue owns every ActivityKit operation. Live inputs coalesce; durable verified inputs stay FIFO.
-    private lazy var serializedPublication = SerializedLiveActivityPublication<DriveInput>(
-        validateToken: { [weak self] token in self?.isCurrentSinkToken(token) ?? false },
+    /// One queue owns every ActivityKit operation. Live inputs coalesce; verified and lifecycle commands stay FIFO.
+    private lazy var serializedPublication = SerializedLiveActivityCommands<DriveInput>(
+        validate: { [weak self] token in self?.isCurrentSinkToken(token) ?? false },
         perform: { [weak self] input, token in
             guard let self else { return .superseded }
             return try await self.reconcile(
                 input,
                 expectedActiveContextId: token?.contextId,
                 expectedToken: token)
+        },
+        repairStale: { [weak self] in
+            await self?.performEnd()
+            if let defaults = UserDefaults(suiteName: WidgetSnapshot.suiteName) {
+                ActiveSinkEpochRecovery.clearLiveActivityGeneration(defaults: defaults)
+            }
         })
 
     /// The expensive workout projection (calories + time-in-zone rescan over the growing sample array)
@@ -107,7 +113,15 @@ final class LiveActivityController {
             workoutIsActive: workoutIsActive ?? LiveActivityWorkoutStatus.isActive,
             workoutProjection: workout
         )
-        serializedPublication.submitLive(input)
+        let token: VerifiedSinkToken? = {
+            guard let contextId = verifiedContextId,
+                  verifiedProjectionGeneration != nil,
+                  let defaults = UserDefaults(suiteName: WidgetSnapshot.suiteName),
+                  let active = ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults),
+                  active.contextId == contextId else { return nil }
+            return active
+        }()
+        serializedPublication.submitLive(input, token: token)
     }
 
     private func reconcile(
@@ -348,7 +362,7 @@ final class LiveActivityController {
             workoutIsActive: false,
             workoutProjection: { nil }
         )
-        await serializedPublication.submitLiveAndWait(input)
+        _ = try? await serializedPublication.submitBarrier(input)
     }
 
     private func performEnd() async {

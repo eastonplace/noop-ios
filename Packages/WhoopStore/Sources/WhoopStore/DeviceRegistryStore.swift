@@ -162,6 +162,7 @@ public struct DeviceRegistryStore: Sendable {
         "historicalReceiptConsumer", "historicalAnalysisWork", "analysisMutationJournal",
         "verifiedHealthProjection", "verifiedSnapshotCommit", "externalPublicationOutbox",
         "healthKitMutationWatermark", "healthKitSleepKeyLedger", "healthKitSleepDayLedger",
+        "historicalReceiptScopeLifecycle", "historicalMaintenanceWork",
     ]
 
     /// Permanently delete every recorded sample/derived row belonging to one device, across all

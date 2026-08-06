@@ -8,10 +8,11 @@ import NoopPhase34Core
 enum WidgetCorePublication {
     static func makeCoreSnapshot(
         model: AppModel,
-        projection: VerifiedHealthProjection,
+        bundle: VerifiedExternalProjectionBundle,
         now: Date = Date()
     ) -> WidgetSnapshot {
-        let day = model.repo.days.first(where: { $0.day == projection.logicalDay.key })
+        let projection = bundle.projection
+        let core = bundle.widgetCore
         return WidgetSnapshot.publishing(
             recovery: projection.visibleMetric(.recovery)?.value,
             storedStrain: projection.visibleMetric(.strain)?.value,
@@ -20,10 +21,10 @@ enum WidgetCorePublication {
             batteryPct: model.live.batteryPct,
             bonded: model.live.bonded,
             hrv: nil,
-            restingHr: day?.restingHr,
-            sleepMinutes: day?.totalSleepMin.map { Int($0.rounded()) },
-            steps: day?.steps,
-            calories: day?.activeKcalEst.map { Int($0.rounded()) },
+            restingHr: core.restingHR,
+            sleepMinutes: core.sleepMinutes,
+            steps: core.steps,
+            calories: core.calories,
             hourlyStress: nil,
             stressSummary: nil,
             hrSparkline: nil,

@@ -73,6 +73,59 @@ extension WhoopStore {
         }
     }
 
+    /// HealthKit is always exact-work delivery. Latest-state sinks are admitted only when the immutable
+    /// presentation or Widget core changes, the logical day changes, or the bounded heartbeat is due.
+    /// The previous checkpoint is reconstructed from the last successful Widget row, so this decision is
+    /// durable across process death and does not depend on mutable Repository caches.
+    public func selectiveExternalPublicationDestinations(
+        snapshot: SnapshotCommitReceipt,
+        bundle: VerifiedExternalProjectionBundle,
+        now: Date
+    ) async throws -> Set<DownstreamDestination> {
+        try syncRead { db in
+            let previous: LatestStateDeliveryCheckpoint?
+            if let row = try Row.fetchOne(db, sql: """
+                SELECT snapshotGeneration, updatedAt
+                FROM externalPublicationOutbox
+                WHERE contextId = ? AND deviceId = ?
+                  AND destination = 'widget' AND state = 'succeeded'
+                ORDER BY snapshotGeneration DESC, updatedAt DESC
+                LIMIT 1
+                """, arguments: [snapshot.projection.contextId, snapshot.projection.deviceId]),
+               let generation: Int64 = row["snapshotGeneration"],
+               let deliveredAtSeconds: Int = row["updatedAt"] {
+                guard let payload: Data = try Data.fetchOne(db, sql: """
+                    SELECT projectionJSON FROM verifiedHealthProjection
+                    WHERE contextId = ? AND snapshotGeneration = ?
+                    """, arguments: [snapshot.projection.contextId, generation]),
+                      let coreData: Data = try Data.fetchOne(db, sql: """
+                    SELECT widgetCoreJSON FROM verifiedHealthProjection
+                    WHERE contextId = ? AND snapshotGeneration = ?
+                    """, arguments: [snapshot.projection.contextId, generation]),
+                      let projection = try? JSONDecoder().decode(VerifiedHealthProjection.self, from: payload),
+                      let widgetCore = try? JSONDecoder().decode(VerifiedWidgetCorePayload.self, from: coreData)
+                else {
+                    throw ExternalPublicationStoreError.invalidProjection
+                }
+                previous = LatestStateDeliveryCheckpoint(
+                    contextId: projection.contextId,
+                    presentationIdentity: projection.presentationIdentity,
+                    widgetCore: widgetCore,
+                    logicalDay: projection.logicalDay,
+                    deliveredAt: Date(timeIntervalSince1970: TimeInterval(deliveredAtSeconds))
+                )
+            } else {
+                previous = nil
+            }
+            return SelectiveExternalPublicationPlan.destinations(
+                snapshot: snapshot,
+                bundle: bundle,
+                previousLatestState: previous,
+                now: now
+            )
+        }
+    }
+
     public func verifiedHealthProjection(
         contextId: String,
         generation: Int64

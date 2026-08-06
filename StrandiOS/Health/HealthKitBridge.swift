@@ -634,13 +634,19 @@ final class HealthKitBridge: ObservableObject {
                     externalUUID: "noop:\(noopDeviceId):sleep:\(start)")
             }
         }
-        try await durableStore.replaceHealthKitSleepLedger(
-            contextId: payload.contextId,
-            deviceId: payload.deviceId,
-            days: payload.changedDays,
-            entries: ledgerEntries,
-            analysisGeneration: payload.analysisGeneration,
-            now: Date())
+        let keysByDay = Dictionary(grouping: ledgerEntries, by: \.wakeDay)
+        for day in payload.changedDays {
+            let keys = (keysByDay[day] ?? []).map {
+                (stableStartTimestamp: $0.stableStartTimestamp, externalUUID: $0.externalUUID)
+            }
+            try await durableStore.replaceHealthKitSleepLedgerChunked(
+                contextId: payload.contextId,
+                deviceId: payload.deviceId,
+                wakeDay: day,
+                analysisGeneration: payload.analysisGeneration,
+                keys: keys,
+                now: Date())
+        }
     }
 
     private func noopAuthoredSleepKeys(
@@ -650,26 +656,32 @@ final class HealthKitBridge: ObservableObject {
     ) async throws -> Set<String> {
         var keys = Set<String>()
         let prefix = "noop:\(noopDeviceId):sleep:"
-        guard let first = changedDays.min(), let last = changedDays.max() else { return keys }
-        let start = try first.date(in: calendar).addingTimeInterval(-30 * 3_600)
-        let end = try calendar.date(byAdding: .day, value: 1, to: last.date(in: calendar))!
-            .addingTimeInterval(2 * 3_600)
-        let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
-            HKQuery.predicateForObjects(from: HKSource.default()),
-            HKQuery.predicateForSamples(withStart: start, end: end, options: []),
-        ])
-        let samples: [HKSample] = try await withCheckedThrowingContinuation {
-            (continuation: CheckedContinuation<[HKSample], any Error>) in
-            let query = HKSampleQuery(
-                sampleType: type,
-                predicate: predicate,
-                limit: HKObjectQueryNoLimit,
-                sortDescriptors: nil
-            ) { _, objects, error in
-                if let error { continuation.resume(throwing: error); return }
-                continuation.resume(returning: objects ?? [])
+        let windows = try HealthKitSleepRepairPlanner.contiguousWindows(
+            days: changedDays,
+            timeZoneIdentifier: calendar.timeZone.identifier)
+        var samples: [HKSample] = []
+        for window in windows {
+            let start = try window.first.date(in: calendar).addingTimeInterval(-20 * 3_600)
+            let end = try calendar.date(byAdding: .day, value: 1, to: window.last.date(in: calendar))!
+                .addingTimeInterval(4 * 3_600)
+            let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
+                HKQuery.predicateForObjects(from: HKSource.default()),
+                HKQuery.predicateForSamples(withStart: start, end: end, options: []),
+            ])
+            let windowSamples: [HKSample] = try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<[HKSample], any Error>) in
+                let query = HKSampleQuery(
+                    sampleType: type,
+                    predicate: predicate,
+                    limit: HKObjectQueryNoLimit,
+                    sortDescriptors: nil
+                ) { _, objects, error in
+                    if let error { continuation.resume(throwing: error); return }
+                    continuation.resume(returning: objects ?? [])
+                }
+                store.execute(query)
             }
-            store.execute(query)
+            samples.append(contentsOf: windowSamples)
         }
         for sample in samples {
             guard let key = sample.metadata?[HKMetadataKeyExternalUUID] as? String,

@@ -141,30 +141,24 @@ extension WhoopStore {
 
         return try syncRead { db in
             let databaseId = try WhoopStore.databaseInstanceId(in: db)
-            let idPlaceholders = Array(repeating: "?", count: ids.count).joined(separator: ",")
-            let dayCTE = Self.dayCTE(normalized)
-            let sleepCTE = Self.sleepCTE(normalized)
+            let dayRanges = try CanonicalHealthIndexedRangePlanner.dayRanges(normalized)
+            let sleepRanges = try CanonicalHealthIndexedRangePlanner.sleepRanges(normalized)
             var dailyByKey: [String: StoredSourcedDailyMetric] = [:]
             var sleepByKey: [String: StoredSourcedSleepSession] = [:]
             var metricByKey: [String: StoredSourcedMetricPoint] = [:]
             var appleByKey: [String: StoredAppleDailyPoint] = [:]
 
-            var dailyArguments = dayCTE.arguments
-            dailyArguments.append(contentsOf: ids)
-            let dailyRows = try Row.fetchAll(db, sql: """
-                WITH \(dayCTE.sql)
-                SELECT deviceId, day, totalSleepMin, efficiency, deepMin, remMin, lightMin,
-                       disturbances, restingHr, avgHrv, recovery, strain, exerciseCount,
-                       spo2Pct, skinTempDevC, respRateBpm, steps, activeKcalEst,
-                       spo2Red, spo2Ir, strainVersion
-                FROM dailyMetric
-                WHERE deviceId IN (\(idPlaceholders))
-                  AND EXISTS (
-                      SELECT 1 FROM requestedDays r
-                      WHERE dailyMetric.day >= r.fromDay AND dailyMetric.day <= r.throughDay
-                  )
-                ORDER BY day ASC, deviceId ASC
-                """, arguments: StatementArguments(dailyArguments))
+            let dailyRows = try Row.fetchAll(
+                db,
+                sql: Self.indexedCanonicalDailySQL(
+                    sourceCount: ids.count,
+                    rangeCount: dayRanges.count
+                ),
+                arguments: Self.canonicalDailyArguments(
+                    ranges: dayRanges,
+                    sourceIds: ids
+                )
+            )
             for row in dailyRows {
                 let sourceId: String = row["deviceId"]
                 let metric = DailyMetric(
@@ -184,21 +178,17 @@ extension WhoopStore {
                     metric: metric)
             }
 
-            var sleepArguments = sleepCTE.arguments
-            sleepArguments.append(contentsOf: ids)
-            let sleepRows = try Row.fetchAll(db, sql: """
-                WITH \(sleepCTE.sql)
-                SELECT deviceId, startTs, endTs, efficiency, restingHr, avgHrv, stagesJSON,
-                       userEdited, startTsAdjusted
-                FROM sleepSession
-                WHERE deviceId IN (\(idPlaceholders))
-                  AND EXISTS (
-                      SELECT 1 FROM requestedSleep r
-                      WHERE COALESCE(sleepSession.startTsAdjusted, sleepSession.startTs) <= r.throughTs
-                        AND sleepSession.endTs > r.fromTs
-                  )
-                ORDER BY COALESCE(startTsAdjusted, startTs) ASC, deviceId ASC
-                """, arguments: StatementArguments(sleepArguments))
+            let sleepRows = try Row.fetchAll(
+                db,
+                sql: Self.indexedCanonicalSleepSQL(
+                    sourceCount: ids.count,
+                    rangeCount: sleepRanges.count
+                ),
+                arguments: Self.canonicalSleepArguments(
+                    ranges: sleepRanges,
+                    sourceIds: ids
+                )
+            )
             for row in sleepRows {
                 let sourceId: String = row["deviceId"]
                 let session = CachedSleepSession(
@@ -213,22 +203,19 @@ extension WhoopStore {
             }
 
             if !keys.isEmpty {
-                let keyPlaceholders = Array(repeating: "?", count: keys.count).joined(separator: ",")
-                var metricArguments = dayCTE.arguments
-                metricArguments.append(contentsOf: ids)
-                metricArguments.append(contentsOf: keys)
-                let metricRows = try Row.fetchAll(db, sql: """
-                    WITH \(dayCTE.sql)
-                    SELECT deviceId, day, key, value
-                    FROM metricSeries
-                    WHERE deviceId IN (\(idPlaceholders))
-                      AND key IN (\(keyPlaceholders))
-                      AND EXISTS (
-                          SELECT 1 FROM requestedDays r
-                          WHERE metricSeries.day >= r.fromDay AND metricSeries.day <= r.throughDay
-                      )
-                    ORDER BY day ASC, key ASC, deviceId ASC
-                    """, arguments: StatementArguments(metricArguments))
+                let metricRows = try Row.fetchAll(
+                    db,
+                    sql: Self.indexedCanonicalMetricSQL(
+                        sourceCount: ids.count,
+                        keyCount: keys.count,
+                        rangeCount: dayRanges.count
+                    ),
+                    arguments: Self.canonicalMetricArguments(
+                        ranges: dayRanges,
+                        sourceIds: ids,
+                        metricKeys: keys
+                    )
+                )
                 for row in metricRows {
                     let sourceId: String = row["deviceId"]
                     let point = StoredSourcedMetricPoint(
@@ -239,20 +226,17 @@ extension WhoopStore {
                 }
             }
 
-            var appleArguments = dayCTE.arguments
-            appleArguments.append(contentsOf: ids)
-            let appleRows = try Row.fetchAll(db, sql: """
-                WITH \(dayCTE.sql)
-                SELECT deviceId, day, steps, activeKcal, basalKcal, vo2max,
-                       avgHr, maxHr, walkingHr, weightKg
-                FROM appleDaily
-                WHERE deviceId IN (\(idPlaceholders))
-                  AND EXISTS (
-                      SELECT 1 FROM requestedDays r
-                      WHERE appleDaily.day >= r.fromDay AND appleDaily.day <= r.throughDay
-                  )
-                ORDER BY day ASC, deviceId ASC
-                """, arguments: StatementArguments(appleArguments))
+            let appleRows = try Row.fetchAll(
+                db,
+                sql: Self.indexedCanonicalAppleSQL(
+                    sourceCount: ids.count,
+                    rangeCount: dayRanges.count
+                ),
+                arguments: Self.canonicalDailyArguments(
+                    ranges: dayRanges,
+                    sourceIds: ids
+                )
+            )
             for row in appleRows {
                 let sourceId: String = row["deviceId"]
                 let point = StoredAppleDailyPoint(
@@ -328,29 +312,6 @@ extension WhoopStore {
         return String(format: "%04d-%02d-%02d", components.year!, components.month!, components.day!)
     }
 
-    private static func dayCTE(
-        _ windows: [CanonicalHealthSurfaceReadWindow]
-    ) -> (sql: String, arguments: [DatabaseValueConvertible]) {
-        let values = windows.map { _ in "(?, ?)" }.joined(separator: ", ")
-        var arguments: [DatabaseValueConvertible] = []
-        arguments.reserveCapacity(windows.count * 2)
-        for window in windows {
-            arguments += [window.fromDay, window.throughDay]
-        }
-        return ("requestedDays(fromDay, throughDay) AS (VALUES \(values))", arguments)
-    }
-
-    private static func sleepCTE(
-        _ windows: [CanonicalHealthSurfaceReadWindow]
-    ) -> (sql: String, arguments: [DatabaseValueConvertible]) {
-        let values = windows.map { _ in "(?, ?)" }.joined(separator: ", ")
-        var arguments: [DatabaseValueConvertible] = []
-        arguments.reserveCapacity(windows.count * 2)
-        for window in windows {
-            arguments += [window.sleepFromTs, window.sleepThroughTs]
-        }
-        return ("requestedSleep(fromTs, throughTs) AS (VALUES \(values))", arguments)
-    }
 }
 
 public enum CanonicalHealthSurfaceStoreError: Error {

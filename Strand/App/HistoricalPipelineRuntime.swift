@@ -8,12 +8,13 @@ struct HistoricalPipelineRuntimeDependencies: Sendable {
     /// Rearm only environmental blocked work before admission and coordinator drain.
     /// Structural repair rows stay quarantined.
     let rearmEnvironmental: (@Sendable () async throws -> Void)?
-    /// Return every currently valid source scope. Old scopes must first be retired transactionally through
-    /// `retireHistoricalReceiptScope`; they are not left as invisible pending work.
+    /// Return active source scopes plus closed scopes that still drain committed receipts. Scope closure is
+    /// durable, and admission never synthesizes new active work for a closed scope.
     let admissionContexts: @Sendable () async throws -> [HistoricalReceiptAdmissionContext]
     let admit: @Sendable (HistoricalReceiptAdmissionContext) async throws -> HistoricalReceiptAdmissionResult
     let coordinator: HistoricalPipelineCoordinator
     let pendingWorkCount: @Sendable () async throws -> Int
+    let finalizeDrainedScopes: (@Sendable () async throws -> Void)?
     let classifyAdmissionError: @Sendable (any Error) -> PipelineFailureClassification
     let onAdmissionFailure: @Sendable (PipelineFailureClassification) async -> Void
     let report: @Sendable (String) -> Void
@@ -24,6 +25,7 @@ struct HistoricalPipelineRuntimeDependencies: Sendable {
         admit: @escaping @Sendable (HistoricalReceiptAdmissionContext) async throws -> HistoricalReceiptAdmissionResult,
         coordinator: HistoricalPipelineCoordinator,
         pendingWorkCount: @escaping @Sendable () async throws -> Int,
+        finalizeDrainedScopes: (@Sendable () async throws -> Void)? = nil,
         classifyAdmissionError: @escaping @Sendable (any Error) -> PipelineFailureClassification,
         onAdmissionFailure: @escaping @Sendable (PipelineFailureClassification) async -> Void,
         report: @escaping @Sendable (String) -> Void
@@ -33,6 +35,7 @@ struct HistoricalPipelineRuntimeDependencies: Sendable {
         self.admit = admit
         self.coordinator = coordinator
         self.pendingWorkCount = pendingWorkCount
+        self.finalizeDrainedScopes = finalizeDrainedScopes
         self.classifyAdmissionError = classifyAdmissionError
         self.onAdmissionFailure = onAdmissionFailure
         self.report = report
@@ -58,21 +61,26 @@ enum HistoricalPipelineRuntimeError: Error {
 actor HistoricalPipelineRuntime {
     private let dependencies: HistoricalPipelineRuntimeDependencies
     private let quiescence = PipelineQuiescence()
-    private var running = false
-    private var rerunRequested = false
-    private var activeSignalTask: Task<HistoricalPipelineRuntimeResult, Never>?
     private var coordinatorEpochByRuntimeEpoch: [UInt64: UInt64] = [:]
+    private lazy var drainGate = LosslessDrainSignalGate<HistoricalPipelineRuntimeResult> { [weak self] in
+        await self?.drain() ?? HistoricalPipelineRuntimeResult(
+            admittedReceipts: 0,
+            completedWork: 0,
+            deferredWork: 1,
+            pendingWork: nil,
+            alreadyRunning: false
+        )
+    }
 
     init(dependencies: HistoricalPipelineRuntimeDependencies) {
         self.dependencies = dependencies
     }
 
     func quiesce() async throws -> UInt64 {
-        activeSignalTask?.cancel()
-
         // The runtime can be suspended while it is awaiting the coordinator. Quiesce the coordinator first so
         // that cancellation reaches the actual lease owner instead of waiting only on this wrapper task.
         let coordinatorEpoch = try await dependencies.coordinator.quiesce()
+        await drainGate.suspendAndCancel()
         let runtimeEpoch = try await quiescence.quiesce(cancelOwners: { })
         coordinatorEpochByRuntimeEpoch[runtimeEpoch] = coordinatorEpoch
         return runtimeEpoch
@@ -84,34 +92,11 @@ actor HistoricalPipelineRuntime {
         }
         try await quiescence.resume(expectedEpoch: expectedEpoch)
         try await dependencies.coordinator.resume(expectedEpoch: coordinatorEpoch)
+        await drainGate.resume()
     }
 
     func signal() async -> HistoricalPipelineRuntimeResult {
-        guard !running else {
-            rerunRequested = true
-            return HistoricalPipelineRuntimeResult(
-                admittedReceipts: 0,
-                completedWork: 0,
-                deferredWork: 0,
-                pendingWork: await readPendingWorkCount(),
-                alreadyRunning: true
-            )
-        }
-        running = true
-        let task = Task { [weak self] in
-            await self?.drain() ?? HistoricalPipelineRuntimeResult(
-                admittedReceipts: 0,
-                completedWork: 0,
-                deferredWork: 1,
-                pendingWork: nil,
-                alreadyRunning: false
-            )
-        }
-        activeSignalTask = task
-        let result = await task.value
-        activeSignalTask = nil
-        running = false
-        return result
+        await drainGate.signal()
     }
 
     private func drain() async -> HistoricalPipelineRuntimeResult {
@@ -132,8 +117,7 @@ actor HistoricalPipelineRuntime {
         var admitted = 0
         var completed = 0
         var deferred = 0
-        repeat {
-            rerunRequested = false
+        while !Task.isCancelled {
             do { try await quiescence.validate(token) }
             catch { deferred += 1; break }
             if let rearmEnvironmental = dependencies.rearmEnvironmental {
@@ -180,7 +164,16 @@ actor HistoricalPipelineRuntime {
             catch { deferred += 1; break }
             completed += drain.completedWorkCount
             deferred += drain.deferredWorkCount
-        } while rerunRequested && !Task.isCancelled
+            if let finalizeDrainedScopes = dependencies.finalizeDrainedScopes {
+                do {
+                    try await finalizeDrainedScopes()
+                } catch {
+                    dependencies.report("historical_scope_finalize_failed: \(error)")
+                    deferred += 1
+                }
+            }
+            break
+        }
 
         return HistoricalPipelineRuntimeResult(
             admittedReceipts: admitted,

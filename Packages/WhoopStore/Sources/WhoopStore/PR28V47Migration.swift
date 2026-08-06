@@ -62,51 +62,10 @@ public enum PR28V47Migrations {
     }
 
     /// v46 created an empty table. Rebuild the maximum succeeded generation per context/day so an older
-    /// delayed row cannot pass the fence after upgrade.
+    /// delayed row cannot pass the fence after upgrade. Malformed historical side-effect evidence is
+    /// quarantined by the shared fail-closed implementation so one obsolete row cannot brick database open.
     private static func backfillSucceededHealthKitWatermarks(_ db: Database) throws {
-        guard try db.tableExists("externalPublicationOutbox"),
-              try db.tableExists("healthKitMutationWatermark") else { return }
-
-        let rows = try Row.fetchAll(db, sql: """
-            SELECT contextId, deviceId, analysisGeneration, changedDaysJSON, updatedAt
-            FROM externalPublicationOutbox
-            WHERE destination = 'healthKit' AND state = 'succeeded'
-            ORDER BY analysisGeneration ASC, updatedAt ASC
-            """)
-
-        for row in rows {
-            let data: Data = row["changedDaysJSON"]
-            let days: Set<CivilDay>
-            do {
-                days = try JSONDecoder().decode(Set<CivilDay>.self, from: data)
-            } catch {
-                throw PR28V47MigrationError.malformedSucceededPayload
-            }
-            guard !days.isEmpty else { throw PR28V47MigrationError.malformedSucceededPayload }
-
-            let contextId: String = row["contextId"]
-            let deviceId: String = row["deviceId"]
-            let generation: Int64 = row["analysisGeneration"]
-            let updatedAt: Int = row["updatedAt"]
-            guard !contextId.isEmpty, !deviceId.isEmpty, generation > 0 else {
-                throw PR28V47MigrationError.malformedSucceededPayload
-            }
-
-            for day in days {
-                try db.execute(sql: """
-                    INSERT INTO healthKitMutationWatermark
-                        (contextId, deviceId, day, analysisGeneration, updatedAt)
-                    VALUES (?, ?, ?, ?, ?)
-                    ON CONFLICT(contextId, day) DO UPDATE SET
-                        deviceId = excluded.deviceId,
-                        analysisGeneration = MAX(
-                            healthKitMutationWatermark.analysisGeneration,
-                            excluded.analysisGeneration
-                        ),
-                        updatedAt = MAX(healthKitMutationWatermark.updatedAt, excluded.updatedAt)
-                    """, arguments: [contextId, deviceId, day.key, generation, updatedAt])
-            }
-        }
+        try PR28V48Migrations.backfillHealthKitWatermarksFailClosed(db)
     }
 
     private static func validate(_ db: Database) throws {

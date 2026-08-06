@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import NoopPhase34Core
 import WhoopStore
 
 enum DeviceRegistryMutationError: Error, Equatable {
@@ -63,39 +64,10 @@ final class DeviceRegistry: ObservableObject {
         guard activeDeviceId == id else { throw DeviceRegistryMutationError.writeFailed }
     }
 
-    /// Archive a device and optionally promote a replacement in the same transition boundary.
-    func archive(_ id: String, replacementActiveId: String? = nil) throws {
-        do {
-            try store.archive(id)
-            if let replacementActiveId { try store.setActive(replacementActiveId) }
-        } catch {
-            throw DeviceRegistryMutationError.writeFailed
-        }
-        try reload()
-        guard activeDeviceId != id else {
-            throw DeviceRegistryMutationError.activeDeviceArchivedWithoutReplacement
-        }
-    }
-
     /// Rename a device. `name` nil/empty clears the nickname so it falls back to brand+model.
     func rename(_ id: String, to name: String?) throws {
         let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines)
         do { try store.rename(id, nickname: (trimmed?.isEmpty == false) ? trimmed : nil) }
-        catch { throw DeviceRegistryMutationError.writeFailed }
-        try reload()
-    }
-
-    /// Permanently delete every recorded sample/derived row for a device across all `deviceId`-keyed
-    /// tables. Does NOT remove the registry row (that's `archive`); this only empties its recordings.
-    ///
-    /// Routed through the `WhoopStore` actor's `deleteAllData(deviceId:)`, so the heavy 16+-table delete
-    /// runs on the actor's OWN (off-main) executor instead of blocking the main thread (this is a
-    /// `@MainActor` cache). Calling the synchronous `DeviceRegistryStore` write directly here would run
-    /// the whole transaction on the main actor and freeze the UI on a large device/Apple-Health dataset.
-    /// Best-effort: a store failure leaves the recordings and published state untouched. Awaits the delete
-    /// BEFORE `reload()` so the refreshed device list reflects the emptied recordings.
-    func deleteDeviceData(_ id: String, store: WhoopStore) async throws {
-        do { try await store.deleteAllData(deviceId: id) }
         catch { throw DeviceRegistryMutationError.writeFailed }
         try reload()
     }
@@ -116,6 +88,22 @@ final class DeviceRegistry: ObservableObject {
     func historicalCursorScope(for id: String) throws -> HistoricalCursorScope {
         do { return try store.historicalCursorScope(for: id) }
         catch { throw DeviceRegistryMutationError.readFailed }
+    }
+
+    /// Read the physical identity fence that belongs to the registry row. Repository context keys use
+    /// this descriptor, not only the logical source id, so a same-id re-pair cannot reuse the old Today
+    /// snapshot or admit a receipt under the wrong lineage.
+    func sourceDescriptor(for id: String) throws -> RepositoryLiveSourceDescriptor {
+        do {
+            let lineage = try store.historyLineage(for: id) ?? "device:\(id)"
+            let epoch = max(0, try store.historyCursorEpoch(for: id) ?? 0)
+            return try RepositoryLiveSourceDescriptor(
+                id: id,
+                historyLineage: lineage,
+                cursorEpoch: epoch)
+        } catch {
+            throw DeviceRegistryMutationError.readFailed
+        }
     }
 
     /// Find the paired device that has adopted a given BLE peripheral, if any. A plain read of the
