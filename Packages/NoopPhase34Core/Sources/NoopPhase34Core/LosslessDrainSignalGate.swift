@@ -1,40 +1,40 @@
 import Foundation
 
+/// Optional semantic accumulation hook for drain results. The protocol uses
+/// `Any` at the boundary so the generic gate can discover conformance without
+/// forcing every existing caller to adopt a new initializer.
+public protocol DrainSignalResultAccumulating {
+    static func combineDrainResults(_ accumulated: Any, _ next: Any) -> Any
+}
+
 /// Lossless single-flight signal owner.
 ///
 /// The final `needsDrain` check and `activeTask = nil` happen in one actor turn,
 /// so a signal cannot land in the gap and be forgotten. Signals received while
 /// suspended remain pending and resume only after the lifecycle owner reopens
-/// the gate. Result-bearing owners can provide a `zero` value and `combine`
-/// closure so a final-edge rerun cannot erase an earlier productive pass.
+/// the gate. When `Output` conforms to `DrainSignalResultAccumulating`, every
+/// coalesced pass contributes to the returned semantic result.
 public actor LosslessDrainSignalGate<Output: Sendable> {
     public typealias Operation = @Sendable () async -> Output
     public typealias Combine = @Sendable (_ accumulated: Output, _ next: Output) -> Output
 
-    private let zero: Output?
-    private let combine: Combine?
+    private let explicitCombine: Combine?
     private let operation: Operation
     private var activeTask: Task<Output, Never>?
     private var needsDrain = false
     private var suspended = false
     private var resumeWaiters: [CheckedContinuation<Void, Never>] = []
 
-    /// Compatibility initializer for operations whose callers intentionally care
-    /// only about the final pass result.
     public init(operation: @escaping Operation) {
-        zero = nil
-        combine = nil
+        explicitCombine = nil
         self.operation = operation
     }
 
-    /// Accumulating initializer for count/result-bearing drain owners.
     public init(
-        zero: Output,
         combine: @escaping Combine,
         operation: @escaping Operation
     ) {
-        self.zero = zero
-        self.combine = combine
+        explicitCombine = combine
         self.operation = operation
     }
 
@@ -78,11 +78,7 @@ public actor LosslessDrainSignalGate<Output: Sendable> {
     private func runLoop() async -> Output {
         await waitUntilResumed()
         needsDrain = false
-
         var result = await operation()
-        if let zero, let combine {
-            result = combine(zero, result)
-        }
 
         while true {
             if Task.isCancelled || suspended {
@@ -99,7 +95,18 @@ public actor LosslessDrainSignalGate<Output: Sendable> {
             }
             needsDrain = false
             let next = await operation()
-            result = combine?(result, next) ?? next
+            result = combine(result, next)
         }
+    }
+
+    private func combine(_ accumulated: Output, _ next: Output) -> Output {
+        if let explicitCombine {
+            return explicitCombine(accumulated, next)
+        }
+        if let accumulator = Output.self as? DrainSignalResultAccumulating.Type,
+           let combined = accumulator.combineDrainResults(accumulated, next) as? Output {
+            return combined
+        }
+        return next
     }
 }
