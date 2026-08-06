@@ -30,6 +30,7 @@ public final class SerializedLiveActivityCommands<Payload: Sendable> {
     private let repairStale: RepairStale
     private var fifo: [FIFOCommand] = []
     private var pendingLive: LiveCommand?
+    private var liveSubmissionsSuspended = false
     private var worker: Task<Void, Never>?
 
     public init(
@@ -45,6 +46,7 @@ public final class SerializedLiveActivityCommands<Payload: Sendable> {
     /// Health-bearing live updates should capture the current sink token. A nil
     /// token is reserved for connection-only/disconnect state and barriers.
     public func submitLive(_ payload: Payload, token: VerifiedSinkToken?) {
+        guard !liveSubmissionsSuspended else { return }
         pendingLive = LiveCommand(payload: payload, token: token)
         startIfNeeded()
     }
@@ -64,12 +66,16 @@ public final class SerializedLiveActivityCommands<Payload: Sendable> {
         }
     }
 
-    /// Used by end/disconnect/source-transition operations. It can never be
-    /// replaced by a later live payload.
+    /// Used by end/disconnect/source-transition operations. A barrier invalidates
+    /// every older coalesced live payload before entering FIFO. Source transitions
+    /// may suspend later live submissions until the replacement sink is active.
     public func submitBarrier(
-        _ payload: Payload
+        _ payload: Payload,
+        suspendLive: Bool = false
     ) async throws -> ExternalSinkPublicationResult {
-        try await withCheckedThrowingContinuation { continuation in
+        pendingLive = nil
+        if suspendLive { liveSubmissionsSuspended = true }
+        return try await withCheckedThrowingContinuation { continuation in
             fifo.append(FIFOCommand(
                 kind: .barrier,
                 payload: payload,
@@ -78,6 +84,15 @@ public final class SerializedLiveActivityCommands<Payload: Sendable> {
             ))
             startIfNeeded()
         }
+    }
+
+    public func suspendLiveSubmissions() {
+        liveSubmissionsSuspended = true
+        pendingLive = nil
+    }
+
+    public func resumeLiveSubmissions() {
+        liveSubmissionsSuspended = false
     }
 
     public func cancelPendingLive() {
@@ -98,7 +113,7 @@ public final class SerializedLiveActivityCommands<Payload: Sendable> {
                 await executeFIFO(command)
                 continue
             }
-            if let live = pendingLive {
+            if let live = pendingLive, !liveSubmissionsSuspended {
                 pendingLive = nil
                 _ = try? await execute(
                     payload: live.payload,
@@ -112,7 +127,9 @@ public final class SerializedLiveActivityCommands<Payload: Sendable> {
         worker = nil
         // No suspension between the empty check and clearing worker. A command
         // arriving afterward observes nil and starts the next worker.
-        if !fifo.isEmpty || pendingLive != nil { startIfNeeded() }
+        if !fifo.isEmpty || (pendingLive != nil && !liveSubmissionsSuspended) {
+            startIfNeeded()
+        }
     }
 
     private func executeFIFO(_ command: FIFOCommand) async {
@@ -144,18 +161,6 @@ public final class SerializedLiveActivityCommands<Payload: Sendable> {
             await repairStale()
             return .superseded
         }
-        return isBarrier ? result : result
+        return result
     }
 }
-
-/*
-LiveActivityController integration:
-
-- `end()` calls `submitBarrier(disconnectedInput)` and awaits it.
-- Source transition calls the same barrier before activating the next epoch.
-- `update` captures `ActiveVerifiedSinkEpochStore.activeToken` whenever the input
-  carries Recovery/Strain from a verified projection.
-- A later ordinary live payload may coalesce with another live payload, but it
-  cannot replace an end/restart/verified command.
-- `repairStale` ends every NOOP activity and clears cached ActivityKit state.
-*/
