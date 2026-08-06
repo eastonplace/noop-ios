@@ -5,17 +5,36 @@ import Foundation
 /// The final `needsDrain` check and `activeTask = nil` happen in one actor turn,
 /// so a signal cannot land in the gap and be forgotten. Signals received while
 /// suspended remain pending and resume only after the lifecycle owner reopens
-/// the gate.
+/// the gate. Result-bearing owners can provide a `zero` value and `combine`
+/// closure so a final-edge rerun cannot erase an earlier productive pass.
 public actor LosslessDrainSignalGate<Output: Sendable> {
     public typealias Operation = @Sendable () async -> Output
+    public typealias Combine = @Sendable (_ accumulated: Output, _ next: Output) -> Output
 
+    private let zero: Output?
+    private let combine: Combine?
     private let operation: Operation
     private var activeTask: Task<Output, Never>?
     private var needsDrain = false
     private var suspended = false
     private var resumeWaiters: [CheckedContinuation<Void, Never>] = []
 
+    /// Compatibility initializer for operations whose callers intentionally care
+    /// only about the final pass result.
     public init(operation: @escaping Operation) {
+        zero = nil
+        combine = nil
+        self.operation = operation
+    }
+
+    /// Accumulating initializer for count/result-bearing drain owners.
+    public init(
+        zero: Output,
+        combine: @escaping Combine,
+        operation: @escaping Operation
+    ) {
+        self.zero = zero
+        self.combine = combine
         self.operation = operation
     }
 
@@ -59,11 +78,16 @@ public actor LosslessDrainSignalGate<Output: Sendable> {
     private func runLoop() async -> Output {
         await waitUntilResumed()
         needsDrain = false
-        var last = await operation()
+
+        var result = await operation()
+        if let zero, let combine {
+            result = combine(zero, result)
+        }
+
         while true {
             if Task.isCancelled || suspended {
                 activeTask = nil
-                return last
+                return result
             }
 
             // No suspension between this check and clearing `activeTask`. A new
@@ -71,22 +95,11 @@ public actor LosslessDrainSignalGate<Output: Sendable> {
             // after this turn and creates the next task.
             guard needsDrain else {
                 activeTask = nil
-                return last
+                return result
             }
             needsDrain = false
-            last = await operation()
+            let next = await operation()
+            result = combine?(result, next) ?? next
         }
     }
 }
-
-/*
-Repository integration:
-
-- HistoricalPipelineCoordinator, HistoricalPipelineRuntime, and
-  ExternalPublicationWorker each own one gate.
-- Delete their `running` / `rerunRequested` / ad-hoc active-task state machines.
-- `signal()` calls `await gate.signal()`.
-- Quiescence first calls `await gate.suspendAndCancel()`, then performs the
-  existing epoch/durable-owner checks. Resume calls `await gate.resume()`.
-- The drain operation must not recursively call its own public `signal()`.
-*/
