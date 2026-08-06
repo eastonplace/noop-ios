@@ -80,6 +80,10 @@ extension WhoopStore {
             ])
     }
 
+    /// Missing immutable artifacts are a durable pipeline error. Returning nil
+    /// allowed the caller to report HealthKit as enqueued without inserting any
+    /// outbox row. The optional return remains source-compatible, but absence now
+    /// fails closed through `missingBundle`.
     public func verifiedExternalProjectionBundle(
         contextId: String,
         generation: Int64
@@ -90,7 +94,7 @@ extension WhoopStore {
                 FROM verifiedHealthProjection
                 WHERE contextId = ? AND snapshotGeneration = ?
                 """, arguments: [contextId, generation]) else {
-                return nil
+                throw VerifiedExternalProjectionBundleStoreError.missingBundle
             }
             let projectionData: Data = row["projectionJSON"]
             let widgetData: Data? = row["widgetCoreJSON"]
@@ -112,15 +116,3 @@ extension WhoopStore {
         }
     }
 }
-
-/*
-Integration:
-
-- v48 adds `widgetCoreJSON BLOB` to `verifiedHealthProjection`.
-- Snapshot verification builds VerifiedWidgetCorePayload from the same WAL read.
-- Replace `persistVerifiedProjection` with this bundle writer for new rows.
-- ExternalPublicationWorker loads the bundle for Widget/Live; HealthKit remains
-  payload-only and must not require this row.
-- Legacy pending Widget rows with no bundle are superseded during v48 migration,
-  then the current verified generation is republished normally.
-*/
