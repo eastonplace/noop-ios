@@ -43,20 +43,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Export exact PR source for deep QA
-        shell: bash
-        run: |
-          set -euo pipefail
-          tar --exclude=.git --exclude='./qa-artifacts' -czf noop-pr-source.tar.gz .
-
-      - name: Upload exact PR source
-        uses: actions/upload-artifact@v4
-        with:
-          name: noop-pr-source-${{ github.sha }}
-          path: noop-pr-source.tar.gz
-          if-no-files-found: error
-          retention-days: 1
-
       - name: Run all focused source audits
         shell: bash
         run: |
