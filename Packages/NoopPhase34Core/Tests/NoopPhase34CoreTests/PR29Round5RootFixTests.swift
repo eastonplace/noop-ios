@@ -15,12 +15,37 @@ private struct AccumulatingProbeResult: Equatable, Sendable, DrainSignalResultAc
 private actor GatePassSequence {
     private var outputs: [AccumulatingProbeResult]
     private var calls = 0
+    private var firstStarted = false
+    private var firstStartedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var firstRelease: CheckedContinuation<Void, Never>?
 
     init(_ outputs: [AccumulatingProbeResult]) { self.outputs = outputs }
 
-    func next() -> AccumulatingProbeResult {
+    func next() async -> AccumulatingProbeResult {
         calls += 1
-        return outputs.isEmpty ? .init(completed: 0, deferred: 0) : outputs.removeFirst()
+        let output = outputs.isEmpty ? .init(completed: 0, deferred: 0) : outputs.removeFirst()
+        if calls == 1 {
+            firstStarted = true
+            let waiters = firstStartedWaiters
+            firstStartedWaiters.removeAll()
+            waiters.forEach { $0.resume() }
+            await withCheckedContinuation { continuation in
+                firstRelease = continuation
+            }
+        }
+        return output
+    }
+
+    func waitUntilFirstStarted() async {
+        guard !firstStarted else { return }
+        await withCheckedContinuation { continuation in
+            firstStartedWaiters.append(continuation)
+        }
+    }
+
+    func releaseFirst() {
+        firstRelease?.resume()
+        firstRelease = nil
     }
 
     func callCount() -> Int { calls }
@@ -32,21 +57,14 @@ final class PR29Round5RootFixTests: XCTestCase {
             .init(completed: 4, deferred: 0),
             .init(completed: 0, deferred: 1),
         ])
-        let firstPassStarted = expectation(description: "first pass started")
-        let releaseFirstPass = expectation(description: "release first pass")
         let gate = LosslessDrainSignalGate<AccumulatingProbeResult> {
-            let output = await sequence.next()
-            if output.completed == 4 {
-                firstPassStarted.fulfill()
-                await fulfillment(of: [releaseFirstPass])
-            }
-            return output
+            await sequence.next()
         }
 
         let first = Task { await gate.signal() }
-        await fulfillment(of: [firstPassStarted])
+        await sequence.waitUntilFirstStarted()
         let finalEdge = Task { await gate.signal() }
-        releaseFirstPass.fulfill()
+        await sequence.releaseFirst()
 
         let result = await first.value
         XCTAssertEqual(result, .init(completed: 4, deferred: 1))
