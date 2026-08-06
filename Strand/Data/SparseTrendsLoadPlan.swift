@@ -38,8 +38,9 @@ public enum SparseTrendsLoadPlan {
         )
         dayRanges.append((heatmapFirst, anchorDay))
 
-        // Weekly review is a separate sparse window. Do not fill the years
-        // between a distant selected week and the current chart.
+        // Weekly review is a separate sparse window. The digest consumes the
+        // requested baseline weeks plus the immediately-prior comparison week,
+        // followed by the selected week itself.
         let selectedWeekAnchor = try healthCalendar.adding(
             days: weekOffset * 7,
             to: anchorDay
@@ -50,8 +51,9 @@ public enum SparseTrendsLoadPlan {
             timeZoneIdentifier: timeZoneIdentifier
         )
         let selectedWeekEnd = try healthCalendar.adding(days: 6, to: selectedWeekStart)
+        let baselineAndComparisonWeeks = max(1, weeklyBaselineWeeks) + 1
         let baselineStart = try healthCalendar.adding(
-            days: -(max(1, weeklyBaselineWeeks) * 7),
+            days: -(baselineAndComparisonWeeks * 7),
             to: selectedWeekStart
         )
         dayRanges.append((baselineStart, selectedWeekEnd))
@@ -115,13 +117,3 @@ public enum SparseTrendsLoadPlan {
 public enum SparseTrendsLoadPlanError: Error {
     case invalidTimeZone
 }
-
-/*
-Repository integration:
-
-- Replace `fromDay = anchor - requiredDays` in CanonicalTrendsRangeLoader.
-- Call `SparseTrendsLoadPlan.windows`, then the multi-window canonical snapshot.
-- Build `TrendsLoadedData` from the sparse snapshot; missing intervening days are
-  intentional and must not be interpreted as zero.
-- Keep completed-load identity exactly as implemented at the current head.
-*/
