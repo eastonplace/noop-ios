@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - fix/pr28-round5-root-fixes
+  pull_request:
+    branches:
+      - phase34/consolidated-health-pipeline
 
 permissions:
   contents: read
