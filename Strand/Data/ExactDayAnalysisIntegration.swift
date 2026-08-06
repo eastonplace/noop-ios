@@ -4,6 +4,7 @@ import WhoopStore
 
 struct ExactCommittedAnalysisRequest: Equatable, Sendable {
     let sourceContext: ExactWorkSourceContext
+    let namespace: ExactAnalysisNamespace
     let databaseInstanceId: String
     let sourceId: String
     let throughReceiptGeneration: Int64
@@ -25,6 +26,7 @@ struct ExactCommittedAnalysisRequest: Equatable, Sendable {
         databaseInstanceId = work.scope.databaseInstanceId
         sourceId = work.scope.sourceId
         sourceContext = ExactWorkSourceContext(work: work)
+        namespace = try sourceContext.analysisNamespace
         throughReceiptGeneration = work.lastReceiptGeneration
         affectedDays = work.affectedDays
         recordedTimeZoneIdentifier = work.recordedTimeZoneIdentifier
@@ -75,8 +77,6 @@ extension IntelligenceEngine {
         }
     }
 
-    /// Group only adjacent requested civil days. Sparse January/March evidence stays as two runs, while a
-    /// normal overnight pair shares one baseline/history read instead of calling the legacy scorer twice.
     nonisolated fileprivate static func exactAnalysisRuns(
         days: Set<CivilDay>,
         reference: Date,
@@ -148,8 +148,9 @@ enum ExactAnalysisMutationCommitter {
 
 @MainActor
 extension IntelligenceEngine {
-    /// Idempotent exact-day analysis. A crash after the score transaction and mutation receipt does not score
-    /// the same generation again. Adjacent days share one scorer call; sparse days stay separate.
+    /// Idempotent exact-day analysis. Each durable source is scored through a short-lived engine rooted at
+    /// that source's raw and computed namespaces. Ordinary foreground analysis keeps the canonical engine;
+    /// deferred source-A work can no longer write into the active source-B/canonical computed rows.
     func analyzeCommittedWork(
         _ work: HistoricalAnalysisWork,
         store: WhoopStore,
@@ -168,8 +169,6 @@ extension IntelligenceEngine {
             )
         }
         guard case .exactDays = work.kind else {
-            // Admission routes broad evidence to the low-priority maintenance table. Keep this fail-closed
-            // guard for legacy callers; a full-repair row must never execute in the exact-day pipeline.
             throw PR28HistoricalPipelineError.unsupportedFullHistoryRepair
         }
         let request = try ExactCommittedAnalysisRequest(work: work)
@@ -183,10 +182,20 @@ extension IntelligenceEngine {
             reference: now,
             calendar: calendar
         )
+
+        let sourceRepository = Repository(deviceId: request.namespace.rawDeviceId)
+        let sourceProfile = ProfileStore()
+        let sourceEngine = IntelligenceEngine(
+            repo: sourceRepository,
+            profile: sourceProfile,
+            deviceId: request.namespace.rawDeviceId
+        )
+        sourceEngine.diagnosticSink = diagnosticSink
+
         var analyzedDays = Set<CivilDay>()
         for run in runs {
             try CooperativeAnalysisCancellation.checkpoint()
-            let completed = await analyzeRecent(
+            let completed = await sourceEngine.analyzeRecent(
                 maxDays: run.maxDays,
                 startOffset: run.startOffset,
                 force: true,
@@ -200,8 +209,9 @@ extension IntelligenceEngine {
             analyzedDays.formUnion(run.days)
         }
         try CooperativeAnalysisCancellation.checkpoint()
-        let rawFrontierTs = try await store.latestHRSampleTs(deviceId: work.scope.deviceId)
-        try CooperativeAnalysisCancellation.checkpoint()
+        let rawFrontierTs = try await store.latestHRSampleTs(
+            deviceId: request.namespace.rawDeviceId
+        )
         try CooperativeAnalysisCancellation.checkpoint()
         return try await ExactAnalysisMutationCommitter.commit(
             work: work,
