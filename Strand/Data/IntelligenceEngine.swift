@@ -315,6 +315,7 @@ final class IntelligenceEngine: ObservableObject {
     static let effortRescoreFlagKey = "intelligence.strainV2CalendarHistory.v2.done"
     static let effortRescoreOffsetKey = "intelligence.strainV2CalendarHistory.v2.offset"
     static let effortRescoreChunkDays = 30
+    private enum EffortRescoreMigrationError: Error { case chunkDidNotComplete }
 
     nonisolated static func boundedHistoryDays(
         earliestTimestamp: Int,
@@ -381,26 +382,31 @@ final class IntelligenceEngine: ObservableObject {
             calendar: .current,
             cap: max(0, historyDays))
 
-        while !UserDefaults.standard.bool(forKey: Self.effortRescoreFlagKey) {
-            guard !shouldPause(), !Task.isCancelled else { return }
-            let offset = max(0, UserDefaults.standard.integer(forKey: Self.effortRescoreOffsetKey))
-            guard offset < effectiveHistoryDays else {
-                UserDefaults.standard.set(true, forKey: Self.effortRescoreFlagKey)
-                return
+        _ = await HistoricalMigrationDriver.run(
+            historyDays: effectiveHistoryDays,
+            chunkDays: Self.effortRescoreChunkDays,
+            isCompleted: { UserDefaults.standard.bool(forKey: Self.effortRescoreFlagKey) },
+            loadOffset: { UserDefaults.standard.integer(forKey: Self.effortRescoreOffsetKey) },
+            saveOffset: { UserDefaults.standard.set($0, forKey: Self.effortRescoreOffsetKey) },
+            markCompleted: { UserDefaults.standard.set(true, forKey: Self.effortRescoreFlagKey) },
+            shouldPause: shouldPause,
+            analyzeChunk: { [weak self] chunk, offset in
+                guard let self else { throw EffortRescoreMigrationError.chunkDidNotComplete }
+                let before = self.analysisCompletionSerial
+                _ = await self.analyzeRecent(
+                    maxDays: chunk,
+                    startOffset: offset,
+                    refreshRepository: false
+                )
+                guard self.analysisCompletionSerial > before else {
+                    throw EffortRescoreMigrationError.chunkDidNotComplete
+                }
+            },
+            finalRefresh: { [weak self] in
+                guard let self else { return false }
+                return await self.repo.refresh(.fullHistoryMigration)
             }
-            let chunk = min(Self.effortRescoreChunkDays, effectiveHistoryDays - offset)
-            let before = analysisCompletionSerial
-            await analyzeRecent(maxDays: chunk, startOffset: offset)
-            guard analysisCompletionSerial > before, !shouldPause(), !Task.isCancelled else { return }
-            let next = offset + chunk
-            UserDefaults.standard.set(next, forKey: Self.effortRescoreOffsetKey)
-            if next >= effectiveHistoryDays {
-                UserDefaults.standard.set(true, forKey: Self.effortRescoreFlagKey)
-                return
-            }
-            await Task.yield()
-            try? await Task.sleep(nanoseconds: 100_000_000)
-        }
+        )
     }
 
     /// UserDefaults flag guarding the one-shot #547 implausible-timestamp DB heal (below). Set once the

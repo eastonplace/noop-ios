@@ -264,6 +264,86 @@ final class PR28RootFixMigrationTests: XCTestCase {
         XCTAssertEqual(watermarkWrites.count, 1, normalized.joined(separator: "\n"))
     }
 
+    func testIdentitySafeWatermarkReplayRejectsDifferentSourceWithoutRewritingOwner() async throws {
+        let store = try await WhoopStore.inMemory()
+        let day = try CivilDay(key: "2026-08-03")
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+        try await store.recordHealthKitMutationDeliveryIdentitySafe(
+            contextId: "context",
+            deviceId: "source-A",
+            days: [day],
+            analysisGeneration: 7,
+            now: now)
+        try await store.recordHealthKitMutationDeliveryIdentitySafe(
+            contextId: "context",
+            deviceId: "source-A",
+            days: [day],
+            analysisGeneration: 7,
+            now: now.addingTimeInterval(1))
+
+        do {
+            try await store.recordHealthKitMutationDeliveryIdentitySafe(
+                contextId: "context",
+                deviceId: "source-B",
+                days: [day],
+                analysisGeneration: 8,
+                now: now.addingTimeInterval(2))
+            XCTFail("different source rewrote the exact HealthKit watermark owner")
+        } catch let error as HealthKitWatermarkConflict {
+            XCTAssertEqual(
+                error,
+                .deviceIdentityChanged(
+                    contextId: "context",
+                    day: day,
+                    existing: "source-A",
+                    incoming: "source-B"))
+        }
+
+        let writer = await store.dbWriter
+        let ownerAndGeneration: (String, Int64)? = try await writer.read { db in
+            guard let row = try Row.fetchOne(db, sql: """
+                SELECT deviceId, analysisGeneration
+                FROM healthKitMutationWatermark
+                WHERE contextId = ? AND day = ?
+                """, arguments: ["context", day.key]) else { return nil }
+            return (row["deviceId"], row["analysisGeneration"])
+        }
+        XCTAssertEqual(ownerAndGeneration?.0, "source-A")
+        XCTAssertEqual(ownerAndGeneration?.1, 7)
+    }
+
+    func testPrivacyFootprintReadsDeletionOnlyHealthKitEvidenceBySource() async throws {
+        let store = try await WhoopStore.inMemory()
+        let day = try CivilDay(key: "2026-08-04")
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let sleepEntry = HealthKitSleepLedgerEntry(
+            wakeDay: day,
+            stableStartTimestamp: 1_800_000_100,
+            externalUUID: "noop:source-A:sleep:1800000100")
+
+        try await store.recordHealthKitMutationDeliveryIdentitySafe(
+            contextId: "context-A",
+            deviceId: "source-A",
+            days: [day],
+            analysisGeneration: 4,
+            now: now)
+        try await store.replaceHealthKitSleepLedger(
+            contextId: "context-A",
+            deviceId: "source-A",
+            days: [day],
+            entries: [sleepEntry],
+            analysisGeneration: 4,
+            now: now)
+
+        let deliveredDays = try await store.healthKitMutationWatermarkDays(deviceId: "source-A")
+        let sleepEntries = try await store.healthKitSleepLedgerEntries(deviceId: "source-A")
+        let unrelatedDays = try await store.healthKitMutationWatermarkDays(deviceId: "source-B")
+        XCTAssertEqual(deliveredDays, [day])
+        XCTAssertEqual(sleepEntries, [sleepEntry])
+        XCTAssertTrue(unrelatedDays.isEmpty)
+    }
+
     func testSleepLedgerRetainsZeroSessionCoverageAndStableKeysForDeletionReplay() async throws {
         let store = try await WhoopStore.inMemory()
         let day = try CivilDay(key: "2026-08-01")

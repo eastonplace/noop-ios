@@ -57,6 +57,10 @@ actor ExternalPublicationWorker {
     }
 
     func resume(expectedEpoch: UInt64) async throws {
+        // A durable transition can survive process death, but this worker's epoch cannot. A fresh worker is
+        // already open and must not reject the previous process's persisted epoch. If this worker is locally
+        // suspended, keep the exact-epoch check so a stale resume cannot reopen a newer transition.
+        if await quiescence.isAccepting { return }
         try await quiescence.resume(expectedEpoch: expectedEpoch)
         await drainGate.resume()
     }

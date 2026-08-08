@@ -105,12 +105,14 @@ private func pr28Scope() throws -> HistoricalAnalysisScope {
 
 @Test func quiescenceCancelsOldEpochAndWaitsForOwners() async throws {
     let gate = PipelineQuiescence()
+    #expect(await gate.isAccepting)
     let oldToken = try await gate.begin()
 
     let quiesceTask = Task { try await gate.quiesce(cancelOwners: {}) }
     await Task.yield()
     await gate.end(oldToken)
     let newEpoch = try await quiesceTask.value
+    #expect(!(await gate.isAccepting))
 
     do {
         try await gate.validate(oldToken)
@@ -120,6 +122,7 @@ private func pr28Scope() throws -> HistoricalAnalysisScope {
     }
 
     try await gate.resume(expectedEpoch: newEpoch)
+    #expect(await gate.isAccepting)
     let newToken = try await gate.begin()
     try await gate.validate(newToken)
     await gate.end(newToken)

@@ -161,6 +161,7 @@ public struct DeviceRegistryStore: Sendable {
         "historicalAnalysisCheckpoint",
         "historicalReceiptConsumer", "historicalAnalysisWork", "analysisMutationJournal",
         "verifiedHealthProjection", "verifiedSnapshotCommit", "externalPublicationOutbox",
+        "latestStateDeliveryCheckpoint",
         "healthKitMutationWatermark", "healthKitSleepKeyLedger", "healthKitSleepDayLedger",
         "historicalReceiptScopeLifecycle", "historicalMaintenanceWork",
     ]

@@ -431,6 +431,26 @@ final class Repository: ObservableObject {
         refreshTodayHealthSnapshotFromCurrentCaches(
             now: todayHealthSnapshotNow(), writePolicy: .throttledLiveStrain)
     }
+
+    func todayHealthSnapshotWriteOwnershipForTesting() -> (
+        generation: Int,
+        refreshGeneration: Int,
+        writeToken: Int
+    ) {
+        (todayHealthSnapshotGeneration, refreshGen, todayHealthSnapshotWriteToken)
+    }
+
+    func isCurrentTodayHealthSnapshotWriteForTesting(
+        generation: Int,
+        refreshGeneration: Int,
+        writeToken: Int
+    ) -> Bool {
+        isCurrentTodayHealthSnapshotWrite(
+            generation: generation,
+            refreshGeneration: refreshGeneration,
+            writeToken: writeToken
+        )
+    }
     #endif
 
     // MARK: - Union reads (active strap + canonical)
@@ -1796,6 +1816,19 @@ final class Repository: ObservableObject {
         // Drop its detached merge rather than allowing it to publish the stale cache afterward.
         refreshGen &+= 1
         return todayHealthSnapshotGeneration
+    }
+
+    /// Exact verified publication owns the durable Today row. Advance normal-writer ownership without
+    /// clearing the currently visible snapshot, so any suspended refresh/write fails its generation/token
+    /// checks before it can overwrite the verified row after this point.
+    func invalidateSuspendedTodayWritersForVerifiedPublication() {
+        todayHealthSnapshotGeneration &+= 1
+        todayHealthSnapshotWriteTask?.cancel()
+        todayHealthSnapshotWriteTask = nil
+        todayHealthSnapshotWriteToken &+= 1
+        todayHealthSnapshotWriteDirty = false
+        todayHealthSnapshotWritePolicy = .immediate
+        refreshGen &+= 1
     }
 
     /// Clear the in-memory verified sink context before a source/database
@@ -4463,10 +4496,9 @@ extension Repository {
             template: template,
             now: now
         )
+        let namespace = try ExactWorkSourceContext(work: work).analysisNamespace
         let read = try await store.canonicalHealthSurfaceSnapshot(
-            sourceIds: Self.stableUniqueSourceIds(
-                importedReadIds + computedReadIds + [Self.appleHealthSource]
-            ),
+            sourceIds: namespace.verificationSourceIds,
             windows: windows,
             metricKeys: [
                 "sleep_performance", "sleep_consistency", "sleep_need_min", "sleep_debt_min", "stress",
@@ -4482,9 +4514,10 @@ extension Repository {
 
         let postAnalysisInput = PostAnalysisTodaySnapshotInput(
             template: template,
+            ownerDeviceId: namespace.rawDeviceId,
             read: read,
-            importedSourceIds: importedReadIds,
-            computedSourceIds: computedReadIds,
+            importedSourceIds: namespace.importedBaselineDeviceIds,
+            computedSourceIds: [namespace.computedDeviceId],
             appleSourceId: Self.appleHealthSource,
             sleepMode: SleepPerformanceV2Prefs.mode,
             analysisGeneration: analysis.analysisGeneration,
@@ -4501,10 +4534,11 @@ extension Repository {
                 recordedTimeZoneIdentifier: work.recordedTimeZoneIdentifier,
                 changedDays: analysis.analyzedDays,
                 read: read,
-                importedSourceIds: Set(importedReadIds),
-                computedSourceIds: Set(computedReadIds)
+                importedSourceIds: Set(namespace.importedBaselineDeviceIds),
+                computedSourceIds: [namespace.computedDeviceId]
             )
         )
+        invalidateSuspendedTodayWritersForVerifiedPublication()
         guard try await store.saveTodayHealthSnapshot(candidate),
               let stored = try await store.todayHealthSnapshot(scopeId: candidate.scopeId),
               stored.context == context,
@@ -4619,6 +4653,7 @@ extension Repository {
         ) {
             return existing
         }
+        invalidateSuspendedTodayWritersForVerifiedPublication()
         guard try await store.saveTodayHealthSnapshot(candidate),
               let stored = try await store.todayHealthSnapshot(scopeId: candidate.scopeId),
               stored.context == context,
@@ -4656,13 +4691,15 @@ extension Repository {
     func publishVerifiedExactDays(
         _ exactDays: Set<CivilDay>,
         recordedTimeZoneIdentifier: String,
-        snapshot: SnapshotCommitReceipt
+        snapshot: SnapshotCommitReceipt,
+        sourceDeviceId: String? = nil
     ) async throws -> RepositoryRefreshOutcome {
         try await publishVerifiedExactDays(
             exactDays,
             recordedTimeZoneIdentifier: recordedTimeZoneIdentifier,
             projection: snapshot.projection,
-            snapshotReceipt: snapshot
+            snapshotReceipt: snapshot,
+            sourceDeviceId: sourceDeviceId
         )
     }
 
@@ -4677,7 +4714,8 @@ extension Repository {
             exactDays,
             recordedTimeZoneIdentifier: recordedTimeZoneIdentifier,
             projection: projection,
-            snapshotReceipt: nil
+            snapshotReceipt: nil,
+            sourceDeviceId: nil
         )
     }
 
@@ -4685,7 +4723,8 @@ extension Repository {
         _ exactDays: Set<CivilDay>,
         recordedTimeZoneIdentifier: String,
         projection: VerifiedHealthProjection,
-        snapshotReceipt: SnapshotCommitReceipt?
+        snapshotReceipt: SnapshotCommitReceipt?,
+        sourceDeviceId: String?
     ) async throws -> RepositoryRefreshOutcome {
         guard !exactDays.isEmpty else {
             guard let snapshotReceipt else {
@@ -4711,9 +4750,11 @@ extension Repository {
                     metricSources: todayHealthMetricSources, persistedStrain: persistedStrainByDay,
                     importedStrain: importedStrainByDay, canonicalHealth: canonicalHealth))
         }
+        let expectedProjectionOwner = sourceDeviceId?.trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? canonicalDeviceId
         guard let store = await ensureStore(),
               projection.contextId == todayHealthSnapshotContext?.identifier,
-              projection.deviceId == canonicalDeviceId else {
+              projection.deviceId == expectedProjectionOwner else {
             return RepositoryRefreshOutcome(
                 authoritativeDataPublished: false,
                 changedDays: [],
@@ -4730,8 +4771,21 @@ extension Repository {
                 sleepThroughTs: Int(interval.end.timeIntervalSince1970) + 4 * 3_600
             )
         }
+        let exactImportedIds: [String]
+        let exactComputedIds: [String]
+        let exactReadIds: [String]
+        if let sourceDeviceId {
+            let raw = sourceDeviceId.trimmingCharacters(in: .whitespacesAndNewlines)
+            exactImportedIds = [raw]
+            exactComputedIds = [raw + "-noop"]
+            exactReadIds = Self.stableUniqueSourceIds(exactImportedIds + exactComputedIds)
+        } else {
+            exactImportedIds = importedReadIds
+            exactComputedIds = computedReadIds
+            exactReadIds = Self.stableUniqueSourceIds(importedReadIds + computedReadIds + [Self.appleHealthSource])
+        }
         let read = try await store.canonicalHealthSurfaceSnapshot(
-            sourceIds: Self.stableUniqueSourceIds(importedReadIds + computedReadIds + [Self.appleHealthSource]),
+            sourceIds: exactReadIds,
             windows: windows,
             metricKeys: [
                 "sleep_performance", "sleep_consistency", "sleep_need_min", "sleep_debt_min", "stress",
@@ -4748,16 +4802,16 @@ extension Repository {
         guard !overflow else { throw CanonicalRepositoryPublicationError.generationExhausted }
         let nextCanonical = try Self.buildCanonicalHealthReadModel(
             from: read,
-            importedReadIds: importedReadIds,
-            computedReadIds: computedReadIds,
+            importedReadIds: exactImportedIds,
+            computedReadIds: exactComputedIds,
             authoritativeDayKeys: Set(exactDays.map(\.key)),
             previous: canonicalHealth,
             sourceGeneration: sourceGeneration,
             timeZoneIdentifier: recordedTimeZoneIdentifier
         )
 
-        let importedIds = Set(importedReadIds)
-        let computedIds = Set(computedReadIds)
+        let importedIds = Set(exactImportedIds)
+        let computedIds = Set(exactComputedIds)
         let authoritativeKeys = RepositoryExactAuthoritativeMerge.authoritativeDayKeys(exactDays)
         let importedWinners = RepositoryExactAuthoritativeMerge.bestRowsPreservingSource(
             read.dailyRows.filter { importedIds.contains($0.sourceId) })
@@ -4813,7 +4867,7 @@ extension Repository {
             guard row.strainVersion == StrainScorerV2.version, row.strain != nil else { return nil }
             let candidate = DailyStrainCandidate(
                 metric: row,
-                sourceId: exactComputedSource[row.day] ?? canonicalComputedId,
+                sourceId: exactComputedSource[row.day] ?? exactComputedIds.first ?? canonicalComputedId,
                 asOf: Date(),
                 rawFrontierTs: nil
             )
@@ -4826,7 +4880,7 @@ extension Repository {
             guard row.strain != nil else { return nil }
             let candidate = DailyStrainCandidate(
                 metric: row,
-                sourceId: exactImportedSource[row.day] ?? canonicalDeviceId
+                sourceId: exactImportedSource[row.day] ?? exactImportedIds.first ?? expectedProjectionOwner
             )
             guard let resolved = StrainResolver.importedComparison(day: row.day, importedRows: [candidate]) else { return nil }
             return (row.day, resolved)
@@ -4907,6 +4961,7 @@ extension Repository {
                 snapshotStatus: .deferred
             )
         }
+        invalidateSuspendedTodayWritersForVerifiedPublication()
         return try commitHistoricalPresentationAtomically(
             HistoricalPublicationPreparedState(
                 exactDays: exactDays,

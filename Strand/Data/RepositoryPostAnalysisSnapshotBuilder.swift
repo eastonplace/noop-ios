@@ -8,6 +8,8 @@ import StrandAnalytics
 
 struct PostAnalysisTodaySnapshotInput: Sendable {
     let template: TodayHealthSnapshot
+    /// Durable owner for the exact historical publication. The dashboard scope remains canonical.
+    let ownerDeviceId: String
     let read: CanonicalHealthSurfaceStoreSnapshot
     let importedSourceIds: [String]
     let computedSourceIds: [String]
@@ -222,7 +224,7 @@ enum RepositoryPostAnalysisSnapshotBuilder {
         return TodayHealthSnapshot(
             scopeId: input.template.scopeId,
             context: context,
-            deviceId: input.template.deviceId,
+            deviceId: input.ownerDeviceId,
             displayDay: displayDay.key,
             logicalDay: input.template.logicalDay,
             localDay: input.template.localDay,

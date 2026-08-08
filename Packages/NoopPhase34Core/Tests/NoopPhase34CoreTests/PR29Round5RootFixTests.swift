@@ -92,6 +92,7 @@ final class PR29Round5RootFixTests: XCTestCase {
         let first = Task { await gate.signal() }
         await sequence.waitUntilFirstStarted()
         let finalEdge = Task { await gate.signal() }
+        while await !gate.hasPendingDrainForTesting { await Task.yield() }
         await sequence.releaseFirst()
 
         let result = await first.value
@@ -170,5 +171,30 @@ final class PR29Round5RootFixTests: XCTestCase {
         await fence.resume(sourceId: "source-A")
         let blockedAfterResume = await fence.isBlocked(sourceId: "source-A")
         XCTAssertFalse(blockedAfterResume)
+    }
+
+    func testNestedTargetQuiesceRequiresMatchingOuterResume() async throws {
+        let fence = TargetScopedPipelineFence()
+
+        await fence.quiesce(sourceId: "source-A")
+        await fence.quiesce(sourceId: "source-A")
+        let blockedTwice = await fence.isBlocked(sourceId: "source-A")
+        XCTAssertTrue(blockedTwice)
+
+        await fence.resume(sourceId: "source-A")
+        let blockedAfterInnerResume = await fence.isBlocked(sourceId: "source-A")
+        XCTAssertTrue(blockedAfterInnerResume)
+        do {
+            try await fence.begin(sourceId: "source-A")
+            XCTFail("inner resume reopened admission through the outer transition fence")
+        } catch TargetScopedFenceError.blocked {
+            // Expected.
+        }
+
+        await fence.resume(sourceId: "source-A")
+        let blockedAfterOuterResume = await fence.isBlocked(sourceId: "source-A")
+        XCTAssertFalse(blockedAfterOuterResume)
+        try await fence.begin(sourceId: "source-A")
+        await fence.end(sourceId: "source-A")
     }
 }

@@ -14,6 +14,8 @@ private actor SourceTransitionProbe {
     var startCommittedCount = 0
     var activatedCommits: [String] = []
     var scheduledCommits: [String] = []
+    var historicalResumeEpochs: [UInt64] = []
+    var externalResumeEpochs: [UInt64] = []
 
     func failStoreCommittedPersistence() {
         failStoreCommittedPersist = true
@@ -54,6 +56,8 @@ private actor SourceTransitionProbe {
     func noteScheduled(_ commit: String?) {
         if let commit { scheduledCommits.append(commit) }
     }
+    func noteHistoricalResume(_ epoch: UInt64) { historicalResumeEpochs.append(epoch) }
+    func noteExternalResume(_ epoch: UInt64) { externalResumeEpochs.append(epoch) }
 }
 
 final class SourceTransitionRecoveryCoordinatorTests: XCTestCase {
@@ -143,6 +147,150 @@ final class SourceTransitionRecoveryCoordinatorTests: XCTestCase {
         XCTAssertEqual(activated, ["durable-commit-A"])
         XCTAssertEqual(scheduled, ["durable-commit-A"])
         XCTAssertEqual(finalRecord?.stage, .complete)
+    }
+
+    func testRelaunchFromPreparedAbortsAndRestoresPrecommitState() async throws {
+        let probe = SourceTransitionProbe()
+        let recovery = SourceTransitionRecoveryRecord(
+            mutationKind: "deleteData",
+            sourceDeviceId: "source-A",
+            targetDeviceId: "source-B",
+            historicalEpoch: 3,
+            externalEpoch: 5,
+            sinkEpoch: 8,
+            stage: .prepared
+        )
+        await probe.seed(record: recovery)
+
+        let dependencies = SourceTransitionRecoveryDependencies<String>(
+            quiesceHistorical: { 0 },
+            quiesceExternal: { 0 },
+            stopAffectedLiveSource: {},
+            restartPreviousSource: { await probe.noteRestartPrevious() },
+            beginSinkTransition: { 0 },
+            restorePrecommitSink: { _ in await probe.noteRestorePrecommit() },
+            persistRecovery: { record in try await probe.persist(record) },
+            loadRecovery: { await probe.load() },
+            commitStoreMutation: { (_: SourceTransitionRecoveryRecord) in
+                XCTFail("prepared relaunch attempted a store mutation")
+                return "unused"
+            },
+            loadCommittedMutation: { _ in
+                XCTFail("prepared relaunch attempted to load a durable commit")
+                return nil
+            },
+            activateSink: { _, _ in XCTFail("prepared relaunch activated the committed sink") },
+            resumeHistorical: { epoch in await probe.noteHistoricalResume(epoch) },
+            resumeExternal: { epoch in await probe.noteExternalResume(epoch) },
+            startCommittedSource: { _ in XCTFail("prepared relaunch started the committed source") },
+            scheduleExactPostCommit: { _ in XCTFail("prepared relaunch scheduled postcommit work") },
+            classify: { _ in "error" }
+        )
+        let coordinator = SourceTransitionRecoveryCoordinator(dependencies: dependencies)
+
+        try await coordinator.recoverPending()
+
+        let finalRecord = await probe.record
+        let restoreCount = await probe.restorePrecommitCount
+        let restartCount = await probe.restartPreviousCount
+        let historicalResumes = await probe.historicalResumeEpochs
+        let externalResumes = await probe.externalResumeEpochs
+        XCTAssertEqual(finalRecord?.stage, .aborted)
+        XCTAssertEqual(finalRecord?.lastErrorCode, "recovered_precommit_abort")
+        XCTAssertEqual(restoreCount, 1)
+        XCTAssertEqual(restartCount, 1)
+        XCTAssertEqual(historicalResumes, [3])
+        XCTAssertEqual(externalResumes, [5])
+    }
+
+    func testRelaunchFromSinkActivatedResumesWorkersWithoutReactivatingSink() async throws {
+        let probe = SourceTransitionProbe()
+        let recovery = SourceTransitionRecoveryRecord(
+            mutationKind: "archive",
+            sourceDeviceId: "source-A",
+            targetDeviceId: "source-B",
+            historicalEpoch: 3,
+            externalEpoch: 5,
+            sinkEpoch: 8,
+            stage: .sinkActivated
+        )
+        await probe.seed(record: recovery, durableCommit: "durable-commit-A")
+
+        let dependencies = SourceTransitionRecoveryDependencies<String>(
+            quiesceHistorical: { 0 },
+            quiesceExternal: { 0 },
+            stopAffectedLiveSource: {},
+            restartPreviousSource: {},
+            beginSinkTransition: { 0 },
+            restorePrecommitSink: { _ in },
+            persistRecovery: { record in try await probe.persist(record) },
+            loadRecovery: { await probe.load() },
+            commitStoreMutation: { (_: SourceTransitionRecoveryRecord) in "unused" },
+            loadCommittedMutation: { id in await probe.loadCommit(id) },
+            activateSink: { _, _ in XCTFail("sinkActivated relaunch reactivated the sink") },
+            resumeHistorical: { epoch in await probe.noteHistoricalResume(epoch) },
+            resumeExternal: { epoch in await probe.noteExternalResume(epoch) },
+            startCommittedSource: { _ in await probe.noteStartCommitted() },
+            scheduleExactPostCommit: { commit in await probe.noteScheduled(commit) },
+            classify: { _ in "error" }
+        )
+        let coordinator = SourceTransitionRecoveryCoordinator(dependencies: dependencies)
+
+        try await coordinator.recoverPending()
+
+        let finalRecord = await probe.record
+        let historicalResumes = await probe.historicalResumeEpochs
+        let externalResumes = await probe.externalResumeEpochs
+        let startCount = await probe.startCommittedCount
+        let scheduled = await probe.scheduledCommits
+        XCTAssertEqual(finalRecord?.stage, .complete)
+        XCTAssertEqual(historicalResumes, [3])
+        XCTAssertEqual(externalResumes, [5])
+        XCTAssertEqual(startCount, 1)
+        XCTAssertEqual(scheduled, ["durable-commit-A"])
+    }
+
+    func testRelaunchFromWorkersResumedOnlyStartsSourceAndSchedulesPostcommit() async throws {
+        let probe = SourceTransitionProbe()
+        let recovery = SourceTransitionRecoveryRecord(
+            mutationKind: "archive",
+            sourceDeviceId: "source-A",
+            targetDeviceId: "source-B",
+            historicalEpoch: 3,
+            externalEpoch: 5,
+            sinkEpoch: 8,
+            stage: .workersResumed
+        )
+        await probe.seed(record: recovery, durableCommit: "durable-commit-A")
+
+        let dependencies = SourceTransitionRecoveryDependencies<String>(
+            quiesceHistorical: { 0 },
+            quiesceExternal: { 0 },
+            stopAffectedLiveSource: {},
+            restartPreviousSource: {},
+            beginSinkTransition: { 0 },
+            restorePrecommitSink: { _ in },
+            persistRecovery: { record in try await probe.persist(record) },
+            loadRecovery: { await probe.load() },
+            commitStoreMutation: { (_: SourceTransitionRecoveryRecord) in "unused" },
+            loadCommittedMutation: { id in await probe.loadCommit(id) },
+            activateSink: { _, _ in XCTFail("workersResumed relaunch reactivated the sink") },
+            resumeHistorical: { _ in XCTFail("workersResumed relaunch resumed historical work twice") },
+            resumeExternal: { _ in XCTFail("workersResumed relaunch resumed external work twice") },
+            startCommittedSource: { _ in await probe.noteStartCommitted() },
+            scheduleExactPostCommit: { commit in await probe.noteScheduled(commit) },
+            classify: { _ in "error" }
+        )
+        let coordinator = SourceTransitionRecoveryCoordinator(dependencies: dependencies)
+
+        try await coordinator.recoverPending()
+
+        let finalRecord = await probe.record
+        let startCount = await probe.startCommittedCount
+        let scheduled = await probe.scheduledCommits
+        XCTAssertEqual(finalRecord?.stage, .complete)
+        XCTAssertEqual(startCount, 1)
+        XCTAssertEqual(scheduled, ["durable-commit-A"])
     }
 
     func testPostCommitRecoveryWithoutDurableCommitFailsClosed() async throws {

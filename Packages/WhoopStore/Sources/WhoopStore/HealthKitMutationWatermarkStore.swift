@@ -25,6 +25,21 @@ public enum HealthKitWatermarkStoreError: Error, Equatable, Sendable {
 }
 
 extension WhoopStore {
+    /// Indexed privacy-deletion lookup. This is evidence of exact HealthKit days already delivered for one
+    /// source, including deletion-only mutations that may no longer have a current dailyMetric row.
+    public func healthKitMutationWatermarkDays(deviceId: String) async throws -> Set<CivilDay> {
+        let source = deviceId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !source.isEmpty else { return [] }
+        return try syncRead { db in
+            let rows = try String.fetchAll(
+                db,
+                sql: "SELECT day FROM healthKitMutationWatermark WHERE deviceId = ? ORDER BY day",
+                arguments: [source]
+            )
+            return try Set(rows.map(CivilDay.init(key:)))
+        }
+    }
+
     /// One indexed lookup for the complete exact mutation. A conflicting device is a durable identity error;
     /// silently treating it as an empty fence would allow one source to overwrite another source's HealthKit.
     public func eligibleHealthKitMutationDaysBatched(

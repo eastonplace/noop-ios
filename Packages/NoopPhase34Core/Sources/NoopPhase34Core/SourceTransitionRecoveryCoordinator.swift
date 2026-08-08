@@ -48,7 +48,7 @@ public struct SourceTransitionRecoveryDependencies<Commit: Sendable>: Sendable {
     public let quiesceExternal: @Sendable () async throws -> UInt64
     public let stopAffectedLiveSource: @Sendable () async -> Void
     public let restartPreviousSource: @Sendable () async -> Void
-    public let beginSinkTransition: @Sendable () throws -> UInt64
+    public let beginSinkTransition: @Sendable () async throws -> UInt64
     /// Reopen the previous verified context at the newly allocated epoch after a
     /// precommit failure. Epochs never move backward.
     public let restorePrecommitSink: @Sendable (_ epoch: UInt64) async throws -> Void
@@ -73,7 +73,7 @@ public struct SourceTransitionRecoveryDependencies<Commit: Sendable>: Sendable {
         quiesceExternal: @escaping @Sendable () async throws -> UInt64,
         stopAffectedLiveSource: @escaping @Sendable () async -> Void,
         restartPreviousSource: @escaping @Sendable () async -> Void,
-        beginSinkTransition: @escaping @Sendable () throws -> UInt64,
+        beginSinkTransition: @escaping @Sendable () async throws -> UInt64,
         restorePrecommitSink: @escaping @Sendable (UInt64) async throws -> Void,
         persistRecovery: @escaping @Sendable (SourceTransitionRecoveryRecord) async throws -> Void,
         loadRecovery: @escaping @Sendable () async throws -> SourceTransitionRecoveryRecord?,
@@ -111,7 +111,7 @@ public struct SourceTransitionRecoveryDependencies<Commit: Sendable>: Sendable {
         quiesceExternal: @escaping @Sendable () async throws -> UInt64,
         stopAffectedLiveSource: @escaping @Sendable () async -> Void,
         restartPreviousSource: @escaping @Sendable () async -> Void,
-        beginSinkTransition: @escaping @Sendable () throws -> UInt64,
+        beginSinkTransition: @escaping @Sendable () async throws -> UInt64,
         restorePrecommitSink: @escaping @Sendable (UInt64) async throws -> Void,
         persistRecovery: @escaping @Sendable (SourceTransitionRecoveryRecord) async throws -> Void,
         loadRecovery: @escaping @Sendable () async throws -> SourceTransitionRecoveryRecord?,
@@ -176,7 +176,7 @@ public actor SourceTransitionRecoveryCoordinator<Commit: Sendable> {
         await dependencies.stopAffectedLiveSource()
         let sinkEpoch: UInt64
         do {
-            sinkEpoch = try dependencies.beginSinkTransition()
+            sinkEpoch = try await dependencies.beginSinkTransition()
         } catch {
             try? await dependencies.resumeHistorical(historicalEpoch)
             try? await dependencies.resumeExternal(externalEpoch)

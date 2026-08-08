@@ -185,6 +185,23 @@ extension WidgetSnapshot {
         }
     }
 
+    /// Regression seam for optional enrichment. The returned base is always the immutable verified envelope;
+    /// `loadForDisplay` is intentionally excluded because it may contain a transient live overlay.
+    static func verifiedEnrichmentBase(
+        defaults: UserDefaults,
+        token: VerifiedSinkToken,
+        contextId: String,
+        generation: Int64
+    ) -> WidgetSnapshot? {
+        guard let active = ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults),
+              active == token,
+              let envelope = VerifiedWidgetEnvelopeStore.rawActiveEnvelope(defaults: defaults),
+              envelope.epoch == token.epoch,
+              envelope.contextId == contextId,
+              envelope.generation == generation else { return nil }
+        return envelope.snapshot
+    }
+
     /// Optional Widget enrichment is deliberately detached from the durable outbox acknowledgement. The
     /// epoch/generation check on the second write prevents a late enrichment task from crossing a transition.
     @MainActor
@@ -202,16 +219,14 @@ extension WidgetSnapshot {
             .map { Int($0.value.rounded()) }
         let stress = await dashboardStress(from: model)
         guard let defaults = UserDefaults(suiteName: WidgetSnapshot.suiteName),
-              let active = ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults),
-              active == token,
-              let envelope = VerifiedWidgetEnvelopeStore.rawActiveEnvelope(defaults: defaults),
-              envelope.epoch == token.epoch,
-              envelope.contextId == projection.contextId,
-              envelope.generation == projection.generation else { return }
+              var enriched = verifiedEnrichmentBase(
+                defaults: defaults,
+                token: token,
+                contextId: projection.contextId,
+                generation: projection.generation) else { return }
         // Start from the immutable verified payload, never the display view. The display view may contain
         // a transient live overlay; baking it back into the envelope would turn non-durable HR/battery
         // fields into verified state and could resurrect them after a transition or relaunch.
-        var enriched = envelope.snapshot
         enriched.hrvSparkline = hrvSparkline
         enriched.hourlyStress = stress.hours
         enriched.stressSummary = stress.summary

@@ -58,18 +58,15 @@ enum DurableSourceTransitionKind: Equatable {
     case deleteData
 }
 
-private struct PendingPhysicalSourceTransition {
-    let deviceId: String
-    let historicalEpoch: UInt64
-    let externalEpoch: UInt64
-    let sinkEpoch: UInt64
-}
-
 /// Root app state: owns the live BLE connection state and the CoreBluetooth engine.
 /// More subsystems (Repository, AnalyticsEngine, ImportCoordinator) get wired in here
 /// in later milestones.
 @MainActor
 final class AppModel: ObservableObject {
+    /// `sourceTransitionJournal` predates target-scoped transitions and requires every persisted epoch to be
+    /// positive. Epoch 1 is the untouched/open initial process-local epoch, so it is the durable sentinel for
+    /// a transition that intentionally did not quiesce the global historical/external/sink owners.
+    nonisolated private static let noGlobalSourceTransitionEpoch: UInt64 = 1
     /// The live instance, so an AppIntent (Shortcuts) can reach the bonded strap rather than spinning
     /// up a dead second AppModel (which would start a duplicate BLE engine and never buzz). Set in
     /// init(); `weak` so an intent fired while NOOP is closed sees nil and asks the user to open it. (#42)
@@ -113,7 +110,8 @@ final class AppModel: ObservableObject {
     private lazy var fullHistoryRepairMaintenance = makeFullHistoryRepairMaintenance()
     private var pendingFullHistoryRepairPublication: (
         days: Set<CivilDay>,
-        snapshot: SnapshotCommitReceipt
+        snapshot: SnapshotCommitReceipt,
+        sourceDeviceId: String
     )?
 
     var backupRestoreLifecycle: DataBackup.RestoreLifecycle {
@@ -159,7 +157,7 @@ final class AppModel: ObservableObject {
     private(set) var sourceCoordinator: SourceCoordinator?
     private var externalPublicationQuiesce: (() async throws -> UInt64)?
     private var externalPublicationResume: ((UInt64) async throws -> Void)?
-    private var pendingPhysicalSourceTransition: PendingPhysicalSourceTransition?
+    private var prepareHealthKitSourceDeletion: (@Sendable (String) async throws -> Void)?
 
     /// Timestamps of moments marked via a double-tap (persisted).
     @Published var moments: [Date] = []
@@ -516,7 +514,7 @@ final class AppModel: ObservableObject {
             }
             _ = await self.repo.refresh(.initialLoad)          // surface any imported data at once
             _ = await firstPaintTask.value
-            await self.recoverDurableSourceTransitionIfNeeded()
+            await self.recoverPendingSourceTransition()
             // Resume committed source work only after first paint. The receipt path has its own durable
             // checkpoint and exact civil-day scope, so it cannot delay hydration or widen into a launch-time
             // last-21-days sweep. A crash before acknowledgment leaves the same target staged for retry.
@@ -610,6 +608,10 @@ final class AppModel: ObservableObject {
     func attachExternalPublicationWorker(_ worker: ExternalPublicationWorker) {
         externalPublicationQuiesce = { try await worker.quiesce() }
         externalPublicationResume = { epoch in try await worker.resume(expectedEpoch: epoch) }
+    }
+
+    func attachHealthKitSourceDeletion(_ prepare: @escaping @Sendable (String) async throws -> Void) {
+        prepareHealthKitSourceDeletion = prepare
     }
 
     private func quiesceExternalPublication() async throws -> UInt64 {
@@ -718,12 +720,13 @@ final class AppModel: ObservableObject {
                     work: work, store: store
                 )
             },
-            publishRepository: { [weak self] _, snapshot in
+            publishRepository: { [weak self] work, snapshot in
                 guard let self else { throw HistoricalPipelineRuntimeError.storeUnavailable }
                 let outcome = try await self.repo.publishVerifiedExactDays(
                     snapshot.analyzedDays,
                     recordedTimeZoneIdentifier: snapshot.recordedTimeZoneIdentifier,
-                    snapshot: snapshot
+                    snapshot: snapshot,
+                    sourceDeviceId: work.scope.deviceId
                 )
                 guard outcome.authoritativeDataPublished else {
                     throw HistoricalPipelineRuntimeError.snapshotUnavailable
@@ -807,7 +810,11 @@ final class AppModel: ObservableObject {
                     self.repo.loaded && self.repo.todayHealthSnapshot != nil
                 }
                 guard canPrune else { return }
-                _ = try await store.pruneDurablePipelineHistory()
+                let now = Date()
+                let lastRunAt = try await store.maintenanceLastRunAt(key: DurablePruningCadence.key)
+                guard DurablePruningCadence.isDue(lastRunAt: lastRunAt, now: now) else { return }
+                _ = try await store.pruneDurablePipelineHistory(now: now)
+                try await store.recordMaintenanceRun(key: DurablePruningCadence.key, at: now)
             },
             classifyAdmissionError: PR28PipelineErrorClassifier.classify,
             onAdmissionFailure: { [weak self] failure in
@@ -921,7 +928,8 @@ final class AppModel: ObservableObject {
         let outcome = try await repo.publishVerifiedExactDays(
             days,
             recordedTimeZoneIdentifier: pending.snapshot.recordedTimeZoneIdentifier,
-            snapshot: pending.snapshot)
+            snapshot: pending.snapshot,
+            sourceDeviceId: pending.sourceDeviceId)
         guard outcome.authoritativeDataPublished else {
             throw HistoricalPipelineRuntimeError.snapshotUnavailable
         }
@@ -983,20 +991,23 @@ final class AppModel: ObservableObject {
         }
 
         var completedWork = try await store.historicalAnalysisWork(workId: queuedWork.id)
-        for _ in 0..<120 where completedWork?.state != .complete {
+        if completedWork?.state != .complete {
             if completedWork?.state == .quarantined {
                 throw FullHistoryRepairMaintenanceError.invalidWork
             }
             _ = await historicalPipelineRuntime.signal()
             try Task.checkCancellation()
-            try await Task.sleep(for: .milliseconds(100))
             completedWork = try await store.historicalAnalysisWork(workId: queuedWork.id)
         }
         guard let completedWork, completedWork.state == .complete else {
             throw FullHistoryRepairMaintenanceError.notIdle
         }
         let snapshot = try await repo.loadHistoricalSnapshotCommit(work: completedWork, store: store)
-        pendingFullHistoryRepairPublication = (completedWork.affectedDays, snapshot)
+        pendingFullHistoryRepairPublication = (
+            completedWork.affectedDays,
+            snapshot,
+            completedWork.scope.deviceId
+        )
         return FullHistoryRepairBatchResult(
             changedDays: completedWork.affectedDays,
             hasMore: hasMore,
@@ -1063,17 +1074,18 @@ final class AppModel: ObservableObject {
             // The engine's last-connected WHOOP uuid drives first-connect identity adoption.
             connectedPeripheralUUID: ble.$connectedPeripheralUUID.eraseToAnyPublisher(),
             transitionFence: sourceTransitionFence,
-            onPeripheralIdentityWillChange: { [weak self] deviceId, oldScope in
-                try await self?.preparePeripheralIdentityTransition(
-                    deviceId: deviceId, oldScope: oldScope, peripheralId: nil)
+            onPeripheralIdentityWillChange: { _, _ in
+                throw AppModelSourceTransitionError.physicalTransitionMissing
             },
             onPeripheralIdentityWillChangeWithPeripheral: { [weak self] deviceId, oldScope, peripheralId in
-                try await self?.preparePeripheralIdentityTransition(
-                    deviceId: deviceId, oldScope: oldScope, peripheralId: peripheralId)
+                try await self?.performSourceTransition(
+                    to: deviceId,
+                    from: deviceId,
+                    kind: .replacePeripheral,
+                    replacementPeripheralId: peripheralId,
+                    expectedOldScope: oldScope)
             },
-            onPeripheralIdentityDidChange: { [weak self] deviceId in
-                try await self?.finishPeripheralIdentityTransition(deviceId: deviceId)
-            },
+            onPeripheralIdentityDidChange: { _ in },
             // Generic-HR connect lifecycle → the SAME strap log BLEManager writes to (`live.append(log:)`),
             // so a "connected but no data" report (issue #421) is no longer blind to the Polar/Wahoo/etc
             // path. Timestamp matches BLEManager.log()'s "HH:mm:ss" so the lines read consistently.
@@ -1122,103 +1134,206 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Quiesce every durable writer before the physical registry identity changes. Old HealthKit outbox rows and
-    /// watermarks remain intact; only the historical receipt scope is retired for the new physical lineage.
-    private func preparePeripheralIdentityTransition(
-        deviceId: String,
-        oldScope: HistoricalCursorScope,
-        peripheralId: String?
-    ) async throws {
-        var historicalEpoch: UInt64?
-        var externalEpoch: UInt64?
-        do {
-            historicalEpoch = try await historicalPipelineRuntime.quiesce()
-            await fullHistoryRepairMaintenance.cancelAndWait()
-            externalEpoch = try await quiesceExternalPublication()
-            // Stop live source callbacks only after both durable workers have cancelled and awaited their
-            // old owners. This keeps the physical-lineage mutation behind the same quiescence boundary.
-            sourceCoordinator?.stopForTransition()
-            let sinkEpoch = try beginVerifiedSinkTransition()
-            repo.invalidateVerifiedExternalSurface()
-            await repo.invalidateTodayHealthSnapshot()
-            guard let store = await repo.storeHandle() else {
-                throw AppModelSourceTransitionError.storeUnavailable
+    private func restoreVerifiedSinkTransition(epoch: UInt64, contextId: String?) throws {
+        guard epoch > 0 else { return }
+        let defaults = try sinkDefaults()
+        if let contextId {
+            guard ActiveVerifiedSinkEpochStore.activate(
+                contextId: contextId,
+                epoch: epoch,
+                defaults: defaults) != nil else {
+                throw AppModelSourceTransitionError.sinkActivationFailed
             }
-            if let peripheralId {
-                _ = try await store.commitSourceLifecycleMutation(
-                    .replacePeripheral(
-                        deviceId: deviceId,
-                        expectedOldLineage: oldScope.lineage,
-                        peripheralId: peripheralId,
-                        consumerId: "phase34.analysis"))
-            }
-            guard let historicalEpoch, let externalEpoch else {
-                throw AppModelSourceTransitionError.externalWorkerUnavailable
-            }
-            pendingPhysicalSourceTransition = PendingPhysicalSourceTransition(
-                deviceId: deviceId,
-                historicalEpoch: historicalEpoch,
-                externalEpoch: externalEpoch,
-                sinkEpoch: sinkEpoch)
-        } catch {
-            if let externalEpoch {
-                do { try await resumeExternalPublication(externalEpoch) }
-                catch { live.append(log: "External worker resume failed after physical preflight: \(error)") }
-            }
-            if let historicalEpoch {
-                do { try await historicalPipelineRuntime.resume(expectedEpoch: historicalEpoch) }
-                catch { live.append(log: "Historical worker resume failed after physical preflight: \(error)") }
-            }
-            throw error
+        } else {
+            ActiveSinkEpochRecovery.clearVerifiedWidgetState(defaults: defaults)
+            ActiveSinkEpochRecovery.clearLiveActivityGeneration(defaults: defaults)
         }
     }
 
-    /// Re-open admission only after the new physical lineage and registry write are durable. Heavy refresh and
-    /// rescoring are scheduled after the fence closes so the short transition cannot be held by SQLite work.
-    private func finishPeripheralIdentityTransition(deviceId: String) async throws {
-        guard let pending = pendingPhysicalSourceTransition, pending.deviceId == deviceId else {
-            throw AppModelSourceTransitionError.physicalTransitionMissing
-        }
-        try activateVerifiedSinkTransition(epoch: pending.sinkEpoch)
-        try await historicalPipelineRuntime.resume(expectedEpoch: pending.historicalEpoch)
-        try await resumeExternalPublication(pending.externalEpoch)
-        pendingPhysicalSourceTransition = nil
-        sourceCoordinator?.activeDeviceChanged(to: deviceRegistry?.activeDeviceId)
-        schedulePostCommitSourceWork(targetDeviceId: deviceRegistry?.activeDeviceId)
-        live.append(log: "Source transition committed for \(deviceId).")
+    private func sourceTransitionCoordinator(
+        mutation: DurableSourceLifecycleMutation?,
+        sourceDeviceId: String,
+        activeProjectionTransition: Bool,
+        previousActiveDeviceId: String?,
+        previousSinkContextId: String?
+    ) -> SourceTransitionRecoveryCoordinator<DurableSourceLifecycleCommit> {
+        let derivedDeviceId = sourceDeviceId + "-noop"
+        let isPrivacyDelete: Bool = {
+            guard let mutation else { return false }
+            if case .deleteData = mutation { return true }
+            return false
+        }()
+        let dependencies = SourceTransitionRecoveryDependencies<DurableSourceLifecycleCommit>(
+            quiesceHistorical: { [weak self] in
+                guard let self else { throw AppModelSourceTransitionError.storeUnavailable }
+                let epoch: UInt64
+                if activeProjectionTransition {
+                    epoch = try await self.historicalPipelineRuntime.quiesce()
+                    await self.fullHistoryRepairMaintenance.cancelAndWait()
+                } else {
+                    epoch = Self.noGlobalSourceTransitionEpoch
+                }
+                await TargetScopedPipelineFence.shared.quiesce(sourceId: sourceDeviceId)
+                await TargetScopedPipelineFence.shared.quiesce(sourceId: derivedDeviceId)
+                return epoch
+            },
+            quiesceExternal: { [weak self] in
+                guard let self else { throw AppModelSourceTransitionError.externalWorkerUnavailable }
+                return activeProjectionTransition
+                    ? try await self.quiesceExternalPublication()
+                    : Self.noGlobalSourceTransitionEpoch
+            },
+            stopAffectedLiveSource: { [weak self] in
+                guard let self, activeProjectionTransition else { return }
+                let repo = await MainActor.run {
+                    self.sourceCoordinator?.stopForTransition()
+                    self.repo.invalidateVerifiedExternalSurface()
+                    return self.repo
+                }
+                await repo.invalidateTodayHealthSnapshot()
+            },
+            restartPreviousSource: { [weak self] in
+                guard let self, activeProjectionTransition else { return }
+                await MainActor.run {
+                    self.sourceCoordinator?.activeDeviceChanged(to: previousActiveDeviceId)
+                    self.schedulePostCommitSourceWork(targetDeviceId: previousActiveDeviceId)
+                }
+            },
+            beginSinkTransition: { [weak self] in
+                guard let self else { throw AppModelSourceTransitionError.sinkUnavailable }
+                return try await MainActor.run {
+                    activeProjectionTransition
+                        ? try self.beginVerifiedSinkTransition()
+                        : Self.noGlobalSourceTransitionEpoch
+                }
+            },
+            restorePrecommitSink: { [weak self] epoch in
+                guard let self, activeProjectionTransition else { return }
+                try await MainActor.run {
+                    try self.restoreVerifiedSinkTransition(
+                        epoch: epoch,
+                        contextId: previousSinkContextId)
+                }
+            },
+            persistRecovery: { [weak self] record in
+                guard let self, let store = await self.repo.storeHandle() else {
+                    throw AppModelSourceTransitionError.storeUnavailable
+                }
+                try await store.persistSourceTransitionRecovery(record)
+            },
+            loadRecovery: { [weak self] in
+                guard let self, let store = await self.repo.storeHandle() else {
+                    throw AppModelSourceTransitionError.storeUnavailable
+                }
+                return try await store.latestSourceTransitionRecovery()
+            },
+            commitStoreMutation: { [weak self] prepared in
+                guard let self, let mutation, let store = await self.repo.storeHandle() else {
+                    throw AppModelSourceTransitionError.storeUnavailable
+                }
+                if isPrivacyDelete {
+                    guard let prepareHealthKitSourceDeletion = await MainActor.run(body: {
+                        self.prepareHealthKitSourceDeletion
+                    }) else {
+                        throw AppModelSourceTransitionError.externalWorkerUnavailable
+                    }
+                    try await prepareHealthKitSourceDeletion(sourceDeviceId)
+                }
+                return try await store.commitSourceLifecycleMutation(
+                    mutation,
+                    recovery: prepared
+                )
+            },
+            loadCommittedMutation: { [weak self] transitionId in
+                guard let self, let store = await self.repo.storeHandle() else {
+                    throw AppModelSourceTransitionError.storeUnavailable
+                }
+                return try await store.sourceTransitionCommit(transitionId: transitionId)
+            },
+            activateSink: { [weak self] epoch, commit in
+                guard let self else { throw AppModelSourceTransitionError.storeUnavailable }
+                let repo = try await MainActor.run { () throws -> Repository in
+                    try self.deviceRegistry?.reload()
+                    if let activeId = commit?.activeDeviceId,
+                       let registry = self.deviceRegistry,
+                       let descriptor = try? registry.sourceDescriptor(for: activeId) {
+                        _ = self.repo.adoptActiveSource(descriptor)
+                    } else if self.deviceRegistry?.activeDeviceId == nil {
+                        _ = self.repo.adoptActiveSource(nil)
+                    }
+                    return self.repo
+                }
+                guard activeProjectionTransition else { return }
+                if let store = await repo.storeHandle() {
+                    try await store.retireLatestStatePublications(contextId: previousSinkContextId)
+                }
+                try await MainActor.run {
+                    try self.activateVerifiedSinkTransition(epoch: epoch)
+                }
+            },
+            resumeHistorical: { [weak self] epoch in
+                guard let self else { return }
+                var resumeError: (any Error)?
+                if activeProjectionTransition {
+                    do {
+                        try await self.historicalPipelineRuntime.resume(expectedEpoch: epoch)
+                    } catch {
+                        resumeError = error
+                    }
+                }
+                await TargetScopedPipelineFence.shared.resume(sourceId: derivedDeviceId)
+                await TargetScopedPipelineFence.shared.resume(sourceId: sourceDeviceId)
+                if let resumeError { throw resumeError }
+            },
+            resumeExternal: { [weak self] epoch in
+                guard let self, activeProjectionTransition else { return }
+                try await self.resumeExternalPublication(epoch)
+            },
+            startCommittedSource: { [weak self] commit in
+                guard let self, activeProjectionTransition else { return }
+                await MainActor.run {
+                    self.sourceCoordinator?.activeDeviceChanged(to: commit?.activeDeviceId)
+                }
+            },
+            scheduleExactPostCommit: { [weak self] commit in
+                guard let self, activeProjectionTransition else { return }
+                await MainActor.run {
+                    self.schedulePostCommitSourceWork(targetDeviceId: commit?.activeDeviceId)
+                }
+            },
+            classify: { String(describing: $0) }
+        )
+        return SourceTransitionRecoveryCoordinator(dependencies: dependencies)
     }
 
-    /// A source mutation commits registry/lineage state before it activates sinks. If the process dies in
-    /// that seam, the next launch repairs the committed source and restarts durable workers. It never tries to
-    /// roll back SQLite or resurrect the old sink generation.
-    private func recoverDurableSourceTransitionIfNeeded() async {
+    /// Re-enter the single durable source-transition state machine after launch, foreground, or protected-data
+    /// recovery. The same fence serializes this with device actions and registry/BLE callbacks.
+    func recoverPendingSourceTransition() async {
+        await sourceTransitionFence.run { @MainActor [weak self] in
+            await self?.recoverDurableSourceTransitionIfNeededUnfenced()
+        }
+    }
+
+    /// A prepared record aborts safely. Postcommit stages load the exact commit payload captured in the same
+    /// SQLite transaction and move forward. Call only while `sourceTransitionFence` owns source mutation.
+    private func recoverDurableSourceTransitionIfNeededUnfenced() async {
         guard let store = await repo.storeHandle(),
               let record = try? await store.latestSourceTransitionRecovery() else { return }
+        // A globally fenced transition always advances HistoricalPipelineRuntime from its initial epoch 1.
+        // Target-only archive/delete records persist epoch 1 as the schema-compatible no-global-fence sentinel.
+        let activeProjectionTransition = record.historicalEpoch > Self.noGlobalSourceTransitionEpoch
+        let previousContext = (try? sinkDefaults()).flatMap {
+            VerifiedWidgetEnvelopeStore.load(defaults: $0)?.contextId
+        }
+        let coordinator = sourceTransitionCoordinator(
+            mutation: nil,
+            sourceDeviceId: record.sourceDeviceId,
+            activeProjectionTransition: activeProjectionTransition,
+            previousActiveDeviceId: deviceRegistry?.activeDeviceId,
+            previousSinkContextId: previousContext
+        )
         do {
-            guard record.stage != .prepared else {
-                var aborted = record
-                aborted.stage = .aborted
-                aborted.lastErrorCode = "process_ended_before_store_commit"
-                try await store.persistSourceTransitionRecovery(aborted)
-                return
-            }
-            try? deviceRegistry?.reload()
-            if let activeId = deviceRegistry?.activeDeviceId,
-               let registry = deviceRegistry,
-               let descriptor = try? registry.sourceDescriptor(for: activeId) {
-                _ = repo.adoptActiveSource(descriptor)
-                sourceCoordinator?.activeDeviceChanged(to: activeId)
-            } else {
-                _ = repo.adoptActiveSource(nil)
-                sourceCoordinator?.activeDeviceChanged(to: nil)
-            }
-            repo.invalidateVerifiedExternalSurface()
-            try? activateVerifiedSinkTransition(epoch: record.sinkEpoch)
-            _ = await signalHistoricalPipeline()
-            var completed = record
-            completed.stage = .complete
-            completed.lastErrorCode = nil
-            try await store.persistSourceTransitionRecovery(completed)
+            try await coordinator.recoverPending()
         } catch {
             live.append(log: "Durable source transition recovery deferred: \(error)")
         }
@@ -1240,7 +1355,9 @@ final class AppModel: ObservableObject {
         to targetDeviceId: String?,
         from oldDeviceId: String?,
         kind: DurableSourceTransitionKind,
-        archivedDeviceId: String? = nil
+        archivedDeviceId: String? = nil,
+        replacementPeripheralId: String? = nil,
+        expectedOldScope: HistoricalCursorScope? = nil
     ) async throws {
         guard let registry = deviceRegistry else {
             throw AppModelSourceTransitionError.registryUnavailable
@@ -1249,7 +1366,7 @@ final class AppModel: ObservableObject {
            !registry.devices.contains(where: { $0.id == targetDeviceId && $0.status != .archived }) {
             throw AppModelSourceTransitionError.targetUnavailable
         }
-        guard let store = await repo.storeHandle() else {
+        guard await repo.storeHandle() != nil else {
             throw AppModelSourceTransitionError.storeUnavailable
         }
 
@@ -1265,143 +1382,57 @@ final class AppModel: ObservableObject {
             return
         }
 
-        // A non-active cleanup has no authority to fence the active projection or quiesce unrelated
-        // writers. Its one durable registry/data transaction is sufficient.
-        if (kind == .deleteData && oldDeviceId != registry.activeDeviceId)
-            || (kind == .archive && archivedDeviceId != registry.activeDeviceId && targetDeviceId == nil) {
-            switch kind {
-            case .archive:
-                guard let archivedDeviceId else { throw AppModelSourceTransitionError.targetUnavailable }
-                _ = try await store.commitSourceLifecycleMutation(
-                    .archive(deviceId: archivedDeviceId, replacementActiveId: nil, consumerId: "phase34.analysis"))
-            case .deleteData:
-                guard let oldDeviceId else { throw AppModelSourceTransitionError.targetUnavailable }
-                _ = try await store.commitSourceLifecycleMutation(
-                    .deleteData(deviceId: oldDeviceId, consumerId: "phase34.analysis"))
-            case .selectExisting, .replacePeripheral:
-                break
-            }
-            try registry.reload()
-            return
+        guard let sourceDeviceId = oldDeviceId ?? archivedDeviceId ?? targetDeviceId else {
+            throw AppModelSourceTransitionError.targetUnavailable
         }
-
-        var historicalEpoch: UInt64?
-        var externalEpoch: UInt64?
-        var historicalResumed = false
-        var externalResumed = false
-        var storeCommitted = false
-        var recoveryRecord: SourceTransitionRecoveryRecord?
-
-        do {
-            historicalEpoch = try await historicalPipelineRuntime.quiesce()
-            await fullHistoryRepairMaintenance.cancelAndWait()
-            externalEpoch = try await quiesceExternalPublication()
-            let liveSourceAffected = oldDeviceId == registry.activeDeviceId || kind == .selectExisting
-            if liveSourceAffected { sourceCoordinator?.stopForTransition() }
-            let sinkEpoch = try beginVerifiedSinkTransition()
-            let oldContext = repo.currentVerifiedSinkContextIdForActivation
-            repo.invalidateVerifiedExternalSurface()
-            await repo.invalidateTodayHealthSnapshot()
-
-            if let sourceDeviceId = oldDeviceId ?? archivedDeviceId ?? targetDeviceId,
-               let historicalEpoch, let externalEpoch {
-                let mutationName: String = switch kind {
-                case .selectExisting: "selectExisting"
-                case .replacePeripheral: "replacePeripheral"
-                case .archive: "archive"
-                case .deleteData: "deleteData"
-                }
-                let record = SourceTransitionRecoveryRecord(
-                    mutationKind: mutationName,
-                    sourceDeviceId: sourceDeviceId,
-                    targetDeviceId: targetDeviceId,
-                    historicalEpoch: historicalEpoch,
-                    externalEpoch: externalEpoch,
-                    sinkEpoch: sinkEpoch)
-                try await store.persistSourceTransitionRecovery(record)
-                recoveryRecord = record
-            }
-
-            switch kind {
-            case .selectExisting:
-                guard let targetDeviceId else { throw AppModelSourceTransitionError.targetUnavailable }
-                // Ordinary Make Active intentionally does not retire the old scope or delete external state.
-                try registry.setActive(targetDeviceId)
-            case .replacePeripheral:
+        let mutation: DurableSourceLifecycleMutation
+        let mutationName: String
+        switch kind {
+        case .selectExisting:
+            throw AppModelSourceTransitionError.targetUnavailable
+        case .replacePeripheral:
+            guard let replacementPeripheralId, let expectedOldScope,
+                  expectedOldScope.deviceId == sourceDeviceId else {
                 throw AppModelSourceTransitionError.physicalTransitionMissing
-            case .archive:
-                guard let archivedDeviceId else { throw AppModelSourceTransitionError.targetUnavailable }
-                _ = try await store.commitSourceLifecycleMutation(
-                    .archive(
-                        deviceId: archivedDeviceId,
-                        replacementActiveId: targetDeviceId,
-                        consumerId: "phase34.analysis"))
-            case .deleteData:
-                guard let oldDeviceId else { throw AppModelSourceTransitionError.targetUnavailable }
-                _ = try await store.commitSourceLifecycleMutation(
-                    .deleteData(deviceId: oldDeviceId, consumerId: "phase34.analysis"))
             }
-            storeCommitted = true
-            if var record = recoveryRecord {
-                record.stage = .storeCommitted
-                try await store.persistSourceTransitionRecovery(record)
-                recoveryRecord = record
+            mutation = .replacePeripheral(
+                deviceId: sourceDeviceId,
+                expectedOldLineage: expectedOldScope.lineage,
+                peripheralId: replacementPeripheralId,
+                consumerId: "phase34.analysis")
+            mutationName = "replacePeripheral"
+        case .archive:
+            guard archivedDeviceId == sourceDeviceId else {
+                throw AppModelSourceTransitionError.targetUnavailable
             }
-
-            try registry.reload()
-
-            if let targetDeviceId,
-               let descriptor = try? registry.sourceDescriptor(for: targetDeviceId) {
-                _ = repo.adoptActiveSource(descriptor)
-            } else if registry.activeDeviceId == nil {
-                _ = repo.adoptActiveSource(nil)
+            mutation = .archive(
+                deviceId: sourceDeviceId,
+                replacementActiveId: targetDeviceId,
+                consumerId: "phase34.analysis")
+            mutationName = "archive"
+        case .deleteData:
+            guard oldDeviceId == sourceDeviceId else {
+                throw AppModelSourceTransitionError.targetUnavailable
             }
-            try await store.retireLatestStatePublications(contextId: oldContext)
-            try activateVerifiedSinkTransition(epoch: sinkEpoch)
-            if var record = recoveryRecord {
-                record.stage = .sinkActivated
-                try await store.persistSourceTransitionRecovery(record)
-                recoveryRecord = record
-            }
-            guard let historicalEpoch, let externalEpoch else {
-                throw AppModelSourceTransitionError.externalWorkerUnavailable
-            }
-            try await historicalPipelineRuntime.resume(expectedEpoch: historicalEpoch)
-            historicalResumed = true
-            try await resumeExternalPublication(externalEpoch)
-            externalResumed = true
-            if var record = recoveryRecord {
-                record.stage = .workersResumed
-                try await store.persistSourceTransitionRecovery(record)
-                recoveryRecord = record
-            }
-            sourceCoordinator?.activeDeviceChanged(to: targetDeviceId)
-            if var record = recoveryRecord {
-                record.stage = .complete
-                record.lastErrorCode = nil
-                try await store.persistSourceTransitionRecovery(record)
-            }
-        } catch {
-            if var record = recoveryRecord {
-                record.stage = storeCommitted ? record.stage : .aborted
-                record.lastErrorCode = String(describing: error)
-                try? await store.persistSourceTransitionRecovery(record)
-            }
-            if let historicalEpoch, !historicalResumed {
-                do { try await historicalPipelineRuntime.resume(expectedEpoch: historicalEpoch) }
-                catch { live.append(log: "Historical worker resume failed after source transition: \(error)") }
-            }
-            if let externalEpoch, !externalResumed {
-                do { try await resumeExternalPublication(externalEpoch) }
-                catch { live.append(log: "External worker resume failed after source transition: \(error)") }
-            }
-            if storeCommitted {
-                try? registry.reload()
-                sourceCoordinator?.activeDeviceChanged(to: registry.activeDeviceId)
-                schedulePostCommitSourceWork(targetDeviceId: registry.activeDeviceId)
-            }
-            throw error
+            mutation = .deleteData(deviceId: sourceDeviceId, consumerId: "phase34.analysis")
+            mutationName = "deleteData"
         }
+
+        let previousActiveDeviceId = registry.activeDeviceId
+        let previousSinkContextId = repo.currentVerifiedSinkContextIdForActivation
+        let activeProjectionTransition = sourceDeviceId == previousActiveDeviceId
+        let coordinator = sourceTransitionCoordinator(
+            mutation: mutation,
+            sourceDeviceId: sourceDeviceId,
+            activeProjectionTransition: activeProjectionTransition,
+            previousActiveDeviceId: previousActiveDeviceId,
+            previousSinkContextId: previousSinkContextId)
+        try await coordinator.perform(
+            mutationKind: mutationName,
+            sourceDeviceId: sourceDeviceId,
+            targetDeviceId: targetDeviceId)
+        try registry.reload()
+        live.append(log: "Source transition committed for \(sourceDeviceId).")
     }
 
     private func schedulePostCommitSourceWork(targetDeviceId: String?) {
@@ -1453,7 +1484,6 @@ final class AppModel: ObservableObject {
                         kind: .archive,
                         archivedDeviceId: id)
                 }
-                self.schedulePostCommitSourceWork(targetDeviceId: replacement)
             } catch {
                 self.live.append(log: "Archive failed closed: \(error)")
             }
@@ -1473,7 +1503,6 @@ final class AppModel: ObservableObject {
                         from: id,
                         kind: .deleteData)
                 }
-                self.schedulePostCommitSourceWork(targetDeviceId: registry.activeDeviceId)
             } catch {
                 self.live.append(log: "Privacy delete failed closed: \(error)")
             }

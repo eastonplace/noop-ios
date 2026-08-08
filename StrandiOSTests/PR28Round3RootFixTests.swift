@@ -21,16 +21,31 @@ private actor PR28PublicationProbe {
 }
 
 private actor PR28LeaseSequence {
-    private var item: ExternalPublicationOutboxItem?
+    private var items: [ExternalPublicationOutboxItem]
 
     init(item: ExternalPublicationOutboxItem) {
-        self.item = item
+        self.items = [item]
+    }
+
+    init(items: [ExternalPublicationOutboxItem]) {
+        self.items = items
     }
 
     func next() -> ExternalPublicationOutboxItem? {
-        defer { item = nil }
-        return item
+        guard !items.isEmpty else { return nil }
+        return items.removeFirst()
     }
+}
+
+private actor PR29AttemptCounter {
+    private var count = 0
+
+    func next() -> Int {
+        count += 1
+        return count
+    }
+
+    func value() -> Int { count }
 }
 
 @MainActor
@@ -211,6 +226,43 @@ final class PR28Round3RootFixTests: XCTestCase {
         XCTAssertEqual(decodedCore.hrv, verified.hrv)
     }
 
+    func testWidgetEnrichmentStartsFromRawVerifiedEnvelopeInsteadOfDisplayOverlay() throws {
+        let suite = "noop.pr29.widget.enrichment.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let epoch = try XCTUnwrap(ActiveVerifiedSinkEpochStore.beginTransition(defaults: defaults))
+        let token = try XCTUnwrap(
+            ActiveVerifiedSinkEpochStore.activate(contextId: "context-A", epoch: epoch, defaults: defaults))
+        let verified = WidgetSnapshot.publishing(
+            recovery: 70, storedStrain: 40, sleepScore: 82, bpm: 60, batteryPct: 90,
+            bonded: true, hrv: 65, restingHr: 51,
+            verifiedContextId: "context-A", verifiedProjectionGeneration: 3,
+            updated: Date(timeIntervalSince1970: 1_800_000_000))
+        XCTAssertEqual(
+            VerifiedWidgetEnvelopeStore.commit(
+                token: token, generation: 3, snapshot: verified, defaults: defaults),
+            .published)
+
+        let overlay = WidgetLiveOverlay(
+            epoch: epoch, contextId: "context-A", generation: 3,
+            bpm: 120, batteryPct: 1, bonded: false, hrSparkline: [120], updated: Date())
+        XCTAssertTrue(ActiveVerifiedSinkEpochStore.commitLiveOverlayIfCurrent(
+            token: token, generation: 3, defaults: defaults, overlay: overlay))
+        let display = try XCTUnwrap(VerifiedWidgetEnvelopeStore.loadForDisplay(defaults: defaults))
+        XCTAssertEqual(display.bpm, 120)
+        XCTAssertEqual(display.batteryPct, 1)
+        XCTAssertFalse(display.bonded)
+
+        let enrichmentBase = try XCTUnwrap(WidgetSnapshot.verifiedEnrichmentBase(
+            defaults: defaults,
+            token: token,
+            contextId: "context-A",
+            generation: 3))
+        XCTAssertEqual(enrichmentBase.bpm, 60)
+        XCTAssertEqual(enrichmentBase.batteryPct, 90)
+        XCTAssertTrue(enrichmentBase.bonded)
+    }
+
     func testLiveAndVerifiedActivityKitCommandsRemainStrictlySerialized() async throws {
         let token = VerifiedSinkToken(epoch: 1, contextId: "context")
         var calls: [String] = []
@@ -303,6 +355,62 @@ final class PR28Round3RootFixTests: XCTestCase {
         XCTAssertFalse(events.contains { $0.contains("succeeded") })
     }
 
+    func testFreshExternalWorkerAcceptsPersistedEpochFromPreviousProcess() async throws {
+        let worker = ExternalPublicationWorker(
+            dependencies: ExternalPublicationWorkerDependencies(
+                leaseNext: { _, _, _, _ in nil },
+                applyEvent: { _, _, _ in fatalError("no outbox item should be leased") },
+                loadBundle: { _, _ in nil },
+                publishWidget: { _ in .published },
+                publishLiveActivity: { _ in .published },
+                publishHealthKitWriteOnly: { _ in .published },
+                publishWatch: { _ in .published },
+                classifyError: { _ in
+                    PipelineFailureClassification(code: "test", disposition: .retryable)
+                },
+                pruneCompleted: {},
+                report: { _ in },
+                now: Date.init))
+
+        // Durable recovery epochs belong to the process that created the journal. A fresh worker is already
+        // accepting work, so relaunch recovery must treat the previous process's epoch as already resumed.
+        try await worker.resume(expectedEpoch: 97)
+        await worker.signal(maximumItems: 1)
+    }
+
+    func testFreshHistoricalRuntimeAcceptsPersistedEpochFromPreviousProcess() async throws {
+        let coordinator = HistoricalPipelineCoordinator(
+            dependencies: HistoricalPipelineDependencies(
+                leaseNext: { _, _, _ in nil },
+                applyEvent: { _, _, _ in fatalError("no historical work should be leased") },
+                analyze: { _ in fatalError("no analysis should run") },
+                loadAnalysis: { _ in fatalError("no analysis should load") },
+                verifyAndCommitSnapshot: { _, _ in fatalError("no snapshot should commit") },
+                loadSnapshot: { _ in fatalError("no snapshot should load") },
+                publishRepository: { _, _ in },
+                commitOutbox: { _ in [] },
+                classifyError: { _ in
+                    PipelineFailureClassification(code: "test", disposition: .retryable)
+                }))
+        let runtime = HistoricalPipelineRuntime(
+            dependencies: HistoricalPipelineRuntimeDependencies(
+                admissionContexts: { [] },
+                admit: { _ in fatalError("no receipt should be admitted") },
+                coordinator: coordinator,
+                pendingWorkCount: { 0 },
+                classifyAdmissionError: { _ in
+                    PipelineFailureClassification(code: "test", disposition: .retryable)
+                },
+                onAdmissionFailure: { _ in },
+                report: { _ in }))
+
+        // The process-local epoch map is intentionally empty after relaunch. An already-open fresh runtime
+        // must not reject the durable epoch from the previous process.
+        try await runtime.resume(expectedEpoch: 101)
+        let result = await runtime.signal()
+        XCTAssertEqual(result.pendingWork, 0)
+    }
+
     func testPayloadOnlyHealthKitLanePublishesWithoutAProjection() async throws {
         let day = try CivilDay(key: "2026-08-02")
         let payload = try HistoricalHealthKitMutationPayload(
@@ -365,6 +473,92 @@ final class PR28Round3RootFixTests: XCTestCase {
         XCTAssertTrue(events.contains("healthKit"))
         XCTAssertFalse(events.contains("projection"))
         XCTAssertFalse(events.contains("widget"))
+    }
+
+    func testExternalWorkerRetriesWidgetLiveAndHealthKitAfterRetryableFailure() async throws {
+        let day = try CivilDay(key: "2026-08-02")
+        let projection = try VerifiedHealthProjection(
+            contextId: "context",
+            deviceId: "device",
+            generation: 8,
+            logicalDay: day,
+            metrics: [:])
+        let core = try VerifiedWidgetCorePayload(
+            contextId: "context",
+            projectionGeneration: 8,
+            logicalDay: day,
+            restingHR: 52,
+            sleepMinutes: 420,
+            steps: 1_000,
+            calories: 2_000,
+            recoveryDelta: nil)
+        let bundle = try VerifiedExternalProjectionBundle(projection: projection, widgetCore: core)
+        let payload = try HistoricalHealthKitMutationPayload(
+            contextId: "context",
+            deviceId: "device",
+            analysisGeneration: 11,
+            recordedTimeZoneIdentifier: "UTC",
+            changedDays: [day],
+            dailyMutations: [],
+            sleepMutations: [])
+
+        func assertRetry(_ destination: DownstreamDestination) async throws {
+            let item = try ExternalPublicationOutboxItem(
+                contextId: "context",
+                deviceId: "device",
+                snapshotGeneration: 8,
+                analysisGeneration: 11,
+                changedDays: [day],
+                recordedTimeZoneIdentifier: "UTC",
+                healthKitPayload: destination == .healthKit ? payload : nil,
+                destination: destination,
+                createdAt: Date(timeIntervalSince1970: 1_800_000_000))
+            let leases = PR28LeaseSequence(items: [item, item])
+            let attempts = PR29AttemptCounter()
+            let events = PR28PublicationProbe()
+
+            func publishAttempt() async throws -> ExternalSinkPublicationResult {
+                let attempt = await attempts.next()
+                if attempt == 1 { throw PR28TestError.injected }
+                return .published
+            }
+
+            let worker = ExternalPublicationWorker(
+                dependencies: ExternalPublicationWorkerDependencies(
+                    leaseNext: { _, _, _, _ in await leases.next() },
+                    applyEvent: { _, event, _ in
+                        switch event {
+                        case .failed: await events.append("failed")
+                        case .succeeded: await events.append("succeeded")
+                        default: break
+                        }
+                        return item
+                    },
+                    loadBundle: { _, _ in bundle },
+                    publishWidget: { _ in try await publishAttempt() },
+                    publishLiveActivity: { _ in try await publishAttempt() },
+                    publishHealthKitWriteOnly: { _ in try await publishAttempt() },
+                    publishWatch: { _ in XCTFail("watch is outside this retry matrix"); return .published },
+                    classifyError: { _ in
+                        PipelineFailureClassification(code: "injected_retry", disposition: .retryable)
+                    },
+                    pruneCompleted: {},
+                    report: { _ in },
+                    now: { Date(timeIntervalSince1970: 1_800_000_000) }))
+
+            await worker.signal(maximumItems: 1)
+            await worker.signal(maximumItems: 1)
+
+            let attemptCount = await attempts.value()
+            let recordedEvents = await events.snapshot()
+            XCTAssertEqual(attemptCount, 2, "destination=\(destination.rawValue)")
+            XCTAssertEqual(recordedEvents, ["failed", "succeeded"],
+                           "destination=\(destination.rawValue)")
+        }
+
+        try await assertRetry(.widget)
+        try await assertRetry(.liveActivity)
+        try await assertRetry(.healthKit)
     }
 
     func testHistoricalPlannerIgnoresStaleTemplateAndKeepsSparseRuns() throws {

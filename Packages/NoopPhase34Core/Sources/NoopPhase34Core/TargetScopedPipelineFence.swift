@@ -8,7 +8,9 @@ public actor TargetScopedPipelineFence {
     /// commits. Separate instances would provide no mutual exclusion at the deletion boundary.
     public static let shared = TargetScopedPipelineFence()
 
-    private var blockedSources = Set<String>()
+    /// Quiesce is nestable because AppModel owns the outer transition fence while the store independently
+    /// protects its transaction. An inner resume must never reopen admission before the outer owner finishes.
+    private var blockDepthBySource: [String: Int] = [:]
     private var inFlightBySource: [String: Int] = [:]
     private var waiters: [String: [CheckedContinuation<Void, Never>]] = [:]
 
@@ -16,7 +18,7 @@ public actor TargetScopedPipelineFence {
 
     public func begin(sourceId: String) throws {
         let source = sourceId.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !source.isEmpty, !blockedSources.contains(source) else {
+        guard !source.isEmpty, (blockDepthBySource[source] ?? 0) == 0 else {
             throw TargetScopedFenceError.blocked
         }
         inFlightBySource[source, default: 0] += 1
@@ -52,10 +54,40 @@ public actor TargetScopedPipelineFence {
         }
     }
 
+    /// Acquire every source in one actor turn so a multi-source HealthKit write cannot partially enter while a
+    /// privacy delete is blocking one namespace. Duplicates and empty ids are removed before ownership starts.
+    public func withLeases<Value: Sendable>(
+        sourceIds: [String],
+        operation: @Sendable () async throws -> Value
+    ) async throws -> Value {
+        var seen = Set<String>()
+        let sources = sourceIds
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+        var acquired: [String] = []
+        for source in sources {
+            do {
+                try begin(sourceId: source)
+                acquired.append(source)
+            } catch {
+                acquired.forEach { end(sourceId: $0) }
+                throw error
+            }
+        }
+        do {
+            let value = try await operation()
+            sources.forEach { end(sourceId: $0) }
+            return value
+        } catch {
+            sources.forEach { end(sourceId: $0) }
+            throw error
+        }
+    }
+
     public func quiesce(sourceId: String) async {
         let source = sourceId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !source.isEmpty else { return }
-        blockedSources.insert(source)
+        blockDepthBySource[source, default: 0] += 1
         guard (inFlightBySource[source] ?? 0) > 0 else { return }
         await withCheckedContinuation { continuation in
             waiters[source, default: []].append(continuation)
@@ -63,11 +95,17 @@ public actor TargetScopedPipelineFence {
     }
 
     public func resume(sourceId: String) {
-        blockedSources.remove(sourceId.trimmingCharacters(in: .whitespacesAndNewlines))
+        let source = sourceId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !source.isEmpty, let depth = blockDepthBySource[source] else { return }
+        if depth <= 1 {
+            blockDepthBySource.removeValue(forKey: source)
+        } else {
+            blockDepthBySource[source] = depth - 1
+        }
     }
 
     public func isBlocked(sourceId: String) -> Bool {
-        blockedSources.contains(sourceId.trimmingCharacters(in: .whitespacesAndNewlines))
+        (blockDepthBySource[sourceId.trimmingCharacters(in: .whitespacesAndNewlines)] ?? 0) > 0
     }
 }
 

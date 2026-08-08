@@ -67,6 +67,7 @@ public actor LosslessDrainSignalGate<Output: Sendable> {
 
     public var isRunning: Bool { activeTask != nil }
     public var isSuspended: Bool { suspended }
+    var hasPendingDrainForTesting: Bool { needsDrain }
 
     private func waitUntilResumed() async {
         guard suspended else { return }

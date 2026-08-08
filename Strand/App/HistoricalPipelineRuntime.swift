@@ -87,11 +87,16 @@ actor HistoricalPipelineRuntime {
     }
 
     func resume(expectedEpoch: UInt64) async throws {
-        guard let coordinatorEpoch = coordinatorEpochByRuntimeEpoch.removeValue(forKey: expectedEpoch) else {
-            throw PipelineQuiescenceError.superseded
+        guard let coordinatorEpoch = coordinatorEpochByRuntimeEpoch[expectedEpoch] else {
+            // Epochs are process-local. Relaunch recovery can hold a durable journal written by the previous
+            // process while this fresh runtime is already open at its initial epoch. Treat that state as
+            // already resumed. A suspended runtime without the matching mapping still fails closed.
+            guard await quiescence.isAccepting else { throw PipelineQuiescenceError.superseded }
+            return
         }
         try await quiescence.resume(expectedEpoch: expectedEpoch)
         try await dependencies.coordinator.resume(expectedEpoch: coordinatorEpoch)
+        coordinatorEpochByRuntimeEpoch.removeValue(forKey: expectedEpoch)
         await drainGate.resume()
     }
 

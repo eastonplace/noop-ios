@@ -21,6 +21,10 @@ public actor PipelineQuiescence {
 
     public init() {}
 
+    /// Process-local recovery probe. Durable source-transition journals can outlive the actor that issued
+    /// their epoch. A fresh actor starts open, so an old persisted epoch needs no local resume operation.
+    public var isAccepting: Bool { accepting }
+
     public func begin() throws -> PipelineEpochToken {
         guard accepting else { throw PipelineQuiescenceError.suspended }
         inFlight += 1

@@ -1,4 +1,5 @@
 import XCTest
+import NoopPhase34Core
 import WhoopStore
 import WhoopProtocol
 @testable import NOOP
@@ -141,6 +142,77 @@ final class TodayHealthSnapshotHydrationTests: XCTestCase {
         // The live follow-up is test-owned and may be queued after the authoritative save. Cancel it so
         // this test leaves no delayed task behind.
         await repository.invalidateTodayHealthSnapshot()
+    }
+
+    func testVerifiedHistoricalCommitInvalidatesOlderTodayWriterOwnership() async throws {
+        let store = try await WhoopStore.inMemory()
+        let fixedNow = fixedNewYorkDate(hour: 3, minute: 59)
+        let day = Repository.logicalDayKey(fixedNow)
+        let localDay = Repository.localDayKey(fixedNow)
+
+        let repository = Repository(deviceId: Repository.whoopSource)
+        repository.setStoreForTesting(store)
+        repository.setTodayHealthSnapshotTestNow(fixedNow)
+        let oldOwnership = repository.todayHealthSnapshotWriteOwnershipForTesting()
+        XCTAssertTrue(repository.isCurrentTodayHealthSnapshotWriteForTesting(
+            generation: oldOwnership.generation,
+            refreshGeneration: oldOwnership.refreshGeneration,
+            writeToken: oldOwnership.writeToken
+        ))
+
+        let snapshotContext = try await context(for: store)
+        let verifiedCandidate = snapshot(
+            context: snapshotContext,
+            day: day,
+            localDay: localDay,
+            generatedAt: Int(fixedNow.timeIntervalSince1970) + 1,
+            recovery: 91,
+            strain: 64,
+            sleepScore: 88,
+            sleepDuration: 442,
+            rawFrontierTs: Int(fixedNow.timeIntervalSince1970)
+        )
+        let civilDay = try CivilDay(key: day)
+        let scope = try HistoricalAnalysisScope(
+            databaseInstanceId: snapshotContext.databaseInstanceId,
+            sourceId: Repository.whoopSource,
+            deviceId: Repository.whoopSource,
+            deviceLineageId: "test-lineage",
+            cursorEpoch: 1,
+            trimScope: "historical"
+        )
+        let work = try HistoricalAnalysisWork(
+            scope: scope,
+            firstReceiptGeneration: 1,
+            lastReceiptGeneration: 1,
+            affectedDays: [civilDay],
+            recordedTimeZoneIdentifier: "America/New_York",
+            createdAt: fixedNow
+        )
+        let analysis = try AnalysisMutationReceipt(
+            throughReceiptGeneration: 1,
+            analysisGeneration: 1,
+            analyzedDays: [civilDay],
+            rawFrontierTs: Int(fixedNow.timeIntervalSince1970),
+            algorithmBundleVersion: snapshotContext.algorithmBundleVersion
+        )
+
+        let receipt = try await repository.verifyAndCommitHistoricalSnapshot(
+            candidate: verifiedCandidate,
+            work: work,
+            analysis: analysis,
+            store: store
+        )
+        XCTAssertEqual(receipt.projection.metrics[.recovery]?.value, 91)
+        XCTAssertFalse(repository.isCurrentTodayHealthSnapshotWriteForTesting(
+            generation: oldOwnership.generation,
+            refreshGeneration: oldOwnership.refreshGeneration,
+            writeToken: oldOwnership.writeToken
+        ))
+
+        let durable = try await store.todayHealthSnapshot(scopeId: verifiedCandidate.scopeId)
+        XCTAssertEqual(durable?.recovery?.value, 91)
+        XCTAssertEqual(durable?.generation, receipt.snapshotGeneration)
     }
 
     func testRefreshFailsWhenSnapshotDatabaseIdentityCannotBeEstablished() async throws {

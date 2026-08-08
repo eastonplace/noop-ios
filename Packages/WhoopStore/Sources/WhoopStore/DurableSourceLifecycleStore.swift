@@ -49,13 +49,29 @@ extension WhoopStore {
         now: Date = Date()
     ) async throws {
         try syncWrite { db in
-            if let existingRaw = try String.fetchOne(
+            let existingRaw = try String.fetchOne(
                 db,
                 sql: "SELECT stage FROM sourceTransitionJournal WHERE transitionId = ?",
                 arguments: [record.id.uuidString]
-            ) {
+            )
+            if let existingRaw {
                 guard let existing = SourceTransitionStage(rawValue: existingRaw),
                       Self.canAdvanceSourceTransition(from: existing, to: record.stage) else {
+                    throw DurableSourceLifecycleError.invalidMutation
+                }
+            } else {
+                guard record.stage == .prepared else {
+                    throw DurableSourceLifecycleError.invalidMutation
+                }
+                let conflictingTransitionId: String? = try String.fetchOne(db, sql: """
+                    SELECT transitionId FROM sourceTransitionJournal
+                    WHERE stage NOT IN ('complete', 'aborted')
+                    ORDER BY updatedAt DESC LIMIT 1
+                    """)
+                guard conflictingTransitionId == nil else {
+                    // A second transition must never overtake unresolved durable state. Otherwise the older
+                    // postcommit journal can become visible again after the newer transition completes and
+                    // replay an obsolete source/commit during launch recovery.
                     throw DurableSourceLifecycleError.invalidMutation
                 }
             }

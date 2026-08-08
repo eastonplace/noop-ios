@@ -434,7 +434,7 @@ final class HealthKitBridge: ObservableObject {
     /// is the exact historical delivery path.
     func publishExactHealthKit(payload: HistoricalHealthKitMutationPayload) async throws {
         guard auth == .authorized else { throw ExactPublicationError.authorizationUnavailable }
-        guard payload.deviceId == noopDeviceId,
+        guard !payload.deviceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               let timeZone = TimeZone(identifier: payload.recordedTimeZoneIdentifier) else {
             throw ExactPublicationError.invalidTimeZone
         }
@@ -478,7 +478,7 @@ final class HealthKitBridge: ObservableObject {
             guard value.isFinite,
                   let type = HKQuantityType.quantityType(forIdentifier: id),
                   store.authorizationStatus(for: type) == .sharingAuthorized else { return }
-            let key = "noop:\(noopDeviceId):\(id.rawValue):\(day.key)"
+            let key = "noop:\(payload.deviceId):\(id.rawValue):\(day.key)"
             candidates.append(Candidate(
                 type: type,
                 key: key,
@@ -501,7 +501,7 @@ final class HealthKitBridge: ObservableObject {
                 guard let type = HKQuantityType.quantityType(forIdentifier: id),
                       store.authorizationStatus(for: type) == .sharingAuthorized else { continue }
                 deletionKeysByType[type, default: []].append(
-                    "noop:\(noopDeviceId):\(id.rawValue):\(day.key)"
+                    "noop:\(payload.deviceId):\(id.rawValue):\(day.key)"
                 )
             }
         }
@@ -611,11 +611,13 @@ final class HealthKitBridge: ObservableObject {
         let repairedKeys = repairDays.isEmpty
             ? []
             : try await noopAuthoredSleepKeys(
+                ownerDeviceId: payload.deviceId,
                 changedDays: repairDays,
                 calendar: calendar,
                 type: type)
         try await saveExactSleepPlan(
             plan,
+            ownerDeviceId: payload.deviceId,
             type: type,
             analysisGeneration: payload.analysisGeneration,
             existingKeys: ledger.keys.union(repairedKeys),
@@ -631,7 +633,7 @@ final class HealthKitBridge: ObservableObject {
                 HealthKitSleepLedgerEntry(
                     wakeDay: wakeDay,
                     stableStartTimestamp: start,
-                    externalUUID: "noop:\(noopDeviceId):sleep:\(start)")
+                    externalUUID: "noop:\(payload.deviceId):sleep:\(start)")
             }
         }
         let keysByDay = Dictionary(grouping: ledgerEntries, by: \.wakeDay)
@@ -650,12 +652,13 @@ final class HealthKitBridge: ObservableObject {
     }
 
     private func noopAuthoredSleepKeys(
+        ownerDeviceId: String,
         changedDays: Set<CivilDay>,
         calendar: Calendar,
         type: HKCategoryType
     ) async throws -> Set<String> {
         var keys = Set<String>()
-        let prefix = "noop:\(noopDeviceId):sleep:"
+        let prefix = "noop:\(ownerDeviceId):sleep:"
         let windows = try HealthKitSleepRepairPlanner.contiguousWindows(
             days: changedDays,
             timeZoneIdentifier: calendar.timeZone.identifier)
@@ -697,13 +700,14 @@ final class HealthKitBridge: ObservableObject {
 
     private func saveExactSleepPlan(
         _ plan: [HealthWriteback.MergedSleepEntry],
+        ownerDeviceId: String,
         type: HKCategoryType,
         analysisGeneration: Int64,
         existingKeys: Set<String>,
         forceWrite: Bool
     ) async throws {
         let fingerprint = HealthKitWritebackFingerprint.fingerprint(
-            ["analysis|\(analysisGeneration)"] + plan.flatMap { entry in
+            ["owner|\(ownerDeviceId)", "analysis|\(analysisGeneration)"] + plan.flatMap { entry in
                 ["night|\(entry.keyStartTs)|\(entry.spanStart)|\(entry.spanEnd)"]
                     + entry.intervals.map { "stage|\($0.kind)|\($0.start)|\($0.end)" }
             }
@@ -713,10 +717,10 @@ final class HealthKitBridge: ObservableObject {
         var samples: [HKCategorySample] = []
         var keys: [String] = Array(existingKeys)
         for entry in plan {
-            let key = "noop:\(noopDeviceId):sleep:\(entry.keyStartTs)"
+            let key = "noop:\(ownerDeviceId):sleep:\(entry.keyStartTs)"
             let metadata = [HKMetadataKeyExternalUUID: key]
             keys.append(contentsOf: entry.allKeyStartTs.map {
-                "noop:\(noopDeviceId):sleep:\($0)"
+                "noop:\(ownerDeviceId):sleep:\($0)"
             })
             samples.append(HKCategorySample(
                 type: type,
@@ -920,6 +924,195 @@ final class HealthKitBridge: ObservableObject {
         }
     }
 
+    /// Remove every HealthKit projection that can contain the source being privacy-deleted, then rebuild the
+    /// same affected windows from the remaining source namespaces. AppModel calls this only while the raw and
+    /// derived target fences are blocked, so a suspended ordinary write-back cannot republish the deleted source.
+    func prepareSourceDeletion(_ sourceDeviceId: String) async throws {
+        guard auth == .authorized else { throw ExactPublicationError.authorizationUnavailable }
+        guard let whoopStore = await repo.storeHandle() else { throw BridgeError.storeUnavailable }
+        let raw = sourceDeviceId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else { return }
+        let derived = raw + "-noop"
+        let remainingImportedIds = repo.importedReadIds.filter { $0 != raw && $0 != derived }
+        let remainingComputedIds = repo.computedReadIds.filter { $0 != raw && $0 != derived }
+        HealthKitWritebackFingerprint.reset()
+
+        let rawDaily = try await whoopStore.dailyMetrics(
+            deviceId: raw, from: "0001-01-01", to: "9999-12-31")
+        let derivedDaily = try await whoopStore.dailyMetrics(
+            deviceId: derived, from: "0001-01-01", to: "9999-12-31")
+        let sourceDaily = rawDaily + derivedDaily
+        let deliveredExactDays = try await whoopStore.healthKitMutationWatermarkDays(deviceId: raw)
+        let affectedDays = Set(sourceDaily.compactMap { try? CivilDay(key: $0.day) }).union(deliveredExactDays)
+        try await deleteNoopVitals(
+            ownerDeviceIds: [noopDeviceId, raw],
+            dayKeys: Set(affectedDays.map(\.key)))
+        if !affectedDays.isEmpty {
+            try await writeVitals(
+                whoopStore: whoopStore,
+                days: 1,
+                sessions: [],
+                importedIds: remainingImportedIds,
+                computedIds: remainingComputedIds,
+                dayKeys: Set(affectedDays.map(\.key)))
+        }
+
+        let sourceSessions = try await HealthKitWritebackPlanner.sleepSessions(
+            store: whoopStore,
+            importedIds: [raw],
+                computedIds: [derived],
+                from: 0,
+                to: Int.max,
+                limit: Int.max)
+        let exactSleepLedger = try await whoopStore.healthKitSleepLedgerEntries(deviceId: raw)
+        let affectedSleepDays = Set(sourceSessions.compactMap { session in
+            try? CivilDay(key: Self.dayString(Date(timeIntervalSince1970: TimeInterval(session.endTs))))
+        }).union(exactSleepLedger.map(\.wakeDay))
+        try await deleteNoopSleep(
+            ownerDeviceIds: [noopDeviceId, raw],
+            wakeDays: affectedSleepDays,
+            exactKeys: Set(exactSleepLedger.map(\.externalUUID)))
+        if !affectedSleepDays.isEmpty {
+            let remainingSessions = try await HealthKitWritebackPlanner.sleepSessions(
+                store: whoopStore,
+                importedIds: remainingImportedIds,
+                computedIds: remainingComputedIds,
+                from: 0,
+                to: Int.max,
+                limit: Int.max)
+                .filter { session in
+                    guard let day = try? CivilDay(
+                        key: Self.dayString(Date(timeIntervalSince1970: TimeInterval(session.endTs))))
+                    else { return false }
+                    return affectedSleepDays.contains(day)
+                }
+            try await writeSleep(sessions: remainingSessions)
+        }
+
+        let sourceWorkouts = try await HealthKitWritebackPlanner.workouts(
+            store: whoopStore,
+            importedIds: [raw],
+            computedIds: [derived],
+            from: 0,
+            to: Int.max,
+            limit: Int.max,
+            excludingSource: Self.appleWorkoutSource)
+        try await deleteNoopWorkouts(startTimestamps: Set(sourceWorkouts.map(\.startTs)))
+        if let first = sourceWorkouts.map(\.startTs).min(),
+           let last = sourceWorkouts.map(\.endTs).max() {
+            try await writeWorkouts(
+                whoopStore: whoopStore,
+                importedIds: remainingImportedIds,
+                computedIds: remainingComputedIds,
+                fromTs: first,
+                toTs: last,
+                limit: Int.max)
+        }
+
+        if let bounds = try await whoopStore.hrTimestampBounds(deviceId: raw) {
+            try await replaceNoopHeartRateRange(
+                whoopStore: whoopStore,
+                remainingImportedIds: remainingImportedIds,
+                fromTs: bounds.earliest,
+                toTs: bounds.latest)
+        }
+    }
+
+    private func deleteNoopVitals(ownerDeviceIds: [String], dayKeys: Set<String>) async throws {
+        guard !dayKeys.isEmpty else { return }
+        let owners = Array(Set(ownerDeviceIds.filter { !$0.isEmpty }))
+        let bySource = HKQuery.predicateForObjects(from: HKSource.default())
+        for id in Self.quantityWriteIds {
+            guard let type = HKQuantityType.quantityType(forIdentifier: id),
+                  store.authorizationStatus(for: type) == .sharingAuthorized else { continue }
+            let keys = owners.flatMap { owner in
+                dayKeys.map { "noop:\(owner):\(id.rawValue):\($0)" }
+            }
+            let byKey = HKQuery.predicateForObjects(
+                withMetadataKey: HKMetadataKeyExternalUUID,
+                allowedValues: keys)
+            _ = try await store.deleteObjects(
+                of: type,
+                predicate: NSCompoundPredicate(andPredicateWithSubpredicates: [bySource, byKey]))
+        }
+    }
+
+    private func deleteNoopSleep(
+        ownerDeviceIds: [String],
+        wakeDays: Set<CivilDay>,
+        exactKeys: Set<String>
+    ) async throws {
+        guard !wakeDays.isEmpty,
+              let type = HKObjectType.categoryType(forIdentifier: .sleepAnalysis),
+              store.authorizationStatus(for: type) == .sharingAuthorized else { return }
+        let calendar = Calendar.current
+        var keys = exactKeys
+        for ownerDeviceId in Set(ownerDeviceIds.filter { !$0.isEmpty }) {
+            keys.formUnion(try await noopAuthoredSleepKeys(
+                ownerDeviceId: ownerDeviceId,
+                changedDays: wakeDays,
+                calendar: calendar,
+                type: type))
+        }
+        guard !keys.isEmpty else { return }
+        let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
+            HKQuery.predicateForObjects(from: HKSource.default()),
+            HKQuery.predicateForObjects(
+                withMetadataKey: HKMetadataKeyExternalUUID,
+                allowedValues: Array(keys)),
+        ])
+        _ = try await store.deleteObjects(of: type, predicate: predicate)
+    }
+
+    private func deleteNoopWorkouts(startTimestamps: Set<Int>) async throws {
+        guard !startTimestamps.isEmpty,
+              store.authorizationStatus(for: .workoutType()) == .sharingAuthorized else { return }
+        let keys = startTimestamps.map { "noop:\(noopDeviceId):workout:\($0)" }
+        let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
+            HKQuery.predicateForObjects(from: HKSource.default()),
+            HKQuery.predicateForObjects(
+                withMetadataKey: HKMetadataKeyExternalUUID,
+                allowedValues: keys),
+        ])
+        _ = try await store.deleteObjects(of: .workoutType(), predicate: predicate)
+    }
+
+    private func replaceNoopHeartRateRange(
+        whoopStore: WhoopStore,
+        remainingImportedIds: [String],
+        fromTs: Int,
+        toTs: Int
+    ) async throws {
+        guard let type = HKQuantityType.quantityType(forIdentifier: .heartRate),
+              store.authorizationStatus(for: type) == .sharingAuthorized,
+              toTs >= fromTs else { return }
+        let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
+            HKQuery.predicateForObjects(from: HKSource.default()),
+            HKQuery.predicateForSamples(
+                withStart: Date(timeIntervalSince1970: TimeInterval(fromTs)),
+                end: Date(timeIntervalSince1970: TimeInterval(toTs) + 60),
+                options: []),
+        ])
+        _ = try await store.deleteObjects(of: type, predicate: predicate)
+
+        var priorCursors: [String: Int] = [:]
+        for sourceId in remainingImportedIds {
+            let key = hrWriteCursorKey(for: sourceId)
+            priorCursors[sourceId] = UserDefaults.standard.integer(forKey: key)
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+        HealthKitWritebackFingerprint.reset()
+        try await writeHeartRate(
+            whoopStore: whoopStore,
+            importedIds: remainingImportedIds,
+            fromTs: fromTs,
+            nowTs: toTs)
+        for (sourceId, prior) in priorCursors where prior > 0 {
+            let key = hrWriteCursorKey(for: sourceId)
+            UserDefaults.standard.set(max(prior, UserDefaults.standard.integer(forKey: key)), forKey: key)
+        }
+    }
+
     private func performSync(window: HealthKitSyncWindow) async -> Bool {
         guard auth == .authorized else { return false }
         syncing = true
@@ -1081,13 +1274,31 @@ final class HealthKitBridge: ObservableObject {
     /// Throws on save failure so the caller can decide whether to advance `lastSync`.
     private func writeBack(whoopStore: WhoopStore, days: Int = 14) async throws {
         guard auth == .authorized else { return }
+        let importedIds = repo.importedReadIds
+        let computedIds = repo.computedReadIds
+        try await TargetScopedPipelineFence.shared.withLeases(
+            sourceIds: importedIds + computedIds
+        ) { [weak self] in
+            guard let self else { return }
+            try await self.writeBackFenced(
+                whoopStore: whoopStore,
+                days: days,
+                importedIds: importedIds,
+                computedIds: computedIds)
+        }
+    }
+
+    private func writeBackFenced(
+        whoopStore: WhoopStore,
+        days: Int,
+        importedIds: [String],
+        computedIds: [String]
+    ) async throws {
         let now = Date()
         guard let fromDate = Calendar.current.date(byAdding: .day, value: -days, to: now) else { return }
         let fromTs = Int(fromDate.timeIntervalSince1970)
         let nowTs = Int(now.timeIntervalSince1970)
 
-        let importedIds = repo.importedReadIds
-        let computedIds = repo.computedReadIds
         let sessions = try await HealthKitWritebackPlanner.sleepSessions(
             store: whoopStore, importedIds: importedIds, computedIds: computedIds,
             from: fromTs, to: nowTs)
@@ -1360,11 +1571,11 @@ final class HealthKitBridge: ObservableObject {
     /// Dedup: `HKMetadataKeyExternalUUID = noop:<deviceId>:workout:<startTs>` in the workout
     /// metadata; delete-then-write scoped to our own source, like sleep and the vitals.
     private func writeWorkouts(whoopStore: WhoopStore, importedIds: [String], computedIds: [String],
-                               fromTs: Int, toTs: Int) async throws {
+                               fromTs: Int, toTs: Int, limit: Int = 500) async throws {
         guard store.authorizationStatus(for: .workoutType()) == .sharingAuthorized else { return }
         let rows = try await HealthKitWritebackPlanner.workouts(
             store: whoopStore, importedIds: importedIds, computedIds: computedIds,
-            from: fromTs, to: toTs, excludingSource: HealthKitBridge.appleWorkoutSource)
+            from: fromTs, to: toTs, limit: limit, excludingSource: HealthKitBridge.appleWorkoutSource)
         guard !rows.isEmpty else { return }
         let fingerprint = HealthKitWritebackFingerprint.fingerprint(rows.map {
             "\($0.startTs)|\($0.endTs)|\($0.sport)|\($0.energyKcal ?? -1)|\($0.distanceM ?? -1)"

@@ -22,6 +22,25 @@ public struct HealthKitSleepLedgerSnapshot: Equatable, Sendable {
 }
 
 extension WhoopStore {
+    /// Indexed privacy-deletion lookup for every exact sleep key still owned by one source.
+    public func healthKitSleepLedgerEntries(deviceId: String) async throws -> [HealthKitSleepLedgerEntry] {
+        let source = deviceId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !source.isEmpty else { return [] }
+        return try syncRead { db in
+            try Row.fetchAll(db, sql: """
+                SELECT wakeDay, stableStartTimestamp, externalUUID
+                FROM healthKitSleepKeyLedger
+                WHERE deviceId = ?
+                ORDER BY wakeDay, stableStartTimestamp
+                """, arguments: [source]).map { row in
+                    HealthKitSleepLedgerEntry(
+                        wakeDay: try CivilDay(key: row["wakeDay"]),
+                        stableStartTimestamp: row["stableStartTimestamp"],
+                        externalUUID: row["externalUUID"])
+                }
+        }
+    }
+
     public func healthKitSleepLedger(
         contextId: String,
         deviceId: String,

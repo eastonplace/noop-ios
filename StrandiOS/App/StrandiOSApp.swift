@@ -195,6 +195,9 @@ struct StrandiOSApp: App {
             )
         )
         model.attachExternalPublicationWorker(worker)
+        model.attachHealthKitSourceDeletion { sourceDeviceId in
+            try await healthBridge.prepareSourceDeletion(sourceDeviceId)
+        }
         _liveActivity = State(initialValue: liveActivityController)
         _health = StateObject(wrappedValue: healthBridge)
         _externalPublicationWorker = State(initialValue: worker)
@@ -380,6 +383,7 @@ struct StrandiOSApp: App {
                     )
                 ) { _ in
                     Task { @MainActor in
+                        await model.recoverPendingSourceTransition()
                         await resumeBlockedWork(includeHealthKit: health.auth == .authorized)
                         await externalPublicationWorker.signal()
                     }
@@ -394,6 +398,7 @@ struct StrandiOSApp: App {
                 Task {
                     let trace = PerformanceTrace.begin("foreground_refresh")
                     defer { PerformanceTrace.end(trace) }
+                    await model.recoverPendingSourceTransition()
                     await resumeBlockedWork(includeHealthKit: false)
                     health.refreshAuthIfPreviouslyGranted()
                     await resumeBlockedWork(includeHealthKit: health.auth == .authorized)
