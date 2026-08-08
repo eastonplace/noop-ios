@@ -227,11 +227,17 @@ extension WhoopStore {
                     db,
                     sql: "SELECT name FROM sqlite_master WHERE type = 'table'"
                 ))
+                // Exact historical analysis owns both the raw source namespace and its derived
+                // `<source>-noop` namespace. Privacy deletion must remove both atomically so a
+                // deferred or previously-published derived row cannot survive the raw source.
+                let ownedDeviceIds = [deviceId, deviceId + "-noop"]
                 for table in DeviceRegistryStore.deviceScopedTables where existing.contains(table) {
-                    try db.execute(
-                        sql: "DELETE FROM \(table) WHERE deviceId = ?",
-                        arguments: [deviceId]
-                    )
+                    for ownedDeviceId in ownedDeviceIds {
+                        try db.execute(
+                            sql: "DELETE FROM \(table) WHERE deviceId = ?",
+                            arguments: [ownedDeviceId]
+                        )
+                    }
                 }
                 // v48 lifecycle/maintenance tables are also device-scoped. Keep these explicit
                 // until the production deviceScopedTables audit includes every new migration.
@@ -247,12 +253,9 @@ extension WhoopStore {
                         arguments: [deviceId]
                     )
                 }
-                if existing.contains("sourceTransitionJournal") {
-                    try db.execute(sql: """
-                        DELETE FROM sourceTransitionJournal
-                        WHERE sourceDeviceId = ? OR targetDeviceId = ?
-                        """, arguments: [deviceId, deviceId])
-                }
+                // Keep sourceTransitionJournal intact. The recovery coordinator owns this record
+                // and must be able to resume a crash after the privacy transaction commits. It marks
+                // the transition complete/aborted only after the remaining fenced stages finish.
                 try db.execute(sql: """
                     UPDATE pairedDevice
                     SET historyLineage = ?, historyCursorEpoch = historyCursorEpoch + 1
