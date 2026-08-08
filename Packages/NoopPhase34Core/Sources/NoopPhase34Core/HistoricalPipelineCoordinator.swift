@@ -370,9 +370,23 @@ public actor HistoricalPipelineCoordinator {
                 }
 
                 do {
-                    try await process(leased, token: token)
+                    try await TargetScopedPipelineFence.shared.withLease(
+                        sourceId: leased.scope.deviceId
+                    ) { [self] in
+                        try await self.process(leased, token: token)
+                    }
                     completed += 1
                 } catch {
+                    if error is TargetScopedFenceError {
+                        _ = try? await dependencies.applyEvent(
+                            leased.id,
+                            .cancelOwnedLease(owner: owner),
+                            dependencies.now()
+                        )
+                        deferred += 1
+                        await Task.yield()
+                        continue
+                    }
                     let failure = dependencies.classifyError(error)
                     do {
                         if Task.isCancelled || error is CancellationError {
