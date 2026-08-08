@@ -155,7 +155,8 @@ final class PR29Round5RootFixTests: XCTestCase {
         await latch.waitUntilStarted()
         let quiesceA = Task { await fence.quiesce(sourceId: "source-A") }
         await Task.yield()
-        XCTAssertTrue(await fence.isBlocked(sourceId: "source-A"))
+        let blockedDuringLease = await fence.isBlocked(sourceId: "source-A")
+        XCTAssertTrue(blockedDuringLease)
 
         let sourceB = try await fence.withLease(sourceId: "source-B") { 42 }
         XCTAssertEqual(sourceB, 42)
@@ -163,9 +164,11 @@ final class PR29Round5RootFixTests: XCTestCase {
         await latch.releaseLease()
         try await sourceA.value
         await quiesceA.value
-        XCTAssertTrue(await fence.isBlocked(sourceId: "source-A"))
+        let blockedAfterQuiescence = await fence.isBlocked(sourceId: "source-A")
+        XCTAssertTrue(blockedAfterQuiescence)
 
         await fence.resume(sourceId: "source-A")
-        XCTAssertFalse(await fence.isBlocked(sourceId: "source-A"))
+        let blockedAfterResume = await fence.isBlocked(sourceId: "source-A")
+        XCTAssertFalse(blockedAfterResume)
     }
 }
