@@ -204,10 +204,14 @@ extension WidgetSnapshot {
         guard let defaults = UserDefaults(suiteName: WidgetSnapshot.suiteName),
               let active = ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults),
               active == token,
-              let base = VerifiedWidgetEnvelopeStore.loadForDisplay(defaults: defaults),
-              base.verifiedContextId == projection.contextId,
-              base.verifiedProjectionGeneration == projection.generation else { return }
-        var enriched = base
+              let envelope = VerifiedWidgetEnvelopeStore.rawActiveEnvelope(defaults: defaults),
+              envelope.epoch == token.epoch,
+              envelope.contextId == projection.contextId,
+              envelope.generation == projection.generation else { return }
+        // Start from the immutable verified payload, never the display view. The display view may contain
+        // a transient live overlay; baking it back into the envelope would turn non-durable HR/battery
+        // fields into verified state and could resurrect them after a transition or relaunch.
+        var enriched = envelope.snapshot
         enriched.hrvSparkline = hrvSparkline
         enriched.hourlyStress = stress.hours
         enriched.stressSummary = stress.summary
