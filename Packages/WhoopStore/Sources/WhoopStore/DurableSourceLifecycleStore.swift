@@ -82,6 +82,30 @@ extension WhoopStore {
                     Int(now.timeIntervalSince1970),
                     Int(now.timeIntervalSince1970),
                 ])
+
+            // AppModel already writes the prepared record immediately before its store mutation. Keep that
+            // exact transition ID in the writer connection's TEMP schema so the existing call path can join
+            // the following source mutation to the same durable transaction without guessing a stale journal
+            // row. TEMP state disappears on process death, which is precisely the precommit boundary.
+            try Self.ensurePreparedTransitionBindingTable(in: db)
+            if record.stage == .prepared {
+                try db.execute(sql: """
+                    INSERT INTO sourceTransitionPreparedBinding
+                        (sourceDeviceId, mutationKind, transitionId)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(sourceDeviceId, mutationKind) DO UPDATE SET
+                        transitionId = excluded.transitionId
+                    """, arguments: [
+                    record.sourceDeviceId,
+                    record.mutationKind,
+                    record.id.uuidString,
+                ])
+            } else {
+                try db.execute(
+                    sql: "DELETE FROM sourceTransitionPreparedBinding WHERE transitionId = ?",
+                    arguments: [record.id.uuidString]
+                )
+            }
         }
     }
 
@@ -94,19 +118,7 @@ extension WhoopStore {
                 WHERE stage NOT IN ('complete', 'aborted')
                 ORDER BY updatedAt DESC LIMIT 1
                 """) else { return nil }
-            guard let id = UUID(uuidString: row["transitionId"] as String),
-                  let stage = SourceTransitionStage(rawValue: row["stage"] as String) else { return nil }
-            return SourceTransitionRecoveryRecord(
-                id: id,
-                mutationKind: row["mutationKind"],
-                sourceDeviceId: row["sourceDeviceId"],
-                targetDeviceId: row["targetDeviceId"],
-                historicalEpoch: UInt64(row["historicalEpoch"] as Int64),
-                externalEpoch: UInt64(row["externalEpoch"] as Int64),
-                sinkEpoch: UInt64(row["sinkEpoch"] as Int64),
-                stage: stage,
-                lastErrorCode: row["lastErrorCode"]
-            )
+            return try Self.decodeSourceTransitionRecovery(row)
         }
     }
 
@@ -128,8 +140,9 @@ extension WhoopStore {
     }
 
     /// Mutate one source. When `recovery` is supplied, the lifecycle change, durable commit payload,
-    /// and `storeCommitted` journal edge are one SQLite transaction. A crash can therefore observe either
-    /// prepared + no source mutation or storeCommitted + the exact commit, never a split-brain middle state.
+    /// and `storeCommitted` journal edge are one SQLite transaction. The existing AppModel path may omit
+    /// `recovery`; in that case the process-local TEMP binding created by `persistSourceTransitionRecovery`
+    /// resolves only the prepared record written by this writer connection immediately before the mutation.
     public func commitSourceLifecycleMutation(
         _ mutation: DurableSourceLifecycleMutation,
         recovery: SourceTransitionRecoveryRecord? = nil,
@@ -175,6 +188,24 @@ extension WhoopStore {
                     deviceId = id
                     expectedOldLineage = nil
                     replacement = nil
+                }
+
+                let effectiveRecovery: SourceTransitionRecoveryRecord?
+                if let recovery {
+                    effectiveRecovery = recovery
+                } else {
+                    effectiveRecovery = try Self.boundPreparedSourceTransition(
+                        sourceDeviceId: deviceId,
+                        mutationKind: Self.lifecycleMutationName(mutation),
+                        in: db
+                    )
+                }
+                if let effectiveRecovery {
+                    guard effectiveRecovery.sourceDeviceId == deviceId,
+                          effectiveRecovery.stage == .prepared,
+                          effectiveRecovery.mutationKind == Self.lifecycleMutationName(mutation) else {
+                        throw DurableSourceLifecycleError.invalidMutation
+                    }
                 }
 
                 guard let row = try Row.fetchOne(
@@ -346,7 +377,7 @@ extension WhoopStore {
                     activeDeviceId: active
                 )
 
-                if let recovery {
+                if let effectiveRecovery {
                     let commitJSON = try JSONEncoder().encode(commit)
                     try db.execute(sql: """
                         UPDATE sourceTransitionJournal
@@ -356,13 +387,17 @@ extension WhoopStore {
                         """, arguments: [
                         commitJSON,
                         nowTs,
-                        recovery.id.uuidString,
-                        recovery.mutationKind,
-                        recovery.sourceDeviceId,
+                        effectiveRecovery.id.uuidString,
+                        effectiveRecovery.mutationKind,
+                        effectiveRecovery.sourceDeviceId,
                     ])
                     guard db.changesCount == 1 else {
                         throw DurableSourceLifecycleError.invalidMutation
                     }
+                    try db.execute(
+                        sql: "DELETE FROM sourceTransitionPreparedBinding WHERE transitionId = ?",
+                        arguments: [effectiveRecovery.id.uuidString]
+                    )
                 }
                 return commit
             }
@@ -376,6 +411,66 @@ extension WhoopStore {
             }
             throw error
         }
+    }
+
+    private static func ensurePreparedTransitionBindingTable(in db: Database) throws {
+        try db.execute(sql: """
+            CREATE TEMP TABLE IF NOT EXISTS sourceTransitionPreparedBinding (
+                sourceDeviceId TEXT NOT NULL,
+                mutationKind TEXT NOT NULL,
+                transitionId TEXT NOT NULL,
+                PRIMARY KEY (sourceDeviceId, mutationKind)
+            )
+            """)
+    }
+
+    private static func boundPreparedSourceTransition(
+        sourceDeviceId: String,
+        mutationKind: String,
+        in db: Database
+    ) throws -> SourceTransitionRecoveryRecord? {
+        try ensurePreparedTransitionBindingTable(in: db)
+        guard let transitionId: String = try String.fetchOne(
+            db,
+            sql: """
+                SELECT transitionId FROM sourceTransitionPreparedBinding
+                WHERE sourceDeviceId = ? AND mutationKind = ?
+                """,
+            arguments: [sourceDeviceId, mutationKind]
+        ), let row = try Row.fetchOne(db, sql: """
+            SELECT transitionId, mutationKind, sourceDeviceId, targetDeviceId,
+                   historicalEpoch, externalEpoch, sinkEpoch, stage, lastErrorCode
+            FROM sourceTransitionJournal WHERE transitionId = ?
+            """, arguments: [transitionId]) else { return nil }
+        let record = try decodeSourceTransitionRecovery(row)
+        guard record.stage == .prepared else {
+            try db.execute(
+                sql: "DELETE FROM sourceTransitionPreparedBinding WHERE transitionId = ?",
+                arguments: [transitionId]
+            )
+            return nil
+        }
+        return record
+    }
+
+    private static func decodeSourceTransitionRecovery(
+        _ row: Row
+    ) throws -> SourceTransitionRecoveryRecord {
+        guard let id = UUID(uuidString: row["transitionId"] as String),
+              let stage = SourceTransitionStage(rawValue: row["stage"] as String) else {
+            throw DurableSourceLifecycleError.invalidMutation
+        }
+        return SourceTransitionRecoveryRecord(
+            id: id,
+            mutationKind: row["mutationKind"],
+            sourceDeviceId: row["sourceDeviceId"],
+            targetDeviceId: row["targetDeviceId"],
+            historicalEpoch: UInt64(row["historicalEpoch"] as Int64),
+            externalEpoch: UInt64(row["externalEpoch"] as Int64),
+            sinkEpoch: UInt64(row["sinkEpoch"] as Int64),
+            stage: stage,
+            lastErrorCode: row["lastErrorCode"]
+        )
     }
 
     private static func canAdvanceSourceTransition(
