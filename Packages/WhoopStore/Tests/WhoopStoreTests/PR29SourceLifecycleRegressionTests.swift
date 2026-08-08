@@ -4,7 +4,7 @@ import NoopPhase34Core
 @testable import WhoopStore
 
 final class PR29SourceLifecycleRegressionTests: XCTestCase {
-    func testPrivacyDeleteRetainsRecoveryJournalAndDiscardedScopeTombstone() async throws {
+    func testPrivacyDeleteAtomicallyCommitsRecoveryPayloadAndDiscardedScopeTombstone() async throws {
         let store = try await WhoopStore.inMemory()
         let writer = await store.dbWriter
         let now = Date(timeIntervalSince1970: 1_800_000_000)
@@ -19,12 +19,20 @@ final class PR29SourceLifecycleRegressionTests: XCTestCase {
         )
 
         try await store.persistSourceTransitionRecovery(recovery, now: now)
-        _ = try await store.commitSourceLifecycleMutation(
+        let commit = try await store.commitSourceLifecycleMutation(
             .deleteData(deviceId: "my-whoop", consumerId: "privacy-test"),
+            recovery: recovery,
             now: now.addingTimeInterval(1)
         )
 
-        XCTAssertEqual(try await store.latestSourceTransitionRecovery(), recovery)
+        var expectedRecovery = recovery
+        expectedRecovery.stage = .storeCommitted
+        XCTAssertEqual(try await store.latestSourceTransitionRecovery(), expectedRecovery)
+        XCTAssertEqual(
+            try await store.sourceTransitionCommit(transitionId: recovery.id),
+            commit
+        )
+
         let lifecycleState: String? = try await writer.read { db in
             try String.fetchOne(
                 db,
@@ -33,6 +41,58 @@ final class PR29SourceLifecycleRegressionTests: XCTestCase {
             )
         }
         XCTAssertEqual(lifecycleState, HistoricalScopeLifecycleState.discarded.rawValue)
+
+        // A stale prepared writer cannot move a committed transition backward after a crash/relaunch race.
+        do {
+            try await store.persistSourceTransitionRecovery(
+                recovery,
+                now: now.addingTimeInterval(2)
+            )
+            XCTFail("stale recovery stage moved backward")
+        } catch DurableSourceLifecycleError.invalidMutation {
+            // Expected.
+        }
+        XCTAssertEqual(try await store.latestSourceTransitionRecovery(), expectedRecovery)
+    }
+
+    func testMissingPreparedJournalRollsBackPrivacyMutation() async throws {
+        let store = try await WhoopStore.inMemory()
+        let writer = await store.dbWriter
+        let recovery = SourceTransitionRecoveryRecord(
+            mutationKind: "deleteData",
+            sourceDeviceId: "my-whoop",
+            targetDeviceId: nil,
+            historicalEpoch: 1,
+            externalEpoch: 1,
+            sinkEpoch: 1,
+            stage: .prepared
+        )
+
+        try await writer.write { db in
+            try db.execute(
+                sql: "INSERT INTO metricSeries (deviceId, day, key, value) VALUES (?, ?, ?, ?)",
+                arguments: ["my-whoop", "2026-08-08", "stress", 1.0]
+            )
+        }
+
+        do {
+            _ = try await store.commitSourceLifecycleMutation(
+                .deleteData(deviceId: "my-whoop", consumerId: "privacy-test"),
+                recovery: recovery
+            )
+            XCTFail("mutation committed without its prepared journal")
+        } catch DurableSourceLifecycleError.invalidMutation {
+            // Expected. The source mutation and journal edge share one SQLite transaction.
+        }
+
+        let remaining: Int = try await writer.read { db in
+            try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM metricSeries WHERE deviceId = ?",
+                arguments: ["my-whoop"]
+            ) ?? 0
+        }
+        XCTAssertEqual(remaining, 1)
     }
 
     func testPrivacyDeleteRemovesRawAndDerivedSourceNamespacesOnly() async throws {
