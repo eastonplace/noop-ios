@@ -15,6 +15,15 @@ private actor SourceTransitionProbe {
     var activatedCommits: [String] = []
     var scheduledCommits: [String] = []
 
+    func failStoreCommittedPersistence() {
+        failStoreCommittedPersist = true
+    }
+
+    func seed(record: SourceTransitionRecoveryRecord, durableCommit: String? = nil) {
+        self.record = record
+        self.durableCommit = durableCommit
+    }
+
     func persist(_ next: SourceTransitionRecoveryRecord) throws {
         if failStoreCommittedPersist, next.stage == .storeCommitted {
             throw SourceTransitionProbeError.persistStoreCommitted
@@ -50,7 +59,7 @@ private actor SourceTransitionProbe {
 final class SourceTransitionRecoveryCoordinatorTests: XCTestCase {
     func testPostCommitJournalFailureNeverRunsPrecommitRollback() async throws {
         let probe = SourceTransitionProbe()
-        await probe.failStoreCommittedPersist = true
+        await probe.failStoreCommittedPersistence()
         let dependencies = SourceTransitionRecoveryDependencies<String>(
             quiesceHistorical: { 7 },
             quiesceExternal: { 11 },
@@ -104,8 +113,7 @@ final class SourceTransitionRecoveryCoordinatorTests: XCTestCase {
             sinkEpoch: 8,
             stage: .storeCommitted
         )
-        await probe.record = recovery
-        await probe.durableCommit = "durable-commit-A"
+        await probe.seed(record: recovery, durableCommit: "durable-commit-A")
 
         let dependencies = SourceTransitionRecoveryDependencies<String>(
             quiesceHistorical: { 0 },
@@ -148,7 +156,7 @@ final class SourceTransitionRecoveryCoordinatorTests: XCTestCase {
             sinkEpoch: 8,
             stage: .storeCommitted
         )
-        await probe.record = recovery
+        await probe.seed(record: recovery)
 
         let dependencies = SourceTransitionRecoveryDependencies<String>(
             quiesceHistorical: { 0 },
