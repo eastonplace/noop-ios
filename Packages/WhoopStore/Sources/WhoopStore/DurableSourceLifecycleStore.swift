@@ -206,6 +206,18 @@ extension WhoopStore {
                           effectiveRecovery.mutationKind == Self.lifecycleMutationName(mutation) else {
                         throw DurableSourceLifecycleError.invalidMutation
                     }
+                } else {
+                    // If the process died after persisting `prepared`, the TEMP binding is intentionally gone.
+                    // Do not let a later mutation silently commit outside that durable recovery record. Launch
+                    // recovery must first abort the stale precommit transition or explicitly resume it.
+                    let stalePreparedId: String? = try String.fetchOne(db, sql: """
+                        SELECT transitionId FROM sourceTransitionJournal
+                        WHERE sourceDeviceId = ? AND mutationKind = ? AND stage = 'prepared'
+                        ORDER BY updatedAt DESC LIMIT 1
+                        """, arguments: [deviceId, Self.lifecycleMutationName(mutation)])
+                    guard stalePreparedId == nil else {
+                        throw DurableSourceLifecycleError.invalidMutation
+                    }
                 }
 
                 guard let row = try Row.fetchOne(
@@ -482,7 +494,10 @@ extension WhoopStore {
         case (.prepared, .storeCommitted),
              (.prepared, .aborted),
              (.storeCommitted, .sinkActivated),
+             (.storeCommitted, .workersResumed),
+             (.storeCommitted, .complete),
              (.sinkActivated, .workersResumed),
+             (.sinkActivated, .complete),
              (.workersResumed, .complete):
             return true
         default:
