@@ -54,7 +54,13 @@ public struct SourceTransitionRecoveryDependencies<Commit: Sendable>: Sendable {
     public let restorePrecommitSink: @Sendable (_ epoch: UInt64) async throws -> Void
     public let persistRecovery: @Sendable (SourceTransitionRecoveryRecord) async throws -> Void
     public let loadRecovery: @Sendable () async throws -> SourceTransitionRecoveryRecord?
-    public let commitStoreMutation: @Sendable () async throws -> Commit
+    /// The production adapter must commit the source mutation, its exact `Commit` payload, and the
+    /// `storeCommitted` recovery edge atomically. The prepared record carries the transition ID needed
+    /// to make those writes one durable transaction.
+    public let commitStoreMutation: @Sendable (_ prepared: SourceTransitionRecoveryRecord) async throws -> Commit
+    /// Load the exact commit captured by `commitStoreMutation`. Launch recovery must never reconstruct
+    /// this value from mutable current registry state.
+    public let loadCommittedMutation: @Sendable (_ transitionId: UUID) async throws -> Commit?
     public let activateSink: @Sendable (_ epoch: UInt64, _ commit: Commit?) async throws -> Void
     public let resumeHistorical: @Sendable (_ epoch: UInt64) async throws -> Void
     public let resumeExternal: @Sendable (_ epoch: UInt64) async throws -> Void
@@ -71,7 +77,8 @@ public struct SourceTransitionRecoveryDependencies<Commit: Sendable>: Sendable {
         restorePrecommitSink: @escaping @Sendable (UInt64) async throws -> Void,
         persistRecovery: @escaping @Sendable (SourceTransitionRecoveryRecord) async throws -> Void,
         loadRecovery: @escaping @Sendable () async throws -> SourceTransitionRecoveryRecord?,
-        commitStoreMutation: @escaping @Sendable () async throws -> Commit,
+        commitStoreMutation: @escaping @Sendable (SourceTransitionRecoveryRecord) async throws -> Commit,
+        loadCommittedMutation: @escaping @Sendable (UUID) async throws -> Commit? = { _ in nil },
         activateSink: @escaping @Sendable (UInt64, Commit?) async throws -> Void,
         resumeHistorical: @escaping @Sendable (UInt64) async throws -> Void,
         resumeExternal: @escaping @Sendable (UInt64) async throws -> Void,
@@ -88,12 +95,53 @@ public struct SourceTransitionRecoveryDependencies<Commit: Sendable>: Sendable {
         self.persistRecovery = persistRecovery
         self.loadRecovery = loadRecovery
         self.commitStoreMutation = commitStoreMutation
+        self.loadCommittedMutation = loadCommittedMutation
         self.activateSink = activateSink
         self.resumeHistorical = resumeHistorical
         self.resumeExternal = resumeExternal
         self.startCommittedSource = startCommittedSource
         self.scheduleExactPostCommit = scheduleExactPostCommit
         self.classify = classify
+    }
+
+    /// Compatibility initializer for isolated tests/adapters that do not yet need the prepared recovery ID.
+    /// Production source-lifecycle integration should use the record-aware initializer above.
+    public init(
+        quiesceHistorical: @escaping @Sendable () async throws -> UInt64,
+        quiesceExternal: @escaping @Sendable () async throws -> UInt64,
+        stopAffectedLiveSource: @escaping @Sendable () async -> Void,
+        restartPreviousSource: @escaping @Sendable () async -> Void,
+        beginSinkTransition: @escaping @Sendable () throws -> UInt64,
+        restorePrecommitSink: @escaping @Sendable (UInt64) async throws -> Void,
+        persistRecovery: @escaping @Sendable (SourceTransitionRecoveryRecord) async throws -> Void,
+        loadRecovery: @escaping @Sendable () async throws -> SourceTransitionRecoveryRecord?,
+        commitStoreMutation: @escaping @Sendable () async throws -> Commit,
+        loadCommittedMutation: @escaping @Sendable (UUID) async throws -> Commit? = { _ in nil },
+        activateSink: @escaping @Sendable (UInt64, Commit?) async throws -> Void,
+        resumeHistorical: @escaping @Sendable (UInt64) async throws -> Void,
+        resumeExternal: @escaping @Sendable (UInt64) async throws -> Void,
+        startCommittedSource: @escaping @Sendable (Commit?) async -> Void,
+        scheduleExactPostCommit: @escaping @Sendable (Commit?) async -> Void,
+        classify: @escaping @Sendable (any Error) -> String
+    ) {
+        self.init(
+            quiesceHistorical: quiesceHistorical,
+            quiesceExternal: quiesceExternal,
+            stopAffectedLiveSource: stopAffectedLiveSource,
+            restartPreviousSource: restartPreviousSource,
+            beginSinkTransition: beginSinkTransition,
+            restorePrecommitSink: restorePrecommitSink,
+            persistRecovery: persistRecovery,
+            loadRecovery: loadRecovery,
+            commitStoreMutation: { _ in try await commitStoreMutation() },
+            loadCommittedMutation: loadCommittedMutation,
+            activateSink: activateSink,
+            resumeHistorical: resumeHistorical,
+            resumeExternal: resumeExternal,
+            startCommittedSource: startCommittedSource,
+            scheduleExactPostCommit: scheduleExactPostCommit,
+            classify: classify
+        )
     }
 }
 
@@ -160,11 +208,10 @@ public actor SourceTransitionRecoveryCoordinator<Commit: Sendable> {
 
         let commit: Commit
         do {
-            commit = try await dependencies.commitStoreMutation()
-            record.stage = .storeCommitted
-            record.lastErrorCode = nil
-            try await dependencies.persistRecovery(record)
+            commit = try await dependencies.commitStoreMutation(record)
         } catch {
+            // The production commit closure is transactionally all-or-nothing with `storeCommitted`.
+            // A thrown error therefore means the source mutation did not durably commit.
             await abortPrecommit(
                 record: &record,
                 historicalEpoch: historicalEpoch,
@@ -175,8 +222,19 @@ public actor SourceTransitionRecoveryCoordinator<Commit: Sendable> {
             throw error
         }
 
-        // Postcommit: never claim rollback. Resume the committed source and leave a
-        // durable record for launch/foreground recovery if any later step fails.
+        // From this line forward the store mutation is durable. Never call precommit rollback again,
+        // including when a redundant journal write or downstream activation fails.
+        record.stage = .storeCommitted
+        record.lastErrorCode = nil
+        do {
+            try await dependencies.persistRecovery(record)
+        } catch {
+            record.lastErrorCode = dependencies.classify(error)
+            try? await dependencies.persistRecovery(record)
+            await dependencies.startCommittedSource(commit)
+            throw SourceTransitionRecoveryError.postCommitRecoveryPending
+        }
+
         do {
             try await dependencies.activateSink(sinkEpoch, commit)
             record.stage = .sinkActivated
@@ -216,10 +274,17 @@ public actor SourceTransitionRecoveryCoordinator<Commit: Sendable> {
         try? await dependencies.persistRecovery(record)
     }
 
-    /// Call at store-open and foreground. The repository adapter loads the
-    /// durable committed mutation result by recovery ID; it does not reconstruct
-    /// it from stale in-memory registry state.
+    /// Call at store-open and foreground. This loads the exact committed mutation by transition ID.
+    public func recoverPending() async throws {
+        try await recoverPending(explicitCommit: nil)
+    }
+
+    /// Compatibility hook for tests that already hold the exact durable commit.
     public func recoverPending(commit: Commit?) async throws {
+        try await recoverPending(explicitCommit: commit)
+    }
+
+    private func recoverPending(explicitCommit: Commit?) async throws {
         guard var record = try await dependencies.loadRecovery(),
               record.stage != .complete,
               record.stage != .aborted else { return }
@@ -233,6 +298,15 @@ public actor SourceTransitionRecoveryCoordinator<Commit: Sendable> {
             record.lastErrorCode = record.lastErrorCode ?? "recovered_precommit_abort"
             try await dependencies.persistRecovery(record)
             return
+        }
+
+        let commit: Commit
+        if let explicitCommit {
+            commit = explicitCommit
+        } else if let durableCommit = try await dependencies.loadCommittedMutation(record.id) {
+            commit = durableCommit
+        } else {
+            throw SourceTransitionRecoveryError.missingCommittedMutation
         }
 
         if record.stage == .storeCommitted {
@@ -256,5 +330,6 @@ public actor SourceTransitionRecoveryCoordinator<Commit: Sendable> {
 
 public enum SourceTransitionRecoveryError: Error, Equatable, Sendable {
     case alreadyRunning
+    case missingCommittedMutation
     case postCommitRecoveryPending
 }
