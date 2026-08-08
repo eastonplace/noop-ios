@@ -4,7 +4,7 @@ import NoopPhase34Core
 @testable import WhoopStore
 
 final class PR29SourceLifecycleRegressionTests: XCTestCase {
-    func testPrivacyDeleteAtomicallyCommitsRecoveryPayloadAndDiscardedScopeTombstone() async throws {
+    func testCurrentAppModelPathAtomicallyCommitsRecoveryPayloadAndDiscardedScopeTombstone() async throws {
         let store = try await WhoopStore.inMemory()
         let writer = await store.dbWriter
         let now = Date(timeIntervalSince1970: 1_800_000_000)
@@ -18,10 +18,11 @@ final class PR29SourceLifecycleRegressionTests: XCTestCase {
             stage: .prepared
         )
 
+        // AppModel persists prepared, then calls the store mutation without passing the record. The writer
+        // connection's TEMP binding must still promote that exact transition in the mutation transaction.
         try await store.persistSourceTransitionRecovery(recovery, now: now)
         let commit = try await store.commitSourceLifecycleMutation(
             .deleteData(deviceId: "my-whoop", consumerId: "privacy-test"),
-            recovery: recovery,
             now: now.addingTimeInterval(1)
         )
 
@@ -55,7 +56,7 @@ final class PR29SourceLifecycleRegressionTests: XCTestCase {
         XCTAssertEqual(try await store.latestSourceTransitionRecovery(), expectedRecovery)
     }
 
-    func testMissingPreparedJournalRollsBackPrivacyMutation() async throws {
+    func testMissingPreparedJournalRollsBackExplicitRecoveryMutation() async throws {
         let store = try await WhoopStore.inMemory()
         let writer = await store.dbWriter
         let recovery = SourceTransitionRecoveryRecord(
