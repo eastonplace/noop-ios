@@ -54,6 +54,57 @@ final class PR29SourceLifecycleRegressionTests: XCTestCase {
             // Expected.
         }
         XCTAssertEqual(try await store.latestSourceTransitionRecovery(), expectedRecovery)
+
+        // Launch recovery may repair every remaining postcommit side effect and then persist `complete`
+        // directly. That forward jump is legal; only backward/precommit jumps are rejected.
+        var completedRecovery = expectedRecovery
+        completedRecovery.stage = .complete
+        try await store.persistSourceTransitionRecovery(
+            completedRecovery,
+            now: now.addingTimeInterval(3)
+        )
+        XCTAssertNil(try await store.latestSourceTransitionRecovery())
+    }
+
+    func testPreparedRecordWithoutProcessBindingFailsClosedBeforeMutation() async throws {
+        let store = try await WhoopStore.inMemory()
+        let writer = await store.dbWriter
+        let recovery = SourceTransitionRecoveryRecord(
+            mutationKind: "deleteData",
+            sourceDeviceId: "my-whoop",
+            targetDeviceId: nil,
+            historicalEpoch: 1,
+            externalEpoch: 1,
+            sinkEpoch: 1,
+            stage: .prepared
+        )
+        try await store.persistSourceTransitionRecovery(recovery)
+        try await writer.write { db in
+            // Simulate a relaunch: durable journal state survives but TEMP process binding does not.
+            try db.execute(sql: "DELETE FROM sourceTransitionPreparedBinding")
+            try db.execute(
+                sql: "INSERT INTO metricSeries (deviceId, day, key, value) VALUES (?, ?, ?, ?)",
+                arguments: ["my-whoop", "2026-08-08", "stress", 1.0]
+            )
+        }
+
+        do {
+            _ = try await store.commitSourceLifecycleMutation(
+                .deleteData(deviceId: "my-whoop", consumerId: "privacy-test")
+            )
+            XCTFail("stale prepared transition was bypassed")
+        } catch DurableSourceLifecycleError.invalidMutation {
+            // Expected. Launch recovery must resolve the durable prepared row first.
+        }
+
+        let remaining: Int = try await writer.read { db in
+            try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM metricSeries WHERE deviceId = ?",
+                arguments: ["my-whoop"]
+            ) ?? 0
+        }
+        XCTAssertEqual(remaining, 1)
     }
 
     func testMissingPreparedJournalRollsBackExplicitRecoveryMutation() async throws {
