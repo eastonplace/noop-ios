@@ -51,6 +51,34 @@ private actor GatePassSequence {
     func callCount() -> Int { calls }
 }
 
+private actor FenceLeaseLatch {
+    private var started = false
+    private var startedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var release: CheckedContinuation<Void, Never>?
+
+    func hold() async {
+        started = true
+        let waiters = startedWaiters
+        startedWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+        await withCheckedContinuation { continuation in
+            release = continuation
+        }
+    }
+
+    func waitUntilStarted() async {
+        guard !started else { return }
+        await withCheckedContinuation { continuation in
+            startedWaiters.append(continuation)
+        }
+    }
+
+    func releaseLease() {
+        release?.resume()
+        release = nil
+    }
+}
+
 final class PR29Round5RootFixTests: XCTestCase {
     func testLosslessGateAccumulatesProductivePassBeforeFinalEdgeRerun() async {
         let sequence = GatePassSequence([
@@ -113,5 +141,31 @@ final class PR29Round5RootFixTests: XCTestCase {
         try await fence.begin(sourceId: "source-A")
         await fence.end(sourceId: "source-A")
         await fence.end(sourceId: "source-B")
+    }
+
+    func testTargetScopedFenceWaitsForAsyncLeaseWithoutBlockingAnotherSource() async throws {
+        let fence = TargetScopedPipelineFence()
+        let latch = FenceLeaseLatch()
+        let sourceA = Task {
+            try await fence.withLease(sourceId: "source-A") {
+                await latch.hold()
+            }
+        }
+
+        await latch.waitUntilStarted()
+        let quiesceA = Task { await fence.quiesce(sourceId: "source-A") }
+        await Task.yield()
+        XCTAssertTrue(await fence.isBlocked(sourceId: "source-A"))
+
+        let sourceB = try await fence.withLease(sourceId: "source-B") { 42 }
+        XCTAssertEqual(sourceB, 42)
+
+        await latch.releaseLease()
+        try await sourceA.value
+        await quiesceA.value
+        XCTAssertTrue(await fence.isBlocked(sourceId: "source-A"))
+
+        await fence.resume(sourceId: "source-A")
+        XCTAssertFalse(await fence.isBlocked(sourceId: "source-A"))
     }
 }
