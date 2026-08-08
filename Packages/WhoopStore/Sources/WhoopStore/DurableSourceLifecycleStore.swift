@@ -104,193 +104,218 @@ extension WhoopStore {
         _ mutation: DurableSourceLifecycleMutation,
         now: Date = Date()
     ) async throws -> DurableSourceLifecycleCommit {
-        try syncWrite { db in
-            let nowTs = Int(now.timeIntervalSince1970)
-            let deviceId: String
-            let expectedOldLineage: String?
-            let replacement: String?
+        let fenceDeviceId: String
+        switch mutation {
+        case let .replacePeripheral(deviceId, _, _, _),
+             let .archive(deviceId, _, _),
+             let .deleteData(deviceId, _):
+            fenceDeviceId = deviceId
+        }
+        let fencedSources = [fenceDeviceId, fenceDeviceId + "-noop"]
+        for sourceId in fencedSources {
+            await TargetScopedPipelineFence.shared.quiesce(sourceId: sourceId)
+        }
 
-            switch mutation {
-            case let .replacePeripheral(id, lineage, _, _):
-                deviceId = id
-                expectedOldLineage = lineage
-                replacement = nil
-            case let .archive(id, replacementId, _):
-                deviceId = id
-                expectedOldLineage = nil
-                replacement = replacementId
-            case let .deleteData(id, _):
-                deviceId = id
-                expectedOldLineage = nil
-                replacement = nil
-            }
+        do {
+            let commit = try syncWrite { db in
+                let nowTs = Int(now.timeIntervalSince1970)
+                let deviceId: String
+                let expectedOldLineage: String?
+                let replacement: String?
 
-            guard let row = try Row.fetchOne(
-                db,
-                sql: """
-                    SELECT id, status, historyLineage, historyCursorEpoch
-                    FROM pairedDevice WHERE id = ?
-                    """,
-                arguments: [deviceId]
-            ) else {
-                throw DurableSourceLifecycleError.unknownDevice(deviceId)
-            }
-            let oldLineage: String = row["historyLineage"]
-            let oldEpoch: Int = row["historyCursorEpoch"]
-            let oldScope = HistoricalCursorScope(
-                deviceId: deviceId,
-                lineage: oldLineage,
-                cursorEpoch: oldEpoch
-            )
-            if let expectedOldLineage, expectedOldLineage != oldLineage {
-                throw DurableSourceLifecycleError.lineageChanged
-            }
+                switch mutation {
+                case let .replacePeripheral(id, lineage, _, _):
+                    deviceId = id
+                    expectedOldLineage = lineage
+                    replacement = nil
+                case let .archive(id, replacementId, _):
+                    deviceId = id
+                    expectedOldLineage = nil
+                    replacement = replacementId
+                case let .deleteData(id, _):
+                    deviceId = id
+                    expectedOldLineage = nil
+                    replacement = nil
+                }
 
-            if let replacement {
-                guard let replacementStatus: String = try String.fetchOne(
+                guard let row = try Row.fetchOne(
                     db,
-                    sql: "SELECT status FROM pairedDevice WHERE id = ?",
-                    arguments: [replacement]
-                ) else {
-                    throw DurableSourceLifecycleError.invalidReplacement(replacement)
-                }
-                guard replacementStatus != "archived" else {
-                    throw DurableSourceLifecycleError.archivedDevice(replacement)
-                }
-            }
-
-            // Archive and physical replacement close the old ingest scope but preserve every
-            // already-committed receipt for analysis. Privacy deletion is the only operation allowed
-            // to discard that work. All lifecycle state is written inside this transaction.
-            switch mutation {
-            case let .replacePeripheral(_, _, peripheralId, _):
-                _ = try Self.closeHistoricalScopeForDrain(
-                    oldScope,
-                    reason: Self.lifecycleReason(mutation),
-                    now: now,
-                    in: db
-                )
-                let nextLineage = UUID().uuidString
-                try db.execute(sql: """
-                    UPDATE pairedDevice
-                    SET peripheralId = ?, historyLineage = ?,
-                        historyCursorEpoch = historyCursorEpoch + 1,
-                        lastSeenAt = ?
-                    WHERE id = ? AND historyLineage = ?
-                    """, arguments: [
-                        peripheralId, nextLineage, nowTs, deviceId, oldLineage,
-                    ])
-                guard db.changesCount == 1 else {
-                    throw DurableSourceLifecycleError.lineageChanged
-                }
-
-            case .archive:
-                _ = try Self.closeHistoricalScopeForDrain(
-                    oldScope,
-                    reason: Self.lifecycleReason(mutation),
-                    now: now,
-                    in: db
-                )
-                try db.execute(
-                    sql: "UPDATE pairedDevice SET status = 'archived' WHERE id = ?",
+                    sql: """
+                        SELECT id, status, historyLineage, historyCursorEpoch
+                        FROM pairedDevice WHERE id = ?
+                        """,
                     arguments: [deviceId]
-                )
-                guard db.changesCount == 1 else {
+                ) else {
                     throw DurableSourceLifecycleError.unknownDevice(deviceId)
                 }
-                if let replacement {
-                    try db.execute(sql: """
-                        UPDATE pairedDevice
-                        SET status = CASE
-                            WHEN id = ? THEN 'active'
-                            WHEN status = 'active' THEN 'paired'
-                            ELSE status END,
-                            lastSeenAt = CASE WHEN id = ? THEN ? ELSE lastSeenAt END
-                        WHERE id = ? OR status = 'active'
-                        """, arguments: [replacement, replacement, nowTs, replacement])
-                    guard try String.fetchOne(
-                        db,
-                        sql: "SELECT id FROM pairedDevice WHERE status = 'active' LIMIT 1"
-                    ) == replacement else {
-                        throw DurableSourceLifecycleError.invalidReplacement(replacement)
-                    }
-                }
-
-            case .deleteData:
-                try Self.discardHistoricalScope(
-                    oldScope,
-                    reason: Self.lifecycleReason(mutation),
-                    now: now,
-                    in: db
+                let oldLineage: String = row["historyLineage"]
+                let oldEpoch: Int = row["historyCursorEpoch"]
+                let oldScope = HistoricalCursorScope(
+                    deviceId: deviceId,
+                    lineage: oldLineage,
+                    cursorEpoch: oldEpoch
                 )
-                let existing = Set(try String.fetchAll(
-                    db,
-                    sql: "SELECT name FROM sqlite_master WHERE type = 'table'"
-                ))
-                // Exact historical analysis owns both the raw source namespace and its derived
-                // `<source>-noop` namespace. Privacy deletion must remove both atomically so a
-                // deferred or previously-published derived row cannot survive the raw source.
-                let ownedDeviceIds = [deviceId, deviceId + "-noop"]
-                for table in DeviceRegistryStore.deviceScopedTables where existing.contains(table) {
-                    for ownedDeviceId in ownedDeviceIds {
-                        try db.execute(
-                            sql: "DELETE FROM \(table) WHERE deviceId = ?",
-                            arguments: [ownedDeviceId]
-                        )
-                    }
-                }
-                // v48 lifecycle/maintenance tables are also device-scoped. Keep these explicit
-                // until the production deviceScopedTables audit includes every new migration.
-                if existing.contains("historicalReceiptScopeLifecycle") {
-                    try db.execute(
-                        sql: "DELETE FROM historicalReceiptScopeLifecycle WHERE deviceId = ?",
-                        arguments: [deviceId]
-                    )
-                }
-                if existing.contains("historicalMaintenanceWork") {
-                    try db.execute(
-                        sql: "DELETE FROM historicalMaintenanceWork WHERE deviceId = ?",
-                        arguments: [deviceId]
-                    )
-                }
-                // Keep sourceTransitionJournal intact. The recovery coordinator owns this record
-                // and must be able to resume a crash after the privacy transaction commits. It marks
-                // the transition complete/aborted only after the remaining fenced stages finish.
-                try db.execute(sql: """
-                    UPDATE pairedDevice
-                    SET historyLineage = ?, historyCursorEpoch = historyCursorEpoch + 1
-                    WHERE id = ? AND historyLineage = ?
-                    """, arguments: [UUID().uuidString, deviceId, oldLineage])
-                guard db.changesCount == 1 else {
+                if let expectedOldLineage, expectedOldLineage != oldLineage {
                     throw DurableSourceLifecycleError.lineageChanged
                 }
-            }
 
-            guard let next = try Row.fetchOne(
-                db,
-                sql: """
-                    SELECT historyLineage, historyCursorEpoch
-                    FROM pairedDevice WHERE id = ?
-                    """,
-                arguments: [deviceId]
-            ) else {
-                throw DurableSourceLifecycleError.unknownDevice(deviceId)
+                if let replacement {
+                    guard let replacementStatus: String = try String.fetchOne(
+                        db,
+                        sql: "SELECT status FROM pairedDevice WHERE id = ?",
+                        arguments: [replacement]
+                    ) else {
+                        throw DurableSourceLifecycleError.invalidReplacement(replacement)
+                    }
+                    guard replacementStatus != "archived" else {
+                        throw DurableSourceLifecycleError.archivedDevice(replacement)
+                    }
+                }
+
+                // Archive and physical replacement close the old ingest scope but preserve every
+                // already-committed receipt for analysis. Privacy deletion is the only operation allowed
+                // to discard that work. All lifecycle state is written inside this transaction.
+                switch mutation {
+                case let .replacePeripheral(_, _, peripheralId, _):
+                    _ = try Self.closeHistoricalScopeForDrain(
+                        oldScope,
+                        reason: Self.lifecycleReason(mutation),
+                        now: now,
+                        in: db
+                    )
+                    let nextLineage = UUID().uuidString
+                    try db.execute(sql: """
+                        UPDATE pairedDevice
+                        SET peripheralId = ?, historyLineage = ?,
+                            historyCursorEpoch = historyCursorEpoch + 1,
+                            lastSeenAt = ?
+                        WHERE id = ? AND historyLineage = ?
+                        """, arguments: [
+                            peripheralId, nextLineage, nowTs, deviceId, oldLineage,
+                        ])
+                    guard db.changesCount == 1 else {
+                        throw DurableSourceLifecycleError.lineageChanged
+                    }
+
+                case .archive:
+                    _ = try Self.closeHistoricalScopeForDrain(
+                        oldScope,
+                        reason: Self.lifecycleReason(mutation),
+                        now: now,
+                        in: db
+                    )
+                    try db.execute(
+                        sql: "UPDATE pairedDevice SET status = 'archived' WHERE id = ?",
+                        arguments: [deviceId]
+                    )
+                    guard db.changesCount == 1 else {
+                        throw DurableSourceLifecycleError.unknownDevice(deviceId)
+                    }
+                    if let replacement {
+                        try db.execute(sql: """
+                            UPDATE pairedDevice
+                            SET status = CASE
+                                WHEN id = ? THEN 'active'
+                                WHEN status = 'active' THEN 'paired'
+                                ELSE status END,
+                                lastSeenAt = CASE WHEN id = ? THEN ? ELSE lastSeenAt END
+                            WHERE id = ? OR status = 'active'
+                            """, arguments: [replacement, replacement, nowTs, replacement])
+                        guard try String.fetchOne(
+                            db,
+                            sql: "SELECT id FROM pairedDevice WHERE status = 'active' LIMIT 1"
+                        ) == replacement else {
+                            throw DurableSourceLifecycleError.invalidReplacement(replacement)
+                        }
+                    }
+
+                case .deleteData:
+                    try Self.discardHistoricalScope(
+                        oldScope,
+                        reason: Self.lifecycleReason(mutation),
+                        now: now,
+                        in: db
+                    )
+                    let existing = Set(try String.fetchAll(
+                        db,
+                        sql: "SELECT name FROM sqlite_master WHERE type = 'table'"
+                    ))
+                    // Exact historical analysis owns both the raw source namespace and its derived
+                    // `<source>-noop` namespace. Privacy deletion must remove both atomically so a
+                    // deferred or previously-published derived row cannot survive the raw source.
+                    let ownedDeviceIds = [deviceId, deviceId + "-noop"]
+                    for table in DeviceRegistryStore.deviceScopedTables
+                        where existing.contains(table) && table != "historicalReceiptScopeLifecycle" {
+                        for ownedDeviceId in ownedDeviceIds {
+                            try db.execute(
+                                sql: "DELETE FROM \(table) WHERE deviceId = ?",
+                                arguments: [ownedDeviceId]
+                            )
+                        }
+                    }
+                    // Keep the raw source's `discarded` lifecycle tombstone written above. Admission uses it
+                    // to reject a stale receipt batch that was read before deletion but reaches its write
+                    // transaction after deletion. A computed namespace does not own raw receipt lifecycle.
+                    if existing.contains("historicalReceiptScopeLifecycle") {
+                        try db.execute(
+                            sql: "DELETE FROM historicalReceiptScopeLifecycle WHERE deviceId = ?",
+                            arguments: [deviceId + "-noop"]
+                        )
+                    }
+                    if existing.contains("historicalMaintenanceWork") {
+                        try db.execute(
+                            sql: "DELETE FROM historicalMaintenanceWork WHERE deviceId IN (?, ?)",
+                            arguments: [deviceId, deviceId + "-noop"]
+                        )
+                    }
+                    // Keep sourceTransitionJournal intact. The recovery coordinator owns this record
+                    // and must be able to resume a crash after the privacy transaction commits. It marks
+                    // the transition complete/aborted only after the remaining fenced stages finish.
+                    try db.execute(sql: """
+                        UPDATE pairedDevice
+                        SET historyLineage = ?, historyCursorEpoch = historyCursorEpoch + 1
+                        WHERE id = ? AND historyLineage = ?
+                        """, arguments: [UUID().uuidString, deviceId, oldLineage])
+                    guard db.changesCount == 1 else {
+                        throw DurableSourceLifecycleError.lineageChanged
+                    }
+                }
+
+                guard let next = try Row.fetchOne(
+                    db,
+                    sql: """
+                        SELECT historyLineage, historyCursorEpoch
+                        FROM pairedDevice WHERE id = ?
+                        """,
+                    arguments: [deviceId]
+                ) else {
+                    throw DurableSourceLifecycleError.unknownDevice(deviceId)
+                }
+                let nextScope = HistoricalCursorScope(
+                    deviceId: deviceId,
+                    lineage: next["historyLineage"],
+                    cursorEpoch: next["historyCursorEpoch"]
+                )
+                let active: String? = try String.fetchOne(
+                    db,
+                    sql: "SELECT id FROM pairedDevice WHERE status = 'active' LIMIT 1"
+                )
+                return DurableSourceLifecycleCommit(
+                    deviceId: deviceId,
+                    previousScope: oldScope,
+                    nextScope: nextScope,
+                    activeDeviceId: active
+                )
             }
-            let nextScope = HistoricalCursorScope(
-                deviceId: deviceId,
-                lineage: next["historyLineage"],
-                cursorEpoch: next["historyCursorEpoch"]
-            )
-            let active: String? = try String.fetchOne(
-                db,
-                sql: "SELECT id FROM pairedDevice WHERE status = 'active' LIMIT 1"
-            )
-            return DurableSourceLifecycleCommit(
-                deviceId: deviceId,
-                previousScope: oldScope,
-                nextScope: nextScope,
-                activeDeviceId: active
-            )
+            for sourceId in fencedSources.reversed() {
+                await TargetScopedPipelineFence.shared.resume(sourceId: sourceId)
+            }
+            return commit
+        } catch {
+            for sourceId in fencedSources.reversed() {
+                await TargetScopedPipelineFence.shared.resume(sourceId: sourceId)
+            }
+            throw error
         }
     }
 
