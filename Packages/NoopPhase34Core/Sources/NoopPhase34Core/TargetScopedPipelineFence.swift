@@ -4,6 +4,10 @@ import Foundation
 /// Active-source transitions may still use the global epoch fence, but deleting
 /// source A must wait for A's historical/HealthKit work without stopping source B.
 public actor TargetScopedPipelineFence {
+    /// One process-wide gate is shared by historical analysis, downstream publication, and source lifecycle
+    /// commits. Separate instances would provide no mutual exclusion at the deletion boundary.
+    public static let shared = TargetScopedPipelineFence()
+
     private var blockedSources = Set<String>()
     private var inFlightBySource: [String: Int] = [:]
     private var waiters: [String: [CheckedContinuation<Void, Never>]] = [:]
@@ -28,6 +32,23 @@ public actor TargetScopedPipelineFence {
             ready.forEach { $0.resume() }
         } else {
             inFlightBySource[source] = next
+        }
+    }
+
+    /// Hold one source lease across an async operation. The lease is released before this method returns,
+    /// including error paths, so a waiting privacy transition cannot race the final side effect.
+    public func withLease<Value: Sendable>(
+        sourceId: String,
+        operation: @Sendable () async throws -> Value
+    ) async throws -> Value {
+        try begin(sourceId: sourceId)
+        do {
+            let value = try await operation()
+            end(sourceId: sourceId)
+            return value
+        } catch {
+            end(sourceId: sourceId)
+            throw error
         }
     }
 
