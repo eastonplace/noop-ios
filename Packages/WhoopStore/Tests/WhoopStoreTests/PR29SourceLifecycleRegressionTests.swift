@@ -4,8 +4,9 @@ import NoopPhase34Core
 @testable import WhoopStore
 
 final class PR29SourceLifecycleRegressionTests: XCTestCase {
-    func testPrivacyDeleteRetainsRecoveryJournalUntilCoordinatorCompletesTransition() async throws {
+    func testPrivacyDeleteRetainsRecoveryJournalAndDiscardedScopeTombstone() async throws {
         let store = try await WhoopStore.inMemory()
+        let writer = await store.dbWriter
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let recovery = SourceTransitionRecoveryRecord(
             mutationKind: "deleteData",
@@ -24,6 +25,14 @@ final class PR29SourceLifecycleRegressionTests: XCTestCase {
         )
 
         XCTAssertEqual(try await store.latestSourceTransitionRecovery(), recovery)
+        let lifecycleState: String? = try await writer.read { db in
+            try String.fetchOne(
+                db,
+                sql: "SELECT state FROM historicalReceiptScopeLifecycle WHERE deviceId = ? LIMIT 1",
+                arguments: ["my-whoop"]
+            )
+        }
+        XCTAssertEqual(lifecycleState, HistoricalScopeLifecycleState.discarded.rawValue)
     }
 
     func testPrivacyDeleteRemovesRawAndDerivedSourceNamespacesOnly() async throws {
