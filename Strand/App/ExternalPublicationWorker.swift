@@ -117,7 +117,23 @@ actor ExternalPublicationWorker {
                     break
                 }
 
-                await process(leased, token: token)
+                do {
+                    try await TargetScopedPipelineFence.shared.withLease(
+                        sourceId: leased.deviceId
+                    ) { [self] in
+                        await self.process(leased, token: token)
+                    }
+                } catch {
+                    // The source entered archive/privacy quiescence after this durable row was leased.
+                    // Release ownership without mutating failure state; the row will either be deleted by
+                    // privacy cleanup or safely replayed after an archive transition resumes the source.
+                    _ = try? await dependencies.applyEvent(
+                        leased.idempotencyKey,
+                        .cancelOwnedLease(owner: owner),
+                        dependencies.now()
+                    )
+                    await Task.yield()
+                }
             }
 
             // A batch cap yields to the app. It does not strand ready durable work until another lifecycle event.
