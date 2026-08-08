@@ -48,6 +48,7 @@ public enum HistoricalReceiptAdmissionError: Error {
     case invalidConsumerRow
     case consumerMoved(expected: Int64, actual: Int64)
     case unsupportedReceiptSchema
+    case discardedScope
 }
 
 private struct PlannedHistoricalWork {
@@ -127,6 +128,18 @@ extension WhoopStore {
         }
 
         let coalescedCount = try syncWrite { db -> Int in
+            let lifecycleState: String? = try String.fetchOne(db, sql: """
+                SELECT state FROM historicalReceiptScopeLifecycle
+                WHERE databaseInstanceId = ? AND deviceId = ? AND lineage = ?
+                  AND cursorEpoch = ? AND trimScope = ?
+                """, arguments: [
+                    databaseId, context.scope.deviceId, context.scope.lineage,
+                    context.scope.cursorEpoch, context.scope.trimScope,
+                ])
+            guard lifecycleState != HistoricalScopeLifecycleState.discarded.rawValue else {
+                throw HistoricalReceiptAdmissionError.discardedScope
+            }
+
             let actualGeneration = try Self.historicalReceiptConsumerGeneration(
                 consumerId: context.consumerId,
                 databaseInstanceId: databaseId,
