@@ -28,7 +28,7 @@ public enum DurableSourceLifecycleMutation: Sendable {
     )
 }
 
-public struct DurableSourceLifecycleCommit: Equatable, Sendable {
+public struct DurableSourceLifecycleCommit: Codable, Equatable, Sendable {
     public let deviceId: String
     public let previousScope: HistoricalCursorScope
     public let nextScope: HistoricalCursorScope
@@ -49,6 +49,16 @@ extension WhoopStore {
         now: Date = Date()
     ) async throws {
         try syncWrite { db in
+            if let existingRaw = try String.fetchOne(
+                db,
+                sql: "SELECT stage FROM sourceTransitionJournal WHERE transitionId = ?",
+                arguments: [record.id.uuidString]
+            ) {
+                guard let existing = SourceTransitionStage(rawValue: existingRaw),
+                      Self.canAdvanceSourceTransition(from: existing, to: record.stage) else {
+                    throw DurableSourceLifecycleError.invalidMutation
+                }
+            }
             try db.execute(sql: """
                 INSERT INTO sourceTransitionJournal (
                     transitionId, mutationKind, sourceDeviceId, targetDeviceId,
@@ -100,8 +110,29 @@ extension WhoopStore {
         }
     }
 
+    /// Load the exact lifecycle commit captured in the same SQLite transaction as the source mutation.
+    /// Launch recovery must use this value instead of reconstructing state from the current registry.
+    public func sourceTransitionCommit(
+        transitionId: UUID
+    ) async throws -> DurableSourceLifecycleCommit? {
+        try syncRead { db in
+            guard let row = try Row.fetchOne(
+                db,
+                sql: "SELECT commitJSON FROM sourceTransitionJournal WHERE transitionId = ?",
+                arguments: [transitionId.uuidString]
+            ) else { return nil }
+            let data: Data? = row["commitJSON"]
+            guard let data else { return nil }
+            return try JSONDecoder().decode(DurableSourceLifecycleCommit.self, from: data)
+        }
+    }
+
+    /// Mutate one source. When `recovery` is supplied, the lifecycle change, durable commit payload,
+    /// and `storeCommitted` journal edge are one SQLite transaction. A crash can therefore observe either
+    /// prepared + no source mutation or storeCommitted + the exact commit, never a split-brain middle state.
     public func commitSourceLifecycleMutation(
         _ mutation: DurableSourceLifecycleMutation,
+        recovery: SourceTransitionRecoveryRecord? = nil,
         now: Date = Date()
     ) async throws -> DurableSourceLifecycleCommit {
         let fenceDeviceId: String
@@ -111,6 +142,14 @@ extension WhoopStore {
              let .deleteData(deviceId, _):
             fenceDeviceId = deviceId
         }
+        if let recovery {
+            guard recovery.sourceDeviceId == fenceDeviceId,
+                  recovery.stage == .prepared,
+                  recovery.mutationKind == Self.lifecycleMutationName(mutation) else {
+                throw DurableSourceLifecycleError.invalidMutation
+            }
+        }
+
         let fencedSources = [fenceDeviceId, fenceDeviceId + "-noop"]
         for sourceId in fencedSources {
             await TargetScopedPipelineFence.shared.quiesce(sourceId: sourceId)
@@ -191,8 +230,8 @@ extension WhoopStore {
                             lastSeenAt = ?
                         WHERE id = ? AND historyLineage = ?
                         """, arguments: [
-                            peripheralId, nextLineage, nowTs, deviceId, oldLineage,
-                        ])
+                        peripheralId, nextLineage, nowTs, deviceId, oldLineage,
+                    ])
                     guard db.changesCount == 1 else {
                         throw DurableSourceLifecycleError.lineageChanged
                     }
@@ -300,12 +339,32 @@ extension WhoopStore {
                     db,
                     sql: "SELECT id FROM pairedDevice WHERE status = 'active' LIMIT 1"
                 )
-                return DurableSourceLifecycleCommit(
+                let commit = DurableSourceLifecycleCommit(
                     deviceId: deviceId,
                     previousScope: oldScope,
                     nextScope: nextScope,
                     activeDeviceId: active
                 )
+
+                if let recovery {
+                    let commitJSON = try JSONEncoder().encode(commit)
+                    try db.execute(sql: """
+                        UPDATE sourceTransitionJournal
+                        SET stage = 'storeCommitted', commitJSON = ?, lastErrorCode = NULL, updatedAt = ?
+                        WHERE transitionId = ? AND stage = 'prepared'
+                          AND mutationKind = ? AND sourceDeviceId = ?
+                        """, arguments: [
+                        commitJSON,
+                        nowTs,
+                        recovery.id.uuidString,
+                        recovery.mutationKind,
+                        recovery.sourceDeviceId,
+                    ])
+                    guard db.changesCount == 1 else {
+                        throw DurableSourceLifecycleError.invalidMutation
+                    }
+                }
+                return commit
             }
             for sourceId in fencedSources.reversed() {
                 await TargetScopedPipelineFence.shared.resume(sourceId: sourceId)
@@ -316,6 +375,33 @@ extension WhoopStore {
                 await TargetScopedPipelineFence.shared.resume(sourceId: sourceId)
             }
             throw error
+        }
+    }
+
+    private static func canAdvanceSourceTransition(
+        from old: SourceTransitionStage,
+        to new: SourceTransitionStage
+    ) -> Bool {
+        if old == new { return true }
+        switch (old, new) {
+        case (.prepared, .storeCommitted),
+             (.prepared, .aborted),
+             (.storeCommitted, .sinkActivated),
+             (.sinkActivated, .workersResumed),
+             (.workersResumed, .complete):
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func lifecycleMutationName(
+        _ mutation: DurableSourceLifecycleMutation
+    ) -> String {
+        switch mutation {
+        case .replacePeripheral: return "replacePeripheral"
+        case .archive: return "archive"
+        case .deleteData: return "deleteData"
         }
     }
 
