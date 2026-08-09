@@ -18,7 +18,7 @@ public final class SerializedLiveActivityCommands<Payload: Sendable> {
         let kind: Kind
         let payload: Payload
         let token: VerifiedSinkToken?
-        let continuation: CheckedContinuation<ExternalSinkPublicationResult, Error>
+        let continuation: CheckedContinuation<ExternalSinkPublicationResult, Error>?
     }
     private struct LiveCommand {
         let payload: Payload
@@ -30,7 +30,11 @@ public final class SerializedLiveActivityCommands<Payload: Sendable> {
     private let repairStale: RepairStale
     private var fifo: [FIFOCommand] = []
     private var pendingLive: LiveCommand?
-    private var liveSubmissionsSuspended = false
+    /// Connectivity and source lifecycle are independent admission gates. A late
+    /// connection callback may open the connectivity gate. It must never open a
+    /// lifecycle gate that a source transition closed.
+    private var connectivityAvailable = true
+    private var lifecycleSubmissionsSuspended = false
     private var worker: Task<Void, Never>?
 
     public init(
@@ -46,7 +50,7 @@ public final class SerializedLiveActivityCommands<Payload: Sendable> {
     /// Health-bearing live updates should capture the current sink token. A nil
     /// token is reserved for connection-only/disconnect state and barriers.
     public func submitLive(_ payload: Payload, token: VerifiedSinkToken?) {
-        guard !liveSubmissionsSuspended else { return }
+        guard connectivityAvailable, !lifecycleSubmissionsSuspended else { return }
         pendingLive = LiveCommand(payload: payload, token: token)
         startIfNeeded()
     }
@@ -71,10 +75,10 @@ public final class SerializedLiveActivityCommands<Payload: Sendable> {
     /// may suspend later live submissions until the replacement sink is active.
     public func submitBarrier(
         _ payload: Payload,
-        suspendLive: Bool = false
+        suspendLifecycle: Bool = false
     ) async throws -> ExternalSinkPublicationResult {
         pendingLive = nil
-        if suspendLive { liveSubmissionsSuspended = true }
+        if suspendLifecycle { lifecycleSubmissionsSuspended = true }
         return try await withCheckedThrowingContinuation { continuation in
             fifo.append(FIFOCommand(
                 kind: .barrier,
@@ -86,13 +90,33 @@ public final class SerializedLiveActivityCommands<Payload: Sendable> {
         }
     }
 
-    public func suspendLiveSubmissions() {
-        liveSubmissionsSuspended = true
+    /// Queue a disconnect/end command synchronously. The command stays ordered
+    /// even if a reconnect callback arrives before ActivityKit finishes ending.
+    public func submitConnectivityBarrier(_ payload: Payload) {
+        connectivityAvailable = false
+        pendingLive = nil
+        fifo.append(FIFOCommand(
+            kind: .barrier,
+            payload: payload,
+            token: nil,
+            continuation: nil
+        ))
+        startIfNeeded()
+    }
+
+    public func setConnectivityAvailable(_ available: Bool) {
+        connectivityAvailable = available
+        if !available { pendingLive = nil }
+    }
+
+    public func suspendForLifecycleTransition() {
+        lifecycleSubmissionsSuspended = true
         pendingLive = nil
     }
 
-    public func resumeLiveSubmissions() {
-        liveSubmissionsSuspended = false
+    /// Only verified sink activation may reopen this gate.
+    public func activateLifecycleSubmissions() {
+        lifecycleSubmissionsSuspended = false
     }
 
     public func cancelPendingLive() {
@@ -113,7 +137,9 @@ public final class SerializedLiveActivityCommands<Payload: Sendable> {
                 await executeFIFO(command)
                 continue
             }
-            if let live = pendingLive, !liveSubmissionsSuspended {
+            if let live = pendingLive,
+               connectivityAvailable,
+               !lifecycleSubmissionsSuspended {
                 pendingLive = nil
                 _ = try? await execute(
                     payload: live.payload,
@@ -127,7 +153,11 @@ public final class SerializedLiveActivityCommands<Payload: Sendable> {
         worker = nil
         // No suspension between the empty check and clearing worker. A command
         // arriving afterward observes nil and starts the next worker.
-        if !fifo.isEmpty || (pendingLive != nil && !liveSubmissionsSuspended) {
+        if !fifo.isEmpty || (
+            pendingLive != nil
+                && connectivityAvailable
+                && !lifecycleSubmissionsSuspended
+        ) {
             startIfNeeded()
         }
     }
@@ -139,9 +169,9 @@ public final class SerializedLiveActivityCommands<Payload: Sendable> {
                 token: command.token,
                 isBarrier: command.kind == .barrier
             )
-            command.continuation.resume(returning: result)
+            command.continuation?.resume(returning: result)
         } catch {
-            command.continuation.resume(throwing: error)
+            command.continuation?.resume(throwing: error)
         }
     }
 

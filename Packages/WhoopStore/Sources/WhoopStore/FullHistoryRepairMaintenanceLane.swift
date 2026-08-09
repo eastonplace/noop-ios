@@ -60,7 +60,6 @@ public actor FullHistoryRepairMaintenanceCoordinator {
         public let isIdle: @Sendable () async -> Bool
         public let leaseNext: @Sendable (_ owner: String, _ now: Date) async throws -> FullHistoryRepairWork?
         public let processNextBatch: @Sendable (_ work: FullHistoryRepairWork) async throws -> FullHistoryRepairBatchResult
-        public let publishChangedDays: @Sendable (_ days: Set<CivilDay>) async throws -> Void
         public let markProgress: @Sendable (_ work: FullHistoryRepairWork, _ hasMore: Bool, _ now: Date) async throws -> Void
         public let markProgressWithCursor: (@Sendable (
             _ work: FullHistoryRepairWork,
@@ -75,7 +74,6 @@ public actor FullHistoryRepairMaintenanceCoordinator {
             isIdle: @escaping @Sendable () async -> Bool,
             leaseNext: @escaping @Sendable (String, Date) async throws -> FullHistoryRepairWork?,
             processNextBatch: @escaping @Sendable (FullHistoryRepairWork) async throws -> FullHistoryRepairBatchResult,
-            publishChangedDays: @escaping @Sendable (Set<CivilDay>) async throws -> Void,
             markProgress: @escaping @Sendable (FullHistoryRepairWork, Bool, Date) async throws -> Void,
             markProgressWithCursor: (@Sendable (
                 FullHistoryRepairWork,
@@ -89,7 +87,6 @@ public actor FullHistoryRepairMaintenanceCoordinator {
             self.isIdle = isIdle
             self.leaseNext = leaseNext
             self.processNextBatch = processNextBatch
-            self.publishChangedDays = publishChangedDays
             self.markProgress = markProgress
             self.markProgressWithCursor = markProgressWithCursor
             self.markFailure = markFailure
@@ -102,6 +99,7 @@ public actor FullHistoryRepairMaintenanceCoordinator {
     private let owner = UUID().uuidString
     private var task: Task<Void, Never>?
     private var requested = false
+    private var suspended = false
 
     public init(dependencies: Dependencies) {
         self.dependencies = dependencies
@@ -109,7 +107,35 @@ public actor FullHistoryRepairMaintenanceCoordinator {
 
     public func signal() {
         requested = true
-        guard task == nil else { return }
+        startDrainIfNeeded()
+    }
+
+    /// Close admission before a source lifecycle mutation. Signals received while suspended remain pending,
+    /// but no repair can read or enqueue work until the transition explicitly resumes this owner.
+    public func suspend() {
+        suspended = true
+        if task != nil { requested = true }
+        task?.cancel()
+    }
+
+    public func waitForCancellation() async {
+        guard let task else { return }
+        await task.value
+        self.task = nil
+    }
+
+    public func suspendAndCancel() async {
+        suspend()
+        await waitForCancellation()
+    }
+
+    public func resume() {
+        suspended = false
+        startDrainIfNeeded()
+    }
+
+    private func startDrainIfNeeded() {
+        guard !suspended, requested, task == nil else { return }
         task = Task { [weak self] in await self?.drain() }
     }
 
@@ -121,8 +147,11 @@ public actor FullHistoryRepairMaintenanceCoordinator {
     }
 
     private func drain() async {
-        defer { task = nil }
-        while requested && !Task.isCancelled {
+        defer {
+            task = nil
+            startDrainIfNeeded()
+        }
+        while requested && !suspended && !Task.isCancelled {
             requested = false
             guard await dependencies.isIdle() else { return }
             var leasedWork: FullHistoryRepairWork?
@@ -134,9 +163,6 @@ public actor FullHistoryRepairMaintenanceCoordinator {
                 try Task.checkCancellation()
                 let result = try await dependencies.processNextBatch(work)
                 try Task.checkCancellation()
-                if !result.changedDays.isEmpty {
-                    try await dependencies.publishChangedDays(result.changedDays)
-                }
                 if let markProgressWithCursor = dependencies.markProgressWithCursor {
                     try await markProgressWithCursor(work, result, dependencies.now())
                 } else {
@@ -192,6 +218,31 @@ extension WhoopStore {
               TimeZone(identifier: recordedTimeZoneIdentifier) != nil else {
             throw FullHistoryRepairMaintenanceError.invalidWork
         }
+        let lifecycleState: String? = try String.fetchOne(db, sql: """
+            SELECT state FROM historicalReceiptScopeLifecycle
+            WHERE databaseInstanceId = ? AND deviceId = ? AND lineage = ?
+              AND cursorEpoch = ? AND trimScope = ?
+            """, arguments: [
+                scope.databaseInstanceId, scope.deviceId, scope.deviceLineageId,
+                scope.cursorEpoch, scope.trimScope,
+            ])
+        guard lifecycleState == nil || lifecycleState == HistoricalScopeLifecycleState.open.rawValue else {
+            return
+        }
+        guard let source = try Row.fetchOne(db, sql: """
+            SELECT status, historyLineage, historyCursorEpoch
+            FROM pairedDevice WHERE id = ?
+            """, arguments: [scope.deviceId]) else {
+            return
+        }
+        let status: String = source["status"]
+        let lineage: String = source["historyLineage"]
+        let cursorEpoch: Int = source["historyCursorEpoch"]
+        guard status == DeviceStatus.active.rawValue,
+              lineage == scope.deviceLineageId,
+              cursorEpoch == scope.cursorEpoch else {
+            return
+        }
         let payload = try JSONEncoder().encode(reasons)
         let existing = try Row.fetchOne(db, sql: """
             SELECT workId, throughReceiptGeneration, reasonsJSON
@@ -236,6 +287,41 @@ extension WhoopStore {
             ])
     }
 
+    /// Terminalize broad repair for a scope that lost presentation authority. Exact receipt work remains
+    /// untouched and can still drain through its own verified lifecycle.
+    @discardableResult
+    static func cancelFullHistoryRepairMaintenance(
+        scope: HistoricalCursorScope,
+        reason: String,
+        now: Date,
+        in db: Database
+    ) throws -> Int {
+        let trimmedReason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !scope.deviceId.isEmpty, !scope.lineage.isEmpty,
+              scope.cursorEpoch >= 0, !scope.trimScope.isEmpty,
+              !trimmedReason.isEmpty else {
+            throw FullHistoryRepairMaintenanceError.invalidWork
+        }
+        try db.execute(sql: """
+            UPDATE historicalMaintenanceWork
+            SET state = 'quarantined', nextAttemptAt = NULL,
+                leaseOwner = NULL, leaseExpiresAt = NULL,
+                lastErrorCode = ?, updatedAt = ?
+            WHERE databaseInstanceId = ? AND deviceId = ? AND lineage = ?
+              AND cursorEpoch = ? AND trimScope = ?
+              AND state NOT IN ('complete','quarantined')
+            """, arguments: [
+                trimmedReason,
+                Int(now.timeIntervalSince1970),
+                try WhoopStore.databaseInstanceId(in: db),
+                scope.deviceId,
+                scope.lineage,
+                scope.cursorEpoch,
+                scope.trimScope,
+            ])
+        return db.changesCount
+    }
+
     /// Lease one broad-repair item only after the caller has established the idle/Today-first-paint gate.
     /// Expired leases become retryable in this same transaction, so cancellation never waits for a later
     /// process restart to make the item eligible.
@@ -260,13 +346,18 @@ extension WhoopStore {
             let row: Row?
             if let scope {
                 row = try Row.fetchOne(db, sql: """
-                    SELECT * FROM historicalMaintenanceWork
-                    WHERE state IN ('pending','retryable')
-                      AND (nextAttemptAt IS NULL OR nextAttemptAt <= ?)
-                      AND leaseOwner IS NULL
-                      AND databaseInstanceId = ? AND deviceId = ? AND lineage = ?
-                      AND cursorEpoch = ? AND trimScope = ?
-                    ORDER BY nextAttemptAt IS NOT NULL, nextAttemptAt ASC, updatedAt ASC
+                    SELECT work.* FROM historicalMaintenanceWork AS work
+                    JOIN pairedDevice AS source
+                      ON source.id = work.deviceId
+                     AND source.status = 'active'
+                     AND source.historyLineage = work.lineage
+                     AND source.historyCursorEpoch = work.cursorEpoch
+                    WHERE work.state IN ('pending','retryable')
+                      AND (work.nextAttemptAt IS NULL OR work.nextAttemptAt <= ?)
+                      AND work.leaseOwner IS NULL
+                      AND work.databaseInstanceId = ? AND work.deviceId = ? AND work.lineage = ?
+                      AND work.cursorEpoch = ? AND work.trimScope = ?
+                    ORDER BY work.nextAttemptAt IS NOT NULL, work.nextAttemptAt ASC, work.updatedAt ASC
                     LIMIT 1
                     """, arguments: [
                         nowSeconds, try WhoopStore.databaseInstanceId(in: db), scope.deviceId,
@@ -274,11 +365,16 @@ extension WhoopStore {
                     ])
             } else {
                 row = try Row.fetchOne(db, sql: """
-                    SELECT * FROM historicalMaintenanceWork
-                    WHERE state IN ('pending','retryable')
-                      AND (nextAttemptAt IS NULL OR nextAttemptAt <= ?)
-                      AND leaseOwner IS NULL
-                    ORDER BY nextAttemptAt IS NOT NULL, nextAttemptAt ASC, updatedAt ASC
+                    SELECT work.* FROM historicalMaintenanceWork AS work
+                    JOIN pairedDevice AS source
+                      ON source.id = work.deviceId
+                     AND source.status = 'active'
+                     AND source.historyLineage = work.lineage
+                     AND source.historyCursorEpoch = work.cursorEpoch
+                    WHERE work.state IN ('pending','retryable')
+                      AND (work.nextAttemptAt IS NULL OR work.nextAttemptAt <= ?)
+                      AND work.leaseOwner IS NULL
+                    ORDER BY work.nextAttemptAt IS NOT NULL, work.nextAttemptAt ASC, work.updatedAt ASC
                     LIMIT 1
                     """, arguments: [nowSeconds])
             }

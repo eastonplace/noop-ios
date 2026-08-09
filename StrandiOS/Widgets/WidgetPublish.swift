@@ -3,6 +3,7 @@ import Foundation
 import NoopPhase34Core
 import StrandDesign
 import StrandAnalytics
+import WhoopProtocol
 import WhoopStore
 import WidgetKit
 
@@ -211,13 +212,34 @@ extension WidgetSnapshot {
         token: VerifiedSinkToken
     ) async {
         let projection = bundle.projection
-        let anchorDay = bundle.widgetCore.logicalDay.key
-        let hrvSeries = await model.repo.exploreSeries(key: "hrv", source: "my-whoop", days: 30)
+        let anchorDay = bundle.widgetCore.logicalDay
+        let hrvSeries: [(day: String, value: Double)]
+        if let store = await model.repo.storeHandle() {
+            hrvSeries = (try? await verifiedHRVSeries(
+                store: store,
+                sourceIds: bundle.verifiedEnrichmentSourceIds,
+                anchorDay: anchorDay
+            )) ?? []
+        } else {
+            hrvSeries = []
+        }
         let hrvSparkline = hrvSeries
-            .filter { point in point.day <= anchorDay }
             .suffix(12)
             .map { Int($0.value.rounded()) }
-        let stress = await dashboardStress(from: model)
+        let stress: (hours: [Double?]?, summary: String?)
+        if let store = await model.repo.storeHandle(),
+           let recordedTimeZoneIdentifier = bundle.widgetCore.recordedTimeZoneIdentifier {
+            stress = (try? await verifiedDashboardStress(
+                store: store,
+                sourceIds: bundle.verifiedEnrichmentSourceIds,
+                anchorDay: anchorDay,
+                timeZoneIdentifier: recordedTimeZoneIdentifier
+            )) ?? (nil, nil)
+        } else {
+            // Legacy core rows did not persist the day-defining time zone. Omit optional stress instead
+            // of mixing their verified headline with a wall-clock day or mutable active-source union.
+            stress = (nil, nil)
+        }
         guard let defaults = UserDefaults(suiteName: WidgetSnapshot.suiteName),
               var enriched = verifiedEnrichmentBase(
                 defaults: defaults,
@@ -239,6 +261,52 @@ extension WidgetSnapshot {
         guard result == .published || result == .alreadyCurrent else { return }
         WidgetLivePublishGate.notePublished(enriched, at: Date())
         WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    /// Read exact immutable namespaces. Repository's canonical `my-whoop`
+    /// alias intentionally unions the current active source, which is unsafe for
+    /// a delayed verified generation. The source order captured by the bundle is
+    /// the precedence order; the first value for a day wins.
+    static func verifiedHRVSeries(
+        store: WhoopStore,
+        sourceIds: [String],
+        anchorDay: CivilDay,
+        dayCount: Int = 30
+    ) async throws -> [(day: String, value: Double)] {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = Locale(identifier: "en_US_POSIX")
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let anchorDate = try anchorDay.date(in: calendar)
+        guard let firstDate = calendar.date(
+            byAdding: .day,
+            value: -(max(1, dayCount) - 1),
+            to: anchorDate
+        ) else { throw CivilDayError.unrepresentableDate }
+        let firstComponents = calendar.dateComponents([.year, .month, .day], from: firstDate)
+        guard let year = firstComponents.year,
+              let month = firstComponents.month,
+              let day = firstComponents.day else {
+            throw CivilDayError.unrepresentableDate
+        }
+        let firstDay = try CivilDay(year: year, month: month, day: day)
+
+        var byDay: [String: Double] = [:]
+        for sourceId in sourceIds {
+            try Task.checkCancellation()
+            let points = try await store.metricSeries(
+                deviceId: sourceId,
+                key: "hrv",
+                from: firstDay.key,
+                to: anchorDay.key
+            )
+            try Task.checkCancellation()
+            for point in points where byDay[point.day] == nil {
+                byDay[point.day] = point.value
+            }
+        }
+        return byDay.keys.sorted().compactMap { day in
+            byDay[day].map { (day: day, value: $0) }
+        }
     }
 
     /// Fast publication lane for live fields. No history query and no sleep/stress recomputation.
@@ -298,24 +366,82 @@ extension WidgetSnapshot {
         WidgetCenter.shared.reloadAllTimelines()
     }
 
-    @MainActor
-    private static func dashboardStress(from model: AppModel) async -> (hours: [Double?]?, summary: String?) {
-        let now = Date()
-        let start = Int(Calendar.current.startOfDay(for: now).timeIntervalSince1970)
-        let end = Int(now.timeIntervalSince1970)
-        // Enrichment is optional. Keep this raw fallback bounded until the persisted hourly aggregate
-        // exists; the coordinator's generation/TTL gate prevents this cap from becoming a hot loop.
-        let hr = await model.repo.hrSamples(from: start, to: end, limit: 20_000)
+    static func verifiedStressInput(
+        store: WhoopStore,
+        sourceIds: [String],
+        anchorDay: CivilDay,
+        timeZoneIdentifier: String,
+        limit: Int = 20_000
+    ) async throws -> (hr: [HRSample], rr: [RRInterval], timeZoneOffsetSeconds: Int) {
+        guard let zone = TimeZone(identifier: timeZoneIdentifier) else {
+            throw CivilDayError.unrepresentableDate
+        }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = Locale(identifier: "en_US_POSIX")
+        calendar.timeZone = zone
+        let startDate = try anchorDay.date(in: calendar)
+        guard let endDate = calendar.date(byAdding: .day, value: 1, to: startDate) else {
+            throw CivilDayError.unrepresentableDate
+        }
+        let start = Int(startDate.timeIntervalSince1970)
+        let end = Int(endDate.timeIntervalSince1970) - 1
+        let boundedLimit = min(20_000, max(1, limit))
+
+        var hrByTimestamp: [Int: HRSample] = [:]
+        var rrByTimestamp: [Int: [RRInterval]] = [:]
+        var seenSourceIds = Set<String>()
+        for sourceId in sourceIds
+            .map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) })
+            .filter({ !$0.isEmpty && seenSourceIds.insert($0).inserted }) {
+            try Task.checkCancellation()
+            for sample in try await store.hrSamples(
+                deviceId: sourceId,
+                from: start,
+                to: end,
+                limit: boundedLimit
+            ) where hrByTimestamp[sample.ts] == nil {
+                hrByTimestamp[sample.ts] = sample
+            }
+            let sourceRR = try await store.rrIntervals(
+                deviceId: sourceId,
+                from: start,
+                to: end,
+                limit: boundedLimit
+            )
+            for group in Dictionary(grouping: sourceRR, by: \.ts)
+                where rrByTimestamp[group.key] == nil {
+                rrByTimestamp[group.key] = group.value
+            }
+        }
+        let hr = hrByTimestamp.values.sorted { $0.ts < $1.ts }
+        let rr = rrByTimestamp.keys.sorted().flatMap { rrByTimestamp[$0] ?? [] }
+        return (hr, rr, zone.secondsFromGMT(for: startDate))
+    }
+
+    static func verifiedDashboardStress(
+        store: WhoopStore,
+        sourceIds: [String],
+        anchorDay: CivilDay,
+        timeZoneIdentifier: String
+    ) async throws -> (hours: [Double?]?, summary: String?) {
+        let input = try await verifiedStressInput(
+            store: store,
+            sourceIds: sourceIds,
+            anchorDay: anchorDay,
+            timeZoneIdentifier: timeZoneIdentifier
+        )
+        let hr = input.hr
         guard hr.count >= DaytimeStress.minHourHRSamples else { return (nil, nil) }
-        let rr = (try? await model.repo.storeHandle()?.rrIntervals(
-            deviceId: model.repo.deviceId, from: start, to: end, limit: 20_000)) ?? []
-        let tzOffset = TimeZone.current.secondsFromGMT(for: now)
 
         // DaytimeStress fingerprints and then buckets as many as 200k HR + 200k R-R rows. `publish` is
         // MainActor-isolated because it reads app state and writes WidgetKit, but the pure numeric scan does
         // not belong on the UI executor. Return only the tiny widget projection to the main actor.
         return await Task.detached(priority: .utility) {
-            let result = DaytimeStress.analyze(hr: hr, rr: rr, tzOffsetSeconds: tzOffset)
+            let result = DaytimeStress.analyze(
+                hr: hr,
+                rr: input.rr,
+                tzOffsetSeconds: input.timeZoneOffsetSeconds
+            )
             var hours = [Double?](repeating: nil, count: 24)
             for point in result.hours where (0..<24).contains(point.hour) {
                 hours[point.hour] = point.level

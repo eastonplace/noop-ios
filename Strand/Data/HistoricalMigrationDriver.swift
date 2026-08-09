@@ -23,12 +23,15 @@ enum HistoricalMigrationDriver {
         shouldPause: () -> Bool,
         analyzeChunk: (_ days: Int, _ offset: Int) async throws -> Void,
         finalRefresh: () async -> Bool,
+        maximumChunksPerRun: Int? = nil,
         interChunkDelay: Duration = .milliseconds(100),
         progress: (_ completedDays: Int, _ totalDays: Int) -> Void = { _, _ in }
     ) async -> Outcome {
         guard !isCompleted() else { return .alreadyCompleted }
         let total = max(0, historyDays)
         let size = max(1, chunkDays)
+        let chunkLimit = maximumChunksPerRun.map { max(1, $0) } ?? .max
+        var completedChunks = 0
 
         while true {
             if Task.isCancelled { return .cancelled }
@@ -41,6 +44,7 @@ enum HistoricalMigrationDriver {
                 progress(total, total)
                 return .completed
             }
+            guard completedChunks < chunkLimit else { return .paused }
 
             let chunk = min(size, total - offset)
             do {
@@ -56,6 +60,7 @@ enum HistoricalMigrationDriver {
 
             let next = offset + chunk
             saveOffset(next)
+            completedChunks += 1
             progress(next, total)
             await Task.yield()
             do {

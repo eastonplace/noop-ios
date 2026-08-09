@@ -26,6 +26,7 @@ struct StrandiOSApp: App {
     @State private var workoutProjection = WorkoutLiveProjectionCache()
     @State private var externalSurface: ExternalSurfaceProjection?
     @State private var externalPublicationWorker: ExternalPublicationWorker
+    private let sourcePrivacyCleanupCoordinator: SourcePrivacyCleanupCoordinator
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage(AppearanceMode.storageKey) private var appearanceRaw = AppearanceMode.system.rawValue
     @AppStorage(ChartStyle.storageKey) private var chartStyleRaw = ChartStyle.titanium.rawValue
@@ -58,7 +59,70 @@ struct StrandiOSApp: App {
             appleDeviceId: model.appleDeviceId,
             noopDeviceId: model.deviceId
         )
+        let cleanupCoordinator = SourcePrivacyCleanupCoordinator(
+            storeProvider: { [repo = model.repo] in
+                await repo.storeHandle()
+            },
+            healthKitBridge: healthBridge
+        )
+        sourcePrivacyCleanupCoordinator = cleanupCoordinator
+        _ = SourcePrivacyCleanupBackgroundTaskRegistrar.install(
+            recover: { [weak model, weak healthBridge, cleanupCoordinator] in
+                // BG execution may resume a process with a fresh `.unknown` bridge. Read the existing
+                // grant first, but never request new permissions while the app is backgrounded.
+                await healthBridge?.refreshAuthIfPreviouslyGranted(requestNewTypes: false)
+                await model?.recoverPendingSourceTransition()
+                guard let model,
+                      let store = await model.repo.storeHandle() else {
+                    return
+                }
+                do {
+                    let latestTransition = try await store.latestSourceTransitionRecovery()
+                    guard SourcePrivacyCleanupIndependentDrainPolicy.shouldDrain(
+                        latestTransition: latestTransition
+                    ) else { return }
+                    _ = try await cleanupCoordinator.drainOldestUnresolved()
+                } catch let error as SourcePrivacyCleanupCoordinatorError {
+                    SourcePrivacyCleanupBackgroundTaskRegistrar.scheduleRetry(
+                        for: error
+                    )
+                } catch {
+                    SourcePrivacyCleanupBackgroundTaskRegistrar.schedule(.ready)
+                }
+            },
+            pendingState: { [repo = model.repo] in
+                guard let store = await repo.storeHandle() else {
+                    throw SourcePrivacyCleanupCoordinatorError.storeUnavailable
+                }
+                let now = Date()
+                let candidates = try await store.sourcePrivacyCleanupDrainCandidates(
+                    now: now,
+                    limit: 100
+                )
+                return SourcePrivacyCleanupBackgroundState.pendingState(
+                    for: candidates.first,
+                    now: now
+                )
+            }
+        )
+        model.attachSourcePrivacyCleanupDrain { [cleanupCoordinator] cleanupWorkId in
+            do {
+                try await cleanupCoordinator.drain(cleanupWorkId: cleanupWorkId)
+            } catch let error as SourcePrivacyCleanupCoordinatorError {
+                await MainActor.run {
+                    SourcePrivacyCleanupBackgroundTaskRegistrar.scheduleRetry(for: error)
+                }
+                if SourcePrivacyCleanupTransitionHandoffPolicy.completesTransition(
+                    after: error
+                ) {
+                    return
+                }
+                throw error
+            }
+        }
         let liveActivityController = LiveActivityController()
+        let sinkLifecycle = IOSVerifiedSinkLifecycle(liveActivity: liveActivityController)
+        model.attachVerifiedSinkLifecycle(sinkLifecycle)
         let worker = ExternalPublicationWorker(
             dependencies: ExternalPublicationWorkerDependencies(
                 leaseNext: { owner, now, leaseDuration, preferredDestination in
@@ -195,9 +259,6 @@ struct StrandiOSApp: App {
             )
         )
         model.attachExternalPublicationWorker(worker)
-        model.attachHealthKitSourceDeletion { sourceDeviceId in
-            try await healthBridge.prepareSourceDeletion(sourceDeviceId)
-        }
         _liveActivity = State(initialValue: liveActivityController)
         _health = StateObject(wrappedValue: healthBridge)
         _externalPublicationWorker = State(initialValue: worker)
@@ -224,6 +285,37 @@ struct StrandiOSApp: App {
 
     private func refreshExternalSurface() {
         externalSurface = model.repo.verifiedHealthProjection.map(ExternalSurfaceProjection.init)
+    }
+
+    @MainActor
+    private func schedulePrivacyCleanupIfPending() async {
+        guard let store = await model.repo.storeHandle(),
+              let candidates = try? await store.sourcePrivacyCleanupDrainCandidates(
+                  now: Date(),
+                  limit: 100
+              ) else { return }
+        let now = Date()
+        let state = SourcePrivacyCleanupBackgroundState.pendingState(
+            for: candidates.first,
+            now: now
+        )
+        SourcePrivacyCleanupBackgroundTaskRegistrar.schedule(state, now: now)
+    }
+
+    @MainActor
+    private func drainOldestSourcePrivacyCleanup() async {
+        do {
+            guard let store = await model.repo.storeHandle() else { return }
+            let latestTransition = try await store.latestSourceTransitionRecovery()
+            guard SourcePrivacyCleanupIndependentDrainPolicy.shouldDrain(
+                latestTransition: latestTransition
+            ) else { return }
+            _ = try await sourcePrivacyCleanupCoordinator.drainOldestUnresolved()
+        } catch let error as SourcePrivacyCleanupCoordinatorError {
+            SourcePrivacyCleanupBackgroundTaskRegistrar.scheduleRetry(for: error)
+        } catch {
+            SourcePrivacyCleanupBackgroundTaskRegistrar.schedule(.ready)
+        }
     }
 
     @MainActor
@@ -369,6 +461,12 @@ struct StrandiOSApp: App {
                         repository: model.repo)
                     refreshExternalSurface()
                     alarmRuntime.start()
+                    await health.refreshAuthIfPreviouslyGranted(
+                        requestNewTypes: scenePhase == .active
+                    )
+                    await model.recoverPendingSourceTransition()
+                    await drainOldestSourcePrivacyCleanup()
+                    await schedulePrivacyCleanupIfPending()
                     await drainCommittedHealthScoring()
                     await externalPublicationWorker.signal()
                     #if DEBUG
@@ -383,7 +481,12 @@ struct StrandiOSApp: App {
                     )
                 ) { _ in
                     Task { @MainActor in
+                        await health.refreshAuthIfPreviouslyGranted(
+                            requestNewTypes: scenePhase == .active
+                        )
                         await model.recoverPendingSourceTransition()
+                        await drainOldestSourcePrivacyCleanup()
+                        await schedulePrivacyCleanupIfPending()
                         await resumeBlockedWork(includeHealthKit: health.auth == .authorized)
                         await externalPublicationWorker.signal()
                     }
@@ -398,9 +501,11 @@ struct StrandiOSApp: App {
                 Task {
                     let trace = PerformanceTrace.begin("foreground_refresh")
                     defer { PerformanceTrace.end(trace) }
+                    await health.refreshAuthIfPreviouslyGranted()
                     await model.recoverPendingSourceTransition()
+                    await drainOldestSourcePrivacyCleanup()
+                    await schedulePrivacyCleanupIfPending()
                     await resumeBlockedWork(includeHealthKit: false)
-                    health.refreshAuthIfPreviouslyGranted()
                     await resumeBlockedWork(includeHealthKit: health.auth == .authorized)
                     await health.foregroundCatchUp()
                     // Observer delivery can be suspended or its notification can land before this view's
@@ -412,6 +517,7 @@ struct StrandiOSApp: App {
                 }
             } else if phase == .background {
                 Task {
+                    await schedulePrivacyCleanupIfPending()
                     await externalPublicationWorker.signal()
                     _ = await WidgetSnapshot.publish(from: model)
                 }

@@ -200,6 +200,11 @@ final class Repository: ObservableObject {
             liveState: liveSourceState,
             canonicalComputedId: canonicalComputedId)
     }
+    /// Exact source set that can change the active Today and external projection. Source transitions use
+    /// this same set instead of treating the selected live device as the whole presentation owner.
+    var activeProjectionContributorIds: Set<String> {
+        Set(importedReadIds + computedReadIds + [Self.appleHealthSource, Self.activityFileSource])
+    }
     private var store: WhoopStore?
 
     /// Daily metrics (recovery/strain/sleep/HRV/RHR…) over the recent window, oldest→newest.
@@ -4481,7 +4486,12 @@ extension Repository {
                   existing.recordedTimeZoneIdentifier == work.recordedTimeZoneIdentifier else {
                 throw PR28HistoricalPipelineError.conflictingSnapshotReplay
             }
-            return existing
+            return try await ensureExistingVerifiedArtifacts(
+                existing,
+                work: work,
+                store: store,
+                now: now
+            )
         }
 
         guard let template = try await store.todayHealthSnapshot(scopeId: todayHealthSnapshotScopeId),
@@ -4574,12 +4584,21 @@ extension Repository {
             sleepMinutes: stored.dailyMetric.totalSleepMin.map { Int($0.rounded()) },
             steps: stored.dailyMetric.steps,
             calories: stored.dailyMetric.activeKcalEst.map { Int($0.rounded()) },
-            recoveryDelta: nil
+            recoveryDelta: Self.verifiedRecoveryDelta(
+                projection: projection,
+                read: read,
+                importedSourceIds: Set(namespace.importedBaselineDeviceIds),
+                computedSourceIds: [namespace.computedDeviceId],
+                recordedTimeZoneIdentifier: work.recordedTimeZoneIdentifier
+            ),
+            recordedTimeZoneIdentifier: work.recordedTimeZoneIdentifier,
+            enrichmentSourceIds: namespace.verificationSourceIds
         )
-        _ = try await store.recordVerifiedSnapshotCommit(
-            receipt,
-            now: now,
-            widgetCore: widgetCore
+        _ = try await store.ensureVerifiedArtifacts(
+            receipt: receipt,
+            snapshot: stored,
+            widgetCore: widgetCore,
+            now: now
         )
         // Durable verification is intentionally not observable publication. The exact publication phase
         // loads this receipt and the immutable snapshot again, then commits every cache family together.
@@ -4647,11 +4666,44 @@ extension Repository {
               work.acceptsAnalyzedDays(analysis.analyzedDays) else {
             throw VerifiedTodaySnapshotCommitError.invalidContext
         }
+        let namespace = try ExactWorkSourceContext(work: work).analysisNamespace
         if let existing = try await store.verifiedSnapshotCommit(
             contextId: context.identifier,
             analysisGeneration: analysis.analysisGeneration
         ) {
-            return existing
+            guard existing.throughReceiptGeneration == analysis.throughReceiptGeneration,
+                  existing.analyzedDays == analysis.analyzedDays else {
+                throw PR28HistoricalPipelineError.conflictingSnapshotReplay
+            }
+            let existingBundle = try await store.verifiedExternalProjectionBundle(
+                contextId: existing.projection.contextId,
+                generation: existing.snapshotGeneration
+            )
+            let widgetCore: VerifiedWidgetCorePayload
+            if let existingBundle {
+                widgetCore = existingBundle.widgetCore
+            } else {
+                widgetCore = try VerifiedWidgetCorePayload(
+                    contextId: existing.projection.contextId,
+                    projectionGeneration: existing.snapshotGeneration,
+                    logicalDay: existing.projection.logicalDay,
+                    restingHR: candidate.dailyMetric.restingHr,
+                    sleepMinutes: candidate.dailyMetric.totalSleepMin.map { Int($0.rounded()) },
+                    steps: candidate.dailyMetric.steps,
+                    calories: candidate.dailyMetric.activeKcalEst.map { Int($0.rounded()) },
+                    // This compatibility path does not retain the exact prior-day WAL evidence used by
+                    // the verified generation. Omitting the delta is safer than deriving new meaning from
+                    // mutable canonical rows after the commit.
+                    recoveryDelta: nil,
+                    recordedTimeZoneIdentifier: existing.recordedTimeZoneIdentifier,
+                    enrichmentSourceIds: namespace.verificationSourceIds
+                )
+            }
+            return try await store.ensureVerifiedArtifacts(
+                receipt: existing,
+                snapshot: candidate,
+                widgetCore: widgetCore
+            )
         }
         invalidateSuspendedTodayWritersForVerifiedPublication()
         guard try await store.saveTodayHealthSnapshot(candidate),
@@ -4666,6 +4718,7 @@ extension Repository {
             analysisGeneration: analysis.analysisGeneration,
             snapshotGeneration: stored.generation,
             analyzedDays: analysis.analyzedDays,
+            recordedTimeZoneIdentifier: work.recordedTimeZoneIdentifier,
             projection: projection
         )
         let widgetCore = try VerifiedWidgetCorePayload(
@@ -4676,14 +4729,76 @@ extension Repository {
             sleepMinutes: stored.dailyMetric.totalSleepMin.map { Int($0.rounded()) },
             steps: stored.dailyMetric.steps,
             calories: stored.dailyMetric.activeKcalEst.map { Int($0.rounded()) },
-            recoveryDelta: nil
+            // This compatibility helper has no generation-fenced prior-day WAL read. The production exact
+            // pipeline above persists its delta from the same WAL read that built the projection.
+            recoveryDelta: nil,
+            recordedTimeZoneIdentifier: receipt.recordedTimeZoneIdentifier,
+            enrichmentSourceIds: namespace.verificationSourceIds
         )
-        let committed = try await store.recordVerifiedSnapshotCommit(
-            receipt,
-            now: Date(),
-            widgetCore: widgetCore
+        let committed = try await store.ensureVerifiedArtifacts(
+            receipt: receipt,
+            snapshot: stored,
+            widgetCore: widgetCore,
+            now: Date()
         )
         return committed
+    }
+
+    /// Fill artifacts omitted by a compatible older commit only from durable evidence for the exact
+    /// snapshot generation. A later mutable Today generation is never accepted as repair input.
+    private func ensureExistingVerifiedArtifacts(
+        _ receipt: SnapshotCommitReceipt,
+        work: HistoricalAnalysisWork,
+        store: WhoopStore,
+        now: Date
+    ) async throws -> SnapshotCommitReceipt {
+        let immutable = try await store.verifiedTodaySnapshot(
+            contextId: receipt.projection.contextId,
+            analysisGeneration: receipt.analysisGeneration
+        )
+        let matchingMutable: TodayHealthSnapshot?
+        if immutable == nil,
+           let candidate = try await store.todayHealthSnapshot(scopeId: todayHealthSnapshotScopeId),
+           candidate.context?.identifier == receipt.projection.contextId,
+           candidate.generation == receipt.snapshotGeneration {
+            matchingMutable = candidate
+        } else {
+            matchingMutable = nil
+        }
+        guard let snapshot = immutable ?? matchingMutable,
+              snapshot.generation == receipt.snapshotGeneration else {
+            throw HistoricalPipelineArtifactError.missingSnapshotReceipt
+        }
+        let existingBundle = try await store.verifiedExternalProjectionBundle(
+            contextId: receipt.projection.contextId,
+            generation: receipt.snapshotGeneration
+        )
+        let namespace = try ExactWorkSourceContext(work: work).analysisNamespace
+        let widgetCore: VerifiedWidgetCorePayload
+        if let existingBundle {
+            widgetCore = existingBundle.widgetCore
+        } else {
+            widgetCore = try VerifiedWidgetCorePayload(
+                contextId: receipt.projection.contextId,
+                projectionGeneration: receipt.snapshotGeneration,
+                logicalDay: receipt.projection.logicalDay,
+                restingHR: snapshot.dailyMetric.restingHr,
+                sleepMinutes: snapshot.dailyMetric.totalSleepMin.map { Int($0.rounded()) },
+                steps: snapshot.dailyMetric.steps,
+                calories: snapshot.dailyMetric.activeKcalEst.map { Int($0.rounded()) },
+                // A legacy receipt without Widget core does not prove which prior-day row belonged to its
+                // generation. Preserve the immutable headline and omit the unproven delta.
+                recoveryDelta: nil,
+                recordedTimeZoneIdentifier: receipt.recordedTimeZoneIdentifier,
+                enrichmentSourceIds: namespace.verificationSourceIds
+            )
+        }
+        return try await store.ensureVerifiedArtifacts(
+            receipt: receipt,
+            snapshot: snapshot,
+            widgetCore: widgetCore,
+            now: now
+        )
     }
 
     /// Publish a committed exact-day result into the shared repository generation. The current-day intent is
@@ -4735,7 +4850,11 @@ extension Repository {
                 )
             }
             guard let store = await ensureStore(),
-                  let storedSnapshot = try await store.todayHealthSnapshot(scopeId: todayHealthSnapshotScopeId)
+                  let storedSnapshot = try await store.verifiedTodaySnapshot(
+                      contextId: projection.contextId,
+                      analysisGeneration: snapshotReceipt.analysisGeneration
+                  ),
+                  storedSnapshot.generation == snapshotReceipt.snapshotGeneration
             else {
                 return RepositoryRefreshOutcome(
                     authoritativeDataPublished: false,
@@ -4953,7 +5072,10 @@ extension Repository {
             )
         }
         guard durableReceipt.analyzedDays == exactDays,
-              let storedSnapshot = try await store.todayHealthSnapshot(scopeId: todayHealthSnapshotScopeId),
+              let storedSnapshot = try await store.verifiedTodaySnapshot(
+                  contextId: projection.contextId,
+                  analysisGeneration: durableReceipt.analysisGeneration
+              ),
               storedSnapshot.generation == durableReceipt.snapshotGeneration else {
             return RepositoryRefreshOutcome(
                 authoritativeDataPublished: false,
@@ -4976,6 +5098,196 @@ extension Repository {
                 importedStrain: nextImportedStrain,
                 canonicalHealth: nextCanonical
             ))
+    }
+
+    private nonisolated static func durableProjectionSourceIds(
+        projection: VerifiedHealthProjection,
+        fallbackDeviceId: String
+    ) -> [String] {
+        var verification: [String] = []
+        var seen = Set<String>()
+
+        func appendVerification(_ sourceId: String) {
+            let normalized = sourceId.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalized.isEmpty, seen.insert(normalized).inserted else { return }
+            verification.append(normalized)
+        }
+
+        func appendProjectionSource(_ sourceId: String) {
+            let normalized = sourceId.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalized.isEmpty else { return }
+            if normalized.hasSuffix("-noop"), normalized.count > "-noop".count {
+                let raw = String(normalized.dropLast("-noop".count))
+                appendVerification(raw)
+                appendVerification(normalized)
+            } else {
+                appendVerification(normalized)
+            }
+        }
+
+        let recoverySourceId = projection.visibleMetric(.recovery)?.sourceId
+        if let recoverySourceId {
+            appendProjectionSource(recoverySourceId)
+        }
+        for sourceId in Set(projection.metrics.values.map(\.sourceId)).sorted()
+            where sourceId != recoverySourceId {
+            appendProjectionSource(sourceId)
+        }
+
+        let fallback = fallbackDeviceId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !fallback.isEmpty {
+            appendVerification(fallback)
+            appendVerification(fallback + "-noop")
+        }
+        return verification
+    }
+
+    private nonisolated static func artifactRepairFailureRequiresRetry(
+        _ error: Error
+    ) -> Bool {
+        // These failures describe immutable legacy evidence that cannot become repairable on retry. The
+        // keyset scan must advance past them so a corrupt head page cannot starve later valid commits.
+        if error is VerifiedSnapshotCommitStoreError
+            || error is VerifiedExternalProjectionBundleStoreError
+            || error is VerifiedWidgetCorePayloadError
+            || error is HistoricalPipelineArtifactError
+            || error is ExternalPublicationStoreError {
+            return false
+        }
+        // SQLite availability and other transient storage failures can change. Keep this keyset position
+        // until artifact completion and publication admission succeed together.
+        return true
+    }
+
+    /// Derive the small Widget delta from the same canonical WAL read as the verified projection.
+    /// No mutable Today or Repository cache participates in replay.
+    private nonisolated static func verifiedRecoveryDelta(
+        projection: VerifiedHealthProjection,
+        read: CanonicalHealthSurfaceStoreSnapshot,
+        importedSourceIds: Set<String>,
+        computedSourceIds: Set<String>,
+        recordedTimeZoneIdentifier: String
+    ) -> Int? {
+        guard let currentMetric = projection.visibleMetric(.recovery),
+              let calendar = try? HealthCalendar(timeZoneIdentifier: recordedTimeZoneIdentifier),
+              let previousDay = try? calendar.adding(days: -1, to: currentMetric.metricDay) else {
+            return nil
+        }
+        let imported = RepositoryExactAuthoritativeMerge.bestRowsPreservingSource(
+            read.dailyRows.filter { importedSourceIds.contains($0.sourceId) }
+        ).values.map(\.metric)
+        let computed = RepositoryExactAuthoritativeMerge.bestRowsPreservingSource(
+            read.dailyRows.filter { computedSourceIds.contains($0.sourceId) }
+        ).values.map(\.metric)
+        guard let previous = mergeDaily(imported: imported, computed: computed)
+            .first(where: { $0.day == previousDay.key })?.recovery else {
+            return nil
+        }
+        return Int(currentMetric.value.rounded()) - Int(previous.rounded())
+    }
+
+    /// Bounded post-first-paint repair for v48/v49 commits that predate immutable snapshot or Widget
+    /// artifacts. Only an exact stored generation is accepted. Rows without matching evidence stay closed.
+    func repairIncompleteVerifiedArtifacts(limit: Int = 25) async -> Int {
+        guard let store = await ensureStore() else {
+            return 0
+        }
+        let cursor: IncompleteVerifiedArtifactRepairCursor?
+        let page: IncompleteVerifiedArtifactRepairPage
+        do {
+            cursor = try await store.incompleteVerifiedArtifactRepairScanCursor()
+            page = try await store.incompleteVerifiedArtifactRepairPage(
+                after: cursor,
+                limit: limit
+            )
+        } catch {
+            return 0
+        }
+        var repaired = 0
+        var canAdvanceCursor = true
+        for repair in page.repairs {
+            do {
+                guard let receipt = try await store.verifiedSnapshotCommit(
+                    contextId: repair.contextId,
+                    analysisGeneration: repair.analysisGeneration
+                ) else { continue }
+                let immutable = try await store.verifiedTodaySnapshot(
+                    contextId: repair.contextId,
+                    analysisGeneration: repair.analysisGeneration
+                )
+                let matchingMutable: TodayHealthSnapshot?
+                if immutable == nil,
+                   repair.contextId == todayHealthSnapshotContext?.identifier,
+                   let candidate = try await store.todayHealthSnapshot(
+                       scopeId: todayHealthSnapshotScopeId
+                   ),
+                   candidate.context?.identifier == repair.contextId,
+                   candidate.generation == repair.snapshotGeneration,
+                   candidate.logicalDay == receipt.projection.logicalDay.key {
+                    matchingMutable = candidate
+                } else {
+                    matchingMutable = nil
+                }
+                guard let snapshot = immutable ?? matchingMutable else { continue }
+                let artifacts = try await store.verifiedExternalProjectionArtifacts(
+                    contextId: repair.contextId,
+                    generation: repair.snapshotGeneration
+                )
+                guard artifacts.projection == receipt.projection else { continue }
+                let widgetCore: VerifiedWidgetCorePayload
+                if let existingCore = artifacts.widgetCore {
+                    widgetCore = existingCore
+                } else {
+                    let enrichmentSourceIds = Self.durableProjectionSourceIds(
+                        projection: receipt.projection,
+                        fallbackDeviceId: repair.deviceId
+                    )
+                    widgetCore = try VerifiedWidgetCorePayload(
+                        contextId: repair.contextId,
+                        projectionGeneration: repair.snapshotGeneration,
+                        logicalDay: receipt.projection.logicalDay,
+                        restingHR: snapshot.dailyMetric.restingHr,
+                        sleepMinutes: snapshot.dailyMetric.totalSleepMin.map { Int($0.rounded()) },
+                        steps: snapshot.dailyMetric.steps,
+                        calories: snapshot.dailyMetric.activeKcalEst.map { Int($0.rounded()) },
+                        // v48/v49 did not persist generation-fenced prior-day evidence. Do not reconstruct
+                        // a delta from canonical rows that may have been rescored after this commit.
+                        recoveryDelta: nil,
+                        recordedTimeZoneIdentifier: receipt.recordedTimeZoneIdentifier,
+                        enrichmentSourceIds: enrichmentSourceIds
+                    )
+                }
+                _ = try await store.repairVerifiedArtifactsAndEnqueueExternalPublications(
+                    receipt: receipt,
+                    snapshot: snapshot,
+                    widgetCore: widgetCore,
+                    now: Date()
+                )
+                repaired += 1
+            } catch {
+                if Self.artifactRepairFailureRequiresRetry(error) {
+                    // Artifact visibility, publication admission, and scan progress form one repair unit.
+                    // A transient storage failure leaves this keyset position visible for the next grant.
+                    canAdvanceCursor = false
+                    break
+                }
+                // Deterministically invalid legacy evidence stays fail-closed, but it cannot starve valid
+                // repairs after this row in the durable keyset scan.
+                continue
+            }
+        }
+        if canAdvanceCursor {
+            do {
+                try await store.saveIncompleteVerifiedArtifactRepairScanCursor(
+                    page.nextCursor,
+                    reachedEnd: page.reachedEnd
+                )
+            } catch {
+                // Repair writes are idempotent. If progress persistence fails, the next bounded grant safely
+                // replays this page instead of skipping an unrecorded keyset position.
+            }
+        }
+        return repaired
     }
 
     /// Refresh only source coverage metadata. This deliberately does not touch the bounded dashboard cache.

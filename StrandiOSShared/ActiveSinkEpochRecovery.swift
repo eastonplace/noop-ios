@@ -48,9 +48,9 @@ public enum ActiveSinkEpochRecovery {
         return epoch
     }
 
-    /// Destructive/no-active boundary. Ordinary A→B selection may keep the old
-    /// core until the replacement is committed; privacy delete and final archive
-    /// must not.
+    /// Active-projection boundary. Clear every visible Widget artifact before
+    /// delete, archive, replacement, or ordinary A→B selection. NOOP has no
+    /// explicit carry-forward identity that could safely retain the old core.
     public static func clearVerifiedWidgetState(defaults: UserDefaults) {
         VerifiedWidgetEnvelopeStore.clear(defaults: defaults)
         defaults.removeObject(forKey: WidgetSnapshot.storageKey)

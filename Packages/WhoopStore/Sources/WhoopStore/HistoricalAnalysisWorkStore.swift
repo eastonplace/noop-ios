@@ -50,6 +50,20 @@ extension WhoopStore {
         priority: Int
     ) async throws -> HistoricalAnalysisWork {
         try syncWrite { db in
+            let lifecycleState: String? = try String.fetchOne(db, sql: """
+                SELECT state FROM historicalReceiptScopeLifecycle
+                WHERE databaseInstanceId = ? AND deviceId = ? AND lineage = ?
+                  AND cursorEpoch = ? AND trimScope = ?
+                """, arguments: [
+                    incoming.scope.databaseInstanceId,
+                    incoming.scope.deviceId,
+                    incoming.scope.deviceLineageId,
+                    incoming.scope.cursorEpoch,
+                    incoming.scope.trimScope,
+                ])
+            guard lifecycleState != HistoricalScopeLifecycleState.discarded.rawValue else {
+                throw HistoricalWorkStoreError.discardedScope
+            }
             let existingRows = try Row.fetchAll(db, sql: """
                 SELECT * FROM historicalAnalysisWork
                 WHERE databaseInstanceId = ? AND sourceId = ? AND deviceId = ? AND lineage = ?
@@ -166,6 +180,41 @@ extension WhoopStore {
                 sql: "SELECT * FROM historicalAnalysisWork WHERE workId = ?",
                 arguments: [workId.uuidString]
             ).map(Self.decodeHistoricalAnalysisWork)
+        }
+    }
+
+    /// Cancel only a not-yet-owned exact row created by the broad-maintenance adapter. A source transition
+    /// calls this after task cancellation while the exact pipeline is quiesced or target-fenced.
+    @discardableResult
+    public func cancelPendingHistoricalAnalysisWork(
+        workId: UUID,
+        scope: HistoricalAnalysisScope,
+        reason: String,
+        now: Date = Date()
+    ) async throws -> Bool {
+        let trimmedReason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedReason.isEmpty else { throw HistoricalWorkStoreError.invalidRow }
+        return try syncWrite { db in
+            try db.execute(sql: """
+                UPDATE historicalAnalysisWork
+                SET state = 'quarantined', nextAttemptAt = NULL,
+                    leaseOwner = NULL, leaseExpiresAt = NULL,
+                    lastErrorCode = ?, updatedAt = ?
+                WHERE workId = ? AND databaseInstanceId = ? AND sourceId = ?
+                  AND deviceId = ? AND lineage = ? AND cursorEpoch = ? AND trimScope = ?
+                  AND state IN ('pending','retryable') AND leaseOwner IS NULL
+                """, arguments: [
+                    trimmedReason,
+                    Int(now.timeIntervalSince1970),
+                    workId.uuidString,
+                    scope.databaseInstanceId,
+                    scope.sourceId,
+                    scope.deviceId,
+                    scope.deviceLineageId,
+                    scope.cursorEpoch,
+                    scope.trimScope,
+                ])
+            return db.changesCount == 1
         }
     }
 
@@ -410,4 +459,5 @@ extension WhoopStore {
 public enum HistoricalWorkStoreError: Error {
     case missingWork
     case invalidRow
+    case discardedScope
 }

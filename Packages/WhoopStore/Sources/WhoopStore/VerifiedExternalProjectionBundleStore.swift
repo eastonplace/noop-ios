@@ -6,9 +6,63 @@ public enum VerifiedExternalProjectionBundleStoreError: Error, Equatable, Sendab
     case invalidBundle
     case conflictingReplay
     case missingBundle
+    case invalidStoredRow
+}
+
+/// Immutable projection state used to repair an older commit whose Widget
+/// auxiliary payload is absent.
+public struct VerifiedExternalProjectionArtifacts: Equatable, Sendable {
+    public let projection: VerifiedHealthProjection
+    public let widgetCore: VerifiedWidgetCorePayload?
 }
 
 extension WhoopStore {
+    /// Read the verified projection even when its Widget auxiliary is absent.
+    /// A non-null corrupt payload fails closed and is never treated as missing.
+    public func verifiedExternalProjectionArtifacts(
+        contextId: String,
+        generation: Int64
+    ) async throws -> VerifiedExternalProjectionArtifacts {
+        try syncRead { db in
+            guard let row = try Row.fetchOne(db, sql: """
+                SELECT deviceId, projectionJSON, widgetCoreJSON
+                FROM verifiedHealthProjection
+                WHERE contextId = ? AND snapshotGeneration = ?
+                """, arguments: [contextId, generation]) else {
+                throw VerifiedExternalProjectionBundleStoreError.missingBundle
+            }
+            let deviceId: String = row["deviceId"]
+            let projectionData: Data = row["projectionJSON"]
+            guard let projection = try? JSONDecoder().decode(
+                      VerifiedHealthProjection.self,
+                      from: projectionData
+                  ), projection.contextId == contextId,
+                  projection.deviceId == deviceId,
+                  projection.generation == generation else {
+                throw VerifiedExternalProjectionBundleStoreError.invalidStoredRow
+            }
+            let widgetData: Data? = row["widgetCoreJSON"]
+            let widgetCore: VerifiedWidgetCorePayload?
+            if let widgetData {
+                guard let decoded = try? JSONDecoder().decode(
+                          VerifiedWidgetCorePayload.self,
+                          from: widgetData
+                      ), decoded.contextId == projection.contextId,
+                      decoded.projectionGeneration == projection.generation,
+                      decoded.logicalDay == projection.logicalDay else {
+                    throw VerifiedExternalProjectionBundleStoreError.invalidStoredRow
+                }
+                widgetCore = decoded
+            } else {
+                widgetCore = nil
+            }
+            return VerifiedExternalProjectionArtifacts(
+                projection: projection,
+                widgetCore: widgetCore
+            )
+        }
+    }
+
     /// Persist the verified health projection and immutable Widget auxiliaries in
     /// the same row/transaction. A delayed outbox item can then load one exact
     /// generation without consulting mutable Repository caches.

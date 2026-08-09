@@ -24,7 +24,7 @@ final class PR28RootFixMigrationTests: XCTestCase {
     func testRootFixMigrationPersistsDurableStateColumns() async throws {
         let store = try await WhoopStore.inMemory()
 
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 48)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 52)
         let workColumns = Set(try await store.columnNamesForTest(table: "historicalAnalysisWork"))
         let snapshotColumns = Set(try await store.columnNamesForTest(table: "verifiedSnapshotCommit"))
         let outboxColumns = Set(try await store.columnNamesForTest(table: "externalPublicationOutbox"))
@@ -546,14 +546,7 @@ final class PR28RootFixMigrationTests: XCTestCase {
 
     func testFullHistoryRepairLeaseCancellationIsImmediateAndDoesNotConsumeAttempt() async throws {
         let store = try await WhoopStore.inMemory()
-        let databaseId = try await store.databaseInstanceId()
-        let scope = try HistoricalAnalysisScope(
-            databaseInstanceId: databaseId,
-            sourceId: "legacy-source",
-            deviceId: "legacy-device",
-            deviceLineageId: "legacy-lineage",
-            cursorEpoch: 0,
-            trimScope: "historical")
+        let scope = try await activeMaintenanceScope(store: store)
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let writer = await store.dbWriter
         try await writer.write { db in
@@ -586,14 +579,7 @@ final class PR28RootFixMigrationTests: XCTestCase {
 
     func testFullHistoryRepairProgressPersistsChronologicalCursorAndRecordedZone() async throws {
         let store = try await WhoopStore.inMemory()
-        let databaseId = try await store.databaseInstanceId()
-        let scope = try HistoricalAnalysisScope(
-            databaseInstanceId: databaseId,
-            sourceId: "legacy-source",
-            deviceId: "legacy-device",
-            deviceLineageId: "legacy-lineage",
-            cursorEpoch: 0,
-            trimScope: "historical")
+        let scope = try await activeMaintenanceScope(store: store)
         let cursorScope = HistoricalCursorScope(
             deviceId: scope.deviceId,
             lineage: scope.deviceLineageId,
@@ -642,5 +628,18 @@ final class PR28RootFixMigrationTests: XCTestCase {
         return try Set((0..<count).map { offset in
             try CivilDay(key: formatter.string(from: calendar.date(byAdding: .day, value: offset, to: start)!))
         })
+    }
+
+    private func activeMaintenanceScope(store: WhoopStore) async throws -> HistoricalAnalysisScope {
+        let deviceId = "my-whoop"
+        let databaseInstanceId = try await store.databaseInstanceId()
+        let cursor = try await store.historicalCursorScope(deviceId: deviceId)
+        return try HistoricalAnalysisScope(
+            databaseInstanceId: databaseInstanceId,
+            sourceId: deviceId,
+            deviceId: deviceId,
+            deviceLineageId: cursor.lineage,
+            cursorEpoch: cursor.cursorEpoch,
+            trimScope: cursor.trimScope)
     }
 }

@@ -56,13 +56,129 @@ import Testing
 }
 
 @Test func selectivePublicationKeepsHealthKitForHistoricalOnlyChange() throws {
+    let fixture = try selectivePublicationFixture()
+    let previous = destinationCheckpoints(fixture: fixture)
+
+    let destinations = SelectiveExternalPublicationPlan.destinations(
+        snapshot: fixture.receipt,
+        bundle: fixture.bundle,
+        previousLatestState: previous,
+        now: Date(timeIntervalSince1970: 1_700_000_010)
+    )
+    #expect(destinations == [.healthKit])
+}
+
+@Test func widgetSuccessDoesNotAcknowledgeFailedLiveActivity() throws {
+    let fixture = try selectivePublicationFixture()
+    let all = destinationCheckpoints(fixture: fixture)
+    let destinations = SelectiveExternalPublicationPlan.destinations(
+        snapshot: fixture.receipt,
+        bundle: fixture.bundle,
+        previousLatestState: [.widget: all[.widget]!],
+        now: Date(timeIntervalSince1970: 1_700_000_010)
+    )
+    #expect(destinations == [.healthKit, .liveActivity])
+}
+
+@Test func liveActivitySuccessDoesNotAcknowledgeFailedWidget() throws {
+    let fixture = try selectivePublicationFixture()
+    let all = destinationCheckpoints(fixture: fixture)
+    let destinations = SelectiveExternalPublicationPlan.destinations(
+        snapshot: fixture.receipt,
+        bundle: fixture.bundle,
+        previousLatestState: [.liveActivity: all[.liveActivity]!],
+        now: Date(timeIntervalSince1970: 1_700_000_010)
+    )
+    #expect(destinations == [.healthKit, .widget])
+}
+
+@Test func widgetOnlyIdentityChangeLeavesLiveActivityUnchanged() throws {
+    let fixture = try selectivePublicationFixture(recoveryDelta: 2)
+    let previousFixture = try selectivePublicationFixture(recoveryDelta: 1)
+    let previous = destinationCheckpoints(fixture: previousFixture)
+    let destinations = SelectiveExternalPublicationPlan.destinations(
+        snapshot: fixture.receipt,
+        bundle: fixture.bundle,
+        previousLatestState: previous,
+        now: Date(timeIntervalSince1970: 1_700_000_010)
+    )
+    #expect(destinations == [.healthKit, .widget])
+}
+
+@Test func sleepOnlyProjectionChangeDoesNotEnqueueLiveActivity() throws {
+    let fixture = try selectivePublicationFixture(sleepScore: 81)
+    let previousFixture = try selectivePublicationFixture(sleepScore: 80)
+    let destinations = SelectiveExternalPublicationPlan.destinations(
+        snapshot: fixture.receipt,
+        bundle: fixture.bundle,
+        previousLatestState: destinationCheckpoints(fixture: previousFixture),
+        now: Date(timeIntervalSince1970: 1_700_000_010)
+    )
+    #expect(destinations == [.healthKit, .widget])
+}
+
+@Test func recoveryOrStrainProjectionChangeEnqueuesLiveActivity() throws {
+    let previous = try selectivePublicationFixture(recovery: 70, strain: 40)
+    for fixture in [
+        try selectivePublicationFixture(recovery: 71, strain: 40),
+        try selectivePublicationFixture(recovery: 70, strain: 41),
+    ] {
+        let destinations = SelectiveExternalPublicationPlan.destinations(
+            snapshot: fixture.receipt,
+            bundle: fixture.bundle,
+            previousLatestState: destinationCheckpoints(fixture: previous),
+            now: Date(timeIntervalSince1970: 1_700_000_010)
+        )
+        #expect(destinations == [.healthKit, .widget, .liveActivity])
+    }
+}
+
+private actor HardeningCounter {
+    private var count = 0
+
+    func increment() { count += 1 }
+    func value() -> Int { count }
+}
+
+private struct SelectivePublicationFixture {
+    let day: CivilDay
+    let projection: VerifiedHealthProjection
+    let core: VerifiedWidgetCorePayload
+    let bundle: VerifiedExternalProjectionBundle
+    let receipt: SnapshotCommitReceipt
+}
+
+private func selectivePublicationFixture(
+    recoveryDelta: Int? = nil,
+    recovery: Double? = nil,
+    strain: Double? = nil,
+    sleepScore: Double? = nil
+) throws -> SelectivePublicationFixture {
     let day = try CivilDay(key: "2026-08-03")
+    var metrics: [HealthMetricKind: VerifiedHealthMetric] = [:]
+    for (kind, value) in [
+        (HealthMetricKind.recovery, recovery),
+        (.strain, strain),
+        (.sleepScore, sleepScore),
+    ] {
+        if let value {
+            metrics[kind] = try VerifiedHealthMetric(
+                kind: kind,
+                value: value,
+                metricDay: day,
+                sourceId: "device-noop",
+                algorithmVersion: "v50-test",
+                generation: 7,
+                freshness: .fresh
+            )
+        }
+    }
     let projection = try VerifiedHealthProjection(
         contextId: "ctx",
         deviceId: "device",
         generation: 7,
         logicalDay: day,
-        metrics: [:]
+        metrics: metrics
     )
     let core = try VerifiedWidgetCorePayload(
         contextId: "ctx",
@@ -72,9 +188,12 @@ import Testing
         sleepMinutes: 420,
         steps: 1000,
         calories: 2000,
-        recoveryDelta: nil
+        recoveryDelta: recoveryDelta
     )
-    let bundle = try VerifiedExternalProjectionBundle(projection: projection, widgetCore: core)
+    let bundle = try VerifiedExternalProjectionBundle(
+        projection: projection,
+        widgetCore: core
+    )
     let receipt = try SnapshotCommitReceipt(
         throughReceiptGeneration: 9,
         analysisGeneration: 11,
@@ -82,26 +201,39 @@ import Testing
         analyzedDays: [day],
         projection: projection
     )
-    let previous = LatestStateDeliveryCheckpoint(
-        contextId: "ctx",
-        presentationIdentity: projection.presentationIdentity,
-        widgetCore: core,
-        logicalDay: day,
-        deliveredAt: Date(timeIntervalSince1970: 1_700_000_000)
-    )
-
-    let destinations = SelectiveExternalPublicationPlan.destinations(
-        snapshot: receipt,
+    return SelectivePublicationFixture(
+        day: day,
+        projection: projection,
+        core: core,
         bundle: bundle,
-        previousLatestState: previous,
-        now: Date(timeIntervalSince1970: 1_700_000_010)
+        receipt: receipt
     )
-    #expect(destinations == [.healthKit])
 }
 
-private actor HardeningCounter {
-    private var count = 0
-
-    func increment() { count += 1 }
-    func value() -> Int { count }
+private func destinationCheckpoints(
+    fixture: SelectivePublicationFixture
+) -> [DownstreamDestination: LatestStateDeliveryCheckpoint] {
+    let deliveredAt = Date(timeIntervalSince1970: 1_700_000_000)
+    return [
+        .widget: LatestStateDeliveryCheckpoint(
+            contextId: fixture.projection.contextId,
+            identity: LatestStateDeliveryIdentity.make(
+                destination: .widget,
+                projection: fixture.projection,
+                widgetCore: fixture.core
+            )!,
+            logicalDay: fixture.day,
+            deliveredAt: deliveredAt
+        ),
+        .liveActivity: LatestStateDeliveryCheckpoint(
+            contextId: fixture.projection.contextId,
+            identity: LatestStateDeliveryIdentity.make(
+                destination: .liveActivity,
+                projection: fixture.projection,
+                widgetCore: fixture.core
+            )!,
+            logicalDay: fixture.day,
+            deliveredAt: deliveredAt
+        ),
+    ]
 }

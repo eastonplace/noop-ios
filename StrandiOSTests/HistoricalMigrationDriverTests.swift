@@ -177,5 +177,28 @@ final class HistoricalMigrationDriverTests: XCTestCase {
         XCTAssertEqual(offset, 0)
         XCTAssertFalse(done)
     }
+
+    func testMaintenanceGrantRunsOneChunkAndPersistsCursor() async {
+        var offset = 0
+        var done = false
+        var analyzedOffsets: [Int] = []
+        let outcome = await HistoricalMigrationDriver.run(
+            historyDays: 90,
+            chunkDays: 30,
+            isCompleted: { done },
+            loadOffset: { offset },
+            saveOffset: { offset = $0 },
+            markCompleted: { done = true },
+            shouldPause: { false },
+            analyzeChunk: { _, current in analyzedOffsets.append(current) },
+            finalRefresh: { XCTFail("A partial grant must not refresh"); return true },
+            maximumChunksPerRun: 1,
+            interChunkDelay: .zero
+        )
+        XCTAssertEqual(outcome, .paused)
+        XCTAssertEqual(analyzedOffsets, [0])
+        XCTAssertEqual(offset, 30)
+        XCTAssertFalse(done)
+    }
 }
 #endif

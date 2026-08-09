@@ -15,6 +15,12 @@ public struct VerifiedWidgetCorePayload: Codable, Equatable, Sendable {
     public let steps: Int?
     public let calories: Int?
     public let recoveryDelta: Int?
+    /// Time zone that defined `logicalDay` for this exact generation. Legacy rows omit it; optional
+    /// enrichment must then fail closed instead of deriving a new day from the current device zone.
+    public let recordedTimeZoneIdentifier: String?
+    /// Exact source namespaces that may supply optional Widget enrichment for this immutable generation.
+    /// Older payloads decode this as an empty list and fall back to the verified projection owner.
+    public let enrichmentSourceIds: [String]
 
     public init(
         contextId: String,
@@ -24,14 +30,21 @@ public struct VerifiedWidgetCorePayload: Codable, Equatable, Sendable {
         sleepMinutes: Int?,
         steps: Int?,
         calories: Int?,
-        recoveryDelta: Int?
+        recoveryDelta: Int?,
+        recordedTimeZoneIdentifier: String? = nil,
+        enrichmentSourceIds: [String] = []
     ) throws {
+        var seenSourceIds = Set<String>()
+        let normalizedSourceIds = enrichmentSourceIds
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && seenSourceIds.insert($0).inserted }
         guard !contextId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               projectionGeneration > 0,
               restingHR.map({ (20...300).contains($0) }) ?? true,
               sleepMinutes.map({ (0...1_440).contains($0) }) ?? true,
               steps.map({ $0 >= 0 }) ?? true,
-              calories.map({ $0 >= 0 }) ?? true else {
+              calories.map({ $0 >= 0 }) ?? true,
+              recordedTimeZoneIdentifier.map({ TimeZone(identifier: $0) != nil }) ?? true else {
             throw VerifiedWidgetCorePayloadError.invalidPayload
         }
         version = Self.currentVersion
@@ -43,11 +56,14 @@ public struct VerifiedWidgetCorePayload: Codable, Equatable, Sendable {
         self.steps = steps
         self.calories = calories
         self.recoveryDelta = recoveryDelta
+        self.recordedTimeZoneIdentifier = recordedTimeZoneIdentifier
+        self.enrichmentSourceIds = normalizedSourceIds
     }
 
     private enum CodingKeys: String, CodingKey {
         case version, contextId, projectionGeneration, logicalDay
         case restingHR, sleepMinutes, steps, calories, recoveryDelta
+        case recordedTimeZoneIdentifier, enrichmentSourceIds
     }
 
     public init(from decoder: Decoder) throws {
@@ -64,7 +80,15 @@ public struct VerifiedWidgetCorePayload: Codable, Equatable, Sendable {
             sleepMinutes: container.decodeIfPresent(Int.self, forKey: .sleepMinutes),
             steps: container.decodeIfPresent(Int.self, forKey: .steps),
             calories: container.decodeIfPresent(Int.self, forKey: .calories),
-            recoveryDelta: container.decodeIfPresent(Int.self, forKey: .recoveryDelta)
+            recoveryDelta: container.decodeIfPresent(Int.self, forKey: .recoveryDelta),
+            recordedTimeZoneIdentifier: container.decodeIfPresent(
+                String.self,
+                forKey: .recordedTimeZoneIdentifier
+            ),
+            enrichmentSourceIds: container.decodeIfPresent(
+                [String].self,
+                forKey: .enrichmentSourceIds
+            ) ?? []
         )
     }
 }
@@ -89,6 +113,15 @@ public struct VerifiedExternalProjectionBundle: Codable, Equatable, Sendable {
         }
         self.projection = projection
         self.widgetCore = widgetCore
+    }
+
+    /// Optional enrichment must stay inside the immutable source set captured with this generation.
+    /// The projection owner is the compatibility fallback for payloads written before this field existed.
+    public var verifiedEnrichmentSourceIds: [String] {
+        if !widgetCore.enrichmentSourceIds.isEmpty {
+            return widgetCore.enrichmentSourceIds
+        }
+        return [projection.deviceId]
     }
 }
 

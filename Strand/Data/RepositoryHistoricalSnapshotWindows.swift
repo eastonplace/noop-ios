@@ -28,13 +28,17 @@ enum RepositoryHistoricalWindowPlanner {
         let currentCivil = try current.civilDay(containing: now)
         let currentLogical = try current.physiologicalDay(containing: now)
 
-        var currentDays: Set<CivilDay> = [currentCivil, currentLogical]
+        // Widget Recovery delta is part of the immutable verified generation. Include the prior logical
+        // day in this same WAL read so delivery never consults a later mutable Repository cache.
+        let previousLogical = try current.adding(days: -1, to: currentLogical)
+        var currentDays: Set<CivilDay> = [currentCivil, currentLogical, previousLogical]
         for key in [template.displayDay, template.logicalDay, template.localDay] {
             guard let day = try? CivilDay(key: key),
                   let distance = try? absoluteDayDistance(
                       from: day, to: currentCivil, calendar: currentCalendar),
                   distance <= maximumTemplateDistanceFromNow else { continue }
             currentDays.insert(day)
+            currentDays.insert(try current.adding(days: -1, to: day))
         }
 
         var windows = try windowsForRuns(

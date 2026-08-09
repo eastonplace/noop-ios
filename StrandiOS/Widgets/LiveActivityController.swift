@@ -99,10 +99,6 @@ final class LiveActivityController {
             // A stale source/context must wait for the matching verified generation.
             return
         }
-        if connected {
-            serializedPublication.resumeLiveSubmissions()
-        }
-
         let input = DriveInput(
             bpm: bpm,
             recovery: recovery,
@@ -113,7 +109,12 @@ final class LiveActivityController {
             workoutIsActive: workoutIsActive ?? LiveActivityWorkoutStatus.isActive,
             workoutProjection: workout
         )
-        serializedPublication.submitLive(input, token: token)
+        if connected {
+            serializedPublication.setConnectivityAvailable(true)
+            serializedPublication.submitLive(input, token: token)
+        } else {
+            serializedPublication.submitConnectivityBarrier(input)
+        }
     }
 
     private func reconcile(
@@ -266,7 +267,8 @@ final class LiveActivityController {
         guard let defaults = UserDefaults(suiteName: WidgetSnapshot.suiteName),
               let token = ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults),
               token.contextId == projection.contextId else { return .superseded }
-        serializedPublication.resumeLiveSubmissions()
+        serializedPublication.setConnectivityAvailable(connected)
+        serializedPublication.activateLifecycleSubmissions()
         let input = DriveInput(
             bpm: bpm,
             recovery: recovery,
@@ -322,8 +324,8 @@ final class LiveActivityController {
         return result == .published || result == .alreadyCurrent
     }
 
-    /// Suspend the tokenless live lane before a destructive source transition.
-    /// The next matching verified publication or connected live update reopens it.
+    /// Suspend the tokenless live lane before a source transition. Connectivity
+    /// callbacks cannot reopen this lifecycle gate.
     func suspendForSourceTransition() async {
         #if DEBUG
         guard !component41QAMode else { return }
@@ -338,7 +340,19 @@ final class LiveActivityController {
             workoutIsActive: false,
             workoutProjection: { nil }
         )
-        _ = try? await serializedPublication.submitBarrier(input, suspendLive: true)
+        _ = try? await serializedPublication.submitBarrier(input, suspendLifecycle: true)
+    }
+
+    /// Reopen lifecycle admission only for the App Group's active verified sink.
+    /// The source-transition adapter calls this after activation is durable.
+    func activateVerifiedSink(contextId: String, epoch: UInt64) -> Bool {
+        guard let defaults = UserDefaults(suiteName: WidgetSnapshot.suiteName),
+              ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults)
+                == VerifiedSinkToken(epoch: epoch, contextId: contextId) else {
+            return false
+        }
+        serializedPublication.activateLifecycleSubmissions()
+        return true
     }
 
     func end() async {
@@ -355,7 +369,8 @@ final class LiveActivityController {
             workoutIsActive: false,
             workoutProjection: { nil }
         )
-        _ = try? await serializedPublication.submitBarrier(input, suspendLive: true)
+        serializedPublication.setConnectivityAvailable(false)
+        _ = try? await serializedPublication.submitBarrier(input)
     }
 
     private func performEnd() async {
@@ -378,7 +393,8 @@ final class LiveActivityController {
     func startComponent41QA() async {
         guard authInfo.areActivitiesEnabled else { return }
         await end()
-        serializedPublication.resumeLiveSubmissions()
+        serializedPublication.setConnectivityAvailable(true)
+        serializedPublication.activateLifecycleSubmissions()
         component41QAMode = true
         let state = NOOPActivityAttributes.ContentState(
             bpm: 152,

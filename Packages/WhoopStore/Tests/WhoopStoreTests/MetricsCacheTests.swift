@@ -17,7 +17,7 @@ final class MetricsCacheTests: XCTestCase {
     }
 
     func testSchemaVersionBumped() {
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 48)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 52)
     }
 
     // MARK: - sleep sessions

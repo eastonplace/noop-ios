@@ -11,17 +11,35 @@ enum WidgetCorePublication {
         bundle: VerifiedExternalProjectionBundle,
         now: Date = Date()
     ) -> WidgetSnapshot {
+        makeCoreSnapshot(
+            bundle: bundle,
+            bpm: model.bpm ?? model.live.heartRate,
+            batteryPct: model.live.batteryPct,
+            bonded: model.live.bonded,
+            now: now
+        )
+    }
+
+    /// Pure regression seam for the immutable core-to-Widget mapping.
+    static func makeCoreSnapshot(
+        bundle: VerifiedExternalProjectionBundle,
+        bpm: Int?,
+        batteryPct: Double?,
+        bonded: Bool,
+        now: Date = Date()
+    ) -> WidgetSnapshot {
         let projection = bundle.projection
         let core = bundle.widgetCore
         return WidgetSnapshot.publishing(
             recovery: projection.visibleMetric(.recovery)?.value,
             storedStrain: projection.visibleMetric(.strain)?.value,
             sleepScore: projection.visibleMetric(.sleepScore)?.value,
-            bpm: model.bpm ?? model.live.heartRate,
-            batteryPct: model.live.batteryPct,
-            bonded: model.live.bonded,
+            bpm: bpm,
+            batteryPct: batteryPct,
+            bonded: bonded,
             hrv: nil,
             restingHr: core.restingHR,
+            recoveryDelta: core.recoveryDelta,
             sleepMinutes: core.sleepMinutes,
             steps: core.steps,
             calories: core.calories,

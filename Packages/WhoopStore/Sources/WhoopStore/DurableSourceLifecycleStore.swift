@@ -11,6 +11,7 @@ public enum DeviceLifecycleStoreError: Error, Equatable, Sendable {
 }
 
 public enum DurableSourceLifecycleMutation: Sendable {
+    case selectExisting(deviceId: String)
     case replacePeripheral(
         deviceId: String,
         expectedOldLineage: String,
@@ -49,18 +50,28 @@ extension WhoopStore {
         now: Date = Date()
     ) async throws {
         try syncWrite { db in
-            let existingRaw = try String.fetchOne(
-                db,
-                sql: "SELECT stage FROM sourceTransitionJournal WHERE transitionId = ?",
-                arguments: [record.id.uuidString]
-            )
-            if let existingRaw {
-                guard let existing = SourceTransitionStage(rawValue: existingRaw),
-                      Self.canAdvanceSourceTransition(from: existing, to: record.stage) else {
+            try Self.validateSourceTransitionRecovery(record)
+            let existingRow = try Row.fetchOne(db, sql: """
+                SELECT transitionId, version, mutationKind, sourceDeviceId,
+                       targetDeviceId, previousActiveDeviceId,
+                       previousSinkContextId, previousSinkEpoch,
+                       contributorIdsJSON, transitionScope, cleanupWorkId,
+                       historicalEpoch, externalEpoch, sinkEpoch, stage,
+                       lastErrorCode
+                FROM sourceTransitionJournal WHERE transitionId = ?
+                """, arguments: [record.id.uuidString])
+            if let existingRow {
+                let existing = try Self.decodeSourceTransitionRecovery(existingRow)
+                guard Self.sameSourceTransitionIdentity(existing, record),
+                      Self.canAdvanceSourceTransition(from: existing.stage, to: record.stage),
+                      Self.canFillSourceTransitionEpoch(existing.historicalEpoch, with: record.historicalEpoch),
+                      Self.canFillSourceTransitionEpoch(existing.externalEpoch, with: record.externalEpoch),
+                      Self.canFillSourceTransitionEpoch(existing.sinkEpoch, with: record.sinkEpoch) else {
                     throw DurableSourceLifecycleError.invalidMutation
                 }
             } else {
-                guard record.stage == .prepared else {
+                guard record.stage == .planned ||
+                        (record.version == 1 && record.stage == .prepared) else {
                     throw DurableSourceLifecycleError.invalidMutation
                 }
                 let conflictingTransitionId: String? = try String.fetchOne(db, sql: """
@@ -75,24 +86,39 @@ extension WhoopStore {
                     throw DurableSourceLifecycleError.invalidMutation
                 }
             }
+            let contributorIdsJSON = try JSONEncoder().encode(record.contributorIds)
             try db.execute(sql: """
                 INSERT INTO sourceTransitionJournal (
-                    transitionId, mutationKind, sourceDeviceId, targetDeviceId,
+                    transitionId, version, mutationKind, sourceDeviceId,
+                    targetDeviceId, previousActiveDeviceId,
+                    previousSinkContextId, previousSinkEpoch,
+                    contributorIdsJSON, transitionScope, cleanupWorkId,
                     historicalEpoch, externalEpoch, sinkEpoch, stage,
                     commitJSON, lastErrorCode, createdAt, updatedAt
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                          NULL, ?, ?, ?)
                 ON CONFLICT(transitionId) DO UPDATE SET
+                    historicalEpoch = excluded.historicalEpoch,
+                    externalEpoch = excluded.externalEpoch,
+                    sinkEpoch = excluded.sinkEpoch,
                     stage = excluded.stage,
                     lastErrorCode = excluded.lastErrorCode,
                     updatedAt = excluded.updatedAt
                 """, arguments: [
                     record.id.uuidString,
+                    record.version,
                     record.mutationKind,
                     record.sourceDeviceId,
                     record.targetDeviceId,
-                    Int64(record.historicalEpoch),
-                    Int64(record.externalEpoch),
-                    Int64(record.sinkEpoch),
+                    record.previousActiveDeviceId,
+                    record.previousSinkContextId,
+                    record.previousSinkEpoch.map(Int64.init),
+                    contributorIdsJSON,
+                    record.transitionScope.rawValue,
+                    record.cleanupWorkId?.uuidString,
+                    record.historicalEpoch.map(Int64.init),
+                    record.externalEpoch.map(Int64.init),
+                    record.sinkEpoch.map(Int64.init),
                     record.stage.rawValue,
                     record.lastErrorCode,
                     Int(now.timeIntervalSince1970),
@@ -128,8 +154,12 @@ extension WhoopStore {
     public func latestSourceTransitionRecovery() async throws -> SourceTransitionRecoveryRecord? {
         try syncRead { db in
             guard let row = try Row.fetchOne(db, sql: """
-                SELECT transitionId, mutationKind, sourceDeviceId, targetDeviceId,
-                       historicalEpoch, externalEpoch, sinkEpoch, stage, lastErrorCode
+                SELECT transitionId, version, mutationKind, sourceDeviceId,
+                       targetDeviceId, previousActiveDeviceId,
+                       previousSinkContextId, previousSinkEpoch,
+                       contributorIdsJSON, transitionScope, cleanupWorkId,
+                       historicalEpoch, externalEpoch, sinkEpoch, stage,
+                       lastErrorCode
                 FROM sourceTransitionJournal
                 WHERE stage NOT IN ('complete', 'aborted')
                 ORDER BY updatedAt DESC LIMIT 1
@@ -164,22 +194,33 @@ extension WhoopStore {
         recovery: SourceTransitionRecoveryRecord? = nil,
         now: Date = Date()
     ) async throws -> DurableSourceLifecycleCommit {
-        let fenceDeviceId: String
+        let mutationDeviceId: String
         switch mutation {
-        case let .replacePeripheral(deviceId, _, _, _),
+        case let .selectExisting(deviceId),
+             let .replacePeripheral(deviceId, _, _, _),
              let .archive(deviceId, _, _),
              let .deleteData(deviceId, _):
-            fenceDeviceId = deviceId
+            mutationDeviceId = deviceId
         }
         if let recovery {
-            guard recovery.sourceDeviceId == fenceDeviceId,
-                  recovery.stage == .prepared,
-                  recovery.mutationKind == Self.lifecycleMutationName(mutation) else {
+            guard recovery.stage == .prepared,
+                  recovery.mutationKind == Self.lifecycleMutationName(mutation),
+                  Self.sourceTransitionRecovery(
+                    recovery,
+                    matches: mutation,
+                    mutationDeviceId: mutationDeviceId
+                  ) else {
                 throw DurableSourceLifecycleError.invalidMutation
             }
         }
 
-        let fencedSources = [fenceDeviceId, fenceDeviceId + "-noop"]
+        let transitionSourceDeviceId = recovery?.sourceDeviceId ?? mutationDeviceId
+        let fencedSources = Array(Set([
+            transitionSourceDeviceId,
+            transitionSourceDeviceId + "-noop",
+            mutationDeviceId,
+            mutationDeviceId + "-noop",
+        ])).sorted()
         for sourceId in fencedSources {
             await TargetScopedPipelineFence.shared.quiesce(sourceId: sourceId)
         }
@@ -192,6 +233,10 @@ extension WhoopStore {
                 let replacement: String?
 
                 switch mutation {
+                case let .selectExisting(id):
+                    deviceId = id
+                    expectedOldLineage = nil
+                    replacement = nil
                 case let .replacePeripheral(id, lineage, _, _):
                     deviceId = id
                     expectedOldLineage = lineage
@@ -211,15 +256,33 @@ extension WhoopStore {
                     effectiveRecovery = recovery
                 } else {
                     effectiveRecovery = try Self.boundPreparedSourceTransition(
-                        sourceDeviceId: deviceId,
+                        sourceDeviceId: transitionSourceDeviceId,
                         mutationKind: Self.lifecycleMutationName(mutation),
                         in: db
                     )
                 }
                 if let effectiveRecovery {
-                    guard effectiveRecovery.sourceDeviceId == deviceId,
-                          effectiveRecovery.stage == .prepared,
-                          effectiveRecovery.mutationKind == Self.lifecycleMutationName(mutation) else {
+                    guard effectiveRecovery.stage == .prepared,
+                          effectiveRecovery.mutationKind == Self.lifecycleMutationName(mutation),
+                          Self.sourceTransitionRecovery(
+                            effectiveRecovery,
+                            matches: mutation,
+                            mutationDeviceId: deviceId
+                          ) else {
+                        throw DurableSourceLifecycleError.invalidMutation
+                    }
+                    guard let durableRow = try Row.fetchOne(db, sql: """
+                        SELECT transitionId, version, mutationKind, sourceDeviceId,
+                               targetDeviceId, previousActiveDeviceId,
+                               previousSinkContextId, previousSinkEpoch,
+                               contributorIdsJSON, transitionScope, cleanupWorkId,
+                               historicalEpoch, externalEpoch, sinkEpoch, stage,
+                               lastErrorCode
+                        FROM sourceTransitionJournal WHERE transitionId = ?
+                        """, arguments: [effectiveRecovery.id.uuidString]),
+                          try Self.decodeSourceTransitionRecovery(durableRow) == effectiveRecovery else {
+                        // An explicit in-memory record is not authority. The prepared durable row
+                        // must match before any cleanup envelope or source row is mutated.
                         throw DurableSourceLifecycleError.invalidMutation
                     }
                 } else {
@@ -230,10 +293,45 @@ extension WhoopStore {
                         SELECT transitionId FROM sourceTransitionJournal
                         WHERE sourceDeviceId = ? AND mutationKind = ? AND stage = 'prepared'
                         ORDER BY updatedAt DESC LIMIT 1
-                        """, arguments: [deviceId, Self.lifecycleMutationName(mutation)])
+                        """, arguments: [
+                            transitionSourceDeviceId,
+                            Self.lifecycleMutationName(mutation),
+                        ])
                     guard stalePreparedId == nil else {
                         throw DurableSourceLifecycleError.invalidMutation
                     }
+                }
+
+                if case .deleteData = mutation,
+                   let effectiveRecovery,
+                   effectiveRecovery.version >= SourceTransitionRecoveryRecord.currentVersion {
+                    guard let cleanupWorkId = effectiveRecovery.cleanupWorkId else {
+                        throw DurableSourceLifecycleError.invalidMutation
+                    }
+                    let remainingContributors = effectiveRecovery.contributorIds
+                        .subtracting([deviceId, deviceId + "-noop"])
+                    let remainingComputedIds = Set(
+                        remainingContributors.filter { $0.hasSuffix("-noop") }
+                    )
+                    let remainingImportedIds = remainingContributors
+                        .subtracting(remainingComputedIds)
+                    let cleanupEvidence = try Self.deriveSourcePrivacyCleanupEvidence(
+                        deviceIds: effectiveRecovery.contributorIds.union([
+                            deviceId, deviceId + "-noop",
+                        ]),
+                        now: now,
+                        in: db
+                    )
+                    try Self.enqueueSourcePrivacyCleanupGroup(
+                        cleanupWorkId: cleanupWorkId,
+                        transitionId: effectiveRecovery.id,
+                        sourceDeviceId: deviceId,
+                        remainingImportedIds: remainingImportedIds,
+                        remainingComputedIds: remainingComputedIds,
+                        evidence: cleanupEvidence,
+                        now: now,
+                        in: db
+                    )
                 }
 
                 guard let row = try Row.fetchOne(
@@ -270,11 +368,66 @@ extension WhoopStore {
                     }
                 }
 
+                let previousActiveScope: HistoricalCursorScope?
+                if case .selectExisting = mutation {
+                    let activeBeforeMutation: String? = try String.fetchOne(
+                        db,
+                        sql: "SELECT id FROM pairedDevice WHERE status = 'active' LIMIT 1"
+                    )
+                    if let recordedPrevious = effectiveRecovery?.previousActiveDeviceId,
+                       recordedPrevious != activeBeforeMutation {
+                        throw DurableSourceLifecycleError.invalidMutation
+                    }
+                    if let activeBeforeMutation, activeBeforeMutation != deviceId,
+                       let activeRow = try Row.fetchOne(db, sql: """
+                           SELECT historyLineage, historyCursorEpoch
+                           FROM pairedDevice WHERE id = ? AND status = 'active'
+                           """, arguments: [activeBeforeMutation]) {
+                        previousActiveScope = HistoricalCursorScope(
+                            deviceId: activeBeforeMutation,
+                            lineage: activeRow["historyLineage"],
+                            cursorEpoch: activeRow["historyCursorEpoch"])
+                    } else {
+                        previousActiveScope = nil
+                    }
+                } else {
+                    previousActiveScope = nil
+                }
+
                 // Archive and physical replacement close the old ingest scope but preserve every
                 // already-committed receipt for analysis. Privacy deletion is the only operation allowed
                 // to discard that work. All lifecycle state is written inside this transaction.
                 switch mutation {
+                case .selectExisting:
+                    if let previousActiveScope {
+                        _ = try Self.cancelFullHistoryRepairMaintenance(
+                            scope: previousActiveScope,
+                            reason: "source_deactivated",
+                            now: now,
+                            in: db)
+                    }
+                    try db.execute(sql: """
+                        UPDATE pairedDevice
+                        SET status = CASE
+                            WHEN id = ? THEN 'active'
+                            WHEN status = 'active' THEN 'paired'
+                            ELSE status END,
+                            lastSeenAt = CASE WHEN id = ? THEN ? ELSE lastSeenAt END
+                        WHERE id = ? OR status = 'active'
+                        """, arguments: [deviceId, deviceId, nowTs, deviceId])
+                    guard try String.fetchOne(
+                        db,
+                        sql: "SELECT id FROM pairedDevice WHERE status = 'active' LIMIT 1"
+                    ) == deviceId else {
+                        throw DurableSourceLifecycleError.invalidReplacement(deviceId)
+                    }
+
                 case let .replacePeripheral(_, _, peripheralId, _):
+                    _ = try Self.cancelFullHistoryRepairMaintenance(
+                        scope: oldScope,
+                        reason: "source_scope_replaced",
+                        now: now,
+                        in: db)
                     _ = try Self.closeHistoricalScopeForDrain(
                         oldScope,
                         reason: Self.lifecycleReason(mutation),
@@ -296,6 +449,11 @@ extension WhoopStore {
                     }
 
                 case .archive:
+                    _ = try Self.cancelFullHistoryRepairMaintenance(
+                        scope: oldScope,
+                        reason: "source_archived",
+                        now: now,
+                        in: db)
                     _ = try Self.closeHistoricalScopeForDrain(
                         oldScope,
                         reason: Self.lifecycleReason(mutation),
@@ -466,8 +624,12 @@ extension WhoopStore {
                 """,
             arguments: [sourceDeviceId, mutationKind]
         ), let row = try Row.fetchOne(db, sql: """
-            SELECT transitionId, mutationKind, sourceDeviceId, targetDeviceId,
-                   historicalEpoch, externalEpoch, sinkEpoch, stage, lastErrorCode
+            SELECT transitionId, version, mutationKind, sourceDeviceId,
+                   targetDeviceId, previousActiveDeviceId,
+                   previousSinkContextId, previousSinkEpoch,
+                   contributorIdsJSON, transitionScope, cleanupWorkId,
+                   historicalEpoch, externalEpoch, sinkEpoch, stage,
+                   lastErrorCode
             FROM sourceTransitionJournal WHERE transitionId = ?
             """, arguments: [transitionId]) else { return nil }
         let record = try decodeSourceTransitionRecovery(row)
@@ -488,17 +650,135 @@ extension WhoopStore {
               let stage = SourceTransitionStage(rawValue: row["stage"] as String) else {
             throw DurableSourceLifecycleError.invalidMutation
         }
+        let version: Int = row["version"]
+        let sourceDeviceId: String = row["sourceDeviceId"]
+        let historicalEpoch = try decodeSourceTransitionEpoch(row["historicalEpoch"] as Int64?)
+        let externalEpoch = try decodeSourceTransitionEpoch(row["externalEpoch"] as Int64?)
+        let sinkEpoch = try decodeSourceTransitionEpoch(row["sinkEpoch"] as Int64?)
+        let previousActiveDeviceId: String?
+        let previousSinkContextId: String?
+        let previousSinkEpoch: UInt64?
+        let contributorIds: Set<String>
+        let transitionScope: SourceTransitionScope
+        let cleanupWorkId: UUID?
+        if version == 1 {
+            transitionScope = (historicalEpoch ?? 0) > 1 ? .activeProjection : .targetOnly
+            contributorIds = [sourceDeviceId]
+            previousActiveDeviceId = transitionScope == .activeProjection ? sourceDeviceId : nil
+            previousSinkContextId = nil
+            if let sinkEpoch, sinkEpoch > 1 {
+                previousSinkEpoch = sinkEpoch - 1
+            } else {
+                previousSinkEpoch = nil
+            }
+            cleanupWorkId = nil
+        } else {
+            let contributorData: Data = row["contributorIdsJSON"]
+            guard let decodedContributors = try? JSONDecoder().decode(
+                Set<String>.self,
+                from: contributorData
+            ), let decodedScope = SourceTransitionScope(
+                rawValue: row["transitionScope"] as String
+            ) else {
+                throw DurableSourceLifecycleError.invalidMutation
+            }
+            contributorIds = decodedContributors
+            transitionScope = decodedScope
+            previousActiveDeviceId = row["previousActiveDeviceId"]
+            previousSinkContextId = row["previousSinkContextId"]
+            previousSinkEpoch = try decodeSourceTransitionEpoch(row["previousSinkEpoch"] as Int64?)
+            let cleanupRaw: String? = row["cleanupWorkId"]
+            if let cleanupRaw {
+                guard let decoded = UUID(uuidString: cleanupRaw) else {
+                    throw DurableSourceLifecycleError.invalidMutation
+                }
+                cleanupWorkId = decoded
+            } else {
+                cleanupWorkId = nil
+            }
+        }
         return SourceTransitionRecoveryRecord(
+            version: version,
             id: id,
             mutationKind: row["mutationKind"],
-            sourceDeviceId: row["sourceDeviceId"],
+            sourceDeviceId: sourceDeviceId,
             targetDeviceId: row["targetDeviceId"],
-            historicalEpoch: UInt64(row["historicalEpoch"] as Int64),
-            externalEpoch: UInt64(row["externalEpoch"] as Int64),
-            sinkEpoch: UInt64(row["sinkEpoch"] as Int64),
+            previousActiveDeviceId: previousActiveDeviceId,
+            previousSinkContextId: previousSinkContextId,
+            previousSinkEpoch: previousSinkEpoch,
+            contributorIds: contributorIds,
+            transitionScope: transitionScope,
+            cleanupWorkId: cleanupWorkId,
+            historicalEpoch: historicalEpoch,
+            externalEpoch: externalEpoch,
+            sinkEpoch: sinkEpoch,
             stage: stage,
             lastErrorCode: row["lastErrorCode"]
         )
+    }
+
+    private static func decodeSourceTransitionEpoch(_ raw: Int64?) throws -> UInt64? {
+        guard let raw else { return nil }
+        guard raw >= 0 else { throw DurableSourceLifecycleError.invalidMutation }
+        return UInt64(raw)
+    }
+
+    private static func validateSourceTransitionRecovery(
+        _ record: SourceTransitionRecoveryRecord
+    ) throws {
+        let maximumSQLiteEpoch = UInt64(Int64.max)
+        guard record.version > 0,
+              !record.mutationKind.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !record.sourceDeviceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !record.contributorIds.contains(where: {
+                  $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+              }),
+              record.previousSinkEpoch.map({ $0 <= maximumSQLiteEpoch }) ?? true,
+              record.historicalEpoch.map({ $0 <= maximumSQLiteEpoch }) ?? true,
+              record.externalEpoch.map({ $0 <= maximumSQLiteEpoch }) ?? true,
+              record.sinkEpoch.map({ $0 <= maximumSQLiteEpoch }) ?? true else {
+            throw DurableSourceLifecycleError.invalidMutation
+        }
+        switch record.stage {
+        case .planned:
+            guard record.historicalEpoch == nil,
+                  record.externalEpoch == nil,
+                  record.sinkEpoch == nil else {
+                throw DurableSourceLifecycleError.invalidMutation
+            }
+        case .prepared, .storeCommitted, .sinkActivated, .workersResumed, .complete:
+            guard record.historicalEpoch.map({ $0 > 0 }) == true,
+                  record.externalEpoch.map({ $0 > 0 }) == true,
+                  record.sinkEpoch.map({ $0 > 0 }) == true else {
+                throw DurableSourceLifecycleError.invalidMutation
+            }
+        case .aborted:
+            break
+        }
+    }
+
+    private static func sameSourceTransitionIdentity(
+        _ lhs: SourceTransitionRecoveryRecord,
+        _ rhs: SourceTransitionRecoveryRecord
+    ) -> Bool {
+        lhs.version == rhs.version
+            && lhs.id == rhs.id
+            && lhs.mutationKind == rhs.mutationKind
+            && lhs.sourceDeviceId == rhs.sourceDeviceId
+            && lhs.targetDeviceId == rhs.targetDeviceId
+            && lhs.previousActiveDeviceId == rhs.previousActiveDeviceId
+            && lhs.previousSinkContextId == rhs.previousSinkContextId
+            && lhs.previousSinkEpoch == rhs.previousSinkEpoch
+            && lhs.contributorIds == rhs.contributorIds
+            && lhs.transitionScope == rhs.transitionScope
+            && lhs.cleanupWorkId == rhs.cleanupWorkId
+    }
+
+    private static func canFillSourceTransitionEpoch(
+        _ existing: UInt64?,
+        with incoming: UInt64?
+    ) -> Bool {
+        existing.map { incoming == $0 } ?? true
     }
 
     private static func canAdvanceSourceTransition(
@@ -507,7 +787,9 @@ extension WhoopStore {
     ) -> Bool {
         if old == new { return true }
         switch (old, new) {
-        case (.prepared, .storeCommitted),
+        case (.planned, .prepared),
+             (.planned, .aborted),
+             (.prepared, .storeCommitted),
              (.prepared, .aborted),
              (.storeCommitted, .sinkActivated),
              (.storeCommitted, .workersResumed),
@@ -525,6 +807,7 @@ extension WhoopStore {
         _ mutation: DurableSourceLifecycleMutation
     ) -> String {
         switch mutation {
+        case .selectExisting: return "selectExisting"
         case .replacePeripheral: return "replacePeripheral"
         case .archive: return "archive"
         case .deleteData: return "deleteData"
@@ -535,9 +818,23 @@ extension WhoopStore {
         _ mutation: DurableSourceLifecycleMutation
     ) -> String {
         switch mutation {
+        case .selectExisting: return "active_source_selected"
         case .replacePeripheral: return "peripheral_identity_transition"
         case .archive: return "source_archived"
         case .deleteData: return "source_deleted"
+        }
+    }
+
+    private static func sourceTransitionRecovery(
+        _ recovery: SourceTransitionRecoveryRecord,
+        matches mutation: DurableSourceLifecycleMutation,
+        mutationDeviceId: String
+    ) -> Bool {
+        switch mutation {
+        case .selectExisting:
+            return recovery.targetDeviceId == mutationDeviceId
+        case .replacePeripheral, .archive, .deleteData:
+            return recovery.sourceDeviceId == mutationDeviceId
         }
     }
 

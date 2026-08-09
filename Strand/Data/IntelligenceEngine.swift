@@ -314,6 +314,7 @@ final class IntelligenceEngine: ObservableObject {
     // additional source-backed pass so newly available historical HR receives V2 rows.
     static let effortRescoreFlagKey = "intelligence.strainV2CalendarHistory.v2.done"
     static let effortRescoreOffsetKey = "intelligence.strainV2CalendarHistory.v2.offset"
+    static let effortRescoreDurableProgressKey = "effort-rescore-v2"
     static let effortRescoreChunkDays = 30
     private enum EffortRescoreMigrationError: Error { case chunkDidNotComplete }
 
@@ -352,8 +353,30 @@ final class IntelligenceEngine: ObservableObject {
         guard !effortRescoreRunning else { return }
         effortRescoreRunning = true
         defer { effortRescoreRunning = false }
-        guard !UserDefaults.standard.bool(forKey: Self.effortRescoreFlagKey) else { return }
         guard let store = await repo.storeHandle() else { return }
+
+        let persistedProgress: DurableMigrationProgress
+        do {
+            if let existing = try await store.durableMigrationProgress(
+                key: Self.effortRescoreDurableProgressKey
+            ) {
+                persistedProgress = existing
+            } else if UserDefaults.standard.bool(forKey: Self.effortRescoreFlagKey) {
+                // Upgrade completed pre-v50 installs without repeating their full-history scan.
+                persistedProgress = try await store.markDurableMigrationComplete(
+                    key: Self.effortRescoreDurableProgressKey,
+                    nextOffset: max(0, UserDefaults.standard.integer(forKey: Self.effortRescoreOffsetKey))
+                )
+            } else {
+                persistedProgress = try await store.saveDurableMigrationProgress(
+                    key: Self.effortRescoreDurableProgressKey,
+                    nextOffset: max(0, UserDefaults.standard.integer(forKey: Self.effortRescoreOffsetKey))
+                )
+            }
+        } catch {
+            return
+        }
+        guard persistedProgress.state != .complete else { return }
 
         // Bound the one-shot migration to source-backed history. The prior fixed 4,000-day loop ran 134
         // analysis batches even on a fresh 30-day install, delaying launch by seconds and making History
@@ -373,7 +396,12 @@ final class IntelligenceEngine: ObservableObject {
             return
         }
         guard let earliestTimestamp else {
-            UserDefaults.standard.set(true, forKey: Self.effortRescoreFlagKey)
+            if (try? await store.markDurableMigrationComplete(
+                key: Self.effortRescoreDurableProgressKey,
+                nextOffset: persistedProgress.nextOffset
+            )) != nil {
+                UserDefaults.standard.set(true, forKey: Self.effortRescoreFlagKey)
+            }
             return
         }
         let effectiveHistoryDays = Self.boundedHistoryDays(
@@ -382,13 +410,15 @@ final class IntelligenceEngine: ObservableObject {
             calendar: .current,
             cap: max(0, historyDays))
 
-        _ = await HistoricalMigrationDriver.run(
+        var durableOffset = persistedProgress.nextOffset
+        var completed = false
+        let outcome = await HistoricalMigrationDriver.run(
             historyDays: effectiveHistoryDays,
             chunkDays: Self.effortRescoreChunkDays,
-            isCompleted: { UserDefaults.standard.bool(forKey: Self.effortRescoreFlagKey) },
-            loadOffset: { UserDefaults.standard.integer(forKey: Self.effortRescoreOffsetKey) },
-            saveOffset: { UserDefaults.standard.set($0, forKey: Self.effortRescoreOffsetKey) },
-            markCompleted: { UserDefaults.standard.set(true, forKey: Self.effortRescoreFlagKey) },
+            isCompleted: { completed },
+            loadOffset: { durableOffset },
+            saveOffset: { durableOffset = $0 },
+            markCompleted: { completed = true },
             shouldPause: shouldPause,
             analyzeChunk: { [weak self] chunk, offset in
                 guard let self else { throw EffortRescoreMigrationError.chunkDidNotComplete }
@@ -401,12 +431,36 @@ final class IntelligenceEngine: ObservableObject {
                 guard self.analysisCompletionSerial > before else {
                     throw EffortRescoreMigrationError.chunkDidNotComplete
                 }
+                // Commit the cursor before this maintenance grant can yield or the process can suspend.
+                // Re-analysis is idempotent, but a completed batch must not depend on later process memory.
+                let nextOffset = offset + chunk
+                _ = try await store.saveDurableMigrationProgress(
+                    key: Self.effortRescoreDurableProgressKey,
+                    nextOffset: nextOffset
+                )
+                durableOffset = nextOffset
+                UserDefaults.standard.set(nextOffset, forKey: Self.effortRescoreOffsetKey)
             },
             finalRefresh: { [weak self] in
                 guard let self else { return false }
                 return await self.repo.refresh(.fullHistoryMigration)
-            }
+            },
+            // One background maintenance grant owns one bounded batch. A scene change or suspension
+            // resumes from the durable cursor instead of monopolizing a foreground session.
+            maximumChunksPerRun: 1
         )
+        do {
+            if outcome == .completed {
+                _ = try await store.markDurableMigrationComplete(
+                    key: Self.effortRescoreDurableProgressKey,
+                    nextOffset: durableOffset
+                )
+                UserDefaults.standard.set(durableOffset, forKey: Self.effortRescoreOffsetKey)
+                UserDefaults.standard.set(true, forKey: Self.effortRescoreFlagKey)
+            }
+        } catch {
+            // Replaying one source-derived batch is idempotent. Leave the durable cursor unchanged.
+        }
     }
 
     /// UserDefaults flag guarding the one-shot #547 implausible-timestamp DB heal (below). Set once the
