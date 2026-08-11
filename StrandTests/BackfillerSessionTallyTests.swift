@@ -165,6 +165,12 @@ final class BackfillerSessionTallyTests: XCTestCase {
     /// A store that forwards the real decoded counts so the session tally reflects rows that genuinely
     /// landed (the v25 record frames below each decode to one gravity sample).
     private final class TallyStore: BackfillStoreWriting {
+        private let failCommit: Bool
+
+        init(failCommit: Bool = false) {
+            self.failCommit = failCommit
+        }
+
         func commitHistoricalChunk(
             streams: Streams,
             deviceId: String,
@@ -181,6 +187,9 @@ final class BackfillerSessionTallyTests: XCTestCase {
             timestampHeal: HistoricalTimestampHeal?,
             isFinal: Bool
         ) async throws -> HistoricalDataCommitReceipt {
+            if failCommit {
+                throw NSError(domain: "BackfillerSessionTallyTests", code: 1)
+            }
             HistoricalDataCommitReceipt(
                 receiptId: "tally-\(trim)",
                 generation: Int64(trim),
@@ -302,5 +311,45 @@ final class BackfillerSessionTallyTests: XCTestCase {
         XCTAssertTrue(joined.contains("no banked history to offload"),
                       "a truly-empty no-cursor session must still warn the strap has no banked history")
         XCTAssertTrue(joined.contains("fully charge it"))
+    }
+
+    @MainActor func testCommitFailureReportsTypedFailureAndStopsSessionWithoutAck() async {
+        var failure: BackfillFailure?
+        var ackCount = 0
+        let backfiller = Backfiller(
+            store: TallyStore(failCommit: true),
+            deviceId: "test",
+            ackTrim: { _, _, _ in ackCount += 1; return true },
+            onFailure: { failure = $0 })
+        backfiller.begin(
+            family: .whoop4,
+            historicalCursorScope: HistoricalCursorScope(deviceId: "test", lineage: "test-lineage"))
+        for frame in v25RecordFrames { await backfiller.ingest(frame) }
+        await backfiller.ingest(historyEndFrame(trim: 57_320))
+
+        XCTAssertEqual(failure, .commit(trim: 57_320))
+        XCTAssertTrue(backfiller.persistStalled)
+        XCTAssertFalse(backfiller.isBackfilling)
+        XCTAssertEqual(ackCount, 0)
+    }
+
+    @MainActor func testAckFailureReportsTypedFailureAfterDurableCommit() async {
+        var failure: BackfillFailure?
+        var ackCount = 0
+        let backfiller = Backfiller(
+            store: TallyStore(),
+            deviceId: "test",
+            ackTrim: { _, _, _ in ackCount += 1; return false },
+            onFailure: { failure = $0 })
+        backfiller.begin(
+            family: .whoop4,
+            historicalCursorScope: HistoricalCursorScope(deviceId: "test", lineage: "test-lineage"))
+        for frame in v25RecordFrames { await backfiller.ingest(frame) }
+        await backfiller.ingest(historyEndFrame(trim: 57_320))
+
+        XCTAssertEqual(failure, .acknowledgment(trim: 57_320))
+        XCTAssertTrue(backfiller.persistStalled)
+        XCTAssertFalse(backfiller.isBackfilling)
+        XCTAssertEqual(ackCount, 1)
     }
 }

@@ -60,6 +60,32 @@ private let oneHR = try! HistoricalStreamCounts(hr: 1)
     #expect(try payload1.canonicalData() == payload2.canonicalData())
 }
 
+@Test func fingerprintV3UsesOrderedDataFramesWithoutRetryEnvelopes() throws {
+    let first = try HistoricalFingerprintV3Payload(
+        deviceLineage: "strap-a",
+        cursorEpoch: 3,
+        trimScope: "history",
+        trim: 42,
+        orderedFrames: [Data([1, 2, 3]), Data([4, 5])]
+    )
+    let replay = try HistoricalFingerprintV3Payload(
+        deviceLineage: "strap-a",
+        cursorEpoch: 3,
+        trimScope: "history",
+        trim: 42,
+        orderedFrames: [Data([1, 2, 3]), Data([4, 5])]
+    )
+    let reordered = try HistoricalFingerprintV3Payload(
+        deviceLineage: "strap-a",
+        cursorEpoch: 3,
+        trimScope: "history",
+        trim: 42,
+        orderedFrames: [Data([4, 5]), Data([1, 2, 3])]
+    )
+    #expect(try first.canonicalData() == replay.canonicalData())
+    #expect(try first.canonicalData() != reordered.canonicalData())
+}
+
 @Test func mixedReceiptTimeZonesMustBeSplitBeforePlanning() throws {
     let bucket = try HistoricalTimestampBucket(minimumTs: 1_700_000_000, maximumTs: 1_700_000_100)
     let newYork = try HistoricalReceiptEvidence(

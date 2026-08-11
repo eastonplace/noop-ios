@@ -622,10 +622,9 @@ extension WhoopStore {
 
     /// Atomically persist one historical chunk and its durable commit receipt.
     ///
-    /// Replay identity is the required SHA-256 `fingerprint` supplied by Backfiller. Backfiller must build
-    /// it with `historicalReceivedFrameFingerprint` from exact ordered received frames, protocol metadata,
-    /// and HISTORY_END bytes. Decoded `Streams` are not a valid replay identity. Raw capture is evidence,
-    /// not identity, so a replay succeeds when the raw-capture setting changes between attempts.
+    /// Replay identity is the required SHA-256 `fingerprint` supplied by Backfiller. V3 uses exact ordered
+    /// historical data frames in their durable source scope. Retry-specific START/END envelope bytes and
+    /// decoded `Streams` are evidence, not identity.
     public func commitHistoricalChunk(
         streams: Streams,
         deviceId: String,
@@ -741,22 +740,11 @@ extension WhoopStore {
                 databaseInstanceId: databaseInstanceId,
                 scope: resolvedScope,
                 trim: trim,
+                fingerprintVersion: HistoricalFingerprintV3Payload.version,
+                fingerprint: effectiveFingerprint,
                 in: db
             ) {
-                if !existing.fingerprint.hasPrefix("legacy:") {
-                    guard existing.fingerprint == effectiveFingerprint else {
-                        throw HistoricalDataCommitJournalError.conflictingFingerprintReplay
-                    }
-                    return existing
-                }
-
-                // v34 receipts had no exact frame identity. The v35 migration marks them explicitly as
-                // legacy; bind the first caller-supplied received-frame fingerprint to that old receipt.
-                try db.execute(
-                    sql: "UPDATE historicalDataCommitJournal SET fingerprint = ? WHERE generation = ?",
-                    arguments: [effectiveFingerprint, existing.generation]
-                )
-                return existing.withFingerprint(effectiveFingerprint)
+                return existing
             }
 
             let scopedRawMeta = rawBatch?.meta.withHistoricalScope(
@@ -824,7 +812,7 @@ extension WhoopStore {
                     effectiveRawStatus.batchId, effectiveRawStatus.storageValue, encodedBurst, encodedRawRange,
                     encodedTimestampHeal,
                     finalReceipt ? 1 : 0,
-                    2,
+                    HistoricalFingerprintV3Payload.version,
                     encodedTimestampBuckets,
                     recordedTimeZoneIdentifier,
                     encodedExplicitAffectedDays,
@@ -848,7 +836,7 @@ extension WhoopStore {
                 rawBatchId: effectiveRawStatus.batchId,
                 insertedRows: insertedRows,
                 fingerprint: effectiveFingerprint,
-                fingerprintVersion: 2,
+                fingerprintVersion: HistoricalFingerprintV3Payload.version,
                 lineage: resolvedScope.lineage,
                 cursorEpoch: resolvedScope.cursorEpoch,
                 trimScope: resolvedScope.trimScope,
@@ -1032,6 +1020,8 @@ extension WhoopStore {
         databaseInstanceId: String,
         scope: HistoricalCursorScope,
         trim: Int,
+        fingerprintVersion: Int,
+        fingerprint: String,
         in db: Database
     ) throws -> HistoricalDataCommitReceipt? {
         let row = try Row.fetchOne(db, sql: """
@@ -1043,9 +1033,10 @@ extension WhoopStore {
                    explicitAffectedDaysJSON
             FROM historicalDataCommitJournal
             WHERE databaseInstanceId = ? AND deviceId = ? AND lineage = ? AND cursorEpoch = ?
-              AND trimScope = ? AND trim = ?
+              AND trimScope = ? AND trim = ? AND fingerprintVersion = ? AND fingerprint = ?
             """, arguments: [
                 databaseInstanceId, scope.deviceId, scope.lineage, scope.cursorEpoch, scope.trimScope, trim,
+                fingerprintVersion, fingerprint,
             ])
         return try row.map(WhoopStore.decodeHistoricalDataCommitReceipt)
     }
@@ -1188,9 +1179,8 @@ extension WhoopStore {
             .sorted()
     }
 
-    /// Hash exact received-frame identity. The frame array is never sorted or decoded. The protocol
-    /// metadata and HISTORY_END bytes are included as exact bytes, so two byte-distinct captures cannot
-    /// collapse merely because they decode to the same `Streams` value.
+    /// Hash exact ordered historical data-frame identity. START/END envelopes remain evidence only because
+    /// WHOOP changes them across retries of the same flash cursor.
     public static func historicalReceivedFrameFingerprint(
         input: HistoricalReceivedFrameFingerprintInput,
         deviceId: String,
@@ -1204,10 +1194,8 @@ extension WhoopStore {
         }
         // Keep the source-compatible overload for unrelated callers. `chunkEndUnix` is no longer replay
         // identity. New production callers pass the transaction-resolved scope overload below.
-        return try historicalReceivedFrameFingerprintV2(
+        return try historicalReceivedFrameFingerprintV3(
             orderedFrames: input.orderedFrames,
-            protocolMetadata: input.protocolMetadata,
-            historyEndFrame: input.historyEndFrame,
             scope: HistoricalCursorScope(
                 deviceId: deviceId,
                 lineage: "device:\(deviceId)",
@@ -1223,10 +1211,8 @@ extension WhoopStore {
         scope: HistoricalCursorScope,
         trim: Int
     ) throws -> String {
-        try historicalReceivedFrameFingerprintV2(
+        try historicalReceivedFrameFingerprintV3(
             orderedFrames: input.orderedFrames,
-            protocolMetadata: input.protocolMetadata,
-            historyEndFrame: input.historyEndFrame,
             scope: scope,
             trim: trim
         )

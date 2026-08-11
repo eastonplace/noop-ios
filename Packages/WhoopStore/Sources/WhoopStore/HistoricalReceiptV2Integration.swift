@@ -7,6 +7,26 @@ import NoopPhase34Core
 import WhoopProtocol
 
 extension WhoopStore {
+    public static func historicalReceivedFrameFingerprintV3(
+        orderedFrames: [[UInt8]],
+        scope: HistoricalCursorScope,
+        trim: Int
+    ) throws -> String {
+        guard (0...Int(UInt32.max)).contains(trim) else {
+            throw HistoricalDataCommitJournalError.invalidTrim
+        }
+        let payload = try HistoricalFingerprintV3Payload(
+            deviceLineage: scope.lineage,
+            cursorEpoch: scope.cursorEpoch,
+            trimScope: scope.trimScope,
+            trim: UInt32(trim),
+            orderedFrames: orderedFrames.map { Data($0) }
+        )
+        return SHA256.hash(data: try payload.canonicalData())
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
     public static func historicalReceivedFrameFingerprintV2(
         orderedFrames: [[UInt8]],
         protocolMetadata: Data,
@@ -71,7 +91,7 @@ extension WhoopStore {
 /*
 Required `HistoricalDataCommitReceipt` fields:
 
-    public let fingerprintVersion: Int             // 2 for new immutable-byte receipts
+    public let fingerprintVersion: Int             // 2 for legacy envelope identity; 3 for ordered data content
     public let timestampBuckets: [HistoricalTimestampBucket]
     public let recordedTimeZoneIdentifier: String
     public let explicitAffectedDays: [String]      // local Gregorian keys from an exact repair/edit owner

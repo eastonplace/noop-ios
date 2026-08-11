@@ -101,7 +101,7 @@ final class HistoricalDataCommitJournalTests: XCTestCase {
         }
     }
 
-    func testReceivedFrameFingerprintPreservesOrderAndProtocolMetadata() throws {
+    func testReceivedFrameFingerprintPreservesOrderAndIgnoresRetryEnvelope() throws {
         let first = HistoricalReceivedFrameFingerprintInput(
             orderedFrames: frames,
             protocolMetadata: protocolMetadata,
@@ -116,6 +116,11 @@ final class HistoricalDataCommitJournalTests: XCTestCase {
             orderedFrames: frames,
             protocolMetadata: Data([0x49, 0x01, 0x02, 0x04]),
             historyEndFrame: historyEndFrame
+        )
+        let changedEnd = HistoricalReceivedFrameFingerprintInput(
+            orderedFrames: frames,
+            protocolMetadata: protocolMetadata,
+            historyEndFrame: Data([0xAA, 0x03, 0x00, 0x00, 0x00, 0x00])
         )
         let changedRange = HistoricalReceivedFrameFingerprintInput(
             orderedFrames: frames,
@@ -137,9 +142,13 @@ final class HistoricalDataCommitJournalTests: XCTestCase {
         let changedRangeFingerprint = try WhoopStore.historicalReceivedFrameFingerprint(
             input: changedRange, deviceId: deviceId, trim: 1, chunkEndUnix: 2
         )
+        let changedEndFingerprint = try WhoopStore.historicalReceivedFrameFingerprint(
+            input: changedEnd, deviceId: deviceId, trim: 1, chunkEndUnix: 2
+        )
 
         XCTAssertNotEqual(firstFingerprint, reorderedFingerprint)
-        XCTAssertNotEqual(firstFingerprint, changedMetadataFingerprint)
+        XCTAssertEqual(firstFingerprint, changedMetadataFingerprint)
+        XCTAssertEqual(firstFingerprint, changedEndFingerprint)
         XCTAssertEqual(firstFingerprint, changedRangeFingerprint)
     }
 
@@ -319,7 +328,7 @@ final class HistoricalDataCommitJournalTests: XCTestCase {
         XCTAssertEqual(readback, [receipt])
     }
 
-    func testReplayWithDifferentReceivedFingerprintFailsClosed() async throws {
+    func testDifferentContentAtSameTrimCreatesNewReceipt() async throws {
         let store = try await WhoopStore.inMemory()
         try await store.upsertDevice(id: deviceId, mac: nil, name: nil)
         _ = try await store.commitHistoricalChunk(
@@ -339,9 +348,8 @@ final class HistoricalDataCommitJournalTests: XCTestCase {
             )
         )
 
-        do {
-            _ = try await store.commitHistoricalChunk(
-                streams: Streams(hr: [HRSample(ts: 1_000, bpm: 61)]),
+        let second = try await store.commitHistoricalChunk(
+                streams: Streams(hr: [HRSample(ts: 1_006, bpm: 61)]),
                 deviceId: deviceId,
                 trim: 1001,
                 chunkEndUnix: 1_700_000_005,
@@ -360,10 +368,14 @@ final class HistoricalDataCommitJournalTests: XCTestCase {
                     maxReceivedTs: 1_700_000_005
                 )
             )
-            XCTFail("different received-frame content must not replay the old receipt")
-        } catch let error as HistoricalDataCommitJournalError {
-            XCTAssertEqual(error, .conflictingFingerprintReplay)
-        }
+        let receipts = try await store.historicalDataCommitReceipts(deviceId: deviceId)
+        let scope = try await store.historicalCursorScope(deviceId: deviceId)
+        XCTAssertEqual(receipts.count, 2)
+        XCTAssertEqual(receipts.map(\.trim), [1001, 1001])
+        XCTAssertEqual(receipts.map(\.fingerprintVersion), [3, 3])
+        XCTAssertEqual(second.insertedRows.hr, 1)
+        let watermark = try await store.historicalCursorWatermark(scope)
+        XCTAssertEqual(watermark, second.generation)
     }
 
     func testReplayUsesReceivedFingerprintWhenDecodedRowsVary() async throws {

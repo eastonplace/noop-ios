@@ -1085,7 +1085,8 @@ public final class BLEManager: NSObject, ObservableObject {
                                 connectionLog: { [weak self] s in self?.state.append(log: s, domain: .connection) },
                                 // UNIVERSAL clock-drift: bank the strap's historical layout so the export's
                                 // universal clock-drift line is firmware-aware on every export. Unconditional.
-                                firmwareLayout: { [weak self] v in self?.state.setStrapFirmwareLayout(v) })
+                                firmwareLayout: { [weak self] v in self?.state.setStrapFirmwareLayout(v) },
+                                onFailure: { [weak self] failure in self?.handleBackfillFailure(failure) })
         // Strand: no server uploader/sync — all data stays on-device.
 
         // Retro-decode: when the decoder gains a historical layout (e.g. WHOOP 4.0 v25), re-run every
@@ -2074,6 +2075,25 @@ public final class BLEManager: NSObject, ObservableObject {
     private func afterBackfillIngest() {
         guard backfilling, backfiller?.isBackfilling == false else { return }
         exitBackfilling(reason: "HISTORY_COMPLETE")
+    }
+
+    private func handleBackfillFailure(_ failure: BackfillFailure) {
+        guard backfilling else { return }
+        backfilling = false
+        state.backfilling = false
+        backfillTimeout?.cancel()
+        backfillTimeout = nil
+        backfillFrameQueue.removeAll()
+        invalidateHistoricalBackfill(reason: "historical backfill failed")
+        state.historicalSyncSessionState = .failed
+        switch failure {
+        case .acknowledgment:
+            state.lastSyncError = "Live HR is connected, but history could not be confirmed. Tap Sync Now to retry; reconnect if it repeats."
+        case .fingerprint, .commit, .rejectedArchive:
+            state.lastSyncError = "Live HR is connected, but history could not be saved. Tap Sync Now to retry."
+        }
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "sync.lastWriteStalledAt")
+        log("Backfill: session failed — \(failure)")
     }
 
     /// True when a frame is part of the historical offload (HISTORICAL_DATA=47, EVENT=48,

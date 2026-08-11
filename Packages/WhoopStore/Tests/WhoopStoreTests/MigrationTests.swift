@@ -18,7 +18,7 @@ final class MigrationTests: XCTestCase {
         ] {
             XCTAssertTrue(tables.contains(t), "missing table \(t)")
         }
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 52)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 53)
     }
 
     func testFileInitRunsMigrations() async throws {
@@ -130,7 +130,7 @@ final class MigrationTests: XCTestCase {
                 0
             )
         }
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 52)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 53)
     }
 
     func testV37MigratesLegacyRawBatchIntoItsReceiptScope() async throws {
@@ -340,7 +340,7 @@ final class MigrationTests: XCTestCase {
             let cols = try await store.columnNamesForTest(table: table)
             XCTAssertTrue(cols.contains("synced"), "\(table) missing synced column")
         }
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 52)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 53)
     }
 
     func testV34AddsDurableTodayHealthSnapshotGeneration() async throws {
@@ -363,6 +363,86 @@ final class MigrationTests: XCTestCase {
             "committedAt", "rawBatchId", "insertedRowsJSON",
         ] {
             XCTAssertTrue(columns.contains(column), "historicalDataCommitJournal missing \(column)")
+        }
+    }
+
+    func testV53PreservesExistingReceiptAndAllowsContentVersionAtSameTrim() async throws {
+        let dbQueue = try DatabaseQueue()
+        let migrator = WhoopStore.makeMigrator()
+        try migrator.migrate(dbQueue, upTo: PR29V52Migrations.identifier)
+
+        try await dbQueue.write { db in
+            let databaseInstanceId = try XCTUnwrap(
+                String.fetchOne(db, sql: "SELECT id FROM todayHealthSnapshotDatabase LIMIT 1")
+            )
+            let lineage = try XCTUnwrap(
+                String.fetchOne(db, sql: "SELECT historyLineage FROM pairedDevice WHERE id = 'my-whoop'")
+            )
+            try db.execute(sql: """
+                INSERT INTO historicalDataCommitJournal
+                    (generation, receiptId, databaseInstanceId, deviceId, lineage, cursorEpoch,
+                     trimScope, trim, chunkEndUnix, committedAt, fingerprint, minDecodedTs,
+                     maxDecodedTs, touchedDaysJSON, decodedRowsJSON, insertedRowsJSON, rawBatchId,
+                     rawStatus, burstJSON, rawRangeJSON, timestampHealJSON, isFinal,
+                     fingerprintVersion, timestampBucketsJSON, recordedTimeZoneIdentifier,
+                     explicitAffectedDaysJSON)
+                VALUES (113, 'receipt-v2-113', ?, 'my-whoop', ?, 0, 'historical', 57320,
+                        1700000000, 1700000001, ?, NULL, NULL, ?, ?, ?, NULL, 'disabled', NULL,
+                        ?, ?, 0, 2, ?, 'UTC', ?)
+                """, arguments: [
+                    databaseInstanceId,
+                    lineage,
+                    String(repeating: "a", count: 64),
+                    Data("[]".utf8),
+                    Data("{}".utf8),
+                    Data("{}".utf8),
+                    Data("{\"source\":\"receivedFrames\",\"minReceivedTs\":null,\"maxReceivedTs\":null,\"frameCount\":0,\"byteCount\":0,\"hasHistoryEnd\":true}".utf8),
+                    Data("{\"droppedRecordCount\":0,\"rawRowsDeleted\":0,\"computedRowsDeleted\":0,\"didChange\":false}".utf8),
+                    Data("[]".utf8),
+                    Data("[]".utf8),
+                ])
+            try db.execute(sql: """
+                INSERT INTO historicalCursor
+                    (deviceId, lineage, cursorEpoch, trimScope, trim, watermarkGeneration)
+                VALUES ('my-whoop', ?, 0, 'historical', 57320, 113)
+                ON CONFLICT (deviceId, lineage, cursorEpoch, trimScope) DO UPDATE SET
+                    trim = excluded.trim, watermarkGeneration = excluded.watermarkGeneration
+                """, arguments: [lineage])
+        }
+
+        try migrator.migrate(dbQueue)
+
+        try await dbQueue.write { db in
+            let old = try Row.fetchOne(
+                db,
+                sql: "SELECT generation, receiptId, fingerprintVersion, trim FROM historicalDataCommitJournal WHERE generation = 113"
+            )
+            XCTAssertEqual(old?["receiptId"] as String?, "receipt-v2-113")
+            XCTAssertEqual(old?["fingerprintVersion"] as Int?, 2)
+            XCTAssertEqual(old?["trim"] as Int?, 57320)
+            try db.execute(sql: """
+                INSERT INTO historicalDataCommitJournal
+                    (receiptId, databaseInstanceId, deviceId, lineage, cursorEpoch, trimScope, trim,
+                     chunkEndUnix, committedAt, fingerprint, touchedDaysJSON, decodedRowsJSON,
+                     insertedRowsJSON, rawStatus, rawRangeJSON, timestampHealJSON, isFinal,
+                     fingerprintVersion, timestampBucketsJSON, recordedTimeZoneIdentifier,
+                     explicitAffectedDaysJSON)
+                SELECT 'receipt-v3-new', databaseInstanceId, deviceId, lineage, cursorEpoch, trimScope,
+                       trim, chunkEndUnix, committedAt + 1, ?, touchedDaysJSON, decodedRowsJSON,
+                       insertedRowsJSON, rawStatus, rawRangeJSON, timestampHealJSON, isFinal,
+                       3, timestampBucketsJSON, recordedTimeZoneIdentifier, explicitAffectedDaysJSON
+                FROM historicalDataCommitJournal WHERE generation = 113
+                """, arguments: [String(repeating: "b", count: 64)])
+            XCTAssertEqual(
+                try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM historicalDataCommitJournal WHERE trim = 57320"),
+                2
+            )
+            XCTAssertGreaterThan(
+                try XCTUnwrap(Int.fetchOne(db, sql: "SELECT generation FROM historicalDataCommitJournal WHERE receiptId = 'receipt-v3-new'")),
+                113
+            )
+            XCTAssertEqual(try String.fetchOne(db, sql: "PRAGMA quick_check"), "ok")
+            XCTAssertTrue(try Row.fetchAll(db, sql: "PRAGMA foreign_key_check").isEmpty)
         }
     }
 

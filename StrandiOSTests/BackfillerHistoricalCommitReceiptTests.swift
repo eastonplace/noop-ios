@@ -365,7 +365,10 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
 
         XCTAssertNil(rawEnabled.fingerprintInput.minReceivedTs)
         XCTAssertNil(rawEnabled.fingerprintInput.maxReceivedTs)
-        XCTAssertEqual(rawEnabled.rawCaptureStatus?.batchId, "hist-strap-a|registry-lineage|19|historical-123")
+        XCTAssertEqual(
+            rawEnabled.rawCaptureStatus?.batchId,
+            "hist-strap-a|registry-lineage|19|historical-123-\(rawEnabled.fingerprint.prefix(16))"
+        )
         XCTAssertEqual(rawEnabled.rawRange?.source, .retainedRawBatch)
         XCTAssertEqual(rawEnabled.rawRange?.minReceivedTs, 1_700_000_000)
         XCTAssertEqual(rawEnabled.rawRange?.maxReceivedTs, 1_700_000_000)
