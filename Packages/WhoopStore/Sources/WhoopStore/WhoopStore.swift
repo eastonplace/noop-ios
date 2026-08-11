@@ -9,38 +9,50 @@ public enum WhoopStoreInfo {
     public static let schemaVersion = 53
 }
 
-/// Serializes `DatabasePool` creation + migration so two concurrent opens of the SAME file can never
-/// run their GRDB migrators at once (#261).
+/// Owns the single process-wide `DatabasePool` for each file path.
 ///
 /// `WhoopStore(path:)` is opened from more than one place on the same file — the BLEManager's backfill
-/// store and the app's MetricsRepository (see the `init(path:)` note). On the first launch after an
-/// update that adds a migration, a cold *background* relaunch (iOS CoreBluetooth state restoration) can
-/// fire both opens at once. Each `DatabaseMigrator` reads "migration N unapplied", both apply it, and
-/// the loser's bookkeeping `INSERT` collides: `UNIQUE constraint failed: grdb_migrations.identifier`
-/// (SQLITE_CONSTRAINT). That open throws — on iOS the backfill sees "store not ready" and the offload
-/// is deferred to the next tick. It self-heals once one migrator commits, but the failed open is a
-/// real, user-visible sync stall.
+/// store and the app's MetricsRepository. Separate pools each own a SQLite writer connection. A long
+/// repository write can therefore exhaust the other pool's busy timeout while Backfiller is trying to
+/// commit a HISTORY_END chunk. Sharing one pool gives the process one GRDB-serialized writer queue, so
+/// app-owned writes wait in memory instead of competing through `SQLITE_BUSY`. WAL readers still run
+/// concurrently and keep dashboard reads off the writer queue.
 ///
-/// `openAndMigrate` is actor-isolated and fully synchronous (no `await` inside), so the actor's serial
-/// executor runs exactly one open+migrate to completion before starting the next — closing the race at
-/// the source, for every opener present and future, not just the two we know about. Opens are
-/// launch-time-rare and a fully-migrated DB migrates nothing, so the serial gate costs nothing in
-/// practice. Each caller still gets its OWN pool; only the open+migrate step is serialized.
+/// The actor also preserves the original migration race fix: only the first opener creates and migrates
+/// the pool. `close` removes and closes that exact shared pool so atomic database replacement can reopen
+/// a fresh generation without a stale handle closing the replacement.
+private final class WeakDatabasePool {
+    weak var value: DatabasePool?
+    init(_ value: DatabasePool) { self.value = value }
+}
+
 private actor StoreOpenGate {
     static let shared = StoreOpenGate()
+    private var pools: [String: WeakDatabasePool] = [:]
 
-    func openAndMigrate(path: String, configuration config: Configuration) throws -> DatabasePool {
+    func openAndMigrate(path: String, configuration config: Configuration) throws -> (String, DatabasePool) {
+        let canonicalPath = URL(fileURLWithPath: path).standardizedFileURL.path
+        if let pool = pools[canonicalPath]?.value {
+            return (canonicalPath, pool)
+        }
         // Self-heal a foreign DB left in place by a bad cross-platform restore (#222): an Android
         // (Room) backup that slipped past the import guard replaces our file with one that has our
         // data tables but NO `grdb_migrations` bookkeeping. The migrator then thinks nothing is
         // applied, re-runs v1, and crashes with `table "device" already exists` on every open — the
         // store never bootstraps. Quarantine such a file BEFORE opening so we start fresh instead of
         // looping forever. (A normal GRDB backup carries grdb_migrations and is left untouched.)
-        WhoopStore.quarantineIncompatibleDatabase(at: path)
-        let pool = try DatabasePool(path: path, configuration: config)
+        WhoopStore.quarantineIncompatibleDatabase(at: canonicalPath)
+        let pool = try DatabasePool(path: canonicalPath, configuration: config)
         try WhoopStore.makeMigrator().migrate(pool)
         try WhoopStore.migrateSleepRecoverySchema(pool)
-        return pool
+        pools[canonicalPath] = WeakDatabasePool(pool)
+        return (canonicalPath, pool)
+    }
+
+    func close(path: String, pool: DatabasePool) throws {
+        guard pools[path]?.value === pool else { return }
+        pools.removeValue(forKey: path)
+        try pool.close()
     }
 }
 
@@ -58,6 +70,8 @@ private actor StoreOpenGate {
 /// data or the query results.
 public actor WhoopStore {
     let dbWriter: any DatabaseWriter
+    private let sharedPoolPath: String?
+    private let sharedPool: DatabasePool?
 
     /// Read-only handle to the underlying GRDB writer for the synchronous `DeviceRegistryStore`.
     /// `nonisolated` because a GRDB `DatabaseWriter` (here a `DatabasePool`) is `Sendable` and
@@ -67,6 +81,8 @@ public actor WhoopStore {
 
     private init(dbWriter: any DatabaseWriter) throws {
         self.dbWriter = dbWriter
+        sharedPoolPath = nil
+        sharedPool = nil
         try WhoopStore.makeMigrator().migrate(dbWriter)
         try WhoopStore.migrateSleepRecoverySchema(dbWriter)
     }
@@ -75,13 +91,15 @@ public actor WhoopStore {
     /// `StoreOpenGate` (below) opened the pool and migrated it under the process-wide open lock, so
     /// re-migrating here would be a redundant (and, if it raced a sibling opener, failing) second run.
     /// (#261)
-    private init(preMigrated dbWriter: any DatabaseWriter) {
-        self.dbWriter = dbWriter
+    private init(preMigrated pool: DatabasePool, path: String) {
+        dbWriter = pool
+        sharedPoolPath = path
+        sharedPool = pool
     }
 
     /// Open (creating if needed) a database at `path` and run migrations.
-    /// Uses a `DatabasePool`, which enables WAL automatically, plus a 5-second busy timeout so two
-    /// handles to the same file (BLEManager + MetricsRepository) don't deadlock on write contention.
+    /// Uses the process-wide `DatabasePool` for this path. WAL keeps reads concurrent while GRDB's one
+    /// writer queue serializes BLE, repository, HealthKit, and maintenance writes without `SQLITE_BUSY`.
     ///
     /// Open + migrate runs through `StoreOpenGate` so two concurrent openers of the SAME file never
     /// run their GRDB migrators at once (#261) — see that actor's note for the failure it prevents.
@@ -99,8 +117,8 @@ public actor WhoopStore {
             try db.execute(sql: "PRAGMA temp_store = MEMORY")
         }
         config.busyMode = .timeout(5)
-        let pool = try await StoreOpenGate.shared.openAndMigrate(path: path, configuration: config)
-        self.init(preMigrated: pool)
+        let (canonicalPath, pool) = try await StoreOpenGate.shared.openAndMigrate(path: path, configuration: config)
+        self.init(preMigrated: pool, path: canonicalPath)
     }
 
     /// Move aside a database file that has our data tables but no GRDB migration bookkeeping — the
@@ -172,7 +190,11 @@ public actor WhoopStore {
 
     /// Quiesce every GRDB connection owned by this handle before an atomic database replacement.
     public func close() async throws {
-        try dbWriter.close()
+        if let sharedPoolPath, let sharedPool {
+            try await StoreOpenGate.shared.close(path: sharedPoolPath, pool: sharedPool)
+        } else {
+            try dbWriter.close()
+        }
     }
 
     /// Non-async so GRDB's synchronous `writeWithoutTransaction` overload is chosen (mirrors the

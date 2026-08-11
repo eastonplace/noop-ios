@@ -148,9 +148,9 @@ final class DatabasePoolConcurrencyTests: XCTestCase {
         let path = tempPath()
         defer { removeDB(path) }
 
-        // Open the same not-yet-created file from 16 tasks at once. Each gets its own pool; the gate
-        // ensures their migrators never overlap. All 16 must open without throwing.
-        try await withThrowingTaskGroup(of: Void.self) { group in
+        // Open the same not-yet-created file from 16 tasks at once. Every handle must reuse one pool,
+        // so migration and all later writes have one process-wide owner.
+        let writers = try await withThrowingTaskGroup(of: ObjectIdentifier.self) { group in
             for _ in 0..<16 {
                 group.addTask {
                     let store = try await WhoopStore(path: path)
@@ -160,10 +160,105 @@ final class DatabasePoolConcurrencyTests: XCTestCase {
                         try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM grdb_migrations") ?? 0
                     }
                     XCTAssertGreaterThan(applied, 0, "each concurrent open must land on a fully-migrated store")
+                    return ObjectIdentifier(store.registryWriter as AnyObject)
                 }
             }
-            try await group.waitForAll()
+            var result: [ObjectIdentifier] = []
+            for try await writer in group { result.append(writer) }
+            return result
         }
+        XCTAssertEqual(Set(writers).count, 1,
+                       "all WhoopStore handles for one path must share one writer pool")
+    }
+
+    /// Device regression: BLEManager and MetricsRepository used to open separate pools. A long write in
+    /// one pool could exhaust the other's five-second busy timeout and fail a HISTORY_END commit with
+    /// `SQLITE_BUSY`. Shared-pool writes queue behind one another inside GRDB and both commit.
+    func testSamePathHandlesSerializeWritesWithoutSQLiteBusy() async throws {
+        let path = tempPath()
+        defer { removeDB(path) }
+
+        let bleStore = try await WhoopStore(path: path)
+        let repositoryStore = try await WhoopStore(path: path)
+        XCTAssertEqual(
+            ObjectIdentifier(bleStore.registryWriter as AnyObject),
+            ObjectIdentifier(repositoryStore.registryWriter as AnyObject))
+
+        let writerEntered = DispatchSemaphore(value: 0)
+        let releaseWriter = DispatchSemaphore(value: 0)
+        let repositoryWrite = Task.detached {
+            try repositoryStore.registryWriter.write { db in
+                try db.execute(sql: "INSERT INTO hrSample (deviceId, ts, bpm) VALUES ('repo', 1, 60)")
+                writerEntered.signal()
+                releaseWriter.wait()
+            }
+        }
+        XCTAssertEqual(writerEntered.wait(timeout: .now() + 5), .success)
+
+        let bleWrite = Task.detached {
+            try await bleStore.insert(Streams(hr: [HRSample(ts: 2, bpm: 61)]), deviceId: "ble")
+        }
+        try await Task.sleep(nanoseconds: 100_000_000)
+        releaseWriter.signal()
+        try await repositoryWrite.value
+        let inserted = try await bleWrite.value
+        XCTAssertEqual(inserted.hr, 1)
+
+        let count = try await bleStore.registryWriter.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM hrSample") ?? 0
+        }
+        XCTAssertEqual(count, 2)
+    }
+
+    /// Atomic replacement closes the currently shared pool once and removes it from the path cache.
+    /// A later open must receive a fresh, migrated pool rather than the closed generation.
+    func testCloseEvictsSharedPoolAndReopenGetsFreshWriter() async throws {
+        let path = tempPath()
+        defer { removeDB(path) }
+
+        let first = try await WhoopStore(path: path)
+        let staleSibling = try await WhoopStore(path: path)
+        let firstWriter = ObjectIdentifier(first.registryWriter as AnyObject)
+        try await first.close()
+
+        let reopened = try await WhoopStore(path: path)
+        XCTAssertNotEqual(firstWriter, ObjectIdentifier(reopened.registryWriter as AnyObject))
+        try await staleSibling.close()
+        let inserted = try await reopened.insert(
+            Streams(hr: [HRSample(ts: 3, bpm: 62)]),
+            deviceId: "reopened")
+        XCTAssertEqual(inserted.hr, 1)
+    }
+
+    /// Local performance guard for the shared writer owner. Alternating handles exercises the same
+    /// BLEManager/Repository route as production without adding a second SQLite writer connection.
+    func testSharedPoolCommitLatencyBenchmark() async throws {
+        let path = tempPath()
+        defer { removeDB(path) }
+
+        let bleStore = try await WhoopStore(path: path)
+        let repositoryStore = try await WhoopStore(path: path)
+        var milliseconds: [Double] = []
+        milliseconds.reserveCapacity(200)
+
+        for index in 0..<200 {
+            let store = index.isMultiple(of: 2) ? bleStore : repositoryStore
+            let started = DispatchTime.now().uptimeNanoseconds
+            _ = try await store.insert(
+                Streams(hr: [HRSample(ts: 10_000 + index, bpm: 60 + index % 20)]),
+                deviceId: "benchmark")
+            let elapsed = DispatchTime.now().uptimeNanoseconds - started
+            milliseconds.append(Double(elapsed) / 1_000_000)
+        }
+
+        let sorted = milliseconds.sorted()
+        let p50 = sorted[99]
+        let p95 = sorted[189]
+        let maximum = sorted.last ?? 0
+        print(String(format: "SHARED_POOL_COMMIT_TIMING n=200 p50=%.3fms p95=%.3fms max=%.3fms",
+                     p50, p95, maximum))
+        XCTAssertLessThan(p95, 50, "shared-pool small commits must stay responsive")
+        XCTAssertLessThan(maximum, 500, "shared-pool small commits must not produce a UI-scale stall")
     }
 
     private enum ConcurrencyTimeout: Error { case readBlockedOnWriter }
