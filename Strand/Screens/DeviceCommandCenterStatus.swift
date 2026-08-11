@@ -43,6 +43,9 @@ struct DeviceCommandCenterInput {
     var backfilling: Bool
     var syncChunksThisSession: Int
     var lastSyncedAt: TimeInterval?
+    var historicalDataFrontierAt: TimeInterval?
+    var historicalSyncSessionState: LiveState.HistoricalSyncSessionState
+    var liveHeartRateAvailable: Bool
     var deepDataEnabled: Bool
     var r22FlagsAccepted: Int
     var r22FlagCount: Int
@@ -121,16 +124,17 @@ enum DeviceCommandCenterStatusResolver {
     }
 
     static func syncLabel(_ input: DeviceCommandCenterInput) -> String {
-        guard input.connected else { return "Not connected" }
-        if input.backfilling {
-            return "Syncing · \(input.syncChunksThisSession) chunks received"
-        }
-        if input.lastSyncError != nil { return "Needs attention · Sync interrupted" }
-        if input.historySyncExperimental { return "History sync experimental" }
-        if let last = input.lastSyncedAt {
-            return "Caught up · \(relativeAgo(last, now: input.now))"
-        }
-        return "Waiting for first sync"
+        HistoricalSyncStatusResolver.resolve(
+            connected: input.connected,
+            liveHeartRateAvailable: input.liveHeartRateAvailable,
+            sessionState: input.historicalSyncSessionState,
+            lastSuccessfulBackfillAt: input.lastSyncedAt,
+            historicalDataFrontierAt: input.historicalDataFrontierAt,
+            lastSyncError: input.lastSyncError,
+            historySyncExperimental: input.historySyncExperimental,
+            chunks: input.syncChunksThisSession,
+            now: input.now
+        ).primary
     }
 
     static func bondLabel(_ input: DeviceCommandCenterInput) -> String? {
@@ -167,6 +171,97 @@ enum DeviceCommandCenterStatusResolver {
     private static func nonempty(_ value: String?) -> String? {
         guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
         return value
+    }
+
+    private static func relativeAgo(_ timestamp: TimeInterval, now: TimeInterval) -> String {
+        let seconds = max(0, Int(now - timestamp))
+        if seconds < 60 { return "just now" }
+        if seconds < 3_600 { return "\(seconds / 60) min ago" }
+        if seconds < 86_400 { return "\(seconds / 3_600) hr ago" }
+        return "\(seconds / 86_400) d ago"
+    }
+}
+
+struct HistoricalSyncStatus: Equatable {
+    let primary: String
+    let savedHistory: String?
+    let isCurrentSuccess: Bool
+    let isFailure: Bool
+}
+
+enum HistoricalSyncStatusResolver {
+    static func resolve(
+        connected: Bool,
+        liveHeartRateAvailable: Bool,
+        sessionState: LiveState.HistoricalSyncSessionState,
+        lastSuccessfulBackfillAt: TimeInterval?,
+        historicalDataFrontierAt: TimeInterval?,
+        lastSyncError: String?,
+        historySyncExperimental: Bool,
+        chunks: Int,
+        now: TimeInterval
+    ) -> HistoricalSyncStatus {
+        let saved = savedHistoryLabel(
+            frontier: historicalDataFrontierAt,
+            lastSuccessfulBackfillAt: lastSuccessfulBackfillAt,
+            now: now)
+
+        guard connected else {
+            return .init(primary: saved ?? "Not connected", savedHistory: saved,
+                         isCurrentSuccess: false, isFailure: false)
+        }
+        if historySyncExperimental {
+            return .init(primary: "History sync experimental", savedHistory: saved,
+                         isCurrentSuccess: false, isFailure: false)
+        }
+        switch sessionState {
+        case .disconnected:
+            return .init(primary: saved ?? "Not connected", savedHistory: saved,
+                         isCurrentSuccess: false, isFailure: false)
+        case .waitingForSecureHandshake:
+            return .init(
+                primary: liveHeartRateAvailable
+                    ? "Live HR only · History sync waiting for secure link"
+                    : "History sync waiting for secure link",
+                savedHistory: saved,
+                isCurrentSuccess: false,
+                isFailure: false)
+        case .ready:
+            return .init(primary: "Secure link ready · Waiting for history sync", savedHistory: saved,
+                         isCurrentSuccess: false, isFailure: false)
+        case .syncing:
+            return .init(primary: "Syncing history · \(chunks) chunks received", savedHistory: saved,
+                         isCurrentSuccess: false, isFailure: false)
+        case .completed:
+            if lastSyncError != nil {
+                return .init(primary: "History sync completed with issues", savedHistory: saved,
+                             isCurrentSuccess: false, isFailure: true)
+            }
+            let suffix = lastSuccessfulBackfillAt.map { " · \(relativeAgo($0, now: now))" } ?? ""
+            return .init(primary: "History synced\(suffix)", savedHistory: saved,
+                         isCurrentSuccess: true, isFailure: false)
+        case .failed:
+            return .init(primary: lastSyncError ?? "History sync failed", savedHistory: saved,
+                         isCurrentSuccess: false, isFailure: true)
+        }
+    }
+
+    private static func savedHistoryLabel(
+        frontier: TimeInterval?,
+        lastSuccessfulBackfillAt: TimeInterval?,
+        now: TimeInterval
+    ) -> String? {
+        if let frontier {
+            let date = Date(timeIntervalSince1970: frontier)
+            let formatter = DateFormatter()
+            formatter.dateStyle = Calendar.current.isDateInToday(date) ? .none : .medium
+            formatter.timeStyle = .short
+            return "Showing saved history through \(formatter.string(from: date))"
+        }
+        if let lastSuccessfulBackfillAt {
+            return "Showing saved history from \(relativeAgo(lastSuccessfulBackfillAt, now: now))"
+        }
+        return nil
     }
 
     private static func relativeAgo(_ timestamp: TimeInterval, now: TimeInterval) -> String {

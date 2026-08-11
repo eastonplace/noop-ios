@@ -1218,6 +1218,7 @@ struct TodayView: View {
         // #580, a connected WHOOP 5/MG streaming live HR but offloading no history reads "Connected,         // history sync is experimental on 5.0" rather than a WHOOP-4-style "not recording"/sync-error.
         // BLEManager only flips this true while connected + streaming, so it overrides the honest mapper.
         if live.connected && live.historySyncExperimental { return .historyExperimental }
+        if live.connected && live.historicalSyncSessionState == .waitingForSecureHandshake { return .liveOnly }
         return RecordingState.resolve(connected: live.connected,
                                       heartRate: live.heartRate,
                                       lastSyncedAt: live.lastSyncedAt)
@@ -5286,6 +5287,7 @@ private struct RecordingStatusLight: View {
         case .recording:           return StrandPalette.statusPositive
         case .lastSynced:          return StrandPalette.statusWarning
         case .notRecording:        return Color(red: 0.98, green: 0.27, blue: 0.23)
+        case .liveOnly:            return StrandPalette.statusWarning
         case .historyExperimental: return StrandPalette.accent
         }
     }
@@ -5346,28 +5348,36 @@ private struct BackfillFlagBridge: View {
 private struct StrapSyncRow: View {
     @EnvironmentObject private var live: LiveState
     var body: some View {
-        if !live.backfilling {
+        if live.historicalSyncSessionState != .syncing {
             TimelineView(.periodic(from: .now, by: 60)) { context in
+                let status = HistoricalSyncStatusResolver.resolve(
+                    connected: live.connected,
+                    liveHeartRateAvailable: live.streamingLiveHR,
+                    sessionState: live.historicalSyncSessionState,
+                    lastSuccessfulBackfillAt: live.lastSyncedAt,
+                    historicalDataFrontierAt: live.historicalDataFrontierAt,
+                    lastSyncError: live.lastSyncError,
+                    historySyncExperimental: live.historySyncExperimental,
+                    chunks: live.syncChunksThisSession,
+                    now: context.date.timeIntervalSince1970)
                 HStack(alignment: .top, spacing: 10) {
                     SourceBadge("Strap sync",
-                                tint: live.lastSyncError != nil ? StrandPalette.statusWarning
-                                    : live.lastSyncedAt != nil ? StrandPalette.accent
+                                tint: status.isFailure ? StrandPalette.statusWarning
+                                    : status.isCurrentSuccess ? StrandPalette.accent
                                     : StrandPalette.textTertiary)
                     Spacer()
-                    if let error = live.lastSyncError {
-                        Text(error)
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text(status.primary)
                             .font(StrandFont.captionNumber)
-                            .foregroundStyle(StrandPalette.textPrimary)
+                            .foregroundStyle(status.isFailure ? StrandPalette.textPrimary : StrandPalette.textSecondary)
                             .multilineTextAlignment(.trailing)
                             .fixedSize(horizontal: false, vertical: true)
-                    } else if let at = live.lastSyncedAt {
-                        Text("History synced \(relativeAgo(at, now: context.date.timeIntervalSince1970))")
-                            .font(StrandFont.captionNumber)
-                            .foregroundStyle(StrandPalette.textSecondary)
-                    } else {
-                        Text("Not synced yet")
-                            .font(StrandFont.captionNumber)
-                            .foregroundStyle(StrandPalette.textTertiary)
+                        if !status.isCurrentSuccess, let saved = status.savedHistory {
+                            Text(saved)
+                                .font(StrandFont.micro)
+                                .foregroundStyle(StrandPalette.textTertiary)
+                                .multilineTextAlignment(.trailing)
+                        }
                     }
                 }
             }
@@ -5565,6 +5575,8 @@ enum RecordingState: Equatable {
     case lastSynced(minutesAgo: Int)
     /// Strap not connected and nothing fresh to fall back on.
     case notRecording
+    /// The standard HR characteristic is active, but this connection has not completed its secure link.
+    case liveOnly
     /// #580, a connected WHOOP 5/MG streaming live HR fine, but its firmware hands over no history
     /// offload yet. NOT the WHOOP-4 "not recording" failure: the link is live, history sync is just
     /// experimental on 5.0. Surfaced from `LiveState.historySyncExperimental`, overriding the mapper.
@@ -5576,6 +5588,7 @@ enum RecordingState: Equatable {
         case .recording:                 return "Recording"
         case .lastSynced(let mins):      return "Last synced \(mins)m ago"
         case .notRecording:              return "Not recording"
+        case .liveOnly:                  return "Live HR only"
         case .historyExperimental:       return "Connected"
         }
     }
@@ -5586,6 +5599,7 @@ enum RecordingState: Equatable {
         case .recording:           return "Your strap is connected and saving data."
         case .lastSynced:          return "Reconnect to pull the latest."
         case .notRecording:        return "Strap not connected. Tap to connect."
+        case .liveOnly:            return "History sync waiting for secure link."
         case .historyExperimental: return "History sync is experimental on 5.0."
         }
     }
@@ -5599,6 +5613,8 @@ enum RecordingState: Equatable {
             return String(localized: "Last synced \(mins) minutes ago. Reconnect to pull the latest.")
         case .notRecording:
             return String(localized: "Not recording. Strap not connected. Tap to connect.")
+        case .liveOnly:
+            return String(localized: "Live HR only. History sync waiting for secure link.")
         case .historyExperimental:
             return String(localized: "Connected. History sync is experimental on 5.0.")
         }

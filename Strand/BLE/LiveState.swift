@@ -256,6 +256,15 @@ struct HistoricalBurstProgress: Equatable, Sendable {
 /// expensive durable/log work is delegated to focused serial helpers in the accompanying extensions.
 @MainActor
 public final class LiveState: ObservableObject {
+    public enum HistoricalSyncSessionState: Equatable, Sendable {
+        case disconnected
+        case waitingForSecureHandshake
+        case ready
+        case syncing
+        case completed
+        case failed
+    }
+
     @Published public var connected = false
     @Published public private(set) var connectedAt: TimeInterval?
     @Published public var bonded = false
@@ -318,6 +327,12 @@ public final class LiveState: ObservableObject {
     @Published public internal(set) var strapRange: StrapRange?
     @Published public var strapNeedsReboot = false
     @Published public var lastSyncedAt: TimeInterval?
+    /// Current physical-link history state. A persisted `lastSyncedAt` never changes this value.
+    /// Only this connection's real handshake and HISTORY_COMPLETE callbacks advance it.
+    @Published public var historicalSyncSessionState: HistoricalSyncSessionState = .disconnected
+    /// Newest historical sample that has been durably saved. This is data freshness, not proof that the
+    /// current connection completed its secure handshake or reached HISTORY_COMPLETE.
+    @Published public private(set) var historicalDataFrontierAt: TimeInterval?
     /// Transitional UI status for a backfill burst that ended with durable raw data or a timestamp-heal
     /// request. This stays separate from `lastSyncedAt`, but it is not the durable analytical work identity.
     @Published public var backfillDataAvailableAt: TimeInterval? {
@@ -397,6 +412,7 @@ public final class LiveState: ObservableObject {
     )
 
     public init() {
+        historicalDataFrontierAt = UserDefaults.standard.object(forKey: "historicalDataFrontierAt") as? Double
         #if DEBUG
         if CommandLine.arguments.contains("--demo-bluetooth-off") {
             bluetoothUnavailableMessage = "Bluetooth is off. Turn it on in Settings to connect a device."
@@ -407,11 +423,13 @@ public final class LiveState: ObservableObject {
     public func markConnected(at timestamp: TimeInterval = Date().timeIntervalSince1970) {
         if !connected || connectedAt == nil { connectedAt = timestamp }
         connected = true
+        historicalSyncSessionState = .waitingForSecureHandshake
     }
 
     public func markDisconnected() {
         connected = false
         connectedAt = nil
+        historicalSyncSessionState = .disconnected
         historicalBurstProgress.markFinalized()
         clearHistoricalSyncProgress()
         Task { await flushLogPersistence() }
@@ -428,6 +446,15 @@ public final class LiveState: ObservableObject {
     /// That keeps long oldest-first bursts visibly alive while preserving the single heavy finalization edge.
     func publishHistoricalSyncProgress(_ progress: HistoricalSyncPassProgress) {
         historicalSyncPassProgress = progress
+        if let frontier = progress.latestFrontierUnix {
+            noteHistoricalDataFrontier(TimeInterval(frontier))
+        }
+    }
+
+    func noteHistoricalDataFrontier(_ timestamp: TimeInterval) {
+        guard timestamp > 0, timestamp > (historicalDataFrontierAt ?? 0) else { return }
+        historicalDataFrontierAt = timestamp
+        UserDefaults.standard.set(timestamp, forKey: "historicalDataFrontierAt")
     }
 
     /// Publish the journal watermark before the transitional timestamp edge, then retire progress. The

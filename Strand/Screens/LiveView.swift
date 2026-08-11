@@ -572,7 +572,7 @@ private struct PaperLiveDeviceCard: View {
     private var deviceDetail: String {
         let battery = live.batteryPct.map { "Battery \(Int($0))%" } ?? String(localized: "Battery —")
         let worn = activeConnection ? (live.worn ? String(localized: "Worn") : String(localized: "Not worn")) : String(localized: "Wear unknown")
-        return "\(battery) · \(worn) · \(LiveSyncFormat.lastSyncLabel(live.lastSyncedAt))"
+        return "\(battery) · \(worn) · \(LiveSyncFormat.compactStatus(live))"
     }
 }
 
@@ -758,11 +758,11 @@ private struct PaperLiveStatusCard: View {
                         .font(StrandFont.sectionOverline)
                         .tracking(StrandFont.sectionOverlineTracking)
                         .foregroundStyle(StrandPalette.textSecondary)
-                    Text(activeConnection ? "All systems normal" : "Ready to connect")
+                    Text(activeConnection ? LiveSyncFormat.compactStatus(live) : "Ready to connect")
                         .font(StrandFont.body)
                         .foregroundStyle(StrandPalette.textPrimary)
                     Text(activeConnection
-                         ? "Last updated \(LiveSyncFormat.lastSyncLabel(live.lastSyncedAt))"
+                         ? LiveSyncFormat.status(live).primary
                          : "Connect a strap to begin live monitoring")
                         .font(StrandFont.micro)
                         .foregroundStyle(StrandPalette.textTertiary)
@@ -787,7 +787,7 @@ private struct LiveHeaderStats: View {
             stat(String(localized: "Device"), deviceName)
             stat(String(localized: "Battery"), live.batteryPct.map { "\(Int($0))%" } ?? "—")
             stat(String(localized: "Worn"), activeConnection ? (live.worn ? String(localized: "Yes") : String(localized: "No")) : "—")
-            stat(String(localized: "Last sync"), lastSyncLabel)
+            stat(String(localized: "History"), lastSyncLabel)
         }
     }
 
@@ -796,7 +796,7 @@ private struct LiveHeaderStats: View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var lastSyncLabel: String { LiveSyncFormat.lastSyncLabel(live.lastSyncedAt) }
+    private var lastSyncLabel: String { LiveSyncFormat.compactStatus(live) }
 }
 
 /// The console centrepiece's HR half: a live BPM PaperGauge (fills to the HR-zone fraction) with the
@@ -1042,9 +1042,11 @@ struct LiveSignalTrustRail: View {
     }
 
     private var syncDetail: String {
-        if let err = live.lastSyncError { return err }
-        if live.backfilling { return String(localized: "\(live.decodedChunksThisSession) decoded, \(live.consoleChunksThisSession) console") }
-        return live.lastSyncedAt == nil ? String(localized: "No completed offload yet") : String(localized: "Last offload completed")
+        let status = LiveSyncFormat.status(live)
+        if live.historicalSyncSessionState == .syncing {
+            return String(localized: "\(live.decodedChunksThisSession) decoded, \(live.consoleChunksThisSession) console")
+        }
+        return status.savedHistory ?? status.primary
     }
 
     private var signalTiles: [SignalTrustTile.Model] {
@@ -1068,11 +1070,14 @@ struct LiveSignalTrustRail: View {
                   tint: connectionModeColor,
                   frac: activeConnection && live.encryptedBond ? 1 : activeConnection ? 0.66 : live.connected ? 0.33 : nil),
             .init(title: String(localized: "History sync"),
-                  value: live.backfilling ? String(localized: "\(live.syncChunksThisSession) chunks") : LiveSyncFormat.lastSyncLabel(live.lastSyncedAt),
+                  value: LiveSyncFormat.compactStatus(live),
                   detail: syncDetail,
                   icon: "clock.arrow.circlepath",
-                  tint: live.backfilling ? StrandPalette.metricCyan : StrandPalette.textSecondary,
-                  frac: live.backfilling ? 0.6 : (live.lastSyncedAt == nil ? nil : 1)),
+                  tint: live.historicalSyncSessionState == .syncing ? StrandPalette.metricCyan
+                      : live.historicalSyncSessionState == .failed ? StrandPalette.statusWarning
+                      : StrandPalette.textSecondary,
+                  frac: live.historicalSyncSessionState == .syncing ? 0.6
+                      : (live.historicalSyncSessionState == .completed ? 1 : nil)),
             .init(title: String(localized: "Battery"),
                   value: live.batteryPct.map { "\(Int($0))%" } ?? String(localized: "Unknown"),
                   detail: live.charging == true ? String(localized: "Charging") : String(localized: "Last reported by strap"),
@@ -1217,6 +1222,32 @@ struct LiveLogCard: View {
 /// The "last sync" relative-time label — shared between the header stats and the Signal Trust rail so
 /// both read identically.
 private enum LiveSyncFormat {
+    @MainActor
+    static func status(_ live: LiveState) -> HistoricalSyncStatus {
+        HistoricalSyncStatusResolver.resolve(
+            connected: live.connected,
+            liveHeartRateAvailable: live.streamingLiveHR,
+            sessionState: live.historicalSyncSessionState,
+            lastSuccessfulBackfillAt: live.lastSyncedAt,
+            historicalDataFrontierAt: live.historicalDataFrontierAt,
+            lastSyncError: live.lastSyncError,
+            historySyncExperimental: live.historySyncExperimental,
+            chunks: live.syncChunksThisSession,
+            now: Date().timeIntervalSince1970)
+    }
+
+    @MainActor
+    static func compactStatus(_ live: LiveState) -> String {
+        switch live.historicalSyncSessionState {
+        case .waitingForSecureHandshake: return live.streamingLiveHR ? String(localized: "Live HR only") : String(localized: "Securing link")
+        case .ready: return String(localized: "History ready")
+        case .syncing: return String(localized: "\(live.syncChunksThisSession) chunks")
+        case .completed: return String(localized: "History synced")
+        case .failed: return String(localized: "History failed")
+        case .disconnected: return live.lastSyncedAt.map { lastSyncLabel($0) } ?? String(localized: "Never")
+        }
+    }
+
     static func lastSyncLabel(_ ts: TimeInterval?) -> String {
         guard let ts else { return String(localized: "Never") }
         let date = Date(timeIntervalSince1970: ts)

@@ -270,7 +270,11 @@ private struct DevicesContent: View {
             standardHRMode: liveSnapshot.standardHRMode,
             backfilling: liveSnapshot.backfilling,
             syncChunksThisSession: liveSnapshot.syncChunksThisSession,
-            lastSyncedAt: liveSnapshot.lastSyncedAt, deepDataEnabled: deepDataEnabled,
+            lastSyncedAt: liveSnapshot.lastSyncedAt,
+            historicalDataFrontierAt: liveSnapshot.historicalDataFrontierAt,
+            historicalSyncSessionState: liveSnapshot.historicalSyncSessionState,
+            liveHeartRateAvailable: liveSnapshot.liveHeartRateAvailable,
+            deepDataEnabled: deepDataEnabled,
             r22FlagsAccepted: liveSnapshot.r22FlagsAccepted,
             r22FlagCount: Whoop5Config.enableR22Sequence.count,
             now: Date().timeIntervalSince1970))

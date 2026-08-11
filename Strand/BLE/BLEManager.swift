@@ -610,10 +610,18 @@ public final class BLEManager: NSObject, ObservableObject {
     /// an earlier non-history callback can never be mistaken for the safe-trim ACK that follows it. Keep
     /// retired entries until their callback arrives: an old callback must consume its own entry, never a
     /// new connection's write.
+    enum ConfirmedWritePurpose: Equatable, Sendable {
+        case bondHandshake
+        case clientHello
+        case genericCommand
+        case historicalAck
+    }
+
     private struct ConfirmedCommandWrite {
         let peripheralID: UUID
         let characteristicUUID: CBUUID
         let connectGeneration: Int
+        let purpose: ConfirmedWritePurpose
         let historicalAck: HistoricalAckWriteIdentity?
     }
     private var admittedHistoricalBackfill: HistoricalBackfillAdmission?
@@ -788,10 +796,8 @@ public final class BLEManager: NSObject, ObservableObject {
     /// whether the just-ended session actually advanced the strap's trim (progress) or froze (stop
     /// re-kicking). nil until the first session ends; reset on disconnect.
     private var lastSessionEndTrim: UInt32?
-    /// Runs the connect handshake EXACTLY ONCE per connection. `didWriteValueFor` re-fires on every
-    /// `.withResponse` write (the bond write, every SEND_HISTORICAL, every HISTORY_END ack); without
-    /// this guard those re-entries re-blasted hello/SET_CLOCK at the strap mid-offload and stopped it
-    /// from streaming type-47 — THE iOS "won't serve" root cause. Reset on disconnect.
+    /// Runs the connect handshake exactly once per connection. Confirmed-write purpose tokens keep later
+    /// callbacks out of the handshake path. Keep this guard as defense in depth. Reset on disconnect.
     private var connectHandshakeDone = false
     /// #34: true once the cmd-notify characteristic (61080003) has CONFIRMED it's subscribed
     /// (`didUpdateNotificationStateFor` fired for it with `isNotifying == true`) — as opposed to merely
@@ -880,12 +886,10 @@ public final class BLEManager: NSObject, ObservableObject {
     private var reassembler = Reassembler()
     private var seq: UInt8 = 0
     private var didBond = false
-    /// WHOOP 5/MG only: realtime HR has been armed (puffin TOGGLE_REALTIME_HR sent) once for this
-    /// connection, so the post-bond callback re-firing on later `.withResponse` writes doesn't re-send it.
+    /// WHOOP 5/MG only: realtime HR has been armed (puffin TOGGLE_REALTIME_HR sent) once this connection.
     private var whoop5RealtimeArmed = false
     /// Once-per-connection guard for the 5/MG offload kick (connectHandshakeDone + requestSync +
-    /// startBackfillTimer). Stops the HISTORY_END acks re-entering didWriteValueFor from re-triggering
-    /// the offload mid-stream (the 5/MG twin of the WHOOP4 connectHandshakeDone ack-storm guard).
+    /// startBackfillTimer). Keep it as defense in depth behind confirmed-write purpose ownership.
     private var whoop5SessionStarted = false
     /// Backfill ACKs can arrive hundreds or thousands of times in one offload. Keep the strap log
     /// readable and avoid forcing SwiftUI to auto-scroll on every ACK row.
@@ -1654,12 +1658,8 @@ public final class BLEManager: NSObject, ObservableObject {
             let puffinPayload: [UInt8] = isHaptics ? [0x01, 47, 152, 0, 0, 0, 0, 0, 0, 0, 0, 0] : payload
             seq = seq &+ 1
             let frame = puffinCommandFrame(cmd: puffinCmd, seq: seq, payload: puffinPayload)
-            recordConfirmedCommandWrite(
-                command: command,
-                peripheral: p,
-                characteristic: ch,
-                writeType: writeType)
-            p.writeValue(Data(frame), for: ch, type: writeType)
+            writeValue(Data(frame), to: ch, on: p, type: writeType,
+                       confirmedPurpose: confirmedWritePurpose(for: command))
             let cmdNote = isHaptics ? " cmd=0x13" : ""
             if command == .historicalDataResult {
                 historicalAckLogCounter += 1
@@ -1673,12 +1673,8 @@ public final class BLEManager: NSObject, ObservableObject {
         }
         seq = seq &+ 1
         let frame = command.frame(seq: seq, payload: payload)
-        recordConfirmedCommandWrite(
-            command: command,
-            peripheral: p,
-            characteristic: ch,
-            writeType: writeType)
-        p.writeValue(Data(frame), for: ch, type: writeType)
+        writeValue(Data(frame), to: ch, on: p, type: writeType,
+                   confirmedPurpose: confirmedWritePurpose(for: command))
         log("→ \(command.label) payload=\(hex(payload))")
     }
 
@@ -1764,17 +1760,48 @@ public final class BLEManager: NSObject, ObservableObject {
         admittedHistoricalBackfill = nil
     }
 
+    nonisolated static func confirmedWritePurpose(
+        command: WhoopCommand,
+        isHistoricalAck: Bool
+    ) -> ConfirmedWritePurpose {
+        isHistoricalAck && command == .historicalDataResult ? .historicalAck : .genericCommand
+    }
+
+    nonisolated static func handshakeConfirmedWritePurpose(for family: DeviceFamily) -> ConfirmedWritePurpose {
+        family == .whoop5 ? .clientHello : .bondHandshake
+    }
+
+    private func confirmedWritePurpose(for command: WhoopCommand) -> ConfirmedWritePurpose {
+        Self.confirmedWritePurpose(command: command, isHistoricalAck: pendingHistoricalAck != nil)
+    }
+
+    /// One canonical CoreBluetooth write seam. Every `.withResponse` call must name the callback it owns,
+    /// and the token is appended immediately before `writeValue` can trigger its delegate callback.
+    private func writeValue(
+        _ data: Data,
+        to characteristic: CBCharacteristic,
+        on peripheral: CBPeripheral,
+        type writeType: CBCharacteristicWriteType,
+        confirmedPurpose: ConfirmedWritePurpose
+    ) {
+        if writeType == .withResponse {
+            recordConfirmedCommandWrite(
+                purpose: confirmedPurpose,
+                peripheral: peripheral,
+                characteristic: characteristic)
+        }
+        peripheral.writeValue(data, for: characteristic, type: writeType)
+    }
+
     /// Register a response write before issuing it. A queued generic write must consume its own
     /// CoreBluetooth callback before a later historical ACK is allowed to consume the next callback.
     private func recordConfirmedCommandWrite(
-        command: WhoopCommand,
+        purpose: ConfirmedWritePurpose,
         peripheral: CBPeripheral,
-        characteristic: CBCharacteristic,
-        writeType: CBCharacteristicWriteType
+        characteristic: CBCharacteristic
     ) {
-        guard writeType == .withResponse else { return }
         let historicalAck: HistoricalAckWriteIdentity?
-        if command == .historicalDataResult,
+        if purpose == .historicalAck,
            let pending = pendingHistoricalAck,
            pending.admission.peripheralID == peripheral.identifier,
            pending.characteristicUUID == characteristic.uuid,
@@ -1789,6 +1816,7 @@ public final class BLEManager: NSObject, ObservableObject {
             peripheralID: peripheral.identifier,
             characteristicUUID: characteristic.uuid,
             connectGeneration: connectGeneration,
+            purpose: purpose,
             historicalAck: historicalAck))
     }
 
@@ -1989,6 +2017,7 @@ public final class BLEManager: NSObject, ObservableObject {
             historicalCursorScope: admittedScope)
         backfilling = true
         state.backfilling = true
+        state.historicalSyncSessionState = .syncing
         historicalProgress.begin()
         state.syncChunksThisSession = 0
         state.rejectedFramesThisSession = 0
@@ -2178,6 +2207,9 @@ public final class BLEManager: NSObject, ObservableObject {
         // the flags directly) — that's not a sync failure, and the next connect re-offloads.
         if reason == "HISTORY_COMPLETE" {
             state.lastSyncedAt = Date().timeIntervalSince1970
+            if let frontier = backfiller?.sessionNewestUnix {
+                state.noteHistoricalDataFrontier(TimeInterval(frontier))
+            }
             // #77 / #91: a sync that COMPLETED but discarded records must not read as a clean
             // "History synced" — the wording distinguishes bytes saved on this Mac from bytes the
             // full archive could not preserve, so "saved" is never claimed falsely.
@@ -2239,6 +2271,7 @@ public final class BLEManager: NSObject, ObservableObject {
                 state.historySyncExperimental = false
             }
             UserDefaults.standard.set(state.lastSyncedAt, forKey: "lastSyncedAt")
+            state.historicalSyncSessionState = .completed
             // NOTE: the auto-continue streak is NOT reset here. A HISTORY_COMPLETE is no longer assumed to
             // mean "caught up" (#25): a strap whose firmware segments a deep offload into many small
             // HISTORY_COMPLETE slices would otherwise reset the streak on every slice and never engage the
@@ -2259,6 +2292,7 @@ public final class BLEManager: NSObject, ObservableObject {
                     // Honest home state (#580): NOT a sync error — connected + live HR, history experimental.
                     state.historySyncExperimental = true
                     state.lastSyncError = nil
+                    state.historicalSyncSessionState = .ready
                     if crossed {
                         log("Backfill: WHOOP 5/MG offload empty \(whoop5EmptyOffload.consecutiveEmpty)× — history sync is experimental on 5.0; surfacing 'connected, history experimental' (not a sync error) and backing off the bounce loop.")
                     }
@@ -2268,6 +2302,7 @@ public final class BLEManager: NSObject, ObservableObject {
                     // experimental note). Both want a clean, error-free state.
                     state.historySyncExperimental = false
                     state.lastSyncError = nil
+                    state.historicalSyncSessionState = bankedThisOffload ? .ready : .failed
                 }
             } else {
                 // #324/#928: a future-dated strap TIMES OUT on its deep future-dated backlog — that's not
@@ -2275,6 +2310,7 @@ public final class BLEManager: NSObject, ObservableObject {
                 // banner so the reporter's timeout case (the common one) names the real cause + remedy.
                 state.lastSyncError = futureClockBanner
                     ?? "Sync interrupted - the strap went quiet. It will retry on the next sync."
+                state.historicalSyncSessionState = .failed
             }
         }
         checkStrapLiveness()         // safety-net: strap ahead of us AND our frontier frozen ⇒ stuck?
@@ -3716,6 +3752,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         // only — BLEManager stays decoupled from the store and the connect flow below is unchanged.
         connectedPeripheralUUID = peripheral.identifier.uuidString
         state.markConnected()
+        state.lastSyncError = nil
         // A connect succeeded → clear the stale-bond re-pair guide UNLESS we are in a known bond-loop
         // (#617). In that loop the strap "connects" every ~3 s before timing out again, so clearing here
         // wiped the guide on EVERY cycle: it flashed for ~1 s and vanished, so the user could never read it
@@ -4118,13 +4155,13 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                 seq = seq &+ 1
                 let bondFrame = WhoopCommand.getBatteryLevel.frame(seq: seq, payload: [0x00])
                 log("Bonding: confirmed write GET_BATTERY_LEVEL to 61080002")
-                peripheral.writeValue(Data(bondFrame), for: c, type: .withResponse)
+                writeValue(Data(bondFrame), to: c, on: peripheral, type: .withResponse,
+                           confirmedPurpose: Self.handshakeConfirmedWritePurpose(for: .whoop4))
             case BLEManager.whoop5CmdWriteChar:
                 // EXPERIMENTAL WHOOP 5.0/MG: a 5/MG strap starts a session with the static CLIENT_HELLO
-                // frame, not the WHOOP4 confirmed-write bond. We write it UNacknowledged (it is a
-                // complete framed command), so the WHOOP4 didWriteValueFor bond+handshake path never
-                // fires for a 5/MG strap. Live HR/battery come from the standard profiles; this just
-                // opens the puffin session. Unverified on real MG hardware.
+                // frame, not the WHOOP4 confirmed-write bond. The confirmed callback owns the secure
+                // handshake transition for this family. Live HR/battery come from the standard profiles;
+                // this opens the puffin session. Unverified on real MG hardware.
                 cmdCharacteristic = c
                 if let hello = selectedModel.deviceFamily.clientHello {
                     // CONTRIBUTOR FIX (issue #17 — diagnosed from the logs, unverified on hardware here):
@@ -4136,7 +4173,8 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                     // "Finishing the secure pairing handshake…".
                     log("WHOOP 5/MG: writing CLIENT_HELLO to fd4b0002 with response (to trigger bonding, experimental).")
                     state.pairingHint = nil   // fresh attempt; clear any stale pairing-mode guidance
-                    peripheral.writeValue(Data(hello), for: c, type: .withResponse)
+                    writeValue(Data(hello), to: c, on: peripheral, type: .withResponse,
+                               confirmedPurpose: Self.handshakeConfirmedWritePurpose(for: .whoop5))
                 }
                 // The realtime-HR stream is armed POST-bond (in didWriteValueFor / startRealtime) with
                 // puffin framing — not here. Writing it pre-bond on an unauthenticated link did nothing.
@@ -4170,7 +4208,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
         }
     }
 
-    /// Confirmed-write completion = bonding succeeded (no error).
+    /// Route each confirmed-write completion through its registered owner.
     public func peripheral(_ peripheral: CBPeripheral,
                            didWriteValueFor characteristic: CBCharacteristic,
                            error: Error?) {
@@ -4181,7 +4219,14 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
             $0.peripheralID == peripheral.identifier && $0.characteristicUUID == characteristic.uuid
         })
         if tokenIndex == nil {
-            log("Ignored confirmed-write callback without a queued token for \(peripheral.identifier)")
+            let message = "Unexpected confirmed-write callback without an owner for the active BLE connection."
+            log("Protocol error: \(message) peripheral=\(peripheral.identifier) characteristic=\(characteristic.uuid)")
+            if isCurrentPeripheralCallback(peripheral), self.peripheral?.state == .connected {
+                state.historicalSyncSessionState = .failed
+                state.lastSyncError = connectHandshakeDone
+                    ? "History sync failed because a BLE write callback had no registered owner. Reconnect the strap."
+                    : "Secure handshake failed because its BLE write callback had no registered owner. Reconnect the strap."
+            }
             return
         }
         let confirmedWrite = confirmedCommandWrites.remove(at: tokenIndex!)
@@ -4198,7 +4243,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
             log("Ignored stale confirmed-write callback from BLE generation \(confirmedWrite.connectGeneration)")
             return
         }
-        if let historicalAck = confirmedWrite.historicalAck {
+        if confirmedWrite.purpose == .historicalAck, let historicalAck = confirmedWrite.historicalAck {
             if let pending = pendingHistoricalAck,
                pending.characteristicUUID == characteristic.uuid,
                pending.admission.peripheralID == peripheral.identifier,
@@ -4221,7 +4266,30 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
             }
             return
         }
+        guard confirmedWrite.purpose != .historicalAck else {
+            log("Protocol error: historical ACK token had no historical admission identity")
+            state.historicalSyncSessionState = .failed
+            state.lastSyncError = "History sync failed because its BLE acknowledgment lost session ownership. Reconnect the strap."
+            return
+        }
+        if confirmedWrite.purpose == .genericCommand {
+            if let error {
+                log("Confirmed command write failed: \(error.localizedDescription)")
+            } else {
+                log("Confirmed command write acknowledged")
+            }
+            return
+        }
+        let expectedFamily: DeviceFamily = confirmedWrite.purpose == .clientHello ? .whoop5 : .whoop4
+        guard selectedModel.deviceFamily == expectedFamily else {
+            log("Protocol error: confirmed \(confirmedWrite.purpose) callback does not match selected family \(selectedModel.deviceFamily)")
+            state.historicalSyncSessionState = .failed
+            state.lastSyncError = "Secure handshake failed because the BLE callback did not match the connected device family. Reconnect the strap."
+            return
+        }
         if let error = error {
+            state.historicalSyncSessionState = .failed
+            state.lastSyncError = "Secure handshake failed: \(error.localizedDescription)"
             log("Confirmed write failed: \(error.localizedDescription)")
             // #78 hole-1: classify by ATT code first (locale-proof), English string fallback second.
             // This one change repairs the pairing hint (streak>=2), the #747 give-up (5) AND the #52
@@ -4303,6 +4371,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                 didBond = true
                 state.bonded = true
                 state.encryptedBond = true   // genuine encrypted bond (not the live-HR shortcut) — #69
+                state.historicalSyncSessionState = .ready
                 bondedAt = Date()            // #617: start the bond→drop stopwatch for the bond-loop detector
                 state.pairingHint = nil
                 bondRefusalStreak = 0         // #78: a genuine bond resets the refusal streak
@@ -4333,11 +4402,8 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
             }
             startKeepAlive()                                    // re-subscribe + liveness watchdog
             // Kick the historical offload ONCE per connection — this is the 5/MG edition of the WHOOP4
-            // connect-handshake (lines below). didWriteValueFor re-enters this `.whoop5` branch on EVERY
-            // .withResponse ack during the offload (each HISTORY_END ack), so the trigger work MUST fire
-            // once or it would re-issue SEND_HISTORICAL_DATA mid-stream and storm the strap. The notify
-            // re-subscribe + realtime-arm above are idempotent and intentionally run on every re-entry;
-            // only this block is gated. `whoop5SessionStarted` resets on disconnect.
+            // connect handshake. The purpose token above keeps command and history callbacks out of this
+            // branch. Keep the session gate as defense in depth. `whoop5SessionStarted` resets on disconnect.
             if !whoop5SessionStarted {
                 whoop5SessionStarted = true
                 connectHandshakeDone = true     // unblocks beginBackfill()'s guard
@@ -4377,16 +4443,14 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
             didBond = true
             state.bonded = true
             state.encryptedBond = true   // WHOOP 4 confirmed-write bond is always genuine — #69
+            state.historicalSyncSessionState = .ready
             bondedAt = Date()            // #617: start the bond→drop stopwatch for the bond-loop detector
             noteGenuineBond(of: peripheral)   // #52: this strap bonds fine; clears any pin-refusal streak
             emitConnectionBondState("encryptedBond family=whoop4 (confirmed write acked)")
             log("BONDED (confirmed write acknowledged) — custom channels should now flow")
         }
-        // Run the connect handshake EXACTLY ONCE per connection. didWriteValueFor re-fires on EVERY
-        // .withResponse write — the bond write, every SEND_HISTORICAL, every HISTORY_END ack. Without
-        // this guard those re-entries re-sent hello/SET_CLOCK at the strap *during* the offload and
-        // stopped it from streaming type-47. This was THE iOS-side root cause: the Mac prototype pulls
-        // type-47 fine because it runs the sequence once on a stable connection; the app stormed it.
+        // Run the connect handshake EXACTLY ONCE per connection. Purpose-owned callbacks prevent later
+        // command and history ACK writes from entering this branch. Keep the guard as defense in depth.
         guard !connectHandshakeDone else { return }
         connectHandshakeDone = true
         noteRebootReconnectIfNeeded()

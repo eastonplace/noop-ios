@@ -28,6 +28,9 @@ final class DeviceCommandCenterLiveSnapshot: ObservableObject {
         var backfilling: Bool
         var syncChunksThisSession: Int
         var lastSyncedAt: TimeInterval?
+        var historicalDataFrontierAt: TimeInterval?
+        var historicalSyncSessionState: LiveState.HistoricalSyncSessionState
+        var liveHeartRateAvailable: Bool
         var rejectedFramesThisSession: Int
         var rejectedFramesUnarchived: Int
         var r22FlagsAccepted: Int
@@ -60,6 +63,9 @@ final class DeviceCommandCenterLiveSnapshot: ObservableObject {
             backfilling: live.backfilling,
             syncChunksThisSession: live.syncChunksThisSession,
             lastSyncedAt: live.lastSyncedAt,
+            historicalDataFrontierAt: live.historicalDataFrontierAt,
+            historicalSyncSessionState: live.historicalSyncSessionState,
+            liveHeartRateAvailable: live.streamingLiveHR,
             rejectedFramesThisSession: live.rejectedFramesThisSession,
             rejectedFramesUnarchived: live.rejectedFramesUnarchived,
             r22FlagsAccepted: live.r22FlagsAccepted,
@@ -85,6 +91,9 @@ final class DeviceCommandCenterLiveSnapshot: ObservableObject {
         bind(live.$backfilling, to: \.backfilling)
         bind(live.syncChunksPublisher, to: \.syncChunksThisSession)
         bind(live.$lastSyncedAt, to: \.lastSyncedAt)
+        bind(live.$historicalDataFrontierAt, to: \.historicalDataFrontierAt)
+        bind(live.$historicalSyncSessionState, to: \.historicalSyncSessionState)
+        bind(live.$streamingLiveHR, to: \.liveHeartRateAvailable)
         bind(live.$rejectedFramesThisSession, to: \.rejectedFramesThisSession)
         bind(live.$rejectedFramesUnarchived, to: \.rejectedFramesUnarchived)
         bind(live.$r22FlagsAccepted, to: \.r22FlagsAccepted)

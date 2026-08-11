@@ -134,7 +134,24 @@ private struct SyncStatusSection: View {
     @EnvironmentObject var model: AppModel
 
     /// The strap link is usable for a manual offload kick (matches BLEManager.syncNow's own gate).
-    private var canSync: Bool { live.connected && live.bonded && !live.backfilling }
+    private var canSync: Bool {
+        live.connected && live.encryptedBond
+            && live.historicalSyncSessionState != .waitingForSecureHandshake
+            && !live.backfilling
+    }
+
+    private var syncStatus: HistoricalSyncStatus {
+        HistoricalSyncStatusResolver.resolve(
+            connected: live.connected,
+            liveHeartRateAvailable: live.streamingLiveHR,
+            sessionState: live.historicalSyncSessionState,
+            lastSuccessfulBackfillAt: live.lastSyncedAt,
+            historicalDataFrontierAt: live.historicalDataFrontierAt,
+            lastSyncError: live.lastSyncError,
+            historySyncExperimental: live.historySyncExperimental,
+            chunks: live.syncChunksThisSession,
+            now: Date().timeIntervalSince1970)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
@@ -173,21 +190,21 @@ private struct SyncStatusSection: View {
     /// The status line above the button: an in-progress pill while syncing (with the live chunk count),
     /// else a last-synced read-out, else an honest "not connected".
     @ViewBuilder private var statusRow: some View {
-        if live.backfilling {
+        if live.historicalSyncSessionState == .syncing {
             // Reuse the shared in-progress affordance so this matches every other "syncing history" surface.
             SyncingHistoryNote(chunks: live.syncChunksThisSession)
-        } else if !live.connected {
-            StatePill("No strap connected", tone: .neutral, showsDot: false)
-        } else if let last = live.lastSyncedAt {
-            HStack(spacing: 8) {
-                StatePill("History synced", tone: .positive)
-                Text(relativeAgo(last))
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textSecondary)
-            }
         } else {
-            StatePill(live.bonded ? "Ready to sync" : "Pairing…",
-                      tone: .accent, showsDot: true, pulsing: !live.bonded)
+            VStack(alignment: .leading, spacing: 6) {
+                StatePill(LocalizedStringKey(syncStatus.primary),
+                          tone: syncStatus.isFailure ? .warning : (syncStatus.isCurrentSuccess ? .positive : .accent),
+                          showsDot: live.connected,
+                          pulsing: live.historicalSyncSessionState == .waitingForSecureHandshake)
+                if !syncStatus.isCurrentSuccess, let saved = syncStatus.savedHistory {
+                    Text(saved)
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                }
+            }
         }
     }
 
@@ -198,8 +215,11 @@ private struct SyncStatusSection: View {
         if !live.connected {
             return String(localized: "Connect your strap to sync its stored history. Until then, only imported data shows here.")
         }
-        if !live.bonded {
-            return String(localized: "Finishing the pairing handshake. Sync now becomes available once the strap is paired.")
+        if live.historicalSyncSessionState == .waitingForSecureHandshake {
+            return String(localized: "History sync is waiting for the secure link. Live heart rate can continue while pairing finishes.")
+        }
+        if live.historicalSyncSessionState == .failed {
+            return String(localized: "Reconnect the strap to retry the secure handshake and history sync.")
         }
         return String(localized: "Syncs your strap's stored history right away, instead of waiting for the next automatic sync.")
     }

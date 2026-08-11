@@ -3,6 +3,26 @@ import XCTest
 
 @MainActor
 final class BackfillPolicyTests: XCTestCase {
+    func testWhoopFourBondWriteOwnsHandshakeCallback() {
+        XCTAssertEqual(BLEManager.handshakeConfirmedWritePurpose(for: .whoop4), .bondHandshake)
+    }
+
+    func testWhoopFiveClientHelloOwnsHandshakeCallback() {
+        XCTAssertEqual(BLEManager.handshakeConfirmedWritePurpose(for: .whoop5), .clientHello)
+    }
+
+    func testGenericConfirmedCommandCannotOwnBondCallback() {
+        XCTAssertEqual(
+            BLEManager.confirmedWritePurpose(command: .sendHistoricalData, isHistoricalAck: false),
+            .genericCommand)
+    }
+
+    func testHistoricalAckKeepsDedicatedCallbackOwnership() {
+        XCTAssertEqual(
+            BLEManager.confirmedWritePurpose(command: .historicalDataResult, isHistoricalAck: true),
+            .historicalAck)
+    }
+
     func testStaleDisconnectCannotTearDownCurrentConnection() {
         let active = UUID()
         XCTAssertFalse(BLEManager.shouldApplyDisconnectEvent(
