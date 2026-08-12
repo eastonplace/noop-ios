@@ -43,6 +43,63 @@ final class SleepStageTotalsTests: XCTestCase {
         XCTAssertNil(SleepStageTotals.dailyAggregate([nil, "garbage"]))
     }
 
+    func testStageLessPartialCannotDisplaceStagedSleep() {
+        let alignedPartial = ts525("2026-06-15T03:30")
+        let stagedSleep = ts525("2026-06-15T12:00")
+        let blocks: [(startTs: Int, stagesJSON: String?)] = [
+            (alignedPartial, nil),
+            (stagedSleep, #"{"awake":0,"light":45,"deep":0,"rem":0}"#),
+        ]
+        XCTAssertEqual(
+            SleepStageTotals.mainNightIndexByStages(blocks, onsetByStart: [:], offsetSec: 0), 1,
+            "a stage-less partial retains its fallback role but cannot steal a day from staged sleep")
+    }
+
+    func testExtremeSegmentTimestampsAreIgnoredWhileLegitimateStagesRemain() throws {
+        let json = #"""
+        [{"start":0,"end":600,"stage":"light"},
+         {"start":\#(Int.min),"end":\#(Int.max),"stage":"deep"}]
+        """#
+        let minutes = try XCTUnwrap(SleepStageTotals.minutes(fromStagesJSON: json))
+        XCTAssertEqual(minutes.light, 10, accuracy: 0.001)
+        XCTAssertEqual(minutes.deep, 0, accuracy: 0.001,
+                       "the overflowing span must not fabricate a giant stage")
+
+        let overflowedDict = #"{"awake":1e308,"light":1e308}"#
+        XCTAssertNil(SleepStageTotals.minutes(fromStagesJSON: overflowedDict))
+        let aggregate = try XCTUnwrap(SleepStageTotals.dailyAggregate([
+            #"{"awake":0,"light":10,"deep":0,"rem":0}"#,
+            overflowedDict,
+        ]))
+        XCTAssertEqual(aggregate.totalSleepMin, 10, accuracy: 0.001,
+                       "a malformed minute sum must not poison a legitimate block")
+    }
+
+    func testExtremeBlockDurationGapAndLocalOffsetFailClosed() {
+        let malformed = SleepStageTotals.NightBlock(start: Int.min, end: Int.max)
+        let valid = SleepStageTotals.NightBlock(start: 1_000, end: 1_600)
+        XCTAssertEqual(malformed.durationS, 0)
+        XCTAssertEqual(malformed.midpointSec, Int.min)
+        XCTAssertEqual(SleepStageTotals.mainNightIndex([malformed, valid], offsetSec: Int.max), 1)
+        XCTAssertEqual(SleepStageTotals.mainNightGroupIndices([malformed, valid], offsetSec: Int.max), [1])
+
+        let extremeGap = SleepStageTotals.interFragmentAwakeSeconds([
+            (start: Int.min, end: Int.min + 60),
+            (start: Int.max - 60, end: Int.max),
+        ])
+        XCTAssertEqual(extremeGap, 0, accuracy: 0.001)
+
+        let expected = (((Int.min % SleepStageTotals.secondsPerDay)
+            + (Int.max % SleepStageTotals.secondsPerDay)) % SleepStageTotals.secondsPerDay
+            + SleepStageTotals.secondsPerDay) % SleepStageTotals.secondsPerDay
+        XCTAssertEqual(SleepStageTotals.localSecOfDay(Int.min, offsetSec: Int.max), expected)
+        XCTAssertTrue((0..<SleepStageTotals.secondsPerDay).contains(expected))
+
+        let history = SleepStageTotals.HistoryBlock(start: Int.min, end: Int.max, dayKey: "bad")
+        XCTAssertEqual(history.durationS, 0)
+        XCTAssertEqual(history.midpointSec, Int.min)
+    }
+
     // MARK: - the integration seam: detected blocks + edits → corrected daily
 
     private let detectedNight = "2026-06-14T23:24"  // doc only

@@ -58,12 +58,13 @@ final class DebouncedLogTailPersistenceTests: XCTestCase {
             persist: { writes.append($0) }
         )
         for index in 0..<50 { persistence.append("first \(index)") }
-        try await Task.sleep(for: .milliseconds(70))
+        try await waitForWrites(writes, count: 1)
         for index in 0..<50 { persistence.append("second \(index)") }
-        try await Task.sleep(for: .milliseconds(70))
-        XCTAssertEqual(writes.values.count, 2)
-        XCTAssertEqual(writes.values[0].last, "first 49")
-        XCTAssertEqual(writes.values[1].last, "second 49")
+        try await waitForWrites(writes, count: 2)
+        let recorded = writes.values
+        XCTAssertEqual(recorded.count, 2)
+        XCTAssertEqual(recorded[0].last, "first 49")
+        XCTAssertEqual(recorded[1].last, "second 49")
     }
 
     func testExistingDurableTailIsPreservedAndBounded() async {
@@ -105,6 +106,16 @@ final class DebouncedLogTailPersistenceTests: XCTestCase {
         await persistence.flush()
         await persistence.flush()
         XCTAssertEqual(writes.values, [["one"]])
+    }
+
+    /// Device test scheduling is intentionally not real-time. Wait for the debounced queue instead of
+    /// guessing that a 70 ms sleep has fired, then index the captured writes only after the condition is met.
+    private func waitForWrites(_ writes: Writes, count: Int) async throws {
+        for _ in 0..<100 where writes.values.count < count {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertGreaterThanOrEqual(writes.values.count, count,
+                                    "Timed out waiting for debounced persistence write \(count)")
     }
 }
 #endif

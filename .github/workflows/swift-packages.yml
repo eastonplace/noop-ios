@@ -6,7 +6,6 @@ name: Swift Packages CI
 
 on:
   pull_request:
-    branches: [main, staging/noop-ios-2.0]
     paths:
       - 'Packages/**'
       - '.github/workflows/swift-packages.yml'
@@ -28,6 +27,7 @@ jobs:
       fail-fast: false
       matrix:
         package:
+          - NoopPhase34Core
           - WhoopProtocol
           - OuraProtocol
           - WhoopStore

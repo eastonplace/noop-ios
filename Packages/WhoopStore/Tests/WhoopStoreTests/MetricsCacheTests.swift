@@ -1,5 +1,6 @@
 import XCTest
 import GRDB
+import WhoopProtocol
 @testable import WhoopStore
 
 final class MetricsCacheTests: XCTestCase {
@@ -16,7 +17,7 @@ final class MetricsCacheTests: XCTestCase {
     }
 
     func testSchemaVersionBumped() {
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 30)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 53)
     }
 
     // MARK: - sleep sessions
@@ -46,11 +47,95 @@ final class MetricsCacheTests: XCTestCase {
     func testSleepSessionRangeFilter() async throws {
         let store = try await WhoopStore.inMemory()
         try await store.upsertSleepSessions([
-            CachedSleepSession(startTs: 100, endTs: 200, efficiency: nil, restingHr: nil, avgHrv: nil, stagesJSON: nil),
-            CachedSleepSession(startTs: 500, endTs: 600, efficiency: nil, restingHr: nil, avgHrv: nil, stagesJSON: nil),
+            CachedSleepSession(startTs: 100, endTs: 1_900, efficiency: nil, restingHr: nil, avgHrv: nil, stagesJSON: nil),
+            CachedSleepSession(startTs: 5_000, endTs: 6_800, efficiency: nil, restingHr: nil, avgHrv: nil, stagesJSON: nil),
         ], deviceId: "devA")
-        let rows = try await store.sleepSessions(deviceId: "devA", from: 400, to: 1000, limit: 100)
-        XCTAssertEqual(rows.map { $0.startTs }, [500])
+        let rows = try await store.sleepSessions(deviceId: "devA", from: 4_000, to: 10_000, limit: 100)
+        XCTAssertEqual(rows.map { $0.startTs }, [5_000])
+    }
+
+    func testSleepSessionRangeIncludesWindowThatStartedBeforeRange() async throws {
+        let store = try await WhoopStore.inMemory()
+        try await store.upsertSleepSessions([
+            CachedSleepSession(startTs: 1_000, endTs: 4_600, efficiency: nil, restingHr: nil, avgHrv: nil, stagesJSON: nil),
+        ], deviceId: "devA")
+
+        let rows = try await store.sleepSessions(deviceId: "devA", from: 3_000, to: 5_000, limit: 100)
+        XCTAssertEqual(rows.map(\.startTs), [1_000])
+    }
+
+    func testSleepSessionEndingAtRangeStartDoesNotOverlap() async throws {
+        let store = try await WhoopStore.inMemory()
+        try await store.upsertSleepSessions([
+            CachedSleepSession(startTs: 1_000, endTs: 3_000, efficiency: nil,
+                               restingHr: nil, avgHrv: nil, stagesJSON: nil),
+            CachedSleepSession(startTs: 5_000, endTs: 6_800, efficiency: nil,
+                               restingHr: nil, avgHrv: nil, stagesJSON: nil),
+        ], deviceId: "devA")
+
+        let rows = try await store.sleepSessions(deviceId: "devA", from: 3_000, to: 5_000, limit: 100)
+        XCTAssertEqual(rows.map(\.startTs), [5_000],
+                       "sleep spans are half-open; merely touching the lower boundary is not overlap")
+    }
+
+    func testSubMinimumPlausibleSleepSessionIsPreservedForRepair() async throws {
+        let store = try await WhoopStore.inMemory()
+        let start = 1_000
+        let end = start + SleepSessionWindow.minimumDurationSeconds - 1
+        let changed = try await store.upsertSleepSessions([
+            CachedSleepSession(startTs: start, endTs: end,
+                               efficiency: nil, restingHr: nil, avgHrv: nil, stagesJSON: nil),
+        ], deviceId: "devA")
+
+        XCTAssertEqual(changed, 1)
+        let rows = try await store.sleepSessions(deviceId: "devA", from: 0, to: 10_000, limit: 100)
+        XCTAssertEqual(rows.map(\.startTs), [start],
+                       "the lossless cache preserves a short provider row for quarantine/repair")
+        XCTAssertFalse(SleepSessionWindow.isValid(start: start, end: end),
+                       "preservation never promotes the row into scoring admission")
+    }
+
+    func testOverlongSleepSessionIsRejectedAtCacheBoundary() async throws {
+        let store = try await WhoopStore.inMemory()
+        let start = 100_000
+        let changed = try await store.upsertSleepSessions([
+            CachedSleepSession(startTs: start,
+                               endTs: start + SleepSessionWindow.maximumDurationSeconds + 1,
+                               efficiency: nil, restingHr: nil, avgHrv: nil, stagesJSON: nil)
+        ], deviceId: "devA")
+        XCTAssertEqual(changed, 0)
+        let rows = try await store.sleepSessions(deviceId: "devA", from: 0, to: 200_000, limit: 10)
+        XCTAssertTrue(rows.isEmpty)
+    }
+
+    func testNonOrderedOrOverflowingSleepSessionIsRejectedAtCacheBoundary() async throws {
+        let store = try await WhoopStore.inMemory()
+        let changed = try await store.upsertSleepSessions([
+            CachedSleepSession(startTs: 5_000, endTs: 5_000,
+                               efficiency: nil, restingHr: nil, avgHrv: nil, stagesJSON: nil),
+            CachedSleepSession(startTs: 6_000, endTs: 5_000,
+                               efficiency: nil, restingHr: nil, avgHrv: nil, stagesJSON: nil),
+            CachedSleepSession(startTs: Int.min, endTs: Int.max,
+                               efficiency: nil, restingHr: nil, avgHrv: nil, stagesJSON: nil),
+        ], deviceId: "devA")
+
+        XCTAssertEqual(changed, 0)
+        let rows = try await store.sleepSessions(deviceId: "devA", from: Int.min, to: Int.max, limit: 100)
+        XCTAssertTrue(rows.isEmpty)
+    }
+
+    func testInvalidManualSleepEditIsNoop() async throws {
+        let store = try await WhoopStore.inMemory()
+        try await store.upsertSleepSessions([
+            CachedSleepSession(startTs: 100_000, endTs: 130_000,
+                               efficiency: nil, restingHr: nil, avgHrv: nil, stagesJSON: nil)
+        ], deviceId: "devA")
+        let changed = try await store.applySleepEdit(
+            deviceId: "devA", detectedStartTs: 100_000, newStartTs: 100_000,
+            newEndTs: 100_000 + SleepSessionWindow.maximumDurationSeconds + 1)
+        XCTAssertEqual(changed, 0)
+        let row = try await store.sleepSessions(deviceId: "devA", from: 0, to: 200_000, limit: 10).first
+        XCTAssertEqual(row?.endTs, 130_000)
     }
 
     // MARK: - v13 user-edited sleep bounds (#367 parity: edits survive re-sync)
@@ -362,6 +447,27 @@ final class MetricsCacheTests: XCTestCase {
         ], deviceId: "devA")
         let rows = try await store.dailyMetrics(deviceId: "devA", from: "2026-05-10", to: "2026-05-31")
         XCTAssertEqual(rows.map { $0.day }, ["2026-05-20"])
+    }
+
+    func testReconcileDailyMetricsUpsertsAndEvictsStaleRangeAtomically() async throws {
+        let store = try await WhoopStore.inMemory()
+        let metric: (String, Double?) -> DailyMetric = { day, recovery in
+            DailyMetric(day: day, totalSleepMin: nil, efficiency: nil, deepMin: nil, remMin: nil,
+                        lightMin: nil, disturbances: nil, restingHr: nil, avgHrv: nil,
+                        recovery: recovery, strain: nil, exerciseCount: nil)
+        }
+        try await store.upsertDailyMetrics([
+            metric("2026-05-09", 9), metric("2026-05-10", 10), metric("2026-05-11", 11)
+        ], deviceId: "my-whoop-noop")
+
+        _ = try await store.reconcileDailyMetrics(
+            [metric("2026-05-11", 77), metric("2026-05-12", 88)],
+            deviceId: "my-whoop-noop", from: "2026-05-10", to: "2026-05-12")
+
+        let rows = try await store.dailyMetrics(
+            deviceId: "my-whoop-noop", from: "2026-05-01", to: "2026-05-31")
+        XCTAssertEqual(rows.map(\.day), ["2026-05-09", "2026-05-11", "2026-05-12"])
+        XCTAssertEqual(rows.first(where: { $0.day == "2026-05-11" })?.recovery, 77)
     }
 
     // MARK: - windowed computed-daily delete (#277 local-day re-bucketing migration)

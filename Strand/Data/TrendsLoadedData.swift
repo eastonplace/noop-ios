@@ -6,6 +6,7 @@ import WhoopStore
 /// Stress from another, and Apple fallbacks from a third. The view now swaps this value only after all reads
 /// for one repository revision complete.
 struct TrendsLoadedData: Equatable, Sendable {
+    let loadIdentity: TrendsLoadIdentity?
     let revision: Int
     let anchorDay: String
     let timeZoneIdentifier: String
@@ -17,6 +18,7 @@ struct TrendsLoadedData: Equatable, Sendable {
     let appleByDay: [String: AppleDaily]
 
     static let empty = TrendsLoadedData(
+        loadIdentity: nil,
         revision: -1,
         anchorDay: "",
         timeZoneIdentifier: "",
@@ -27,6 +29,7 @@ struct TrendsLoadedData: Equatable, Sendable {
     )
 
     init(
+        loadIdentity: TrendsLoadIdentity? = nil,
         revision: Int,
         anchorDay: String,
         timeZoneIdentifier: String,
@@ -35,6 +38,7 @@ struct TrendsLoadedData: Equatable, Sendable {
         stressByDay: [String: Double],
         appleDays: [AppleDaily]
     ) {
+        self.loadIdentity = loadIdentity
         self.revision = revision
         self.anchorDay = anchorDay
         self.timeZoneIdentifier = timeZoneIdentifier

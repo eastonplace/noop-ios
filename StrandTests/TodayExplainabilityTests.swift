@@ -212,8 +212,13 @@ final class TodayExplainabilityTests: XCTestCase {
                        "Not recording. Strap not connected. Tap to connect.")
     }
 
+    func testRecordingState_liveOnly_copyNamesHistoryWait() {
+        XCTAssertEqual(RecordingState.liveOnly.accessibilityText,
+                       "Live HR only. History sync waiting for secure link.")
+    }
+
     func testRecordingState_copy_hasNoEmDash() {
-        let states: [RecordingState] = [.recording, .lastSynced(minutesAgo: 5), .notRecording]
+        let states: [RecordingState] = [.recording, .lastSynced(minutesAgo: 5), .notRecording, .liveOnly]
         for s in states {
             XCTAssertFalse(s.accessibilityText.contains("\u{2014}"),
                            "RecordingState \(s) must not contain an em-dash")

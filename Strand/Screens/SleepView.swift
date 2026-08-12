@@ -3,6 +3,7 @@ import Foundation
 import StrandDesign
 import StrandAnalytics
 import WhoopStore
+import WhoopProtocol
 
 // MARK: - Sleep presentation mapping
 
@@ -132,6 +133,8 @@ struct SleepView: View {
     /// merges each day into one Night, so a split day reads as one correctly-totalled night with the
     /// gaps preserved. Oldest→newest. Falls back to `repo.sleeps` until loaded. (#170)
     @State private var allSessions: [CachedSleepSession] = []
+    /// Legacy malformed sessions are excluded from all score/display selection but remain repairable here.
+    @State private var invalidSessions: [CachedSleepSession] = []
 
     /// The user's LEARNED habitual midsleep (local time-of-day seconds), or nil under the cold-start
     /// threshold. Loaded from `repo.habitualMidsleepSec()` — the SAME value `AnalyticsEngine.analyzeDay`
@@ -217,6 +220,10 @@ struct SleepView: View {
                     // appearance motion genuinely viewport-triggered.
                     LazyVStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
                         nightNavHeader(trailing: displayedNight.night.spanLabel)
+                        if !invalidSessions.isEmpty {
+                            invalidSleepWindowNotice
+                                .staggeredAppear(index: 0)
+                        }
                         paperSleepHero(
                             resolved,
                             night: displayedNight.night,
@@ -290,10 +297,11 @@ struct SleepView: View {
             // refreshSeq; snaps back to the newest day and rebuilds the model so offset 0 reflects
             // the freshly-loaded blocks. (#170)
             .task(id: repo.refreshSeq) {
-                allSessions = await repo.allSleepSessions()
+                allSessions = await repo.sleepHistoryPage(limit: 200)
+                invalidSessions = await repo.invalidSleepSessions(days: 30)
                 // Load the learned habitual midsleep the engine used, so the main-night pick aligns to it
                 // (a shift/late sleeper) instead of only the cold-start band. nil under threshold. (#547)
-                habitualMidsleepSec = await repo.habitualMidsleepSec()
+                habitualMidsleepSec = await repo.habitualMidsleepSec(days: 30)
                 // Per-epoch motion for every block (#407), keyed by detected start. mergeDay reads only the
                 // already-resolved group's entries — this just pre-fetches them all so the model build is sync.
                 motionByStart = await repo.sessionMotions(starts: allSessions.map { $0.startTs })
@@ -367,6 +375,29 @@ struct SleepView: View {
         .onDisappear {
             SleepUndoTaskControl.cancelAndClear(&sleepUndoTask)
             sleepUndo = nil
+        }
+    }
+
+    private var invalidSleepWindowNotice: some View {
+        NoopCard(padding: NoopMetrics.cardPadding, tint: StrandPalette.statusWarning) {
+            VStack(alignment: .leading, spacing: 10) {
+                Label("Sleep window needs review", systemImage: "exclamationmark.triangle.fill")
+                    .font(StrandFont.headline)
+                    .foregroundStyle(StrandPalette.statusWarning)
+                Text("NOOP excluded \(invalidSessions.count) saved sleep window\(invalidSessions.count == 1 ? "" : "s") outside 30 minutes–16 hours from recovery, sleep scoring, and your usual-sleep timing. Your data is still saved; review or delete it before relying on that day.")
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                ForEach(Array(invalidSessions.enumerated()), id: \.offset) { _, session in
+                    Button("Review saved window") {
+                        wakeEdit = WakeEdit(detectedStartTs: session.startTs,
+                                            bedTs: session.effectiveStartTs,
+                                            wakeTs: session.endTs,
+                                            stagesJSON: session.stagesJSON,
+                                            userEdited: session.userEdited)
+                    }
+                    .buttonStyle(.noopGhost)
+                }
+            }
         }
     }
 
@@ -685,7 +716,10 @@ struct SleepView: View {
     /// Whether the night's sleep-performance score is WHOOP's own imported figure or NOOP's
     /// on-device approximation — so the hero is honest about provenance, like Today's badges.
     private func sleepScoreSource(_ model: SleepModel) -> LocalizedStringKey {
-        if let lastDay = repo.days.last?.day, repo.importedSleep[lastDay]?.performancePct != nil {
+        let displayedDay = Repository.localDayKey(
+            Date(timeIntervalSince1970: TimeInterval(model.night.session.endTs))
+        )
+        if let point = repo.canonicalHealth.sleepScore(day: displayedDay), point.isImported {
             return "Whoop"
         }
         return "On-device"
@@ -1938,7 +1972,8 @@ struct SleepView: View {
             lastDay: repo.days.last?.day,
             lastDayUpdated: repo.days.last,
             lastSleep: repo.sleeps.last,
-            refreshSeq: repo.refreshSeq)
+            refreshSeq: repo.refreshSeq,
+            canonicalPresentationRevision: repo.canonicalHealth.presentationRevision)
     }
 
     /// Build every expensive derivation exactly once. Called only when `dataKey` changes,
@@ -1964,6 +1999,14 @@ struct SleepView: View {
             return nil
         }
         let performance = performanceSnapshot
+        let historicalEfficiency = efficiencySeries
+        // The metric grid describes the night the header/hero currently displays.  Its
+        // sparkline and typical remain historical, but the headline must never borrow a
+        // newer day's placeholder efficiency (the exact 0% beside a 5h49 / 6h20 night
+        // seen on device).  A selected night without a defensible efficiency stays blank.
+        let displayedEfficiency = efficiencyPct(night)
+        let efficiency: Metric = (displayedEfficiency, historicalEfficiency.typical,
+                                  historicalEfficiency.series)
         return SleepModel(
             night: night,
             intervals: night.intervals,
@@ -1971,7 +2014,7 @@ struct SleepView: View {
             isStubNight: isStub,
             performance: performance.metric,
             performanceByDay: performance.byDay,
-            efficiency: efficiencySeries,
+            efficiency: efficiency,
             consistency: consistencySeries,
             hoursVsNeeded: hoursVsNeededSeries,
             restorative: restorativeSeries,
@@ -2373,23 +2416,17 @@ struct SleepView: View {
         return (series.last, mean(series), series)
     }
 
-    /// Sleep performance %: the imported WHOOP figure (sleep_performance, 0–100) when the
-    /// export carried one for that day; else the REAL resolved Sleep composite for that day —
-    /// the same single source of truth the Today Sleep score reads (AnalyticsEngine.Rest.composite,
-    /// what Repository.dailyColumn resolves "sleep_performance" to), NOT a local hours-vs-need
-    /// approximation. Keeps the Sleep detail graph in agreement with the Today Sleep score. (#614
-    /// follow-up) Values land 0–100 via the composite; the metric() finite filter drops the rest.
+    /// Sleep performance comes from the canonical Repository score model. The view does not recreate
+    /// precedence or compute a second production score.
     private var performanceSnapshot: (metric: Metric, byDay: [String: Double]) {
-        let imported = repo.importedSleep
         var series: [Double] = []
         var byDay: [String: Double] = [:]
         series.reserveCapacity(repo.days.count)
         byDay.reserveCapacity(repo.days.count)
 
         for day in repo.days {
-            let value = imported[day.day]?.performancePct
-                ?? AnalyticsEngine.Rest.composite(daily: day)
-            guard let value, value.isFinite else { continue }
+            guard let value = repo.canonicalHealth.sleepScore(day: day.day)?.value,
+                  value.isFinite else { continue }
             series.append(value)
             byDay[day.day] = value
         }
@@ -2398,8 +2435,13 @@ struct SleepView: View {
 
     private var efficiencySeries: Metric {
         metric { d in
-            guard let e = d.efficiency else { return nil }
-            return e <= 1.0 ? e * 100 : e
+            guard let e = d.efficiency, e.isFinite else { return nil }
+            let percent = e <= 1.0 ? e * 100 : e
+            // A 0% efficiency with a saved sleep row is a legacy placeholder, not a
+            // physiological result.  Do not let it pull the latest sparkline point to
+            // zero; the selected-night resolver below derives from measured stage totals.
+            guard percent > 0, percent <= 100 else { return nil }
+            return percent
         }
     }
 
@@ -2515,9 +2557,9 @@ struct SleepView: View {
         // SleepView (scroll-stutter isolation; identical output to the prior inline check).
         SleepSyncingNote()
         if repo.loaded {
-            ComingSoon(what: "No nights here yet. Import your WHOOP export in Data Sources to see every night, your sleep stages and trends straight away. Or open Intelligence to see last night computed from the strap after you wear it to bed.")
+            sleepRecoveryEmptyState(what: "No nights here yet. Import your WHOOP export in Data Sources to see every night, your sleep stages and trends straight away. Or open Intelligence to see last night computed from the strap after you wear it to bed.")
         } else {
-            ComingSoon(what: "Loading your sleep history…")
+            sleepRecoveryEmptyState(what: "Loading your sleep history…")
         }
     }
 
@@ -2638,14 +2680,25 @@ struct SleepView: View {
         return e.map { "\(Int($0.rounded()))%" } ?? "—"
     }
 
-    /// Efficiency in percent. Prefer the stored session value, else asleep / time-in-bed.
+    /// Efficiency in percent. Prefer a plausible stored session value, else derive from
+    /// the measured sleep window.  A historical 0 is a missing placeholder (not a real
+    /// sleep efficiency) whenever the window contains asleep minutes.
     private func efficiencyPct(_ night: Night) -> Double? {
-        if let stored = night.session.efficiency ?? repo.today?.efficiency {
-            return stored <= 1.0 ? stored * 100 : stored
+        Self.displayEfficiencyPercent(stored: night.session.efficiency,
+                                      asleepMinutes: night.stages.asleep,
+                                      timeInBedMinutes: night.timeInBed)
+    }
+
+    /// Pure presentation resolver behind the selected-night Sleep tile.  Kept internal
+    /// so the real "0 stored but 5h49 asleep in 6h20 in bed" regression stays testable.
+    nonisolated static func displayEfficiencyPercent(stored: Double?, asleepMinutes: Double,
+                                                     timeInBedMinutes: Double) -> Double? {
+        if let stored, stored.isFinite {
+            let percent = stored <= 1.0 ? stored * 100 : stored
+            if percent > 0, percent <= 100 { return percent }
         }
-        let bed = night.timeInBed
-        guard bed > 0 else { return nil }
-        return Swift.min(100, night.stages.asleep / bed * 100)
+        guard asleepMinutes > 0, timeInBedMinutes > 0 else { return nil }
+        return Swift.min(100, asleepMinutes / timeInBedMinutes * 100)
     }
 
     private func durationText(_ minutes: Double) -> String {
@@ -2987,6 +3040,8 @@ private struct SleepInputKey: Equatable {
     /// Bumped on every Repository.refresh — catches a re-import that changes only the
     /// imported metricSeries figures (importedSleep) without touching days/sleeps.
     let refreshSeq: Int
+    /// Canonical production Sleep can change without changing DailyMetric or session rows.
+    let canonicalPresentationRevision: Int64
 }
 
 /// One fully resolved per-night payload for the active paper cluster. It intentionally contains
@@ -3291,6 +3346,11 @@ private struct SleepTimeEditor: View {
             ?? bed.addingTimeInterval(8 * 3600)
     }
 
+    private var proposedWindowIsValid: Bool {
+        SleepSessionWindow.isValid(start: Int(bed.timeIntervalSince1970),
+                                   end: Int(resolvedWake().timeIntervalSince1970))
+    }
+
     /// The single save funnel: both the direct Save and the #940 disjoint confirm land here.
     private func commit(start: Int, end: Int) {
         saving = true
@@ -3327,6 +3387,11 @@ private struct SleepTimeEditor: View {
                         .tint(StrandPalette.restColor)
                 }
             }
+            if !proposedWindowIsValid {
+                Label("Sleep windows must be between 30 minutes and 16 hours.", systemImage: "exclamationmark.triangle.fill")
+                    .font(StrandFont.caption)
+                    .foregroundStyle(StrandPalette.statusWarning)
+            }
 
             // Destructive delete for an existing night/nap (#68). Confirmation-gated so a tap can't clear
             // a night by accident; nil for the "Add a nap" sheet (nothing to delete). Sits below the
@@ -3362,7 +3427,7 @@ private struct SleepTimeEditor: View {
                     }
                 }
                 .buttonStyle(.noopPrimary)
-                .disabled(saving)
+                .disabled(saving || !proposedWindowIsValid)
             }
         }
         .padding(NoopMetrics.screenPadding)
@@ -3384,8 +3449,10 @@ private struct SleepTimeEditor: View {
         .alert("Move this sleep?", isPresented: $confirmingDisjoint) {
             Button("Cancel", role: .cancel) { }
             Button("Move anyway") {
-                commit(start: Int(bed.timeIntervalSince1970),
-                       end: Int(resolvedWake().timeIntervalSince1970))
+                let start = Int(bed.timeIntervalSince1970)
+                let end = Int(resolvedWake().timeIntervalSince1970)
+                guard SleepSessionWindow.isValid(start: start, end: end) else { return }
+                commit(start: start, end: end)
             }
         } message: {
             Text("This moves the night to a time with no recorded data. Stages can't be derived there, so it may show as empty until data covers it.")

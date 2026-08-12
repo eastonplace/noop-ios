@@ -1,4 +1,5 @@
 import XCTest
+import WhoopProtocol
 @testable import StrandAnalytics
 
 /// #940: the sleep-time editor accepted an impossible bed time. Rolling the bed TIME back across
@@ -156,6 +157,14 @@ final class SleepEditGuardTests: XCTestCase {
         XCTAssertEqual(w?.end, 10_300)
     }
 
+    func testClampFailsClosedWhenFutureCapWouldOverflow() {
+        XCTAssertNil(SleepEditGuard.clampedEditWindow(
+            start: Int.min,
+            end: Int.max,
+            now: Int.max,
+            slackSec: 300))
+    }
+
     func testFullyFutureWindowIsRefused() {
         // THE #940 phantom: both ends after now. Capping the end lands at/below the start -> nil.
         XCTAssertNil(SleepEditGuard.clampedEditWindow(start: 80_000, end: 100_000, now: 10_000))
@@ -164,5 +173,23 @@ final class SleepEditGuardTests: XCTestCase {
     func testInvertedWindowIsRefused() {
         XCTAssertNil(SleepEditGuard.clampedEditWindow(start: 5_000, end: 4_000, now: 10_000))
         XCTAssertNil(SleepEditGuard.clampedEditWindow(start: 5_000, end: 5_000, now: 10_000))
+    }
+
+    func testSixteenHourWindowIsAccepted() {
+        let start = 1_000
+        let end = start + SleepSessionWindow.maximumDurationSeconds
+        let window = SleepEditGuard.clampedEditWindow(start: start, end: end, now: end)
+        XCTAssertEqual(window?.start, start)
+        XCTAssertEqual(window?.end, end)
+    }
+
+    func testWindowLongerThanSixteenHoursIsRefused() {
+        let start = 1_000
+        let end = start + SleepSessionWindow.maximumDurationSeconds + 1
+        XCTAssertNil(SleepEditGuard.clampedEditWindow(start: start, end: end, now: end))
+    }
+
+    func testWindowShorterThanThirtyMinutesIsRefused() {
+        XCTAssertNil(SleepEditGuard.clampedEditWindow(start: 1_000, end: 1_000 + 29 * 60, now: 10_000))
     }
 }

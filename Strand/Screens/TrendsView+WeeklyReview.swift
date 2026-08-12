@@ -286,15 +286,18 @@ extension TrendsView {
     }
 
     private var minWeekOffset: Int {
-        currentScreenSnapshot?.minimumWeekOffset ?? 0
+        TrendsBounds.clampWeekOffset(currentScreenSnapshot?.minimumWeekOffset ?? 0)
     }
 
     private func stepWeek(_ delta: Int) {
-        weekOffset = max(minWeekOffset, min(0, weekOffset + delta))
+        let current = TrendsBounds.clampWeekOffset(weekOffset)
+        let (candidate, overflow) = current.addingReportingOverflow(delta)
+        let safeCandidate = overflow ? (delta < 0 ? Int.min : Int.max) : candidate
+        weekOffset = max(minWeekOffset, TrendsBounds.clampWeekOffset(safeCandidate))
     }
 
     private var weekOffsetLabel: String {
-        let weeksAgo = -weekOffset
+        let weeksAgo = -TrendsBounds.clampWeekOffset(weekOffset)
         if weeksAgo == 0 { return String(localized: "This week") }
         if weeksAgo == 1 { return String(localized: "Last week") }
         return String(localized: "\(weeksAgo) weeks ago")

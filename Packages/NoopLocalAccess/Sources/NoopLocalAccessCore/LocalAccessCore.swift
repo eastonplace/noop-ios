@@ -574,6 +574,8 @@ public final class NoopDataAccess {
         if preferredSource == "my-whoop" || preferredSource == actualWhoopSource {
             var candidates = [
                 MetricSourceCandidate(source: actualWhoopSource, key: key),
+                MetricSourceCandidate(source: "my-whoop", key: key),
+                MetricSourceCandidate(source: "my-whoop-noop", key: key),
                 MetricSourceCandidate(source: actualWhoopSource + "-noop", key: key),
             ]
             if let appleKey = appleCompatibleKey(forWhoopKey: key) {

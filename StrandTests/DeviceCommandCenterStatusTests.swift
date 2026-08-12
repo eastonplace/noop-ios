@@ -7,7 +7,9 @@ final class DeviceCommandCenterStatusTests: XCTestCase {
               bluetoothUnavailableMessage: nil, reconnectGuide: nil, pairingHint: nil,
               rtcWarning: nil, lastSyncError: nil, strapNeedsReboot: false, batteryPct: 60,
               historySyncExperimental: false, standardHRMode: nil, backfilling: false,
-              syncChunksThisSession: 0, lastSyncedAt: 900, deepDataEnabled: false,
+              syncChunksThisSession: 0, lastSyncedAt: 900, historicalDataFrontierAt: 880,
+              historicalSyncSessionState: .completed, liveHeartRateAvailable: true,
+              deepDataEnabled: false,
               r22FlagsAccepted: 0, r22FlagCount: 15, now: 1_000)
     }
 
@@ -45,10 +47,53 @@ final class DeviceCommandCenterStatusTests: XCTestCase {
     }
 
     func testSyncUsesChunkCountNotPercentage() {
-        var value = input(); value.backfilling = true; value.syncChunksThisSession = 12
+        var value = input(); value.backfilling = true; value.historicalSyncSessionState = .syncing
+        value.syncChunksThisSession = 12
         let label = DeviceCommandCenterStatusResolver.syncLabel(value)
-        XCTAssertEqual(label, "Syncing · 12 chunks received")
+        XCTAssertEqual(label, "Syncing history · 12 chunks received")
         XCTAssertFalse(label.contains("%"))
+    }
+
+    func testHandshakeIncompleteWithOldSyncNeverClaimsCaughtUp() {
+        var value = input()
+        value.historicalSyncSessionState = .waitingForSecureHandshake
+        value.lastSyncedAt = 900
+        value.historicalDataFrontierAt = 880
+        let label = DeviceCommandCenterStatusResolver.syncLabel(value)
+        XCTAssertEqual(label, "Live HR only · History sync waiting for secure link")
+        XCTAssertFalse(label.localizedCaseInsensitiveContains("caught up"))
+        XCTAssertFalse(label.localizedCaseInsensitiveContains("history synced"))
+    }
+
+    func testHandshakeIncompleteKeepsSavedHistorySeparate() {
+        let status = HistoricalSyncStatusResolver.resolve(
+            connected: true,
+            liveHeartRateAvailable: true,
+            sessionState: .waitingForSecureHandshake,
+            lastSuccessfulBackfillAt: 900,
+            historicalDataFrontierAt: 880,
+            lastSyncError: nil,
+            historySyncExperimental: false,
+            chunks: 0,
+            now: 1_000)
+        XCTAssertEqual(status.primary, "Live HR only · History sync waiting for secure link")
+        XCTAssertTrue(status.savedHistory?.hasPrefix("Showing saved history through ") == true)
+        XCTAssertFalse(status.isCurrentSuccess)
+    }
+
+    func testHistoryCompleteAllowsCurrentHistorySynced() {
+        var value = input()
+        value.historicalSyncSessionState = .completed
+        XCTAssertEqual(DeviceCommandCenterStatusResolver.syncLabel(value), "History synced · 1 min ago")
+    }
+
+    func testFailedHandshakeProducesVisibleNonSuccessState() {
+        var value = input()
+        value.historicalSyncSessionState = .failed
+        value.lastSyncError = "Secure handshake failed."
+        let status = DeviceCommandCenterStatusResolver.syncLabel(value)
+        XCTAssertEqual(status, "Secure handshake failed.")
+        XCTAssertFalse(status.localizedCaseInsensitiveContains("synced"))
     }
 
     func testNonWhoopOmitsBondAndR22() {

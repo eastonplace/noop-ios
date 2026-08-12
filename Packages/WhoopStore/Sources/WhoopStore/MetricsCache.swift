@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import WhoopProtocol
 
 // MARK: - Offline cache of SERVER-computed metrics (Task 3.1 → M0.4)
 // This file is purely a local cache of values computed by the server — the phone does NO metric
@@ -124,11 +125,18 @@ extension WhoopStore {
     // MARK: - Upserts (idempotent by natural key; latest server value wins on conflict)
 
     /// Upsert cached sleep sessions. Natural key (deviceId, startTs). Returns rows changed.
+    ///
+    /// This is the lossless cache boundary, not the scoring-admission boundary. Preserve ordered,
+    /// non-overlong provider spans — including short partial captures — so repair and diagnostics can inspect
+    /// them; importers, manual edits, dedupe and scoring still require the full 30-minute–16-hour policy.
     @discardableResult
     public func upsertSleepSessions(_ sessions: [CachedSleepSession], deviceId: String) async throws -> Int {
-        try syncWrite { db in
+        return try syncWrite { db in
             var n = 0
             for s in sessions {
+                guard SleepSessionWindow.hasPlausibleBounds(start: s.effectiveStartTs, end: s.endTs) else {
+                    continue
+                }
                 try db.execute(sql: """
                     INSERT INTO sleepSession
                         (deviceId, startTs, endTs, efficiency, restingHr, avgHrv, stagesJSON,
@@ -171,7 +179,8 @@ extension WhoopStore {
     @discardableResult
     public func applySleepEdit(deviceId: String, detectedStartTs: Int, newStartTs: Int, newEndTs: Int,
                                stagesJSON: String? = nil) async throws -> Int {
-        try syncWrite { db in
+        guard SleepSessionWindow.isValid(start: newStartTs, end: newEndTs) else { return 0 }
+        return try syncWrite { db in
             try db.execute(sql: """
                 UPDATE sleepSession
                 SET startTsAdjusted = ?, endTs = ?, stagesJSON = COALESCE(?, stagesJSON), userEdited = 1
@@ -212,7 +221,8 @@ extension WhoopStore {
     @discardableResult
     public func insertManualSleepSession(deviceId: String, startTs: Int, endTs: Int,
                                          efficiency: Double?, stagesJSON: String?) async throws -> Int {
-        try syncWrite { db in
+        guard SleepSessionWindow.isValid(start: startTs, end: endTs) else { return 0 }
+        return try syncWrite { db in
             try db.execute(sql: """
                 INSERT INTO sleepSession
                     (deviceId, startTs, endTs, efficiency, restingHr, avgHrv, stagesJSON,
@@ -384,8 +394,15 @@ extension WhoopStore {
     @discardableResult
     public func upsertDailyMetrics(_ days: [DailyMetric], deviceId: String) async throws -> Int {
         try syncWrite { db in
-            var n = 0
-            for d in days {
+            try Self.upsertDailyMetrics(days, deviceId: deviceId, db: db)
+        }
+    }
+
+    private static func upsertDailyMetrics(
+        _ days: [DailyMetric], deviceId: String, db: Database
+    ) throws -> Int {
+        var n = 0
+        for d in days {
                 try db.execute(sql: """
                     INSERT INTO dailyMetric
                         (deviceId, day, totalSleepMin, efficiency, deepMin, remMin, lightMin,
@@ -442,9 +459,38 @@ extension WhoopStore {
                                      d.spo2Pct, d.skinTempDevC, d.respRateBpm,
                                      d.steps, d.activeKcalEst,
                                      d.spo2Red, d.spo2Ir, d.strainVersion])
-                n += db.changesCount
+            n += db.changesCount
+        }
+        return n
+    }
+
+    /// Atomically replaces one computed civil-day range. The scorer used to upsert and then delete stale
+    /// days in separate transactions, letting unrelated readers observe a half-reconciled generation.
+    @discardableResult
+    public func reconcileDailyMetrics(
+        _ days: [DailyMetric],
+        deviceId: String,
+        from: String,
+        to: String,
+        protectedDays: Set<String> = []
+    ) async throws -> Int {
+        try syncWrite { db in
+            var changed = try Self.upsertDailyMetrics(days, deviceId: deviceId, db: db)
+            let retained = Set(days.map(\.day)).union(protectedDays)
+            if retained.isEmpty {
+                try db.execute(sql: """
+                    DELETE FROM dailyMetric WHERE deviceId = ? AND day >= ? AND day <= ?
+                    """, arguments: [deviceId, from, to])
+            } else {
+                let placeholders = Array(repeating: "?", count: retained.count).joined(separator: ",")
+                try db.execute(sql: """
+                    DELETE FROM dailyMetric
+                    WHERE deviceId = ? AND day >= ? AND day <= ?
+                      AND day NOT IN (\(placeholders))
+                    """, arguments: StatementArguments([deviceId, from, to] + retained.sorted()))
             }
-            return n
+            changed += db.changesCount
+            return changed
         }
     }
 
@@ -467,15 +513,18 @@ extension WhoopStore {
 
     // MARK: - Reads
 
-    /// Cached sleep sessions overlapping [from, to] (by startTs), oldest first.
+    /// Cached sleep sessions intersecting the query interval `[from, to]`, ordered by effective onset.
+    /// Session spans are half-open `[start, end)`, so a row ending exactly at `from` does not overlap.
     public func sleepSessions(deviceId: String, from: Int, to: Int, limit: Int) async throws -> [CachedSleepSession] {
         try syncRead { db in
             try Row.fetchAll(db, sql: """
                 SELECT startTs, endTs, efficiency, restingHr, avgHrv, stagesJSON, userEdited,
                        startTsAdjusted FROM sleepSession
-                WHERE deviceId = ? AND startTs >= ? AND startTs <= ?
-                ORDER BY startTs ASC LIMIT ?
-                """, arguments: [deviceId, from, to, limit])
+                WHERE deviceId = ?
+                  AND COALESCE(startTsAdjusted, startTs) <= ?
+                  AND endTs > ?
+                ORDER BY COALESCE(startTsAdjusted, startTs) ASC LIMIT ?
+                """, arguments: [deviceId, to, from, limit])
                 .map {
                     CachedSleepSession(startTs: $0["startTs"], endTs: $0["endTs"],
                                        efficiency: $0["efficiency"], restingHr: $0["restingHr"],

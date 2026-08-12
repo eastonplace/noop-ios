@@ -1,11 +1,12 @@
 import Foundation
+import NoopPhase34Core
 
 enum RepositoryRefreshDataset: Hashable, Sendable {
     case dashboard
 }
 
-/// Explicit refresh purposes. Each case maps to the narrowest safe replacement window for the coherent
-/// dashboard cache; small UI events can no longer accidentally request 4,000 days by default.
+/// Explicit refresh purposes. Exact historical publication uses its committed civil-day set. These
+/// compatibility intents remain narrow and never widen a missing-day publication into a history sweep.
 enum RepositoryRefreshIntent: Equatable, Sendable, CustomStringConvertible {
     case currentDay
     case recentDashboard(days: Int)
@@ -17,12 +18,12 @@ enum RepositoryRefreshIntent: Equatable, Sendable, CustomStringConvertible {
 
     var days: Int {
         switch self {
-        case .currentDay, .postBackfill:
-            return 120
+        case .currentDay, .postBackfill, .initialLoad:
+            return 1
         case .recentDashboard(let days):
-            return min(4_000, max(120, days))
-        case .initialLoad, .activeDeviceChanged, .postImport, .fullHistoryMigration:
-            return 4_000
+            return min(30, max(1, days))
+        case .activeDeviceChanged, .postImport, .fullHistoryMigration:
+            return 30
         }
     }
 
@@ -79,6 +80,24 @@ enum RepositoryRefreshIntent: Equatable, Sendable, CustomStringConvertible {
         case .fullHistoryMigration: return 6
         }
     }
+
+    /// One compatibility adapter. Production execution is typed by `RepositoryRefreshRequest`.
+    var request: RepositoryRefreshRequest {
+        switch self {
+        case .currentDay: return .currentDayRequest
+        case .recentDashboard(let days): return .recentDashboardRequest(days: days)
+        case .postBackfill: return .currentDayRequest
+        case .initialLoad: return .initialLoadRequest
+        case .activeDeviceChanged: return .activeDeviceChangedRequest
+        case .postImport: return .postImportRequest
+        case .fullHistoryMigration:
+            return RepositoryRefreshRequest(
+                recentDashboardDays: 30,
+                includeHistoryExtent: true,
+                fullHistory: true,
+                reasons: [.fullHistoryMigration])
+        }
+    }
 }
 
 /// Dynamic refresh policy inherited by child `Task` values. Historical migration analysis sets `.suppress`
@@ -91,6 +110,120 @@ enum RepositoryRefreshContext {
     }
 
     @TaskLocal static var disposition: Disposition = .allow
+}
+
+/// Central publication fence for source pipelines whose imported rows and derived scores must become visible
+/// as one generation. A HealthKit import, for example, may persist fresh HRV/RHR before Recovery is recomputed.
+/// Without this fence an unrelated foreground/BLE refresh can publish those new vitals with the previous or
+/// blank Recovery in the middle of the transaction.
+///
+/// - An exclusive source pipeline waits for a typed Repository refresh already in flight.
+/// - Once exclusive acquisition is pending, no new typed refresh may start.
+/// - A blocked refresh returns `false` immediately (so analysis cannot deadlock waiting on its own publication)
+///   and is re-requested after the fence opens; the normal refresh coordinator coalesces those retries.
+/// - The source owner performs its one coherent final refresh directly while holding the fence.
+///
+/// MainActor isolation makes the handoff deterministic without locks. The class is injectable so tests and
+/// previews do not share production fence state.
+@MainActor
+final class RepositoryPublicationBarrier {
+    static let shared = RepositoryPublicationBarrier()
+
+    private var exclusive = false
+    private var activeRefreshes = 0
+    private var exclusiveWaiters: [CheckedContinuation<Void, Never>] = []
+    private struct DeferredRefresh {
+        var intent: RepositoryRefreshIntent
+        let operation: @MainActor (RepositoryRefreshIntent) -> Void
+    }
+    private var afterOpen: [ObjectIdentifier: DeferredRefresh] = [:]
+
+    #if DEBUG
+    private(set) var deferredRequestCount = 0
+    var deferredRepositoryCount: Int { afterOpen.count }
+    #endif
+
+    var blocksRefreshes: Bool {
+        exclusive || !exclusiveWaiters.isEmpty
+    }
+
+    /// Acquire the source-publication fence. New refreshes stop immediately; an already-running typed refresh
+    /// is allowed to finish before the source begins writing, so it cannot publish a snapshot taken mid-import.
+    func acquireExclusive() async {
+        if !exclusive, activeRefreshes == 0, exclusiveWaiters.isEmpty {
+            exclusive = true
+            return
+        }
+        await withCheckedContinuation { continuation in
+            exclusiveWaiters.append(continuation)
+        }
+    }
+
+    /// Best-effort synchronous bootstrap for a scoring journal restored before AppModel launch. The iOS app
+    /// initializes the HealthKit coordinator before constructing AppModel, so production reaches this with no
+    /// active refresh. If a test or future host initializes late, the normal async acquisition still closes it.
+    func acquireRestoredExclusiveIfIdle() -> Bool {
+        guard !exclusive, activeRefreshes == 0, exclusiveWaiters.isEmpty else { return false }
+        exclusive = true
+        return true
+    }
+
+    func releaseExclusive() {
+        precondition(exclusive, "Repository publication fence released by non-owner")
+        if !exclusiveWaiters.isEmpty {
+            // Transfer ownership without opening a publication gap between two source transactions.
+            let next = exclusiveWaiters.removeFirst()
+            next.resume()
+            return
+        }
+
+        exclusive = false
+        let callbacks = Array(afterOpen.values)
+        afterOpen.removeAll(keepingCapacity: true)
+        callbacks.forEach { $0.operation($0.intent) }
+    }
+
+    /// Called by the typed refresh executor immediately before it reads Repository's SQLite projection.
+    /// Returns false instead of suspending when a source fence is requested; suspending here could deadlock an
+    /// in-flight Intelligence pass whose completion is required by the exclusive scorer.
+    func beginRefreshIfAllowed() -> Bool {
+        guard !exclusive, exclusiveWaiters.isEmpty else { return false }
+        activeRefreshes += 1
+        return true
+    }
+
+    func endRefresh() {
+        precondition(activeRefreshes > 0, "Repository refresh fence count underflow")
+        activeRefreshes -= 1
+        guard activeRefreshes == 0, !exclusive, !exclusiveWaiters.isEmpty else { return }
+        exclusive = true
+        exclusiveWaiters.removeFirst().resume()
+    }
+
+    /// Retain at most one replay per Repository until all exclusive source generations have completed.
+    /// A long-lived source fence can receive hundreds of foreground/BLE/UI refresh attempts; retaining one
+    /// callback per attempt caused an unbounded burst when the fence opened. Merge their typed intents here,
+    /// before any tasks are created, so one Repository produces exactly one widest replay.
+    func performAfterOpen(
+        for owner: AnyObject,
+        intent: RepositoryRefreshIntent,
+        operation: @escaping @MainActor (RepositoryRefreshIntent) -> Void
+    ) {
+        guard blocksRefreshes else {
+            operation(intent)
+            return
+        }
+        #if DEBUG
+        deferredRequestCount += 1
+        #endif
+        let key = ObjectIdentifier(owner)
+        if var deferred = afterOpen[key] {
+            deferred.intent = RepositoryRefreshIntent.merged(deferred.intent, intent)
+            afterOpen[key] = deferred
+        } else {
+            afterOpen[key] = DeferredRefresh(intent: intent, operation: operation)
+        }
+    }
 }
 
 /// Main-actor single-flight queue because `Repository` itself is MainActor-isolated. Requests that arrive
@@ -188,10 +321,21 @@ private enum RepositoryRefreshRegistry {
         if let existing = entries[key]?.coordinator { return existing }
         let coordinator = RepositoryRefreshCoordinator { [weak repository] intent in
             guard let repository, await repository.storeHandle() != nil else { return false }
+            let barrier = RepositoryPublicationBarrier.shared
+            guard barrier.beginRefreshIfAllowed() else {
+                barrier.performAfterOpen(for: repository, intent: intent) { [weak repository] replayIntent in
+                    guard let repository else { return }
+                    Task { @MainActor in
+                        _ = await repository.refresh(replayIntent)
+                    }
+                }
+                return false
+            }
+            defer { barrier.endRefresh() }
+
             let trace = PerformanceTrace.begin(intent.traceName)
             defer { PerformanceTrace.end(trace) }
-            await repository.refresh(days: intent.days)
-            return true
+            return (await repository.executeRefresh(intent.request)).succeeded
         }
         entries[key] = Entry(repository: repository, coordinator: coordinator)
         return coordinator
@@ -199,6 +343,77 @@ private enum RepositoryRefreshRegistry {
 }
 
 extension Repository {
+    /// Execute the typed refresh request after the caller owns the publication barrier. This is the single
+    /// production backend for both legacy intent adapters and new exact/recent callers.
+    @discardableResult
+    func executeRefresh(_ request: RepositoryRefreshRequest) async -> RepositoryRefreshExecutionStatus {
+        // Exact publication must use an already verified generation. A bounded refresh is not evidence that
+        // the requested historical days were published.
+        if !request.exactDays.isEmpty,
+           !request.reasons.contains(.currentDay) {
+            guard let projection = verifiedHealthProjection,
+                  Set(projection.metrics.values.map(\.metricDay)).isSuperset(of: request.exactDays) else {
+                return .failed(code: "verified_projection_missing_exact_days")
+            }
+            do {
+                let outcome = try await publishVerifiedExactDays(
+                    request.exactDays,
+                    recordedTimeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier,
+                    projection: projection
+                )
+                guard outcome.authoritativeDataPublished else {
+                    return .failed(code: "exact_repository_publication_failed")
+                }
+                if request.includeHistoryExtent {
+                    await refreshHistoryExtent()
+                }
+                return .published(outcome)
+            } catch {
+                return .failed(code: "exact_repository_publication_failed")
+            }
+        }
+
+        // Full history is a maintenance lane. It updates extent metadata only and never hydrates the
+        // dashboard cache with an unbounded read.
+        if request.fullHistory {
+            if request.includeHistoryExtent {
+                await refreshHistoryExtent()
+            }
+            return .deferred
+        }
+
+        let requestedRecentDays = request.recentDashboardDays
+            ?? 30
+        let boundedRecentDays = min(30, max(1, requestedRecentDays))
+        let didPublish = await refresh(days: boundedRecentDays)
+        guard didPublish else {
+            return .failed(code: "repository_refresh_failed")
+        }
+        if request.includeHistoryExtent {
+            await refreshHistoryExtent()
+        }
+        return .published(RepositoryRefreshOutcome(
+            authoritativeDataPublished: true,
+            changedDays: [],
+            snapshotStatus: .persisted
+        ))
+    }
+
+    /// Typed refresh entry point. A source publication fence returns `.deferred`; it never reports a blocked
+    /// request as an authoritative failure.
+    @discardableResult
+    func refresh(_ request: RepositoryRefreshRequest) async -> RepositoryRefreshExecutionStatus {
+        switch RepositoryRefreshContext.disposition {
+        case .suppress:
+            return .deferred
+        case .allow:
+            let barrier = RepositoryPublicationBarrier.shared
+            guard barrier.beginRefreshIfAllowed() else { return .deferred }
+            defer { barrier.endRefresh() }
+            return await executeRefresh(request)
+        }
+    }
+
     @discardableResult
     func refresh(_ intent: RepositoryRefreshIntent) async -> Bool {
         switch RepositoryRefreshContext.disposition {

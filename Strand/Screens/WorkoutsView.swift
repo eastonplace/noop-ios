@@ -25,9 +25,15 @@ struct WorkoutsView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var repo: Repository
     /// #459: "Start Workout" used to live ONLY on the Live screen, so a user reaching Workouts (via the
-    /// Quick-action FAB or the tab) had no way to begin one from the obvious place. Injected here so the
-    /// header/empty-state can start a live session and present the in-exercise view directly.
-    @EnvironmentObject var model: AppModel
+    /// Quick-action FAB or the tab) had no way to begin one from the obvious place. The model is captured
+    /// as a plain command reference below rather than observed by this large history root.
+    @State private var appModel: AppModel?
+    private var model: AppModel {
+        guard let appModel else {
+            preconditionFailure("WorkoutsView rendered before AppModelReferenceCapture supplied AppModel")
+        }
+        return appModel
+    }
     @State private var showLiveWorkout = false
     @State private var showStartSport = false
 
@@ -129,6 +135,19 @@ struct WorkoutsView: View {
     }
 
     var body: some View {
+        Group {
+            if appModel != nil {
+                dashboard
+            } else {
+                Color.clear
+            }
+        }
+        // The capture leaf is the only broad observer. Workouts retains only object identity, preventing
+        // each active-workout publication from rebuilding the filtered history and summary sections.
+        .background(AppModelReferenceCapture(reference: $appModel))
+    }
+
+    private var dashboard: some View {
         ScreenScaffold(title: "Workouts", subtitle: "Every session, threaded together.",
                        onRefresh: { _ = await repo.refresh(.currentDay) },
                        // PERF: the column ends in the full "All Sessions" log (the breakdown grid, the
@@ -493,15 +512,10 @@ struct WorkoutsView: View {
     /// place people instinctively look — instead of only from the Live screen. Starts the session and
     /// presents the in-exercise view directly (no cross-view auto-present race with LiveView's sheet).
     private var startLiveWorkoutButton: some View {
-        NoopButton(model.activeWorkout == nil ? "Start workout" : "View active workout",
-                   systemImage: model.activeWorkout == nil ? "figure.run" : "timer",
-                   kind: .primary, fullWidth: true) {
-            // No active session → pick a named sport first (#519), then the sheet's onStart begins it
-            // and opens the in-exercise view. Already active → jump straight back into the live view.
-            if model.activeWorkout == nil { showStartSport = true }
-            else { showLiveWorkout = true }
-        }
-        .accessibilityLabel(model.activeWorkout == nil ? "Start a workout" : "View the active workout")
+        WorkoutsActiveWorkoutButtonLeaf(
+            model: model,
+            onStart: { showStartSport = true },
+            onOpen: { showLiveWorkout = true })
     }
 
     /// The latest session start (anchors every window — windows are relative to the
@@ -1771,6 +1785,32 @@ struct WorkoutsView: View {
         static let effort: CGFloat = 64   // #796 per-session Strain column
         static let source: CGFloat = 80
         static let action: CGFloat = 36   // trailing "•••" per-row actions menu
+    }
+}
+
+/// Observes active-workout state only around the one control that renders it.
+private struct WorkoutsActiveWorkoutButtonLeaf: View {
+    @ObservedObject var model: AppModel
+    let onStart: () -> Void
+    let onOpen: () -> Void
+
+    private var hasActiveWorkout: Bool { model.activeWorkout != nil }
+
+    var body: some View {
+        NoopButton(hasActiveWorkout ? "View active workout" : "Start workout",
+                   systemImage: hasActiveWorkout ? "timer" : "figure.run",
+                   kind: .primary,
+                   fullWidth: true,
+                   action: openWorkout)
+            .accessibilityLabel(hasActiveWorkout ? "View the active workout" : "Start a workout")
+    }
+
+    private func openWorkout() {
+        if hasActiveWorkout {
+            onOpen()
+        } else {
+            onStart()
+        }
     }
 }
 

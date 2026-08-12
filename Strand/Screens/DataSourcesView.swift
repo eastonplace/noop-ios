@@ -682,6 +682,10 @@ struct DataSourcesView: View {
                 return
             }
             do {
+                // Drop the dashboard handoff before the source transaction. This fences a suspended
+                // snapshot writer so a stale Apple-derived Recovery/Sleep value cannot repersist after
+                // the source rows have been removed.
+                await repo.invalidateTodayHealthSnapshot()
                 // Route the purge through the WhoopStore actor's `deleteAllData` so the heavy 16+-table
                 // delete runs on the actor's OWN (off-main) executor. Calling the synchronous
                 // `DeviceRegistryStore(...).deleteAllData` directly here ran the whole transaction on the
@@ -700,6 +704,9 @@ struct DataSourcesView: View {
                 appleHealthDeletedSummary = String(localized: "Removed all Apple Health imported data.")
                 logImport("Apple Health: imported data removed")
             } catch {
+                // The source transaction did not commit. Rebuild the handoff from the still-authoritative
+                // rows rather than leaving the screen blank after the safety invalidation above.
+                _ = await repo.refresh(.postImport)
                 appleHealthDeletedSummary = String(localized: "Couldn't remove the data: \(error.localizedDescription)")
                 logImport("Apple Health delete failed: \(error.localizedDescription)")
             }

@@ -31,7 +31,12 @@ struct RootTabView: View {
             arguments.indices.contains(index + 1) ? arguments[index + 1] : nil
         }
         if let requested = (ProcessInfo.processInfo.environment["NOOP_DEMO_TAB"] ?? argumentTab)?.lowercased() {
-            initialTab = requested == "trends" ? 1 : 0
+            initialTab = switch requested {
+            case "trends": 1
+            case "sleep": 2
+            case "more": 3
+            default: 0
+            }
         }
         #endif
         _selectedTab = State(initialValue: initialTab)
@@ -98,7 +103,10 @@ struct RootTabView: View {
                 withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) { selectedTab = 1 }
                 router.requestedDestination = nil
             case .activeWorkout:
-                withAnimation(Self.sheetEase) { quickAction = .live }
+                // iPhone owns a direct active-workout sheet. Clear the legacy LiveView one-shot so a
+                // later diagnostics visit cannot reopen the workout a second time.
+                router.presentActiveWorkout = false
+                withAnimation(Self.sheetEase) { quickAction = .activeWorkout }
                 router.requestedDestination = nil
             case .liveSession:
                 withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) { selectedTab = 0 }
@@ -126,7 +134,7 @@ struct RootTabView: View {
                 case .rhythm: RhythmHost(onClose: { routedPillar = nil })
                 case .devices: DevicesView()
                 case .trends: TrendsView()
-                case .activeWorkout: LiveView()
+                case .activeWorkout: LiveWorkoutView(onClose: { routedPillar = nil })
                 case .liveSession: TodayView()
                 case .settings: SettingsView()
                 case .updates: UpdatesInboxView(onClose: { routedPillar = nil })
@@ -160,8 +168,10 @@ struct RootTabView: View {
             .presentationDragIndicator(.hidden)
         case .live:
             quickScreen(LiveView())
+        case .activeWorkout:
+            quickScreen(LiveWorkoutView(onClose: { quickAction = nil }))
         case .workout:
-            quickScreen(WorkoutsView())
+            QuickWorkoutFlow(onClose: { quickAction = nil })
         case .journal:
             quickScreen(CoachingRootView())
         case .breathe:
@@ -505,8 +515,32 @@ private struct MoreCategoryView: View {
 }
 
 private enum QuickAction: Int, Identifiable {
-    case menu, live, workout, journal, breathe
+    case menu, live, activeWorkout, workout, journal, breathe
     var id: Int { rawValue }
+}
+
+/// The quick-action route is intentionally separate from the history screen. It observes only the active
+/// workout state it needs, chooses a sport once, and then replaces itself with the existing live workout.
+private struct QuickWorkoutFlow: View {
+    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var live: LiveState
+    let onClose: () -> Void
+    @State private var showLiveWorkout = false
+
+    var body: some View {
+        StartWorkoutSheet { sport in
+            model.startWorkout(sport: sport)
+            showLiveWorkout = true
+        }
+        .sheet(isPresented: $showLiveWorkout, onDismiss: onClose) {
+            LiveWorkoutView(onClose: onClose)
+                .environmentObject(model)
+                .environmentObject(live)
+        }
+        .onAppear {
+            if model.activeWorkout != nil { showLiveWorkout = true }
+        }
+    }
 }
 
 private struct QuickActionSheet: View {

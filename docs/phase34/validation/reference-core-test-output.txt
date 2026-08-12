@@ -1,0 +1,106 @@
+[0/1] Planning build
+Building for debugging...
+[0/2] Write swift-version--1BA0962812E73E12.txt
+Build complete! (0.15s)
+Test Suite 'All tests' started at 2026-08-04 12:09:18.808
+Test Suite 'debug.xctest' started at 2026-08-04 12:09:18.809
+Test Suite 'debug.xctest' passed at 2026-08-04 12:09:18.809
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.0 (0.0) seconds
+Test Suite 'All tests' passed at 2026-08-04 12:09:18.809
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.0 (0.0) seconds
+◇ Test run started.
+↳ Testing Library Version: 6.2.1 (c9d57c83568b06d)
+↳ Target Platform: x86_64-unknown-linux-gnu
+◇ Test activeWorkLeaseCanBeRenewedWithoutChangingPipelineState() started.
+◇ Test pendingWorkCoalescesExactDaysWithoutFillingGap() started.
+◇ Test healthKitCannotBeSuperseded() started.
+◇ Test generationsAreValidatedOnlyInsideTheirOwnDomains() started.
+◇ Test retryClearsLeaseAndBacksOff() started.
+◇ Test priorDayStrainIsNotVisibleAsCurrent() started.
+◇ Test verifiedMetricDecoderRejectsInvalidValue() started.
+◇ Test pendingLatestStateItemCanBeSuperseded() started.
+◇ Test shadowUsesV2RatherThanBlankWhenLegacyMissing() started.
+◇ Test sparseBucketsDoNotFillInterveningMonths() started.
+◇ Test metadataChangesDoNotChangePresentationIdentity() started.
+◇ Test pendingWorkDoesNotMergeAcrossRecordedTimeZones() started.
+◇ Test latestStateGateRejectsOlderGeneration() started.
+◇ Test onUsesV2AheadOfLegacy() started.
+◇ Test decodedEvidenceRequiresAnalysisEvenWhenInsertCountIsZero() started.
+◇ Test pendingWorkRefusesMergeThatWouldExceedMaximumDayCount() started.
+◇ Test physiologicalDayRollsAtFourAM() started.
+◇ Test outboxIdentityIsPerProjectionGenerationAndDestination() started.
+◇ Test workFollowsVerifiedPublicationOrder() started.
+◇ Test fallBackUsesCalendarDays() started.
+◇ Test outboxRetriesDurably() started.
+◇ Test latestStateIdentityUsesSnapshotGeneration() started.
+◇ Test importedWinsEveryMode() started.
+◇ Test explicitSourceAuthorityBeatsLexicographicSourceOrder() started.
+◇ Test mixedReceiptTimeZonesMustBeSplitBeforePlanning() started.
+◇ Test rangeEvidenceWithoutDecodedRowsDoesNotCreateAnalysisWork() started.
+◇ Test springForwardUsesCalendarDays() started.
+◇ Test healthKitIdentityUsesAnalysisGenerationAndRetainsChangedDays() started.
+◇ Test largeExactBacklogIsSplitIntoBoundedWorkBatches() started.
+◇ Test fingerprintPayloadIgnoresDerivedRangesAndCapturePolicyByConstruction() started.
+◇ Test verifiedProjectionDecoderRejectsZeroGeneration() started.
+◇ Test streamCountsRejectIntegerOverflow() started.
+◇ Test analysisCannotClaimReceiptsBeyondItsImmutableWorkEdge() started.
+◇ Test shadowKeepsLegacyAuthorityAndV2Diagnostic() started.
+◇ Test springForwardFourAMStartsNewPhysiologicalDay() started.
+◇ Test fallBackRepeatedHourStillRollsAtLocalFourAM() started.
+◇ Test inFlightExternalPublicationLeaseCanBeRenewed() started.
+◇ Test civilDayDecoderRejectsNormalizedInvalidDates() started.
+◇ Test shadowUsesPersistedV2BeforeProvisionalWhenLegacyMissing() started.
+◇ Test exactWorkRejectsMoreThanMaximumDayCount() started.
+◇ Test newCallbackCannotConsumeUnreturnedOldToken() started.
+◇ Test staleCallbackConsumesOnlyItsCharacteristicGeneration() started.
+◇ Test snapshotFailureDoesNotTurnAuthoritativeRefreshIntoFailure() started.
+◇ Test coordinatorPersistsFullVerifiedOrder() started.
+◇ Test exactDayMergeClearsAuthoritativeMissingAndPreservesOtherDays() started.
+◇ Test coordinatorBatchLimitDoesNotLeaveReadyWorkIdle() started.
+✔ Test activeWorkLeaseCanBeRenewedWithoutChangingPipelineState() passed after 0.007 seconds.
+✔ Test retryClearsLeaseAndBacksOff() passed after 0.006 seconds.
+✔ Test pendingLatestStateItemCanBeSuperseded() passed after 0.006 seconds.
+✔ Test generationsAreValidatedOnlyInsideTheirOwnDomains() passed after 0.007 seconds.
+✔ Test shadowUsesV2RatherThanBlankWhenLegacyMissing() passed after 0.006 seconds.
+✔ Test priorDayStrainIsNotVisibleAsCurrent() passed after 0.007 seconds.
+✔ Test metadataChangesDoNotChangePresentationIdentity() passed after 0.006 seconds.
+✔ Test pendingWorkCoalescesExactDaysWithoutFillingGap() passed after 0.007 seconds.
+✔ Test latestStateGateRejectsOlderGeneration() passed after 0.006 seconds.
+✔ Test healthKitCannotBeSuperseded() passed after 0.007 seconds.
+✔ Test pendingWorkDoesNotMergeAcrossRecordedTimeZones() passed after 0.007 seconds.
+✔ Test decodedEvidenceRequiresAnalysisEvenWhenInsertCountIsZero() passed after 0.006 seconds.
+✔ Test onUsesV2AheadOfLegacy() passed after 0.007 seconds.
+✔ Test outboxIdentityIsPerProjectionGenerationAndDestination() passed after 0.006 seconds.
+✔ Test workFollowsVerifiedPublicationOrder() passed after 0.006 seconds.
+✔ Test sparseBucketsDoNotFillInterveningMonths() passed after 0.007 seconds.
+✔ Test fallBackUsesCalendarDays() passed after 0.006 seconds.
+✔ Test latestStateIdentityUsesSnapshotGeneration() passed after 0.006 seconds.
+✔ Test importedWinsEveryMode() passed after 0.006 seconds.
+✔ Test outboxRetriesDurably() passed after 0.006 seconds.
+✔ Test explicitSourceAuthorityBeatsLexicographicSourceOrder() passed after 0.006 seconds.
+✔ Test rangeEvidenceWithoutDecodedRowsDoesNotCreateAnalysisWork() passed after 0.006 seconds.
+✔ Test springForwardUsesCalendarDays() passed after 0.006 seconds.
+✔ Test mixedReceiptTimeZonesMustBeSplitBeforePlanning() passed after 0.006 seconds.
+✔ Test healthKitIdentityUsesAnalysisGenerationAndRetainsChangedDays() passed after 0.006 seconds.
+✔ Test verifiedMetricDecoderRejectsInvalidValue() passed after 0.007 seconds.
+✔ Test streamCountsRejectIntegerOverflow() passed after 0.006 seconds.
+✔ Test analysisCannotClaimReceiptsBeyondItsImmutableWorkEdge() passed after 0.006 seconds.
+✔ Test shadowKeepsLegacyAuthorityAndV2Diagnostic() passed after 0.006 seconds.
+✔ Test verifiedProjectionDecoderRejectsZeroGeneration() passed after 0.006 seconds.
+✔ Test fingerprintPayloadIgnoresDerivedRangesAndCapturePolicyByConstruction() passed after 0.006 seconds.
+✔ Test pendingWorkRefusesMergeThatWouldExceedMaximumDayCount() passed after 0.007 seconds.
+✔ Test inFlightExternalPublicationLeaseCanBeRenewed() passed after 0.006 seconds.
+✔ Test shadowUsesPersistedV2BeforeProvisionalWhenLegacyMissing() passed after 0.006 seconds.
+✔ Test physiologicalDayRollsAtFourAM() passed after 0.007 seconds.
+✔ Test newCallbackCannotConsumeUnreturnedOldToken() passed after 0.006 seconds.
+✔ Test fallBackRepeatedHourStillRollsAtLocalFourAM() passed after 0.006 seconds.
+✔ Test staleCallbackConsumesOnlyItsCharacteristicGeneration() passed after 0.006 seconds.
+✔ Test springForwardFourAMStartsNewPhysiologicalDay() passed after 0.006 seconds.
+✔ Test snapshotFailureDoesNotTurnAuthoritativeRefreshIntoFailure() passed after 0.006 seconds.
+✔ Test civilDayDecoderRejectsNormalizedInvalidDates() passed after 0.006 seconds.
+✔ Test coordinatorPersistsFullVerifiedOrder() passed after 0.006 seconds.
+✔ Test exactDayMergeClearsAuthoritativeMissingAndPreservesOtherDays() passed after 0.006 seconds.
+✔ Test coordinatorBatchLimitDoesNotLeaveReadyWorkIdle() passed after 0.006 seconds.
+✔ Test exactWorkRejectsMoreThanMaximumDayCount() passed after 0.007 seconds.
+✔ Test largeExactBacklogIsSplitIntoBoundedWorkBatches() passed after 0.008 seconds.
+✔ Test run with 46 tests in 0 suites passed after 0.010 seconds.

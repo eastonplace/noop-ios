@@ -5,7 +5,7 @@ import GRDB
 final class DeviceRegistryStoreTests: XCTestCase {
     private func makeDB() throws -> DatabaseQueue {
         let dbq = try DatabaseQueue()
-        try WhoopStore.makeMigrator().migrate(dbq)   // applies through v15, seeds 'my-whoop' active
+        try WhoopStore.makeMigrator().migrate(dbq)   // applies through the current schema, seeds 'my-whoop' active
         return dbq
     }
 
@@ -66,6 +66,77 @@ final class DeviceRegistryStoreTests: XCTestCase {
         XCTAssertNil(try store.all().first { $0.id == "my-whoop" }?.peripheralId)
     }
 
+    func testHistoryLineageAndEpochFenceReplacementAndDelete() throws {
+        let store = DeviceRegistryStore(dbQueue: try makeDB())
+        let initialLineage = try XCTUnwrap(store.historyLineage(for: "my-whoop"))
+        XCTAssertEqual(try store.historyCursorEpoch(for: "my-whoop"), 0)
+
+        try store.setPeripheralId("my-whoop", peripheralId: "peripheral-a")
+        let firstPeripheralLineage = try XCTUnwrap(store.historyLineage(for: "my-whoop"))
+        XCTAssertNotEqual(firstPeripheralLineage, initialLineage)
+        XCTAssertEqual(try store.historyCursorEpoch(for: "my-whoop"), 1)
+
+        // Re-adopting the same physical peripheral is a metadata-stable update.
+        try store.setPeripheralId("my-whoop", peripheralId: "peripheral-a")
+        XCTAssertEqual(try store.historyLineage(for: "my-whoop"), firstPeripheralLineage)
+        XCTAssertEqual(try store.historyCursorEpoch(for: "my-whoop"), 1)
+
+        try store.setPeripheralId("my-whoop", peripheralId: "peripheral-b")
+        let replacementLineage = try XCTUnwrap(store.historyLineage(for: "my-whoop"))
+        XCTAssertNotEqual(replacementLineage, firstPeripheralLineage)
+        XCTAssertEqual(try store.historyCursorEpoch(for: "my-whoop"), 2)
+
+        try store.setPeripheralId("my-whoop", peripheralId: nil)
+        let clearedLineage = try XCTUnwrap(store.historyLineage(for: "my-whoop"))
+        XCTAssertNotEqual(clearedLineage, replacementLineage)
+        XCTAssertEqual(try store.historyCursorEpoch(for: "my-whoop"), 3)
+
+        try store.setPeripheralId("my-whoop", peripheralId: "peripheral-c")
+        let readoptedLineage = try XCTUnwrap(store.historyLineage(for: "my-whoop"))
+        XCTAssertNotEqual(readoptedLineage, clearedLineage)
+        XCTAssertEqual(try store.historyCursorEpoch(for: "my-whoop"), 4)
+
+        try store.deleteAllData(deviceId: "my-whoop")
+        XCTAssertNotEqual(try store.historyLineage(for: "my-whoop"), readoptedLineage)
+        XCTAssertEqual(try store.historyCursorEpoch(for: "my-whoop"), 5)
+    }
+
+    func testUpsertFencesFirstPeripheralAdoptionAndKeepsSamePeripheralStable() throws {
+        let store = DeviceRegistryStore(dbQueue: try makeDB())
+        let id = "upsert-whoop"
+        try store.add(PairedDevice(
+            id: id, brand: "WHOOP", model: "WHOOP 5.0", peripheralId: nil,
+            sourceKind: .liveBLE, capabilities: [.hr], status: .paired, addedAt: 1, lastSeenAt: 1
+        ))
+        let legacyLineage = try XCTUnwrap(store.historyLineage(for: id))
+        XCTAssertEqual(try store.historyCursorEpoch(for: id), 0)
+
+        // Registering the first physical peripheral must fence history from the legacy no-identity row.
+        try store.add(PairedDevice(
+            id: id, brand: "WHOOP", model: "WHOOP 5.0", peripheralId: "peripheral-a",
+            sourceKind: .liveBLE, capabilities: [.hr], status: .paired, addedAt: 1, lastSeenAt: 2
+        ))
+        let firstPeripheralLineage = try XCTUnwrap(store.historyLineage(for: id))
+        XCTAssertNotEqual(firstPeripheralLineage, legacyLineage)
+        XCTAssertEqual(try store.historyCursorEpoch(for: id), 1)
+
+        // A metadata refresh for the same physical peripheral preserves the fence.
+        try store.add(PairedDevice(
+            id: id, brand: "WHOOP", model: "WHOOP 5.0 / MG", peripheralId: "peripheral-a",
+            sourceKind: .liveBLE, capabilities: [.hr], status: .paired, addedAt: 1, lastSeenAt: 3
+        ))
+        XCTAssertEqual(try store.historyLineage(for: id), firstPeripheralLineage)
+        XCTAssertEqual(try store.historyCursorEpoch(for: id), 1)
+
+        // Replacing the adopted peripheral advances both parts of the history fence.
+        try store.add(PairedDevice(
+            id: id, brand: "WHOOP", model: "WHOOP 5.0 / MG", peripheralId: "peripheral-b",
+            sourceKind: .liveBLE, capabilities: [.hr], status: .paired, addedAt: 1, lastSeenAt: 4
+        ))
+        XCTAssertNotEqual(try store.historyLineage(for: id), firstPeripheralLineage)
+        XCTAssertEqual(try store.historyCursorEpoch(for: id), 2)
+    }
+
     func testDeviceForPeripheralIdFindsIt() throws {
         let store = DeviceRegistryStore(dbQueue: try makeDB())
         let pid = "ABCDEF01-2345-6789-ABCD-EF0123456789"
@@ -73,6 +144,18 @@ final class DeviceRegistryStoreTests: XCTestCase {
         try store.setPeripheralId("my-whoop", peripheralId: pid)
         XCTAssertEqual(try store.device(forPeripheralId: pid)?.id, "my-whoop")
         XCTAssertNil(try store.device(forPeripheralId: "no-such-peripheral"))
+    }
+
+    func testGenericWhoopModelRepairIsAtomicAndNeverOverwritesSpecificModels() throws {
+        let store = DeviceRegistryStore(dbQueue: try makeDB())
+        XCTAssertEqual(try store.all().first?.model, "WHOOP")
+
+        XCTAssertTrue(try store.setModelIfGenericWhoop("my-whoop", model: "WHOOP 5.0 / MG"))
+        XCTAssertEqual(try store.all().first?.model, "WHOOP 5.0 / MG")
+
+        XCTAssertFalse(try store.setModelIfGenericWhoop("my-whoop", model: "WHOOP 4.0"))
+        XCTAssertEqual(try store.all().first?.model, "WHOOP 5.0 / MG")
+        XCTAssertFalse(try store.setModelIfGenericWhoop("missing", model: "WHOOP 4.0"))
     }
 
     // ah-delete (#616): deleteAllData(deviceId: "apple-health") clears every row stored under the
@@ -114,6 +197,43 @@ final class DeviceRegistryStoreTests: XCTestCase {
         // The registry row itself is never touched by a delete-data op (the seeded my-whoop remains).
         XCTAssertEqual(try store.all().count, 1)
         XCTAssertEqual(try store.activeDeviceId(), "my-whoop")
+    }
+
+    func testDeleteAllDataClearsOnlyTheTargetDeviceCheckpointRows() throws {
+        let dbq = try makeDB()
+        let store = DeviceRegistryStore(dbQueue: dbq)
+
+        try dbq.write { db in
+            for (deviceId, consumerId, lineage) in [
+                ("apple-health", "analysis", "lineage-a"),
+                ("apple-health", "recovery", "lineage-a"),
+                ("my-whoop", "analysis", "lineage-b"),
+            ] {
+                try db.execute(sql: """
+                    INSERT INTO historicalAnalysisCheckpoint
+                        (databaseInstanceId, consumerId, deviceId, lineage, cursorEpoch, trimScope)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """, arguments: ["test-database", consumerId, deviceId, lineage, 0, "all"])
+            }
+        }
+
+        func countCheckpointRows(for deviceId: String) throws -> Int {
+            try dbq.read { db in
+                try Int.fetchOne(
+                    db,
+                    sql: "SELECT COUNT(*) FROM historicalAnalysisCheckpoint WHERE deviceId = ?",
+                    arguments: [deviceId]
+                ) ?? 0
+            }
+        }
+
+        XCTAssertEqual(try countCheckpointRows(for: "apple-health"), 2)
+        XCTAssertEqual(try countCheckpointRows(for: "my-whoop"), 1)
+
+        try store.deleteAllData(deviceId: "apple-health")
+
+        XCTAssertEqual(try countCheckpointRows(for: "apple-health"), 0)
+        XCTAssertEqual(try countCheckpointRows(for: "my-whoop"), 1)
     }
 
     // Regression guard (audit finding): every table with a `deviceId` column MUST appear in

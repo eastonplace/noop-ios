@@ -404,8 +404,8 @@ private struct PaperWorkoutMapCard: View {
         PaperCard(padding: 0) {
             ZStack(alignment: .bottomLeading) {
                 Group {
-                    if recorder.routePoints.count >= 2 {
-                        WorkoutRouteMap(points: recorder.routePoints, showsEndpoints: false)
+                    if recorder.routeSegments.contains(where: { $0.count >= 2 }) {
+                        WorkoutRouteMap(segments: recorder.routeSegments, showsEndpoints: false)
                             .allowsHitTesting(false)
                             .accessibilityLabel("Live GPS route")
                     } else {

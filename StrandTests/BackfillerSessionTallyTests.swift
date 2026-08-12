@@ -165,6 +165,66 @@ final class BackfillerSessionTallyTests: XCTestCase {
     /// A store that forwards the real decoded counts so the session tally reflects rows that genuinely
     /// landed (the v25 record frames below each decode to one gravity sample).
     private final class TallyStore: BackfillStoreWriting {
+        private let failCommit: Bool
+
+        init(failCommit: Bool = false) {
+            self.failCommit = failCommit
+        }
+
+        func commitHistoricalChunk(
+            streams: Streams,
+            deviceId: String,
+            trim: Int,
+            chunkEndUnix: Int,
+            rawBatch: HistoricalRawBatch?,
+            committedAt: Int,
+            scope: HistoricalCursorScope,
+            fingerprint: String,
+            fingerprintInput: HistoricalReceivedFrameFingerprintInput,
+            rawCaptureStatus: HistoricalRawCaptureStatus?,
+            rawRange: HistoricalRawRangeEvidence?,
+            burst: HistoricalDataCommitBurst?,
+            timestampHeal: HistoricalTimestampHeal?,
+            isFinal: Bool
+        ) async throws -> HistoricalDataCommitReceipt {
+            if failCommit {
+                throw NSError(domain: "BackfillerSessionTallyTests", code: 1)
+            }
+            HistoricalDataCommitReceipt(
+                receiptId: "tally-\(trim)",
+                generation: Int64(trim),
+                databaseInstanceId: "test-db",
+                deviceId: deviceId,
+                trim: trim,
+                chunkEndUnix: chunkEndUnix,
+                committedAt: committedAt,
+                rawBatchId: rawBatch?.meta.batchId,
+                insertedRows: HistoricalStreamInsertCounts(
+                    hr: streams.hr.count,
+                    rr: streams.rr.count,
+                    events: streams.events.count,
+                    battery: streams.battery.count,
+                    spo2: streams.spo2.count,
+                    skinTemp: streams.skinTemp.count,
+                    resp: streams.resp.count,
+                    gravity: streams.gravity.count,
+                    steps: streams.steps.count,
+                    sleepState: streams.sleepState.count,
+                    ppgHr: streams.ppgHr.count,
+                    ppgWaveform: streams.ppgWaveform.count
+                ),
+                fingerprint: fingerprint,
+                lineage: scope.lineage,
+                cursorEpoch: scope.cursorEpoch,
+                trimScope: scope.trimScope,
+                rawStatus: rawCaptureStatus,
+                rawRange: rawRange ?? fingerprintInput.rawRangeEvidence,
+                burst: burst,
+                timestampHeal: timestampHeal,
+                isFinal: isFinal
+            )
+        }
+
         @discardableResult
         func insert(_ streams: Streams, deviceId: String) async throws
             -> (hr: Int, rr: Int, events: Int, battery: Int,
@@ -214,9 +274,11 @@ final class BackfillerSessionTallyTests: XCTestCase {
         let backfiller = Backfiller(
             store: TallyStore(),
             deviceId: "test",
-            ackTrim: { _, _ in },
+            ackTrim: { _, _, _ in true },
             log: { lines.append($0) })
-        backfiller.begin(family: .whoop4)
+        backfiller.begin(
+            family: .whoop4,
+            historicalCursorScope: HistoricalCursorScope(deviceId: "test", lineage: "test-lineage"))
         for f in v25RecordFrames { await backfiller.ingest(f) }     // records arrive on the open chunk
         await backfiller.ingest(historyEndFrame(trim: 0xFFFFFFFF))  // ...then a no-cursor END carrying them
 
@@ -237,9 +299,11 @@ final class BackfillerSessionTallyTests: XCTestCase {
         let backfiller = Backfiller(
             store: TallyStore(),
             deviceId: "test",
-            ackTrim: { _, _ in },
+            ackTrim: { _, _, _ in true },
             log: { lines.append($0) })
-        backfiller.begin(family: .whoop4)
+        backfiller.begin(
+            family: .whoop4,
+            historicalCursorScope: HistoricalCursorScope(deviceId: "test", lineage: "test-lineage"))
         await backfiller.ingest(historyEndFrame(trim: 0xFFFFFFFF))  // no records this session
 
         XCTAssertEqual(backfiller.sessionRowsPersisted, 0)
@@ -247,5 +311,45 @@ final class BackfillerSessionTallyTests: XCTestCase {
         XCTAssertTrue(joined.contains("no banked history to offload"),
                       "a truly-empty no-cursor session must still warn the strap has no banked history")
         XCTAssertTrue(joined.contains("fully charge it"))
+    }
+
+    @MainActor func testCommitFailureReportsTypedFailureAndStopsSessionWithoutAck() async {
+        var failure: BackfillFailure?
+        var ackCount = 0
+        let backfiller = Backfiller(
+            store: TallyStore(failCommit: true),
+            deviceId: "test",
+            ackTrim: { _, _, _ in ackCount += 1; return true },
+            onFailure: { failure = $0 })
+        backfiller.begin(
+            family: .whoop4,
+            historicalCursorScope: HistoricalCursorScope(deviceId: "test", lineage: "test-lineage"))
+        for frame in v25RecordFrames { await backfiller.ingest(frame) }
+        await backfiller.ingest(historyEndFrame(trim: 57_320))
+
+        XCTAssertEqual(failure, .commit(trim: 57_320))
+        XCTAssertTrue(backfiller.persistStalled)
+        XCTAssertFalse(backfiller.isBackfilling)
+        XCTAssertEqual(ackCount, 0)
+    }
+
+    @MainActor func testAckFailureReportsTypedFailureAfterDurableCommit() async {
+        var failure: BackfillFailure?
+        var ackCount = 0
+        let backfiller = Backfiller(
+            store: TallyStore(),
+            deviceId: "test",
+            ackTrim: { _, _, _ in ackCount += 1; return false },
+            onFailure: { failure = $0 })
+        backfiller.begin(
+            family: .whoop4,
+            historicalCursorScope: HistoricalCursorScope(deviceId: "test", lineage: "test-lineage"))
+        for frame in v25RecordFrames { await backfiller.ingest(frame) }
+        await backfiller.ingest(historyEndFrame(trim: 57_320))
+
+        XCTAssertEqual(failure, .acknowledgment(trim: 57_320))
+        XCTAssertTrue(backfiller.persistStalled)
+        XCTAssertFalse(backfiller.isBackfilling)
+        XCTAssertEqual(ackCount, 1)
     }
 }

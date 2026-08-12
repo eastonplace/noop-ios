@@ -6,6 +6,7 @@ let package = Package(
     platforms: [.iOS(.v16), .macOS(.v13)],
     products: [.library(name: "WhoopStore", targets: ["WhoopStore"])],
     dependencies: [
+        .package(path: "../NoopPhase34Core"),
         .package(path: "../WhoopProtocol"),
         .package(path: "../OuraProtocol"),
         // Supply-chain: pinned EXACT (not `from:`) so a clean resolve can't auto-pull a newer —
@@ -19,6 +20,7 @@ let package = Package(
             dependencies: [
                 "WhoopProtocol",
                 "OuraProtocol",
+                "NoopPhase34Core",
                 .product(name: "GRDB", package: "GRDB.swift"),
             ]
         ),

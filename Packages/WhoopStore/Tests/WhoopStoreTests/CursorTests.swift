@@ -44,4 +44,22 @@ final class CursorTests: XCTestCase {
         XCTAssertEqual(hr, 100)
         XCTAssertEqual(rr, 200)
     }
+
+    func testScopedCursorKeepsTrimPairedWithNewestWatermark() async throws {
+        let store = try await WhoopStore.inMemory()
+        let scope = HistoricalCursorScope(
+            deviceId: "my-whoop",
+            lineage: "lineage-a",
+            cursorEpoch: 0,
+            trimScope: "historical")
+
+        try await store.setCursor(scope, 90, watermarkGeneration: 1)
+        try await store.setCursor(scope, 20, watermarkGeneration: 2)
+        try await store.setCursor(scope, 80, watermarkGeneration: 1)
+
+        let trim = try await store.cursor(scope)
+        let watermark = try await store.historicalCursorWatermark(scope)
+        XCTAssertEqual(trim, 20)
+        XCTAssertEqual(watermark, 2)
+    }
 }

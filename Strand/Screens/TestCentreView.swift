@@ -12,14 +12,31 @@ import StrandImport
 /// experimental toggles) so the Test Centre is the one place to find them; SettingsView keeps a thin nav
 /// link in. No em-dash in any string here.
 struct TestCentreView: View {
-    @EnvironmentObject var model: AppModel
-    @EnvironmentObject var live: LiveState
+    /// Command/state identities are captured once by inert leaves below. This large diagnostic route
+    /// must not subscribe to every HR/R-R/log publication just because a few child controls issue actions.
+    @State private var appModel: AppModel?
+    @State private var liveState: LiveState?
+
+    private var model: AppModel {
+        guard let appModel else {
+            preconditionFailure("TestCentreView rendered before AppModelReferenceCapture supplied AppModel")
+        }
+        return appModel
+    }
+
+    private var live: LiveState {
+        guard let liveState else {
+            preconditionFailure("TestCentreView rendered before LiveStateReferenceCapture supplied LiveState")
+        }
+        return liveState
+    }
 
     /// The Report orchestrator: assembles the redacted bundle, runs the mandatory review gate, shares.
     @StateObject private var report = TestCentreReport()
 
-    /// Re-read activation on appear so a toggle flip elsewhere reflects here.
-    @State private var refreshToken = 0
+    /// Rebuild only the small static mode summary after an inline activation changes. The previous
+    /// screen-wide `.id(refreshToken)` recreated sheets, controls, and the live log on every appear.
+    @State private var modeSummaryRefreshID = UUID()
 
     // Section 2: recalibrate confirm.
     @State private var showRecalibrateConfirm = false
@@ -49,14 +66,6 @@ struct TestCentreView: View {
     /// True when the connected strap is a 5/MG, so the 5/MG experimental block shows. Mirrors the
     /// SettingsView gate (#22): a confident 4.0 owner never sees controls that cannot touch their strap.
     private var is5MG: Bool { selectedWhoopModelRaw == WhoopModel.whoop5mg.rawValue }
-    private var activeConnection: Bool { live.connected && live.bonded }
-    private var canExerciseLiveTools: Bool {
-        #if DEBUG
-        return activeConnection || CommandLine.arguments.contains("--demo-seed")
-        #else
-        return activeConnection
-        #endif
-    }
     private var hrvSnapshotSource: SpotHrvReading.Source {
         selectedWhoopModelRaw == WhoopModel.whoop5mg.rawValue ? .opticalPPG : .chestStrap
     }
@@ -69,6 +78,18 @@ struct TestCentreView: View {
         capture: .toggle, includesScreenshot: false, requires5MG: false)
 
     var body: some View {
+        Group {
+            if appModel != nil, liveState != nil {
+                dashboard
+            } else {
+                Color.clear
+            }
+        }
+        .background(AppModelReferenceCapture(reference: $appModel))
+        .background(LiveStateReferenceCapture(reference: $liveState))
+    }
+
+    private var dashboard: some View {
         ScreenScaffold(title: "Test Centre",
                        subtitle: "Diagnostics & tools") {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
@@ -80,9 +101,7 @@ struct TestCentreView: View {
                 advancedCard.staggeredAppear(index: 5)
             }
         }
-        .id(refreshToken)
         .onAppear {
-            refreshToken &+= 1
             ScheduledDebugExport.activateIfEnabled()
         }
         .sheet(item: $report.pending) { _ in
@@ -123,35 +142,16 @@ struct TestCentreView: View {
     private var liveDiagnosticsSection: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
             SectionHeader("Signal Trust", overline: "Live stream diagnostics")
-            LiveSignalTrustRail(activeConnection: activeConnection)
+            TestCentreConnectionTrustLeaf(live: live)
 
             SectionHeader("Record & inspect", overline: "Current stream")
             PaperCard(padding: 14) {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(activeConnection
-                         ? "Record a workout interval or inspect the live R-R stream."
-                         : "Connect a strap in Live, then return here to record or inspect its stream.")
-                        .font(StrandFont.caption)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    NoopButton(model.activeWorkout == nil ? "Record workout" : "Open active workout",
-                               systemImage: model.activeWorkout == nil ? "record.circle" : "timer",
-                               kind: .primary, fullWidth: true) {
-                        if model.activeWorkout == nil { showStartSport = true }
-                        else { showLiveWorkout = true }
-                    }
-                    .disabled(!canExerciseLiveTools && model.activeWorkout == nil)
-                    HStack(spacing: NoopMetrics.rowSpacing) {
-                        NoopButton("Refresh strap", systemImage: "arrow.clockwise", kind: .secondary) {
-                            model.getBattery()
-                        }
-                        .disabled(!canExerciseLiveTools)
-                        NoopButton("Inspect HRV", systemImage: "waveform.path.ecg", kind: .secondary) {
-                            showHRVSnapshot = true
-                        }
-                        .disabled(!canExerciseLiveTools)
-                    }
-                }
+                TestCentreRecordInspectLeaf(
+                    model: model,
+                    live: live,
+                    onStartWorkout: { showStartSport = true },
+                    onOpenWorkout: { showLiveWorkout = true },
+                    onInspectHRV: { showHRVSnapshot = true })
             }
 
             SectionHeader("Stream log", overline: "Inspect & export")
@@ -183,6 +183,7 @@ struct TestCentreView: View {
                 .buttonStyle(.plain)
             }
         }
+        .id(modeSummaryRefreshID)
     }
 
     private func paperTestSection(_ title: LocalizedStringKey,
@@ -196,7 +197,7 @@ struct TestCentreView: View {
                         SettingsRow(icon: row.0, title: row.1, subtitle: row.2, showsChevron: false) {
                             ChipButton(TestCentre.active(row.3) ? "On" : "Run") {
                                 TestCentre.activate(row.3)
-                                refreshToken &+= 1
+                                modeSummaryRefreshID = UUID()
                             }
                         }
                     }
@@ -454,6 +455,68 @@ struct TestCentreView: View {
     }
 }
 
+/// Observes only the small connection rail, not the complete Test Centre route.
+private struct TestCentreConnectionTrustLeaf: View {
+    @ObservedObject var live: LiveState
+
+    var body: some View {
+        LiveSignalTrustRail(activeConnection: live.connected && live.bonded)
+    }
+}
+
+/// Keeps active-workout labels and connection-gated actions live without invalidating the diagnostic log.
+private struct TestCentreRecordInspectLeaf: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var live: LiveState
+    let onStartWorkout: () -> Void
+    let onOpenWorkout: () -> Void
+    let onInspectHRV: () -> Void
+
+    private var activeConnection: Bool { live.connected && live.bonded }
+    private var canExerciseLiveTools: Bool {
+        #if DEBUG
+        return activeConnection || CommandLine.arguments.contains("--demo-seed")
+        #else
+        return activeConnection
+        #endif
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(activeConnection
+                 ? "Record a workout interval or inspect the live R-R stream."
+                 : "Connect a strap in Live, then return here to record or inspect its stream.")
+                .font(StrandFont.caption)
+                .foregroundStyle(StrandPalette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            NoopButton(model.activeWorkout == nil ? "Record workout" : "Open active workout",
+                       systemImage: model.activeWorkout == nil ? "record.circle" : "timer",
+                       kind: .primary,
+                       fullWidth: true,
+                       action: openWorkout)
+                .disabled(!canExerciseLiveTools && model.activeWorkout == nil)
+            HStack(spacing: NoopMetrics.rowSpacing) {
+                NoopButton("Refresh strap", systemImage: "arrow.clockwise", kind: .secondary) {
+                    model.getBattery()
+                }
+                .disabled(!canExerciseLiveTools)
+                NoopButton("Inspect HRV", systemImage: "waveform.path.ecg", kind: .secondary) {
+                    onInspectHRV()
+                }
+                .disabled(!canExerciseLiveTools)
+            }
+        }
+    }
+
+    private func openWorkout() {
+        if model.activeWorkout == nil {
+            onStartWorkout()
+        } else {
+            onOpenWorkout()
+        }
+    }
+}
+
 /// One domain-test-mode row: icon + title + status + blurb, a toggle wired to TestCentre, and a Report
 /// action. Toggling calls TestCentre.activate/deactivate (the single prefs namespace).
 private struct TestModeRow: View {
@@ -638,10 +701,9 @@ private struct ConnectionReadoutPanel: View {
         // per-session number keeps resetting away.
         let sessionRows = ConnectionReadout.sessionRows(taggedTail: tail)
         let allTimeRows = TestCentre.cumulativeDrainedRows()
-        // #987: clock latch + frame liveness. The correlated device clock is parsed from the same log the
-        // export ships (pure ConnectionReadout parsers), the last-frame stamp off the non-published
-        // LiveState field FrameRouter writes.
-        let deviceClock = ConnectionReadout.clockCorrelatedDevice(logLines: live.log)
+        // Clock correlation is explicit state captured by BLEManager at the proven decode seam. The log
+        // remains export evidence, not a state store the diagnostic panel re-scans on every append.
+        let deviceClock = live.correlatedDeviceClockUnix
         let rtcWarning = ConnectionReadout.rtcWarning(deviceClockUnix: deviceClock,
                                                       strapNewestUnix: live.strapRange?.newestUnix)
         VStack(alignment: .leading, spacing: 4) {

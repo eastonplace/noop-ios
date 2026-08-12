@@ -1,12 +1,240 @@
 #if os(iOS)
 import Foundation
 import HealthKit
+import NoopPhase34Core
 import WhoopStore
 import StrandAnalytics
 import StrandImport
 
 enum HealthKitWritebackComponent: String, CaseIterable {
     case vitals, sleep, heartRate, workouts
+}
+
+enum ExactPublicationError: Error {
+    case authorizationUnavailable
+    case storeUnavailable
+    case invalidTimeZone
+}
+
+enum HealthKitSourceDeletionCategory: String, Codable, CaseIterable, Sendable {
+    case vitals
+    case sleep
+    case workouts
+    case heartRate
+}
+
+enum HealthKitSourceDeletionPhase: String, Codable, Sendable {
+    case deletingProjectedSamples
+    case rebuildingRemainingSources
+}
+
+/// Opaque durable cursor owned by the post-commit privacy worker. The day does
+/// not advance when a 5,000-object page saturates. Timestamp plus stable key
+/// gives dense days a deterministic continuation point.
+struct HealthKitSourceDeletionCursor: Codable, Equatable, Sendable {
+    let category: HealthKitSourceDeletionCategory
+    let day: CivilDay
+    let phase: HealthKitSourceDeletionPhase
+    let componentIndex: Int
+    let lastTimestamp: Double?
+    let stableTieBreaker: String?
+
+    init(
+        category: HealthKitSourceDeletionCategory,
+        day: CivilDay,
+        phase: HealthKitSourceDeletionPhase = .deletingProjectedSamples,
+        componentIndex: Int = 0,
+        lastTimestamp: Double? = nil,
+        stableTieBreaker: String? = nil
+    ) {
+        self.category = category
+        self.day = day
+        self.phase = phase
+        self.componentIndex = componentIndex
+        self.lastTimestamp = lastTimestamp
+        self.stableTieBreaker = stableTieBreaker
+    }
+}
+
+struct HealthKitSourceDeletionChunkRequest: Equatable, Sendable {
+    let sourceDeviceId: String
+    let remainingImportedIds: [String]
+    let remainingComputedIds: [String]
+    let category: HealthKitSourceDeletionCategory
+    let firstDay: CivilDay
+    let throughDay: CivilDay
+    let timeZoneIdentifier: String
+    let cursor: HealthKitSourceDeletionCursor?
+
+    init(
+        sourceDeviceId: String,
+        remainingImportedIds: [String],
+        remainingComputedIds: [String],
+        category: HealthKitSourceDeletionCategory,
+        firstDay: CivilDay,
+        throughDay: CivilDay,
+        timeZoneIdentifier: String,
+        cursor: HealthKitSourceDeletionCursor? = nil
+    ) {
+        self.sourceDeviceId = sourceDeviceId
+        self.remainingImportedIds = remainingImportedIds
+        self.remainingComputedIds = remainingComputedIds
+        self.category = category
+        self.firstDay = firstDay
+        self.throughDay = throughDay
+        self.timeZoneIdentifier = timeZoneIdentifier
+        self.cursor = cursor
+    }
+}
+
+struct HealthKitSourceDeletionProcessedInterval: Codable, Equatable, Sendable {
+    let category: HealthKitSourceDeletionCategory
+    let firstDay: CivilDay
+    let lastDay: CivilDay
+}
+
+struct HealthKitSourceDeletionChunkResult: Equatable, Sendable {
+    let processedInterval: HealthKitSourceDeletionProcessedInterval
+    let processedDayCount: Int
+    let deletedObjectCount: Int
+    let rebuiltObjectCount: Int
+    let continuationCursor: HealthKitSourceDeletionCursor?
+    let isComplete: Bool
+
+    var processedObjectCount: Int { deletedObjectCount + rebuiltObjectCount }
+}
+
+enum HealthKitSourceDeletionChunkError: Error, Equatable {
+    case invalidRange
+    case invalidCursor
+    case invalidTimeZone
+    case batchLimitExceeded
+}
+
+enum HealthKitSourceDeletionChunkPlanner {
+    static let maximumCivilDays = 30
+    static let maximumObjectsPerQuery = 5_000
+
+    static func deletionComponentCount(
+        for category: HealthKitSourceDeletionCategory
+    ) -> Int {
+        switch category {
+        case .vitals, .workouts:
+            return 4
+        case .sleep, .heartRate:
+            return 1
+        }
+    }
+
+    static func interval(
+        for request: HealthKitSourceDeletionChunkRequest
+    ) throws -> HealthKitSourceDeletionProcessedInterval {
+        guard request.firstDay <= request.throughDay else {
+            throw HealthKitSourceDeletionChunkError.invalidRange
+        }
+        if let cursor = request.cursor {
+            let componentCount = deletionComponentCount(for: request.category)
+            guard cursor.category == request.category,
+                  cursor.day >= request.firstDay,
+                  cursor.day <= request.throughDay,
+                  (cursor.lastTimestamp == nil) == (cursor.stableTieBreaker == nil),
+                  cursor.lastTimestamp.map(\.isFinite) ?? true,
+                  (
+                    cursor.phase == .rebuildingRemainingSources
+                        ? cursor.componentIndex == 0
+                        : (0..<componentCount).contains(cursor.componentIndex)
+                  ) else {
+                throw HealthKitSourceDeletionChunkError.invalidCursor
+            }
+        }
+        guard TimeZone(identifier: request.timeZoneIdentifier) != nil else {
+            throw HealthKitSourceDeletionChunkError.invalidTimeZone
+        }
+        let first = request.cursor?.day ?? request.firstDay
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = Locale(identifier: "en_US_POSIX")
+        calendar.timeZone = TimeZone(identifier: request.timeZoneIdentifier)!
+        let firstDate = try first.date(in: calendar)
+        // HR has at most one minute bucket per source timestamp. Three days keep
+        // the merged rebuild page below 5,000 even before saturation handling.
+        let categoryMaximum = request.category == .heartRate ? 3 : maximumCivilDays
+        guard let proposedLastDate = calendar.date(
+            byAdding: .day,
+            value: categoryMaximum - 1,
+            to: firstDate
+        ) else { throw CivilDayError.unrepresentableDate }
+        let components = calendar.dateComponents([.year, .month, .day], from: proposedLastDate)
+        guard let year = components.year, let month = components.month, let day = components.day else {
+            throw CivilDayError.unrepresentableDate
+        }
+        let proposedLast = try CivilDay(year: year, month: month, day: day)
+        return HealthKitSourceDeletionProcessedInterval(
+            category: request.category,
+            firstDay: first,
+            lastDay: min(proposedLast, request.throughDay)
+        )
+    }
+
+    static func day(after day: CivilDay, timeZoneIdentifier: String) throws -> CivilDay {
+        guard let timeZone = TimeZone(identifier: timeZoneIdentifier) else {
+            throw HealthKitSourceDeletionChunkError.invalidTimeZone
+        }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = Locale(identifier: "en_US_POSIX")
+        calendar.timeZone = timeZone
+        guard let nextDate = calendar.date(byAdding: .day, value: 1, to: try day.date(in: calendar)) else {
+            throw CivilDayError.unrepresentableDate
+        }
+        let components = calendar.dateComponents([.year, .month, .day], from: nextDate)
+        guard let year = components.year, let month = components.month, let day = components.day else {
+            throw CivilDayError.unrepresentableDate
+        }
+        return try CivilDay(year: year, month: month, day: day)
+    }
+}
+
+enum HealthKitWorkoutReplayComponent: String, CaseIterable, Hashable, Sendable {
+    case workout
+    case activeEnergy
+    case distanceWalkingRunning
+    case distanceCycling
+}
+
+/// Stable NOOP-owned identities deleted before every workout rebuild. The plan
+/// includes both distance types so a corrected sport cannot leave the prior
+/// associated distance sample behind.
+struct HealthKitWorkoutReplayPlan: Equatable, Sendable {
+    let noopDeviceId: String
+    let startTimestamps: [Int]
+
+    init(noopDeviceId: String, startTimestamps: [Int]) {
+        self.noopDeviceId = noopDeviceId
+        self.startTimestamps = Array(Set(startTimestamps)).sorted()
+    }
+
+    func externalUUID(
+        component: HealthKitWorkoutReplayComponent,
+        startTimestamp: Int
+    ) -> String {
+        switch component {
+        case .workout:
+            return "noop:\(noopDeviceId):workout:\(startTimestamp)"
+        case .activeEnergy:
+            return "noop:\(noopDeviceId):workout-active-energy:\(startTimestamp)"
+        case .distanceWalkingRunning:
+            return "noop:\(noopDeviceId):workout-distance-walking-running:\(startTimestamp)"
+        case .distanceCycling:
+            return "noop:\(noopDeviceId):workout-distance-cycling:\(startTimestamp)"
+        }
+    }
+
+    func externalUUIDs(
+        for component: HealthKitWorkoutReplayComponent
+    ) -> [String] {
+        startTimestamps.map {
+            externalUUID(component: component, startTimestamp: $0)
+        }
+    }
 }
 
 /// Deterministic, per-component six-hour success gate for NOOP → HealthKit write plans.
@@ -67,29 +295,37 @@ enum HealthKitWritebackPlanner {
         -> [CachedSleepSession] {
         var merged: [Int: CachedSleepSession] = [:]
         for id in computedIds {
+            try Task.checkCancellation()
             for row in try await store.sleepSessions(deviceId: id, from: from, to: to, limit: limit)
             where merged[row.startTs] == nil { merged[row.startTs] = row }
+            try Task.checkCancellation()
         }
         var imported: [Int: CachedSleepSession] = [:]
         for id in importedIds {
+            try Task.checkCancellation()
             for row in try await store.sleepSessions(deviceId: id, from: from, to: to, limit: limit)
             where imported[row.startTs] == nil { imported[row.startTs] = row }
+            try Task.checkCancellation()
         }
         for (key, row) in imported { merged[key] = row }
-        return merged.keys.sorted().compactMap { merged[$0] }
+        return Array(merged.keys.sorted().compactMap { merged[$0] }.prefix(max(0, limit)))
     }
 
     static func dailyMetrics(store: WhoopStore, importedIds: [String], computedIds: [String],
                              from: String, to: String) async throws -> [DailyMetric] {
         var merged: [String: DailyMetric] = [:]
         for id in computedIds {
+            try Task.checkCancellation()
             for row in try await store.dailyMetrics(deviceId: id, from: from, to: to)
             where merged[row.day] == nil { merged[row.day] = row }
+            try Task.checkCancellation()
         }
         var imported: [String: DailyMetric] = [:]
         for id in importedIds {
+            try Task.checkCancellation()
             for row in try await store.dailyMetrics(deviceId: id, from: from, to: to)
             where imported[row.day] == nil { imported[row.day] = row }
+            try Task.checkCancellation()
         }
         for (key, row) in imported { merged[key] = row }
         return merged.keys.sorted().compactMap { merged[$0] }
@@ -100,11 +336,13 @@ enum HealthKitWritebackPlanner {
         async throws -> [SourcedHRBucket] {
         var byTimestamp: [Int: SourcedHRBucket] = [:]
         for id in importedIds {
+            try Task.checkCancellation()
             for bucket in try await store.hrBuckets(deviceId: id, from: fromById[id] ?? 0,
                                                      to: to, bucketSeconds: bucketSeconds)
             where byTimestamp[bucket.ts] == nil {
                 byTimestamp[bucket.ts] = SourcedHRBucket(sourceId: id, bucket: bucket)
             }
+            try Task.checkCancellation()
         }
         return byTimestamp.keys.sorted().compactMap { byTimestamp[$0] }
     }
@@ -115,18 +353,22 @@ enum HealthKitWritebackPlanner {
         func key(_ row: WorkoutRow) -> String { "\(row.startTs):\(row.sport)" }
         var merged: [String: WorkoutRow] = [:]
         for id in computedIds {
+            try Task.checkCancellation()
             for row in try await store.workouts(deviceId: id, from: from, to: to, limit: limit)
             where row.source != excludingSource && merged[key(row)] == nil { merged[key(row)] = row }
+            try Task.checkCancellation()
         }
         var imported: [String: WorkoutRow] = [:]
         for id in importedIds {
+            try Task.checkCancellation()
             for row in try await store.workouts(deviceId: id, from: from, to: to, limit: limit)
             where row.source != excludingSource && imported[key(row)] == nil { imported[key(row)] = row }
+            try Task.checkCancellation()
         }
         for (key, row) in imported { merged[key] = row }
-        return merged.values.sorted {
+        return Array(merged.values.sorted {
             $0.startTs == $1.startTs ? $0.sport < $1.sport : $0.startTs < $1.startTs
-        }
+        }.prefix(max(0, limit)))
     }
 }
 
@@ -210,6 +452,7 @@ final class HealthKitBridge: ObservableObject {
     }
     private var observerScanActive = false
     private var observerScanWaiters: [CheckedContinuation<Void, Never>] = []
+    private var requestedExpandedWriteAuthorization = false
 
     init(repo: Repository, appleDeviceId: String, noopDeviceId: String) {
         self.repo = repo
@@ -328,10 +571,13 @@ final class HealthKitBridge: ObservableObject {
     /// never reveals *read* status, but *write*/share status is observable — if the user already
     /// authorized all of our write types, treat the bridge as `.authorized`. This only reads
     /// status, so no system permission sheet is shown.
-    func refreshAuthIfPreviouslyGranted() {
-        guard auth == .unknown, HKHealthStore.isHealthDataAvailable() else { return }
-        let granted = legacyCoreWriteTypes.allSatisfy { store.authorizationStatus(for: $0) == .sharingAuthorized }
-        if granted {
+    func refreshAuthIfPreviouslyGranted(requestNewTypes: Bool = true) async {
+        guard HKHealthStore.isHealthDataAvailable() else { return }
+        if auth == .unknown {
+            let granted = legacyCoreWriteTypes.allSatisfy {
+                store.authorizationStatus(for: $0) == .sharingAuthorized
+            }
+            guard granted else { return }
             auth = .authorized
             // A returning user who already granted access should get the live stream re-armed for this
             // process. enableLiveDelivery is idempotent (HealthKit dedups observers + background
@@ -343,14 +589,24 @@ final class HealthKitBridge: ObservableObject {
             // share status, so declining any checkbox just skips that feature.
             // Raw request, NOT requestAuthorization(): that method reclassifies a thrown error as
             // `.denied`, which must never demote a bridge that just resumed a valid legacy grant.
-            let newTypesPending = writeTypes.contains { store.authorizationStatus(for: $0) == .notDetermined }
-            if newTypesPending {
-                Task {
-                    if (try? await store.requestAuthorization(toShare: writeTypes, read: readTypes)) != nil {
-                        HealthKitWritebackFingerprint.reset()
-                    }
-                }
-            }
+        }
+
+        // A privacy recovery must run after this request settles. Otherwise it can observe one missing
+        // high-resolution grant, defer, and receive no second foreground edge after the user answers.
+        guard auth == .authorized,
+              requestNewTypes,
+              !requestedExpandedWriteAuthorization,
+              writeTypes.contains(where: {
+                  store.authorizationStatus(for: $0) == .notDetermined
+              }) else { return }
+        requestedExpandedWriteAuthorization = true
+        do {
+            try await store.requestAuthorization(toShare: writeTypes, read: readTypes)
+            HealthKitWritebackFingerprint.reset()
+        } catch {
+            // A transient request failure can retry on the next lifecycle grant. A completed system
+            // sheet remains one-shot for this process, even if the user leaves some types disabled.
+            requestedExpandedWriteAuthorization = false
         }
     }
 
@@ -419,6 +675,341 @@ final class HealthKitBridge: ObservableObject {
     /// component without deleting local history or changing Health authorization.
     func resetWritebackFingerprints() {
         HealthKitWritebackFingerprint.reset()
+    }
+
+    /// Deliver only the durable canonical days named by an external-publication outbox item. This
+    /// destination never requests authorization and never widens a historical mutation into a rolling
+    /// refresh window. The existing bounded write-back remains the user-invoked repair path; this method
+    /// is the exact historical delivery path.
+    func publishExactHealthKit(payload: HistoricalHealthKitMutationPayload) async throws {
+        guard auth == .authorized else { throw ExactPublicationError.authorizationUnavailable }
+        guard !payload.deviceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let timeZone = TimeZone(identifier: payload.recordedTimeZoneIdentifier) else {
+            throw ExactPublicationError.invalidTimeZone
+        }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+
+        var firstError: Error?
+        do {
+            try await writeExactVitals(payload, calendar: calendar)
+        } catch {
+            firstError = error
+        }
+        do {
+            try await writeExactSleep(payload, calendar: calendar)
+        } catch {
+            if firstError == nil { firstError = error }
+        }
+        if let firstError { throw firstError }
+    }
+
+    private func writeExactVitals(
+        _ payload: HistoricalHealthKitMutationPayload,
+        calendar: Calendar
+    ) async throws {
+        struct Candidate {
+            let type: HKQuantityType
+            let key: String
+            let value: Double
+            let at: Date
+            let sample: HKQuantitySample
+        }
+
+        var candidates: [Candidate] = []
+        func add(
+            _ id: HKQuantityTypeIdentifier,
+            _ unit: HKUnit,
+            _ value: Double,
+            _ day: CivilDay,
+            _ at: Date
+        ) {
+            guard value.isFinite,
+                  let type = HKQuantityType.quantityType(forIdentifier: id),
+                  store.authorizationStatus(for: type) == .sharingAuthorized else { return }
+            let key = "noop:\(payload.deviceId):\(id.rawValue):\(day.key)"
+            candidates.append(Candidate(
+                type: type,
+                key: key,
+                value: value,
+                at: at,
+                sample: HKQuantitySample(
+                    type: type,
+                    quantity: HKQuantity(unit: unit, doubleValue: value),
+                    start: at,
+                    end: at,
+                    metadata: [HKMetadataKeyExternalUUID: key]
+                )
+            ))
+        }
+
+        let allDays = payload.changedDays.sorted()
+        var deletionKeysByType: [HKQuantityType: [String]] = [:]
+        for day in allDays {
+            for id in HealthKitBridge.quantityWriteIds {
+                guard let type = HKQuantityType.quantityType(forIdentifier: id),
+                      store.authorizationStatus(for: type) == .sharingAuthorized else { continue }
+                deletionKeysByType[type, default: []].append(
+                    "noop:\(payload.deviceId):\(id.rawValue):\(day.key)"
+                )
+            }
+        }
+
+        for mutation in payload.dailyMutations {
+            let start = try mutation.day.date(in: calendar)
+            let noon = calendar.date(bySettingHour: 12, minute: 0, second: 0, of: start) ?? start
+            let at = mutation.wakeTimestamp.map {
+                Date(timeIntervalSince1970: TimeInterval($0))
+            } ?? noon
+            if let value = mutation.restingHR {
+                add(
+                    .restingHeartRate,
+                    HKUnit.count().unitDivided(by: .minute()),
+                    Double(value),
+                    mutation.day,
+                    at
+                )
+            }
+            if let value = mutation.hrvMilliseconds {
+                add(.heartRateVariabilitySDNN, .secondUnit(with: .milli), value, mutation.day, at)
+            }
+            if let value = mutation.oxygenSaturationPercent {
+                add(.oxygenSaturation, .percent(), value / 100, mutation.day, at)
+            }
+            if let value = mutation.respiratoryRate {
+                add(
+                    .respiratoryRate,
+                    HKUnit.count().unitDivided(by: .minute()),
+                    value,
+                    mutation.day,
+                    at
+                )
+            }
+        }
+        let fingerprint = HealthKitWritebackFingerprint.fingerprint(
+            ["analysis|\(payload.analysisGeneration)"]
+                + deletionKeysByType.values.flatMap { $0.sorted().map { "delete|\($0)" } }
+                + candidates.sorted { $0.key < $1.key }.map {
+                    "\($0.key)|\($0.value)|\(Int($0.at.timeIntervalSince1970))"
+                }
+        )
+        guard HealthKitWritebackFingerprint.shouldWrite(.vitals, fingerprint: fingerprint) else { return }
+
+        let bySource = HKQuery.predicateForObjects(from: HKSource.default())
+        for (type, keys) in deletionKeysByType {
+            let byKey = HKQuery.predicateForObjects(
+                withMetadataKey: HKMetadataKeyExternalUUID,
+                allowedValues: Array(Set(keys))
+            )
+            _ = try await store.deleteObjects(
+                of: type,
+                predicate: NSCompoundPredicate(andPredicateWithSubpredicates: [bySource, byKey])
+            )
+        }
+        if !candidates.isEmpty {
+            try await store.save(candidates.map(\.sample))
+        }
+        HealthKitWritebackFingerprint.markSuccess(.vitals, fingerprint: fingerprint)
+    }
+
+    private func writeExactSleep(
+        _ payload: HistoricalHealthKitMutationPayload,
+        calendar: Calendar
+    ) async throws {
+        guard let type = HKObjectType.categoryType(forIdentifier: .sleepAnalysis),
+              store.authorizationStatus(for: type) == .sharingAuthorized else { return }
+
+        let fragments = payload.sleepMutations.map {
+            HealthWriteback.SleepFragment(
+                startTs: $0.stableStartTimestamp,
+                effectiveStartTs: $0.effectiveStartTimestamp,
+                endTs: $0.endTimestamp,
+                stagesJSON: $0.stagesJSON
+            )
+        }
+        let byDay = Dictionary(grouping: fragments) { fragment -> String in
+            let date = Date(timeIntervalSince1970: TimeInterval(fragment.endTs))
+            let components = calendar.dateComponents([.year, .month, .day], from: date)
+            return String(format: "%04d-%02d-%02d", components.year!, components.month!, components.day!)
+        }
+
+        var groups: [[HealthWriteback.SleepFragment]] = []
+        for dayFragments in byDay.values {
+            let ordered = dayFragments.sorted { $0.effectiveStartTs < $1.effectiveStartTs }
+            let blocks = ordered.map {
+                SleepStageTotals.NightBlock(start: $0.effectiveStartTs, end: $0.endTs)
+            }
+            guard let reference = ordered.first else { continue }
+            let wake = Date(timeIntervalSince1970: TimeInterval(reference.endTs))
+            let offset = calendar.timeZone.secondsFromGMT(for: wake)
+            let bridged = SleepStageTotals.bridgedNightGroups(blocks, offsetSec: offset)
+            groups.append(contentsOf: bridged.map { group in
+                group.indices.map { ordered[$0] }
+            })
+        }
+
+        let plan = HealthWriteback.mergedSleepPlan(groups: groups)
+        guard let durableStore = await repo.storeHandle() else {
+            throw ExactPublicationError.storeUnavailable
+        }
+        let ledger = try await durableStore.healthKitSleepLedger(
+            contextId: payload.contextId,
+            deviceId: payload.deviceId,
+            days: payload.changedDays)
+        let repairDays = payload.changedDays.subtracting(ledger.coveredDays)
+        let repairedKeys = repairDays.isEmpty
+            ? []
+            : try await noopAuthoredSleepKeys(
+                ownerDeviceId: payload.deviceId,
+                changedDays: repairDays,
+                calendar: calendar,
+                type: type)
+        try await saveExactSleepPlan(
+            plan,
+            ownerDeviceId: payload.deviceId,
+            type: type,
+            analysisGeneration: payload.analysisGeneration,
+            existingKeys: ledger.keys.union(repairedKeys),
+            forceWrite: !repairDays.isEmpty
+        )
+
+        let ledgerEntries = try plan.flatMap { entry in
+            let wakeDate = Date(timeIntervalSince1970: TimeInterval(entry.spanEnd))
+            let components = calendar.dateComponents([.year, .month, .day], from: wakeDate)
+            let wakeDay = try CivilDay(key: String(format: "%04d-%02d-%02d",
+                                                    components.year!, components.month!, components.day!))
+            return entry.allKeyStartTs.map { start in
+                HealthKitSleepLedgerEntry(
+                    wakeDay: wakeDay,
+                    stableStartTimestamp: start,
+                    externalUUID: "noop:\(payload.deviceId):sleep:\(start)")
+            }
+        }
+        let keysByDay = Dictionary(grouping: ledgerEntries, by: \.wakeDay)
+        for day in payload.changedDays {
+            let keys = (keysByDay[day] ?? []).map {
+                (stableStartTimestamp: $0.stableStartTimestamp, externalUUID: $0.externalUUID)
+            }
+            try await durableStore.replaceHealthKitSleepLedgerChunked(
+                contextId: payload.contextId,
+                deviceId: payload.deviceId,
+                wakeDay: day,
+                analysisGeneration: payload.analysisGeneration,
+                keys: keys,
+                now: Date())
+        }
+    }
+
+    private func noopAuthoredSleepKeys(
+        ownerDeviceId: String,
+        changedDays: Set<CivilDay>,
+        calendar: Calendar,
+        type: HKCategoryType
+    ) async throws -> Set<String> {
+        var keys = Set<String>()
+        let prefix = "noop:\(ownerDeviceId):sleep:"
+        let windows = try HealthKitSleepRepairPlanner.contiguousWindows(
+            days: changedDays,
+            timeZoneIdentifier: calendar.timeZone.identifier)
+        var samples: [HKSample] = []
+        for window in windows {
+            let start = try window.first.date(in: calendar).addingTimeInterval(-20 * 3_600)
+            let end = try calendar.date(byAdding: .day, value: 1, to: window.last.date(in: calendar))!
+                .addingTimeInterval(4 * 3_600)
+            let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
+                HKQuery.predicateForObjects(from: HKSource.default()),
+                HKQuery.predicateForSamples(withStart: start, end: end, options: []),
+            ])
+            let windowSamples: [HKSample] = try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<[HKSample], any Error>) in
+                let query = HKSampleQuery(
+                    sampleType: type,
+                    predicate: predicate,
+                    limit: HKObjectQueryNoLimit,
+                    sortDescriptors: nil
+                ) { _, objects, error in
+                    if let error { continuation.resume(throwing: error); return }
+                    continuation.resume(returning: objects ?? [])
+                }
+                store.execute(query)
+            }
+            samples.append(contentsOf: windowSamples)
+        }
+        for sample in samples {
+            guard let key = sample.metadata?[HKMetadataKeyExternalUUID] as? String,
+                  key.hasPrefix(prefix) else { continue }
+            let components = calendar.dateComponents([.year, .month, .day], from: sample.endDate)
+            guard let year = components.year, let month = components.month, let day = components.day,
+                  let wakeDay = try? CivilDay(key: String(format: "%04d-%02d-%02d", year, month, day)),
+                  changedDays.contains(wakeDay) else { continue }
+            keys.insert(key)
+        }
+        return keys
+    }
+
+    private func saveExactSleepPlan(
+        _ plan: [HealthWriteback.MergedSleepEntry],
+        ownerDeviceId: String,
+        type: HKCategoryType,
+        analysisGeneration: Int64,
+        existingKeys: Set<String>,
+        forceWrite: Bool
+    ) async throws {
+        let fingerprint = HealthKitWritebackFingerprint.fingerprint(
+            ["owner|\(ownerDeviceId)", "analysis|\(analysisGeneration)"] + plan.flatMap { entry in
+                ["night|\(entry.keyStartTs)|\(entry.spanStart)|\(entry.spanEnd)"]
+                    + entry.intervals.map { "stage|\($0.kind)|\($0.start)|\($0.end)" }
+            }
+        )
+        guard forceWrite || HealthKitWritebackFingerprint.shouldWrite(.sleep, fingerprint: fingerprint) else { return }
+
+        var samples: [HKCategorySample] = []
+        var keys: [String] = Array(existingKeys)
+        for entry in plan {
+            let key = "noop:\(ownerDeviceId):sleep:\(entry.keyStartTs)"
+            let metadata = [HKMetadataKeyExternalUUID: key]
+            keys.append(contentsOf: entry.allKeyStartTs.map {
+                "noop:\(ownerDeviceId):sleep:\($0)"
+            })
+            samples.append(HKCategorySample(
+                type: type,
+                value: HKCategoryValueSleepAnalysis.inBed.rawValue,
+                start: Date(timeIntervalSince1970: TimeInterval(entry.spanStart)),
+                end: Date(timeIntervalSince1970: TimeInterval(entry.spanEnd)),
+                metadata: metadata
+            ))
+            for interval in entry.intervals {
+                let value: HKCategoryValueSleepAnalysis
+                switch interval.kind {
+                case .awake: value = .awake
+                case .light: value = .asleepCore
+                case .deep: value = .asleepDeep
+                case .rem: value = .asleepREM
+                case .unspecified: value = .asleepUnspecified
+                }
+                samples.append(HKCategorySample(
+                    type: type,
+                    value: value.rawValue,
+                    start: Date(timeIntervalSince1970: TimeInterval(interval.start)),
+                    end: Date(timeIntervalSince1970: TimeInterval(interval.end)),
+                    metadata: metadata
+                ))
+            }
+        }
+        let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
+            HKQuery.predicateForObjects(from: HKSource.default()),
+            HKQuery.predicateForObjects(
+                withMetadataKey: HKMetadataKeyExternalUUID,
+                allowedValues: Array(Set(keys))
+            ),
+        ])
+        if !keys.isEmpty {
+            _ = try await store.deleteObjects(of: type, predicate: predicate)
+        }
+        if !samples.isEmpty {
+            try await store.save(samples)
+        }
+        HealthKitWritebackFingerprint.markSuccess(.sleep, fingerprint: fingerprint)
     }
 
     /// Drive an incremental sync off an observer wake. We use an `HKAnchoredObjectQuery` per type to
@@ -582,6 +1173,515 @@ final class HealthKitBridge: ObservableObject {
         }
     }
 
+    /// Process one durable post-commit privacy page. The caller persists the
+    /// returned cursor before requesting another page. No query asks HealthKit
+    /// or SQLite for more than 5,000 objects, and no interval exceeds 30 civil
+    /// days. HR uses three-day windows to bound its minute-bucket rebuild.
+    func processSourceDeletionChunk(
+        _ request: HealthKitSourceDeletionChunkRequest
+    ) async throws -> HealthKitSourceDeletionChunkResult {
+        guard auth == .authorized else { throw ExactPublicationError.authorizationUnavailable }
+        guard Self.sourceDeletionAuthorizationAvailable(
+            for: request.category,
+            authorizationStatus: store.authorizationStatus(for:)
+        ) else {
+            // Privacy cleanup must never advance past a type that HealthKit will not let us delete.
+            // Keep the durable cursor unchanged until the user restores every required share grant.
+            throw ExactPublicationError.authorizationUnavailable
+        }
+        guard let whoopStore = await repo.storeHandle() else { throw BridgeError.storeUnavailable }
+        try Task.checkCancellation()
+
+        let interval = try HealthKitSourceDeletionChunkPlanner.interval(for: request)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = Locale(identifier: "en_US_POSIX")
+        guard let timeZone = TimeZone(identifier: request.timeZoneIdentifier) else {
+            throw HealthKitSourceDeletionChunkError.invalidTimeZone
+        }
+        calendar.timeZone = timeZone
+        let bounds = try deletionBounds(for: interval, calendar: calendar)
+        let processedDayCount = calendar.dateComponents(
+            [.day],
+            from: bounds.start,
+            to: bounds.end
+        ).day ?? 0
+        guard (1...HealthKitSourceDeletionChunkPlanner.maximumCivilDays)
+            .contains(processedDayCount) else {
+            throw HealthKitSourceDeletionChunkError.batchLimitExceeded
+        }
+        let raw = request.sourceDeviceId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let derived = raw + "-noop"
+        let importedIds = stableSourceIds(request.remainingImportedIds)
+            .filter { $0 != raw && $0 != derived }
+        let computedIds = stableSourceIds(request.remainingComputedIds)
+            .filter { $0 != raw && $0 != derived }
+
+        var deletedCount = 0
+        if request.cursor?.phase != .rebuildingRemainingSources {
+            let deletion = try await deleteProjectedHealthKitPage(
+                category: request.category,
+                interval: interval,
+                bounds: bounds,
+                calendar: calendar,
+                cursor: request.cursor
+            )
+            deletedCount = deletion.deletedCount
+            if let cursor = deletion.continuationCursor {
+                return HealthKitSourceDeletionChunkResult(
+                    processedInterval: interval,
+                    processedDayCount: processedDayCount,
+                    deletedObjectCount: deletedCount,
+                    rebuiltObjectCount: 0,
+                    continuationCursor: cursor,
+                    isComplete: false
+                )
+            }
+        }
+
+        try Task.checkCancellation()
+        let rebuild = try await rebuildRemainingSourcePage(
+            category: request.category,
+            interval: interval,
+            bounds: bounds,
+            whoopStore: whoopStore,
+            importedIds: importedIds,
+            computedIds: computedIds,
+            cursor: request.cursor?.phase == .rebuildingRemainingSources ? request.cursor : nil,
+            calendar: calendar
+        )
+        guard rebuild.rebuiltCount <= HealthKitSourceDeletionChunkPlanner.maximumObjectsPerQuery else {
+            throw HealthKitSourceDeletionChunkError.batchLimitExceeded
+        }
+        if let cursor = rebuild.continuationCursor {
+            return HealthKitSourceDeletionChunkResult(
+                processedInterval: interval,
+                processedDayCount: processedDayCount,
+                deletedObjectCount: deletedCount,
+                rebuiltObjectCount: rebuild.rebuiltCount,
+                continuationCursor: cursor,
+                isComplete: false
+            )
+        }
+
+        let nextDay = try HealthKitSourceDeletionChunkPlanner.day(
+            after: interval.lastDay,
+            timeZoneIdentifier: request.timeZoneIdentifier
+        )
+        let isComplete = nextDay > request.throughDay
+        let nextCursor = isComplete ? nil : HealthKitSourceDeletionCursor(
+            category: request.category,
+            day: nextDay
+        )
+        return HealthKitSourceDeletionChunkResult(
+            processedInterval: interval,
+            processedDayCount: processedDayCount,
+            deletedObjectCount: deletedCount,
+            rebuiltObjectCount: rebuild.rebuiltCount,
+            continuationCursor: nextCursor,
+            isComplete: isComplete
+        )
+    }
+
+    private struct SourceDeletionBounds {
+        let start: Date
+        let end: Date
+        let startTimestamp: Int
+        let endTimestamp: Int
+    }
+
+    private struct SourceDeletionPage {
+        let deletedCount: Int
+        let continuationCursor: HealthKitSourceDeletionCursor?
+    }
+
+    private struct SourceRebuildPage {
+        let rebuiltCount: Int
+        let continuationCursor: HealthKitSourceDeletionCursor?
+    }
+
+    private func deletionBounds(
+        for interval: HealthKitSourceDeletionProcessedInterval,
+        calendar: Calendar
+    ) throws -> SourceDeletionBounds {
+        let start = try interval.firstDay.date(in: calendar)
+        guard let end = calendar.date(
+            byAdding: .day,
+            value: 1,
+            to: try interval.lastDay.date(in: calendar)
+        ) else { throw CivilDayError.unrepresentableDate }
+        return SourceDeletionBounds(
+            start: start,
+            end: end,
+            startTimestamp: Int(start.timeIntervalSince1970),
+            endTimestamp: Int(end.timeIntervalSince1970)
+        )
+    }
+
+    private func deleteProjectedHealthKitPage(
+        category: HealthKitSourceDeletionCategory,
+        interval: HealthKitSourceDeletionProcessedInterval,
+        bounds: SourceDeletionBounds,
+        calendar: Calendar,
+        cursor: HealthKitSourceDeletionCursor?
+    ) async throws -> SourceDeletionPage {
+        let types = Self.sourceDeletionTypes(for: category)
+        let componentIndex = cursor?.componentIndex ?? 0
+        guard componentIndex < types.count else {
+            return SourceDeletionPage(
+                deletedCount: 0,
+                continuationCursor: HealthKitSourceDeletionCursor(
+                    category: category,
+                    day: interval.firstDay,
+                    phase: .rebuildingRemainingSources
+                )
+            )
+        }
+        try Task.checkCancellation()
+        let type = types[componentIndex]
+        guard store.authorizationStatus(for: type) == .sharingAuthorized else {
+            throw ExactPublicationError.authorizationUnavailable
+        }
+        let pageStart: Date
+        if cursor?.componentIndex == componentIndex,
+           let timestamp = cursor?.lastTimestamp {
+            pageStart = max(bounds.start, Date(timeIntervalSince1970: timestamp))
+        } else {
+            pageStart = bounds.start
+        }
+        let queryStart = category == .sleep
+            ? pageStart.addingTimeInterval(-20 * 3_600)
+            : pageStart
+        let queryEnd = category == .sleep
+            ? bounds.end.addingTimeInterval(4 * 3_600)
+            : bounds.end
+        let queried = try await healthKitSamples(
+            type: type,
+            from: queryStart,
+            to: queryEnd,
+            limit: HealthKitSourceDeletionChunkPlanner.maximumObjectsPerQuery
+        )
+        try Task.checkCancellation()
+        let targets = queried.filter { sample in
+            guard category == .sleep else { return true }
+            let components = calendar.dateComponents([.year, .month, .day], from: sample.endDate)
+            guard let year = components.year,
+                  let month = components.month,
+                  let day = components.day,
+                  let wakeDay = try? CivilDay(year: year, month: month, day: day) else {
+                return false
+            }
+            return wakeDay >= interval.firstDay && wakeDay <= interval.lastDay
+        }
+        if !targets.isEmpty {
+            try await store.delete(targets)
+            try Task.checkCancellation()
+        }
+        if queried.count == HealthKitSourceDeletionChunkPlanner.maximumObjectsPerQuery,
+           let last = queried.last {
+            return SourceDeletionPage(
+                deletedCount: targets.count,
+                continuationCursor: HealthKitSourceDeletionCursor(
+                    category: category,
+                    day: interval.firstDay,
+                    phase: .deletingProjectedSamples,
+                    componentIndex: componentIndex,
+                    lastTimestamp: last.startDate.timeIntervalSince1970,
+                    stableTieBreaker: last.uuid.uuidString
+                )
+            )
+        }
+        return SourceDeletionPage(
+            deletedCount: targets.count,
+            continuationCursor: nextDeletionCursor(
+                category: category,
+                interval: interval,
+                nextComponentIndex: componentIndex + 1,
+                componentCount: types.count
+            )
+        )
+    }
+
+    private func nextDeletionCursor(
+        category: HealthKitSourceDeletionCategory,
+        interval: HealthKitSourceDeletionProcessedInterval,
+        nextComponentIndex: Int,
+        componentCount: Int
+    ) -> HealthKitSourceDeletionCursor {
+        if nextComponentIndex < componentCount {
+            return HealthKitSourceDeletionCursor(
+                category: category,
+                day: interval.firstDay,
+                phase: .deletingProjectedSamples,
+                componentIndex: nextComponentIndex
+            )
+        }
+        return HealthKitSourceDeletionCursor(
+            category: category,
+            day: interval.firstDay,
+            phase: .rebuildingRemainingSources
+        )
+    }
+
+    static func sourceDeletionTypes(
+        for category: HealthKitSourceDeletionCategory
+    ) -> [HKSampleType] {
+        switch category {
+        case .vitals:
+            return Self.quantityWriteIds.compactMap {
+                HKQuantityType.quantityType(forIdentifier: $0)
+            }
+        case .sleep:
+            return [HKObjectType.categoryType(forIdentifier: .sleepAnalysis)].compactMap { $0 }
+        case .workouts:
+            return [
+                HKObjectType.workoutType(),
+                HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned),
+                HKQuantityType.quantityType(forIdentifier: .distanceWalkingRunning),
+                HKQuantityType.quantityType(forIdentifier: .distanceCycling),
+            ].compactMap { $0 }
+        case .heartRate:
+            return [HKQuantityType.quantityType(forIdentifier: .heartRate)].compactMap { $0 }
+        }
+    }
+
+    static func sourceDeletionAuthorizationAvailable(
+        for category: HealthKitSourceDeletionCategory,
+        authorizationStatus: (HKSampleType) -> HKAuthorizationStatus
+    ) -> Bool {
+        let types = sourceDeletionTypes(for: category)
+        return !types.isEmpty && types.allSatisfy {
+            authorizationStatus($0) == .sharingAuthorized
+        }
+    }
+
+    private func healthKitSamples(
+        type: HKSampleType,
+        from: Date,
+        to: Date,
+        limit: Int
+    ) async throws -> [HKSample] {
+        let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
+            HKQuery.predicateForObjects(from: HKSource.default()),
+            HKQuery.predicateForSamples(withStart: from, end: to, options: []),
+        ])
+        return try await withCheckedThrowingContinuation {
+            (continuation: CheckedContinuation<[HKSample], any Error>) in
+            let query = HKSampleQuery(
+                sampleType: type,
+                predicate: predicate,
+                limit: min(limit, HealthKitSourceDeletionChunkPlanner.maximumObjectsPerQuery),
+                sortDescriptors: [NSSortDescriptor(
+                    key: HKSampleSortIdentifierStartDate,
+                    ascending: true
+                )]
+            ) { _, objects, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: objects ?? [])
+                }
+            }
+            store.execute(query)
+        }
+    }
+
+    private func rebuildRemainingSourcePage(
+        category: HealthKitSourceDeletionCategory,
+        interval: HealthKitSourceDeletionProcessedInterval,
+        bounds: SourceDeletionBounds,
+        whoopStore: WhoopStore,
+        importedIds: [String],
+        computedIds: [String],
+        cursor: HealthKitSourceDeletionCursor?,
+        calendar: Calendar
+    ) async throws -> SourceRebuildPage {
+        let limit = HealthKitSourceDeletionChunkPlanner.maximumObjectsPerQuery
+        let cursorTimestamp = cursor?.lastTimestamp.map { Int($0) }
+        switch category {
+        case .vitals:
+            let sessions = try await HealthKitWritebackPlanner.sleepSessions(
+                store: whoopStore,
+                importedIds: importedIds,
+                computedIds: computedIds,
+                from: bounds.startTimestamp - 20 * 3_600,
+                to: bounds.endTimestamp + 4 * 3_600,
+                limit: limit
+            )
+            try Task.checkCancellation()
+            HealthKitWritebackFingerprint.reset()
+            try await writeVitals(
+                whoopStore: whoopStore,
+                days: HealthKitSourceDeletionChunkPlanner.maximumCivilDays,
+                sessions: sessions,
+                importedIds: importedIds,
+                computedIds: computedIds,
+                dayKeys: Set(civilDayKeys(in: interval)),
+                calendar: calendar
+            )
+            try Task.checkCancellation()
+            return SourceRebuildPage(rebuiltCount: sessions.count, continuationCursor: nil)
+
+        case .sleep:
+            let queryStart = max(bounds.startTimestamp - 20 * 3_600, cursorTimestamp ?? Int.min)
+            let rawRows = try await HealthKitWritebackPlanner.sleepSessions(
+                store: whoopStore,
+                importedIds: importedIds,
+                computedIds: computedIds,
+                from: queryStart,
+                to: bounds.endTimestamp + 4 * 3_600,
+                limit: limit
+            )
+            let rows = rawRows.filter { row in
+                let tie = String(row.startTs)
+                guard isAfterCursor(timestamp: row.startTs, tieBreaker: tie, cursor: cursor) else {
+                    return false
+                }
+                let wakeDate = Date(timeIntervalSince1970: TimeInterval(row.endTs))
+                let wakeComponents = calendar.dateComponents([.year, .month, .day], from: wakeDate)
+                guard let year = wakeComponents.year,
+                      let month = wakeComponents.month,
+                      let day = wakeComponents.day,
+                      let wakeDay = try? CivilDay(year: year, month: month, day: day) else {
+                    return false
+                }
+                return wakeDay >= interval.firstDay && wakeDay <= interval.lastDay
+            }
+            try Task.checkCancellation()
+            HealthKitWritebackFingerprint.reset()
+            try await writeSleep(sessions: rows, calendar: calendar)
+            try Task.checkCancellation()
+            if rawRows.count == limit, let last = rawRows.last {
+                return SourceRebuildPage(
+                    rebuiltCount: rows.count,
+                    continuationCursor: rebuildingCursor(
+                        category: category,
+                        interval: interval,
+                        timestamp: last.startTs,
+                        tieBreaker: String(last.startTs)
+                    )
+                )
+            }
+            return SourceRebuildPage(rebuiltCount: rows.count, continuationCursor: nil)
+
+        case .workouts:
+            let queryStart = max(bounds.startTimestamp, cursorTimestamp ?? Int.min)
+            let rawRows = try await HealthKitWritebackPlanner.workouts(
+                store: whoopStore,
+                importedIds: importedIds,
+                computedIds: computedIds,
+                from: queryStart,
+                to: bounds.endTimestamp,
+                limit: limit,
+                excludingSource: Self.appleWorkoutSource
+            )
+            let rows = rawRows.filter {
+                isAfterCursor(
+                    timestamp: $0.startTs,
+                    tieBreaker: "\($0.startTs)|\($0.sport)",
+                    cursor: cursor
+                )
+            }
+            try Task.checkCancellation()
+            HealthKitWritebackFingerprint.reset()
+            try await writeWorkoutRows(rows)
+            try Task.checkCancellation()
+            if rawRows.count == limit, let last = rawRows.last {
+                return SourceRebuildPage(
+                    rebuiltCount: rows.count,
+                    continuationCursor: rebuildingCursor(
+                        category: category,
+                        interval: interval,
+                        timestamp: last.startTs,
+                        tieBreaker: "\(last.startTs)|\(last.sport)"
+                    )
+                )
+            }
+            return SourceRebuildPage(rebuiltCount: rows.count, continuationCursor: nil)
+
+        case .heartRate:
+            let queryStart = max(bounds.startTimestamp, cursorTimestamp ?? Int.min)
+            let fromById = Dictionary(uniqueKeysWithValues: importedIds.map { ($0, queryStart) })
+            let rawRows = try await HealthKitWritebackPlanner.heartRateBuckets(
+                store: whoopStore,
+                importedIds: importedIds,
+                fromById: fromById,
+                to: bounds.endTimestamp - 1
+            )
+            let rows = rawRows.filter {
+                isAfterCursor(
+                    timestamp: $0.bucket.ts,
+                    tieBreaker: "\($0.bucket.ts)|\($0.sourceId)",
+                    cursor: cursor
+                )
+            }
+            try Task.checkCancellation()
+            try await writeHeartRateBuckets(rows, through: bounds.endTimestamp - 1)
+            try Task.checkCancellation()
+            if rawRows.count == limit, let last = rawRows.last {
+                return SourceRebuildPage(
+                    rebuiltCount: rows.count,
+                    continuationCursor: rebuildingCursor(
+                        category: category,
+                        interval: interval,
+                        timestamp: last.bucket.ts,
+                        tieBreaker: "\(last.bucket.ts)|\(last.sourceId)"
+                    )
+                )
+            }
+            return SourceRebuildPage(rebuiltCount: rows.count, continuationCursor: nil)
+        }
+    }
+
+    private func stableSourceIds(_ sourceIds: [String]) -> [String] {
+        var seen = Set<String>()
+        return sourceIds.compactMap { sourceId in
+            let normalized = sourceId.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalized.isEmpty, seen.insert(normalized).inserted else { return nil }
+            return normalized
+        }
+    }
+
+    private func civilDayKeys(
+        in interval: HealthKitSourceDeletionProcessedInterval
+    ) throws -> [String] {
+        var keys: [String] = []
+        var day = interval.firstDay
+        while day <= interval.lastDay {
+            keys.append(day.key)
+            day = try HealthKitSourceDeletionChunkPlanner.day(
+                after: day,
+                timeZoneIdentifier: "UTC"
+            )
+        }
+        return keys
+    }
+
+    private func isAfterCursor(
+        timestamp: Int,
+        tieBreaker: String,
+        cursor: HealthKitSourceDeletionCursor?
+    ) -> Bool {
+        guard let cursorTimestamp = cursor?.lastTimestamp else { return true }
+        let value = Double(timestamp)
+        if value != cursorTimestamp { return value > cursorTimestamp }
+        return tieBreaker > (cursor?.stableTieBreaker ?? "")
+    }
+
+    private func rebuildingCursor(
+        category: HealthKitSourceDeletionCategory,
+        interval: HealthKitSourceDeletionProcessedInterval,
+        timestamp: Int,
+        tieBreaker: String
+    ) -> HealthKitSourceDeletionCursor {
+        HealthKitSourceDeletionCursor(
+            category: category,
+            day: interval.firstDay,
+            phase: .rebuildingRemainingSources,
+            lastTimestamp: Double(timestamp),
+            stableTieBreaker: tieBreaker
+        )
+    }
+
     private func performSync(window: HealthKitSyncWindow) async -> Bool {
         guard auth == .authorized else { return false }
         syncing = true
@@ -706,9 +1806,17 @@ final class HealthKitBridge: ObservableObject {
                 guard !rows.isEmpty else { return }
                 _ = try await store.upsertWorkouts(rows, deviceId: appleDeviceId)
             }
-            try await writeBack(whoopStore: store)
+            // Inbound Health data is already durably committed. Outbound mirroring is a separate,
+            // best-effort side effect and must never keep the import journal alive or prevent the scoring
+            // coordinator from publishing Recovery. Per-component writeback fingerprints retain only
+            // successful exports, so the next ordinary sync retries any failed component idempotently.
+            do {
+                try await writeBack(whoopStore: store)
+                lastError = nil
+            } catch {
+                lastError = String(localized: "Apple Health data imported; write-back will retry: \(error.localizedDescription)")
+            }
             lastSync = Date()
-            lastError = nil
             return true
         } catch {
             lastError = String(localized: "Apple Health sync failed: \(error.localizedDescription)")
@@ -735,13 +1843,31 @@ final class HealthKitBridge: ObservableObject {
     /// Throws on save failure so the caller can decide whether to advance `lastSync`.
     private func writeBack(whoopStore: WhoopStore, days: Int = 14) async throws {
         guard auth == .authorized else { return }
+        let importedIds = repo.importedReadIds
+        let computedIds = repo.computedReadIds
+        try await TargetScopedPipelineFence.shared.withLeases(
+            sourceIds: importedIds + computedIds
+        ) { [weak self] in
+            guard let self else { return }
+            try await self.writeBackFenced(
+                whoopStore: whoopStore,
+                days: days,
+                importedIds: importedIds,
+                computedIds: computedIds)
+        }
+    }
+
+    private func writeBackFenced(
+        whoopStore: WhoopStore,
+        days: Int,
+        importedIds: [String],
+        computedIds: [String]
+    ) async throws {
         let now = Date()
         guard let fromDate = Calendar.current.date(byAdding: .day, value: -days, to: now) else { return }
         let fromTs = Int(fromDate.timeIntervalSince1970)
         let nowTs = Int(now.timeIntervalSince1970)
 
-        let importedIds = repo.importedReadIds
-        let computedIds = repo.computedReadIds
         let sessions = try await HealthKitWritebackPlanner.sleepSessions(
             store: whoopStore, importedIds: importedIds, computedIds: computedIds,
             from: fromTs, to: nowTs)
@@ -770,22 +1896,40 @@ final class HealthKitBridge: ObservableObject {
     /// that day has a sleep session — a real timestamp inside the night the value describes, instead
     /// of a fabricated noon. Keys are unchanged, so re-stamped samples replace their noon ancestors.
     private func writeVitals(whoopStore: WhoopStore, days: Int, sessions: [CachedSleepSession],
-                             importedIds: [String], computedIds: [String]) async throws {
-        let cal = Calendar.current
-        let to = HealthKitBridge.dayString(Date())
-        guard let fromDate = cal.date(byAdding: .day, value: -days, to: Date()) else { return }
-        let from = HealthKitBridge.dayString(fromDate)
+                             importedIds: [String], computedIds: [String],
+                             dayKeys: Set<String>? = nil,
+                             calendar: Calendar = .current) async throws {
+        let cal = calendar
+        let from: String
+        let to: String
+        if let dayKeys, let first = dayKeys.min(), let last = dayKeys.max() {
+            from = first
+            to = last
+        } else {
+            to = HealthKitBridge.dayString(Date())
+            guard let fromDate = cal.date(byAdding: .day, value: -days, to: Date()) else { return }
+            from = HealthKitBridge.dayString(fromDate)
+        }
 
         // day (of wake) → wake instant. Ascending session order means the latest wake of a day wins,
         // matching collectSleep's end-date day attribution.
         var wakeByDay: [String: Date] = [:]
         for s in sessions where s.endTs > s.effectiveStartTs {
             let wake = Date(timeIntervalSince1970: TimeInterval(s.endTs))
-            wakeByDay[HealthKitBridge.dayString(wake)] = wake
+            let components = cal.dateComponents([.year, .month, .day], from: wake)
+            if let year = components.year,
+               let month = components.month,
+               let day = components.day,
+               let wakeDay = try? CivilDay(year: year, month: month, day: day) {
+                wakeByDay[wakeDay.key] = wake
+            }
         }
         let rows = try await HealthKitWritebackPlanner.dailyMetrics(
             store: whoopStore, importedIds: importedIds, computedIds: computedIds,
-            from: from, to: to)
+            from: from, to: to
+        ).filter { row in
+            dayKeys?.contains(row.day) ?? true
+        }
 
         struct Candidate {
             let type: HKQuantityType
@@ -809,7 +1953,8 @@ final class HealthKitBridge: ObservableObject {
         }
 
         for row in rows {
-            guard let date = HealthKitBridge.date(from: row.day) else { continue }
+            guard let civilDay = try? CivilDay(key: row.day),
+                  let date = try? civilDay.date(in: cal) else { continue }
             let noon = cal.date(bySettingHour: 12, minute: 0, second: 0, of: date) ?? date
             let at = wakeByDay[row.day] ?? noon
             if let rhr = row.restingHr {
@@ -844,8 +1989,10 @@ final class HealthKitBridge: ObservableObject {
                                                     allowedValues: keys)
             let pred = NSCompoundPredicate(andPredicateWithSubpredicates: [bySource, byKey])
             _ = try await self.store.deleteObjects(of: type, predicate: pred)
+            try Task.checkCancellation()
         }
         try await self.store.save(candidates.map { $0.sample })
+        try Task.checkCancellation()
         HealthKitWritebackFingerprint.markSuccess(.vitals, fingerprint: fingerprint)
     }
 
@@ -863,11 +2010,20 @@ final class HealthKitBridge: ObservableObject {
     /// onset (a user edit moves the span, never the key). The delete predicate carries EVERY
     /// fragment's key, so a night previously written as two entries fully clears when it becomes
     /// one; delete-then-write scoped to our own `HKSource`, like the vitals.
-    private func writeSleep(sessions: [CachedSleepSession]) async throws {
+    private func writeSleep(
+        sessions: [CachedSleepSession],
+        calendar: Calendar = .current
+    ) async throws {
         guard let type = HKObjectType.categoryType(forIdentifier: .sleepAnalysis),
               store.authorizationStatus(for: type) == .sharingAuthorized else { return }
         let blocks = sessions.map { SleepStageTotals.NightBlock(start: $0.effectiveStartTs, end: $0.endTs) }
-        let groups = SleepStageTotals.bridgedNightGroups(blocks, offsetSec: TimeZone.current.secondsFromGMT())
+        let offsetReference = sessions.first.map {
+            Date(timeIntervalSince1970: TimeInterval($0.endTs))
+        } ?? Date()
+        let groups = SleepStageTotals.bridgedNightGroups(
+            blocks,
+            offsetSec: calendar.timeZone.secondsFromGMT(for: offsetReference)
+        )
             .map { g in
                 g.indices.map { i -> HealthWriteback.SleepFragment in
                     let s = sessions[i]
@@ -913,7 +2069,9 @@ final class HealthKitBridge: ObservableObject {
             HKQuery.predicateForObjects(withMetadataKey: HKMetadataKeyExternalUUID, allowedValues: keys),
         ])
         _ = try await store.deleteObjects(of: type, predicate: pred)
+        try Task.checkCancellation()
         try await store.save(samples)
+        try Task.checkCancellation()
         HealthKitWritebackFingerprint.markSuccess(.sleep, fingerprint: fingerprint)
     }
 
@@ -995,6 +2153,48 @@ final class HealthKitBridge: ObservableObject {
         HealthKitWritebackFingerprint.markSuccess(.heartRate, fingerprint: fingerprint)
     }
 
+    /// Idempotent cleanup-page writer. Cleanup first removes the legacy
+    /// date-range samples. Page retries then replace only stable external UUIDs.
+    private func writeHeartRateBuckets(
+        _ sourced: [HealthKitWritebackPlanner.SourcedHRBucket],
+        through: Int
+    ) async throws {
+        guard !sourced.isEmpty,
+              let type = HKQuantityType.quantityType(forIdentifier: .heartRate),
+              store.authorizationStatus(for: type) == .sharingAuthorized else { return }
+        precondition(sourced.count <= HealthKitSourceDeletionChunkPlanner.maximumObjectsPerQuery)
+        let keys = sourced.map {
+            "noop:\(noopDeviceId):heart-rate:\($0.bucket.ts)"
+        }
+        let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
+            HKQuery.predicateForObjects(from: HKSource.default()),
+            HKQuery.predicateForObjects(
+                withMetadataKey: HKMetadataKeyExternalUUID,
+                allowedValues: keys
+            ),
+        ])
+        _ = try await store.deleteObjects(of: type, predicate: predicate)
+        try Task.checkCancellation()
+
+        let unit = HKUnit.count().unitDivided(by: .minute())
+        let samples = sourced.map { item -> HKQuantitySample in
+            let start = Date(timeIntervalSince1970: TimeInterval(item.bucket.ts))
+            let endTimestamp = min(item.bucket.ts + 60, through + 1)
+            return HKQuantitySample(
+                type: type,
+                quantity: .init(unit: unit, doubleValue: item.bucket.bpm),
+                start: start,
+                end: max(start, Date(timeIntervalSince1970: TimeInterval(endTimestamp))),
+                metadata: [
+                    HKMetadataKeyExternalUUID:
+                        "noop:\(noopDeviceId):heart-rate:\(item.bucket.ts)"
+                ]
+            )
+        }
+        try await store.save(samples)
+        try Task.checkCancellation()
+    }
+
     /// Write strap-detected and manual workouts into Health via `HKWorkoutBuilder`, with an
     /// `activeEnergyBurned` sample when the row has energy and a distance sample for distance
     /// sports. Workouts whose source is `apple-health` are EXCLUDED — those were imported FROM
@@ -1003,26 +2203,33 @@ final class HealthKitBridge: ObservableObject {
     /// Dedup: `HKMetadataKeyExternalUUID = noop:<deviceId>:workout:<startTs>` in the workout
     /// metadata; delete-then-write scoped to our own source, like sleep and the vitals.
     private func writeWorkouts(whoopStore: WhoopStore, importedIds: [String], computedIds: [String],
-                               fromTs: Int, toTs: Int) async throws {
+                               fromTs: Int, toTs: Int, limit: Int = 500) async throws {
         guard store.authorizationStatus(for: .workoutType()) == .sharingAuthorized else { return }
         let rows = try await HealthKitWritebackPlanner.workouts(
             store: whoopStore, importedIds: importedIds, computedIds: computedIds,
-            from: fromTs, to: toTs, excludingSource: HealthKitBridge.appleWorkoutSource)
+            from: fromTs, to: toTs, limit: limit, excludingSource: HealthKitBridge.appleWorkoutSource)
         guard !rows.isEmpty else { return }
         let fingerprint = HealthKitWritebackFingerprint.fingerprint(rows.map {
             "\($0.startTs)|\($0.endTs)|\($0.sport)|\($0.energyKcal ?? -1)|\($0.distanceM ?? -1)"
         })
         guard HealthKitWritebackFingerprint.shouldWrite(.workouts, fingerprint: fingerprint) else { return }
 
-        func key(_ row: WorkoutRow) -> String { "noop:\(noopDeviceId):workout:\(row.startTs)" }
-        let pred = NSCompoundPredicate(andPredicateWithSubpredicates: [
-            HKQuery.predicateForObjects(from: HKSource.default()),
-            HKQuery.predicateForObjects(withMetadataKey: HKMetadataKeyExternalUUID,
-                                        allowedValues: rows.map(key)),
-        ])
-        _ = try await store.deleteObjects(of: .workoutType(), predicate: pred)
+        try await writeWorkoutRows(rows)
+        HealthKitWritebackFingerprint.markSuccess(.workouts, fingerprint: fingerprint)
+    }
+
+    private func writeWorkoutRows(_ rows: [WorkoutRow]) async throws {
+        guard !rows.isEmpty,
+              store.authorizationStatus(for: .workoutType()) == .sharingAuthorized else { return }
+        precondition(rows.count <= HealthKitSourceDeletionChunkPlanner.maximumObjectsPerQuery)
+        let replayPlan = HealthKitWorkoutReplayPlan(
+            noopDeviceId: noopDeviceId,
+            startTimestamps: rows.map(\.startTs)
+        )
+        try await deleteWorkoutReplayArtifacts(replayPlan)
 
         for row in rows {
+            try Task.checkCancellation()
             let start = Date(timeIntervalSince1970: TimeInterval(row.startTs))
             let end = Date(timeIntervalSince1970: TimeInterval(row.endTs))
             guard end > start else { continue }
@@ -1031,30 +2238,87 @@ final class HealthKitBridge: ObservableObject {
             let builder = HKWorkoutBuilder(healthStore: store, configuration: config, device: .local())
             do {
                 try await builder.beginCollection(at: start)
-                try await builder.addMetadata([HKMetadataKeyExternalUUID: key(row)])
+                try await builder.addMetadata([
+                    HKMetadataKeyExternalUUID: replayPlan.externalUUID(
+                        component: .workout,
+                        startTimestamp: row.startTs
+                    )
+                ])
                 var extras: [HKSample] = []
                 if let kcal = row.energyKcal, kcal > 0,
                    let t = HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned),
                    store.authorizationStatus(for: t) == .sharingAuthorized {
                     extras.append(HKQuantitySample(type: t, quantity: .init(unit: .kilocalorie(), doubleValue: kcal),
-                                                   start: start, end: end))
+                                                   start: start, end: end, metadata: [
+                                                    HKMetadataKeyExternalUUID:
+                                                        replayPlan.externalUUID(
+                                                            component: .activeEnergy,
+                                                            startTimestamp: row.startTs
+                                                        )
+                                                   ]))
                 }
                 if let meters = row.distanceM, meters > 0,
                    let id = Self.distanceTypeId(forSport: row.sport),
                    let t = HKQuantityType.quantityType(forIdentifier: id),
                    store.authorizationStatus(for: t) == .sharingAuthorized {
+                    let component: HealthKitWorkoutReplayComponent = id == .distanceCycling
+                        ? .distanceCycling
+                        : .distanceWalkingRunning
                     extras.append(HKQuantitySample(type: t, quantity: .init(unit: .meter(), doubleValue: meters),
-                                                   start: start, end: end))
+                                                   start: start, end: end, metadata: [
+                                                    HKMetadataKeyExternalUUID:
+                                                        replayPlan.externalUUID(
+                                                            component: component,
+                                                            startTimestamp: row.startTs
+                                                        )
+                                                   ]))
                 }
                 if !extras.isEmpty { try await builder.addSamples(extras) }
                 try await builder.endCollection(at: end)
                 _ = try await builder.finishWorkout()
+                try Task.checkCancellation()
             } catch {
                 builder.discardWorkout()
                 throw error
             }
         }
-        HealthKitWritebackFingerprint.markSuccess(.workouts, fingerprint: fingerprint)
+    }
+
+    private func deleteWorkoutReplayArtifacts(
+        _ plan: HealthKitWorkoutReplayPlan
+    ) async throws {
+        let targets: [(HealthKitWorkoutReplayComponent, HKSampleType?)] = [
+            (.workout, .workoutType()),
+            (
+                .activeEnergy,
+                HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned)
+            ),
+            (
+                .distanceWalkingRunning,
+                HKQuantityType.quantityType(forIdentifier: .distanceWalkingRunning)
+            ),
+            (
+                .distanceCycling,
+                HKQuantityType.quantityType(forIdentifier: .distanceCycling)
+            ),
+        ]
+        for (component, optionalType) in targets {
+            guard let type = optionalType,
+                  store.authorizationStatus(for: type) == .sharingAuthorized else {
+                continue
+            }
+            let externalUUIDs = plan.externalUUIDs(for: component)
+            guard !externalUUIDs.isEmpty else { continue }
+            let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
+                HKQuery.predicateForObjects(from: HKSource.default()),
+                HKQuery.predicateForObjects(
+                    withMetadataKey: HKMetadataKeyExternalUUID,
+                    allowedValues: externalUUIDs
+                ),
+            ])
+            _ = try await store.deleteObjects(of: type, predicate: predicate)
+            try Task.checkCancellation()
+        }
     }
 
     /// Reverse of `sportName`: NOOP's sport label → the `HKWorkoutActivityType` written to Health.

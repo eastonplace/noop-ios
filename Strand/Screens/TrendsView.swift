@@ -27,7 +27,7 @@ struct TrendsView: View {
     @State var weekOffset: Int
 
     init(initialWeekOffset: Int = 0) {
-        _weekOffset = State(initialValue: min(0, initialWeekOffset))
+        _weekOffset = State(initialValue: TrendsBounds.clampWeekOffset(initialWeekOffset))
     }
 
     /// During the first frame, use Repository's already-published canonical projection. After the auxiliary
@@ -50,7 +50,8 @@ struct TrendsView: View {
             timeZoneIdentifier: loadedData.timeZoneIdentifier,
             metric: selectedMetric.rawValue,
             range: selectedRange.rawValue,
-            weekOffset: weekOffset
+            weekOffset: TrendsBounds.clampWeekOffset(weekOffset),
+            completedLoadIdentity: loadedData.loadIdentity
         )
     }
 
@@ -123,7 +124,7 @@ struct TrendsView: View {
         // A rescore can replace values without changing the number of day rows. `refreshSeq`, not count,
         // is the revision contract. `.task(id:)` cancels a superseded load; one assignment below prevents
         // Sleep, Stress, and Apple fallback data from briefly describing different revisions.
-        .task(id: "\(repo.refreshSeq)-\(civilContext.localDay)-\(civilContext.timeZoneIdentifier)") {
+        .task(id: "\(repo.refreshSeq)-\(repo.canonicalHealth.trendsRevision)-\(civilContext.localDay)-\(civilContext.timeZoneIdentifier)-\(selectedRange.rawValue)-\(weekOffset)") {
             await loadDataForCurrentRevision()
         }
         .task(id: screenSnapshotKey) {
@@ -133,39 +134,43 @@ struct TrendsView: View {
 
     @MainActor
     private func loadDataForCurrentRevision() async {
-        let revision = repo.refreshSeq
-        let anchorDay = Repository.localDayKey(Date())
-        let timeZoneIdentifier = TimeZone.autoupdatingCurrent.identifier
-        let revisionDays = repo.canonicalDays
-        async let sleepSeries = repo.exploreSeries(key: "sleep_performance", source: "my-whoop")
-        async let stressSeries = repo.exploreSeries(key: "stress", source: "my-whoop")
-        async let appleRows = repo.appleDailyRows()
-
-        let (sleep, stress, apple) = await (sleepSeries, stressSeries, appleRows)
-        guard !Task.isCancelled,
-              revision == repo.refreshSeq,
-              anchorDay == Repository.localDayKey(Date()),
-              timeZoneIdentifier == TimeZone.autoupdatingCurrent.identifier
-        else { return }
-
-        let next = TrendsLoadedData(
-            revision: revision,
+        let boundedRangeDays = TrendsBounds.clampRangeDays(selectedRange.days)
+        let boundedOffset = TrendsBounds.clampWeekOffset(weekOffset)
+        guard boundedOffset == weekOffset else {
+            weekOffset = boundedOffset
+            return
+        }
+        let revision = Int(truncatingIfNeeded: repo.refreshSeq
+            &+ Int(repo.canonicalHealth.trendsRevision))
+        let anchorDay = civilContext.localDay
+        let timeZoneIdentifier = civilContext.timeZoneIdentifier
+        let rangeDays = boundedRangeDays
+        let offset = boundedOffset
+        guard let next = await repo.loadCanonicalTrendsData(
             anchorDay: anchorDay,
             timeZoneIdentifier: timeZoneIdentifier,
-            canonicalDays: revisionDays,
-            sleepPerfByDay: Dictionary(
-                sleep.map { ($0.day, $0.value) },
-                uniquingKeysWith: { _, latest in latest }
-            ),
-            stressByDay: Dictionary(
-                stress.map { ($0.day, $0.value) },
-                uniquingKeysWith: { _, latest in latest }
-            ),
-            appleDays: apple
+            rangeDays: rangeDays,
+            weekOffset: offset
+        ) else { return }
+        guard !Task.isCancelled,
+              revision == Int(truncatingIfNeeded: repo.refreshSeq
+                &+ Int(repo.canonicalHealth.trendsRevision)),
+              anchorDay == civilContext.localDay,
+              timeZoneIdentifier == civilContext.timeZoneIdentifier,
+              rangeDays == TrendsBounds.clampRangeDays(selectedRange.days),
+              offset == TrendsBounds.clampWeekOffset(weekOffset)
+        else { return }
+        let revisionAdjusted = TrendsLoadedData(
+            loadIdentity: next.loadIdentity,
+            revision: revision,
+            anchorDay: next.anchorDay,
+            timeZoneIdentifier: next.timeZoneIdentifier,
+            canonicalDays: next.canonicalDays,
+            sleepPerfByDay: next.sleepPerfByDay,
+            stressByDay: next.stressByDay,
+            appleDays: next.appleDays
         )
-        if next != loadedData {
-            loadedData = next
-        }
+        if revisionAdjusted != loadedData { loadedData = revisionAdjusted }
     }
 
     @MainActor
@@ -178,7 +183,12 @@ struct TrendsView: View {
         let referenceDate = localDate(data.anchorDay, calendar: calendar) ?? Date()
         let metric = selectedMetric
         let range = selectedRange
-        let offset = weekOffset
+        let offset = TrendsBounds.clampWeekOffset(weekOffset)
+        guard let identity = data.loadIdentity,
+              identity.rangeDays == range.days,
+              identity.weekOffset == offset,
+              identity.anchorDay == civilContext.localDay,
+              identity.timeZoneIdentifier == civilContext.timeZoneIdentifier else { return }
         let effortDisplayFactor = UnitPrefs.currentEffortDisplayFactor()
 
         let worker = Task { @concurrent in

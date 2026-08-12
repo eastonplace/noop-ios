@@ -1,4 +1,5 @@
 import Foundation
+import CoreLocation
 import WhoopProtocol
 import XCTest
 @testable import NOOP
@@ -118,6 +119,203 @@ final class ActiveWorkoutPersistenceTests: XCTestCase {
         )
         ActiveWorkoutPersistence.store(later, into: defaults)
         XCTAssertEqual(ActiveWorkoutPersistence.load(from: defaults), later)
+    }
+
+    func testActiveGpsSnapshotRoundTripsAndClears() throws {
+        let defaults = freshDefaults()
+        let points = [RouteMath.LatLng(40.7580, -73.9855), RouteMath.LatLng(40.7584, -73.9848)]
+        let snapshot = ActiveGpsWorkoutPersistence.Snapshot(
+            sessionID: UUID(), workoutStartMs: 1_700_000_000_000,
+            segments: [points], distanceM: RouteMath.totalMeters(points),
+            rawFixCount: 3, recordingWasActive: true, hadTerminatedGap: false
+        )
+        XCTAssertTrue(ActiveGpsWorkoutPersistence.store(snapshot, into: defaults))
+        XCTAssertEqual(try XCTUnwrap(ActiveGpsWorkoutPersistence.load(from: defaults)), snapshot)
+        ActiveGpsWorkoutPersistence.clear(from: defaults)
+        XCTAssertNil(ActiveGpsWorkoutPersistence.load(from: defaults))
+    }
+
+    func testActiveGpsSnapshotRejectsDistanceThatBridgesSegments() {
+        let defaults = freshDefaults()
+        let first = [RouteMath.LatLng(40.7580, -73.9855), RouteMath.LatLng(40.7584, -73.9848)]
+        let second = [RouteMath.LatLng(34.0522, -118.2437), RouteMath.LatLng(34.0523, -118.2437)]
+        let snapshot = ActiveGpsWorkoutPersistence.Snapshot(
+            sessionID: UUID(), workoutStartMs: 1_700_000_000_000,
+            segments: [first, second],
+            distanceM: RouteMath.totalMeters(first + second),
+            rawFixCount: 4,
+            recordingWasActive: true,
+            hadTerminatedGap: true
+        )
+        XCTAssertFalse(ActiveGpsWorkoutPersistence.store(snapshot, into: defaults))
+        XCTAssertNil(ActiveGpsWorkoutPersistence.load(from: defaults))
+    }
+
+    @MainActor
+    func testRestoredGpsStartsNewSegmentAndPreservesAccumulatedDistance() {
+        let oldSegment = [
+            RouteMath.LatLng(40.7580, -73.9855),
+            RouteMath.LatLng(40.7584, -73.9848),
+        ]
+        let oldDistance = RouteMath.totalMeters(oldSegment)
+        let snapshot = ActiveGpsWorkoutPersistence.Snapshot(
+            sessionID: UUID(),
+            workoutStartMs: Int64(Date().timeIntervalSince1970 * 1000) - 60_000,
+            segments: [oldSegment],
+            distanceM: oldDistance,
+            rawFixCount: 2,
+            recordingWasActive: true,
+            hadTerminatedGap: false
+        )
+        let recorder = GpsWorkoutRecorder()
+        recorder.restore(snapshot)
+
+        let now = Date()
+        let resumedStart = CLLocation(
+            coordinate: CLLocationCoordinate2D(latitude: 34.0522, longitude: -118.2437),
+            altitude: 0,
+            horizontalAccuracy: 5,
+            verticalAccuracy: 5,
+            timestamp: now
+        )
+        let resumedNext = CLLocation(
+            coordinate: CLLocationCoordinate2D(latitude: 34.0523, longitude: -118.2437),
+            altitude: 0,
+            horizontalAccuracy: 5,
+            verticalAccuracy: 5,
+            timestamp: now.addingTimeInterval(10)
+        )
+        recorder.locationManager(
+            CLLocationManager(),
+            didUpdateLocations: [resumedStart, resumedNext]
+        )
+
+        XCTAssertEqual(recorder.routeSegments.count, 2)
+        XCTAssertEqual(recorder.routeSegments[0], oldSegment)
+        XCTAssertEqual(recorder.routeSegments[1].count, 2)
+        let resumedDistance = RouteMath.totalMeters(recorder.routeSegments[1])
+        XCTAssertEqual(recorder.distanceM, oldDistance + resumedDistance, accuracy: 0.001)
+        XCTAssertLessThan(recorder.distanceM, 1_000)
+    }
+
+    func testGpsJournalWriteFailureReturnsFalseAndNotifiesObserver() throws {
+        let (defaults, directory) = try freshJournalEnvironment()
+        let observer = CommitRecorder()
+        let writer = ActiveGpsWorkoutPersistence.JournalWriter(
+            defaults: defaults,
+            directory: directory,
+            faultInjector: { phase in
+                if phase == .beforeMetadataCommit { throw InjectedFailure.crash }
+            }
+        )
+        let point = RouteMath.LatLng(40.7580, -73.9855)
+        let checkpoint = ActiveGpsWorkoutPersistence.Checkpoint(
+            sessionID: UUID(),
+            workoutStartMs: 1_700_000_000_000,
+            appendedPoints: [ActiveGpsJournalPoint(point: point, startsNewSegment: true)],
+            distanceM: 0,
+            rawFixCount: 1,
+            acceptedPointCount: 1,
+            recordingWasActive: true,
+            hadTerminatedGap: false
+        )
+
+        XCTAssertFalse(writer.store(
+            checkpoint,
+            synchronously: true,
+            onCommit: { observer.record($0) }
+        ))
+        XCTAssertEqual(observer.value(), false)
+        XCTAssertNil(writer.load())
+        XCTAssertNil(defaults.data(forKey: ActiveGpsWorkoutPersistence.metadataKey))
+    }
+
+    func testGpsJournalCoalescesQueuedSuffixesAndKeepsSegments() throws {
+        let (defaults, directory) = try freshJournalEnvironment()
+        let writer = ActiveGpsWorkoutPersistence.JournalWriter(
+            defaults: defaults,
+            directory: directory,
+            automaticallyStartsAsyncWorker: false
+        )
+        let sessionID = UUID()
+        var previous: RouteMath.LatLng?
+        var distance = 0.0
+        let total = 200
+
+        for index in 0..<total {
+            let point = RouteMath.LatLng(40.0, -74.0 + (Double(index) * 0.000_01))
+            if let previous { distance += RouteMath.haversineMeters(previous, point) }
+            previous = point
+            let checkpoint = ActiveGpsWorkoutPersistence.Checkpoint(
+                sessionID: sessionID,
+                workoutStartMs: 1_700_000_000_000,
+                appendedPoints: [ActiveGpsJournalPoint(
+                    point: point,
+                    startsNewSegment: index == 0
+                )],
+                distanceM: distance,
+                rawFixCount: index + 1,
+                acceptedPointCount: index + 1,
+                recordingWasActive: true,
+                hadTerminatedGap: false
+            )
+            XCTAssertTrue(writer.store(checkpoint, synchronously: false))
+        }
+
+        XCTAssertTrue(writer.flush())
+        let loaded = try XCTUnwrap(writer.load())
+        XCTAssertEqual(loaded.acceptedPointCount, total)
+        XCTAssertEqual(loaded.segments.count, 1)
+        XCTAssertEqual(loaded.distanceM, distance, accuracy: 0.001)
+        XCTAssertEqual(writer.debugWriteCount, 1)
+        XCTAssertEqual(writer.debugTotalEncodedPointCount, total)
+    }
+
+    func testGpsLongRouteEncodesOnlyEachNewSuffixOnce() throws {
+        let (defaults, directory) = try freshJournalEnvironment()
+        let writer = ActiveGpsWorkoutPersistence.JournalWriter(
+            defaults: defaults,
+            directory: directory
+        )
+        let sessionID = UUID()
+        let batchSize = 100
+        let batchCount = 100
+        var previous: RouteMath.LatLng?
+        var distance = 0.0
+        var accepted = 0
+
+        for batch in 0..<batchCount {
+            var appended: [ActiveGpsJournalPoint] = []
+            appended.reserveCapacity(batchSize)
+            for offset in 0..<batchSize {
+                let index = (batch * batchSize) + offset
+                let point = RouteMath.LatLng(40.0, -74.0 + (Double(index) * 0.000_001))
+                if let previous { distance += RouteMath.haversineMeters(previous, point) }
+                previous = point
+                appended.append(ActiveGpsJournalPoint(
+                    point: point,
+                    startsNewSegment: index == 0
+                ))
+            }
+            accepted += appended.count
+            let checkpoint = ActiveGpsWorkoutPersistence.Checkpoint(
+                sessionID: sessionID,
+                workoutStartMs: 1_700_000_000_000,
+                appendedPoints: appended,
+                distanceM: distance,
+                rawFixCount: accepted,
+                acceptedPointCount: accepted,
+                recordingWasActive: true,
+                hadTerminatedGap: false
+            )
+            XCTAssertTrue(writer.store(checkpoint, synchronously: true))
+        }
+
+        let loaded = try XCTUnwrap(writer.load())
+        XCTAssertEqual(loaded.acceptedPointCount, batchSize * batchCount)
+        XCTAssertEqual(loaded.segments.count, 1)
+        XCTAssertEqual(writer.debugTotalEncodedPointCount, batchSize * batchCount)
+        XCTAssertEqual(writer.debugMaxEncodedPointCount, batchSize)
     }
 
     func testCoalescedWriterKeepsNewestSnapshot() {

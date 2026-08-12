@@ -13,11 +13,11 @@ struct NOOPProvider: TimelineProvider {
     }
 
     func getSnapshot(in context: Context, completion: @escaping (NOOPEntry) -> Void) {
-        completion(NOOPEntry(date: Date(), snapshot: WidgetSnapshot.load() ?? (context.isPreview ? .placeholder : .empty)))
+        completion(NOOPEntry(date: Date(), snapshot: WidgetSnapshot.loadForDisplay() ?? (context.isPreview ? .placeholder : .empty)))
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<NOOPEntry>) -> Void) {
-        let snapshot = WidgetSnapshot.load() ?? .empty
+        let snapshot = WidgetSnapshot.loadForDisplay() ?? .empty
         let next = Calendar.current.date(byAdding: .minute, value: 15, to: Date()) ?? Date().addingTimeInterval(900)
         completion(Timeline(entries: [NOOPEntry(date: Date(), snapshot: snapshot)], policy: .after(next)))
     }

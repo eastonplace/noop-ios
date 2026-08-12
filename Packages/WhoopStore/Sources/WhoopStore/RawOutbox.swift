@@ -12,6 +12,11 @@ public struct ClockRef: Equatable, Codable, Sendable {
 public struct RawBatchMeta: Equatable, Sendable {
     public let batchId: String
     public let deviceId: String
+    /// Raw replay identity is scoped to the physical-source lineage and its deletion epoch.
+    /// The default keeps legacy callers in a stable device-derived scope until they supply the
+    /// registry-resolved scope explicitly.
+    public let lineage: String
+    public let cursorEpoch: Int
     public let clockRef: ClockRef
     public let capturedAt: Int
     public let startTs: Int
@@ -19,11 +24,51 @@ public struct RawBatchMeta: Equatable, Sendable {
     public let frameCount: Int
     public let byteSize: Int
     public init(batchId: String, deviceId: String, clockRef: ClockRef, capturedAt: Int,
-                startTs: Int, endTs: Int, frameCount: Int, byteSize: Int) {
-        self.batchId = batchId; self.deviceId = deviceId; self.clockRef = clockRef
+                startTs: Int, endTs: Int, frameCount: Int, byteSize: Int,
+                lineage: String? = nil, cursorEpoch: Int = 0) {
+        self.batchId = batchId; self.deviceId = deviceId
+        self.lineage = lineage?.isEmpty == false ? lineage! : "device:\(deviceId)"
+        self.cursorEpoch = max(0, cursorEpoch)
+        self.clockRef = clockRef
         self.capturedAt = capturedAt; self.startTs = startTs; self.endTs = endTs
         self.frameCount = frameCount; self.byteSize = byteSize
     }
+
+    func withHistoricalScope(lineage: String, cursorEpoch: Int) -> Self {
+        Self(
+            batchId: batchId,
+            deviceId: deviceId,
+            clockRef: clockRef,
+            capturedAt: capturedAt,
+            startTs: startTs,
+            endTs: endTs,
+            frameCount: frameCount,
+            byteSize: byteSize,
+            lineage: lineage,
+            cursorEpoch: cursorEpoch
+        )
+    }
+}
+
+private struct RawBatchIdentity {
+    let deviceId: String
+    let lineage: String
+    let cursorEpoch: Int
+}
+
+public enum RawOutboxIntegrityError: Error, Equatable, Sendable {
+    case truncatedCompressedLength
+    case unreasonableUncompressedLength(Int)
+    case uncompressedLengthMismatch(expected: Int, actual: Int)
+    case decompressionFailed(expected: Int, actual: Int)
+    case truncatedHeader
+    case unreasonableFrameCount(Int)
+    case truncatedFrameLength(index: Int)
+    case unreasonableFrameLength(index: Int, length: Int)
+    case truncatedFrame(index: Int, expected: Int, remaining: Int)
+    case trailingBytes(Int)
+    case invalidStoredMetadata
+    case conflictingBatchIdentity
 }
 
 extension WhoopStore {
@@ -45,50 +90,7 @@ extension WhoopStore {
         return buf
     }
 
-    static func unpackFrames(_ data: Data) -> [[UInt8]] {
-        let bytes = [UInt8](data)
-        var off = 0
-        func readU32() -> Int? {
-            guard off + 4 <= bytes.count else { return nil }
-            let v = Int(bytes[off]) | (Int(bytes[off + 1]) << 8)
-                | (Int(bytes[off + 2]) << 16) | (Int(bytes[off + 3]) << 24)
-            off += 4
-            return v
-        }
-        guard let count = readU32() else { return [] }
-        var out: [[UInt8]] = []
-        out.reserveCapacity(count)
-        for _ in 0..<count {
-            guard let len = readU32(), off + len <= bytes.count else { break }
-            out.append(Array(bytes[off..<off + len]))
-            off += len
-        }
-        return out
-    }
-
     // MARK: - zlib helpers using Apple Compression framework
-
-    /// Decompress a blob that was produced by `zlibCompressWithLength`.
-    /// The first 4 bytes are the uncompressed length (UInt32 LE); the rest is the zlib payload.
-    static func zlibDecompressWithLength(_ input: Data) throws -> Data {
-        // Read the 4-byte uncompressed-length prefix (UInt32 LE).
-        guard input.count >= 4 else { throw CocoaError(.fileReadUnknown) }
-        let n = Int(input[input.startIndex])
-            | (Int(input[input.startIndex + 1]) << 8)
-            | (Int(input[input.startIndex + 2]) << 16)
-            | (Int(input[input.startIndex + 3]) << 24)
-        let compressed = input.dropFirst(4)
-        // n == 0 means packFrames returned empty data; return empty.
-        guard n > 0 else { return Data() }
-        var dst = [UInt8](repeating: 0, count: n)
-        let written: Int = compressed.withUnsafeBytes { src in
-            guard let srcPtr = src.baseAddress else { return 0 }
-            return compression_decode_buffer(&dst, n, srcPtr, compressed.count, nil, COMPRESSION_ZLIB)
-        }
-        // If written != n the blob is genuinely corrupt (not a sizing issue).
-        guard written == n else { throw CocoaError(.fileReadCorruptFile) }
-        return Data(dst)
-    }
 
     /// Compress `input` and prepend its uncompressed length as a UInt32 LE prefix.
     static func zlibCompressWithLength(_ input: Data) throws -> Data {
@@ -116,30 +118,188 @@ extension WhoopStore {
         let packed = WhoopStore.packFrames(frames)
         let blob = try WhoopStore.zlibCompressWithLength(packed)
         try syncWrite { db in
-            try db.execute(sql: """
-                INSERT INTO rawBatch
-                    (batchId, deviceId, capturedAt, deviceClockRef, wallClockRef,
-                     startTs, endTs, frameCount, byteSize, framesBlob, syncedAt)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
-                ON CONFLICT(batchId) DO NOTHING
-                """, arguments: [
-                    meta.batchId, meta.deviceId, meta.capturedAt,
-                    meta.clockRef.device, meta.clockRef.wall,
-                    meta.startTs, meta.endTs, meta.frameCount, meta.byteSize, blob])
+            try WhoopStore.enqueueRawBatch(meta, blob: blob, in: db)
         }
     }
 
-    /// Decompress and return the exact frame bytes for a batch (empty if unknown).
+    static func enqueueRawBatch(_ meta: RawBatchMeta, blob: Data, in db: Database) throws {
+        try enqueueRawBatchV2(meta, blob: blob, in: db)
+    }
+
+    /// `nil` means this scoped batch identity is not stored. `true` means its metadata and exact frame
+    /// payload match. `false` means another capture owns the id for a different device or the same
+    /// lineage/epoch, so an atomic history receipt must fail closed.
+    static func existingRawBatchMatches(_ meta: RawBatchMeta, blob: Data, in db: Database) throws -> Bool? {
+        if let row = try Row.fetchOne(db, sql: """
+            SELECT deviceId, lineage, cursorEpoch, frameCount, byteSize, framesBlob
+            FROM rawBatch
+            WHERE batchId = ? AND deviceId = ? AND lineage = ? AND cursorEpoch = ?
+            """, arguments: [meta.batchId, meta.deviceId, meta.lineage, meta.cursorEpoch]) {
+            let existingDeviceId: String = row["deviceId"]
+            let existingLineage: String = row["lineage"]
+            let existingEpoch: Int = row["cursorEpoch"]
+            let existingFrameCount: Int = row["frameCount"]
+            let existingByteSize: Int = row["byteSize"]
+            let existingBlob: Data = row["framesBlob"]
+            guard existingDeviceId == meta.deviceId,
+                  existingLineage == meta.lineage,
+                  existingEpoch == meta.cursorEpoch,
+                  existingFrameCount == meta.frameCount,
+                  existingByteSize == meta.byteSize else {
+                return false
+            }
+            let expectedLength = try WhoopStore.expectedPackedFrameLength(
+                frameCount: existingFrameCount,
+                byteSize: existingByteSize
+            )
+            let existingPacked = try WhoopStore.zlibDecompressWithLengthStrict(
+                existingBlob,
+                expectedUncompressedLength: expectedLength
+            )
+            let incomingPacked = try WhoopStore.zlibDecompressWithLengthStrict(
+                blob,
+                expectedUncompressedLength: expectedLength
+            )
+            _ = try WhoopStore.unpackFramesStrict(
+                existingPacked,
+                expectedFrameCount: existingFrameCount,
+                expectedFrameBytes: existingByteSize
+            )
+            _ = try WhoopStore.unpackFramesStrict(
+                incomingPacked,
+                expectedFrameCount: meta.frameCount,
+                expectedFrameBytes: meta.byteSize
+            )
+            return existingPacked == incomingPacked
+        }
+
+        // Keep batch IDs globally collision-safe across logical devices. A reused ID is only allowed
+        // when the device is the same and the physical lineage/epoch scope differs.
+        let existingDeviceIds = try String.fetchAll(
+            db,
+            sql: "SELECT DISTINCT deviceId FROM rawBatch WHERE batchId = ?",
+            arguments: [meta.batchId]
+        )
+        if existingDeviceIds.contains(where: { $0 != meta.deviceId }) {
+            return false
+        }
+        return nil
+    }
+
+    /// Resolve a legacy batch ID only when exactly one physical-source identity owns it.
+    /// `nil` means unknown or ambiguous, so legacy callers fail closed without selecting a row.
+    private static func uniqueRawBatchIdentity(batchId: String, in db: Database) throws -> RawBatchIdentity? {
+        let rows = try Row.fetchAll(db, sql: """
+            SELECT deviceId, lineage, cursorEpoch
+            FROM rawBatch
+            WHERE batchId = ?
+            LIMIT 2
+            """, arguments: [batchId])
+        guard rows.count == 1 else { return nil }
+        let row = rows[0]
+        return RawBatchIdentity(
+            deviceId: row["deviceId"],
+            lineage: row["lineage"],
+            cursorEpoch: row["cursorEpoch"]
+        )
+    }
+
+    /// Resolve a scoped batch identity only when exactly one physical device owns it.
+    /// `nil` means unknown or cross-device ambiguous, so legacy scoped callers fail closed.
+    private static func uniqueRawBatchIdentity(
+        batchId: String,
+        lineage: String,
+        cursorEpoch: Int,
+        in db: Database
+    ) throws -> RawBatchIdentity? {
+        let rows = try Row.fetchAll(db, sql: """
+            SELECT deviceId, lineage, cursorEpoch
+            FROM rawBatch
+            WHERE batchId = ? AND lineage = ? AND cursorEpoch = ?
+            LIMIT 2
+            """, arguments: [batchId, lineage, cursorEpoch])
+        guard rows.count == 1 else { return nil }
+        let row = rows[0]
+        return RawBatchIdentity(
+            deviceId: row["deviceId"],
+            lineage: row["lineage"],
+            cursorEpoch: row["cursorEpoch"]
+        )
+    }
+
+    /// Decompress and return the exact frame bytes for a batch (empty if unknown or ambiguous).
     public func rawFrames(batchId: String) async throws -> [[UInt8]] {
+        try await loadRawFrames(batchId: batchId, deviceId: nil, lineage: nil, cursorEpoch: nil)
+    }
+
+    /// Decompress and return exact frame bytes for one scoped batch identity.
+    /// Returns empty when that identity is unknown or cross-device ambiguous.
+    public func rawFrames(batchId: String, lineage: String, cursorEpoch: Int) async throws -> [[UInt8]] {
+        try await loadRawFrames(
+            batchId: batchId, deviceId: nil, lineage: lineage, cursorEpoch: cursorEpoch
+        )
+    }
+
+    /// Decompress and return exact frame bytes for the requested device and scoped batch identity.
+    public func rawFrames(
+        batchId: String,
+        deviceId: String,
+        lineage: String,
+        cursorEpoch: Int
+    ) async throws -> [[UInt8]] {
+        try await loadRawFrames(
+            batchId: batchId, deviceId: deviceId, lineage: lineage, cursorEpoch: cursorEpoch
+        )
+    }
+
+    private func loadRawFrames(
+        batchId: String,
+        deviceId: String?,
+        lineage: String?,
+        cursorEpoch: Int?
+    ) async throws -> [[UInt8]] {
         let row: Row? = try syncRead { db in
-            try Row.fetchOne(db,
-                sql: "SELECT framesBlob FROM rawBatch WHERE batchId = ?",
-                arguments: [batchId])
+            let identity: RawBatchIdentity?
+            if let deviceId, let lineage, let cursorEpoch {
+                identity = RawBatchIdentity(
+                    deviceId: deviceId, lineage: lineage, cursorEpoch: cursorEpoch
+                )
+            } else if let lineage, let cursorEpoch {
+                identity = try WhoopStore.uniqueRawBatchIdentity(
+                    batchId: batchId, lineage: lineage, cursorEpoch: cursorEpoch, in: db
+                )
+            } else {
+                identity = try WhoopStore.uniqueRawBatchIdentity(batchId: batchId, in: db)
+            }
+            guard let identity else {
+                return nil
+            }
+            return try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT frameCount, byteSize, framesBlob FROM rawBatch
+                    WHERE batchId = ? AND deviceId = ? AND lineage = ? AND cursorEpoch = ?
+                    """,
+                arguments: [batchId, identity.deviceId, identity.lineage, identity.cursorEpoch]
+            )
         }
         guard let row = row else { return [] }
+        let frameCount: Int = row["frameCount"]
+        let byteSize: Int = row["byteSize"]
         let blob: Data = row["framesBlob"]
-        let raw = try WhoopStore.zlibDecompressWithLength(blob)
-        return WhoopStore.unpackFrames(raw)
+        let expectedLength = try WhoopStore.expectedPackedFrameLength(
+            frameCount: frameCount,
+            byteSize: byteSize
+        )
+        let raw = try WhoopStore.zlibDecompressWithLengthStrict(
+            blob,
+            expectedUncompressedLength: expectedLength
+        )
+        return try WhoopStore.unpackFramesStrict(
+            raw,
+            expectedFrameCount: frameCount,
+            expectedFrameBytes: byteSize
+        )
     }
 
     private static func metaFromRow(_ row: Row) -> RawBatchMeta {
@@ -147,7 +307,8 @@ extension WhoopStore {
             batchId: row["batchId"], deviceId: row["deviceId"],
             clockRef: ClockRef(device: row["deviceClockRef"], wall: row["wallClockRef"]),
             capturedAt: row["capturedAt"], startTs: row["startTs"], endTs: row["endTs"],
-            frameCount: row["frameCount"], byteSize: row["byteSize"])
+            frameCount: row["frameCount"], byteSize: row["byteSize"],
+            lineage: row["lineage"], cursorEpoch: row["cursorEpoch"])
     }
 
     /// Un-synced batches (syncedAt IS NULL), oldest first, capped at `limit`.
@@ -155,7 +316,7 @@ extension WhoopStore {
         try syncRead { db in
             try Row.fetchAll(db, sql: """
                 SELECT batchId, deviceId, capturedAt, deviceClockRef, wallClockRef,
-                       startTs, endTs, frameCount, byteSize
+                       startTs, endTs, frameCount, byteSize, lineage, cursorEpoch
                 FROM rawBatch
                 WHERE syncedAt IS NULL
                 ORDER BY capturedAt ASC
@@ -164,11 +325,62 @@ extension WhoopStore {
         }
     }
 
-    /// Mark a batch synced (timestamp in unix seconds).
+    /// Mark a batch synced (timestamp in unix seconds). An ambiguous legacy batch ID is a no-op.
     public func markRawBatchSynced(batchId: String, at: Int) async throws {
         try syncWrite { db in
-            try db.execute(sql: "UPDATE rawBatch SET syncedAt = ? WHERE batchId = ?",
-                           arguments: [at, batchId])
+            guard let identity = try WhoopStore.uniqueRawBatchIdentity(batchId: batchId, in: db) else {
+                return
+            }
+            try db.execute(
+                sql: """
+                    UPDATE rawBatch SET syncedAt = ?
+                    WHERE batchId = ? AND deviceId = ? AND lineage = ? AND cursorEpoch = ?
+                    """,
+                arguments: [at, batchId, identity.deviceId, identity.lineage, identity.cursorEpoch]
+            )
+        }
+    }
+
+    /// Mark one physical-source batch identity synced without touching a reused batch ID from another
+    /// lineage or deletion epoch.
+    public func markRawBatchSynced(
+        batchId: String,
+        lineage: String,
+        cursorEpoch: Int,
+        at: Int
+    ) async throws {
+        try syncWrite { db in
+            guard let identity = try WhoopStore.uniqueRawBatchIdentity(
+                batchId: batchId, lineage: lineage, cursorEpoch: cursorEpoch, in: db
+            ) else {
+                return
+            }
+            try db.execute(
+                sql: """
+                    UPDATE rawBatch SET syncedAt = ?
+                    WHERE batchId = ? AND deviceId = ? AND lineage = ? AND cursorEpoch = ?
+                    """,
+                arguments: [at, batchId, identity.deviceId, identity.lineage, identity.cursorEpoch]
+            )
+        }
+    }
+
+    /// Mark one requested device's physical-source batch identity synced.
+    public func markRawBatchSynced(
+        batchId: String,
+        deviceId: String,
+        lineage: String,
+        cursorEpoch: Int,
+        at: Int
+    ) async throws {
+        try syncWrite { db in
+            try db.execute(
+                sql: """
+                    UPDATE rawBatch SET syncedAt = ?
+                    WHERE batchId = ? AND deviceId = ? AND lineage = ? AND cursorEpoch = ?
+                    """,
+                arguments: [at, batchId, deviceId, lineage, cursorEpoch]
+            )
         }
     }
 }
@@ -237,4 +449,145 @@ extension WhoopStore {
             try String.fetchAll(db, sql: "SELECT batchId FROM rawBatch ORDER BY capturedAt ASC")
         }
     }
+}
+
+// MARK: - PR #28 root-fix support for WhoopStore
+extension WhoopStore {
+    static func zlibDecompressWithLengthStrict(
+            _ input: Data,
+            expectedUncompressedLength: Int,
+            maximumUncompressedLength: Int = 256 * 1_024 * 1_024
+        ) throws -> Data {
+            guard input.count >= 4 else { throw RawOutboxIntegrityError.truncatedCompressedLength }
+            let actualLength = Int(input[input.startIndex])
+                | (Int(input[input.startIndex + 1]) << 8)
+                | (Int(input[input.startIndex + 2]) << 16)
+                | (Int(input[input.startIndex + 3]) << 24)
+            guard actualLength >= 0, actualLength <= maximumUncompressedLength else {
+                throw RawOutboxIntegrityError.unreasonableUncompressedLength(actualLength)
+            }
+            guard actualLength == expectedUncompressedLength else {
+                throw RawOutboxIntegrityError.uncompressedLengthMismatch(
+                    expected: expectedUncompressedLength,
+                    actual: actualLength
+                )
+            }
+            let compressed = input.dropFirst(4)
+            if actualLength == 0 {
+                guard compressed.isEmpty else { throw RawOutboxIntegrityError.trailingBytes(compressed.count) }
+                return Data()
+            }
+            var destination = [UInt8](repeating: 0, count: actualLength)
+            let written = compressed.withUnsafeBytes { source -> Int in
+                guard let base = source.baseAddress else { return 0 }
+                return compression_decode_buffer(
+                    &destination,
+                    actualLength,
+                    base,
+                    compressed.count,
+                    nil,
+                    COMPRESSION_ZLIB
+                )
+            }
+            guard written == actualLength else {
+                throw RawOutboxIntegrityError.decompressionFailed(expected: actualLength, actual: written)
+            }
+            return Data(destination)
+        }
+
+    static func unpackFramesStrict(
+            _ data: Data,
+            expectedFrameCount: Int? = nil,
+            expectedFrameBytes: Int? = nil,
+            maximumFrameCount: Int = 1_000_000,
+            maximumFrameLength: Int = 16 * 1_024 * 1_024
+        ) throws -> [[UInt8]] {
+            let bytes = [UInt8](data)
+            var offset = 0
+
+            func readU32() -> Int? {
+                guard offset + 4 <= bytes.count else { return nil }
+                let value = Int(bytes[offset])
+                    | (Int(bytes[offset + 1]) << 8)
+                    | (Int(bytes[offset + 2]) << 16)
+                    | (Int(bytes[offset + 3]) << 24)
+                offset += 4
+                return value
+            }
+
+            guard let count = readU32() else { throw RawOutboxIntegrityError.truncatedHeader }
+            // Every frame needs at least a four-byte length. Reject impossible counts before reserveCapacity.
+            let structuralMaximum = max(0, (bytes.count - 4) / 4)
+            guard count <= structuralMaximum, (0...maximumFrameCount).contains(count) else {
+                throw RawOutboxIntegrityError.unreasonableFrameCount(count)
+            }
+            if let expectedFrameCount, expectedFrameCount != count {
+                throw RawOutboxIntegrityError.invalidStoredMetadata
+            }
+
+            var frames: [[UInt8]] = []
+            frames.reserveCapacity(count)
+            var totalFrameBytes = 0
+            for index in 0..<count {
+                guard let length = readU32() else {
+                    throw RawOutboxIntegrityError.truncatedFrameLength(index: index)
+                }
+                guard (0...maximumFrameLength).contains(length) else {
+                    throw RawOutboxIntegrityError.unreasonableFrameLength(index: index, length: length)
+                }
+                let remaining = bytes.count - offset
+                guard length <= remaining else {
+                    throw RawOutboxIntegrityError.truncatedFrame(
+                        index: index,
+                        expected: length,
+                        remaining: remaining
+                    )
+                }
+                let (nextTotal, overflow) = totalFrameBytes.addingReportingOverflow(length)
+                guard !overflow else { throw RawOutboxIntegrityError.invalidStoredMetadata }
+                totalFrameBytes = nextTotal
+                frames.append(Array(bytes[offset..<(offset + length)]))
+                offset += length
+            }
+            guard offset == bytes.count else {
+                throw RawOutboxIntegrityError.trailingBytes(bytes.count - offset)
+            }
+            if let expectedFrameBytes, expectedFrameBytes != totalFrameBytes {
+                throw RawOutboxIntegrityError.invalidStoredMetadata
+            }
+            return frames
+        }
+
+    static func expectedPackedFrameLength(frameCount: Int, byteSize: Int) throws -> Int {
+            guard frameCount >= 0, byteSize >= 0 else {
+                throw RawOutboxIntegrityError.invalidStoredMetadata
+            }
+            let (lengthBytes, lengthOverflow) = frameCount.multipliedReportingOverflow(by: 4)
+            let (withHeader, headerOverflow) = lengthBytes.addingReportingOverflow(4)
+            let (total, totalOverflow) = withHeader.addingReportingOverflow(byteSize)
+            guard !lengthOverflow, !headerOverflow, !totalOverflow else {
+                throw RawOutboxIntegrityError.invalidStoredMetadata
+            }
+            return total
+        }
+
+    static func enqueueRawBatchV2(_ meta: RawBatchMeta, blob: Data, in db: Database) throws {
+            switch try existingRawBatchMatches(meta, blob: blob, in: db) {
+            case .some(true):
+                return
+            case .some(false):
+                throw RawOutboxIntegrityError.conflictingBatchIdentity
+            case .none:
+                try db.execute(sql: """
+                    INSERT INTO rawBatch
+                        (batchId, deviceId, lineage, cursorEpoch, capturedAt, deviceClockRef, wallClockRef,
+                         startTs, endTs, frameCount, byteSize, framesBlob, syncedAt)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                    """, arguments: [
+                        meta.batchId, meta.deviceId, meta.lineage, meta.cursorEpoch, meta.capturedAt,
+                        meta.clockRef.device, meta.clockRef.wall,
+                        meta.startTs, meta.endTs, meta.frameCount, meta.byteSize, blob,
+                    ])
+            }
+        }
 }

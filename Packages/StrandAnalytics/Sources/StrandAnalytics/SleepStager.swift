@@ -152,6 +152,14 @@ public enum SleepStager {
     public static let morningReonsetBandAsleepFrac: Double = 0.6
     /// Seconds in a calendar day (for local-hour-of-day arithmetic).
     static let secondsPerDay: Int = 86_400
+    /// Every detector timestamp eventually reaches a Double epoch grid. Restrict raw
+    /// ingress to integer seconds that Double can represent exactly, which also keeps
+    /// any difference between two accepted timestamps well inside Int's range.
+    private static let exactDoubleUnixTimestampLimit = 9_007_199_254_740_991
+    private static func hasRepresentableSleepTimestamp(_ timestamp: Int) -> Bool {
+        timestamp >= -exactDoubleUnixTimestampLimit
+            && timestamp <= exactDoubleUnixTimestampLimit
+    }
     /// Floor on the rolling-window size in samples.
     public static let minWindowSamples: Int = 3
     /// A run is HR-confirmed only if mean HR ≤ baseline × this.
@@ -302,7 +310,10 @@ public enum SleepStager {
         guard times.count >= 2 else { return defaultIntervalS }
         var gaps: [Double] = []
         for i in 0..<(times.count - 1) {
-            let g = Double(times[i + 1] - times[i])
+            guard let gap = SleepTimestampMath.nonnegativeDuration(
+                start: times[i], end: times[i + 1]
+            ) else { continue }
+            let g = Double(gap)
             if g > 0 && g < 300 { gaps.append(g) }
         }
         guard !gaps.isEmpty else { return defaultIntervalS }
@@ -325,7 +336,10 @@ public enum SleepStager {
         guard times.count >= 2 else { return 0 }
         var mx = 0.0
         for i in 0..<(times.count - 1) {
-            let g = Double(times[i + 1] - times[i])
+            guard let gap = SleepTimestampMath.nonnegativeDuration(
+                start: times[i], end: times[i + 1]
+            ) else { continue }
+            let g = Double(gap)
             if g > mx { mx = g }
         }
         return mx
@@ -339,16 +353,25 @@ public enum SleepStager {
     /// gaps. Requires a real HR span to compare against — with no/degenerate HR the dense path is
     /// kept (false), so a 4.0 with absent HR is never reclassified as sparse.
     static func isGravitySparse(_ grav: [GravitySample], hr: [HRSample]) -> Bool {
-        if grav.count < 2 || hr.count < 2 { return false }
-        let hrSpan = Double(hr[hr.count - 1].ts - hr[0].ts)
-        if hrSpan <= 0 { return false }
-        let gravSpan = Double(grav[grav.count - 1].ts - grav[0].ts)
+        let safeGravity = grav.filter { hasRepresentableSleepTimestamp($0.ts) }
+        let safeHR = hr.filter { hasRepresentableSleepTimestamp($0.ts) }
+        if safeGravity.count < 2 || safeHR.count < 2 { return false }
+        guard let hrSpanSeconds = SleepTimestampMath.nonnegativeDuration(
+            start: safeHR[0].ts,
+            end: safeHR[safeHR.count - 1].ts
+        ), hrSpanSeconds > 0,
+        let gravSpanSeconds = SleepTimestampMath.nonnegativeDuration(
+            start: safeGravity[0].ts,
+            end: safeGravity[safeGravity.count - 1].ts
+        ) else { return false }
+        let hrSpan = Double(hrSpanSeconds)
+        let gravSpan = Double(gravSpanSeconds)
         if gravSpan < sparseGravitySpanFrac * hrSpan { return true }
         // #28: clumped 4.0 motion keeps a SMALL median gap yet still contains >maxGapMin dropouts
         // the gravity-only spine shreds the night on. The largest gap catches what a median would
         // miss (largest ≥ median, so this subsumes the old median check). Flagging sparse only
         // ENABLES buildRuns' HR-vouched bridge — a real wake (HR above the sleep band) still breaks.
-        return largestGapS(grav.map { $0.ts }) > Double(maxGapMin * 60)
+        return largestGapS(safeGravity.map { $0.ts }) > Double(maxGapMin * 60)
     }
 
     /// True when HR stays in the sleep band (≤ baseline × hrSleepBandMult) across (a, b], used to
@@ -796,15 +819,29 @@ public enum SleepStager {
                                    useSleepStagerV2: Bool = false,
                                    sleepHRBaseline: Double? = nil,
                                    traceSink: ((String) -> Void)? = nil) -> [SleepSession] {
+        // Raw exports are untrusted. Drop malformed timestamp rows before they can
+        // influence the cache fingerprint or enter interval arithmetic; a usable
+        // night with one corrupt row remains usable, while an extremes-only input
+        // fails closed as no detectable sleep.
+        guard tzOffsetSeconds >= -secondsPerDay, tzOffsetSeconds <= secondsPerDay else { return [] }
+        let safeGravity = gravity.filter { hasRepresentableSleepTimestamp($0.ts) }
+        let safeHR = hr.filter { hasRepresentableSleepTimestamp($0.ts) }
+        let safeRR = rr.filter { hasRepresentableSleepTimestamp($0.ts) }
+        let safeResp = resp.filter { hasRepresentableSleepTimestamp($0.ts) }
+        let safeWristOff = wristOff.filter {
+            hasRepresentableSleepTimestamp($0.start)
+                && hasRepresentableSleepTimestamp($0.end)
+        }
+        let safeBandState = bandSleepState.filter { hasRepresentableSleepTimestamp($0.ts) }
         // Sleep & Rest test mode only: when a trace is requested we MUST run the live ladder, not a
         // memoized result, so each gate verdict is emitted for THIS night. The trace is side-effect-
         // only and never changes the sessions, so a traced and an untraced call return the identical
         // array. With no sink (the default, every existing call site) the path below is byte-identical
         // to before: same memo key, same compute.
         if let traceSink {
-            return detectSleepUncached(hr: hr, rr: rr, resp: resp, gravity: gravity,
-                                       tzOffsetSeconds: tzOffsetSeconds, wristOff: wristOff,
-                                       bandSleepState: bandSleepState, useSleepStagerV2: useSleepStagerV2,
+            return detectSleepUncached(hr: safeHR, rr: safeRR, resp: safeResp, gravity: safeGravity,
+                                       tzOffsetSeconds: tzOffsetSeconds, wristOff: safeWristOff,
+                                       bandSleepState: safeBandState, useSleepStagerV2: useSleepStagerV2,
                                        sleepHRBaseline: sleepHRBaseline, traceSink: traceSink)
         }
         // v7.0.2 perf (#707): the single heaviest analytics call — it sorts the dense full-day gravity
@@ -816,19 +853,19 @@ public enum SleepStager {
         // the off-wrist intervals (#500 backstop), the persisted band state (#531 H8), and the V2 toggle (an
         // edit to any re-keys to a fresh compute). Result-only + bounded; the raw arrays are never retained.
         let key = DetectKey(
-            grav: StreamFingerprint.of(gravity, ts: { $0.ts }, quant: { Int(($0.x + $0.y + $0.z) * 1024) }),
-            hr: StreamFingerprint.of(hr, ts: { $0.ts }, quant: { Int($0.bpm) }),
-            rr: StreamFingerprint.of(rr, ts: { $0.ts }, quant: { Int($0.rrMs) }),
-            resp: StreamFingerprint.of(resp, ts: { $0.ts }, quant: { $0.raw }),
+            grav: StreamFingerprint.of(safeGravity, ts: { $0.ts }, quant: { Int(($0.x + $0.y + $0.z) * 1024) }),
+            hr: StreamFingerprint.of(safeHR, ts: { $0.ts }, quant: { Int($0.bpm) }),
+            rr: StreamFingerprint.of(safeRR, ts: { $0.ts }, quant: { Int($0.rrMs) }),
+            resp: StreamFingerprint.of(safeResp, ts: { $0.ts }, quant: { $0.raw }),
             tz: tzOffsetSeconds,
-            wristOff: StreamFingerprint.of(wristOff, ts: { $0.start }, quant: { $0.end }),
-            band: StreamFingerprint.of(bandSleepState, ts: { $0.ts }, quant: { $0.state }),
+            wristOff: StreamFingerprint.of(safeWristOff, ts: { $0.start }, quant: { $0.end }),
+            band: StreamFingerprint.of(safeBandState, ts: { $0.ts }, quant: { $0.state }),
             v2: useSleepStagerV2,
             sleepHRBaseline: sleepHRBaseline)
         return detectSleepCache.value(key) {
-            detectSleepUncached(hr: hr, rr: rr, resp: resp, gravity: gravity,
-                                tzOffsetSeconds: tzOffsetSeconds, wristOff: wristOff,
-                                bandSleepState: bandSleepState, useSleepStagerV2: useSleepStagerV2,
+            detectSleepUncached(hr: safeHR, rr: safeRR, resp: safeResp, gravity: safeGravity,
+                                tzOffsetSeconds: tzOffsetSeconds, wristOff: safeWristOff,
+                                bandSleepState: safeBandState, useSleepStagerV2: useSleepStagerV2,
                                 sleepHRBaseline: sleepHRBaseline, traceSink: nil)
         }
     }
@@ -997,9 +1034,23 @@ public enum SleepStager {
 
     /// asleep / in-bed in [0, 1]; asleep = in-bed − wake.
     static func efficiency(start: Int, end: Int, stages: [StageSegment]) -> Double {
-        let inBed = Double(end - start)
-        if inBed <= 0 { return 0 }
-        let wake = stages.filter { $0.stage == "wake" }.reduce(0.0) { $0 + Double($1.end - $1.start) }
+        guard let inBedSeconds = SleepTimestampMath.nonnegativeDuration(start: start, end: end),
+              inBedSeconds > 0
+        else { return 0 }
+        var wakeSeconds = 0
+        for stage in stages where stage.stage == "wake" {
+            guard let duration = SleepTimestampMath.nonnegativeDuration(
+                start: stage.start,
+                end: stage.end
+            ) else {
+                return 0
+            }
+            let (nextWake, overflow) = wakeSeconds.addingReportingOverflow(duration)
+            guard !overflow else { return 0 }
+            wakeSeconds = nextWake
+        }
+        let inBed = Double(inBedSeconds)
+        let wake = Double(wakeSeconds)
         let asleep = max(0.0, inBed - wake)
         return min(1.0, asleep / inBed)
     }
@@ -1031,6 +1082,7 @@ public enum SleepStager {
     /// stages from the sensor data instead of a fabricated "awake" block. (#318)
     public static func stageSession(start: Int, end: Int, grav: [GravitySample],
                                     hr: [HRSample], rr: [RRInterval], resp: [RespSample]) -> [StageSegment] {
+        guard isRepresentableStageWindow(start: start, end: end) else { return [] }
         // v7.0.2 perf (#707): stage each window AT MOST ONCE per (window, input-fingerprint). Both
         // `detectSleep` (per accepted run) and the sleep-edit restage call this with byte-identical streams
         // across post-sync passes / `body` re-evaluations; each call builds a fresh 30 s epoch grid +
@@ -1055,6 +1107,25 @@ public enum SleepStager {
     }
     private static let stageSessionCache = AnalyticsMemoCache<V1StageKey, [StageSegment]>(capacity: 32)
 
+    /// Epoch-grid staging converts the timestamps to `Double`. Reject values that
+    /// would lose integer-second precision (or have a wrapped duration) instead of
+    /// fabricating a hypnogram from a malformed clock.
+    private static func representableStageDuration(start: Int, end: Int) -> Int? {
+        guard let duration = SleepTimestampMath.nonnegativeDuration(start: start, end: end) else {
+            return nil
+        }
+        guard duration > 0
+            && duration <= maxMainSleepSpanS
+            && start >= -exactDoubleUnixTimestampLimit
+            && end <= exactDoubleUnixTimestampLimit
+        else { return nil }
+        return duration
+    }
+
+    private static func isRepresentableStageWindow(start: Int, end: Int) -> Bool {
+        representableStageDuration(start: start, end: end) != nil
+    }
+
     /// Unchanged V1 staging recipe; split verbatim so the public entry memoizes in front of it.
     private static func stageSessionUncached(start: Int, end: Int, grav: [GravitySample],
                                              hr: [HRSample], rr: [RRInterval], resp: [RespSample]) -> [StageSegment] {
@@ -1068,7 +1139,7 @@ public enum SleepStager {
         let rrSeg = rowsBetween(rr, start: start, end: end) { $0.ts }
         let respSeg = rowsBetween(resp, start: start, end: end) { $0.ts }
 
-        let grid = buildEpochGrid(start: Double(start), end: Double(end),
+        let grid = buildEpochGrid(start: start, end: end,
                                   gravTimes: gTimes, gravDeltas: gDeltas,
                                   hr: hrSeg, rr: rrSeg, resp: respSeg)
         if grid.nEpochs == 0 { return [StageSegment(start: start, end: end, stage: "light")] }
@@ -1119,11 +1190,12 @@ public enum SleepStager {
     /// persists NULL (no fabricated zero series). Pure + deterministic; shares `buildEpochGrid` with staging
     /// so the grids align epoch-for-epoch. (H8)
     public static func sessionEpochMotion(start: Int, end: Int, grav: [GravitySample]) -> [Double] {
+        guard isRepresentableStageWindow(start: start, end: end) else { return [] }
         let gSeg = rowsBetween(grav, start: start, end: end) { $0.ts }
         if gSeg.count < 2 { return [] }
         let gDeltas = gravityDeltas(gSeg)
         let gTimes = gSeg.map { $0.ts }
-        let grid = buildEpochGrid(start: Double(start), end: Double(end),
+        let grid = buildEpochGrid(start: start, end: end,
                                   gravTimes: gTimes, gravDeltas: gDeltas,
                                   hr: [], rr: [], resp: [])
         return grid.counts
@@ -1140,14 +1212,18 @@ public enum SleepStager {
     /// carried VERBATIM — this never converts an unproven code into a derived stage; consumers decide meaning.
     public static func sessionEpochSleepState(start: Int, end: Int,
                                               sleepState: [(ts: Int, state: Int)]) -> [Int] {
+        guard let duration = representableStageDuration(start: start, end: end) else { return [] }
         let seg = rowsBetween(sleepState, start: start, end: end) { $0.ts }.sorted { $0.ts < $1.ts }
-        guard !seg.isEmpty, end > start else { return [] }
-        let nEpochs = max(1, Int(ceil(Double(end - start) / epochS)))
+        guard !seg.isEmpty else { return [] }
+        let epochSeconds = Int(epochS)
+        let nEpochs = max(1, (duration + epochSeconds - 1) / epochSeconds)
         var out = [Int](repeating: seg[0].state, count: nEpochs)   // lead-in = first sample's state
         var last = seg[0].state
         var si = 0
         for i in 0..<nEpochs {
-            let epochEnd = start + Int(Double(i + 1) * epochS)
+            guard let epochEnd = SleepTimestampMath.adding((i + 1) * epochSeconds, to: start) else {
+                return []
+            }
             // Advance through every sample that falls in/at-or-before this epoch's window; the LAST one wins.
             while si < seg.count && seg[si].ts < epochEnd {
                 last = seg[si].state
@@ -1173,16 +1249,19 @@ public enum SleepStager {
         func epochMid(_ i: Int) -> Double { edges[i] + epochS / 2.0 }
     }
 
-    static func buildEpochGrid(start: Double, end: Double,
+    static func buildEpochGrid(start: Int, end: Int,
                                gravTimes: [Int], gravDeltas: [Double],
                                hr: [HRSample], rr: [RRInterval], resp: [RespSample]) -> EpochGrid {
-        if end <= start {
-            return EpochGrid(start: start, end: end, edges: [start], counts: [],
+        guard let duration = representableStageDuration(start: start, end: end) else {
+            return EpochGrid(start: Double(start), end: Double(end), edges: [Double(start)], counts: [],
                              moveFrac: [], hr: [], rr: [], resp: [])
         }
-        let nEpochs = max(1, Int(ceil((end - start) / epochS)))
-        var edges = (0...nEpochs).map { start + Double($0) * epochS }
-        edges[nEpochs] = max(edges[nEpochs], end)
+        let epochSeconds = Int(epochS)
+        let nEpochs = max(1, (duration + epochSeconds - 1) / epochSeconds)
+        let startDouble = Double(start)
+        let endDouble = Double(end)
+        var edges = (0...nEpochs).map { startDouble + Double($0) * epochS }
+        edges[nEpochs] = max(edges[nEpochs], endDouble)
 
         var counts = [Double](repeating: 0, count: nEpochs)
         var moveN = [Int](repeating: 0, count: nEpochs)
@@ -1192,31 +1271,29 @@ public enum SleepStager {
         var rrBuckets = [[Double]](repeating: [], count: nEpochs)
         var respBuckets = [[Double]](repeating: [], count: nEpochs)
 
-        func idx(_ ts: Double) -> Int? {
-            if ts < start || ts >= end {
-                if ts == end { return nEpochs - 1 }
-                return nil
-            }
-            let i = Int((ts - start) / epochS)
-            return min(i, nEpochs - 1)
+        func idx(_ ts: Int) -> Int? {
+            guard ts >= start, ts <= end,
+                  let offset = SleepTimestampMath.nonnegativeDuration(start: start, end: ts)
+            else { return nil }
+            return min(offset / epochSeconds, nEpochs - 1)
         }
 
         for (t, d) in zip(gravTimes, gravDeltas) {
-            guard let i = idx(Double(t)) else { continue }
+            guard let i = idx(t) else { continue }
             counts[i] += d
             gravN[i] += 1
             if d >= moveDeltaThresholdG { moveN[i] += 1 }
         }
         for r in hr {
-            guard let i = idx(Double(r.ts)) else { continue }
+            guard let i = idx(r.ts) else { continue }
             hrSum[i] += Double(r.bpm); hrCnt[i] += 1
         }
         for r in rr {
-            guard let i = idx(Double(r.ts)) else { continue }
+            guard let i = idx(r.ts) else { continue }
             rrBuckets[i].append(Double(r.rrMs))
         }
         for r in resp {
-            guard let i = idx(Double(r.ts)) else { continue }
+            guard let i = idx(r.ts) else { continue }
             respBuckets[i].append(Double(r.raw))
         }
 
@@ -1224,7 +1301,7 @@ public enum SleepStager {
         // No gravity coverage → 1.0 (treat as moving; conservative).
         let moveFrac = (0..<nEpochs).map { gravN[$0] > 0 ? Double(moveN[$0]) / Double(gravN[$0]) : 1.0 }
 
-        return EpochGrid(start: start, end: end, edges: edges, counts: counts,
+        return EpochGrid(start: startDouble, end: endDouble, edges: edges, counts: counts,
                          moveFrac: moveFrac, hr: hrMean, rr: rrBuckets, resp: respBuckets)
     }
 
@@ -1822,6 +1899,7 @@ public enum SleepStager {
     public static func remFunnelDiagnostic(start: Int, end: Int, grav: [GravitySample],
                                            hr: [HRSample], rr: [RRInterval],
                                            resp: [RespSample]) -> REMFunnelDiagnostic? {
+        guard isRepresentableStageWindow(start: start, end: end) else { return nil }
         let gSeg = rowsBetween(grav, start: start, end: end) { $0.ts }
         if gSeg.count < 2 { return nil }
         let gDeltas = gravityDeltas(gSeg)
@@ -1830,7 +1908,7 @@ public enum SleepStager {
         let rrSeg = rowsBetween(rr, start: start, end: end) { $0.ts }
         let respSeg = rowsBetween(resp, start: start, end: end) { $0.ts }
 
-        let grid = buildEpochGrid(start: Double(start), end: Double(end),
+        let grid = buildEpochGrid(start: start, end: end,
                                   gravTimes: gTimes, gravDeltas: gDeltas,
                                   hr: hrSeg, rr: rrSeg, resp: respSeg)
         if grid.nEpochs == 0 { return nil }
@@ -1994,15 +2072,18 @@ public enum SleepStager {
 
     /// Lowest 5-min rolling-mean HR during the session (bpm), or nil.
     static func sessionRestingHR(start: Int, end: Int, hr: [HRSample]) -> Int? {
+        guard representableStageDuration(start: start, end: end) != nil else { return nil }
         let seg = hr.filter { $0.ts >= start && $0.ts <= end }
         guard !seg.isEmpty else { return nil }
         let windowS = 5 * 60
         var means: [Double] = []
         var t = start
         while t < end {
-            let win = seg.filter { $0.ts >= t && $0.ts < t + windowS }
+            let windowEnd = SleepTimestampMath.adding(windowS, to: t) ?? end
+            let win = seg.filter { $0.ts >= t && $0.ts < windowEnd }
             if !win.isEmpty { means.append(Double(win.reduce(0) { $0 + $1.bpm }) / Double(win.count)) }
-            t += windowS
+            guard let next = SleepTimestampMath.adding(windowS, to: t) else { break }
+            t = next
         }
         if let m = means.min() { return Int(m.rounded()) }
         let all = Double(seg.reduce(0) { $0 + $1.bpm }) / Double(seg.count)
@@ -2033,13 +2114,15 @@ public enum SleepStager {
         // has to be chronological). The value path passes the loop's pre-sorted `rrS`; the trace caller sorts
         // its own copy. Not sorted here on purpose — re-sorting the value path could reorder same-second RR
         // under Swift's unstable sort and shift the shipped avgHrv. Same contract the original sessionAvgHRV had.
+        guard representableStageDuration(start: start, end: end) != nil else { return [] }
         let seg = rr.filter { $0.ts >= start && $0.ts <= end }
         guard !seg.isEmpty else { return [] }
         let windowS = 5 * 60
         var out: [HrvWindow] = []
         var t = start
         while t < end {
-            let bucket = seg.filter { $0.ts >= t && $0.ts < t + windowS }.map { Double($0.rrMs) }
+            let windowEnd = SleepTimestampMath.adding(windowS, to: t) ?? end
+            let bucket = seg.filter { $0.ts >= t && $0.ts < windowEnd }.map { Double($0.rrMs) }
             // Full clean (range + Malik ectopic rejection), not just range — matches the
             // analyze() pipeline. The 0x2A37 RR on a WHOOP 5/MG is PPG-derived and noisier
             // than a 4.0's; rMSSD is built from SUCCESSIVE differences, so an un-rejected
@@ -2048,10 +2131,11 @@ public enum SleepStager {
             // removed out-of-range/ectopic beat can't splice its neighbours into a spurious delta.
             let cleaned = HRVAnalyzer.cleanRRGapAware(bucket)
             let rmssd: Double? = (cleaned.nn.count >= 2) ? HRVAnalyzer.rmssdGapAware(cleaned.nn, cleaned.contiguous) : nil
-            let center = t + windowS / 2
+            guard let center = SleepTimestampMath.adding(windowS / 2, to: t) else { return [] }
             let stage = stages.first { center >= $0.start && center < $0.end }?.stage ?? "?"
             out.append(HrvWindow(startTs: t, stage: stage, cleanBeats: cleaned.nn.count, rmssd: rmssd))
-            t += windowS
+            guard let next = SleepTimestampMath.adding(windowS, to: t) else { break }
+            t = next
         }
         return out
     }
@@ -2089,10 +2173,17 @@ public enum SleepStager {
     }
 
     public static func hypnogramMetrics(_ session: SleepSession) -> HypnogramMetrics {
+        guard let inBedSeconds = representableStageDuration(start: session.start, end: session.end),
+              session.stages.allSatisfy({
+                  representableStageDuration(start: $0.start, end: $0.end) != nil
+              })
+        else { return emptyHypnogramMetrics() }
         let segs = session.stages.sorted { $0.start < $1.start }
-        let tib = max(0.0, Double(session.end - session.start))
+        let tib = Double(inBedSeconds)
 
-        func dur(_ s: StageSegment) -> Double { Double(s.end - s.start) }
+        func dur(_ s: StageSegment) -> Double {
+            Double(SleepTimestampMath.nonnegativeDuration(start: s.start, end: s.end) ?? 0)
+        }
         let sleepSegs = segs.filter { $0.stage == "light" || $0.stage == "deep" || $0.stage == "rem" }
         let tst = sleepSegs.reduce(0.0) { $0 + dur($1) }
         let deepS = segs.filter { $0.stage == "deep" }.reduce(0.0) { $0 + dur($1) }
@@ -2129,6 +2220,25 @@ public enum SleepStager {
             remLatencyS: remLatency, wasoS: waso, efficiency: min(1.0, se),
             disturbances: disturbances, deepMin: deepS / 60.0, remMin: remS / 60.0,
             lightMin: lightS / 60.0, deepPct: pct(deepS), remPct: pct(remS), lightPct: pct(lightS))
+    }
+
+    private static func emptyHypnogramMetrics() -> HypnogramMetrics {
+        HypnogramMetrics(
+            tibS: 0,
+            tstS: 0,
+            sptS: 0,
+            solS: 0,
+            remLatencyS: .nan,
+            wasoS: 0,
+            efficiency: 0,
+            disturbances: 0,
+            deepMin: 0,
+            remMin: 0,
+            lightMin: 0,
+            deepPct: 0,
+            remPct: 0,
+            lightPct: 0
+        )
     }
 
     // MARK: - Small stats helpers

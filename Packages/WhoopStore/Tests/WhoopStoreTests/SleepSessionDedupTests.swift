@@ -1,4 +1,5 @@
 import XCTest
+import WhoopProtocol
 import WhoopStore
 
 /// #899: an unstable strap clock re-banks the SAME night under a shifted timebase, so the store
@@ -97,7 +98,7 @@ final class SleepSessionDedupTests: XCTestCase {
     }
 
     func testUserEditedSessionIsNeverDropped() {
-        // A hand-corrected night outranks everything, including a fresh re-detection.
+        // A hand-corrected valid night outranks everything, including a fresh re-detection.
         let edited = session(start: midnight - 8 * 3600, end: midnight, edited: true)
         let fresh = session(start: midnight - 7 * 3600, end: midnight + 1 * 3600)
         let result = SleepSessionDedup.dedupe([edited, fresh],
@@ -121,5 +122,47 @@ final class SleepSessionDedupTests: XCTestCase {
         XCTAssertTrue(SleepSessionDedup.dedupe([]).kept.isEmpty)
         let one = session(start: midnight, end: midnight + 3600)
         XCTAssertEqual(SleepSessionDedup.dedupe([one]).kept.map(\.startTs), [one.startTs])
+    }
+
+    // MARK: - Legacy quarantine contract
+
+    func testOverflowingEffectiveSpanIsQuarantinedInsteadOfDeleted() {
+        let valid = session(start: midnight - 8 * 3600, end: midnight)
+        let malformed = session(start: Int.min, end: Int.max)
+
+        let result = SleepSessionDedup.dedupe([malformed, valid])
+
+        XCTAssertEqual(result.kept.map(\.startTs), [valid.startTs],
+                       "a corrupt giant span must not win the longest-session rank")
+        XCTAssertTrue(result.dropped.isEmpty,
+                      "invalid legacy rows must not enter the analytics deletion list")
+        XCTAssertFalse(SleepSessionDedup.isDuplicate(malformed, valid))
+    }
+
+    func testOverlongEditedLegacyRowCannotDeleteFreshValidNight() {
+        let invalidEdited = session(
+            start: midnight - 12 * 3600,
+            end: midnight + SleepSessionWindow.maximumDurationSeconds,
+            edited: true)
+        let fresh = session(start: midnight - 2 * 3600, end: midnight + 6 * 3600)
+
+        let result = SleepSessionDedup.dedupe(
+            [invalidEdited, fresh],
+            freshStarts: [fresh.startTs])
+
+        XCTAssertEqual(result.kept.map(\.startTs), [fresh.startTs])
+        XCTAssertTrue(result.dropped.isEmpty,
+                      "the invalid edited row is quarantined, never ranked above or used to delete the fresh night")
+    }
+
+    func testSubThirtyMinuteLegacyRowIsExcludedButPreservedForRepair() {
+        let micro = session(
+            start: midnight,
+            end: midnight + SleepSessionWindow.minimumDurationSeconds - 1)
+        let result = SleepSessionDedup.dedupe([micro])
+
+        XCTAssertTrue(result.kept.isEmpty)
+        XCTAssertTrue(result.dropped.isEmpty,
+                      "a short legacy row is neither scored nor offered to the destructive heal")
     }
 }

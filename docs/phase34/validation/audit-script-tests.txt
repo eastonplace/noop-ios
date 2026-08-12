@@ -1,0 +1,16 @@
+test_clean_tree_is_clean (tools.qa.test_audit_phase34.AuditTests.test_clean_tree_is_clean) ... ok
+test_flags_fixed_repository_day_arithmetic (tools.qa.test_audit_phase34.AuditTests.test_flags_fixed_repository_day_arithmetic) ... ok
+test_flags_healthkit_snapshot_only_identity (tools.qa.test_audit_phase34.AuditTests.test_flags_healthkit_snapshot_only_identity) ... ok
+test_flags_healthkit_without_exact_mutation_identity (tools.qa.test_audit_phase34.AuditTests.test_flags_healthkit_without_exact_mutation_identity) ... ok
+test_flags_json_blob_work_identity (tools.qa.test_audit_phase34.AuditTests.test_flags_json_blob_work_identity) ... ok
+test_flags_oldest_latest_state_drain (tools.qa.test_audit_phase34.AuditTests.test_flags_oldest_latest_state_drain) ... ok
+test_flags_outbox_without_superseded_state (tools.qa.test_audit_phase34.AuditTests.test_flags_outbox_without_superseded_state) ... ok
+test_flags_publish_before_save (tools.qa.test_audit_phase34.AuditTests.test_flags_publish_before_save) ... ok
+test_flags_single_work_merge_candidate (tools.qa.test_audit_phase34.AuditTests.test_flags_single_work_merge_candidate) ... ok
+test_flags_trends_bypass (tools.qa.test_audit_phase34.AuditTests.test_flags_trends_bypass) ... ok
+test_flags_unordered_source_authority (tools.qa.test_audit_phase34.AuditTests.test_flags_unordered_source_authority) ... ok
+
+----------------------------------------------------------------------
+Ran 11 tests in 0.014s
+
+OK

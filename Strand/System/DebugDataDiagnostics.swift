@@ -79,10 +79,12 @@ enum DebugDataDiagnostics {
             lines.append("Last recov.: \(r.day) · \(Int(r.recovery ?? 0))%")
         } else { lines.append("Last recov.: none") }
 
-        // Workout & imported-activity source breakdown (#28/#29 "counted but not shown" class). Runs BEFORE
-        // the funnels since those can early-return, so this always lands in the export.
+        // Source and score receipts run before the detailed funnels, whose best-effort reads may early-return.
+        // The Recovery receipt is counts/gates only and deliberately separates durable storage from the
+        // Repository cache that Home renders, so every interactive Share Log can localize a blank score.
         lines += await workoutSourceLines(repo: repo)
         lines += await dailyDataLines(repo: repo)
+        lines += await recoveryReadinessLines(repo: repo)
         lines += alarmLines()
 
         // Funnels for the latest night — best-effort, self-reporting.
@@ -246,6 +248,9 @@ enum DebugDataDiagnostics {
                 line += " · \(relTime(Date().timeIntervalSince1970 - at))"
             }
             if !d.bool(forKey: "alarm.lastArmConnected") { line += " · strap NOT connected (queued)" }
+            if let heartRate = d.object(forKey: "alarm.lastArmHeartRate") as? Int {
+                line += " · HR \(heartRate) bpm at arm"
+            }
             // #34: the strap-clock skew AT ARM. Skew ~0 but the strap still rejects ⇒ a corrupted alarm
             // register, not a clock problem (which pins whether a re-clock could ever help).
             if let skew = d.object(forKey: "alarm.lastArmClockSkew") as? Int, abs(skew) > 3600 {

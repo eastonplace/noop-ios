@@ -153,13 +153,18 @@ jobs:
           set -uo pipefail
           mkdir -p qa-artifacts/packages
           status=0
-          for package in WhoopProtocol OuraProtocol WhoopStore StrandAnalytics StrandImport StrandDesign NoopLocalAccess; do
+          for package in NoopPhase34Core WhoopProtocol OuraProtocol WhoopStore StrandAnalytics StrandImport StrandDesign NoopLocalAccess; do
             echo "::group::$package"
             swift test --package-path "Packages/$package" 2>&1 | tee "qa-artifacts/packages/$package.txt"
             rc=${PIPESTATUS[0]}
             echo "::endgroup::"
             if (( rc != 0 )); then status=1; fi
           done
+          echo "::group::NoopPhase34Core standalone"
+          swift test --package-path Packages/NoopPhase34Core 2>&1 | tee qa-artifacts/packages/NoopPhase34Core-standalone.txt
+          rc=${PIPESTATUS[0]}
+          echo "::endgroup::"
+          if (( rc != 0 )); then status=1; fi
           exit "$status"
 
       - name: Upload Xcode and package logs

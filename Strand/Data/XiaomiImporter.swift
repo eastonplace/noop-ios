@@ -43,15 +43,21 @@ enum XiaomiImporter {
         // Capture the rows the store actually wrote (summed SQLite changes) for the Import test mode.
         let metricsWritten = try await store.upsertDailyMetrics(metrics, deviceId: deviceId)
 
-        // Sleep sessions → CachedSleepSession with the band's actual hypnogram.
+        // Sleep sessions → CachedSleepSession with the band's actual hypnogram. The app-level import
+        // boundary enforces the shared 30-minute to 16-hour session policy. Individual stage segments may
+        // of course be shorter; only the enclosing session is subject to the main-night trust boundary.
         var sessions: [CachedSleepSession] = []
         for s in result.sleeps {
-            let startTs = Int(s.bedtime.timeIntervalSince1970)
-            let endTs = Int(s.wakeTime.timeIntervalSince1970)
-            let segs: [[String: Any]] = s.stages.map {
-                ["start": Int($0.start.timeIntervalSince1970),
-                 "end": Int($0.end.timeIntervalSince1970),
-                 "stage": stageName($0.stage)]
+            guard let startTs = timestamp(s.bedtime),
+                  let endTs = timestamp(s.wakeTime),
+                  SleepImportWindowPolicy.accepts(start: startTs, end: endTs)
+            else { continue }
+            let segs: [[String: Any]] = s.stages.compactMap {
+                guard let start = timestamp($0.start),
+                      let end = timestamp($0.end),
+                      positiveDuration(start: start, end: end) != nil
+                else { return nil }
+                return ["start": start, "end": end, "stage": stageName($0.stage)]
             }
             let json = segs.isEmpty ? nil : (try? JSONSerialization.data(withJSONObject: segs))
                 .flatMap { String(data: $0, encoding: .utf8) }
@@ -95,13 +101,13 @@ enum XiaomiImporter {
         // The numbers are the import's own parsed + persisted counts, so emission changes nothing saved.
         if let trace {
             let daysMapped = Set(metrics.map { $0.day }).count
+            let sleepRowsRejected = max(0, result.sleeps.count - sessions.count)
             let lines: [String] = [
                 ImportTrace.parserVersionLine(sourceKind: .xiaomiBand, importerVersion: importerVersion),
                 ImportTrace.stageLine(category: "days", rowsIn: metrics.count, rowsOut: metricsWritten),
                 ImportTrace.stageLine(category: "sleeps", rowsIn: sessions.count, rowsOut: sessionsWritten),
-                // The Mi Fitness rollups already drop unusable rows upstream in StrandImport; the app map
-                // keeps every day/sleep, so the only reject signal at this seam is the day-delta below.
-                ImportTrace.rejectLine(droppedRows: 0, skippedSpans: result.summary.skippedSpans),
+                // Count invalid/unrepresentable or out-of-policy session windows dropped by the app map.
+                ImportTrace.rejectLine(droppedRows: sleepRowsRejected, skippedSpans: result.summary.skippedSpans),
                 ImportTrace.dayDeltaLine(category: "days", daysMapped: daysMapped, daysPersisted: metricsWritten),
             ]
             trace(lines)
@@ -128,14 +134,36 @@ enum XiaomiImporter {
     }
 
     /// Asleep fraction from the hypnogram segments (non-wake ÷ in-bed span).
-    private static func efficiency(segs: [[String: Any]], start: Int, end: Int) -> Double? {
-        guard end > start, !segs.isEmpty else { return nil }
+    static func efficiency(segs: [[String: Any]], start: Int, end: Int) -> Double? {
+        guard let inBed = positiveDuration(start: start, end: end), !segs.isEmpty else { return nil }
         var asleep = 0
         for seg in segs {
             guard let s = seg["start"] as? Int, let e = seg["end"] as? Int,
                   let stage = seg["stage"] as? String, stage != "wake" else { continue }
-            asleep += max(0, e - s)
+            guard let duration = positiveDuration(start: s, end: e) else { continue }
+            let (updatedAsleep, overflow) = asleep.addingReportingOverflow(duration)
+            guard !overflow else { return nil }
+            asleep = updatedAsleep
         }
-        return min(100, Double(asleep) / Double(end - start) * 100)
+        return min(100, Double(asleep) / Double(inBed) * 100)
+    }
+
+    /// Date-backed import models carry timestamps as Double seconds. Keep only the range whose
+    /// integer seconds are exactly representable before converting back to Int at the store boundary.
+    private static let exactDoubleUnixTimestampLimit = 9_007_199_254_740_991
+
+    static func timestamp(_ date: Date) -> Int? {
+        let seconds = date.timeIntervalSince1970
+        guard seconds.isFinite,
+              seconds >= -Double(exactDoubleUnixTimestampLimit),
+              seconds <= Double(exactDoubleUnixTimestampLimit)
+        else { return nil }
+        return Int(seconds)
+    }
+
+    private static func positiveDuration(start: Int, end: Int) -> Int? {
+        let (duration, overflow) = end.subtractingReportingOverflow(start)
+        guard !overflow, duration > 0 else { return nil }
+        return duration
     }
 }

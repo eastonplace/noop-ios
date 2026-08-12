@@ -10,6 +10,67 @@ extension EnvironmentValues {
     @Entry var screenScaffoldNavigationRole: ScreenScaffoldNavigationRole = .root
 }
 
+/// Captures the process-wide `AppModel` as a plain reference for a heavy screen root.
+///
+/// `@EnvironmentObject` subscribes a view to every `AppModel` publication. Screens that only need the
+/// model to issue commands must not own that subscription: live workout samples otherwise re-evaluate their
+/// entire dashboard or history log. This zero-layout leaf owns the subscription and hands the stable object
+/// identity to its parent once. The parent stores it in `@State` (which does not observe the object's
+/// publications); narrow leaves remain responsible for observing live values they actually render.
+struct AppModelReferenceCapture: View {
+    @EnvironmentObject private var model: AppModel
+    @Binding var reference: AppModel?
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+            .onAppear { capture() }
+    }
+
+    private func capture() {
+        guard reference !== model else { return }
+        reference = model
+    }
+}
+
+/// The LiveState twin of `AppModelReferenceCapture`. Heavy routes retain the stable object identity in
+/// `@State`; only their purpose-built live leaves subscribe to streaming HR, R-R, log, and sync updates.
+struct LiveStateReferenceCapture: View {
+    @EnvironmentObject private var live: LiveState
+    @Binding var reference: LiveState?
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+            .onAppear { capture() }
+    }
+
+    private func capture() {
+        guard reference !== live else { return }
+        reference = live
+    }
+}
+
+/// Keeps the one-time DeviceRegistry publication out of the Devices route. Device changes themselves are
+/// observed by `DevicesContent` through the registry, not by the global AppModel broadcaster.
+struct DeviceRegistryReferenceCapture: View {
+    @EnvironmentObject private var model: AppModel
+    @Binding var reference: DeviceRegistry?
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+            .onAppear { reference = model.deviceRegistry }
+            .onReceive(model.$deviceRegistry) { registry in
+                guard reference !== registry else { return }
+                reference = registry
+            }
+    }
+}
+
 /// Standard scrollable screen container: title + dark surface + content column.
 struct ScreenScaffold<Content: View, Trailing: View>: View {
     /// Optional — when nil (and no subtitle) the header is omitted entirely, so a screen can supply its

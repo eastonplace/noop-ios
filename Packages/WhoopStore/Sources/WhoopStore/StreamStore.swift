@@ -66,9 +66,22 @@ extension WhoopStore {
     public func insert(_ streams: Streams, deviceId: String) async throws
         -> (hr: Int, rr: Int, events: Int, battery: Int,
             spo2: Int, skinTemp: Int, resp: Int, gravity: Int) {
-        return try syncWrite { db in
-            var hr = 0, rr = 0, ev = 0, bat = 0
-            var spo2 = 0, skin = 0, resp = 0, grav = 0
+        let counts = try syncWrite { db in
+            try WhoopStore.insertDecodedStreams(streams, deviceId: deviceId, in: db)
+        }
+        return counts.legacyCoreTuple
+    }
+
+    /// One decoded-stream write body shared by ordinary inserts and the atomic historical-chunk commit.
+    /// Callers that need a durable historical boundary wrap this inside their own `syncWrite` transaction.
+    static func insertDecodedStreams(
+        _ streams: Streams,
+        deviceId: String,
+        in db: Database
+    ) throws -> HistoricalStreamInsertCounts {
+        var hr = 0, rr = 0, ev = 0, bat = 0
+        var spo2 = 0, skin = 0, resp = 0, grav = 0
+        var steps = 0, sleepState = 0, ppgHr = 0, ppgWaveform = 0
             // Reuse one prepared statement per table instead of recompiling the same SQL on every
             // row. This is the hottest write path (every Collector.flush + every Backfiller chunk
             // over potentially millions of historical rows). cachedStatement persists the compiled
@@ -174,6 +187,7 @@ extension WhoopStore {
                     """)
                 for s in streams.steps {
                     try stmt.execute(arguments: [deviceId, s.ts, s.counter, s.activityClass])
+                    steps += db.changesCount
                 }
             }
             // Band sleep_state (#175). Persist-only, same as steps — the strap's OWN @81 high-nibble state
@@ -187,6 +201,7 @@ extension WhoopStore {
                     """)
                 for s in streams.sleepState {
                     try stmt.execute(arguments: [deviceId, s.ts, s.state])
+                    sleepState += db.changesCount
                 }
             }
             // PPG-derived HR from the v26 optical buffer (#156). Persist-only, same as steps, the count
@@ -200,6 +215,7 @@ extension WhoopStore {
                     """)
                 for s in streams.ppgHr {
                     try stmt.execute(arguments: [deviceId, s.ts, s.bpm, s.conf])
+                    ppgHr += db.changesCount
                 }
             }
             // RAW v26 optical PPG waveform (#156 follow-up) — the samples `ppgHr` above is derived FROM.
@@ -214,10 +230,23 @@ extension WhoopStore {
                     """)
                 for s in streams.ppgWaveform {
                     try stmt.execute(arguments: [deviceId, s.ts, WhoopStore.packPpgSamples(s.samples)])
+                    ppgWaveform += db.changesCount
                 }
             }
-            return (hr, rr, ev, bat, spo2, skin, resp, grav)
-        }
+        return HistoricalStreamInsertCounts(
+            hr: hr,
+            rr: rr,
+            events: ev,
+            battery: bat,
+            spo2: spo2,
+            skinTemp: skin,
+            resp: resp,
+            gravity: grav,
+            steps: steps,
+            sleepState: sleepState,
+            ppgHr: ppgHr,
+            ppgWaveform: ppgWaveform
+        )
     }
 
     // MARK: - Raw sensor CSV export (diagnostic)

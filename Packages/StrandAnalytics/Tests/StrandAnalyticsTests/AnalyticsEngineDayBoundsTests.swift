@@ -81,6 +81,47 @@ final class AnalyticsEngineDayBoundsTests: XCTestCase {
         XCTAssertEqual(AnalyticsEngine.dayStartUtcSeconds(""), 0)
     }
 
+    func testExtremeRawTimelineRowsFailClosedBeforeDayScoring() {
+        let day = "2021-06-15"
+        let start = AnalyticsEngine.dayStartUtcSeconds(day) + 3_600
+        let profile = UserProfile(weightKg: 75, heightCm: 178, age: 30, sex: "male")
+        let cleanHr = (0..<12).map { HRSample(ts: start + $0 * 30, bpm: 90) }
+        let cleanSteps = [
+            StepSample(ts: start, counter: 100),
+            StepSample(ts: start + 60, counter: 108),
+            StepSample(ts: start + 120, counter: 116)
+        ]
+        let baseline = AnalyticsEngine.analyzeDay(
+            day: day, dayHr: cleanHr, daySteps: cleanSteps, profile: profile)
+
+        let hostile = AnalyticsEngine.analyzeDay(
+            day: day,
+            hr: [HRSample(ts: .min, bpm: 60), HRSample(ts: .max, bpm: 60)],
+            rr: [RRInterval(ts: .min, rrMs: 1_000), RRInterval(ts: .max, rrMs: 1_000)],
+            resp: [RespSample(ts: .min, raw: 10), RespSample(ts: .max, raw: 10)],
+            gravity: [
+                GravitySample(ts: .min, x: 0, y: 0, z: 1),
+                GravitySample(ts: .max, x: 0, y: 0, z: 1)
+            ],
+            steps: [StepSample(ts: .min, counter: 1), StepSample(ts: .max, counter: 2)],
+            dayHr: [HRSample(ts: .min, bpm: 60)] + cleanHr + [HRSample(ts: .max, bpm: 60)],
+            daySteps: [StepSample(ts: .min, counter: 1)] + cleanSteps + [StepSample(ts: .max, counter: 2)],
+            dayGravity: [
+                GravitySample(ts: .min, x: 0, y: 0, z: 1),
+                GravitySample(ts: .max, x: 0, y: 0, z: 1)
+            ],
+            skinTemp: [SkinTempSample(ts: .min, raw: 1), SkinTempSample(ts: .max, raw: 1)],
+            spo2: [SpO2Sample(ts: .min, red: 1, ir: 1), SpO2Sample(ts: .max, red: 1, ir: 1)],
+            profile: profile,
+            wristOff: [(start: .min, end: .max)],
+            bandSleepState: [(ts: .min, state: 1), (ts: .max, state: 1)])
+
+        XCTAssertEqual(hostile.daily, baseline.daily)
+        XCTAssertEqual(hostile.workouts, baseline.workouts)
+        XCTAssertEqual(AnalyticsEngine.dayString(.max, offsetSec: 1), "")
+        XCTAssertEqual(AnalyticsEngine.dayString(.min, offsetSec: -1), "")
+    }
+
     // MARK: - Byte-identity pin: same inputs → same DailyMetric numbers
 
     /// The optimization's whole contract: analyzeDay over FULL streams (which the tsInDay bounds check must

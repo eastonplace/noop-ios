@@ -38,6 +38,110 @@ def require_before(errors: list[str], source: str, earlier: str, later: str, lab
         errors.append(f"{label}: {earlier!r} must appear before {later!r}.")
 
 
+def swift_type_body(source: str, type_name: str) -> str | None:
+    """Return one Swift struct declaration, without confusing nested braces for its end."""
+    match = re.search(rf"\bstruct\s+{re.escape(type_name)}\b[^{{]*{{", source)
+    if not match:
+        return None
+    depth = 0
+    for index in range(match.end() - 1, len(source)):
+        character = source[index]
+        if character == "{":
+            depth += 1
+        elif character == "}":
+            depth -= 1
+            if depth == 0:
+                return source[match.start() : index + 1]
+    return None
+
+
+def require_unobserved_app_model_root(errors: list[str], path: Path, type_name: str) -> None:
+    """Keep high-frequency AppModel observation in the inert capture leaf, never a heavy screen root."""
+    source = path.read_text(encoding="utf-8")
+    body = swift_type_body(source, type_name)
+    label = f"{relative(path)} {type_name}"
+    if body is None:
+        errors.append(f"{label}: root declaration is missing.")
+        return
+    if re.search(r"(?m)^\s*@EnvironmentObject[^\n]*\bAppModel\b", body):
+        errors.append(f"{label}: must not broadly observe AppModel; use AppModelReferenceCapture.")
+    for contract in (
+        "@State private var appModel: AppModel?",
+        "AppModelReferenceCapture(reference: $appModel)",
+    ):
+        if contract not in body:
+            errors.append(f"{label}: missing narrow AppModel command-reference contract {contract!r}.")
+
+
+def require_unobserved_live_state_root(errors: list[str], path: Path, type_name: str) -> None:
+    """Keep streaming LiveState subscriptions in purpose-built leaves, never a heavy route root."""
+    source = path.read_text(encoding="utf-8")
+    body = swift_type_body(source, type_name)
+    label = f"{relative(path)} {type_name}"
+    if body is None:
+        errors.append(f"{label}: root declaration is missing.")
+        return
+    if re.search(r"(?m)^\s*@EnvironmentObject[^\n]*\bLiveState\b", body):
+        errors.append(f"{label}: must not broadly observe LiveState; use LiveStateReferenceCapture.")
+    for contract in (
+        "@State private var liveState: LiveState?",
+        "LiveStateReferenceCapture(reference: $liveState)",
+    ):
+        if contract not in body:
+            errors.append(f"{label}: missing narrow LiveState reference contract {contract!r}.")
+
+
+def require_plain_device_content(errors: list[str], path: Path) -> None:
+    """DevicesContent is the long paired-device list; live work belongs in purpose-built leaves."""
+    source = path.read_text(encoding="utf-8")
+    body = swift_type_body(source, "DevicesContent")
+    label = f"{relative(path)} DevicesContent"
+    if body is None:
+        errors.append(f"{label}: declaration is missing.")
+        return
+    if "@EnvironmentObject" in body:
+        errors.append(f"{label}: must keep AppModel/LiveState as plain references and scope updates to leaves.")
+    for contract in (
+        "let model: AppModel",
+        "let live: LiveState",
+        "DeviceSummaryLiveObservation(live: live)",
+        "DeviceCommandCenterSnapshotObservation(live: live)",
+    ):
+        if contract not in body:
+            errors.append(f"{label}: missing scoped device command-center contract {contract!r}.")
+
+
+def require_device_command_center_snapshot(errors: list[str]) -> None:
+    """Pin the narrow, deduplicated command-centre adapter and timer/sync leaves."""
+    snapshot = ROOT / "Strand/Screens/DeviceCommandCenterLiveSnapshot.swift"
+    if not snapshot.exists():
+        errors.append(f"{relative(snapshot)} is missing.")
+        return
+    snapshot_text = snapshot.read_text(encoding="utf-8")
+    for contract in (
+        "final class DeviceCommandCenterLiveSnapshot: ObservableObject",
+        ".removeDuplicates()",
+        "live.syncChunksPublisher",
+        "live.$historicalSyncPassProgress",
+    ):
+        if contract not in snapshot_text:
+            errors.append(f"{relative(snapshot)} is missing narrow snapshot contract {contract!r}.")
+    for forbidden in ("live.$heartRate", "live.$rr", "live.$log"):
+        if forbidden in snapshot_text:
+            errors.append(f"{relative(snapshot)} must not subscribe to high-frequency field {forbidden!r}.")
+
+    devices = ROOT / "Strand/Screens/DevicesView.swift"
+    devices_text = devices.read_text(encoding="utf-8")
+    for contract in (
+        "private struct DeviceCommandIdentityTimerLeaf",
+        "private struct DeviceCommandStatusTimerLeaf",
+        "private struct DeviceCommandPowerTimerLeaf",
+        "private struct DeviceHistoricalSyncProgressLeaf",
+    ):
+        if contract not in devices_text:
+            errors.append(f"{relative(devices)} is missing command-centre leaf {contract!r}.")
+
+
 def main() -> int:
     errors: list[str] = []
     warnings: list[str] = []
@@ -78,7 +182,13 @@ def main() -> int:
                 "non-Sendable sample values."
             )
 
-        if name != "Strand/Data/RepositoryRefreshIntent.swift":
+        direct_refresh_owners = {
+            "Strand/Data/RepositoryRefreshIntent.swift",
+            # HealthKit's exclusive publisher already owns the central fence and must call the coherent
+            # snapshot directly; typed admission would defer behind its own fence and deadlock.
+            "StrandiOS/App/StrandiOSApp.swift",
+        }
+        if name not in direct_refresh_owners:
             for match in direct_days_refresh.finditer(text):
                 line = text.count("\n", 0, match.start()) + 1
                 warnings.append(
@@ -197,6 +307,67 @@ def main() -> int:
     refresh_contract = ROOT / "Strand/Data/RepositoryRefreshIntent.swift"
     if "inferredLegacyIntent" in refresh_contract.read_text(encoding="utf-8"):
         errors.append("RepositoryRefreshIntent must not restore the deleted heuristic compatibility router.")
+
+    capture = ROOT / "Strand/Screens/ScreenScaffold.swift"
+    if not capture.exists():
+        errors.append("Strand/Screens/ScreenScaffold.swift is missing.")
+    else:
+        capture_text = capture.read_text(encoding="utf-8")
+        for contract in (
+            "@EnvironmentObject private var model: AppModel",
+            "@Binding var reference: AppModel?",
+            "guard reference !== model else { return }",
+        ):
+            if contract not in capture_text:
+                errors.append(f"{relative(capture)} is missing AppModel capture contract {contract!r}.")
+    require_unobserved_app_model_root(errors, ROOT / "Strand/Screens/TodayView.swift", "TodayView")
+    require_unobserved_app_model_root(errors, ROOT / "Strand/Screens/WorkoutsView.swift", "WorkoutsView")
+
+    today = ROOT / "Strand/Screens/TodayView.swift"
+    today_text = today.read_text(encoding="utf-8")
+    for contract in (
+        "private struct TodayScreenSnapshot: Equatable",
+        "@State private var screenSnapshot: TodayScreenSnapshot?",
+        "defer { refreshScreenSnapshot() }",
+        "TodaySnapshotHeartSection(snapshot: screenSnapshot.heart",
+        "TodaySnapshotStressSection(snapshot: screenSnapshot.stress",
+        "TodaySnapshotHealthSection(",
+        ".equatable()",
+    ):
+        if contract not in today_text:
+            errors.append(
+                f"{relative(today)} is missing immutable Today section-snapshot contract {contract!r}."
+            )
+    for type_name, filename in (("DevicesView", "DevicesView.swift"), ("TestCentreView", "TestCentreView.swift")):
+        path = ROOT / "Strand/Screens" / filename
+        require_unobserved_app_model_root(errors, path, type_name)
+        require_unobserved_live_state_root(errors, path, type_name)
+    require_plain_device_content(errors, ROOT / "Strand/Screens/DevicesView.swift")
+    require_device_command_center_snapshot(errors)
+
+    scoped_control_contracts = {
+        ROOT / "Strand/Screens/TestCentreView.swift": (
+            "private struct TestCentreConnectionTrustLeaf",
+            "private struct TestCentreRecordInspectLeaf",
+        ),
+        ROOT / "Strand/Screens/WorkoutsView.swift": (
+            "private struct WorkoutsActiveWorkoutButtonLeaf",
+        ),
+    }
+    for path, contracts in scoped_control_contracts.items():
+        text = path.read_text(encoding="utf-8")
+        for contract in contracts:
+            if contract not in text:
+                errors.append(f"{relative(path)} is missing scoped live-control contract {contract!r}.")
+
+    ios_root = ROOT / "StrandiOS/App/RootTabView.swift"
+    ios_root_text = ios_root.read_text(encoding="utf-8")
+    for contract in (
+        "withAnimation(Self.sheetEase) { quickAction = .activeWorkout }",
+        "case .activeWorkout:\n            quickScreen(LiveWorkoutView",
+    ):
+        if contract not in ios_root_text:
+            errors.append(f"{relative(ios_root)} is missing direct active-workout route {contract!r}.")
 
     intents = ROOT / "StrandiOS/System/NOOPAppIntents.swift"
     if not intents.exists():

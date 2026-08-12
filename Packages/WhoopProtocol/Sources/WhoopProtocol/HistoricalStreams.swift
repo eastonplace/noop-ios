@@ -191,6 +191,11 @@ public func extractHistoricalStreams(_ parsed: [ParsedFrame],
     // The SAME (ts, samples) are also appended to `out.ppgWaveform` below (issue #156 follow-up) so the
     // raw waveform is durable too, not just the derived estimate this local buffer exists to produce.
     var ppgRecords: [(ts: Int, samples: [Int])] = []
+    // Byte 82 exists at one-second cadence. Fold every accepted sleeping value in this extractor call into
+    // one order-independent minute mean. At most one accepted sleeping candidate per minute is emitted, so
+    // a full night remains hundreds of rows rather than tens of thousands and input order cannot pick the
+    // displayed value. The existing experimental marker keeps the candidate separate from WHOOP 4 raw ADC.
+    var experimentalSpO2Minutes: [Int: (sum: Int, count: Int)] = [:]
     for r in parsed {
         if !r.ok || r.crcOK == false { continue }
         let p = r.parsed
@@ -217,6 +222,24 @@ public func extractHistoricalStreams(_ parsed: [ParsedFrame],
             }
             if let red = p["spo2_red"]?.intValue {
                 out.spo2.append(SpO2Sample(ts: ts, red: red, ir: p["spo2_ir"]?.intValue ?? 0))
+            }
+            // WHOOP 5/MG v18 @82 experimental candidate. This is intentionally a separate encoded shape
+            // inside the existing raw SpO₂ stream: red carries the candidate percentage and ir carries the
+            // impossible negative marker. It therefore reaches the nightly cache and an explicitly-beta UI
+            // without touching canonical `spo2Pct`, HealthKit, Recovery, Sleep, or illness detection.
+            if let rawValue = p["aux_byte_82"]?.intValue,
+               let raw = UInt8(exactly: rawValue) {
+                let minuteTs = ts - ts % 60
+                if let sample = Whoop5V18SpO2Candidate.experimentalSample(
+                    minuteTimestamp: minuteTs,
+                    raw: raw,
+                    sleepState: p["sleep_state"]?.intValue
+                ) {
+                    var aggregate = experimentalSpO2Minutes[minuteTs] ?? (sum: 0, count: 0)
+                    aggregate.sum += sample.red
+                    aggregate.count += 1
+                    experimentalSpO2Minutes[minuteTs] = aggregate
+                }
             }
             if let raw = p["skin_temp_raw"]?.intValue {
                 out.skinTemp.append(SkinTempSample(ts: ts, raw: raw))
@@ -285,6 +308,19 @@ public func extractHistoricalStreams(_ parsed: [ParsedFrame],
             continue
         }
     }
+
+    for minuteTs in experimentalSpO2Minutes.keys.sorted() {
+        guard let aggregate = experimentalSpO2Minutes[minuteTs], aggregate.count > 0 else { continue }
+        let percentage = Int((Double(aggregate.sum) / Double(aggregate.count)).rounded())
+        let sample = SpO2Sample(
+            ts: minuteTs,
+            red: percentage,
+            ir: Whoop5V18SpO2Candidate.persistedMarkerIR,
+            unit: "experimental_pct"
+        )
+        out.spo2.append(sample)
+    }
+
     // Derive per-second HR from the collected v26 PPG bursts (issue #156). Empty when there were no v26
     // records (the WHOOP 4 / v18-only common case), so this is a no-op cost there.
     out.ppgHr = PpgHr.derivePpgHr(records: ppgRecords, subLagInterp: subLagInterp)

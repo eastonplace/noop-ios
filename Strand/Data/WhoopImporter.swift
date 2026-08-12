@@ -40,10 +40,15 @@ enum WhoopImporter {
                 respRateBpm: c.respiratoryRate))
         }
 
-        // sleeps → CachedSleepSession (stage durations encoded as JSON; export has no per-epoch timeline)
+        // sleeps → CachedSleepSession (stage durations encoded as JSON; export has no per-epoch timeline).
+        // The daily aggregate remains available even when a malformed source row is rejected here; only a
+        // strict 30-minute to 16-hour, exactly representable window may become a selectable sleep session.
         var sessions: [CachedSleepSession] = []
         for s in result.sleeps where !s.isNap {
-            guard let onset = s.sleepOnset, let wake = s.wakeOnset else { continue }
+            guard let onset = s.sleepOnset,
+                  let wake = s.wakeOnset,
+                  let window = SleepImportWindowPolicy.acceptedUnixSeconds(start: onset, end: wake)
+            else { continue }
             let stages: [String: Double] = [
                 "light": s.lightSleepDurationMin ?? 0,
                 "deep": s.deepSleepDurationMin ?? 0,
@@ -53,8 +58,8 @@ enum WhoopImporter {
             let json = (try? JSONSerialization.data(withJSONObject: stages))
                 .flatMap { String(data: $0, encoding: .utf8) }
             sessions.append(CachedSleepSession(
-                startTs: Int(onset.timeIntervalSince1970),
-                endTs: Int(wake.timeIntervalSince1970),
+                startTs: window.start,
+                endTs: window.end,
                 efficiency: WhoopExportImporter.fractionFromImportedEfficiencyPct(s.sleepEfficiencyPct),
                 restingHr: nil, avgHrv: nil, stagesJSON: json))
         }
@@ -195,7 +200,7 @@ enum WhoopImporter {
             // dailyMetric is keyed by (deviceId, day), so metrics.count == the mapped distinct days.
             let daysMapped = Set(metrics.map { $0.day }).count
             // Rows the PARSER produced but the app map then dropped (a cycle with no cycleStart, a non-nap
-            // sleep with no onset/wake, a workout with no start/end): the genuine ingest reject count.
+            // sleep with no onset/wake or invalid window, a workout with no start/end): the genuine ingest reject count.
             let parsedCycles = c["cycles"] ?? 0
             let parsedSleeps = c["sleeps"] ?? 0
             let parsedWorkouts = c["workouts"] ?? 0

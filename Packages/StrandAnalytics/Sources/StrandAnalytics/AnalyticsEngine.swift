@@ -14,14 +14,29 @@ import WhoopProtocol
 
 public enum AnalyticsEngine {
 
+    /// Raw timestamps cross a persistence/import boundary before they reach the pure
+    /// analytics engine. Keep only values that remain exact when the downstream
+    /// staging and scoring code converts unix seconds to `Double`; malformed
+    /// `Int.min`/`Int.max` rows otherwise make innocent offset/span arithmetic trap.
+    private static let exactTimelineTimestampLimit = 9_007_199_254_740_991
+
+    private static func isSafeTimelineTimestamp(_ timestamp: Int) -> Bool {
+        timestamp >= -exactTimelineTimestampLimit
+            && timestamp <= exactTimelineTimestampLimit
+    }
+
     /// Pair the strap's WRIST_OFF/WRIST_ON events into off-wrist `[start, end)` intervals for the sleep
     /// detector's fractional wear filter (#500; design credited to j0b-dev's #504). Each WRIST_OFF opens
     /// an interval that closes at the next WRIST_ON, or at `windowEnd` if the strap is still off at the
     /// end of the read window. Events need not be pre-sorted; kinds are formatted "NAME(n)" (e.g.
     /// "WRIST_OFF(10)"), matched by prefix. Repeated OFFs/ONs without a partner are coalesced.
     public static func offWristIntervals(events: [WhoopEvent], windowEnd: Int) -> [(start: Int, end: Int)] {
+        guard isSafeTimelineTimestamp(windowEnd) else { return [] }
         let wear = events
-            .filter { $0.kind.hasPrefix("WRIST_OFF") || $0.kind.hasPrefix("WRIST_ON") }
+            .filter {
+                isSafeTimelineTimestamp($0.ts)
+                    && ($0.kind.hasPrefix("WRIST_OFF") || $0.kind.hasPrefix("WRIST_ON"))
+            }
             .sorted { $0.ts < $1.ts }
         var intervals: [(start: Int, end: Int)] = []
         var offStart: Int? = nil
@@ -154,7 +169,8 @@ public enum AnalyticsEngine {
     /// fixed-UTC formatter into a local-calendar formatter. `offsetSec == 0` is byte-identical to
     /// the UTC `dayString(_:)` above, so pure-function callers/tests on UTC are unchanged.
     public static func dayString(_ ts: Int, offsetSec: Int) -> String {
-        dayString(ts + offsetSec)
+        guard let shifted = SleepTimestampMath.adding(offsetSec, to: ts) else { return "" }
+        return dayString(shifted)
     }
 
     /// UTC-midnight epoch seconds of an ISO `day` key (yyyy-MM-dd). `isoDay` is a FIXED-UTC formatter,
@@ -358,6 +374,27 @@ public enum AnalyticsEngine {
                                   // (UnitPrefs.hrvWindowKey). Default false = byte-identical whole-night value.
                                   deepHrvWindow: Bool = false) -> DayResult {
 
+        // One fail-closed raw-timeline boundary for every stream this orchestrator
+        // fans out to. `SleepStager` has its own boundary because it is public and
+        // callable directly; this one also protects day totals, workouts, and local
+        // calendar bucketing when callers invoke `analyzeDay` directly.
+        let hr = hr.filter { isSafeTimelineTimestamp($0.ts) }
+        let rr = rr.filter { isSafeTimelineTimestamp($0.ts) }
+        let resp = resp.filter { isSafeTimelineTimestamp($0.ts) }
+        let gravity = gravity.filter { isSafeTimelineTimestamp($0.ts) }
+        let steps = steps.filter { isSafeTimelineTimestamp($0.ts) }
+        let dayHr = dayHr?.filter { isSafeTimelineTimestamp($0.ts) }
+        let daySteps = daySteps?.filter { isSafeTimelineTimestamp($0.ts) }
+        let dayGravity = dayGravity?.filter { isSafeTimelineTimestamp($0.ts) }
+        let skinTemp = skinTemp.filter { isSafeTimelineTimestamp($0.ts) }
+        let spo2 = spo2.filter { isSafeTimelineTimestamp($0.ts) }
+        let wristOff = wristOff.filter {
+            isSafeTimelineTimestamp($0.start)
+                && isSafeTimelineTimestamp($0.end)
+                && $0.end > $0.start
+        }
+        let bandSleepState = bandSleepState.filter { isSafeTimelineTimestamp($0.ts) }
+
         // Precompute the day's UTC bounds ONCE (#996). `dayString(ts, offsetSec:)` formats the UTC
         // calendar day of (ts + offset) with a FIXED offset, so "== day" is exactly membership in
         // [dayStartUtc, +86400). That turns the day-bucketing filters below — otherwise a per-sample
@@ -365,8 +402,13 @@ public enum AnalyticsEngine {
         // analyzeDay, ×maxDays every pass — into an integer range check. Byte-identical to the
         // formatter compare (locked by AnalyticsEngineDayBoundsTests, incl. fractional offsets).
         let dayStartUtc = dayStartUtcSeconds(day)
-        let dayEndUtc = dayStartUtc + 86_400
-        func tsInDay(_ ts: Int) -> Bool { (ts + tzOffsetSeconds) >= dayStartUtc && (ts + tzOffsetSeconds) < dayEndUtc }
+        let dayEndUtc = SleepTimestampMath.adding(86_400, to: dayStartUtc) ?? Int.max
+        func tsInDay(_ ts: Int) -> Bool {
+            guard let localTimestamp = SleepTimestampMath.adding(tzOffsetSeconds, to: ts) else {
+                return false
+            }
+            return localTimestamp >= dayStartUtc && localTimestamp < dayEndUtc
+        }
 
         // ── Sleep detection + staging ─────────────────────────────────────────
         let detectedSessions = SleepStager.detectSleep(hr: hr, rr: rr, resp: resp, gravity: gravity,

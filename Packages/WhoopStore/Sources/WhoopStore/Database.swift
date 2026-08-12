@@ -631,6 +631,397 @@ extension WhoopStore {
                           on: "healthKitObjectIndex",
                           columns: ["deviceId", "sampleType", "startTs", "endTs"])
         }
+        // v32: one durable, source-scoped first-paint snapshot for the current dashboard. This is
+        // deliberately a single keyed record, not a second 21-day daily-metrics cache: launch needs
+        // exactly one indexed read while the normal repository refresh starts independently.
+        migrator.registerMigration("v32-today-health-snapshot") { db in
+            try db.create(table: "todayHealthSnapshot") { t in
+                t.column("scopeId", .text).notNull().primaryKey()
+                t.column("deviceId", .text).notNull()
+                t.column("displayDay", .text).notNull()
+                t.column("logicalDay", .text).notNull()
+                t.column("localDay", .text).notNull()
+                t.column("generatedAt", .integer).notNull()
+                t.column("rawFrontierTs", .integer)
+                t.column("schemaVersion", .integer).notNull()
+                t.column("payload", .blob).notNull()
+            }
+            try db.create(index: "idx_todayHealthSnapshot_device_generated",
+                          on: "todayHealthSnapshot",
+                          columns: ["deviceId", "generatedAt"])
+        }
+        // v33: first-paint snapshots need an explicit database/source context. The database UUID lives
+        // outside the snapshot row so it survives a snapshot clear, travels with a valid backup, and changes
+        // when a replacement database is created. `contextId` lets the UPSERT reject a stale pre-restore
+        // writer without decoding JSON inside SQLite.
+        migrator.registerMigration("v33-today-health-snapshot-context") { db in
+            try db.alter(table: "todayHealthSnapshot") { t in
+                t.add(column: "contextId", .text)
+            }
+            try db.create(table: "todayHealthSnapshotDatabase") { t in
+                t.column("id", .text).notNull().primaryKey()
+            }
+            try db.execute(sql: "INSERT INTO todayHealthSnapshotDatabase (id) VALUES (?)",
+                           arguments: [UUID().uuidString])
+        }
+        // v34: order accepted first-paint writes with a durable SQLite sequence. `generatedAt` is a wall
+        // clock diagnostic and can move backward after clock correction, restore, or test-time injection.
+        // Existing rows start at zero and receive a real generation on their next accepted write.
+        migrator.registerMigration("v34-today-health-snapshot-generation") { db in
+            try db.alter(table: "todayHealthSnapshot") { t in
+                t.add(column: "generation", .integer).notNull().defaults(to: 0)
+            }
+            try db.create(table: "todayHealthSnapshotGeneration") { t in
+                t.column("id", .integer).primaryKey()
+                t.column("value", .integer).notNull()
+            }
+            try db.execute(sql: """
+                INSERT INTO todayHealthSnapshotGeneration (id, value)
+                SELECT 1, COALESCE(MAX(generation), 0) FROM todayHealthSnapshot
+                """)
+            try db.create(index: "idx_todayHealthSnapshot_generation",
+                          on: "todayHealthSnapshot", columns: ["generation"])
+        }
+        // v35: a historical chunk becomes visible to later analysis only after decoded rows, optional
+        // raw capture, its strap trim, and this receipt commit in one SQLite transaction. The database UUID
+        // plus device id fence restore, deletion, and re-pair boundaries; generation gives restart-safe order.
+        migrator.registerMigration("v35-historical-data-commit-journal") { db in
+            // A pre-release build created this table before its migration identifier shipped. Do not make
+            // that database unopenable: v36 below rebuilds any existing v35-compatible journal into the
+            // current receipt schema and records both migration identifiers.
+            try db.execute(sql: """
+                CREATE TABLE IF NOT EXISTS historicalDataCommitJournal (
+                    generation INTEGER PRIMARY KEY AUTOINCREMENT,
+                    receiptId TEXT NOT NULL UNIQUE,
+                    databaseInstanceId TEXT NOT NULL,
+                    deviceId TEXT NOT NULL,
+                    trim INTEGER NOT NULL,
+                    chunkEndUnix INTEGER NOT NULL,
+                    committedAt INTEGER NOT NULL,
+                    rawBatchId TEXT,
+                    insertedRowsJSON BLOB NOT NULL,
+                    UNIQUE (databaseInstanceId, deviceId, trim)
+                )
+                """)
+            try db.execute(sql: """
+                CREATE INDEX IF NOT EXISTS idx_historicalDataCommitJournal_database_device_generation
+                ON historicalDataCommitJournal (databaseInstanceId, deviceId, generation)
+                """)
+        }
+        // Receipt hardening: a historical commit is identified by the received-frame fingerprint inside a
+        // durable device/lineage/cursor scope. Raw capture is evidence attached to that commit, not part of
+        // its identity, so changing the research toggle cannot turn a safe replay into a false conflict.
+        // The rebuild removes v35's device+trim-only UNIQUE constraint and backfills phase1 rows without
+        // discarding their generation or receipt id.
+        migrator.registerMigration("v36-historical-data-receipt-hardening") { db in
+            if try db.tableExists("pairedDevice") {
+                let pairedColumns = Set(try db.columns(in: "pairedDevice").map(\.name))
+                if !pairedColumns.contains("historyLineage") {
+                    try db.execute(sql: "ALTER TABLE pairedDevice ADD COLUMN historyLineage TEXT")
+                }
+                if !pairedColumns.contains("historyCursorEpoch") {
+                    try db.execute(sql: "ALTER TABLE pairedDevice ADD COLUMN historyCursorEpoch INTEGER NOT NULL DEFAULT 0")
+                }
+                let ids = try String.fetchAll(db, sql: "SELECT id FROM pairedDevice ORDER BY id")
+                for id in ids {
+                    let lineage = try String.fetchOne(
+                        db,
+                        sql: "SELECT historyLineage FROM pairedDevice WHERE id = ?",
+                        arguments: [id]
+                    )
+                    if lineage?.isEmpty != false {
+                        try db.execute(
+                            sql: "UPDATE pairedDevice SET historyLineage = ? WHERE id = ?",
+                            arguments: [UUID().uuidString, id]
+                        )
+                    }
+                }
+            }
+
+            try db.execute(sql: """
+                CREATE TABLE historicalDataCommitJournal_v36 (
+                    generation INTEGER PRIMARY KEY AUTOINCREMENT,
+                    receiptId TEXT NOT NULL UNIQUE,
+                    databaseInstanceId TEXT NOT NULL,
+                    deviceId TEXT NOT NULL,
+                    lineage TEXT NOT NULL,
+                    cursorEpoch INTEGER NOT NULL,
+                    trimScope TEXT NOT NULL,
+                    trim INTEGER NOT NULL,
+                    chunkEndUnix INTEGER NOT NULL,
+                    committedAt INTEGER NOT NULL,
+                    fingerprint TEXT NOT NULL CHECK (length(trim(fingerprint)) > 0),
+                    minDecodedTs INTEGER,
+                    maxDecodedTs INTEGER,
+                    touchedDaysJSON BLOB NOT NULL,
+                    decodedRowsJSON BLOB NOT NULL,
+                    insertedRowsJSON BLOB NOT NULL,
+                    rawBatchId TEXT,
+                    rawStatus TEXT NOT NULL,
+                    burstJSON BLOB,
+                    rawRangeJSON BLOB NOT NULL,
+                    timestampHealJSON BLOB NOT NULL,
+                    isFinal INTEGER NOT NULL DEFAULT 0,
+                    UNIQUE (databaseInstanceId, deviceId, lineage, cursorEpoch, trimScope, trim)
+                )
+                """)
+
+            let emptyDaysJSON = Data("[]".utf8)
+            let emptyRawRangeJSON = Data("{\"source\":\"unavailable\",\"minReceivedTs\":null,\"maxReceivedTs\":null,\"frameCount\":0,\"byteCount\":0,\"hasHistoryEnd\":false}".utf8)
+            let retainedRawRangeJSON = Data("{\"source\":\"retainedRawBatch\",\"minReceivedTs\":null,\"maxReceivedTs\":null,\"frameCount\":0,\"byteCount\":0,\"hasHistoryEnd\":false}".utf8)
+            let emptyTimestampHealJSON = Data("{\"droppedRecordCount\":0,\"rawRowsDeleted\":0,\"computedRowsDeleted\":0,\"didChange\":false}".utf8)
+            let oldRows = try Row.fetchAll(db, sql: """
+                SELECT generation, receiptId, databaseInstanceId, deviceId, trim, chunkEndUnix,
+                       committedAt, rawBatchId, insertedRowsJSON
+                FROM historicalDataCommitJournal
+                ORDER BY generation ASC
+                """)
+            for row in oldRows {
+                let deviceId: String = row["deviceId"]
+                let registeredLineage = try String.fetchOne(
+                    db,
+                    sql: "SELECT historyLineage FROM pairedDevice WHERE id = ?",
+                    arguments: [deviceId]
+                )
+                let lineage = registeredLineage?.isEmpty == false
+                    ? registeredLineage!
+                    : "device:\(deviceId)"
+                let epoch = try Int.fetchOne(
+                    db,
+                    sql: "SELECT historyCursorEpoch FROM pairedDevice WHERE id = ?",
+                    arguments: [deviceId]
+                ) ?? 0
+                let trim: Int = row["trim"]
+                let receiptId: String = row["receiptId"]
+                let rawBatchId: String? = row["rawBatchId"]
+                let insertedRowsJSON: Data = row["insertedRowsJSON"]
+                try db.execute(sql: """
+                    INSERT INTO historicalDataCommitJournal_v36
+                        (generation, receiptId, databaseInstanceId, deviceId, lineage, cursorEpoch,
+                         trimScope, trim, chunkEndUnix, committedAt, fingerprint, minDecodedTs,
+                         maxDecodedTs, touchedDaysJSON, decodedRowsJSON, insertedRowsJSON, rawBatchId,
+                         rawStatus, burstJSON, rawRangeJSON, timestampHealJSON, isFinal)
+                    VALUES (?, ?, ?, ?, ?, ?, 'historical', ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
+                    """, arguments: [
+                        row["generation"], receiptId, row["databaseInstanceId"], deviceId,
+                        lineage, epoch, trim, row["chunkEndUnix"], row["committedAt"], "legacy:" + receiptId,
+                        emptyDaysJSON, insertedRowsJSON, insertedRowsJSON, rawBatchId,
+                        rawBatchId == nil ? "disabled" : "captured",
+                        rawBatchId == nil ? emptyRawRangeJSON : retainedRawRangeJSON,
+                        emptyTimestampHealJSON, trim == Int(UInt32.max) ? 1 : 0,
+                    ])
+            }
+            try db.execute(sql: "DROP TABLE historicalDataCommitJournal")
+            try db.execute(sql: "ALTER TABLE historicalDataCommitJournal_v36 RENAME TO historicalDataCommitJournal")
+            try db.execute(sql: """
+                CREATE INDEX idx_historicalDataCommitJournal_scope_generation
+                ON historicalDataCommitJournal
+                    (databaseInstanceId, deviceId, lineage, cursorEpoch, trimScope, generation)
+                """)
+
+            try db.execute(sql: """
+                CREATE TABLE historicalCursor (
+                    deviceId TEXT NOT NULL,
+                    lineage TEXT NOT NULL,
+                    cursorEpoch INTEGER NOT NULL,
+                    trimScope TEXT NOT NULL,
+                    trim INTEGER NOT NULL,
+                    watermarkGeneration INTEGER NOT NULL,
+                    PRIMARY KEY (deviceId, lineage, cursorEpoch, trimScope)
+                )
+                """)
+            try db.execute(sql: """
+                INSERT INTO historicalCursor
+                    (deviceId, lineage, cursorEpoch, trimScope, trim, watermarkGeneration)
+                SELECT receipt.deviceId, receipt.lineage, receipt.cursorEpoch, receipt.trimScope,
+                       receipt.trim, receipt.generation
+                FROM historicalDataCommitJournal AS receipt
+                INNER JOIN (
+                    SELECT deviceId, lineage, cursorEpoch, trimScope, MAX(generation) AS generation
+                    FROM historicalDataCommitJournal
+                    GROUP BY deviceId, lineage, cursorEpoch, trimScope
+                ) AS latest
+                    ON receipt.deviceId = latest.deviceId
+                    AND receipt.lineage = latest.lineage
+                    AND receipt.cursorEpoch = latest.cursorEpoch
+                    AND receipt.trimScope = latest.trimScope
+                    AND receipt.generation = latest.generation
+                """)
+        }
+
+        // v37: raw batches share the historical receipt fence. The original rawBatch primary key was
+        // only batchId, so reusing an id after a physical re-pair could either collide with old bytes or
+        // silently resolve to the wrong capture. Keep cross-device batch IDs collision-safe while allowing
+        // the same logical id in separate lineage/epoch scopes.
+        migrator.registerMigration("v37-scoped-raw-batch-identity") { db in
+            try db.execute(sql: """
+                CREATE TABLE rawBatch_v37 (
+                    batchId TEXT NOT NULL,
+                    deviceId TEXT NOT NULL,
+                    lineage TEXT NOT NULL,
+                    cursorEpoch INTEGER NOT NULL,
+                    capturedAt INTEGER NOT NULL,
+                    deviceClockRef INTEGER NOT NULL,
+                    wallClockRef INTEGER NOT NULL,
+                    startTs INTEGER NOT NULL,
+                    endTs INTEGER NOT NULL,
+                    frameCount INTEGER NOT NULL,
+                    byteSize INTEGER NOT NULL,
+                    framesBlob BLOB NOT NULL,
+                    syncedAt INTEGER,
+                    PRIMARY KEY (batchId, deviceId, lineage, cursorEpoch)
+                )
+                """)
+            try db.execute(sql: """
+                INSERT INTO rawBatch_v37
+                    (batchId, deviceId, lineage, cursorEpoch, capturedAt, deviceClockRef, wallClockRef,
+                     startTs, endTs, frameCount, byteSize, framesBlob, syncedAt)
+                SELECT raw.batchId, raw.deviceId,
+                       COALESCE(NULLIF(device.historyLineage, ''), 'device:' || raw.deviceId),
+                       COALESCE(device.historyCursorEpoch, 0),
+                       raw.capturedAt, raw.deviceClockRef, raw.wallClockRef, raw.startTs, raw.endTs,
+                       raw.frameCount, raw.byteSize, raw.framesBlob, raw.syncedAt
+                FROM rawBatch AS raw
+                LEFT JOIN pairedDevice AS device ON device.id = raw.deviceId
+                """)
+            try db.execute(sql: "DROP TABLE rawBatch")
+            try db.execute(sql: "ALTER TABLE rawBatch_v37 RENAME TO rawBatch")
+            try db.execute(sql: """
+                CREATE INDEX idx_rawBatch_batch_device_scope
+                ON rawBatch (batchId, deviceId, lineage, cursorEpoch)
+                """)
+        }
+
+        // v38: analysis acknowledgement is durable and source-scoped. The database identity is part
+        // of the key even though the current database normally has one identity row, so a replacement
+        // or restore can never make an old checkpoint acknowledge receipts from another database.
+        migrator.registerMigration("v38-historical-analysis-checkpoint") { db in
+            try db.create(table: "historicalAnalysisCheckpoint") { t in
+                t.column("databaseInstanceId", .text).notNull()
+                t.column("consumerId", .text).notNull()
+                t.column("deviceId", .text).notNull()
+                t.column("lineage", .text).notNull()
+                t.column("cursorEpoch", .integer).notNull()
+                t.column("trimScope", .text).notNull()
+                t.column("throughGeneration", .integer).notNull().defaults(to: 0)
+                t.column("throughTrim", .integer).notNull().defaults(to: 0)
+                t.column("pendingGeneration", .integer)
+                t.column("pendingTrim", .integer)
+                t.column("pendingReceiptId", .text)
+                t.column("pendingFingerprint", .text)
+                t.column("pendingPayload", .blob)
+                t.primaryKey([
+                    "databaseInstanceId", "consumerId", "deviceId", "lineage", "cursorEpoch", "trimScope",
+                ])
+            }
+            try db.create(
+                index: "idx_historicalAnalysisCheckpoint_database_consumer_generation",
+                on: "historicalAnalysisCheckpoint",
+                columns: ["databaseInstanceId", "consumerId", "throughGeneration"]
+            )
+            try db.create(
+                index: "idx_historicalAnalysisCheckpoint_pending",
+                on: "historicalAnalysisCheckpoint",
+                columns: ["databaseInstanceId", "consumerId", "pendingGeneration"]
+            )
+        }
+
+        // v39: databases that already ran the original v36/v37 bodies need a forward repair. Keep the
+        // historical cursor as one real receipt edge (rather than independently maxed trim/generation),
+        // and move legacy raw evidence into the exact lineage/epoch carried by its receipt. The v36/v37
+        // bodies above remain correct for new upgrades; this migration repairs databases that recorded them
+        // before that correction shipped.
+        migrator.registerMigration("v39-historical-receipt-scope-repair") { db in
+            // A cursor may have been advanced only by journal receipts. Rebuild those scopes from the
+            // newest receipt row, retaining any standalone cursor scope that has no durable receipt.
+            try db.execute(sql: """
+                DELETE FROM historicalCursor
+                WHERE EXISTS (
+                    SELECT 1
+                    FROM historicalDataCommitJournal AS receipt
+                    WHERE receipt.deviceId = historicalCursor.deviceId
+                        AND receipt.lineage = historicalCursor.lineage
+                        AND receipt.cursorEpoch = historicalCursor.cursorEpoch
+                        AND receipt.trimScope = historicalCursor.trimScope
+                )
+                """)
+            try db.execute(sql: """
+                INSERT INTO historicalCursor
+                    (deviceId, lineage, cursorEpoch, trimScope, trim, watermarkGeneration)
+                SELECT receipt.deviceId, receipt.lineage, receipt.cursorEpoch, receipt.trimScope,
+                       receipt.trim, receipt.generation
+                FROM historicalDataCommitJournal AS receipt
+                INNER JOIN (
+                    SELECT deviceId, lineage, cursorEpoch, trimScope, MAX(generation) AS generation
+                    FROM historicalDataCommitJournal
+                    GROUP BY deviceId, lineage, cursorEpoch, trimScope
+                ) AS latest
+                    ON receipt.deviceId = latest.deviceId
+                    AND receipt.lineage = latest.lineage
+                    AND receipt.cursorEpoch = latest.cursorEpoch
+                    AND receipt.trimScope = latest.trimScope
+                    AND receipt.generation = latest.generation
+                """)
+
+            // v37 originally gave every legacy raw batch the fallback device scope. Receipt lookup is
+            // scope-qualified, so a registered device's retained raw capture then became unreachable.
+            // Old rawBatch ids were globally unique before v37. If a later scoped row already owns the
+            // target identity, leave the legacy row intact rather than overwrite potentially distinct bytes.
+            try db.execute(sql: """
+                UPDATE rawBatch AS raw
+                SET lineage = (
+                        SELECT receipt.lineage
+                        FROM historicalDataCommitJournal AS receipt
+                        WHERE receipt.rawStatus = 'captured'
+                            AND receipt.rawBatchId = raw.batchId
+                            AND receipt.deviceId = raw.deviceId
+                        ORDER BY receipt.generation DESC
+                        LIMIT 1
+                    ),
+                    cursorEpoch = (
+                        SELECT receipt.cursorEpoch
+                        FROM historicalDataCommitJournal AS receipt
+                        WHERE receipt.rawStatus = 'captured'
+                            AND receipt.rawBatchId = raw.batchId
+                            AND receipt.deviceId = raw.deviceId
+                        ORDER BY receipt.generation DESC
+                        LIMIT 1
+                    )
+                WHERE raw.lineage = 'device:' || raw.deviceId
+                    AND raw.cursorEpoch = 0
+                    AND EXISTS (
+                        SELECT 1
+                        FROM historicalDataCommitJournal AS receipt
+                        WHERE receipt.rawStatus = 'captured'
+                            AND receipt.rawBatchId = raw.batchId
+                            AND receipt.deviceId = raw.deviceId
+                            AND (receipt.lineage != raw.lineage
+                                OR receipt.cursorEpoch != raw.cursorEpoch)
+                    )
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM rawBatch AS collision
+                        INNER JOIN historicalDataCommitJournal AS receipt
+                            ON receipt.rawStatus = 'captured'
+                            AND receipt.rawBatchId = raw.batchId
+                            AND receipt.deviceId = raw.deviceId
+                        WHERE collision.batchId = raw.batchId
+                            AND collision.deviceId = raw.deviceId
+                            AND collision.lineage = receipt.lineage
+                            AND collision.cursorEpoch = receipt.cursorEpoch
+                            AND collision.rowid != raw.rowid
+                    )
+                """)
+        }
+        Phase34DatabaseMigrations.register(on: &migrator)
+        PR28RootFixMigrations.register(on: &migrator)
+        PR28FollowupMigrations.register(on: &migrator)
+        PR28V47Migrations.register(on: &migrator)
+        PR28V48Migrations.register(on: &migrator)
+        PR29V50Migrations.register(on: &migrator)
+        PR29V51Migrations.register(on: &migrator)
+        PR29V52Migrations.register(on: &migrator)
+        PR29V53Migrations.register(on: &migrator)
         return migrator
     }
 }

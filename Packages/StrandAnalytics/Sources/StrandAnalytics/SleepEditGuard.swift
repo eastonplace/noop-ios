@@ -1,4 +1,5 @@
 import Foundation
+import WhoopProtocol
 
 /// Pure guards for the hand-edit sleep-time pickers (#940). The reporter corrected a late-tracked
 /// night's bed time from 01:06 back to 23:00; the picker kept the calendar DATE, so the "corrected"
@@ -19,7 +20,7 @@ public enum SleepEditGuard {
     /// evening-bed correction (bed 23:00, wake 05:00 next day) yields a ~6h span; a user moving a
     /// session LATER past its wake (nap 14:00-15:00 -> bed 16:00 same day) would yield a ~23h span if
     /// decremented, which is not a plausible night - so we leave those candidates verbatim.
-    public static let maxAutoCorrectNightSec: TimeInterval = 16 * 3600
+    public static let maxAutoCorrectNightSec: TimeInterval = TimeInterval(SleepSessionWindow.maximumDurationSeconds)
 
     /// Rule 1: the cross-midnight bed auto-correct. `candidateBed` is what the picker just produced,
     /// `previousBed` is the value it held before this change (so a DELIBERATE date change, where the
@@ -64,8 +65,13 @@ public enum SleepEditGuard {
     /// cannot render.
     public static func clampedEditWindow(start: Int, end: Int, now: Int,
                                          slackSec: Int = 300) -> (start: Int, end: Int)? {
-        let cappedEnd = min(end, now + slackSec)
-        guard cappedEnd > start else { return nil }
+        let (latestAllowedEnd, capOverflow) = now.addingReportingOverflow(slackSec)
+        guard !capOverflow else { return nil }
+        let cappedEnd = min(end, latestAllowedEnd)
+        guard cappedEnd > start,
+              SleepTimestampMath.nonnegativeDuration(start: start, end: cappedEnd) != nil,
+              SleepSessionWindow.isValid(start: start, end: cappedEnd)
+        else { return nil }
         return (start, cappedEnd)
     }
 }

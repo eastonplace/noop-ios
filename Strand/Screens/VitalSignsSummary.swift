@@ -1,6 +1,7 @@
 import SwiftUI
 import StrandAnalytics
 import StrandDesign
+import WhoopProtocol
 import WhoopStore
 
 /// One resolved vital-sign tile: the latest value across the source precedence, banded against the
@@ -30,9 +31,12 @@ struct BodyVitalReading: Identifiable {
         value.map { "\(format($0)) \(unit)" }
     }
 
-    /// Colour communicates state: in-range = the metric's category colour,
-    /// out-of-range = warning amber, no data = tertiary.
+    /// Colour communicates state for validated vitals. The experimental candidate is deliberately neutral:
+    /// it has no physiological range judgement and must never look like a reassuring in-range result.
     var accent: Color {
+        if key == BodyVitalSigns.experimentalSpO2CandidateKey {
+            return StrandPalette.textTertiary
+        }
         switch banding.band {
         case .noData:     return StrandPalette.textTertiary
         case .inRange:    return metricColor
@@ -43,6 +47,14 @@ struct BodyVitalReading: Identifiable {
     /// The tile caption: "<day> · <source> · <state>". Falls back to a metric-specific "no value"
     /// line when nothing resolved, so an empty tile still says why instead of a bare dash.
     var stateCaption: String {
+        if key == BodyVitalSigns.experimentalSpO2CandidateKey {
+            guard let day else { return missingCaption }
+            return [
+                Self.dayLabel(day),
+                String(localized: "WHOOP 5/MG"),
+                String(localized: "Experimental; may be inaccurate"),
+            ].joined(separator: " · ")
+        }
         guard let day else { return missingCaption }
         var parts = [Self.dayLabel(day)]
         if let sourceText = Self.sourceLabel(source, key: key) {
@@ -54,6 +66,9 @@ struct BodyVitalReading: Identifiable {
 
     var accessibilityText: String {
         guard let v = formattedValue else { return String(localized: "\(label): no data") }
+        if key == BodyVitalSigns.experimentalSpO2CandidateKey {
+            return String(localized: "\(label): \(v). Experimental WHOOP 5 or MG candidate. It may be inaccurate and is not used for scoring, HealthKit, or medical decisions.")
+        }
         return String(localized: "\(label): \(v), \(stateCaption)")
     }
 
@@ -96,6 +111,8 @@ struct BodyVitalReading: Identifiable {
 /// Builds the body vital-sign readings from source-tagged daily rows. Pure + namespaced so the
 /// resolution (per-metric source precedence) and banding can be unit-tested without a Repository.
 enum BodyVitalSigns {
+    static let experimentalSpO2CandidateKey = "spo2_candidate_82"
+
     /// Preview/test convenience: wrap plain rows (optionally a separate "today") as local-cache rows.
     static func readings(days: [DailyMetric],
                          today: DailyMetric?,
@@ -113,13 +130,17 @@ enum BodyVitalSigns {
         let logicalDay = logicalDayKey(now)
 
         // Resolve one metric to a per-day series, taking the FIRST source (by precedence) that carries
-        // a value for each day — imported wins over computed wins over Apple, per `vitalPrecedence`.
+        // a plausible value for each day. Imported wins over computed wins over Apple, per `vitalPrecedence`.
+        // A finite-but-corrupt SQLite value must not reach integer formatting, chart geometry, or band math.
         func points(key: String, _ value: (DailyMetric) -> Double?) -> [VitalPoint] {
             let allowedSources = DailyMetricSource.vitalPrecedence(for: key)
             var byDay: [String: VitalPoint] = [:]
             for source in allowedSources {
                 for row in sourceRows where row.source == source {
-                    guard let v = value(row.metric), byDay[row.metric.day] == nil else { continue }
+                    guard let v = value(row.metric),
+                          Self.isPlausibleVital(v, key: key),
+                          byDay[row.metric.day] == nil
+                    else { continue }
                     byDay[row.metric.day] = VitalPoint(day: row.metric.day, value: v, source: row.source)
                 }
             }
@@ -141,12 +162,19 @@ enum BodyVitalSigns {
 
         let respPoints = points(key: "resp", \.respRateBpm)
         let spo2Points = points(key: "spo2", \.spo2Pct)
+        // The experimental WHOOP 5/MG value is encoded separately from calibrated SpO₂: the daily red slot
+        // carries the candidate percentage and the IR slot carries an impossible negative marker. Ordinary
+        // WHOOP 4 raw red/IR ADC pairs never match this helper and remain outside this beta tile.
+        let candidateSpO2Points = points(key: experimentalSpO2CandidateKey) {
+            Whoop5V18SpO2Candidate.persistedPercentage(red: $0.spo2Red, ir: $0.spo2Ir)
+        }
         let rhrPoints = points(key: "rhr") { $0.restingHr.map(Double.init) }
         let hrvPoints = points(key: "hrv", \.avgHrv)
         let skinPoints = points(key: "skin", \.skinTempDevC)
 
         let respRow = latest(respPoints)
         let spo2Row = latest(spo2Points)
+        let candidateSpO2Row = latest(candidateSpO2Points)
         let rhrRow = latest(rhrPoints)
         let hrvRow = latest(hrvPoints)
         let skinRow = latest(skinPoints)
@@ -185,7 +213,7 @@ enum BodyVitalSigns {
             return full.replacingOccurrences(of: " " + skinUnitLabel, with: "")
         }
 
-        return [
+        var readings = [
             BodyVitalReading(
                 key: "resp",
                 label: String(localized: "Resp Rate"),
@@ -229,7 +257,7 @@ enum BodyVitalSigns {
                 label: String(localized: "Resting HR"),
                 unit: "bpm",
                 value: rhrRow?.value,
-                format: { String(Int($0.rounded())) },
+                format: Self.wholeNumber,
                 banding: VitalBands.band(
                     value: rhrRow?.value,
                     history: history(before: rhrRow?.day, rhrPoints),
@@ -247,7 +275,7 @@ enum BodyVitalSigns {
                 label: String(localized: "HRV"),
                 unit: "ms",
                 value: hrvRow?.value,
-                format: { String(Int($0.rounded())) },
+                format: Self.wholeNumber,
                 banding: VitalBands.band(
                     value: hrvRow?.value,
                     history: history(before: hrvRow?.day, hrvPoints),
@@ -276,6 +304,30 @@ enum BodyVitalSigns {
                 sparkline: trail(skinPoints.filter { VitalBands.isAbsoluteSkinTemp($0.value) == skinIsAbsolute })
             ),
         ]
+
+        // Never place the candidate into the canonical Blood O₂ tile. It gets its own explicitly-beta tile
+        // only when a nightly value exists. `noData` is intentional presentation metadata here: unlike a
+        // validated vital, this candidate has no clinical/personal range judgement and must not display as
+        // "in range" merely because a byte happened to decode between 70 and 100.
+        if let candidateSpO2Row {
+            readings.insert(
+                BodyVitalReading(
+                    key: experimentalSpO2CandidateKey,
+                    label: String(localized: "SpO₂ Candidate (Beta)"),
+                    unit: "%",
+                    value: candidateSpO2Row.value,
+                    format: { String(format: "≈%.0f", $0) },
+                    banding: VitalBands.Result(band: .noData, basis: .population, nights: 0),
+                    metricColor: StrandPalette.textTertiary,
+                    day: candidateSpO2Row.day,
+                    source: candidateSpO2Row.source,
+                    missingCaption: String(localized: "No experimental WHOOP 5/MG candidate"),
+                    sparkline: nil
+                ),
+                at: min(2, readings.count)
+            )
+        }
+        return readings
     }
 
     /// The newest day any resolved reading was sourced from — drives the section's "Latest" trailing label.
@@ -287,6 +339,31 @@ enum BodyVitalSigns {
     /// and independent of the @MainActor Repository — same boundary, mirrored here for the readings build.
     static func logicalDayKey(_ now: Date, rolloverHour: Int = 4) -> String {
         localDayFormatter.string(from: now.addingTimeInterval(-Double(rolloverHour) * 3_600))
+    }
+
+    private static func isPlausibleVital(_ value: Double, key: String) -> Bool {
+        guard value.isFinite else { return false }
+        switch key {
+        case "resp":
+            return (1...100).contains(value)
+        case "spo2":
+            return (0...100).contains(value)
+        case experimentalSpO2CandidateKey:
+            return (70...100).contains(value)
+        case "rhr":
+            return (20...250).contains(value)
+        case "hrv":
+            return (0...2_000).contains(value)
+        case "skin":
+            // Covers both absolute wrist temperature and the signed deviation representation.
+            return (-20...60).contains(value)
+        default:
+            return false
+        }
+    }
+
+    private static func wholeNumber(_ value: Double) -> String {
+        Int(exactly: value.rounded()).map(String.init) ?? "—"
     }
 
     private static let localDayFormatter: DateFormatter = {
@@ -326,6 +403,10 @@ private extension DailyMetricSource {
         switch key {
         case "skin":
             return [.whoopImport, .noopComputed, .localCache]
+        case BodyVitalSigns.experimentalSpO2CandidateKey:
+            // Only the on-device computed row can carry the impossible negative IR marker. Keeping the
+            // source list narrow prevents a future import field from being mistaken for this experiment.
+            return [.noopComputed, .localCache]
         default:
             return [.whoopImport, .noopComputed, .appleHealth, .localCache]
         }

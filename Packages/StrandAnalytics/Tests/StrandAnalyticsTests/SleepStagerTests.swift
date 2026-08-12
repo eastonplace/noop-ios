@@ -87,6 +87,41 @@ final class SleepStagerTests: XCTestCase {
         XCTAssertTrue(SleepStager.detectSleep(gravity: []).isEmpty)
     }
 
+    func testDetectSleepIgnoresExtremeRowsBeforeFingerprintAndFailsClosedWhenOnlyMalformed() {
+        let start = nightStart(02)
+        let duration = 90 * 60
+        let gravity = stillGravity(start: start, durationS: duration)
+        let hr = hrStream(start: start, durationS: duration, bpm: 50)
+        let expected = SleepStager.detectSleep(hr: hr, gravity: gravity)
+
+        let malformedGravity = [
+            GravitySample(ts: Int.min, x: 0, y: 0, z: 1),
+            GravitySample(ts: Int.max, x: 0, y: 0, z: 1),
+        ]
+        let malformedHR = [
+            HRSample(ts: Int.min, bpm: 50),
+            HRSample(ts: Int.max, bpm: 50),
+        ]
+        XCTAssertEqual(
+            SleepStager.detectSleep(
+                hr: [malformedHR[0]] + hr + [malformedHR[1]],
+                gravity: [malformedGravity[0]] + gravity + [malformedGravity[1]]
+            ),
+            expected,
+            "malformed rows must be dropped before cache fingerprinting and detection"
+        )
+        XCTAssertTrue(SleepStager.detectSleep(
+            hr: malformedHR,
+            gravity: malformedGravity
+        ).isEmpty)
+        XCTAssertFalse(SleepStager.isGravitySparse(malformedGravity, hr: malformedHR))
+        XCTAssertTrue(SleepStager.detectSleep(
+            hr: hr,
+            gravity: gravity,
+            tzOffsetSeconds: Int.max
+        ).isEmpty)
+    }
+
     func testDetectSleepHRConfirmationRejectsHighHR() {
         // Still gravity but HR is well above the day median*1.05. The daytime is
         // long (4 h) and low-HR (55) so the day median stays ~55; the still 90-min
@@ -411,6 +446,45 @@ final class SleepStagerTests: XCTestCase {
         ]
         let eff = SleepStager.efficiency(start: 0, end: 1000, stages: stages)
         XCTAssertEqual(eff, 0.9, accuracy: 1e-9)
+    }
+
+    func testStagingAndEfficiencyFailClosedForExtremeTimestamps() {
+        XCTAssertEqual(
+            SleepStager.efficiency(
+                start: Int.min,
+                end: Int.max,
+                stages: [StageSegment(start: Int.min, end: Int.max, stage: "wake")]),
+            0)
+        XCTAssertTrue(SleepStager.stageSession(
+            start: Int.min,
+            end: Int.max,
+            grav: [], hr: [], rr: [], resp: []).isEmpty)
+    }
+
+    func testDirectSleepMetricsFailClosedForExtremeTimestampWindows() {
+        let invalid = SleepSession(
+            start: Int.min,
+            end: Int.max,
+            efficiency: 1,
+            stages: [StageSegment(start: Int.min, end: Int.max, stage: "light")],
+            restingHR: nil,
+            avgHRV: nil
+        )
+        let metrics = SleepStager.hypnogramMetrics(invalid)
+        XCTAssertEqual(metrics.tibS, 0)
+        XCTAssertEqual(metrics.tstS, 0)
+        XCTAssertTrue(metrics.remLatencyS.isNaN)
+        XCTAssertNil(SleepStager.sessionRestingHR(
+            start: Int.min,
+            end: Int.max,
+            hr: [HRSample(ts: Int.min, bpm: 50)]
+        ))
+        XCTAssertTrue(SleepStager.sessionHrvWindows(
+            start: Int.min,
+            end: Int.max,
+            rr: [RRInterval(ts: Int.min, rrMs: 900)],
+            stages: invalid.stages
+        ).isEmpty)
     }
 
     // MARK: - Hypnogram metrics
@@ -988,6 +1062,32 @@ final class SleepStagerTests: XCTestCase {
     func testSessionEpochMotionEmptyWhenNoGravity() {
         // Too little gravity to grid → [] so the caller persists NULL, never a fabricated zero series.
         XCTAssertTrue(SleepStager.sessionEpochMotion(start: 0, end: 1800, grav: []).isEmpty)
+    }
+
+    func testEpochGridConsumersRejectExtremeTimestampWindows() {
+        let grav = [
+            GravitySample(ts: Int.min, x: 0, y: 0, z: 1),
+            GravitySample(ts: Int.max, x: 0, y: 0, z: 1),
+        ]
+        XCTAssertTrue(SleepStager.sessionEpochMotion(
+            start: Int.min, end: Int.max, grav: grav
+        ).isEmpty)
+        XCTAssertTrue(SleepStager.sessionEpochSleepState(
+            start: Int.min,
+            end: Int.max,
+            sleepState: [(ts: Int.min, state: 2), (ts: Int.max, state: 2)]
+        ).isEmpty)
+        XCTAssertEqual(
+            SleepStager.buildEpochGrid(
+                start: Int.min, end: Int.max,
+                gravTimes: grav.map(\.ts), gravDeltas: [0, 0],
+                hr: [], rr: [], resp: []
+            ).nEpochs,
+            0
+        )
+        XCTAssertNil(SleepStager.remFunnelDiagnostic(
+            start: Int.min, end: Int.max, grav: grav, hr: [], rr: [], resp: []
+        ))
     }
 
     // MARK: - #175 per-session band sleep_state gridding (persisted beside stagesJSON)

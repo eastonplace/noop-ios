@@ -88,6 +88,17 @@ final class SleepStagerV2Tests: XCTestCase {
         XCTAssertEqual(segs.first?.stage, "light")
     }
 
+    func testExtremeTimestampWindowFailsClosed() {
+        XCTAssertTrue(SleepStagerV2.stageSession(
+            start: Int.min,
+            end: Int.max,
+            grav: [], hr: [], rr: [], resp: []).isEmpty)
+        XCTAssertTrue(SleepStagerV2.features(
+            start: Int.min,
+            end: Int.max,
+            grav: [], hr: [], rr: []).isEmpty)
+    }
+
     // MARK: - recipe invariants
 
     /// The cycle prior concentrates deep early in the night and suppresses REM in the first ~12 %.

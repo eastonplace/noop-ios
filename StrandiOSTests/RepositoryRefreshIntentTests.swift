@@ -1,14 +1,16 @@
 import XCTest
+import WhoopStore
 @testable import NOOP
 
 #if os(iOS)
 @MainActor
 final class RepositoryRefreshIntentTests: XCTestCase {
     func testIntentRangesAndDeterministicEqualRangeMerge() {
-        XCTAssertEqual(RepositoryRefreshIntent.currentDay.days, 120)
-        XCTAssertEqual(RepositoryRefreshIntent.postBackfill.days, 120)
-        XCTAssertEqual(RepositoryRefreshIntent.recentDashboard(days: 1).days, 120)
-        XCTAssertEqual(RepositoryRefreshIntent.fullHistoryMigration.days, 4_000)
+        XCTAssertEqual(RepositoryRefreshIntent.currentDay.days, 1)
+        XCTAssertEqual(RepositoryRefreshIntent.postBackfill.days, 1)
+        XCTAssertEqual(RepositoryRefreshIntent.initialLoad.days, 1)
+        XCTAssertEqual(RepositoryRefreshIntent.recentDashboard(days: 120).days, 30)
+        XCTAssertEqual(RepositoryRefreshIntent.fullHistoryMigration.days, 30)
         XCTAssertEqual(
             RepositoryRefreshIntent.merged(.currentDay, .postBackfill),
             .postBackfill
@@ -36,6 +38,25 @@ final class RepositoryRefreshIntentTests: XCTestCase {
             String(describing: RepositoryRefreshIntent.fullHistoryMigration.traceName),
             "repository_refresh_full_history_migration"
         )
+    }
+
+    func testInitialLoadPreservesMultiYearHistoryExtent() async throws {
+        let store = try await WhoopStore.inMemory()
+        let calendar = Calendar.current
+        let oldDate = calendar.date(byAdding: .day, value: -730, to: Date())!
+        let oldDay = Repository.localDayKey(oldDate)
+        try await store.upsertDailyMetrics([
+            DailyMetric(day: oldDay, totalSleepMin: 440, efficiency: 0.9, deepMin: 90, remMin: 100,
+                        lightMin: 250, disturbances: 3, restingHr: 52, avgHrv: 63, recovery: 78,
+                        strain: 64, exerciseCount: 1, strainVersion: 2)
+        ], deviceId: Repository.whoopSource + "-noop")
+        let repository = Repository(deviceId: Repository.whoopSource)
+        repository.setStoreForTesting(store)
+
+        let didRefresh = await repository.refresh(.initialLoad)
+
+        XCTAssertTrue(didRefresh)
+        XCTAssertEqual(repository.historyExtent.earliestDay?.key, oldDay)
     }
 
     func testOverlappingNarrowRequestsCoalesceToWidestPendingRange() async {
@@ -148,6 +169,80 @@ final class RepositoryRefreshIntentTests: XCTestCase {
         }
         let result = await task.value
         XCTAssertFalse(result)
+    }
+
+    func testExclusivePublicationWaitsForInFlightRefreshAndStopsNewStarts() async {
+        let barrier = RepositoryPublicationBarrier()
+        XCTAssertTrue(barrier.beginRefreshIfAllowed())
+
+        var acquiredExclusive = false
+        let exclusive = Task { @MainActor in
+            await barrier.acquireExclusive()
+            acquiredExclusive = true
+        }
+        for _ in 0..<20 { await Task.yield() }
+
+        XCTAssertFalse(acquiredExclusive,
+                       "a source import cannot begin while an older Repository snapshot is still reading")
+        XCTAssertFalse(barrier.beginRefreshIfAllowed(),
+                       "once source publication is pending, no newer refresh may overtake it")
+
+        barrier.endRefresh()
+        await exclusive.value
+        XCTAssertTrue(acquiredExclusive)
+        XCTAssertTrue(barrier.blocksRefreshes)
+        XCTAssertFalse(barrier.beginRefreshIfAllowed())
+
+        barrier.releaseExclusive()
+        XCTAssertFalse(barrier.blocksRefreshes)
+        XCTAssertTrue(barrier.beginRefreshIfAllowed())
+        barrier.endRefresh()
+    }
+
+    func testBlockedRefreshesCoalesceToOneWidestReplayPerRepository() async {
+        let barrier = RepositoryPublicationBarrier()
+        await barrier.acquireExclusive()
+        let owner = NSObject()
+        var replayed: [RepositoryRefreshIntent] = []
+
+        for _ in 0..<100 {
+            barrier.performAfterOpen(for: owner, intent: .currentDay) { replayed.append($0) }
+        }
+        barrier.performAfterOpen(for: owner, intent: .fullHistoryMigration) { replayed.append($0) }
+        XCTAssertTrue(replayed.isEmpty)
+        XCTAssertEqual(barrier.deferredRequestCount, 101)
+        XCTAssertEqual(barrier.deferredRepositoryCount, 1)
+
+        barrier.releaseExclusive()
+        XCTAssertEqual(replayed, [.fullHistoryMigration])
+        XCTAssertEqual(barrier.deferredRepositoryCount, 0)
+    }
+
+    func testBlockedRefreshesKeepDifferentRepositoriesDistinct() async {
+        let barrier = RepositoryPublicationBarrier()
+        await barrier.acquireExclusive()
+        let first = NSObject()
+        let second = NSObject()
+        var replayed: [RepositoryRefreshIntent] = []
+
+        barrier.performAfterOpen(for: first, intent: .currentDay) { replayed.append($0) }
+        barrier.performAfterOpen(for: second, intent: .postImport) { replayed.append($0) }
+        XCTAssertEqual(barrier.deferredRepositoryCount, 2)
+
+        barrier.releaseExclusive()
+        XCTAssertEqual(Set(replayed.map(\.description)), Set(["current-day", "post-import"]))
+    }
+
+    func testRestoredJournalCanFenceSynchronouslyBeforeLaunchRefresh() {
+        let barrier = RepositoryPublicationBarrier()
+
+        XCTAssertTrue(barrier.acquireRestoredExclusiveIfIdle())
+        XCTAssertTrue(barrier.blocksRefreshes)
+        XCTAssertFalse(barrier.acquireRestoredExclusiveIfIdle(),
+                       "one durable scoring journal owns one fence")
+
+        barrier.releaseExclusive()
+        XCTAssertFalse(barrier.blocksRefreshes)
     }
 }
 #endif

@@ -53,6 +53,27 @@ final class ReadTests: XCTestCase {
         XCTAssertEqual(empty.maxTs, 0)
     }
 
+    func testHrFingerprintAndBoundsIncludePpgFallbackWithoutDoubleCountingMeasuredSeconds() async throws {
+        let store = try await seeded()
+        _ = try await store.insert(
+            Streams(ppgHr: [
+                PpgHrSample(ts: 50, bpm: 58, conf: 0.8),
+                PpgHrSample(ts: 100, bpm: 99, conf: 0.8),
+                PpgHrSample(ts: 400, bpm: 63, conf: 0.8),
+            ]),
+            deviceId: "dev1")
+
+        let fingerprint = try await store.hrFingerprint(deviceId: "dev1", from: 0, to: 1_000)
+        XCTAssertEqual(fingerprint.count, 5)
+        XCTAssertEqual(fingerprint.maxTs, 400)
+        let storedBounds = try await store.hrTimestampBounds(deviceId: "dev1")
+        let bounds = try XCTUnwrap(storedBounds)
+        XCTAssertEqual(bounds.earliest, 50)
+        XCTAssertEqual(bounds.latest, 400)
+        let missingBounds = try await store.hrTimestampBounds(deviceId: "missing")
+        XCTAssertNil(missingBounds)
+    }
+
     func testHrBucketsAveragePerBucketOrderedAndDeviceScoped() async throws {
         let store = try await seeded()
         // 200s buckets over dev1's ts 100/200/300 (bpm 60/61/62):
