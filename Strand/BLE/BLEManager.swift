@@ -314,10 +314,10 @@ struct Whoop5EmptyOffloadTracker {
 /// its idle timeout — the reported ~15-min sync). The stale/PAST-epoch case 2b actually exists for (#451)
 /// reads BEHIND the frontier, never future-dated, so it is untouched.
 struct BackfillContinuation {
-    /// Hard cap on consecutive auto-continues per connection (resets on disconnect). 6 × ~60s ≈ 6 min of
-    /// back-to-back draining — enough to chew through a multi-night backlog far faster than the 15-min
-    /// floor, without letting a misbehaving strap monopolise Bluetooth.
-    static let defaultMaxAutoContinues = 6
+    /// Hard cap on consecutive auto-continues per connection (resets on disconnect). A productive pass is
+    /// normally about nine seconds in field captures, so 24 lets a deep backlog drain during one connected
+    /// foreground/background opportunity. The advancing-trim and future-clock guards still stop bad straps.
+    static let defaultMaxAutoContinues = 24
     /// How far ahead the strap must be (seconds) before "more backlog remains" is real, not clock noise.
     /// Matches StuckStrapDetector.behindGapSeconds (5 min) so the two agree on "behind".
     static let defaultBehindGapSeconds = 300
@@ -2157,7 +2157,12 @@ public final class BLEManager: NSObject, ObservableObject {
         // so a strap log couldn't tell a banking strap from a broken one. Emit the per-session persistence
         // tally whenever anything actually landed — the win-rate signal a log previously lacked.
         if let bf = backfiller,
-           let summary = Backfiller.sessionSummaryLine(rows: bf.sessionRowsPersisted, motion: bf.sessionMotionRows, skinTemp: bf.sessionSkinTempRows, nights: bf.sessionNights) {
+           let summary = Backfiller.sessionSummaryLine(
+               rows: bf.sessionRowsPersisted,
+               motion: bf.sessionMotionRows,
+               skinTemp: bf.sessionSkinTempRows,
+               nights: bf.sessionNights,
+               mappedRawRecords: bf.sessionMappedRawRecords) {
             log(summary)
             // #67: WHERE the rows landed + WHY (the clock ref that decoded them). A reset-RTC strap banks
             // last night into the past; this line makes the misdating self-evident in the strap log instead
@@ -2236,12 +2241,13 @@ public final class BLEManager: NSObject, ObservableObject {
             let archived = state.rejectedFramesThisSession
             let unarchived = state.rejectedFramesUnarchived
             // Classify this completed offload (pure, unit-tested in EmptyBankingClassifierTests).
+            let mappedRawRecords = backfiller?.sessionMappedRawRecords ?? 0
             let banking = BLEManager.classifyCompletedOffload(
                 decodedChunks: state.decodedChunksThisSession,
                 archivedFrames: archived,
                 unarchivedFrames: unarchived,
                 consoleChunks: state.consoleChunksThisSession,
-                rowsPersisted: backfiller?.sessionRowsPersisted ?? 0)
+                rowsPersisted: (backfiller?.sessionRowsPersisted ?? 0) + mappedRawRecords)
             let bankedSensorRecords = banking.bankedSensorRecords
             // #42: the empty tail of an auto-continue burst (consecutiveAutoContinues > 0) isn't a "banked
             // nothing" sync — an EARLIER session in the same burst handed over real rows and this pass just
@@ -2255,7 +2261,9 @@ public final class BLEManager: NSObject, ObservableObject {
             // STALLED on a persist failure" — the latter (usually a restore without a restart) is otherwise
             // invisible in a report that just shows "0 synced".
             let du = UserDefaults.standard
-            if (backfiller?.sessionRowsPersisted ?? 0) > 0 { du.set(Date().timeIntervalSince1970, forKey: "sync.lastWriteOkAt") }
+            if (backfiller?.sessionRowsPersisted ?? 0) + mappedRawRecords > 0 {
+                du.set(Date().timeIntervalSince1970, forKey: "sync.lastWriteOkAt")
+            }
             if backfiller?.persistStalled == true { du.set(Date().timeIntervalSince1970, forKey: "sync.lastWriteStalledAt") }
             if unarchived > 0 {
                 state.lastSyncError = "Synced, but \(archived + unarchived) record(s) couldn't be decoded (unrecognised strap firmware layout), and the on-device archive is full - the \(unarchived) newest weren't preserved. Please share a strap log so the layout can be mapped."
@@ -2295,7 +2303,7 @@ public final class BLEManager: NSObject, ObservableObject {
             // NOTE: the auto-continue streak is NOT reset here. A HISTORY_COMPLETE is no longer assumed to
             // mean "caught up" (#25): a strap whose firmware segments a deep offload into many small
             // HISTORY_COMPLETE slices would otherwise reset the streak on every slice and never engage the
-            // 6-per-connection cap. The streak is cleared only once shouldAutoContinue proves we're actually
+            // bounded per-connection cap. The streak is cleared only once shouldAutoContinue proves we're actually
             // caught up — inside maybeAutoContinueBackfill's else path, fired below for BOTH exit reasons.
         } else if reason == "timeout" {
             // #580: distinguish a genuine WHOOP-4 "strap went quiet mid-sync" from a WHOOP 5/MG whose
@@ -2305,6 +2313,7 @@ public final class BLEManager: NSObject, ObservableObject {
             // (chunks acked, rows persisted, or deep packets seen); an empty 5/MG offload has none.
             let bankedThisOffload = historicalProgress.acknowledged > 0
                 || (backfiller?.sessionRowsPersisted ?? 0) > 0
+                || (backfiller?.sessionMappedRawRecords ?? 0) > 0
                 || state.deepPacketsThisSession > 0
             if selectedModel.deviceFamily == .whoop5 {
                 let crossed = whoop5EmptyOffload.recordOffload(bankedRecords: bankedThisOffload)
@@ -2345,7 +2354,8 @@ public final class BLEManager: NSObject, ObservableObject {
         // by the consecutive-cap and the spin-detector inside the pure predicate either way.
         if reason == "timeout" || reason == "HISTORY_COMPLETE" {
             maybeAutoContinueBackfill(trimAdvanced: trimAdvanced,
-                                      rowsPersisted: sessionRowsPersisted)
+                                      rowsPersisted: (backfiller?.sessionRowsPersisted ?? 0)
+                                          + (backfiller?.sessionMappedRawRecords ?? 0))
         } else {
             publishBackfillBurstIfNeeded()
         }

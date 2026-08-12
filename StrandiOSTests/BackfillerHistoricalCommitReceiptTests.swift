@@ -36,6 +36,7 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
             let scope: HistoricalCursorScope
             let fingerprint: String
             let fingerprintInput: HistoricalReceivedFrameFingerprintInput
+            let rawBatch: HistoricalRawBatch?
             let rawCaptureStatus: HistoricalRawCaptureStatus?
             let rawRange: HistoricalRawRangeEvidence?
         }
@@ -64,6 +65,7 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
                 scope: scope,
                 fingerprint: fingerprint,
                 fingerprintInput: fingerprintInput,
+                rawBatch: rawBatch,
                 rawCaptureStatus: rawCaptureStatus,
                 rawRange: rawRange)
             return HistoricalDataCommitReceipt(
@@ -75,7 +77,19 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
                 chunkEndUnix: chunkEndUnix,
                 committedAt: committedAt,
                 rawBatchId: rawBatch?.meta.batchId,
-                insertedRows: HistoricalStreamInsertCounts(hr: 1),
+                insertedRows: HistoricalStreamInsertCounts(
+                    hr: streams.hr.count,
+                    rr: streams.rr.count,
+                    events: streams.events.count,
+                    battery: streams.battery.count,
+                    spo2: streams.spo2.count,
+                    skinTemp: streams.skinTemp.count,
+                    resp: streams.resp.count,
+                    gravity: streams.gravity.count,
+                    steps: streams.steps.count,
+                    sleepState: streams.sleepState.count,
+                    ppgHr: streams.ppgHr.count,
+                    ppgWaveform: streams.ppgWaveform.count),
                 fingerprint: fingerprint,
                 lineage: scope.lineage,
                 cursorEpoch: scope.cursorEpoch,
@@ -191,6 +205,41 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
             ]
         }
         return frameFromPayload(le32(unix) + [0, 0] + le32(0) + le32(trim), type: 49, seq: 0, cmd: 2)
+    }
+
+    private func bytes(_ hex: String) -> [UInt8] {
+        var result: [UInt8] = []
+        var index = hex.startIndex
+        while index < hex.endIndex {
+            let next = hex.index(index, offsetBy: 2)
+            result.append(UInt8(hex[index..<next], radix: 16)!)
+            index = next
+        }
+        return result
+    }
+
+    private func whoop5V20Frame(unix: UInt32 = 1_781_557_000) -> [UInt8] {
+        var frame = [UInt8](repeating: 0, count: Whoop5RawOptical.bufferLength)
+        frame[0] = 0xAA; frame[1] = 0x01
+        let declared = frame.count - 8
+        frame[2] = UInt8(declared & 0xFF); frame[3] = UInt8((declared >> 8) & 0xFF)
+        frame[4] = 0x01; frame[5] = 0x00; frame[8] = 0x2F; frame[9] = 20; frame[10] = 0x80
+        frame[15] = UInt8(unix & 0xFF); frame[16] = UInt8((unix >> 8) & 0xFF)
+        frame[17] = UInt8((unix >> 16) & 0xFF); frame[18] = UInt8((unix >> 24) & 0xFF)
+        frame[Whoop5RawOptical.blockStart] = 25
+        let headerCRC = crc16Modbus(Array(frame[0..<6]))
+        frame[6] = UInt8(headerCRC & 0xFF); frame[7] = UInt8((headerCRC >> 8) & 0xFF)
+        let payloadEnd = frame.count - 4
+        let payloadCRC = crc32(Array(frame[8..<payloadEnd]))
+        frame[payloadEnd] = UInt8(payloadCRC & 0xFF)
+        frame[payloadEnd + 1] = UInt8((payloadCRC >> 8) & 0xFF)
+        frame[payloadEnd + 2] = UInt8((payloadCRC >> 16) & 0xFF)
+        frame[payloadEnd + 3] = UInt8((payloadCRC >> 24) & 0xFF)
+        return frame
+    }
+
+    private var whoop5HistoryEndFrame: [UInt8] {
+        bytes("aa011c00010023d1316a0284a3266a0a373d00000041b601001000000000000044d21e3d")
     }
 
     @MainActor
@@ -375,6 +424,68 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
 
         XCTAssertEqual(rawEnabled.fingerprintInput, rawDisabled.fingerprintInput)
         XCTAssertEqual(rawEnabled.fingerprint, rawDisabled.fingerprint)
+    }
+
+    @MainActor
+    func testMappedV20IsRetainedWithoutRejectedArchiveOrRowExpansion() async throws {
+        let store = SourceCaptureStore()
+        var rejectedArchiveCalls = 0
+        var ackCount = 0
+        var decodedChunks = 0
+        let frame = whoop5V20Frame()
+        let backfiller = Backfiller(
+            store: store,
+            deviceId: "strap-a",
+            ackTrim: { _, _, _ in ackCount += 1; return true },
+            rejectedSink: { _, _, _ in rejectedArchiveCalls += 1; return true },
+            onChunk: { decoded, _ in if decoded { decodedChunks += 1 } })
+        backfiller.begin(
+            family: .whoop5,
+            historicalCursorScope: HistoricalCursorScope(deviceId: "strap-a", lineage: "test-lineage"))
+
+        await backfiller.ingest(frame)
+        await backfiller.ingest(whoop5HistoryEndFrame)
+
+        let committedDetails = await store.commitDetails()
+        let details = try XCTUnwrap(committedDetails)
+        XCTAssertEqual(rejectedArchiveCalls, 0)
+        XCTAssertEqual(ackCount, 1)
+        XCTAssertEqual(decodedChunks, 1)
+        XCTAssertEqual(backfiller.sessionRowsPersisted, 0)
+        XCTAssertEqual(backfiller.sessionMappedRawRecords, 1)
+        XCTAssertEqual(details.rawBatch?.frames, [frame])
+        guard case .materializationRequired(let batchId) = details.rawCaptureStatus else {
+            return XCTFail("mapped V20 must commit as durable materialization-required raw")
+        }
+        XCTAssertEqual(batchId, details.rawBatch?.meta.batchId)
+    }
+
+    @MainActor
+    func testHistoricalChunkParsesEachFrameExactlyOnce() async {
+        final class ParseCounter: @unchecked Sendable {
+            private let lock = NSLock()
+            private var value = 0
+            func increment() { lock.withLock { value += 1 } }
+            var count: Int { lock.withLock { value } }
+        }
+        let counter = ParseCounter()
+        let backfiller = Backfiller(
+            store: SourceCaptureStore(),
+            deviceId: "strap-a",
+            ackTrim: { _, _, _ in true },
+            parse: { bytes, family in
+                counter.increment()
+                return parseFrame(bytes, family: family)
+            })
+        backfiller.begin(
+            family: .whoop5,
+            historicalCursorScope: HistoricalCursorScope(deviceId: "strap-a", lineage: "test-lineage"))
+        let records = [whoop5V20Frame(unix: 1_781_557_000), whoop5V20Frame(unix: 1_781_557_001)]
+
+        for frame in records { await backfiller.ingest(frame) }
+        await backfiller.ingest(whoop5HistoryEndFrame)
+
+        XCTAssertEqual(counter.count, records.count, "reject classification must reuse parsed frames")
     }
 
     @MainActor

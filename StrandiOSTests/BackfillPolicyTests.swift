@@ -163,4 +163,24 @@ final class BackfillPolicyTests: XCTestCase {
                                                lastBackfillAt: last, emptyStreak: 12,
                                                clockUntrusted: true))
     }
+
+    func testDeepDrainUsesTwentyFourProgressBoundedContinuations() {
+        XCTAssertEqual(BackfillContinuation.defaultMaxAutoContinues, 24)
+        XCTAssertTrue(BackfillContinuation.shouldAutoContinue(
+            stillConnected: true,
+            strapNewestTs: 1_800_000_000,
+            ourFrontierTs: 1_800_000_000 - 86_400,
+            wallNowUnix: 1_800_000_000,
+            rowsPersistedThisSession: 1,
+            lastTrimAdvanced: true,
+            consecutiveCount: 23))
+        XCTAssertFalse(BackfillContinuation.shouldAutoContinue(
+            stillConnected: true,
+            strapNewestTs: 1_800_000_000,
+            ourFrontierTs: 1_800_000_000 - 86_400,
+            wallNowUnix: 1_800_000_000,
+            rowsPersistedThisSession: 1,
+            lastTrimAdvanced: true,
+            consecutiveCount: 24))
+    }
 }

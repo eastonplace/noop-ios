@@ -411,22 +411,44 @@ extension WhoopStore {
             // Policy 1: aged synced batches.
             let cutoff = now - keepWindowSeconds
             try db.execute(sql: """
-                DELETE FROM rawBatch WHERE syncedAt IS NOT NULL AND syncedAt < ?
+                DELETE FROM rawBatch AS raw
+                WHERE raw.syncedAt IS NOT NULL AND raw.syncedAt < ?
+                  AND NOT EXISTS (
+                      SELECT 1 FROM historicalDataCommitJournal AS receipt
+                      WHERE receipt.rawStatus = 'materializationRequired'
+                        AND receipt.rawBatchId = raw.batchId
+                        AND receipt.deviceId = raw.deviceId
+                        AND receipt.lineage = raw.lineage
+                        AND receipt.cursorEpoch = raw.cursorEpoch
+                  )
                 """, arguments: [cutoff])
             pruned += db.changesCount
 
             // Policy 2 (#27): size-based eviction of the OLDEST raw beyond the cap. Sum byteSize
             // newest-first; once the cumulative total exceeds maxUnsyncedBytes, the remaining (older)
             // rows are over budget and get dropped. rowid keeps the cutoff stable regardless of ties
-            // on capturedAt. Decoded streams persist before raw (E2), so this loses no metric.
+            // on capturedAt. A materialization-required receipt protects its packed record until a later
+            // worker has created the normalized representation.
             let rows = try Row.fetchAll(db, sql: """
-                SELECT rowid, byteSize FROM rawBatch ORDER BY capturedAt DESC, rowid DESC
+                SELECT raw.rowid, raw.byteSize,
+                       EXISTS (
+                           SELECT 1 FROM historicalDataCommitJournal AS receipt
+                           WHERE receipt.rawStatus = 'materializationRequired'
+                             AND receipt.rawBatchId = raw.batchId
+                             AND receipt.deviceId = raw.deviceId
+                             AND receipt.lineage = raw.lineage
+                             AND receipt.cursorEpoch = raw.cursorEpoch
+                       ) AS protected
+                FROM rawBatch AS raw
+                ORDER BY raw.capturedAt DESC, raw.rowid DESC
                 """)
             var cumulative = 0
             var evict: [Int64] = []
             for row in rows {
                 let size: Int = row["byteSize"]
                 let rowid: Int64 = row["rowid"]
+                let protected: Bool = row["protected"]
+                if protected { continue }
                 cumulative += size
                 if cumulative > maxUnsyncedBytes {
                     evict.append(rowid)

@@ -227,6 +227,9 @@ public struct HistoricalTimestampHeal: Codable, Equatable, Sendable {
 /// fingerprint, so toggling capture between a lost ACK and a retry does not create a false conflict.
 public enum HistoricalRawCaptureStatus: Codable, Equatable, Sendable {
     case captured(batchId: String)
+    /// The packed bytes are the current product representation for a mapped record that has not been
+    /// materialized into normalized streams yet. Raw pruning must retain this batch.
+    case materializationRequired(batchId: String)
     case disabled
     case unavailable
 
@@ -234,8 +237,10 @@ public enum HistoricalRawCaptureStatus: Codable, Equatable, Sendable {
     public static var notCaptured: Self { .disabled }
 
     public var batchId: String? {
-        guard case .captured(let batchId) = self else { return nil }
-        return batchId
+        switch self {
+        case .captured(let batchId), .materializationRequired(let batchId): return batchId
+        case .disabled, .unavailable: return nil
+        }
     }
 
     public var hasCapture: Bool { batchId != nil }
@@ -243,6 +248,7 @@ public enum HistoricalRawCaptureStatus: Codable, Equatable, Sendable {
     var storageValue: String {
         switch self {
         case .captured: return "captured"
+        case .materializationRequired: return "materializationRequired"
         case .disabled: return "disabled"
         case .unavailable: return "unavailable"
         }
@@ -255,6 +261,11 @@ public enum HistoricalRawCaptureStatus: Codable, Equatable, Sendable {
                 throw HistoricalDataCommitJournalError.invalidReceipt
             }
             return .captured(batchId: rawBatchId)
+        case "materializationRequired":
+            guard let rawBatchId, !rawBatchId.isEmpty else {
+                throw HistoricalDataCommitJournalError.invalidReceipt
+            }
+            return .materializationRequired(batchId: rawBatchId)
         case "disabled", "notCaptured", nil:
             guard rawBatchId == nil else { throw HistoricalDataCommitJournalError.invalidReceipt }
             return .disabled
@@ -275,6 +286,10 @@ public enum HistoricalRawCaptureStatus: Codable, Equatable, Sendable {
             let batchId = try container.decode(String.self, forKey: .batchId)
             guard !batchId.isEmpty else { throw HistoricalDataCommitJournalError.invalidReceipt }
             self = .captured(batchId: batchId)
+        case "materializationRequired":
+            let batchId = try container.decode(String.self, forKey: .batchId)
+            guard !batchId.isEmpty else { throw HistoricalDataCommitJournalError.invalidReceipt }
+            self = .materializationRequired(batchId: batchId)
         case "disabled": self = .disabled
         case "unavailable": self = .unavailable
         default: throw HistoricalDataCommitJournalError.invalidReceipt
@@ -287,6 +302,10 @@ public enum HistoricalRawCaptureStatus: Codable, Equatable, Sendable {
         case .captured(let batchId):
             guard !batchId.isEmpty else { throw HistoricalDataCommitJournalError.invalidReceipt }
             try container.encode("captured", forKey: .type)
+            try container.encode(batchId, forKey: .batchId)
+        case .materializationRequired(let batchId):
+            guard !batchId.isEmpty else { throw HistoricalDataCommitJournalError.invalidReceipt }
+            try container.encode("materializationRequired", forKey: .type)
             try container.encode(batchId, forKey: .batchId)
         case .disabled:
             try container.encode("disabled", forKey: .type)
@@ -677,10 +696,11 @@ extension WhoopStore {
         let effectiveRawRange: HistoricalRawRangeEvidence
         if let rawBatch {
             let captured = HistoricalRawCaptureStatus.captured(batchId: rawBatch.meta.batchId)
-            guard rawCaptureStatus == nil || rawCaptureStatus == captured else {
+            let required = HistoricalRawCaptureStatus.materializationRequired(batchId: rawBatch.meta.batchId)
+            guard rawCaptureStatus == nil || rawCaptureStatus == captured || rawCaptureStatus == required else {
                 throw HistoricalDataCommitJournalError.invalidReceipt
             }
-            effectiveRawStatus = captured
+            effectiveRawStatus = rawCaptureStatus ?? captured
             let retainedRange = HistoricalRawRangeEvidence(
                 source: .retainedRawBatch,
                 minReceivedTs: rawBatch.meta.startTs,
@@ -694,7 +714,7 @@ extension WhoopStore {
             }
             effectiveRawRange = retainedRange
         } else {
-            if case .captured = rawCaptureStatus {
+            if rawCaptureStatus?.hasCapture == true {
                 throw HistoricalDataCommitJournalError.invalidReceipt
             }
             effectiveRawStatus = rawCaptureStatus ?? .disabled
@@ -718,6 +738,39 @@ extension WhoopStore {
         let touchedDays = WhoopStore.touchedDays(for: timestamps)
         let finalReceipt = isFinal || trim == Int(UInt32.max)
 
+        // Packing and compression can be substantial for V20/V21. Prepare it on the store actor before
+        // requesting the process-wide SQLite writer so Repository and HealthKit writes do not queue behind
+        // CPU work that does not need a transaction.
+        let preparedRawBlob: Data? = try rawBatch.map {
+            try WhoopStore.zlibCompressWithLength(WhoopStore.packFrames($0.frames))
+        }
+        let prevalidatedScope: HistoricalCursorScope?
+        if let lineage, let cursorEpoch {
+            // Keep current-registry validation ahead of fingerprint validation. Apart from preserving the
+            // typed fail-closed contract, this short read also freezes the exact scope used for the CPU-only
+            // hash before the writer is requested. The transaction resolves it again below to close a
+            // lineage-rotation race.
+            prevalidatedScope = try syncRead { db in
+                try WhoopStore.historicalCursorScope(
+                    deviceId: deviceId,
+                    trimScope: trimScope,
+                    requestedLineage: lineage,
+                    requestedCursorEpoch: cursorEpoch,
+                    in: db
+                )
+            }
+            let derivedFingerprint = try WhoopStore.historicalReceivedFrameFingerprint(
+                input: fingerprintInput,
+                scope: prevalidatedScope!,
+                trim: trim
+            )
+            guard derivedFingerprint == effectiveFingerprint else {
+                throw HistoricalDataCommitJournalError.invalidFingerprint
+            }
+        } else {
+            prevalidatedScope = nil
+        }
+
         return try syncWrite { db in
             let databaseInstanceId = try WhoopStore.databaseInstanceId(in: db)
             let resolvedScope = try WhoopStore.historicalCursorScope(
@@ -727,13 +780,18 @@ extension WhoopStore {
                 requestedCursorEpoch: cursorEpoch,
                 in: db
             )
-            let derivedFingerprint = try WhoopStore.historicalReceivedFrameFingerprint(
-                input: fingerprintInput,
-                scope: resolvedScope,
-                trim: trim
-            )
-            guard derivedFingerprint == effectiveFingerprint else {
-                throw HistoricalDataCommitJournalError.invalidFingerprint
+            guard prevalidatedScope == nil || resolvedScope == prevalidatedScope else {
+                throw HistoricalDataCommitJournalError.invalidCursorScope
+            }
+            if prevalidatedScope == nil {
+                let derivedFingerprint = try WhoopStore.historicalReceivedFrameFingerprint(
+                    input: fingerprintInput,
+                    scope: resolvedScope,
+                    trim: trim
+                )
+                guard derivedFingerprint == effectiveFingerprint else {
+                    throw HistoricalDataCommitJournalError.invalidFingerprint
+                }
             }
 
             if let existing = try WhoopStore.historicalDataCommitReceipt(
@@ -753,11 +811,10 @@ extension WhoopStore {
             )
             let packedRawBatch: PackedHistoricalRawBatch?
             let existingRawBatchMatches: Bool?
-            if let rawBatch, let scopedRawMeta {
-                let packedFrames = WhoopStore.packFrames(rawBatch.frames)
+            if rawBatch != nil, let scopedRawMeta {
                 packedRawBatch = PackedHistoricalRawBatch(
                     meta: scopedRawMeta,
-                    blob: try WhoopStore.zlibCompressWithLength(packedFrames)
+                    blob: preparedRawBlob!
                 )
                 existingRawBatchMatches = try WhoopStore.existingRawBatchMatches(
                     scopedRawMeta,
@@ -1094,7 +1151,7 @@ extension WhoopStore {
         let rawStatus = try HistoricalRawCaptureStatus.fromStorage(rawStatusString, rawBatchId: rawBatchId)
         let rawEvidenceIsConsistent: Bool
         switch rawStatus {
-        case .captured:
+        case .captured, .materializationRequired:
             rawEvidenceIsConsistent = rawRange.source == .retainedRawBatch
         case .disabled, .unavailable:
             rawEvidenceIsConsistent = rawRange.source != .retainedRawBatch
