@@ -78,22 +78,28 @@ final class BackfillPolicyTests: XCTestCase {
             queuedConnectGeneration: 2))
     }
 
-    func testDefaultPeriodicCadenceStaysAtFifteenMinutesAfterEmptyStreak() {
+    func testEmptyPeriodicCadenceBacksOffFromFifteenToThirtyToSixtyMinutes() {
         let last = 10_000.0
 
-        XCTAssertFalse(BackfillPolicy.shouldRun(trigger: .periodic, now: last + 899,
+        XCTAssertEqual(BackfillPolicy.periodicFloorSeconds(powerSaving: false, emptyStreak: 0), 900)
+        XCTAssertEqual(BackfillPolicy.periodicFloorSeconds(powerSaving: false, emptyStreak: 1), 1_800)
+        XCTAssertEqual(BackfillPolicy.periodicFloorSeconds(powerSaving: false, emptyStreak: 2), 3_600)
+        XCTAssertEqual(BackfillPolicy.periodicFloorSeconds(powerSaving: false, emptyStreak: 12), 3_600)
+        XCTAssertFalse(BackfillPolicy.shouldRun(trigger: .periodic, now: last + 3_599,
                                                 lastBackfillAt: last, emptyStreak: 12))
-        XCTAssertTrue(BackfillPolicy.shouldRun(trigger: .periodic, now: last + 900,
+        XCTAssertTrue(BackfillPolicy.shouldRun(trigger: .periodic, now: last + 3_600,
                                                lastBackfillAt: last, emptyStreak: 12))
     }
 
-    func testDefaultStrapCadenceStaysAtNinetySecondsAfterEmptyStreak() {
+    func testStrapPromptCannotBypassEmptyBackoff() {
         let last = 10_000.0
 
-        XCTAssertFalse(BackfillPolicy.shouldRun(trigger: .strap, now: last + 89,
-                                                lastBackfillAt: last, emptyStreak: 12))
         XCTAssertTrue(BackfillPolicy.shouldRun(trigger: .strap, now: last + 90,
-                                               lastBackfillAt: last, emptyStreak: 12))
+                                               lastBackfillAt: last, emptyStreak: 0))
+        XCTAssertFalse(BackfillPolicy.shouldRun(trigger: .strap, now: last + 3_599,
+                                                lastBackfillAt: last, emptyStreak: 2))
+        XCTAssertTrue(BackfillPolicy.shouldRun(trigger: .strap, now: last + 3_600,
+                                               lastBackfillAt: last, emptyStreak: 2))
     }
 
     func testLowBatteryPeriodicFloorMatchesItsOneShotTimer() {
@@ -102,11 +108,12 @@ final class BackfillPolicyTests: XCTestCase {
         XCTAssertEqual(BackfillPolicy.periodicFloorSeconds(powerSaving: true),
                        TimeInterval(BLEManager.lowBatteryBackfillIntervalSeconds))
         XCTAssertFalse(BackfillPolicy.shouldRun(trigger: .periodic, now: last + 2_699,
-                                                lastBackfillAt: last, emptyStreak: 12,
+                                                lastBackfillAt: last, emptyStreak: 0,
                                                 powerSaving: true))
         XCTAssertTrue(BackfillPolicy.shouldRun(trigger: .periodic, now: last + 2_700,
-                                               lastBackfillAt: last, emptyStreak: 12,
+                                               lastBackfillAt: last, emptyStreak: 0,
                                                powerSaving: true))
+        XCTAssertEqual(BackfillPolicy.periodicFloorSeconds(powerSaving: true, emptyStreak: 2), 3_600)
     }
 
     func testEnteringPowerSavingKeepsDeadlineAnchoredToLastAttempt() {
@@ -164,8 +171,9 @@ final class BackfillPolicyTests: XCTestCase {
                                                clockUntrusted: true))
     }
 
-    func testDeepDrainUsesTwentyFourProgressBoundedContinuations() {
-        XCTAssertEqual(BackfillContinuation.defaultMaxAutoContinues, 24)
+    func testDeepDrainUsesSixProgressAndRadioBoundedContinuations() {
+        XCTAssertEqual(BackfillContinuation.defaultMaxAutoContinues, 6)
+        XCTAssertEqual(BackfillContinuation.defaultMaxContinuousRadioSeconds, 180)
         XCTAssertTrue(BackfillContinuation.shouldAutoContinue(
             stillConnected: true,
             strapNewestTs: 1_800_000_000,
@@ -173,7 +181,8 @@ final class BackfillPolicyTests: XCTestCase {
             wallNowUnix: 1_800_000_000,
             rowsPersistedThisSession: 1,
             lastTrimAdvanced: true,
-            consecutiveCount: 23))
+            continuousRadioSeconds: 179,
+            consecutiveCount: 5))
         XCTAssertFalse(BackfillContinuation.shouldAutoContinue(
             stillConnected: true,
             strapNewestTs: 1_800_000_000,
@@ -181,6 +190,95 @@ final class BackfillPolicyTests: XCTestCase {
             wallNowUnix: 1_800_000_000,
             rowsPersistedThisSession: 1,
             lastTrimAdvanced: true,
-            consecutiveCount: 24))
+            continuousRadioSeconds: 179,
+            consecutiveCount: 6))
+        XCTAssertFalse(BackfillContinuation.shouldAutoContinue(
+            stillConnected: true,
+            strapNewestTs: 1_800_000_000,
+            ourFrontierTs: 1_800_000_000 - 86_400,
+            wallNowUnix: 1_800_000_000,
+            rowsPersistedThisSession: 1,
+            lastTrimAdvanced: true,
+            continuousRadioSeconds: 180,
+            consecutiveCount: 0))
+    }
+
+    func testReplayAndRepeatedDurableSignatureCannotAutoContinue() {
+        let base = (
+            newest: 1_800_000_000,
+            frontier: 1_800_000_000 - 86_400
+        )
+        XCTAssertFalse(BackfillContinuation.shouldAutoContinue(
+            stillConnected: true,
+            strapNewestTs: base.newest,
+            ourFrontierTs: base.frontier,
+            wallNowUnix: base.newest,
+            rowsPersistedThisSession: 0,
+            lastTrimAdvanced: true,
+            consecutiveCount: 0),
+            "a replayed receipt is ACK-safe but is not fresh radio progress")
+        XCTAssertFalse(BackfillContinuation.shouldAutoContinue(
+            stillConnected: true,
+            strapNewestTs: base.newest,
+            ourFrontierTs: base.frontier,
+            wallNowUnix: base.newest,
+            rowsPersistedThisSession: 1,
+            lastTrimAdvanced: true,
+            passSignatureRepeated: true,
+            consecutiveCount: 0))
+    }
+
+    func testEmptyBackoffTrackerSaturatesAndFreshReceiptClearsIt() {
+        var tracker = HistoricalEmptyBackoffTracker()
+        tracker.record(freshProgress: false)
+        XCTAssertEqual(tracker.consecutiveEmpty, 1)
+        tracker.record(freshProgress: false)
+        tracker.record(freshProgress: false)
+        XCTAssertEqual(tracker.consecutiveEmpty, 2)
+        tracker.record(freshProgress: true)
+        XCTAssertEqual(tracker.consecutiveEmpty, 0)
+    }
+
+    func testMaterializationWakeDuringActivePassSchedulesOneFollowUp() {
+        var wake = HistoricalMaterializationWakeState()
+
+        XCTAssertTrue(wake.request())
+        XCTAssertTrue(wake.isRunning)
+        XCTAssertFalse(wake.wakePending)
+
+        XCTAssertFalse(wake.request())
+        XCTAssertFalse(wake.request(), "multiple ACKs should coalesce while the bounded pass runs")
+        XCTAssertTrue(wake.wakePending)
+
+        XCTAssertTrue(wake.finish(), "the coalesced ACK wake must own one follow-up pass")
+        XCTAssertTrue(wake.isRunning)
+        XCTAssertFalse(wake.wakePending)
+        XCTAssertFalse(wake.finish(), "the follow-up pass quiesces when no later ACK arrived")
+        XCTAssertFalse(wake.isRunning)
+    }
+
+    func testMaterializationWakeCancelClearsRestoreState() {
+        var wake = HistoricalMaterializationWakeState()
+        XCTAssertTrue(wake.request())
+        XCTAssertFalse(wake.request())
+
+        wake.cancel()
+
+        XCTAssertFalse(wake.isRunning)
+        XCTAssertFalse(wake.wakePending)
+        XCTAssertTrue(wake.request(), "a reopened store should get a fresh bounded worker pass")
+    }
+
+    func testMaterializationDrainContinuesOnlyAfterFullProductiveBatch() {
+        XCTAssertTrue(HistoricalMaterializationWakeState.shouldRequestDrainFollowUp(
+            claimed: 4, completed: 4, quarantined: 0))
+        XCTAssertTrue(HistoricalMaterializationWakeState.shouldRequestDrainFollowUp(
+            claimed: 4, completed: 0, quarantined: 4))
+        XCTAssertFalse(HistoricalMaterializationWakeState.shouldRequestDrainFollowUp(
+            claimed: 3, completed: 3, quarantined: 0),
+            "a partial claim proves the eligible queue was exhausted")
+        XCTAssertFalse(HistoricalMaterializationWakeState.shouldRequestDrainFollowUp(
+            claimed: 4, completed: 0, quarantined: 0),
+            "an all-retryable batch must not spin immediately")
     }
 }

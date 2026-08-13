@@ -15,10 +15,53 @@ final class MigrationTests: XCTestCase {
             "historicalReceiptConsumer", "historicalAnalysisWork", "analysisMutationJournal",
             "verifiedHealthProjection", "verifiedSnapshotCommit", "externalPublicationOutbox",
             "historicalReceiptScopeLifecycle", "historicalMaintenanceWork", "sourceTransitionJournal",
+            "historicalMaterializationJob", "historicalMappedRawFrame",
         ] {
             XCTAssertTrue(tables.contains(t), "missing table \(t)")
         }
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 53)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 54)
+    }
+
+    func testV54AddsDurableMappedRawMaterializationLifecycleWithoutRewritingV53() async throws {
+        let dbQueue = try DatabaseQueue()
+        let migrator = WhoopStore.makeMigrator()
+        try migrator.migrate(dbQueue, upTo: PR29V53Migrations.identifier)
+
+        try await dbQueue.read { db in
+            XCTAssertFalse(try db.tableExists("historicalMaterializationJob"))
+            XCTAssertTrue(try db.tableExists("historicalDataCommitJournal"))
+        }
+
+        try migrator.migrate(dbQueue)
+
+        try await dbQueue.read { db in
+            XCTAssertTrue(try db.tableExists("historicalMaterializationJob"))
+            XCTAssertTrue(try db.tableExists("historicalMappedRawFrame"))
+            let jobColumns = Set(try db.columns(in: "historicalMaterializationJob").map(\.name))
+            XCTAssertTrue(jobColumns.isSuperset(of: [
+                "receiptId", "rawBatchId", "state", "originalFrameIndexesJSON",
+                "protectedByteCount", "attemptCount", "leaseOwner", "leaseExpiresAt",
+                "lastError", "completedAt",
+            ]))
+            let materializedColumns = Set(try db.columns(in: "historicalMappedRawFrame").map(\.name))
+            XCTAssertTrue(materializedColumns.isSuperset(of: [
+                "receiptId", "originalFrameIndex", "version", "unix", "exactFrame",
+            ]))
+            XCTAssertEqual(
+                try Int.fetchOne(
+                    db,
+                    sql: "SELECT COUNT(*) FROM grdb_migrations WHERE identifier = ?",
+                    arguments: [PR29V53Migrations.identifier]),
+                1
+            )
+            XCTAssertEqual(
+                try Int.fetchOne(
+                    db,
+                    sql: "SELECT COUNT(*) FROM grdb_migrations WHERE identifier = ?",
+                    arguments: [PR37V54Migrations.identifier]),
+                1
+            )
+        }
     }
 
     func testFileInitRunsMigrations() async throws {
@@ -130,7 +173,7 @@ final class MigrationTests: XCTestCase {
                 0
             )
         }
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 53)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 54)
     }
 
     func testV37MigratesLegacyRawBatchIntoItsReceiptScope() async throws {
@@ -340,7 +383,7 @@ final class MigrationTests: XCTestCase {
             let cols = try await store.columnNamesForTest(table: table)
             XCTAssertTrue(cols.contains("synced"), "\(table) missing synced column")
         }
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 53)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 54)
     }
 
     func testV34AddsDurableTodayHealthSnapshotGeneration() async throws {

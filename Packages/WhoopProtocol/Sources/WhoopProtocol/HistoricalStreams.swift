@@ -97,8 +97,10 @@ public func historicalRecordDisposition(
         return .consoleOrMetadata
     }
     let version = rawFrame.count > versionIndex ? Int(rawFrame[versionIndex]) : nil
-    guard parsed.ok else { return .invalidEnvelope(version: version) }
-    guard parsed.crcOK != false else { return .invalidCRC(version: version) }
+    guard parsed.ok, parsed.envelopeOK else { return .invalidEnvelope(version: version) }
+    guard parsed.headerCRCOK == true, parsed.payloadCRCOK == true else {
+        return .invalidCRC(version: version)
+    }
     guard parsed.parsed["unix"]?.intValue != nil else { return .unmappedLayout(version: version) }
 
     if family == .whoop5, version == 20,

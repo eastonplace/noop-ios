@@ -26,7 +26,8 @@ final class HistoricalMetaTests: XCTestCase {
 
     /// Build a parsed METADATA frame with the given cmd byte and optional payload.
     private func metaParsed(cmd: UInt8, payload: [UInt8] = []) -> ParsedFrame {
-        let frame = frameFromPayload(payload, type: 49, seq: 0, cmd: cmd)
+        var frame = frameFromPayload(payload, type: 49, seq: 0, cmd: cmd)
+        frame[3] = crc8(frame, 1, 3)
         return parseFrame(frame)
     }
 

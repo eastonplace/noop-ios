@@ -238,6 +238,23 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
         return frame
     }
 
+    private var whoop4V24Frame: [UInt8] {
+        bytes(
+            "aa5a008e2f18000000000000f153650000000000003f0152030000000000000000dc053075" +
+            "000000cdcc4c3dcdcccc3d5a657e3f00000040cdcc4c3dcdcccc3d5a657e3f504668428403" +
+            "200364006400b80bb80b000000000000c25c1a88"
+        )
+    }
+
+    private var whoop5V18Frame: [UInt8] {
+        bytes(
+            "aa01740001003fb12f1280733d8401b69f266a66460066025a0265020000000000007b0a8d" +
+            "656463ff0012163cf6a439bf2924fd3ed763fe3e3200aa000000000000000000f7000901f1" +
+            "0b0007010c020c00000000000000000000000000000000000000000000000100656f1e1e00" +
+            "00009d61a7c00000003e862817"
+        )
+    }
+
     private var whoop5HistoryEndFrame: [UInt8] {
         bytes("aa011c00010023d1316a0284a3266a0a373d00000041b601001000000000000044d21e3d")
     }
@@ -432,7 +449,9 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
         var rejectedArchiveCalls = 0
         var ackCount = 0
         var decodedChunks = 0
+        let before = puffinCommandFrame(cmd: 0, seq: 1, payload: [0x01], type: 50)
         let frame = whoop5V20Frame()
+        let after = puffinCommandFrame(cmd: 0, seq: 2, payload: [0x02], type: 50)
         let backfiller = Backfiller(
             store: store,
             deviceId: "strap-a",
@@ -443,7 +462,9 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
             family: .whoop5,
             historicalCursorScope: HistoricalCursorScope(deviceId: "strap-a", lineage: "test-lineage"))
 
+        await backfiller.ingest(before)
         await backfiller.ingest(frame)
+        await backfiller.ingest(after)
         await backfiller.ingest(whoop5HistoryEndFrame)
 
         let committedDetails = await store.commitDetails()
@@ -453,11 +474,146 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
         XCTAssertEqual(decodedChunks, 1)
         XCTAssertEqual(backfiller.sessionRowsPersisted, 0)
         XCTAssertEqual(backfiller.sessionMappedRawRecords, 1)
+        XCTAssertEqual(details.fingerprintInput.orderedFrames, [before, frame, after])
         XCTAssertEqual(details.rawBatch?.frames, [frame])
+        XCTAssertEqual(details.rawBatch?.originalFrameIndexes, [1])
         guard case .materializationRequired(let batchId) = details.rawCaptureStatus else {
             return XCTFail("mapped V20 must commit as durable materialization-required raw")
         }
         XCTAssertEqual(batchId, details.rawBatch?.meta.batchId)
+    }
+
+    @MainActor
+    func testCorruptHistoricalEnvelopesArchiveButNeverCommitOrAck() async {
+        let valid = whoop5V18Frame
+        var badHeader = valid
+        badHeader[4] ^= 0x01
+        var badPayload = valid
+        badPayload[20] ^= 0x01
+        let missingPayloadCRC = Array(valid.dropLast(4))
+        var declaredLengthMismatch = valid
+        let declared = Int(declaredLengthMismatch[2]) | (Int(declaredLengthMismatch[3]) << 8)
+        declaredLengthMismatch[2] = UInt8((declared + 1) & 0xFF)
+        declaredLengthMismatch[3] = UInt8(((declared + 1) >> 8) & 0xFF)
+        let repairedHeaderCRC = crc16Modbus(declaredLengthMismatch, 0, 6)
+        declaredLengthMismatch[6] = UInt8(repairedHeaderCRC & 0xFF)
+        declaredLengthMismatch[7] = UInt8(repairedHeaderCRC >> 8)
+        let trailingBytes = valid + [0x99]
+
+        let variants: [(String, [UInt8])] = [
+            ("header CRC", badHeader),
+            ("payload CRC", badPayload),
+            ("missing payload CRC", missingPayloadCRC),
+            ("declared length", declaredLengthMismatch),
+            ("trailing bytes", trailingBytes),
+        ]
+        for (label, corrupt) in variants {
+            let store = SourceCaptureStore()
+            var ackCount = 0
+            var archived: [[[UInt8]]] = []
+            var failures: [BackfillFailure] = []
+            let backfiller = Backfiller(
+                store: store,
+                deviceId: "strap-a",
+                ackTrim: { _, _, _ in ackCount += 1; return true },
+                rejectedSink: { frames, _, _ in archived.append(frames); return true },
+                onFailure: { failures.append($0) })
+            backfiller.begin(
+                family: .whoop5,
+                historicalCursorScope: HistoricalCursorScope(
+                    deviceId: "strap-a", lineage: "test-lineage"))
+
+            await backfiller.ingest(corrupt)
+            await backfiller.ingest(whoop5HistoryEndFrame)
+
+            let committedDeviceIds = await store.deviceIds()
+            XCTAssertEqual(committedDeviceIds, [], "\(label) must not commit")
+            XCTAssertEqual(ackCount, 0, "\(label) must not ACK")
+            XCTAssertEqual(archived, [[corrupt]], "\(label) should be retained only as diagnostics")
+            XCTAssertEqual(failures, [.integrity(trim: 112_193)], "\(label) must fail closed")
+            XCTAssertTrue(backfiller.persistStalled, "\(label) must hold the durable frontier")
+        }
+    }
+
+    @MainActor
+    func testCorruptMetadataEnvelopeCannotBeWashedAwayByValidEnd() async {
+        let store = SourceCaptureStore()
+        var ackCount = 0
+        var rejectedArchiveCalls = 0
+        var failures: [BackfillFailure] = []
+        var corruptStart = frameFromPayload([], type: 49, seq: 0, cmd: 1)
+        corruptStart[3] ^= 0x01
+        let backfiller = Backfiller(
+            store: store,
+            deviceId: "strap-a",
+            ackTrim: { _, _, _ in ackCount += 1; return true },
+            rejectedSink: { _, _, _ in rejectedArchiveCalls += 1; return true },
+            onFailure: { failures.append($0) })
+        backfiller.begin(
+            family: .whoop4,
+            historicalCursorScope: HistoricalCursorScope(
+                deviceId: "strap-a", lineage: "test-lineage"))
+
+        await backfiller.ingest(corruptStart)
+        await backfiller.ingest(whoop4V24Frame)
+        await backfiller.ingest(historyEndFrame(trim: 126))
+
+        let committedDeviceIds = await store.deviceIds()
+        XCTAssertEqual(committedDeviceIds, [])
+        XCTAssertEqual(ackCount, 0)
+        XCTAssertEqual(rejectedArchiveCalls, 0, "metadata is not a rejected sensor record")
+        XCTAssertEqual(failures, [.integrity(trim: 126)])
+        XCTAssertTrue(backfiller.persistStalled)
+    }
+
+    @MainActor
+    func testExactReplayAcksWithoutPublishingOrCountingFreshProgress() async throws {
+        let store = try await WhoopStore.inMemory()
+        let registry = DeviceRegistryStore(dbQueue: store.registryWriter)
+        try registry.add(PairedDevice(
+            id: "strap-a",
+            brand: "WHOOP",
+            model: "WHOOP 4.0",
+            peripheralId: "peripheral-a",
+            sourceKind: .liveBLE,
+            capabilities: [.hr],
+            status: .paired,
+            addedAt: 1,
+            lastSeenAt: 1))
+        let scope = try registry.historicalCursorScope(for: "strap-a")
+        var ackCount = 0
+        var publishedReceipts: [String] = []
+        var acknowledgedOutcomes: [HistoricalCommitOutcome] = []
+        let backfiller = Backfiller(
+            store: store,
+            deviceId: "strap-a",
+            ackTrim: { _, _, _ in ackCount += 1; return true },
+            onHistoricalCommit: { publishedReceipts.append($0.receiptId) },
+            onHistoricalAcknowledged: { _, outcome in acknowledgedOutcomes.append(outcome) },
+            extract: { _, _, _, _, _ in
+                Streams(hr: [HRSample(ts: 1_781_557_000, bpm: 60)])
+            })
+        let record = whoop4V24Frame
+        let end = historyEndFrame(trim: 321, unix: 1_781_557_001)
+
+        backfiller.begin(family: .whoop4, historicalCursorScope: scope)
+        await backfiller.ingest(record)
+        await backfiller.ingest(end)
+        XCTAssertEqual(backfiller.sessionRowsPersisted, 1)
+        XCTAssertEqual(backfiller.sessionDurableMaxTs, 1_781_557_000)
+
+        backfiller.begin(family: .whoop4, historicalCursorScope: scope)
+        await backfiller.ingest(record)
+        await backfiller.ingest(end)
+
+        XCTAssertEqual(ackCount, 2, "an exact lost-ACK replay remains safe to ACK")
+        XCTAssertEqual(publishedReceipts.count, 1, "replay must not trigger analysis or UI publication")
+        XCTAssertEqual(acknowledgedOutcomes, [.inserted, .replayed])
+        XCTAssertEqual(backfiller.sessionRowsPersisted, 0)
+        XCTAssertEqual(backfiller.sessionMappedRawRecords, 0)
+        XCTAssertNil(backfiller.sessionDurableMaxTs)
+        let receipts = try await store.historicalDataCommitReceipts(deviceId: "strap-a")
+        XCTAssertEqual(receipts.count, 1)
     }
 
     @MainActor

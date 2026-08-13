@@ -45,10 +45,10 @@ chunks. `BGProcessingTask` may resume durable materialization, but it is not a p
 relaunch on current iOS also requires the accessory setup path to satisfy Apple's restoration rules.
 Those device/runtime cases stay unqualified until tested on a locked physical iPhone.
 
-This PR increases the existing progress-gated continuation budget from 6 to 24 passes. It does not add a
-timer or an unbounded loop: connection, advancing trim, plausible strap clock, and remaining-backlog checks
-still gate every pass. That lets an already-connected foreground or Core Bluetooth background opportunity
-bank more history before the app returns to the 15-minute floor.
+This PR keeps the existing six-pass continuation ceiling. Each burst also has a three-minute monotonic
+radio budget. Exact replays contribute no fresh progress, repeated trim + fingerprint + durable-frontier
+signatures stop immediately, and empty/stalled attempts back off the periodic floor from 15 to 30 to 60
+minutes. A 24-pass experiment remains blocked until physical energy and radio measurements qualify it.
 
 ## Upstream comparison
 
@@ -63,9 +63,13 @@ then schedule interpretation separately. Production health formulas do not consu
 
 ## Verification log
 
-- Mixed 35-frame V18/V20/V21 Debug fixture: p50 3.524 ms, p95 3.789 ms, max 3.857 ms.
+- Final local mixed 35-frame V18/V20/V21 Debug fixture: p50 3.361 ms, p95 3.560 ms,
+  max 3.688 ms.
+- Final local suites: WhoopProtocol 323/323, WhoopStore 425/425, and NOOPiOS 424 passed,
+  0 failed, 1 expected iOS source-contract skip. All retained package suites and seven source audits pass.
 - iOS signposts: `history_chunk_decode`, `history_chunk_commit`, and `history_chunk_ack`.
 - Simulator proof: V20 commits as `materializationRequired`, produces zero normalized rows, never calls the
-  rejected-frame archive, and ACKs after commit.
+  rejected-frame archive, and ACKs after commit. Its decoded structural view exposes active samples only;
+  the exact retained/materialized frame is the lossless representation, including unused slot capacity.
 - Physical-device Release trace, locked/background wake, termination/restoration, and AccessorySetupKit
   qualification remain separate gates. Simulator timing is not a claim of device UI smoothness.

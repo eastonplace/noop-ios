@@ -377,17 +377,23 @@ public struct HistoricalDataCommitWatermark: Codable, Equatable, Sendable {
 public struct HistoricalRawBatch: Equatable, Sendable {
     public let meta: RawBatchMeta
     public let frames: [[UInt8]]
+    /// Position of each retained frame in the complete ordered chunk used by the receipt fingerprint.
+    /// A protected V20/V21 batch is intentionally sparse; unrelated frames remain fingerprint evidence
+    /// but are not copied into mandatory retention.
+    public let originalFrameIndexes: [Int]
     public let protocolMetadata: Data
     public let historyEndFrame: Data?
 
     public init(
         meta: RawBatchMeta,
         frames: [[UInt8]],
+        originalFrameIndexes: [Int]? = nil,
         protocolMetadata: Data = Data(),
         historyEndFrame: Data? = nil
     ) {
         self.meta = meta
         self.frames = frames
+        self.originalFrameIndexes = originalFrameIndexes ?? Array(frames.indices)
         self.protocolMetadata = protocolMetadata
         self.historyEndFrame = historyEndFrame
     }
@@ -395,7 +401,8 @@ public struct HistoricalRawBatch: Equatable, Sendable {
     /// The raw batch can provide the exact identity input when retention is enabled. A Backfiller that
     /// disables retention must create `HistoricalReceivedFrameFingerprintInput` before dropping frames.
     public var fingerprintInput: HistoricalReceivedFrameFingerprintInput? {
-        guard let historyEndFrame else { return nil }
+        guard let historyEndFrame,
+              originalFrameIndexes == Array(frames.indices) else { return nil }
         return HistoricalReceivedFrameFingerprintInput(
             orderedFrames: frames,
             protocolMetadata: protocolMetadata,
@@ -555,6 +562,23 @@ public struct HistoricalDataCommitReceipt: Codable, Equatable, Sendable {
     }
 }
 
+/// Whether this call created a new durable receipt or found the exact receipt from an earlier commit.
+/// A replay remains ACK-safe, but it is not fresh session progress.
+public enum HistoricalCommitOutcome: String, Codable, Equatable, Sendable {
+    case inserted
+    case replayed
+}
+
+public struct HistoricalCommitResult: Codable, Equatable, Sendable {
+    public let receipt: HistoricalDataCommitReceipt
+    public let outcome: HistoricalCommitOutcome
+
+    public init(receipt: HistoricalDataCommitReceipt, outcome: HistoricalCommitOutcome) {
+        self.receipt = receipt
+        self.outcome = outcome
+    }
+}
+
 public enum HistoricalDataCommitJournalError: Error, Equatable, Sendable {
     case invalidTrim
     case rawBatchDeviceMismatch
@@ -564,6 +588,7 @@ public enum HistoricalDataCommitJournalError: Error, Equatable, Sendable {
     case invalidCursorScope
     case conflictingRawCaptureReplay
     case conflictingFingerprintReplay
+    case protectedRawByteCeilingExceeded(limit: Int, attempted: Int)
 }
 
 private struct PackedHistoricalRawBatch: Sendable {
@@ -644,7 +669,7 @@ extension WhoopStore {
     /// Replay identity is the required SHA-256 `fingerprint` supplied by Backfiller. V3 uses exact ordered
     /// historical data frames in their durable source scope. Retry-specific START/END envelope bytes and
     /// decoded `Streams` are evidence, not identity.
-    public func commitHistoricalChunk(
+    public func commitHistoricalChunkResult(
         streams: Streams,
         deviceId: String,
         trim: Int,
@@ -663,7 +688,7 @@ extension WhoopStore {
         recordedTimeZoneIdentifier: String = TimeZone.current.identifier,
         explicitAffectedDays: [String] = [],
         isFinal: Bool = false
-    ) async throws -> HistoricalDataCommitReceipt {
+    ) async throws -> HistoricalCommitResult {
         guard (0...Int(UInt32.max)).contains(trim) else {
             throw HistoricalDataCommitJournalError.invalidTrim
         }
@@ -679,10 +704,20 @@ extension WhoopStore {
             // fingerprint input remains the exact received-frame range, including nil, so it must not
             // be required to equal the retained metadata range.
             let actualByteCount = rawBatch.frames.reduce(0) { $0 + $1.count }
+            let indexes = rawBatch.originalFrameIndexes
+            let indexesAreStrictlyIncreasing = zip(indexes, indexes.dropFirst()).allSatisfy(<)
+            let retainedFramesMatchFingerprint = zip(indexes, rawBatch.frames).allSatisfy { index, frame in
+                fingerprintInput.orderedFrames.indices.contains(index)
+                    && fingerprintInput.orderedFrames[index] == frame
+            }
             guard rawBatch.meta.frameCount == rawBatch.frames.count,
                   rawBatch.meta.byteSize == actualByteCount,
                   rawBatch.meta.startTs <= rawBatch.meta.endTs,
-                  rawBatch.frames == fingerprintInput.orderedFrames,
+                  indexes.count == rawBatch.frames.count,
+                  Set(indexes).count == indexes.count,
+                  indexes.allSatisfy({ $0 >= 0 }),
+                  indexesAreStrictlyIncreasing,
+                  retainedFramesMatchFingerprint,
                   rawBatch.protocolMetadata == fingerprintInput.protocolMetadata,
                   rawBatch.historyEndFrame == fingerprintInput.historyEndFrame else {
                 throw HistoricalDataCommitJournalError.invalidReceipt
@@ -738,37 +773,61 @@ extension WhoopStore {
         let touchedDays = WhoopStore.touchedDays(for: timestamps)
         let finalReceipt = isFinal || trim == Int(UInt32.max)
 
-        // Packing and compression can be substantial for V20/V21. Prepare it on the store actor before
-        // requesting the process-wide SQLite writer so Repository and HealthKit writes do not queue behind
-        // CPU work that does not need a transaction.
-        let preparedRawBlob: Data? = try rawBatch.map {
-            try WhoopStore.zlibCompressWithLength(WhoopStore.packFrames($0.frames))
-        }
-        let prevalidatedScope: HistoricalCursorScope?
-        if let lineage, let cursorEpoch {
-            // Keep current-registry validation ahead of fingerprint validation. Apart from preserving the
-            // typed fail-closed contract, this short read also freezes the exact scope used for the CPU-only
-            // hash before the writer is requested. The transaction resolves it again below to close a
-            // lineage-rotation race.
-            prevalidatedScope = try syncRead { db in
+        // Freeze and validate the durable scope before any potentially expensive V20/V21 packing. The
+        // transaction resolves it again below to close a lineage/epoch rotation race.
+        let prevalidated: (scope: HistoricalCursorScope, databaseInstanceId: String) = try syncRead { db in
+            (
                 try WhoopStore.historicalCursorScope(
                     deviceId: deviceId,
                     trimScope: trimScope,
                     requestedLineage: lineage,
                     requestedCursorEpoch: cursorEpoch,
                     in: db
-                )
-            }
-            let derivedFingerprint = try WhoopStore.historicalReceivedFrameFingerprint(
-                input: fingerprintInput,
-                scope: prevalidatedScope!,
-                trim: trim
+                ),
+                try WhoopStore.databaseInstanceId(in: db)
             )
-            guard derivedFingerprint == effectiveFingerprint else {
-                throw HistoricalDataCommitJournalError.invalidFingerprint
+        }
+        let derivedFingerprint = try WhoopStore.historicalReceivedFrameFingerprint(
+            input: fingerprintInput,
+            scope: prevalidated.scope,
+            trim: trim
+        )
+        guard derivedFingerprint == effectiveFingerprint else {
+            throw HistoricalDataCommitJournalError.invalidFingerprint
+        }
+
+        // Lost-ACK replays are common and must be cheap. Return the exact durable receipt before packing
+        // or compressing raw frames. The write transaction repeats this lookup as the final race check.
+        if let existing = try syncRead({ db -> HistoricalDataCommitReceipt? in
+            let currentDatabaseInstanceId = try WhoopStore.databaseInstanceId(in: db)
+            let currentScope = try WhoopStore.historicalCursorScope(
+                deviceId: deviceId,
+                trimScope: trimScope,
+                requestedLineage: lineage,
+                requestedCursorEpoch: cursorEpoch,
+                in: db
+            )
+            guard currentDatabaseInstanceId == prevalidated.databaseInstanceId,
+                  currentScope == prevalidated.scope else {
+                throw HistoricalDataCommitJournalError.invalidCursorScope
             }
-        } else {
-            prevalidatedScope = nil
+            return try WhoopStore.historicalDataCommitReceipt(
+                databaseInstanceId: currentDatabaseInstanceId,
+                scope: currentScope,
+                trim: trim,
+                fingerprintVersion: HistoricalFingerprintV3Payload.version,
+                fingerprint: effectiveFingerprint,
+                in: db
+            )
+        }) {
+            return HistoricalCommitResult(receipt: existing, outcome: .replayed)
+        }
+
+        // Packing and compression can be substantial for V20/V21. Prepare it on the store actor before
+        // requesting the process-wide SQLite writer so Repository and HealthKit writes do not queue behind
+        // CPU work that does not need a transaction.
+        let preparedRawBlob: Data? = try rawBatch.map {
+            try WhoopStore.zlibCompressWithLength(WhoopStore.packFrames($0.frames))
         }
 
         return try syncWrite { db in
@@ -780,18 +839,9 @@ extension WhoopStore {
                 requestedCursorEpoch: cursorEpoch,
                 in: db
             )
-            guard prevalidatedScope == nil || resolvedScope == prevalidatedScope else {
+            guard databaseInstanceId == prevalidated.databaseInstanceId,
+                  resolvedScope == prevalidated.scope else {
                 throw HistoricalDataCommitJournalError.invalidCursorScope
-            }
-            if prevalidatedScope == nil {
-                let derivedFingerprint = try WhoopStore.historicalReceivedFrameFingerprint(
-                    input: fingerprintInput,
-                    scope: resolvedScope,
-                    trim: trim
-                )
-                guard derivedFingerprint == effectiveFingerprint else {
-                    throw HistoricalDataCommitJournalError.invalidFingerprint
-                }
             }
 
             if let existing = try WhoopStore.historicalDataCommitReceipt(
@@ -802,7 +852,7 @@ extension WhoopStore {
                 fingerprint: effectiveFingerprint,
                 in: db
             ) {
-                return existing
+                return HistoricalCommitResult(receipt: existing, outcome: .replayed)
             }
 
             let scopedRawMeta = rawBatch?.meta.withHistoricalScope(
@@ -823,6 +873,12 @@ extension WhoopStore {
                 )
                 guard existingRawBatchMatches != false else {
                     throw HistoricalDataCommitJournalError.conflictingRawCaptureReplay
+                }
+                if case .materializationRequired = effectiveRawStatus {
+                    try WhoopStore.assertHistoricalProtectedRawCapacity(
+                        incomingBytes: scopedRawMeta.byteSize,
+                        in: db
+                    )
                 }
             } else {
                 packedRawBatch = nil
@@ -875,6 +931,17 @@ extension WhoopStore {
                     encodedExplicitAffectedDays,
                 ])
             let generation = db.lastInsertedRowID
+            if case .materializationRequired = effectiveRawStatus,
+               let packedRawBatch,
+               let rawBatch {
+                try WhoopStore.insertHistoricalMaterializationJob(
+                    receiptId: receiptId,
+                    rawMeta: packedRawBatch.meta,
+                    originalFrameIndexes: rawBatch.originalFrameIndexes,
+                    createdAt: committedAt,
+                    in: db
+                )
+            }
             try WhoopStore.setHistoricalCursor(
                 resolvedScope,
                 value: trim,
@@ -882,7 +949,7 @@ extension WhoopStore {
                 in: db
             )
 
-            return HistoricalDataCommitReceipt(
+            let receipt = HistoricalDataCommitReceipt(
                 receiptId: receiptId,
                 generation: generation,
                 databaseInstanceId: databaseInstanceId,
@@ -910,7 +977,52 @@ extension WhoopStore {
                 explicitAffectedDays: explicitAffectedDays.sorted(),
                 isFinal: finalReceipt
             )
+            return HistoricalCommitResult(receipt: receipt, outcome: .inserted)
         }
+    }
+
+    /// Compatibility API for receipt-only callers. New session-progress code should use
+    /// `commitHistoricalChunkResult` so an exact replay cannot be mistaken for a fresh insert.
+    public func commitHistoricalChunk(
+        streams: Streams,
+        deviceId: String,
+        trim: Int,
+        chunkEndUnix: Int,
+        rawBatch: HistoricalRawBatch?,
+        committedAt: Int,
+        fingerprint: String,
+        fingerprintInput: HistoricalReceivedFrameFingerprintInput,
+        rawCaptureStatus: HistoricalRawCaptureStatus? = nil,
+        rawRange: HistoricalRawRangeEvidence? = nil,
+        lineage: String? = nil,
+        cursorEpoch: Int? = nil,
+        trimScope: String = HistoricalCursorScope.defaultTrimScope,
+        burst: HistoricalDataCommitBurst? = nil,
+        timestampHeal: HistoricalTimestampHeal? = nil,
+        recordedTimeZoneIdentifier: String = TimeZone.current.identifier,
+        explicitAffectedDays: [String] = [],
+        isFinal: Bool = false
+    ) async throws -> HistoricalDataCommitReceipt {
+        try await commitHistoricalChunkResult(
+            streams: streams,
+            deviceId: deviceId,
+            trim: trim,
+            chunkEndUnix: chunkEndUnix,
+            rawBatch: rawBatch,
+            committedAt: committedAt,
+            fingerprint: fingerprint,
+            fingerprintInput: fingerprintInput,
+            rawCaptureStatus: rawCaptureStatus,
+            rawRange: rawRange,
+            lineage: lineage,
+            cursorEpoch: cursorEpoch,
+            trimScope: trimScope,
+            burst: burst,
+            timestampHeal: timestampHeal,
+            recordedTimeZoneIdentifier: recordedTimeZoneIdentifier,
+            explicitAffectedDays: explicitAffectedDays,
+            isFinal: isFinal
+        ).receipt
     }
 
     /// Scope-typed overload for callers that already own the lineage/epoch decision.
@@ -934,6 +1046,46 @@ extension WhoopStore {
             throw HistoricalDataCommitJournalError.invalidCursorScope
         }
         return try await commitHistoricalChunk(
+            streams: streams,
+            deviceId: deviceId,
+            trim: trim,
+            chunkEndUnix: chunkEndUnix,
+            rawBatch: rawBatch,
+            committedAt: committedAt,
+            fingerprint: fingerprint,
+            fingerprintInput: fingerprintInput,
+            rawCaptureStatus: rawCaptureStatus,
+            rawRange: rawRange,
+            lineage: scope.lineage,
+            cursorEpoch: scope.cursorEpoch,
+            trimScope: scope.trimScope,
+            burst: burst,
+            timestampHeal: timestampHeal,
+            isFinal: isFinal
+        )
+    }
+
+    /// Scope-typed result API used by the BLE Backfiller.
+    public func commitHistoricalChunkResult(
+        streams: Streams,
+        deviceId: String,
+        trim: Int,
+        chunkEndUnix: Int,
+        rawBatch: HistoricalRawBatch?,
+        committedAt: Int,
+        scope: HistoricalCursorScope,
+        fingerprint: String,
+        fingerprintInput: HistoricalReceivedFrameFingerprintInput,
+        rawCaptureStatus: HistoricalRawCaptureStatus? = nil,
+        rawRange: HistoricalRawRangeEvidence? = nil,
+        burst: HistoricalDataCommitBurst? = nil,
+        timestampHeal: HistoricalTimestampHeal? = nil,
+        isFinal: Bool = false
+    ) async throws -> HistoricalCommitResult {
+        guard scope.deviceId.isEmpty || scope.deviceId == deviceId else {
+            throw HistoricalDataCommitJournalError.invalidCursorScope
+        }
+        return try await commitHistoricalChunkResult(
             streams: streams,
             deviceId: deviceId,
             trim: trim,

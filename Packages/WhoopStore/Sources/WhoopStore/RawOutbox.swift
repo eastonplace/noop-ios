@@ -420,6 +420,11 @@ extension WhoopStore {
                         AND receipt.deviceId = raw.deviceId
                         AND receipt.lineage = raw.lineage
                         AND receipt.cursorEpoch = raw.cursorEpoch
+                        AND NOT EXISTS (
+                            SELECT 1 FROM historicalMaterializationJob AS job
+                            WHERE job.receiptId = receipt.receiptId
+                              AND job.state = 'completed'
+                        )
                   )
                 """, arguments: [cutoff])
             pruned += db.changesCount
@@ -438,6 +443,11 @@ extension WhoopStore {
                              AND receipt.deviceId = raw.deviceId
                              AND receipt.lineage = raw.lineage
                              AND receipt.cursorEpoch = raw.cursorEpoch
+                             AND NOT EXISTS (
+                                 SELECT 1 FROM historicalMaterializationJob AS job
+                                 WHERE job.receiptId = receipt.receiptId
+                                   AND job.state = 'completed'
+                             )
                        ) AS protected
                 FROM rawBatch AS raw
                 ORDER BY raw.capturedAt DESC, raw.rowid DESC

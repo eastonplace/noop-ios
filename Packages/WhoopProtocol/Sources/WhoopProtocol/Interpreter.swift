@@ -15,11 +15,89 @@ public struct ParsedFrame: Codable, Equatable, Sendable {
     public let typeName: String
     public let seq: Int?
     public let cmdName: String?
+    /// Structural envelope verdict. This checks the declared frame boundary independently from either
+    /// checksum so a valid protected prefix with trailing bytes cannot be treated as a complete frame.
+    public let envelopeOK: Bool
+    /// Header checksum verdict (`CRC8` on WHOOP 4, `CRC16-Modbus` on WHOOP 5/MG).
+    public let headerCRCOK: Bool?
+    /// Payload CRC32 verdict. `nil` means the payload could not be verified.
+    public let payloadCRCOK: Bool?
+    /// Compatibility alias for the payload CRC32 result. New integrity-sensitive code must use the
+    /// explicit envelope/header/payload properties above.
     public let crcOK: Bool?
     public let lenBytes: Int
     public let rawHex: String
     public let fields: [DecodedField]
     public let parsed: [String: ParsedValue]
+
+    public init(
+        ok: Bool,
+        typeName: String,
+        seq: Int?,
+        cmdName: String?,
+        crcOK: Bool?,
+        envelopeOK: Bool? = nil,
+        headerCRCOK: Bool? = nil,
+        payloadCRCOK: Bool? = nil,
+        lenBytes: Int,
+        rawHex: String,
+        fields: [DecodedField],
+        parsed: [String: ParsedValue]
+    ) {
+        self.ok = ok
+        self.typeName = typeName
+        self.seq = seq
+        self.cmdName = cmdName
+        // The compatibility defaults keep explicit synthetic/test frames source-compatible. Production
+        // parsers always pass all three verdicts. Legacy JSON without these fields decodes fail-closed below.
+        self.envelopeOK = envelopeOK ?? ok
+        self.headerCRCOK = headerCRCOK ?? crcOK
+        self.payloadCRCOK = payloadCRCOK ?? crcOK
+        self.crcOK = crcOK
+        self.lenBytes = lenBytes
+        self.rawHex = rawHex
+        self.fields = fields
+        self.parsed = parsed
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case ok, typeName, seq, cmdName, envelopeOK, headerCRCOK, payloadCRCOK, crcOK
+        case lenBytes, rawHex, fields, parsed
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        ok = try values.decode(Bool.self, forKey: .ok)
+        typeName = try values.decode(String.self, forKey: .typeName)
+        seq = try values.decodeIfPresent(Int.self, forKey: .seq)
+        cmdName = try values.decodeIfPresent(String.self, forKey: .cmdName)
+        crcOK = try values.decodeIfPresent(Bool.self, forKey: .crcOK)
+        // Old captures did not preserve a complete envelope/header verdict. Do not infer one from the
+        // payload CRC: an imported legacy capture must never become ACK-authoritative by accident.
+        envelopeOK = try values.decodeIfPresent(Bool.self, forKey: .envelopeOK) ?? false
+        headerCRCOK = try values.decodeIfPresent(Bool.self, forKey: .headerCRCOK)
+        payloadCRCOK = try values.decodeIfPresent(Bool.self, forKey: .payloadCRCOK) ?? crcOK
+        lenBytes = try values.decode(Int.self, forKey: .lenBytes)
+        rawHex = try values.decode(String.self, forKey: .rawHex)
+        fields = try values.decode([DecodedField].self, forKey: .fields)
+        parsed = try values.decode([String: ParsedValue].self, forKey: .parsed)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(ok, forKey: .ok)
+        try values.encode(typeName, forKey: .typeName)
+        try values.encodeIfPresent(seq, forKey: .seq)
+        try values.encodeIfPresent(cmdName, forKey: .cmdName)
+        try values.encode(envelopeOK, forKey: .envelopeOK)
+        try values.encodeIfPresent(headerCRCOK, forKey: .headerCRCOK)
+        try values.encodeIfPresent(payloadCRCOK, forKey: .payloadCRCOK)
+        try values.encodeIfPresent(crcOK, forKey: .crcOK)
+        try values.encode(lenBytes, forKey: .lenBytes)
+        try values.encode(rawHex, forKey: .rawHex)
+        try values.encode(fields, forKey: .fields)
+        try values.encode(parsed, forKey: .parsed)
+    }
 }
 
 // MARK: - low-level readers (LE), nil when out of range (mirrors interpreter._read)
@@ -185,8 +263,11 @@ public func parseFrame(_ frame: [UInt8], collectFields: Bool = false) -> ParsedF
     let cmdByte = frame.count > 6 ? Int(frame[6]) : 0
     let cmdName = (t == 35 || t == 36) ? schema.enumName("CommandNumber", cmdByte) : nil
 
+    let envelopeOK = length.map { $0 >= 7 && frame.count == $0 + 4 } ?? false
     return ParsedFrame(ok: true, typeName: typeName, seq: seq, cmdName: cmdName,
-                       crcOK: crcOK, lenBytes: frame.count, rawHex: rawHex,
+                       crcOK: crcOK, envelopeOK: envelopeOK,
+                       headerCRCOK: check.crc8OK, payloadCRCOK: check.crc32OK,
+                       lenBytes: frame.count, rawHex: rawHex,
                        fields: fb.fields, parsed: fb.parsed)
 }
 
@@ -326,8 +407,11 @@ private func parseFrameWhoop5(_ frame: [UInt8], collectFields: Bool) -> ParsedFr
     let cmdName = (t == 35 || t == 36 || t == PuffinPacketType.puffinCommandResponse)
         ? schema.enumName("CommandNumber", cmdByte) : nil
 
+    let envelopeOK = declaredLength.map { $0 >= 4 && frame.count == $0 + 8 } ?? false
     return ParsedFrame(ok: true, typeName: typeName, seq: seq, cmdName: cmdName,
-                       crcOK: crcOK, lenBytes: frame.count, rawHex: rawHex,
+                       crcOK: crcOK, envelopeOK: envelopeOK,
+                       headerCRCOK: check.crc8OK, payloadCRCOK: check.crc32OK,
+                       lenBytes: frame.count, rawHex: rawHex,
                        fields: fb.fields, parsed: fb.parsed)
 }
 

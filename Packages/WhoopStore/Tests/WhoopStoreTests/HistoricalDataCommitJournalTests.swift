@@ -218,7 +218,7 @@ final class HistoricalDataCommitJournalTests: XCTestCase {
         try await store.upsertDevice(id: deviceId, mac: nil, name: nil)
         let raw = rawBatch(deviceId: deviceId, trim: 88)
 
-        let first = try await store.commitHistoricalChunk(
+        let firstResult = try await store.commitHistoricalChunkResult(
             streams: streams,
             deviceId: deviceId,
             trim: 88,
@@ -228,7 +228,7 @@ final class HistoricalDataCommitJournalTests: XCTestCase {
             fingerprint: try fingerprint(trim: 88, chunkEndUnix: 1_700_000_005),
             fingerprintInput: try XCTUnwrap(raw.fingerprintInput)
         )
-        let replay = try await store.commitHistoricalChunk(
+        let replayResult = try await store.commitHistoricalChunkResult(
             streams: streams,
             deviceId: deviceId,
             trim: 88,
@@ -241,9 +241,11 @@ final class HistoricalDataCommitJournalTests: XCTestCase {
         let hr = try await store.hrSamples(deviceId: deviceId, from: 0, to: 2_000, limit: 10)
         let receipts = try await store.historicalDataCommitReceipts(deviceId: deviceId)
 
-        XCTAssertEqual(replay, first)
+        XCTAssertEqual(firstResult.outcome, .inserted)
+        XCTAssertEqual(replayResult.outcome, .replayed)
+        XCTAssertEqual(replayResult.receipt, firstResult.receipt)
         XCTAssertEqual(hr.count, 2)
-        XCTAssertEqual(receipts, [first])
+        XCTAssertEqual(receipts, [firstResult.receipt])
     }
 
     func testReplayWithDifferentRawCaptureSettingReturnsOriginalReceipt() async throws {

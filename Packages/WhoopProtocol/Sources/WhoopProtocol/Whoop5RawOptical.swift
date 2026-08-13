@@ -1,11 +1,12 @@
 import Foundation
 
-/// Lossless structural decoder for WHOOP 5/MG historical layout v20.
+/// Structural view of WHOOP 5/MG historical layout v20.
 ///
 /// The 2,140-byte record contains five repeated 422-byte blocks. Each block is a 21-byte shared
 /// header, two 200-byte channel slots, and one reserved byte. The first header byte is the shared
 /// sample count. Captured active blocks use 25 signed i32 samples per channel; the remaining slot
-/// capacity is padding. Channel wavelength and biological meaning remain intentionally unspecified.
+/// capacity is not exposed by this view. The durable mapped-raw representation retains the exact complete
+/// frame, including every unused slot byte; channel wavelength and biological meaning remain unspecified.
 public struct RawOpticalChannel: Equatable, Codable, Sendable {
     public let metadata: [UInt8]
     public let samples: [Int32]

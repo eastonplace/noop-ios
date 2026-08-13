@@ -69,7 +69,7 @@ final class FramingTests: XCTestCase {
         // inner = [43,0,0] + data (7 bytes); length = 7 + 4 = 11.
         XCTAssertEqual(frame[0], 0xAA)
         XCTAssertEqual(Int(frame[1]) | (Int(frame[2]) << 8), 11)
-        XCTAssertEqual(frame[3], 0x00) // placeholder crc8
+        XCTAssertEqual(frame[3], crc8([0x0B, 0x00]))
         XCTAssertEqual(frame[4], 43)
         XCTAssertEqual(frame[5], 0)
         XCTAssertEqual(frame[6], 0)
@@ -80,7 +80,9 @@ final class FramingTests: XCTestCase {
         let got = UInt32(frame[11]) | (UInt32(frame[12]) << 8)
             | (UInt32(frame[13]) << 16) | (UInt32(frame[14]) << 24)
         XCTAssertEqual(got, want)
-        // The reconstructed frame's crc32 must verify (crc8 is a placeholder so .ok stays false).
+        // The reconstructed frame must satisfy the complete envelope contract.
+        XCTAssertTrue(verifyFrame(frame).ok)
+        XCTAssertEqual(verifyFrame(frame).crc8OK, true)
         XCTAssertEqual(verifyFrame(frame).crc32OK, true)
     }
 
@@ -88,5 +90,19 @@ final class FramingTests: XCTestCase {
         let frame = frameFromPayload([0x01], type: 40)
         XCTAssertEqual(frame[5], 0) // seq default
         XCTAssertEqual(frame[6], 0) // cmd default
+    }
+
+    func testTrailingBytesInvalidateCompleteWhoop4Envelope() {
+        let frame = frameFromPayload([0x01, 0x02], type: 49, cmd: 1)
+        XCTAssertTrue(verifyFrame(frame).ok)
+
+        let trailing = frame + [0x99]
+        let check = verifyFrame(trailing)
+        let parsed = parseFrame(trailing)
+
+        XCTAssertFalse(check.ok)
+        XCTAssertEqual(check.crc8OK, true)
+        XCTAssertEqual(check.crc32OK, true)
+        XCTAssertFalse(parsed.envelopeOK)
     }
 }

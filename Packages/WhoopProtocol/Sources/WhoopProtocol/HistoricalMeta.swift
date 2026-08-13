@@ -18,10 +18,9 @@ public enum HistoricalMeta: Equatable {
 /// - For HISTORY_END the metadata post-hook additionally stores in p.parsed:
 ///   `"unix"` → `.int(unix_seconds)` and `"trim_cursor"` → `.int(trim_value)`
 public func classifyHistoricalMeta(_ p: ParsedFrame) -> HistoricalMeta {
-    // Integrity gate: only act on a checksum-valid frame. CRC32 is the protocol's only integrity
-    // check; without this a malicious/garbled BLE peer could forge HISTORY_END/HISTORY_COMPLETE
-    // (advancing the trim cursor + acking the strap to discard data we never durably stored).
-    guard p.ok, p.crcOK != false else { return .other }
+    // Integrity gate: only act on a complete, fully checksum-verified envelope. A forged or truncated
+    // END/COMPLETE must never advance the durable cursor or make the strap discard history.
+    guard p.ok, p.envelopeOK, p.headerCRCOK == true, p.payloadCRCOK == true else { return .other }
     guard p.typeName == "METADATA" else { return .other }
     guard case .string(let metaName)? = p.parsed["meta_type"] else { return .other }
     // Schema.enumName() produces "NAME(rawValue)" — match by prefix so the classifier is
