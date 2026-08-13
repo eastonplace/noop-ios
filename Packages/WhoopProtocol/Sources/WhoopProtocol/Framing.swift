@@ -169,15 +169,19 @@ private func verifyFrameWhoop5(_ frame: [UInt8]) -> FrameCheck {
 
     var crc32OK: Bool? = nil
     if frame.count >= total {
-        // payload spans [8, total-4); CRC32 trailer is the final 4 bytes of the frame.
+        // payload spans [8, total-4); CRC32 trailer is the final 4 bytes of the declared frame.
         let payloadEnd = total - 4
-        // payload = frame[8..<payloadEnd], checksummed in place.
+        // payload = frame[8..<payloadEnd], checksummed in place. Preserve this diagnostic result even
+        // when trailing bytes follow the declared frame; exact envelope length is enforced separately.
         let want = crc32(frame, 8, payloadEnd)
         let got = u32le(frame, payloadEnd)
         crc32OK = want == got
     }
 
-    let ok = headerCRCOK && (crc32OK ?? false)
+    // A valid prefix with unprotected trailing bytes is not a valid WHOOP 5 frame. Requiring exact
+    // length here makes FrameCheck.ok the complete durable-envelope predicate used at the ACK boundary.
+    let exactLength = frame.count == total
+    let ok = exactLength && headerCRCOK && (crc32OK ?? false)
     // Report the header outcome through crc8OK so callers have a single header-CRC signal.
     return FrameCheck(ok: ok, length: declaredLength, crc8OK: headerCRCOK, crc32OK: crc32OK)
 }
