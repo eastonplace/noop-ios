@@ -589,13 +589,20 @@ final class Backfiller {
     nonisolated private static func receivedTimestampRange(
         from parsed: [ParsedFrame]
     ) -> (min: Int?, max: Int?) {
-        let timestamps = parsed.compactMap { $0.parsed["unix"]?.intValue }
+        // Full capture retains console and metadata packets too. Their protocol-specific fields can also
+        // be named `unix` without describing a historical sensor record, so only historical layouts own
+        // the complete-chunk evidence range.
+        let timestamps = parsed.compactMap { frame -> Int? in
+            guard frame.parsed["hist_version"] != nil else { return nil }
+            return frame.parsed["unix"]?.intValue
+        }
         return (timestamps.min(), timestamps.max())
     }
 
     /// A mapped V20/V21 frame may be retained as exact evidence without being trusted as session
-    /// progress. Progress additionally requires a plausible capture timestamp and actual sensor values;
-    /// an all-zero V20 is an empty mapped record, not proof that fresh history advanced.
+    /// progress. Progress additionally requires a plausible capture timestamp and actual sensor values.
+    /// V20 requires nonzero mapped channel evidence. V21 requires nonzero accelerometer evidence; it does
+    /// not impose a gravity-norm gate that could reject valid dynamic IMU captures.
     nonisolated static func mappedRawAdvancesProgress(
         parsed: ParsedFrame,
         rawFrame: [UInt8],
@@ -604,10 +611,18 @@ final class Backfiller {
     ) -> Bool {
         guard let unix = parsed.parsed["unix"]?.intValue,
               isPlausibleHistoricalUnix(unix, wallNow: wallNow) else { return false }
-        guard version == 20 else { return version == 21 }
-        return parsed.parsed.contains { key, value in
-            guard key.hasPrefix("channel_b"), !key.contains("sample_count") else { return false }
-            return value.intArrayValue?.contains(where: { $0 != 0 }) == true
+        switch version {
+        case 20:
+            return parsed.parsed.contains { key, value in
+                guard key.hasPrefix("channel_b"), !key.contains("sample_count") else { return false }
+                return value.intArrayValue?.contains(where: { $0 != 0 }) == true
+            }
+        case 21:
+            return ["accel_x", "accel_y", "accel_z"].contains { key in
+                parsed.parsed[key]?.intArrayValue?.contains(where: { $0 != 0 }) == true
+            }
+        default:
+            return false
         }
     }
 
@@ -968,7 +983,10 @@ final class Backfiller {
             let retainedIndexes = retainCompleteChunk
                 ? Array(frames.indices)
                 : mappedRawFrames.map(\.originalIndex)
-            let retainedTimestamps = requiresMappedRawRetention ? mappedRawFrames.map(\.unix) : []
+            let retainedTimestamps = retainCompleteChunk
+                ? [receivedMinTs, receivedMaxTs].compactMap { $0 }
+                : mappedRawFrames.map(\.unix)
+            let protectedMappedByteCount = mappedRawFrames.reduce(0) { $0 + $1.bytes.count }
             let meta = RawBatchMeta(
                 batchId: "hist-\(admittedScope.key)-\(trim)-\(fingerprint.prefix(16))",
                 deviceId: admittedScope.deviceId,
@@ -986,7 +1004,8 @@ final class Backfiller {
                 originalFrameIndexes: retainedIndexes,
                 protocolMetadata: protocolMetadata,
                 historyEndFrame: Data(endFrame),
-                trustedMappedProgressRange: trustedMappedProgressRange)
+                trustedMappedProgressRange: trustedMappedProgressRange,
+                protectedMappedByteCount: protectedMappedByteCount)
         }
 
         let rawCaptureStatus: HistoricalRawCaptureStatus
@@ -1091,7 +1110,10 @@ final class Backfiller {
             sessionNormalizedMaxTs = [sessionNormalizedMaxTs, receipt.maxDecodedTs]
                 .compactMap { $0 }.max()
             if case .materializationRequired = receipt.rawStatus {
-                sessionMappedRawMaxTs = [sessionMappedRawMaxTs, receipt.rawRange.maxReceivedTs]
+                sessionMappedRawMaxTs = [
+                    sessionMappedRawMaxTs,
+                    rawBatchForCommit?.trustedMappedProgressRange?.upperBound,
+                ]
                     .compactMap { $0 }.max()
             }
         }

@@ -6,7 +6,7 @@ import WhoopProtocol
 /// transient, compressed, prunable outbox. Built on GRDB/SQLite.
 public enum WhoopStoreInfo {
     /// Bumped whenever the migrator gains a new migration.
-    public static let schemaVersion = 55
+    public static let schemaVersion = 56
 }
 
 /// Owns the single process-wide `DatabasePool` for each file path.

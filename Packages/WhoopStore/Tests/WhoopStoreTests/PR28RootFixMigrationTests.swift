@@ -24,7 +24,7 @@ final class PR28RootFixMigrationTests: XCTestCase {
     func testRootFixMigrationPersistsDurableStateColumns() async throws {
         let store = try await WhoopStore.inMemory()
 
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 55)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 56)
         let workColumns = Set(try await store.columnNamesForTest(table: "historicalAnalysisWork"))
         let snapshotColumns = Set(try await store.columnNamesForTest(table: "verifiedSnapshotCommit"))
         let outboxColumns = Set(try await store.columnNamesForTest(table: "externalPublicationOutbox"))

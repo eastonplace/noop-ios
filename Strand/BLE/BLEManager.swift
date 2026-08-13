@@ -359,7 +359,6 @@ struct HistoricalSourceFrontier: Equatable {
             trimScope: cursorScope.trimScope
         )
         var normalized: Int?
-        var mappedRaw: Int?
         for receipt in receipts where
             receipt.databaseInstanceId == databaseInstanceId
                 && receipt.deviceId == cursorScope.deviceId
@@ -367,9 +366,6 @@ struct HistoricalSourceFrontier: Equatable {
                 && receipt.cursorEpoch == cursorScope.cursorEpoch
                 && receipt.trimScope == cursorScope.trimScope {
             normalized = [normalized, receipt.maxDecodedTs].compactMap { $0 }.max()
-            if case .materializationRequired = receipt.rawStatus {
-                mappedRaw = [mappedRaw, receipt.rawRange.maxReceivedTs].compactMap { $0 }.max()
-            }
         }
         return Self(
             scope: HistoricalReceiptWatermark.Scope(
@@ -377,7 +373,10 @@ struct HistoricalSourceFrontier: Equatable {
                 sourceIdentity: identity
             ),
             normalizedMaxTs: normalized,
-            mappedRawMaxTs: mappedRaw
+            // Receipts retain exact raw-range evidence, including timestamps deliberately rejected by
+            // the plausibility/content gate. Only the materialization job's trusted frontier may publish
+            // mapped progress; this receipt-only compatibility helper therefore fails closed.
+            mappedRawMaxTs: nil
         )
     }
 }
@@ -421,6 +420,10 @@ struct BackfillContinuation {
     /// Hard monotonic radio budget for one auto-continued burst. It is independent of wall-clock changes
     /// and bounds a productive-but-pathological strap even before the pass cap is reached.
     static let defaultMaxContinuousRadioSeconds: TimeInterval = 3 * 60
+    /// Do not send another SEND_HISTORICAL_DATA command unless the burst can still provide at least half
+    /// of one normal 60-second offload window. Shorter fragments spend radio time on command/START setup
+    /// but are unlikely to return a useful chunk before the hard burst deadline.
+    static let defaultMinimumUsefulRemainingRadioSeconds: TimeInterval = 30
     /// How far ahead the strap must be (seconds) before "more backlog remains" is real, not clock noise.
     /// Matches StuckStrapDetector.behindGapSeconds (5 min) so the two agree on "behind".
     static let defaultBehindGapSeconds = 300
@@ -443,6 +446,13 @@ struct BackfillContinuation {
         return n > wallNowUnix + futureSkewSeconds
     }
 
+    static func hasMinimumUsefulRemainingRadioBudget(
+        _ remainingSeconds: TimeInterval,
+        minimumUsefulSeconds: TimeInterval = defaultMinimumUsefulRemainingRadioSeconds
+    ) -> Bool {
+        remainingSeconds >= minimumUsefulSeconds
+    }
+
     /// `stillConnected`: link up + command channel usable. `strapNewestTs`: newest record the strap holds
     /// (GET_DATA_RANGE). `ourFrontierTs`: newest record WE'VE persisted across normalized and mapped-raw
     /// receipts. `wallNowUnix`: the
@@ -461,11 +471,17 @@ struct BackfillContinuation {
                                    totalPasses: Int,
                                    maxTotalPasses: Int = defaultMaxTotalPasses,
                                    maxContinuousRadioSeconds: TimeInterval = defaultMaxContinuousRadioSeconds,
+                                   minimumUsefulRemainingRadioSeconds: TimeInterval =
+                                       defaultMinimumUsefulRemainingRadioSeconds,
                                    behindGapSeconds: Int = defaultBehindGapSeconds,
                                    futureSkewSeconds: Int = defaultFutureSkewSeconds) -> Bool {
         guard stillConnected else { return false }                 // 1
         guard totalPasses < maxTotalPasses else { return false }   // 4 (cap)
         guard continuousRadioSeconds < maxContinuousRadioSeconds else { return false }
+        guard hasMinimumUsefulRemainingRadioBudget(
+            maxContinuousRadioSeconds - continuousRadioSeconds,
+            minimumUsefulSeconds: minimumUsefulRemainingRadioSeconds
+        ) else { return false }
         guard !passSignatureRepeated else { return false }
         guard lastTrimAdvanced else { return false }               // 3 (don't spin on a frozen cursor)
         // A durable frontier from an earlier pass can remain behind the strap. It does not authorize a
@@ -540,15 +556,21 @@ struct HistoricalMaterializationWakeState: Equatable {
         wakePending = false
     }
 
-    /// A full productive claim may have left older durable jobs behind it. Continue only when the
-    /// eligible set shrank; an all-retryable batch must stop and wait for a later external wake.
+    /// The store is authoritative about due work left after the claim. Continue only when this pass
+    /// shrank the eligible queue; an all-retryable batch must stop and wait for its retry deadline.
     static func shouldRequestDrainFollowUp(
-        claimed: Int,
+        hasMoreDueWork: Bool,
         completed: Int,
-        quarantined: Int,
-        limit: Int = HistoricalRawMaterializationPolicy.defaultJobLimit
+        quarantined: Int
     ) -> Bool {
-        claimed == limit && (completed > 0 || quarantined > 0)
+        hasMoreDueWork && (completed > 0 || quarantined > 0)
+    }
+
+    static func nextRetryAttempt(
+        resultAttemptAt: Int?,
+        storeAttemptAt: Int?
+    ) -> Int? {
+        resultAttemptAt ?? storeAttemptAt
     }
 
     /// An exact replay may be the first wake after a crash between receipt commit and materialization.
@@ -563,6 +585,11 @@ struct HistoricalMaterializationWakeState: Equatable {
         case .inserted, .replayed: return true
         }
     }
+}
+
+struct HistoricalMaterializationOwnership: Equatable, Sendable {
+    let storeGeneration: Int
+    let workerGeneration: Int
 }
 
 /// Tracks whether one connected series of historical-offload sessions produced data that needs the
@@ -761,6 +788,7 @@ public final class BLEManager: NSObject, ObservableObject {
     private var backfiller: Backfiller?
     private var dataStore: WhoopStore?
     private var restoreInProgress = false
+    private var historicalMaterializationStoreGeneration = 0
     /// True while a historical offload session is in progress (frames route to Backfiller).
     private var backfilling = false
     /// One immutable admission for the physical BLE link currently allowed to ACK historical receipts.
@@ -983,9 +1011,19 @@ public final class BLEManager: NSObject, ObservableObject {
     /// Monotonic deadline shared by every session in the current burst.
     private var historicalRadioDeadline: HistoricalRadioDeadline?
     private var historicalMaterializationTask: Task<Void, Never>?
+    private var historicalMaterializationTaskOwnership: HistoricalMaterializationOwnership?
     private var historicalMaterializationWake = HistoricalMaterializationWakeState()
     private var historicalMaterializationWorkerGeneration = 0
     private var historicalMaterializationRetryTask: Task<Void, Never>?
+    private typealias HistoricalMaterializationDueCheck = @Sendable (WhoopStore, String) async -> Bool
+    private typealias HistoricalMaterializationRun = @Sendable (WhoopStore) async throws
+        -> HistoricalMaterializationRunSummary
+    private var historicalMaterializationDueCheck: HistoricalMaterializationDueCheck = { store, receiptId in
+        (try? await store.isHistoricalMaterializationDue(receiptId: receiptId)) ?? false
+    }
+    private var historicalMaterializationRun: HistoricalMaterializationRun = { store in
+        try await store.materializePendingHistoricalRaw()
+    }
     /// Runs the connect handshake exactly once per connection. Confirmed-write purpose tokens keep later
     /// callbacks out of the handshake path. Keep this guard as defense in depth. Reset on disconnect.
     private var connectHandshakeDone = false
@@ -1209,6 +1247,7 @@ public final class BLEManager: NSObject, ObservableObject {
     /// times — bails out early if the collector is already initialised.
     func bootstrapStore() async {
         guard collector == nil, !restoreInProgress else { return }
+        let openingStoreGeneration = historicalMaterializationStoreGeneration
         // Surface store-open failures instead of swallowing them with `try?` (#222): a silent failure
         // here left `backfiller` nil forever and the only visible symptom was the downstream
         // "store not ready" tick, with no clue why. On iOS a background reconnect that opens the
@@ -1229,6 +1268,10 @@ public final class BLEManager: NSObject, ObservableObject {
             log("Backfill: bootstrap FAILED opening store — \(ns.domain) code=\(ns.code): \(ns.localizedDescription)")
             return
         }
+        guard !restoreInProgress,
+              collector == nil,
+              historicalMaterializationStoreGeneration == openingStoreGeneration else { return }
+        historicalMaterializationStoreGeneration &+= 1
         dataStore = store
         // Route deviceId through the device registry: use the active device's id (migration v15 seeds
         // a single 'my-whoop' row as active, so this is still "my-whoop" today — zero behaviour change).
@@ -1265,16 +1308,13 @@ public final class BLEManager: NSObject, ObservableObject {
                                     self?.recordHistoricalCommit(context)
                                 },
                                 onHistoricalAcknowledged: { [weak self, weak store] receipt, outcome in
-                                    guard let store else { return }
                                     Task { @MainActor [weak self, weak store] in
                                         guard let self, let store else { return }
-                                        let due = (try? await store.isHistoricalMaterializationDue(
-                                            receiptId: receipt.receiptId
-                                        )) ?? false
-                                        guard HistoricalMaterializationWakeState.shouldWakeAfterAcknowledgment(
-                                            receipt: receipt, outcome: outcome, due: due
-                                        ) else { return }
-                                        self.scheduleHistoricalMaterialization(on: store)
+                                        await self.wakeHistoricalMaterializationAfterAcknowledgment(
+                                            receipt: receipt,
+                                            outcome: outcome,
+                                            store: store
+                                        )
                                     }
                                 },
                                 onChunk: { [weak self] decoded, console in
@@ -2162,6 +2202,13 @@ public final class BLEManager: NSObject, ObservableObject {
             log("Backfill: deferred — connect handshake not done yet")
             return false
         }
+        if let historicalRadioDeadline {
+            let remaining = historicalRadioDeadline.remaining(at: ProcessInfo.processInfo.systemUptime)
+            guard BackfillContinuation.hasMinimumUsefulRemainingRadioBudget(remaining) else {
+                log("Backfill: continuation stopped — only \(Int(remaining.rounded(.down)))s of the radio budget remains; at least \(Int(BackfillContinuation.defaultMinimumUsefulRemainingRadioSeconds))s is required before another history command.")
+                return false
+            }
+        }
         guard let backfiller else {
             // Store not built yet (bootstrapStore failed or hasn't run). Do NOT force live HR — the
             // type-47 backfill is the metric source. RE-ATTEMPT the bootstrap here so a transient
@@ -2623,55 +2670,156 @@ public final class BLEManager: NSObject, ObservableObject {
     /// pass, and a full productive batch keeps draining older durable backlog. An all-retryable batch
     /// stops until a later external wake. Materialization never blocks the BLE notification, SQLite
     /// commit, or ACK path.
-    private func scheduleHistoricalMaterialization(on store: WhoopStore) {
+    private var currentHistoricalMaterializationOwnership: HistoricalMaterializationOwnership {
+        HistoricalMaterializationOwnership(
+            storeGeneration: historicalMaterializationStoreGeneration,
+            workerGeneration: historicalMaterializationWorkerGeneration
+        )
+    }
+
+    private func ownsHistoricalMaterialization(
+        store: WhoopStore,
+        ownership: HistoricalMaterializationOwnership
+    ) -> Bool {
+        !restoreInProgress
+            && dataStore === store
+            && currentHistoricalMaterializationOwnership == ownership
+    }
+
+    private func wakeHistoricalMaterializationAfterAcknowledgment(
+        receipt: HistoricalDataCommitReceipt,
+        outcome: HistoricalCommitOutcome,
+        store: WhoopStore
+    ) async {
+        let ownership = currentHistoricalMaterializationOwnership
+        guard ownsHistoricalMaterialization(store: store, ownership: ownership) else { return }
+        let dueCheck = historicalMaterializationDueCheck
+        let due = await dueCheck(store, receipt.receiptId)
+        guard ownsHistoricalMaterialization(store: store, ownership: ownership),
+              HistoricalMaterializationWakeState.shouldWakeAfterAcknowledgment(
+                receipt: receipt,
+                outcome: outcome,
+                due: due
+              ) else { return }
+        scheduleHistoricalMaterialization(on: store, requiring: ownership)
+    }
+
+    /// Explicit UI recovery entry point after a quarantined job has been reset. This wakes the same
+    /// coalescing scheduler used by bootstrap and ACK callbacks; it does not create a second pipeline.
+    func wakeHistoricalMaterializationForRecovery() {
+        guard let store = dataStore else { return }
+        scheduleHistoricalMaterialization(
+            on: store,
+            requiring: currentHistoricalMaterializationOwnership
+        )
+    }
+
+    private func scheduleHistoricalMaterialization(
+        on store: WhoopStore,
+        requiring ownership: HistoricalMaterializationOwnership? = nil
+    ) {
+        let admittedOwnership = ownership ?? currentHistoricalMaterializationOwnership
+        guard ownsHistoricalMaterialization(store: store, ownership: admittedOwnership) else { return }
         historicalMaterializationRetryTask?.cancel()
         historicalMaterializationRetryTask = nil
         guard historicalMaterializationWake.request() else { return }
-        startHistoricalMaterializationPass(on: store)
+        startHistoricalMaterializationPass(
+            on: store,
+            storeGeneration: admittedOwnership.storeGeneration
+        )
     }
 
-    private func startHistoricalMaterializationPass(on store: WhoopStore) {
-        precondition(historicalMaterializationTask == nil)
+    private func startHistoricalMaterializationPass(
+        on store: WhoopStore,
+        storeGeneration: Int
+    ) {
+        guard !restoreInProgress,
+              dataStore === store,
+              historicalMaterializationStoreGeneration == storeGeneration else {
+            historicalMaterializationWake.cancel()
+            return
+        }
+        // A completion and a new wake can cross while their MainActor jobs are queued. The wake state
+        // already owns the follow-up; never trap or replace the task that currently owns this slot.
+        if historicalMaterializationTask != nil {
+            guard historicalMaterializationTaskOwnership != nil else {
+                historicalMaterializationWake.cancel()
+                return
+            }
+            return
+        }
         historicalMaterializationWorkerGeneration &+= 1
         let workerGeneration = historicalMaterializationWorkerGeneration
+        let ownership = HistoricalMaterializationOwnership(
+            storeGeneration: storeGeneration,
+            workerGeneration: workerGeneration
+        )
+        let run = historicalMaterializationRun
+        historicalMaterializationTaskOwnership = ownership
         historicalMaterializationTask = Task.detached(priority: .utility) { [weak self, weak store] in
             var requestDrainFollowUp = false
             defer {
                 Task { @MainActor [weak self, weak store, requestDrainFollowUp] in
-                    guard let self,
-                          self.historicalMaterializationWorkerGeneration == workerGeneration else { return }
+                    guard let self, let store,
+                          self.ownsHistoricalMaterialization(
+                            store: store,
+                            ownership: ownership
+                          ),
+                          self.historicalMaterializationTaskOwnership == ownership else { return }
                     self.historicalMaterializationTask = nil
-                    guard !self.restoreInProgress, let store else {
-                        self.historicalMaterializationWake.cancel()
-                        return
-                    }
+                    self.historicalMaterializationTaskOwnership = nil
                     if requestDrainFollowUp {
                         _ = self.historicalMaterializationWake.request()
                     }
                     if self.historicalMaterializationWake.finish() {
-                        self.startHistoricalMaterializationPass(on: store)
+                        self.startHistoricalMaterializationPass(
+                            on: store,
+                            storeGeneration: ownership.storeGeneration
+                        )
                     }
                 }
             }
             guard !Task.isCancelled, let store else { return }
+            guard await MainActor.run(body: { [weak self] in
+                self?.ownsHistoricalMaterialization(store: store, ownership: ownership) == true
+            }) else { return }
             do {
-                let result = try await store.materializePendingHistoricalRaw()
+                let result = try await run(store)
                 guard !Task.isCancelled else { return }
                 requestDrainFollowUp = HistoricalMaterializationWakeState.shouldRequestDrainFollowUp(
-                    claimed: result.claimed,
+                    hasMoreDueWork: result.hasMoreDueWork,
                     completed: result.completed,
                     quarantined: result.quarantined
                 )
-                if let nextAttemptAt = try? await store.nextHistoricalMaterializationAttemptAt() {
+                let fallbackNextAttemptAt: Int?
+                if result.nextAttemptAt == nil {
+                    fallbackNextAttemptAt = try? await store.nextHistoricalMaterializationAttemptAt()
+                } else {
+                    fallbackNextAttemptAt = nil
+                }
+                if let nextAttemptAt = HistoricalMaterializationWakeState.nextRetryAttempt(
+                    resultAttemptAt: result.nextAttemptAt,
+                    storeAttemptAt: fallbackNextAttemptAt
+                ) {
                     await MainActor.run { [weak self, weak store] in
-                        guard let self, let store else { return }
+                        guard let self, let store,
+                              self.ownsHistoricalMaterialization(
+                                store: store,
+                                ownership: ownership
+                              ) else { return }
                         let delay = max(0, nextAttemptAt - Int(Date().timeIntervalSince1970))
                         self.historicalMaterializationRetryTask?.cancel()
                         self.historicalMaterializationRetryTask = Task { @MainActor [weak self, weak store] in
                             try? await Task.sleep(for: .seconds(delay))
                             guard !Task.isCancelled, let self, let store,
-                                  !self.restoreInProgress else { return }
-                            self.scheduleHistoricalMaterialization(on: store)
+                                  self.ownsHistoricalMaterialization(
+                                    store: store,
+                                    ownership: ownership
+                                  ) else { return }
+                            self.scheduleHistoricalMaterialization(
+                                on: store,
+                                requiring: ownership
+                            )
                         }
                     }
                 }
@@ -2834,6 +2982,17 @@ public final class BLEManager: NSObject, ObservableObject {
             // gap before this Task ran. requestSync's own gate (!backfilling) handles that, but skip the
             // log/counter churn if so.
             guard !backfilling else { return }
+            let remainingBeforeStart = historicalRadioDeadline?.remaining(
+                at: ProcessInfo.processInfo.systemUptime
+            ) ?? 0
+            guard BackfillContinuation.hasMinimumUsefulRemainingRadioBudget(
+                remainingBeforeStart
+            ) else {
+                historicalRadioDeadline = nil
+                historicalBurstPasses.reset()
+                publishBackfillBurstIfNeeded()
+                return
+            }
             log("Backfill: auto-continuing (#364/#451) — the trim advanced and the strap is still handing over real records (frontier \(frontier.map(String.init) ?? "?"), strap-reported newest \(newest.map(String.init) ?? "?")); starting pass \(totalPasses + 1)/\(BackfillContinuation.defaultMaxTotalPasses) without waiting the 15-min floor.")
             // .autoContinue bypasses the BackfillPolicy floor (the whole point — don't wait 15 min);
             // requestSync still re-checks connected/bonded/not-backfilling before kicking, and the
@@ -3495,6 +3654,7 @@ public final class BLEManager: NSObject, ObservableObject {
 
     func quiesceStoreForRestore() async throws {
         restoreInProgress = true
+        historicalMaterializationStoreGeneration &+= 1
         backfillTimeout?.cancel()
         backfillTimeout = nil
         uploadTimer?.cancel()
@@ -3508,11 +3668,41 @@ public final class BLEManager: NSObject, ObservableObject {
         historicalMaterializationTask?.cancel()
         await historicalMaterializationTask?.value
         historicalMaterializationTask = nil
+        historicalMaterializationTaskOwnership = nil
         await collector?.flushStandardHR()
         collector = nil
         backfiller = nil
         if let dataStore { try await dataStore.close() }
         dataStore = nil
+    }
+
+    func setHistoricalMaterializationStoreForTesting(
+        _ store: WhoopStore,
+        restoreInProgress: Bool = false
+    ) {
+        self.restoreInProgress = restoreInProgress
+        historicalMaterializationStoreGeneration &+= 1
+        dataStore = store
+    }
+
+    func setHistoricalMaterializationSeamsForTesting(
+        dueCheck: @escaping @Sendable (WhoopStore, String) async -> Bool,
+        run: @escaping @Sendable (WhoopStore) async throws -> HistoricalMaterializationRunSummary
+    ) {
+        historicalMaterializationDueCheck = dueCheck
+        historicalMaterializationRun = run
+    }
+
+    func wakeHistoricalMaterializationAfterAcknowledgmentForTesting(
+        receipt: HistoricalDataCommitReceipt,
+        outcome: HistoricalCommitOutcome,
+        store: WhoopStore
+    ) async {
+        await wakeHistoricalMaterializationAfterAcknowledgment(
+            receipt: receipt,
+            outcome: outcome,
+            store: store
+        )
     }
 
     func reopenStoreAfterRestore() async throws {

@@ -252,6 +252,33 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
         return frame
     }
 
+    private func whoop5V21Frame(
+        unix: UInt32 = 1_781_557_000,
+        nonzeroAccelerometer: Bool,
+        nonzeroGyroscope: Bool = false
+    ) -> [UInt8] {
+        var frame = [UInt8](repeating: 0, count: Whoop5RawImu.bufferLength)
+        frame[0] = 0xAA; frame[1] = 0x01
+        let declared = frame.count - 8
+        frame[2] = UInt8(declared & 0xFF); frame[3] = UInt8((declared >> 8) & 0xFF)
+        frame[4] = 0x01; frame[5] = 0x00; frame[8] = 0x2F; frame[9] = 21; frame[10] = 0x80
+        frame[15] = UInt8(unix & 0xFF); frame[16] = UInt8((unix >> 8) & 0xFF)
+        frame[17] = UInt8((unix >> 16) & 0xFF); frame[18] = UInt8((unix >> 24) & 0xFF)
+        frame[24] = UInt8(Whoop5RawImu.sampleCount)
+        frame[630] = UInt8(Whoop5RawImu.sampleCount)
+        if nonzeroAccelerometer { frame[28] = 1 }
+        if nonzeroGyroscope { frame[640] = 1 }
+        let headerCRC = crc16Modbus(Array(frame[0..<6]))
+        frame[6] = UInt8(headerCRC & 0xFF); frame[7] = UInt8((headerCRC >> 8) & 0xFF)
+        let payloadEnd = frame.count - 4
+        let payloadCRC = crc32(Array(frame[8..<payloadEnd]))
+        frame[payloadEnd] = UInt8(payloadCRC & 0xFF)
+        frame[payloadEnd + 1] = UInt8((payloadCRC >> 8) & 0xFF)
+        frame[payloadEnd + 2] = UInt8((payloadCRC >> 16) & 0xFF)
+        frame[payloadEnd + 3] = UInt8((payloadCRC >> 24) & 0xFF)
+        return frame
+    }
+
     private var whoop4V24Frame: [UInt8] {
         bytes(
             "aa5a008e2f18000000000000f153650000000000003f0152030000000000000000dc053075" +
@@ -267,6 +294,19 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
             "0b0007010c020c00000000000000000000000000000000000000000000000100656f1e1e00" +
             "00009d61a7c00000003e862817"
         )
+    }
+
+    private func whoop5V18Frame(unix: UInt32) -> [UInt8] {
+        var frame = whoop5V18Frame
+        frame[15] = UInt8(unix & 0xFF); frame[16] = UInt8((unix >> 8) & 0xFF)
+        frame[17] = UInt8((unix >> 16) & 0xFF); frame[18] = UInt8((unix >> 24) & 0xFF)
+        let payloadEnd = frame.count - 4
+        let payloadCRC = crc32(Array(frame[8..<payloadEnd]))
+        frame[payloadEnd] = UInt8(payloadCRC & 0xFF)
+        frame[payloadEnd + 1] = UInt8((payloadCRC >> 8) & 0xFF)
+        frame[payloadEnd + 2] = UInt8((payloadCRC >> 16) & 0xFF)
+        frame[payloadEnd + 3] = UInt8((payloadCRC >> 24) & 0xFF)
+        return frame
     }
 
     private var whoop5HistoryEndFrame: [UInt8] {
@@ -495,6 +535,119 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
             return XCTFail("mapped V20 must commit as durable materialization-required raw")
         }
         XCTAssertEqual(batchId, details.rawBatch?.meta.batchId)
+    }
+
+    @MainActor
+    func testFutureMappedFrameIsArchivedButDoesNotAdvanceLiveSessionFrontier() async throws {
+        let store = SourceCaptureStore()
+        let futureUnix = Int(Date().timeIntervalSince1970) + FUTURE_MARGIN + 3_600
+        let frame = whoop5V20Frame(unix: UInt32(futureUnix))
+        let backfiller = Backfiller(
+            store: store,
+            deviceId: "strap-a",
+            ackTrim: { _, _, _ in true })
+        backfiller.begin(
+            family: .whoop5,
+            historicalCursorScope: HistoricalCursorScope(
+                deviceId: "strap-a", lineage: "test-lineage"))
+
+        await backfiller.ingest(frame)
+        await backfiller.ingest(whoop5HistoryEndFrame)
+
+        let committedDetails = await store.commitDetails()
+        let details = try XCTUnwrap(committedDetails)
+        XCTAssertEqual(details.rawBatch?.frames, [frame])
+        XCTAssertNil(details.rawBatch?.trustedMappedProgressRange)
+        XCTAssertEqual(details.rawRange?.maxReceivedTs, futureUnix)
+        XCTAssertEqual(backfiller.sessionMappedRawRecords, 0)
+        XCTAssertNil(backfiller.sessionMappedRawMaxTs)
+        XCTAssertNil(backfiller.sessionDurableMaxTs)
+    }
+
+    @MainActor
+    func testAllZeroV21IsArchivedAndDoesNotCountAsTrustedProgress() async throws {
+        let store = SourceCaptureStore()
+        let frame = whoop5V21Frame(nonzeroAccelerometer: false)
+        let gyroOnly = whoop5V21Frame(
+            nonzeroAccelerometer: false,
+            nonzeroGyroscope: true
+        )
+        let parsed = parseFrame(frame, family: .whoop5)
+        XCTAssertEqual(
+            historicalRecordDisposition(parsed: parsed, rawFrame: frame, family: .whoop5),
+            .mappedRaw(version: 21)
+        )
+        XCTAssertFalse(Backfiller.mappedRawAdvancesProgress(
+            parsed: parsed,
+            rawFrame: frame,
+            version: 21,
+            wallNow: 1_781_557_100
+        ))
+        XCTAssertFalse(Backfiller.mappedRawAdvancesProgress(
+            parsed: parseFrame(gyroOnly, family: .whoop5),
+            rawFrame: gyroOnly,
+            version: 21,
+            wallNow: 1_781_557_100
+        ))
+        let backfiller = Backfiller(
+            store: store,
+            deviceId: "strap-a",
+            ackTrim: { _, _, _ in true })
+        backfiller.begin(
+            family: .whoop5,
+            historicalCursorScope: HistoricalCursorScope(
+                deviceId: "strap-a", lineage: "test-lineage"))
+
+        await backfiller.ingest(frame)
+        await backfiller.ingest(whoop5HistoryEndFrame)
+
+        let committedDetails = await store.commitDetails()
+        let details = try XCTUnwrap(committedDetails)
+        XCTAssertEqual(details.rawBatch?.frames, [frame])
+        XCTAssertEqual(details.rawBatch?.protectedMappedByteCount, frame.count)
+        XCTAssertNil(details.rawBatch?.trustedMappedProgressRange)
+        XCTAssertEqual(backfiller.sessionMappedRawRecords, 0)
+        XCTAssertNil(backfiller.sessionMappedRawMaxTs)
+    }
+
+    @MainActor
+    func testMixedFullCaptureUsesAllParsedRangeButProtectsOnlyMappedBytes() async throws {
+        let store = SourceCaptureStore()
+        let olderV18Unix = 1_781_556_000
+        let v20Unix = 1_781_557_000
+        let newerV18Unix = 1_781_558_000
+        let olderV18 = whoop5V18Frame(unix: UInt32(olderV18Unix))
+        let v20 = whoop5V20Frame(unix: UInt32(v20Unix))
+        let newerV18 = whoop5V18Frame(unix: UInt32(newerV18Unix))
+        let console = puffinCommandFrame(cmd: 0, seq: 2, payload: [0x02], type: 50)
+        let backfiller = Backfiller(
+            store: store,
+            deviceId: "strap-a",
+            ackTrim: { _, _, _ in true },
+            enableRawCapture: true)
+        backfiller.begin(
+            family: .whoop5,
+            historicalCursorScope: HistoricalCursorScope(
+                deviceId: "strap-a", lineage: "test-lineage"))
+
+        await backfiller.ingest(olderV18)
+        await backfiller.ingest(v20)
+        await backfiller.ingest(console)
+        await backfiller.ingest(newerV18)
+        await backfiller.ingest(whoop5HistoryEndFrame)
+
+        let committedDetails = await store.commitDetails()
+        let details = try XCTUnwrap(committedDetails)
+        let rawBatch = try XCTUnwrap(details.rawBatch)
+        XCTAssertEqual(rawBatch.frames, [olderV18, v20, console, newerV18])
+        XCTAssertEqual(rawBatch.originalFrameIndexes, [0, 1, 2, 3])
+        XCTAssertEqual(rawBatch.meta.startTs, olderV18Unix)
+        XCTAssertEqual(rawBatch.meta.endTs, newerV18Unix)
+        XCTAssertEqual(rawBatch.trustedMappedProgressRange, v20Unix...v20Unix)
+        XCTAssertEqual(rawBatch.protectedMappedByteCount, v20.count)
+        XCTAssertLessThan(rawBatch.protectedMappedByteCount, rawBatch.meta.byteSize)
+        XCTAssertEqual(details.rawRange?.minReceivedTs, olderV18Unix)
+        XCTAssertEqual(details.rawRange?.maxReceivedTs, newerV18Unix)
     }
 
     func testMappedRawProgressRejectsAllZeroAndImplausibleTimestamps() {

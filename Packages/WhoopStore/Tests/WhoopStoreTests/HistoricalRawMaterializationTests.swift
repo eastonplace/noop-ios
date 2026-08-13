@@ -315,7 +315,7 @@ final class HistoricalRawMaterializationTests: XCTestCase {
                     originalFrameIndexesJSON = ?, protectedByteCount = ?
                 WHERE receiptId = ?
                 """, arguments: [
-                    try JSONEncoder().encode([0, 1]), unrelated.count + mapped.count, receipt.receiptId,
+                    try JSONEncoder().encode([0, 1]), mapped.count, receipt.receiptId,
                 ])
         }
 
@@ -325,6 +325,50 @@ final class HistoricalRawMaterializationTests: XCTestCase {
             receiptId: receipt.receiptId
         )
         XCTAssertEqual(indexes, [1])
+    }
+
+    func testCompletedArchiveCapUsesFullArchiveBytesNotProtectedMappedBytes() async throws {
+        let store = try await WhoopStore.inMemory()
+        try await store.upsertDevice(id: deviceId, mac: nil, name: nil)
+        let mapped = v20(unix: 1_781_558_350)
+        let unrelated = ordinary(unix: 3)
+        let receipt = try await commitMapped(
+            store: store,
+            trim: 80,
+            mappedFrame: mapped,
+            completeFrames: [unrelated, mapped],
+            mappedIndex: 1
+        )
+        let archiveByteCount = unrelated.count + mapped.count
+        let fullBlob = try WhoopStore.zlibCompressWithLength(WhoopStore.packFrames([unrelated, mapped]))
+        try await store.registryWriter.write { db in
+            try db.execute(sql: """
+                UPDATE rawBatch
+                SET frameCount = 2, byteSize = ?, framesBlob = ?
+                WHERE batchId = 'mapped-80'
+                """, arguments: [archiveByteCount, fullBlob])
+            try db.execute(sql: """
+                UPDATE historicalMaterializationJob
+                SET selectionMode = 'legacyFullCapture',
+                    originalFrameIndexesJSON = ?, protectedByteCount = ?
+                WHERE receiptId = ?
+                """, arguments: [
+                    try JSONEncoder().encode([0, 1]), mapped.count, receipt.receiptId,
+                ])
+        }
+        _ = try await store.materializePendingHistoricalRaw(limit: 1, now: 1_781_558_400)
+
+        try await store.pruneCompletedHistoricalRawForTest(
+            now: 1_781_558_400,
+            retentionSeconds: HistoricalRawMaterializationPolicy.completedRetentionSeconds,
+            maxBytes: mapped.count
+        )
+
+        let indexes = try await store.historicalMaterializedFrameIndexesForTest(
+            receiptId: receipt.receiptId
+        )
+        XCTAssertGreaterThan(archiveByteCount, mapped.count)
+        XCTAssertEqual(indexes, [], "the full archive size must drive completed-cap eviction")
     }
 
     func testPendingJobIsClaimedBeforeOlderRetryableFailure() async throws {
@@ -354,12 +398,112 @@ final class HistoricalRawMaterializationTests: XCTestCase {
 
         let run = try await store.materializePendingHistoricalRaw(limit: 1, now: 1_781_558_400)
 
-        XCTAssertEqual(run, HistoricalMaterializationRunSummary(claimed: 1, completed: 1))
+        XCTAssertEqual(run, HistoricalMaterializationRunSummary(
+            claimed: 1,
+            completed: 1,
+            hasMoreDueWork: true
+        ))
         let oldState = try await store.historicalMaterializationJobStateForTest(
             receiptId: oldReceipt.receiptId)
         let newState = try await store.historicalMaterializationJobStateForTest(
             receiptId: newReceipt.receiptId)
         XCTAssertEqual(oldState, .retryable)
         XCTAssertEqual(newState, .completed)
+    }
+
+    func testMaterializationJobRejectsNegativeProtectedMappedByteCount() async throws {
+        let store = try await WhoopStore.inMemory()
+        let rawMeta = RawBatchMeta(
+            batchId: "negative-protected-mapped-bytes",
+            deviceId: deviceId,
+            clockRef: ClockRef(device: 1, wall: 1),
+            capturedAt: 1,
+            startTs: 1,
+            endTs: 1,
+            frameCount: 1,
+            byteSize: 10,
+            lineage: scope.lineage,
+            cursorEpoch: scope.cursorEpoch
+        )
+
+        do {
+            try await store.registryWriter.write { db in
+                try WhoopStore.insertHistoricalMaterializationJob(
+                    receiptId: "negative-protected-mapped-bytes",
+                    databaseInstanceId: "database",
+                    trimScope: self.scope.trimScope,
+                    selectionMode: "selectiveMapped",
+                    rawMeta: rawMeta,
+                    protectedMappedByteCount: -1,
+                    trustedMappedProgressRange: nil,
+                    originalFrameIndexes: [0],
+                    createdAt: 1,
+                    in: db
+                )
+            }
+            XCTFail("negative protected mapped bytes must fail before insertion")
+        } catch let error as HistoricalDataCommitJournalError {
+            XCTAssertEqual(error, .invalidReceipt)
+        }
+    }
+
+    func testMaterializationJobStoresExplicitProtectedMappedByteCount() async throws {
+        let store = try await WhoopStore.inMemory()
+        try await store.upsertDevice(id: deviceId, mac: nil, name: nil)
+        let mapped = v20(unix: 1_781_558_500)
+        let unrelated = ordinary(unix: 4)
+        let input = HistoricalReceivedFrameFingerprintInput(
+            orderedFrames: [unrelated, mapped],
+            protocolMetadata: Data([0x01]),
+            historyEndFrame: Data([0x02]),
+            minReceivedTs: 1_781_558_500,
+            maxReceivedTs: 1_781_558_500
+        )
+        let raw = HistoricalRawBatch(
+            meta: RawBatchMeta(
+                batchId: "explicit-protected-mapped-bytes",
+                deviceId: deviceId,
+                clockRef: ClockRef(device: 1_781_558_500, wall: 1_781_558_500),
+                capturedAt: 1_781_558_500,
+                startTs: 1_781_558_500,
+                endTs: 1_781_558_500,
+                frameCount: 2,
+                byteSize: unrelated.count + mapped.count,
+                lineage: scope.lineage,
+                cursorEpoch: scope.cursorEpoch
+            ),
+            frames: [unrelated, mapped],
+            originalFrameIndexes: [0, 1],
+            protocolMetadata: input.protocolMetadata,
+            historyEndFrame: input.historyEndFrame,
+            trustedMappedProgressRange: 1_781_558_500...1_781_558_500,
+            protectedMappedByteCount: mapped.count
+        )
+        let receipt = try await store.commitHistoricalChunk(
+            streams: Streams(),
+            deviceId: deviceId,
+            trim: 81,
+            chunkEndUnix: 1_781_558_500,
+            rawBatch: raw,
+            committedAt: 1_781_558_501,
+            scope: scope,
+            fingerprint: try WhoopStore.historicalReceivedFrameFingerprint(
+                input: input,
+                scope: scope,
+                trim: 81
+            ),
+            fingerprintInput: input,
+            rawCaptureStatus: .materializationRequired(batchId: raw.meta.batchId)
+        )
+
+        let protectedByteCount = try await store.registryWriter.read { db in
+            try Int.fetchOne(
+                db,
+                sql: "SELECT protectedByteCount FROM historicalMaterializationJob WHERE receiptId = ?",
+                arguments: [receipt.receiptId]
+            )
+        }
+        XCTAssertEqual(protectedByteCount, mapped.count)
+        XCTAssertNotEqual(protectedByteCount, raw.meta.byteSize)
     }
 }

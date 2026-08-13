@@ -377,6 +377,11 @@ public struct HistoricalDataCommitWatermark: Codable, Equatable, Sendable {
 public struct HistoricalRawBatch: Equatable, Sendable {
     public let meta: RawBatchMeta
     public let frames: [[UInt8]]
+    /// Exact bytes belonging to the mapped V20/V21 records whose lifecycle requires protection.
+    /// A research full-capture archive may also contain V18, console, or metadata frames; those
+    /// optional bytes remain subject to the normal raw archive cap and must not consume the
+    /// fail-closed mandatory mapped-data ceiling.
+    public let protectedMappedByteCount: Int
     /// Position of each retained frame in the complete ordered chunk used by the receipt fingerprint.
     /// A protected V20/V21 batch is intentionally sparse; unrelated frames remain fingerprint evidence
     /// but are not copied into mandatory retention.
@@ -393,10 +398,13 @@ public struct HistoricalRawBatch: Equatable, Sendable {
         originalFrameIndexes: [Int]? = nil,
         protocolMetadata: Data = Data(),
         historyEndFrame: Data? = nil,
-        trustedMappedProgressRange: ClosedRange<Int>? = nil
+        trustedMappedProgressRange: ClosedRange<Int>? = nil,
+        protectedMappedByteCount: Int? = nil
     ) {
         self.meta = meta
         self.frames = frames
+        self.protectedMappedByteCount = protectedMappedByteCount
+            ?? frames.reduce(0) { $0 + $1.count }
         self.originalFrameIndexes = originalFrameIndexes ?? Array(frames.indices)
         self.protocolMetadata = protocolMetadata
         self.historyEndFrame = historyEndFrame
@@ -717,6 +725,8 @@ extension WhoopStore {
             }
             guard rawBatch.meta.frameCount == rawBatch.frames.count,
                   rawBatch.meta.byteSize == actualByteCount,
+                  rawBatch.protectedMappedByteCount >= 0,
+                  rawBatch.protectedMappedByteCount <= actualByteCount,
                   rawBatch.meta.startTs <= rawBatch.meta.endTs,
                   indexes.count == rawBatch.frames.count,
                   Set(indexes).count == indexes.count,
@@ -881,7 +891,7 @@ extension WhoopStore {
                 }
                 if case .materializationRequired = effectiveRawStatus {
                     try WhoopStore.assertHistoricalProtectedRawCapacity(
-                        incomingBytes: scopedRawMeta.byteSize,
+                        incomingBytes: rawBatch!.protectedMappedByteCount,
                         in: db
                     )
                 }
@@ -948,6 +958,7 @@ extension WhoopStore {
                     trimScope: resolvedScope.trimScope,
                     selectionMode: selectionMode,
                     rawMeta: packedRawBatch.meta,
+                    protectedMappedByteCount: rawBatch.protectedMappedByteCount,
                     trustedMappedProgressRange: rawBatch.trustedMappedProgressRange,
                     originalFrameIndexes: rawBatch.originalFrameIndexes,
                     createdAt: committedAt,

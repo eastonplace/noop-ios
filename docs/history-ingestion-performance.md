@@ -15,7 +15,8 @@ foreground backlog, but it must not add expensive interpretation to the BLE noti
 4. Prepare the receipt fingerprint and packed raw batch outside the SQLite writer.
 5. Commit decoded rows, required mapped raw bytes, the receipt, and cursor in one short transaction.
 6. ACK only after the transaction commits.
-7. Materialize large V20/V21 sensor arrays and publish analysis later.
+7. Index the mapped V20/V21 frame identities inside the compressed exact archive later. This PR does not
+   normalize optical or IMU sample arrays into production health streams.
 
 ## Outcome vocabulary
 
@@ -46,7 +47,8 @@ relaunch on current iOS also requires the accessory setup path to satisfy Apple'
 Those device/runtime cases stay unqualified until tested on a locked physical iPhone.
 
 This PR keeps the existing six-pass continuation ceiling. Each burst also has one 180-second monotonic
-radio deadline; every next session timeout is capped by the time remaining. Exact replays contribute no
+radio deadline; every next session timeout is capped by the time remaining, and no new history command is
+sent when fewer than 30 useful seconds remain. Exact replays contribute no
 fresh progress, repeated trim + fingerprint + source-scoped durable-frontier signatures stop immediately,
 and empty/stalled attempts back off the periodic floor from 15 to 30 to 60 minutes. A 24-pass experiment
 remains blocked until physical energy and radio measurements qualify it.
@@ -62,19 +64,39 @@ This PR does not copy Goose's eager per-sample ingestion path because that keeps
 the transfer path. It uses the safer rule seen in OpenStrap instead: bank the received bytes before ACK,
 then schedule interpretation separately. Production health formulas do not consume V20/V21 in this PR.
 
+## Archive lifecycle and recovery
+
+- One compressed `rawBatch.framesBlob` is the exact representation. Mapped rows store only source
+  identity, original index, archive offset, version, timestamp, and byte count.
+- Pending-capacity enforcement counts only V20/V21 bytes required for lifecycle safety. Optional V18,
+  console, and metadata bytes in a full research capture do not consume the mandatory 64 MiB ceiling.
+- Completed mapped indexes are protected for 30 days. After their mapping rows are evicted, the shared raw
+  archive becomes eligible for the normal age/size pruning policy; 30 days is not a physical-deletion SLA.
+- Quarantined archives remain protected. Data & Storage shows their byte count and provides explicit export,
+  retry, and destructive deletion. Deletion is never automatic because the archive may be the only local
+  copy after the strap advances its history cursor.
+
 ## Verification log
 
 The immutable head of draft PR #37 is the qualification SHA. The PR body records that literal SHA and
 the matching local/hosted/device evidence; moving the head invalidates these results until rerun.
 
-- Final local mixed 35-frame V18/V20/V21 Debug fixture: p50 3.411 ms, p95 3.583 ms,
-  max 3.660 ms.
-- Final local suites: WhoopProtocol 326/326, WhoopStore 436/436, and NOOPiOS 430 passed,
-  0 failed, 1 expected iOS source-contract skip.
+- Local macOS Debug protocol benchmark, command
+  `swift test --filter HistoricalIngestionPerformanceTests.testMixedWhoop5ChunkReportsP50P95AndMax`:
+  35 mixed V18/V20/V21 frames over 30 iterations, p50 3.312 ms, p95 3.595 ms, max 6.025 ms.
+- Local macOS Debug shared-pool benchmark, command
+  `swift test --filter DatabasePoolConcurrencyTests.testSharedPoolCommitLatencyBenchmark`:
+  200 alternating small commits through two handles, p50 0.043 ms, p95 0.047 ms, max 1.453 ms.
+- Current repair verification: WhoopProtocol passes 326/326; WhoopStore passes 447/447; the focused
+  NOOPiOS queue/restore/radio/frontier/raw-capture matrix passes 47/47; and the complete NOOPiOS suite
+  executes 438 tests with one expected skip and zero failures. The unsigned generic-device Release build
+  also succeeds. Hosted CI and signed-device qualification remain separate gates.
 - V55 migration proof: a missing compressed archive is reconstructed from V54 `exactFrame` rows, read
   back from SQLite, decompressed, and compared byte-for-byte before the duplicate table is removed.
   Existing-archive mismatch and partial-conversion mismatch both roll back the full migration, preserving
   the V54 schema, bytes, state, and migration ledger.
+- V56 is additive and leaves applied V54/V55 migrations unchanged. It recalculates legacy timestamp trust
+  against each receipt's `committedAt` and splits mandatory mapped bytes from optional full-capture bytes.
 - iOS signposts: `history_chunk_decode`, `history_chunk_commit`, and `history_chunk_ack`.
 - Simulator proof: V20 commits as `materializationRequired`, produces zero normalized rows, never calls the
   rejected-frame archive, and ACKs after commit. Its decoded structural view exposes active samples only;

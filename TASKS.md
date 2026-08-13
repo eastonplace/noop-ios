@@ -6,9 +6,13 @@
   - Keep Recovery, Sleep, Strain, SpO2, phone data, and bundle identity unchanged.
   - Required proof: per-frame single-pass classification, durable mapped-raw retention,
     p50/p95/max fixture timing, full package/iOS tests, and separate physical-device gates.
-  - Implemented: strict protocol gates, source-scoped BLE progress, bounded V55 materialization lifecycle,
-    transactional V54 upgrade, complete regression matrix, and six progress/radio-bounded continuation passes.
-  - Local verification: WhoopProtocol 326/326, WhoopStore 436/436, and NOOPiOS 430 passed,
-    0 failed, 1 expected skip. Migration success, mismatch rollback, and partial-conversion rollback pass.
-  - Remaining external gates: push the final SHA, restore hosted CI after the account billing/spend
-    restriction, and complete the physical-iPhone Release/background/restoration/radio/energy/memory/thermal trace.
+  - Implemented: strict protocol gates; source-scoped trusted progress; one-job queue draining with
+    due-work/retry state; restore generation fences; receipt-time V56 repair; mapped-only protected
+    capacity; quarantined-archive export/retry/explicit-delete recovery; and six radio-bounded passes.
+  - Verified locally during the current repair: WhoopProtocol 326/326, WhoopStore 447/447, and NOOPiOS
+    438 tests with one expected skip and zero failures; the unsigned Release compile passes; 47 focused
+    queue/restore/radio/frontier/raw-capture tests pass; V54 and V55 source blobs remain unchanged.
+  - [x] Local code, regression, Release-compile, recovery-UI visual, and diff gates pass.
+  - [ ] Remaining external gates: restore hosted CI after the account billing/spend restriction; add a
+    valid Xcode account and provisioning profiles for team 479HYY24G2; then complete the physical-iPhone
+    Release/background/restoration/radio/energy/memory/thermal trace. Keep the PR draft and unmerged.

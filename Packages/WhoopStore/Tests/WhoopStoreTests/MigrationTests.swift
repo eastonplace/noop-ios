@@ -43,13 +43,15 @@ final class MigrationTests: XCTestCase {
         exactFrame: [UInt8],
         archiveFrame: [UInt8],
         retainArchive: Bool,
-        state: String = "completed"
+        state: String = "completed",
+        committedAt: Int? = nil
     ) async throws {
         let migrator = WhoopStore.makeMigrator()
         try migrator.migrate(dbQueue, upTo: PR29V53Migrations.identifier)
         let packed = WhoopStore.packFrames([archiveFrame])
         let compressed = try WhoopStore.zlibCompressWithLength(packed)
         let unix = try XCTUnwrap(parseFrame(archiveFrame, family: .whoop5).parsed["unix"]?.intValue)
+        let receiptCommittedAt = committedAt ?? unix + 1
 
         try await dbQueue.write { db in
             let databaseInstanceId = try XCTUnwrap(
@@ -74,7 +76,8 @@ final class MigrationTests: XCTestCase {
                 VALUES (?, ?, ?, ?, 0, 'historical', 7, ?, ?, 'v55-fingerprint', ?, ?,
                         ?, ?, ?, ?, 'materializationRequired', ?, ?, 0, 3, ?, 'UTC', ?)
                 """, arguments: [
-                    Self.v55ReceiptId, databaseInstanceId, Self.v55DeviceId, Self.v55Lineage, unix, unix + 1,
+                    Self.v55ReceiptId, databaseInstanceId, Self.v55DeviceId, Self.v55Lineage,
+                    unix, receiptCommittedAt,
                     unix, unix, Data("[]".utf8), Data("{}".utf8), Data("{}".utf8),
                     Self.v55BatchId, Data("{}".utf8), Data("{}".utf8), Data("[]".utf8),
                     Data("[]".utf8),
@@ -122,7 +125,7 @@ final class MigrationTests: XCTestCase {
         ] {
             XCTAssertTrue(tables.contains(t), "missing table \(t)")
         }
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 55)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 56)
     }
 
     func testV54AddsDurableMappedRawMaterializationLifecycleWithoutRewritingV53() async throws {
@@ -174,6 +177,178 @@ final class MigrationTests: XCTestCase {
                     db,
                     sql: "SELECT COUNT(*) FROM grdb_migrations WHERE identifier = ?",
                     arguments: [PR37V55Migrations.identifier]),
+                1
+            )
+            XCTAssertEqual(
+                try Int.fetchOne(
+                    db,
+                    sql: "SELECT COUNT(*) FROM grdb_migrations WHERE identifier = ?",
+                    arguments: [PR37V56Migrations.identifier]),
+                1
+            )
+        }
+    }
+
+    func testV56DelayedUpgradeRepairsReceiptTimeFrontierAndConvergesWithFreshMigration() async throws {
+        let frameUnix = Int(Date().timeIntervalSince1970) - 60
+        let committedAt = frameUnix - FUTURE_MARGIN - 1
+        let frame = v55V20(unix: UInt32(frameUnix))
+        let delayed = try DatabaseQueue()
+        let fresh = try DatabaseQueue()
+        for queue in [delayed, fresh] {
+            try await seedCompletedV54(
+                in: queue,
+                exactFrame: frame,
+                archiveFrame: frame,
+                retainArchive: true,
+                committedAt: committedAt
+            )
+        }
+
+        let migrator = WhoopStore.makeMigrator()
+        try migrator.migrate(delayed, upTo: PR37V55Migrations.identifier)
+        try await delayed.read { db in
+            XCTAssertEqual(
+                try Int.fetchOne(
+                    db,
+                    sql: "SELECT mappedRawMaxTs FROM historicalMaterializationJob WHERE receiptId = ?",
+                    arguments: [Self.v55ReceiptId]
+                ),
+                frameUnix,
+                "V55 used upgrade wall time and demonstrates the delayed-upgrade bug"
+            )
+        }
+
+        try migrator.migrate(delayed)
+        try migrator.migrate(fresh)
+
+        let delayedValues: [Int?] = try await delayed.read { db in
+            let row = try XCTUnwrap(Row.fetchOne(db, sql: """
+                SELECT mappedRawMinTs, mappedRawMaxTs, protectedByteCount
+                FROM historicalMaterializationJob WHERE receiptId = ?
+                """, arguments: [Self.v55ReceiptId]))
+            return [
+                row["mappedRawMinTs"] as Int?,
+                row["mappedRawMaxTs"] as Int?,
+                row["protectedByteCount"] as Int,
+            ]
+        }
+        let freshValues: [Int?] = try await fresh.read { db in
+            let row = try XCTUnwrap(Row.fetchOne(db, sql: """
+                SELECT mappedRawMinTs, mappedRawMaxTs, protectedByteCount
+                FROM historicalMaterializationJob WHERE receiptId = ?
+                """, arguments: [Self.v55ReceiptId]))
+            return [
+                row["mappedRawMinTs"] as Int?,
+                row["mappedRawMaxTs"] as Int?,
+                row["protectedByteCount"] as Int,
+            ]
+        }
+        XCTAssertEqual(delayedValues, freshValues)
+        XCTAssertNil(delayedValues[0])
+        XCTAssertNil(delayedValues[1])
+        XCTAssertEqual(delayedValues[2], frame.count)
+        try await delayed.read { db in
+            XCTAssertEqual(
+                try Int.fetchOne(
+                    db,
+                    sql: "SELECT COUNT(*) FROM grdb_migrations WHERE identifier = ?",
+                    arguments: [PR37V56Migrations.identifier]
+                ),
+                1
+            )
+        }
+    }
+
+    func testV56QuarantinedCorruptArchiveDoesNotBlockMigration() async throws {
+        let frame = v55V20(unix: 1_781_600_950)
+        let dbQueue = try DatabaseQueue()
+        try await seedCompletedV54(
+            in: dbQueue,
+            exactFrame: frame,
+            archiveFrame: frame,
+            retainArchive: true,
+            state: "quarantined"
+        )
+
+        let migrator = WhoopStore.makeMigrator()
+        try migrator.migrate(dbQueue, upTo: PR37V55Migrations.identifier)
+        try await dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT INTO rawBatch
+                    (batchId, deviceId, lineage, cursorEpoch, capturedAt, deviceClockRef,
+                     wallClockRef, startTs, endTs, frameCount, byteSize, framesBlob, syncedAt)
+                SELECT 'v56-valid-batch', deviceId, lineage, cursorEpoch, capturedAt, deviceClockRef,
+                       wallClockRef, startTs, endTs, frameCount, byteSize, framesBlob, syncedAt
+                FROM rawBatch
+                WHERE batchId = ? AND deviceId = ? AND lineage = ? AND cursorEpoch = 0
+                """, arguments: [Self.v55BatchId, Self.v55DeviceId, Self.v55Lineage])
+            try db.execute(sql: """
+                INSERT INTO historicalDataCommitJournal
+                    (receiptId, databaseInstanceId, deviceId, lineage, cursorEpoch, trimScope,
+                     trim, chunkEndUnix, committedAt, fingerprint, minDecodedTs, maxDecodedTs,
+                     touchedDaysJSON, decodedRowsJSON, insertedRowsJSON, rawBatchId, rawStatus,
+                     burstJSON, rawRangeJSON, timestampHealJSON, isFinal, fingerprintVersion,
+                     timestampBucketsJSON, recordedTimeZoneIdentifier, explicitAffectedDaysJSON)
+                SELECT 'v56-valid-receipt', databaseInstanceId, deviceId, lineage, cursorEpoch,
+                       trimScope, trim + 1, chunkEndUnix, committedAt, 'v56-valid-fingerprint',
+                       minDecodedTs, maxDecodedTs, touchedDaysJSON, decodedRowsJSON,
+                       insertedRowsJSON, 'v56-valid-batch', rawStatus, burstJSON, rawRangeJSON,
+                       timestampHealJSON, isFinal, fingerprintVersion, timestampBucketsJSON,
+                       recordedTimeZoneIdentifier, explicitAffectedDaysJSON
+                FROM historicalDataCommitJournal WHERE receiptId = ?
+                """, arguments: [Self.v55ReceiptId])
+            try db.execute(sql: """
+                INSERT INTO historicalMaterializationJob
+                    (receiptId, databaseInstanceId, rawBatchId, deviceId, lineage, cursorEpoch,
+                     trimScope, selectionMode, state, originalFrameIndexesJSON,
+                     protectedByteCount, mappedRawMinTs, mappedRawMaxTs, attemptCount,
+                     nextAttemptAt, leaseOwner, leaseExpiresAt, lastErrorCode, lastError,
+                     createdAt, updatedAt, completedAt, evictedAt)
+                SELECT 'v56-valid-receipt', databaseInstanceId, 'v56-valid-batch', deviceId,
+                       lineage, cursorEpoch, trimScope, selectionMode, 'pending',
+                       originalFrameIndexesJSON, 8_888, NULL, NULL, 0, NULL, NULL, NULL,
+                       NULL, NULL, createdAt + 1, updatedAt + 1, NULL, NULL
+                FROM historicalMaterializationJob WHERE receiptId = ?
+                """, arguments: [Self.v55ReceiptId])
+            try db.execute(sql: """
+                UPDATE rawBatch SET framesBlob = ?
+                WHERE batchId = ? AND deviceId = ? AND lineage = ? AND cursorEpoch = 0
+                """, arguments: [
+                    Data([0x04, 0x00, 0x00, 0x00, 0x78]),
+                    Self.v55BatchId, Self.v55DeviceId, Self.v55Lineage,
+                ])
+            try db.execute(sql: """
+                UPDATE historicalMaterializationJob
+                SET protectedByteCount = 9_999, mappedRawMinTs = ?, mappedRawMaxTs = ?
+                WHERE receiptId = ?
+                """, arguments: [1_781_600_950, 1_781_600_950, Self.v55ReceiptId])
+        }
+
+        XCTAssertNoThrow(try migrator.migrate(dbQueue))
+
+        try await dbQueue.read { db in
+            let row = try XCTUnwrap(Row.fetchOne(db, sql: """
+                SELECT state, protectedByteCount, mappedRawMinTs, mappedRawMaxTs
+                FROM historicalMaterializationJob WHERE receiptId = ?
+                """, arguments: [Self.v55ReceiptId]))
+            XCTAssertEqual(row["state"] as String, "quarantined")
+            XCTAssertEqual(row["protectedByteCount"] as Int, 9_999)
+            XCTAssertNil(row["mappedRawMinTs"] as Int?)
+            XCTAssertNil(row["mappedRawMaxTs"] as Int?)
+            let valid = try XCTUnwrap(Row.fetchOne(db, sql: """
+                SELECT protectedByteCount, mappedRawMinTs, mappedRawMaxTs
+                FROM historicalMaterializationJob WHERE receiptId = 'v56-valid-receipt'
+                """))
+            XCTAssertEqual(valid["protectedByteCount"] as Int, frame.count)
+            XCTAssertEqual(valid["mappedRawMinTs"] as Int?, 1_781_600_950)
+            XCTAssertEqual(valid["mappedRawMaxTs"] as Int?, 1_781_600_950)
+            XCTAssertEqual(
+                try Int.fetchOne(
+                    db,
+                    sql: "SELECT COUNT(*) FROM grdb_migrations WHERE identifier = ?",
+                    arguments: [PR37V56Migrations.identifier]
+                ),
                 1
             )
         }
@@ -463,7 +638,7 @@ final class MigrationTests: XCTestCase {
                 0
             )
         }
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 55)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 56)
     }
 
     func testV37MigratesLegacyRawBatchIntoItsReceiptScope() async throws {
@@ -673,7 +848,7 @@ final class MigrationTests: XCTestCase {
             let cols = try await store.columnNamesForTest(table: table)
             XCTAssertTrue(cols.contains("synced"), "\(table) missing synced column")
         }
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 55)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 56)
     }
 
     func testV34AddsDurableTodayHealthSnapshotGeneration() async throws {

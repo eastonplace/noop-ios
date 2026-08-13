@@ -137,7 +137,11 @@ final class PR37RegressionMatrixMaterializationTests: XCTestCase {
 
         let run = try await store.materializePendingHistoricalRaw(limit: 2, now: now)
 
-        XCTAssertEqual(run, HistoricalMaterializationRunSummary(claimed: 1, completed: 1))
+        XCTAssertEqual(run, HistoricalMaterializationRunSummary(
+            claimed: 1,
+            completed: 1,
+            nextAttemptAt: now + 1
+        ))
         let expiredRow = try await jobRow(store: store, receiptId: expired.receiptId)
         let liveRow = try await jobRow(store: store, receiptId: live.receiptId)
         XCTAssertEqual(expiredRow.state, HistoricalMaterializationJobState.completed.rawValue)
@@ -150,7 +154,7 @@ final class PR37RegressionMatrixMaterializationTests: XCTestCase {
         XCTAssertEqual(liveRow.leaseExpiresAt, now + 1)
     }
 
-    func testTransientRawDecodeFailureUsesCappedBackoff() async throws {
+    func testDeterministicRawDecodeFailureQuarantinesImmediately() async throws {
         let store = try await WhoopStore.inMemory()
         try await store.upsertDevice(id: deviceId, mac: nil, name: nil)
         let receipt = try await commitMapped(to: store, trim: 201, unix: 1_781_600_201)
@@ -162,19 +166,16 @@ final class PR37RegressionMatrixMaterializationTests: XCTestCase {
             )
         }
 
-        let first = try await store.materializePendingHistoricalRaw(limit: 1, now: 1_781_600_300)
-        let tooEarly = try await store.materializePendingHistoricalRaw(limit: 1, now: 1_781_600_301)
-        let second = try await store.materializePendingHistoricalRaw(limit: 1, now: 1_781_600_330)
+        let run = try await store.materializePendingHistoricalRaw(limit: 1, now: 1_781_600_300)
 
-        XCTAssertEqual(first, HistoricalMaterializationRunSummary(claimed: 1, retryable: 1))
-        XCTAssertEqual(tooEarly, HistoricalMaterializationRunSummary())
-        XCTAssertEqual(second, HistoricalMaterializationRunSummary(claimed: 1, retryable: 1))
+        XCTAssertEqual(run, HistoricalMaterializationRunSummary(claimed: 1, quarantined: 1))
         let row = try await jobRow(store: store, receiptId: receipt.receiptId)
-        XCTAssertEqual(row.state, HistoricalMaterializationJobState.retryable.rawValue)
-        XCTAssertEqual(row.attempts, 2)
-        XCTAssertEqual(row.nextAttemptAt, 1_781_600_390)
+        XCTAssertEqual(row.state, HistoricalMaterializationJobState.quarantined.rawValue)
+        XCTAssertEqual(row.attempts, 1)
+        XCTAssertNil(row.nextAttemptAt)
         XCTAssertNil(row.leaseOwner)
         XCTAssertNil(row.leaseExpiresAt)
+        XCTAssertEqual(row.lastErrorCode, "rawIntegrityFailure")
     }
 
     func testDurableInvalidEnvelopeIsQuarantinedAndRemainsProtectedFromPruning() async throws {
@@ -237,11 +238,116 @@ final class PR37RegressionMatrixMaterializationTests: XCTestCase {
         let run = try await store.materializePendingHistoricalRaw(limit: 2, now: 1_781_600_500)
         let malformedRow = try await jobRow(store: store, receiptId: receipt.receiptId)
         let healthyRow = try await jobRow(store: store, receiptId: healthy.receiptId)
-        XCTAssertEqual(run, HistoricalMaterializationRunSummary(claimed: 1, completed: 1))
+        XCTAssertEqual(run, HistoricalMaterializationRunSummary(
+            claimed: 1,
+            completed: 1,
+            quarantined: 1
+        ))
         XCTAssertEqual(malformedRow.state, HistoricalMaterializationJobState.quarantined.rawValue)
         XCTAssertEqual(malformedRow.attempts, 0)
         XCTAssertEqual(malformedRow.lastErrorCode, "invalidIndexes")
         XCTAssertEqual(healthyRow.state, HistoricalMaterializationJobState.completed.rawValue)
+    }
+
+    func testBootstrapWakeDrainsFivePendingJobsThroughRepeatedBoundedPasses() async throws {
+        let store = try await WhoopStore.inMemory()
+        try await store.upsertDevice(id: deviceId, mac: nil, name: nil)
+        let now = 1_781_600_700
+        var receipts: [HistoricalDataCommitReceipt] = []
+        for offset in 0..<5 {
+            receipts.append(try await commitMapped(
+                to: store,
+                trim: 500 + offset,
+                unix: UInt32(1_781_600_500 + offset)
+            ))
+        }
+
+        var summaries: [HistoricalMaterializationRunSummary] = []
+        repeat {
+            summaries.append(try await store.materializePendingHistoricalRaw(limit: 4, now: now))
+        } while summaries.last?.hasMoreDueWork == true
+
+        XCTAssertEqual(summaries.count, 5)
+        XCTAssertEqual(summaries.map(\.claimed), [1, 1, 1, 1, 1])
+        XCTAssertEqual(summaries.map(\.completed), [1, 1, 1, 1, 1])
+        XCTAssertEqual(summaries.map(\.hasMoreDueWork), [true, true, true, true, false])
+        XCTAssertTrue(summaries.allSatisfy { $0.nextAttemptAt == nil })
+        for receipt in receipts {
+            let row = try await jobRow(store: store, receiptId: receipt.receiptId)
+            XCTAssertEqual(row.state, HistoricalMaterializationJobState.completed.rawValue)
+            XCTAssertEqual(row.attempts, 1)
+        }
+    }
+
+    func testFourMalformedRowsBeforeHealthyStillReachHealthyWithinScanBudget() async throws {
+        let store = try await WhoopStore.inMemory()
+        try await store.upsertDevice(id: deviceId, mac: nil, name: nil)
+        var malformed: [HistoricalDataCommitReceipt] = []
+        for offset in 0..<4 {
+            malformed.append(try await commitMapped(
+                to: store,
+                trim: 600 + offset,
+                unix: UInt32(1_781_600_600 + offset)
+            ))
+        }
+        let healthy = try await commitMapped(to: store, trim: 604, unix: 1_781_600_604)
+        let malformedReceipts = malformed
+        try await store.registryWriter.write { db in
+            for receipt in malformedReceipts {
+                try db.execute(
+                    sql: "UPDATE historicalMaterializationJob SET originalFrameIndexesJSON = ? WHERE receiptId = ?",
+                    arguments: [Data("not-json".utf8), receipt.receiptId]
+                )
+            }
+        }
+
+        let run = try await store.materializePendingHistoricalRaw(limit: 4, now: 1_781_600_700)
+
+        XCTAssertEqual(run, HistoricalMaterializationRunSummary(
+            claimed: 1,
+            completed: 1,
+            quarantined: 4
+        ))
+        for receipt in malformed {
+            let row = try await jobRow(store: store, receiptId: receipt.receiptId)
+            XCTAssertEqual(row.state, HistoricalMaterializationJobState.quarantined.rawValue)
+            XCTAssertEqual(row.attempts, 0)
+        }
+        let healthyRow = try await jobRow(store: store, receiptId: healthy.receiptId)
+        XCTAssertEqual(healthyRow.state, HistoricalMaterializationJobState.completed.rawValue)
+        XCTAssertEqual(healthyRow.attempts, 1)
+    }
+
+    func testLostLeaseBeforeFailureDoesNotIncrementFailureSummary() async throws {
+        let store = try await WhoopStore.inMemory()
+        try await store.upsertDevice(id: deviceId, mac: nil, name: nil)
+        let receipt = try await commitMapped(to: store, trim: 700, unix: 1_781_600_700)
+        var corrupt = v20(unix: 1_781_600_700)
+        corrupt[100] ^= 0x01
+        let corruptBlob = try WhoopStore.zlibCompressWithLength(WhoopStore.packFrames([corrupt]))
+        try await store.registryWriter.write { db in
+            try db.execute(
+                sql: "UPDATE rawBatch SET framesBlob = ? WHERE batchId = ?",
+                arguments: [corruptBlob, "pr37-matrix-700"]
+            )
+        }
+        let now = 1_781_600_800
+
+        let run = try await store.materializePendingHistoricalRawLosingLeaseBeforeFailureForTest(
+            limit: 1,
+            now: now
+        )
+
+        XCTAssertEqual(run, HistoricalMaterializationRunSummary(
+            claimed: 1,
+            nextAttemptAt: now + HistoricalRawMaterializationPolicy.leaseSeconds
+        ))
+        let row = try await jobRow(store: store, receiptId: receipt.receiptId)
+        XCTAssertEqual(row.state, HistoricalMaterializationJobState.running.rawValue)
+        XCTAssertEqual(row.attempts, 1)
+        XCTAssertEqual(row.leaseOwner, "replacement-test-worker")
+        XCTAssertEqual(row.leaseExpiresAt, now + HistoricalRawMaterializationPolicy.leaseSeconds)
+        XCTAssertNil(row.lastErrorCode)
     }
 
     func testV54ClaimAndMappedTimestampQueriesUseTheirIndexes() async throws {
