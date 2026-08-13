@@ -64,6 +64,9 @@ then schedule interpretation separately. Production health formulas do not consu
 
 ## Verification log
 
+The immutable head of draft PR #37 is the qualification SHA. The PR body records that literal SHA and
+the matching local/hosted/device evidence; moving the head invalidates these results until rerun.
+
 - Final local mixed 35-frame V18/V20/V21 Debug fixture: p50 3.411 ms, p95 3.583 ms,
   max 3.660 ms.
 - Final local suites: WhoopProtocol 326/326, WhoopStore 436/436, and NOOPiOS 430 passed,
