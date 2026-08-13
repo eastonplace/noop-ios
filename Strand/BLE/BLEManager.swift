@@ -296,6 +296,90 @@ struct HistoricalEmptyBackoffTracker {
             consecutiveEmpty = min(consecutiveEmpty + 1, 2)
         }
     }
+
+    mutating func recordDisconnect(inFlight: Bool, freshProgress: Bool) {
+        guard inFlight else { return }
+        record(freshProgress: freshProgress)
+    }
+}
+
+/// One monotonic deadline for the complete connected radio burst. Each session receives only the time
+/// remaining before that deadline, so repeated watchdog re-arms cannot extend the 180-second ceiling.
+struct HistoricalRadioDeadline: Equatable {
+    let uptimeDeadline: TimeInterval
+
+    init(startedAt: TimeInterval, budgetSeconds: TimeInterval) {
+        uptimeDeadline = startedAt + max(0, budgetSeconds)
+    }
+
+    func remaining(at uptime: TimeInterval) -> TimeInterval {
+        max(0, uptimeDeadline - uptime)
+    }
+
+    func sessionTimeout(at uptime: TimeInterval, idleTimeout: TimeInterval) -> TimeInterval {
+        min(max(0, idleTimeout), remaining(at: uptime))
+    }
+}
+
+/// Every radio session consumes the hard pass budget. Productivity is tracked separately so duplicate-
+/// only fresh receipts keep a burst productive while replay/console sessions remain zero progress.
+struct HistoricalBurstPassTracker: Equatable {
+    private(set) var totalPasses = 0
+    private(set) var productivePasses = 0
+
+    mutating func startPass() { totalPasses += 1 }
+    mutating func finishPass(freshSourceProgress: Bool) {
+        if freshSourceProgress { productivePasses += 1 }
+    }
+    mutating func reset() {
+        totalPasses = 0
+        productivePasses = 0
+    }
+}
+
+/// Receipt frontier fenced by the complete durable source identity used by a continuation decision.
+struct HistoricalSourceFrontier: Equatable {
+    let scope: HistoricalReceiptWatermark.Scope
+    let normalizedMaxTs: Int?
+    let mappedRawMaxTs: Int?
+
+    var maxTs: Int? {
+        [normalizedMaxTs, mappedRawMaxTs].compactMap { $0 }.max()
+    }
+
+    static func aggregate(
+        receipts: [HistoricalDataCommitReceipt],
+        databaseInstanceId: String,
+        cursorScope: HistoricalCursorScope
+    ) -> Self {
+        let identity = HistoricalReceiptWatermark.SourceIdentity(
+            deviceId: cursorScope.deviceId,
+            lineage: cursorScope.lineage,
+            epoch: Int64(cursorScope.cursorEpoch),
+            trimScope: cursorScope.trimScope
+        )
+        var normalized: Int?
+        var mappedRaw: Int?
+        for receipt in receipts where
+            receipt.databaseInstanceId == databaseInstanceId
+                && receipt.deviceId == cursorScope.deviceId
+                && receipt.lineage == cursorScope.lineage
+                && receipt.cursorEpoch == cursorScope.cursorEpoch
+                && receipt.trimScope == cursorScope.trimScope {
+            normalized = [normalized, receipt.maxDecodedTs].compactMap { $0 }.max()
+            if case .materializationRequired = receipt.rawStatus {
+                mappedRaw = [mappedRaw, receipt.rawRange.maxReceivedTs].compactMap { $0 }.max()
+            }
+        }
+        return Self(
+            scope: HistoricalReceiptWatermark.Scope(
+                databaseInstanceId: databaseInstanceId,
+                sourceIdentity: identity
+            ),
+            normalizedMaxTs: normalized,
+            mappedRawMaxTs: mappedRaw
+        )
+    }
 }
 
 /// Decides whether a backfill session that ended on the 60s IDLE cap (not a true HISTORY_COMPLETE)
@@ -333,7 +417,7 @@ struct HistoricalEmptyBackoffTracker {
 struct BackfillContinuation {
     /// Conservative hard cap on consecutive auto-continues per connection (resets on disconnect). Raising
     /// this above six remains a physical-device energy/radio qualification gate.
-    static let defaultMaxAutoContinues = 6
+    static let defaultMaxTotalPasses = 6
     /// Hard monotonic radio budget for one auto-continued burst. It is independent of wall-clock changes
     /// and bounds a productive-but-pathological strap even before the pass cap is reached.
     static let defaultMaxContinuousRadioSeconds: TimeInterval = 3 * 60
@@ -374,13 +458,13 @@ struct BackfillContinuation {
                                    lastTrimAdvanced: Bool,
                                    passSignatureRepeated: Bool = false,
                                    continuousRadioSeconds: TimeInterval = 0,
-                                   consecutiveCount: Int,
-                                   maxAutoContinues: Int = defaultMaxAutoContinues,
+                                   totalPasses: Int,
+                                   maxTotalPasses: Int = defaultMaxTotalPasses,
                                    maxContinuousRadioSeconds: TimeInterval = defaultMaxContinuousRadioSeconds,
                                    behindGapSeconds: Int = defaultBehindGapSeconds,
                                    futureSkewSeconds: Int = defaultFutureSkewSeconds) -> Bool {
         guard stillConnected else { return false }                 // 1
-        guard consecutiveCount < maxAutoContinues else { return false }   // 4 (cap)
+        guard totalPasses < maxTotalPasses else { return false }   // 4 (cap)
         guard continuousRadioSeconds < maxContinuousRadioSeconds else { return false }
         guard !passSignatureRepeated else { return false }
         guard lastTrimAdvanced else { return false }               // 3 (don't spin on a frozen cursor)
@@ -421,6 +505,7 @@ struct BackfillContinuation {
 /// Durable progress identity for one completed offload pass. Equality means the strap handed back the
 /// same acknowledged trim/content/frontier and an immediate retry would only replay work.
 struct HistoricalPassSignature: Equatable {
+    let scope: HistoricalReceiptWatermark.Scope
     let trim: UInt32
     let fingerprint: String
     let durableFrontierTs: Int
@@ -464,6 +549,19 @@ struct HistoricalMaterializationWakeState: Equatable {
         limit: Int = HistoricalRawMaterializationPolicy.defaultJobLimit
     ) -> Bool {
         claimed == limit && (completed > 0 || quarantined > 0)
+    }
+
+    /// An exact replay may be the first wake after a crash between receipt commit and materialization.
+    /// The store supplies whether that exact coordinate is currently due; replay remains zero BLE progress.
+    static func shouldWakeAfterAcknowledgment(
+        receipt: HistoricalDataCommitReceipt,
+        outcome: HistoricalCommitOutcome,
+        due: Bool
+    ) -> Bool {
+        guard due, case .materializationRequired = receipt.rawStatus else { return false }
+        switch outcome {
+        case .inserted, .replayed: return true
+        }
     }
 }
 
@@ -870,22 +968,24 @@ public final class BLEManager: NSObject, ObservableObject {
     /// Prevents a second backfill from starting on a same-process reconnect to the same strap.
     private var backfillStarted = false
     /// #364 auto-continue: how many times we've immediately re-kicked a backfill after a 60s idle-cap OR
-    /// HISTORY_COMPLETE exit on THIS connection. Bounded by BackfillContinuation.maxAutoContinues so a
-    /// pathological strap can't pin the radio. Reset to 0 once shouldAutoContinue proves we're caught up
-    /// (its else path, under the cap) and on disconnect — NOT unconditionally on every HISTORY_COMPLETE,
-    /// so a strap that slices one offload into many completions can't reset the cap each slice (#25).
-    private var consecutiveAutoContinues = 0
+    /// Total radio sessions and productive sessions in this connected burst. Every session consumes the
+    /// six-pass budget; only fresh sensor receipts establish productivity.
+    private var historicalBurstPasses = HistoricalBurstPassTracker()
+    /// Set only by a newly inserted receipt whose decoded sensor payload was non-empty. The Backfiller's
+    /// mapped-raw tally is combined at session exit, after its plausibility gate has run.
+    private var historicalSessionInsertedSensorReceipt = false
     /// #364 spin-detector: the trim cursor as of the END of the previous backfill session this
     /// connection. exitBackfilling compares the current Backfiller.lastAckedTrim against this to decide
     /// whether the just-ended session actually advanced the strap's trim (progress) or froze (stop
     /// re-kicking). nil until the first session ends; reset on disconnect.
     private var lastSessionEndTrim: UInt32?
     private var lastHistoricalPassSignature: HistoricalPassSignature?
-    /// Monotonic start of the current auto-continued radio burst. It resets when the chain quiesces or the
-    /// connection ends; wall-clock adjustments cannot extend it.
-    private var historicalRadioBurstStartedAt: TimeInterval?
+    /// Monotonic deadline shared by every session in the current burst.
+    private var historicalRadioDeadline: HistoricalRadioDeadline?
     private var historicalMaterializationTask: Task<Void, Never>?
     private var historicalMaterializationWake = HistoricalMaterializationWakeState()
+    private var historicalMaterializationWorkerGeneration = 0
+    private var historicalMaterializationRetryTask: Task<Void, Never>?
     /// Runs the connect handshake exactly once per connection. Confirmed-write purpose tokens keep later
     /// callbacks out of the handshake path. Keep this guard as defense in depth. Reset on disconnect.
     private var connectHandshakeDone = false
@@ -1164,10 +1264,18 @@ public final class BLEManager: NSObject, ObservableObject {
                                 onHistoricalCommitContext: { [weak self] context in
                                     self?.recordHistoricalCommit(context)
                                 },
-                                onHistoricalAcknowledged: { [weak self, weak store] receipt, _ in
-                                    guard case .materializationRequired = receipt.rawStatus,
-                                          let store else { return }
-                                    self?.scheduleHistoricalMaterialization(on: store)
+                                onHistoricalAcknowledged: { [weak self, weak store] receipt, outcome in
+                                    guard let store else { return }
+                                    Task { @MainActor [weak self, weak store] in
+                                        guard let self, let store else { return }
+                                        let due = (try? await store.isHistoricalMaterializationDue(
+                                            receiptId: receipt.receiptId
+                                        )) ?? false
+                                        guard HistoricalMaterializationWakeState.shouldWakeAfterAcknowledgment(
+                                            receipt: receipt, outcome: outcome, due: due
+                                        ) else { return }
+                                        self.scheduleHistoricalMaterialization(on: store)
+                                    }
                                 },
                                 onChunk: { [weak self] decoded, console in
                                     if decoded { self?.state.decodedChunksThisSession += 1 }
@@ -2109,12 +2217,17 @@ public final class BLEManager: NSObject, ObservableObject {
             sessionGeneration: historicalSessionGeneration)
         backfiller.begin(
             family: selectedModel.deviceFamily,
-            continuedAfterRows: consecutiveAutoContinues > 0,
+            continuedAfterRows: historicalBurstPasses.productivePasses > 0,
             sourceIdentity: admittedSource,
             historicalCursorScope: admittedScope)
-        if historicalRadioBurstStartedAt == nil {
-            historicalRadioBurstStartedAt = ProcessInfo.processInfo.systemUptime
+        if historicalRadioDeadline == nil {
+            historicalRadioDeadline = HistoricalRadioDeadline(
+                startedAt: ProcessInfo.processInfo.systemUptime,
+                budgetSeconds: BackfillContinuation.defaultMaxContinuousRadioSeconds
+            )
         }
+        historicalBurstPasses.startPass()
+        historicalSessionInsertedSensorReceipt = false
         backfilling = true
         state.backfilling = true
         state.historicalSyncSessionState = .syncing
@@ -2186,7 +2299,8 @@ public final class BLEManager: NSObject, ObservableObject {
         invalidateHistoricalBackfill(reason: "historical backfill failed")
         state.historicalSyncSessionState = .failed
         historicalEmptyBackoff.record(freshProgress: false)
-        historicalRadioBurstStartedAt = nil
+        historicalRadioDeadline = nil
+        historicalBurstPasses.reset()
         startBackfillTimer()
         switch failure {
         case .acknowledgment:
@@ -2226,13 +2340,23 @@ public final class BLEManager: NSObject, ObservableObject {
     static let backfillIdleTimeoutSeconds = 60
     private func armBackfillTimeout() {
         backfillTimeout?.cancel()
+        let sessionGeneration = historicalSessionGeneration
+        let timeoutSeconds = historicalRadioDeadline?.sessionTimeout(
+            at: ProcessInfo.processInfo.systemUptime,
+            idleTimeout: TimeInterval(Self.backfillIdleTimeoutSeconds)
+        ) ?? TimeInterval(Self.backfillIdleTimeoutSeconds)
         let item = DispatchWorkItem { [weak self] in
-            guard let self else { return }
+            guard let self,
+                  self.backfilling,
+                  self.historicalSessionGeneration == sessionGeneration else { return }
             self.backfiller?.timeoutFired()
-            self.exitBackfilling(reason: "timeout")
+            self.exitBackfilling(reason: timeoutSeconds <= 0 ? "deadline" : "timeout")
         }
         backfillTimeout = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(BLEManager.backfillIdleTimeoutSeconds), execute: item)
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + .milliseconds(Int((timeoutSeconds * 1_000).rounded(.up))),
+            execute: item
+        )
     }
 
     /// Tear down the backfill session. Does NOT auto-start live HR: the periodic type-47 backfill
@@ -2302,8 +2426,9 @@ public final class BLEManager: NSObject, ObservableObject {
         // a heal re-run so the next analyze tick purges any such pollution — not gated behind the one-shot
         // done flag. Pure UserDefaults set (no engine handle here); IntelligenceEngine honours it next tick.
         let sessionRowsPersisted = backfiller?.sessionRowsPersisted ?? 0
-        let sessionMappedRawRecords = backfiller?.sessionMappedRawRecords ?? 0
-        let freshProgressThisSession = sessionRowsPersisted + sessionMappedRawRecords > 0
+        let freshProgressThisSession = historicalSessionInsertedSensorReceipt
+            || (backfiller?.sessionMappedRawRecords ?? 0) > 0
+        historicalBurstPasses.finishPass(freshSourceProgress: freshProgressThisSession)
         historicalEmptyBackoff.record(freshProgress: freshProgressThisSession)
         // Re-anchor the already-running periodic timer to the adaptive 15 -> 30 -> 60 minute floor.
         startBackfillTimer()
@@ -2362,7 +2487,7 @@ public final class BLEManager: NSObject, ObservableObject {
             // nothing" sync — an EARLIER session in the same burst handed over real rows and this pass just
             // confirms we're caught up. Don't surface the "charge to 100%" framing, and don't count it toward
             // the sustained-empty streak (the productive session already cleared it).
-            let productiveBurstTail = consecutiveAutoContinues > 0
+            let productiveBurstTail = historicalBurstPasses.productivePasses > 0
             let bankedNothing = banking.bankedNothing && !productiveBurstTail
             let sustainedEmpty = productiveBurstTail ? false : emptySyncTracker.recordCompletedSync(
                 bankedSensorRecords: bankedSensorRecords, consoleOnly: banking.bankedNothing)
@@ -2461,12 +2586,13 @@ public final class BLEManager: NSObject, ObservableObject {
         // this safe: a genuinely caught-up strap (newest within behindGapSeconds of the frontier and 0 rows)
         // returns false and stops; that else path is also where the consecutive streak is cleared. Bounded
         // by the consecutive-cap and the spin-detector inside the pure predicate either way.
-        if reason == "timeout" || reason == "HISTORY_COMPLETE" {
+        if reason == "timeout" || reason == "deadline" || reason == "HISTORY_COMPLETE" {
             maybeAutoContinueBackfill(
                 trimAdvanced: trimAdvanced,
-                freshRecordsPersisted: sessionRowsPersisted + sessionMappedRawRecords,
+                freshSourceProgress: freshProgressThisSession,
                 acknowledgedTrim: currentTrim,
-                acknowledgedFingerprint: backfiller?.sessionLastAckedFingerprint
+                acknowledgedFingerprint: backfiller?.sessionLastAckedFingerprint,
+                cursorScope: backfiller?.historicalCursorScope
             )
         } else {
             publishBackfillBurstIfNeeded()
@@ -2478,6 +2604,12 @@ public final class BLEManager: NSObject, ObservableObject {
     /// lying that the strap finished syncing.
     private func recordHistoricalCommit(_ context: HistoricalCommitContext) {
         backfillBurstPublication.record(receipt: context.receipt)
+        if context.receipt.decodedRows.total > 0 {
+            // `onHistoricalCommitContext` fires only for a newly inserted receipt. Therefore a new
+            // duplicate-only sensor receipt advances this source, while an exact receipt replay never
+            // reaches this branch and console-only metadata has zero decoded rows.
+            historicalSessionInsertedSensorReceipt = true
+        }
 
         // A productive commit may resume after didDisconnectPeripheral already finalized and cleared the
         // burst. Finalize again at the receipt boundary so durable work cannot strand behind a dead drain.
@@ -2492,17 +2624,22 @@ public final class BLEManager: NSObject, ObservableObject {
     /// stops until a later external wake. Materialization never blocks the BLE notification, SQLite
     /// commit, or ACK path.
     private func scheduleHistoricalMaterialization(on store: WhoopStore) {
+        historicalMaterializationRetryTask?.cancel()
+        historicalMaterializationRetryTask = nil
         guard historicalMaterializationWake.request() else { return }
         startHistoricalMaterializationPass(on: store)
     }
 
     private func startHistoricalMaterializationPass(on store: WhoopStore) {
         precondition(historicalMaterializationTask == nil)
+        historicalMaterializationWorkerGeneration &+= 1
+        let workerGeneration = historicalMaterializationWorkerGeneration
         historicalMaterializationTask = Task.detached(priority: .utility) { [weak self, weak store] in
             var requestDrainFollowUp = false
             defer {
                 Task { @MainActor [weak self, weak store, requestDrainFollowUp] in
-                    guard let self else { return }
+                    guard let self,
+                          self.historicalMaterializationWorkerGeneration == workerGeneration else { return }
                     self.historicalMaterializationTask = nil
                     guard !self.restoreInProgress, let store else {
                         self.historicalMaterializationWake.cancel()
@@ -2516,14 +2653,28 @@ public final class BLEManager: NSObject, ObservableObject {
                     }
                 }
             }
-            guard let store else { return }
+            guard !Task.isCancelled, let store else { return }
             do {
                 let result = try await store.materializePendingHistoricalRaw()
+                guard !Task.isCancelled else { return }
                 requestDrainFollowUp = HistoricalMaterializationWakeState.shouldRequestDrainFollowUp(
                     claimed: result.claimed,
                     completed: result.completed,
                     quarantined: result.quarantined
                 )
+                if let nextAttemptAt = try? await store.nextHistoricalMaterializationAttemptAt() {
+                    await MainActor.run { [weak self, weak store] in
+                        guard let self, let store else { return }
+                        let delay = max(0, nextAttemptAt - Int(Date().timeIntervalSince1970))
+                        self.historicalMaterializationRetryTask?.cancel()
+                        self.historicalMaterializationRetryTask = Task { @MainActor [weak self, weak store] in
+                            try? await Task.sleep(for: .seconds(delay))
+                            guard !Task.isCancelled, let self, let store,
+                                  !self.restoreInProgress else { return }
+                            self.scheduleHistoricalMaterialization(on: store)
+                        }
+                    }
+                }
                 guard result.claimed > 0 else { return }
                 await MainActor.run { [weak self] in
                     self?.log(
@@ -2533,6 +2684,7 @@ public final class BLEManager: NSObject, ObservableObject {
                     )
                 }
             } catch {
+                guard !Task.isCancelled else { return }
                 await MainActor.run { [weak self] in
                     self?.log("Backfill: deferred mapped-raw materialization paused: \(error)")
                 }
@@ -2569,37 +2721,77 @@ public final class BLEManager: NSObject, ObservableObject {
     /// `lastSessionEndTrim` past the comparison point by the time this Task runs.
     private func maybeAutoContinueBackfill(
         trimAdvanced: Bool,
-        freshRecordsPersisted: Int,
+        freshSourceProgress: Bool,
         acknowledgedTrim: UInt32?,
-        acknowledgedFingerprint: String?
+        acknowledgedFingerprint: String?,
+        cursorScope: HistoricalCursorScope?
     ) {
         // Cheap pre-checks first (no Task if we already know we won't continue): still connected, under
         // the cap, and the trim moved. The frontier read only happens when those already hold.
         guard state.connected, state.bonded else {
-            historicalRadioBurstStartedAt = nil
+            historicalRadioDeadline = nil
+            historicalBurstPasses.reset()
             publishBackfillBurstIfNeeded()
             return
         }
         let newest = strapNewestTs
-        let count = consecutiveAutoContinues
+        let totalPasses = historicalBurstPasses.totalPasses
+        let workerConnectGeneration = connectGeneration
+        let workerSessionGeneration = historicalSessionGeneration
         Task { @MainActor in
-            let frontier = await collector?.latestHistoricalDurableFrontier()?.maxTs
+            guard !Task.isCancelled,
+                  connectGeneration == workerConnectGeneration,
+                  historicalSessionGeneration == workerSessionGeneration,
+                  state.connected, state.bonded else { return }
+            let scopedFrontier: HistoricalSourceFrontier?
+            if let cursorScope, let store = dataStore {
+                if let databaseInstanceId = try? await store.databaseInstanceId(),
+                   let durable = try? await store.latestHistoricalDurableFrontier(
+                    databaseInstanceId: databaseInstanceId,
+                    scope: cursorScope
+                   ) {
+                    scopedFrontier = HistoricalSourceFrontier(
+                        scope: HistoricalReceiptWatermark.Scope(
+                            databaseInstanceId: databaseInstanceId,
+                            sourceIdentity: HistoricalReceiptWatermark.SourceIdentity(
+                                deviceId: cursorScope.deviceId,
+                                lineage: cursorScope.lineage,
+                                epoch: Int64(cursorScope.cursorEpoch),
+                                trimScope: cursorScope.trimScope
+                            )
+                        ),
+                        normalizedMaxTs: durable.normalizedMaxTs,
+                        mappedRawMaxTs: durable.mappedRawMaxTs
+                    )
+                } else {
+                    scopedFrontier = nil
+                }
+            } else {
+                scopedFrontier = nil
+            }
+            guard !Task.isCancelled,
+                  connectGeneration == workerConnectGeneration,
+                  historicalSessionGeneration == workerSessionGeneration else { return }
+            let frontier = scopedFrontier?.maxTs
             let signature = acknowledgedTrim.flatMap { trim in
                 acknowledgedFingerprint.flatMap { fingerprint in
-                    frontier.map {
+                    scopedFrontier.flatMap { scoped in
+                        scoped.maxTs.map {
                         HistoricalPassSignature(
+                            scope: scoped.scope,
                             trim: trim,
                             fingerprint: fingerprint,
                             durableFrontierTs: $0
                         )
+                        }
                     }
                 }
             }
             let signatureRepeated = signature != nil && signature == lastHistoricalPassSignature
             if let signature { lastHistoricalPassSignature = signature }
-            let continuousRadioSeconds = historicalRadioBurstStartedAt.map {
-                max(0, ProcessInfo.processInfo.systemUptime - $0)
-            } ?? 0
+            let remainingRadioSeconds = historicalRadioDeadline?.remaining(
+                at: ProcessInfo.processInfo.systemUptime
+            ) ?? 0
             let wallNow = Int(Date().timeIntervalSince1970)   // #928: real wall clock, at decision time
             let stillConnected = state.connected && state.bonded
             guard BackfillContinuation.shouldAutoContinue(
@@ -2607,18 +2799,19 @@ public final class BLEManager: NSObject, ObservableObject {
                 strapNewestTs: newest,
                 ourFrontierTs: frontier,
                 wallNowUnix: wallNow,
-                rowsPersistedThisSession: freshRecordsPersisted,
+                rowsPersistedThisSession: freshSourceProgress ? 1 : 0,
                 lastTrimAdvanced: trimAdvanced,
                 passSignatureRepeated: signatureRepeated,
-                continuousRadioSeconds: continuousRadioSeconds,
-                consecutiveCount: count) else {
+                continuousRadioSeconds: BackfillContinuation.defaultMaxContinuousRadioSeconds
+                    - remainingRadioSeconds,
+                totalPasses: totalPasses) else {
                 // #1012: name the stop honestly when the future-clock gate is what ended the chain —
                 // without this line the log just goes quiet after one pass and a strap-log export can't
                 // tell "caught up" from "future-dated range refused". Fires ONLY when 2b would otherwise
                 // have continued (still connected, rows banked, trim advanced, under the cap), so a
                 // frozen-trim / cap / disconnect stop is never misattributed to the clock.
-                if stillConnected, freshRecordsPersisted > 0, trimAdvanced,
-                   count < BackfillContinuation.defaultMaxAutoContinues,
+                if stillConnected, freshSourceProgress, trimAdvanced,
+                   totalPasses < BackfillContinuation.defaultMaxTotalPasses,
                    BackfillContinuation.isFutureDatedNewest(newest, wallNowUnix: wallNow) {
                     let aheadH = ((newest ?? wallNow) - wallNow) / 3600
                     log("Backfill: not auto-continuing (#1012) - the strap-reported newest banked record reads \(aheadH)h AHEAD of the wall clock, so the range is future-dated and the strap clock is likely wrong (#928). Stopping after one pass instead of chasing future-dated ranges; the periodic sync keeps draining across connects.")
@@ -2630,10 +2823,10 @@ public final class BLEManager: NSObject, ObservableObject {
                 // EXCEPTION: if we stopped because the per-connection CAP is hit, leave the streak at/over
                 // the cap so it STAYS engaged for the rest of this connection (the 15-min floor takes over);
                 // zeroing it here would immediately re-arm the cap and let a runaway strap spin again.
-                if count < BackfillContinuation.defaultMaxAutoContinues {
-                    consecutiveAutoContinues = 0
+                if totalPasses < BackfillContinuation.defaultMaxTotalPasses {
+                    historicalBurstPasses.reset()
                 }
-                historicalRadioBurstStartedAt = nil
+                historicalRadioDeadline = nil
                 self.publishBackfillBurstIfNeeded()
                 return
             }
@@ -2641,8 +2834,7 @@ public final class BLEManager: NSObject, ObservableObject {
             // gap before this Task ran. requestSync's own gate (!backfilling) handles that, but skip the
             // log/counter churn if so.
             guard !backfilling else { return }
-            consecutiveAutoContinues += 1
-            log("Backfill: auto-continuing (#364/#451) — the trim advanced and the strap is still handing over real records (frontier \(frontier.map(String.init) ?? "?"), strap-reported newest \(newest.map(String.init) ?? "?")); re-kicking offload \(consecutiveAutoContinues)/\(BackfillContinuation.defaultMaxAutoContinues) without waiting the 15-min floor.")
+            log("Backfill: auto-continuing (#364/#451) — the trim advanced and the strap is still handing over real records (frontier \(frontier.map(String.init) ?? "?"), strap-reported newest \(newest.map(String.init) ?? "?")); starting pass \(totalPasses + 1)/\(BackfillContinuation.defaultMaxTotalPasses) without waiting the 15-min floor.")
             // .autoContinue bypasses the BackfillPolicy floor (the whole point — don't wait 15 min);
             // requestSync still re-checks connected/bonded/not-backfilling before kicking, and the
             // consecutive-cap above is the runaway guard.
@@ -2652,7 +2844,8 @@ public final class BLEManager: NSObject, ObservableObject {
                 // The raw rows from the just-ended session are still durable and must not wait for a
                 // future clean completion before becoming visible.
                 publishBackfillBurstIfNeeded()
-                historicalRadioBurstStartedAt = nil
+                historicalRadioDeadline = nil
+                historicalBurstPasses.reset()
             }
         }
     }
@@ -3309,6 +3502,9 @@ public final class BLEManager: NSObject, ObservableObject {
         backfillTimer?.cancel()
         backfillTimer = nil
         historicalMaterializationWake.cancel()
+        historicalMaterializationRetryTask?.cancel()
+        historicalMaterializationRetryTask = nil
+        historicalMaterializationWorkerGeneration &+= 1
         historicalMaterializationTask?.cancel()
         await historicalMaterializationTask?.value
         historicalMaterializationTask = nil
@@ -4132,15 +4328,18 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         // Reset backfill state so the next connect starts a fresh offload (incl. the syncing pill —
         // a dropped link mid-offload must not leave "Syncing strap history…" stuck on, #77).
         backfillStarted = false
-        // #364: the auto-continue streak + spin-detector are per-connection — a fresh connection earns a
-        // fresh budget of back-to-back re-kicks and starts its trim-advance comparison from scratch.
-        consecutiveAutoContinues = 0
+        let disconnectedDuringBackfill = backfilling
+        let disconnectMadeFreshProgress = historicalSessionInsertedSensorReceipt
+            || (backfiller?.sessionMappedRawRecords ?? 0) > 0
+        // #364: burst accounting + spin-detector are per-connection.
+        historicalBurstPasses.reset()
+        historicalSessionInsertedSensorReceipt = false
         lastSessionEndTrim = nil
         lastHistoricalPassSignature = nil
-        historicalRadioBurstStartedAt = nil
+        historicalRadioDeadline = nil
         // A disconnect terminates the current burst. `exitBackfilling` never ran for an in-flight offload,
         // so first capture THIS session's committed rows before publishing the one deferred refresh edge.
-        if backfilling {
+        if disconnectedDuringBackfill {
             let rowsPersisted = backfiller?.sessionRowsPersisted ?? 0
             let droppedImplausible = backfiller?.sessionDroppedImplausible ?? 0
             if droppedImplausible > 0 { IntelligenceEngine.requestTimestampReheal() }
@@ -4152,6 +4351,10 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
                 state.publishHistoricalSyncProgress(progress)
             }
         }
+        historicalEmptyBackoff.recordDisconnect(
+            inFlight: disconnectedDuringBackfill,
+            freshProgress: disconnectMadeFreshProgress
+        )
         // If earlier slices in this burst were durable, publish now rather than requiring a later clean
         // HISTORY_COMPLETE to score/show them.
         publishBackfillBurstIfNeeded()

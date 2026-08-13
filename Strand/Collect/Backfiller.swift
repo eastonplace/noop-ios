@@ -189,6 +189,12 @@ final class Backfiller {
     /// are durable sensor progress even though they intentionally do not expand into per-sample rows on
     /// the BLE/ACK path.
     private(set) var sessionMappedRawRecords = 0
+    /// Newly committed receipt work for this admitted source. A decoded sensor chunk can be new receipt
+    /// progress even when every normalized row deduplicates; exact receipt replays and console-only chunks
+    /// remain zero.
+    private(set) var sessionFreshSensorReceipts = 0
+    /// Complete durable source fence for the newest fresh sensor receipt in this session.
+    private(set) var sessionDurableScope: HistoricalReceiptWatermark.Scope?
     /// Fresh durable timestamps from receipts created in this session. Replayed receipts never update
     /// these fields, so the BLE continuation layer cannot mistake a lost-ACK retry for new progress.
     private(set) var sessionNormalizedMaxTs: Int?
@@ -384,6 +390,8 @@ final class Backfiller {
         chunkOpen = true
         sessionRowsPersisted = 0
         sessionMappedRawRecords = 0
+        sessionFreshSensorReceipts = 0
+        sessionDurableScope = nil
         sessionNormalizedMaxTs = nil
         sessionMappedRawMaxTs = nil
         sessionLastAckedFingerprint = nil
@@ -585,6 +593,24 @@ final class Backfiller {
         return (timestamps.min(), timestamps.max())
     }
 
+    /// A mapped V20/V21 frame may be retained as exact evidence without being trusted as session
+    /// progress. Progress additionally requires a plausible capture timestamp and actual sensor values;
+    /// an all-zero V20 is an empty mapped record, not proof that fresh history advanced.
+    nonisolated static func mappedRawAdvancesProgress(
+        parsed: ParsedFrame,
+        rawFrame: [UInt8],
+        version: Int,
+        wallNow: Int
+    ) -> Bool {
+        guard let unix = parsed.parsed["unix"]?.intValue,
+              isPlausibleHistoricalUnix(unix, wallNow: wallNow) else { return false }
+        guard version == 20 else { return version == 21 }
+        return parsed.parsed.contains { key, value in
+            guard key.hasPrefix("channel_b"), !key.contains("sample_count") else { return false }
+            return value.intArrayValue?.contains(where: { $0 != 0 }) == true
+        }
+    }
+
     private func finishChunk(unix: UInt32, trim: UInt32, endFrame: [UInt8]) async {
         guard let endData = Backfiller.endData(from: endFrame, family: family) else { return }
 
@@ -622,6 +648,7 @@ final class Backfiller {
         var receivedMaxTs: Int?
         var mappedRawVersions: Set<Int> = []
         var mappedRawRecordCount = 0
+        var trustedMappedProgressRange: ClosedRange<Int>?
         var mappedRawFrames: [DecodedChunk.MappedRawFrame] = []
         var preparedFingerprintInput: HistoricalReceivedFrameFingerprintInput?
         var preparedFingerprint: String?
@@ -722,7 +749,27 @@ final class Backfiller {
             let parsed = d.parsed
             mappedRawFrames = d.mappedRawFrames
             mappedRawVersions = Set(mappedRawFrames.map(\.version))
-            mappedRawRecordCount = mappedRawFrames.count
+            let wallNow = Int(Date().timeIntervalSince1970)
+            mappedRawRecordCount = zip(d.parsed, frames).filter { parsed, rawFrame in
+                guard case .mappedRaw(let version) = historicalRecordDisposition(
+                    parsed: parsed, rawFrame: rawFrame, family: fam
+                ) else { return false }
+                return Backfiller.mappedRawAdvancesProgress(
+                    parsed: parsed, rawFrame: rawFrame, version: version, wallNow: wallNow
+                )
+            }.count
+            let trustedMappedTimestamps = zip(d.parsed, frames).compactMap { parsed, rawFrame -> Int? in
+                guard case .mappedRaw(let version) = historicalRecordDisposition(
+                    parsed: parsed, rawFrame: rawFrame, family: fam
+                ), Backfiller.mappedRawAdvancesProgress(
+                    parsed: parsed, rawFrame: rawFrame, version: version, wallNow: wallNow
+                ) else { return nil }
+                return parsed.parsed["unix"]?.intValue
+            }
+            if let minimum = trustedMappedTimestamps.min(),
+               let maximum = trustedMappedTimestamps.max() {
+                trustedMappedProgressRange = minimum...maximum
+            }
             preparedFingerprintInput = d.fingerprintInput
             preparedFingerprint = d.fingerprint
             receivedMinTs = d.fingerprintInput.minReceivedTs
@@ -830,7 +877,7 @@ final class Backfiller {
             // Tally this chunk's outcome so a completed-but-empty session is distinguishable from a
             // caught-up one (#77 family): did it decode sensor rows, and was it console-only?
             let storedMappedRaw = !mappedRawVersions.isEmpty
-            chunkHadSensorContent = !decoded.isEmpty || storedMappedRaw
+            chunkHadSensorContent = !decoded.isEmpty || mappedRawRecordCount > 0
             chunkWasConsoleOnly = decoded.isEmpty && !storedMappedRaw && rejected.isEmpty
             // A chunk that produced no rows AND held no genuine rejects was pure console output — say
             // so calmly so it doesn't read as data loss (the "rejected frames" red herring, #77/#120).
@@ -916,10 +963,11 @@ final class Backfiller {
         // trim must not collide with a prior batch ID, while an exact replay resolves to the same batch.
         let requiresMappedRawRetention = !mappedRawVersions.isEmpty
         if (enableRawCapture || requiresMappedRawRetention), !frames.isEmpty, let rawClockRef {
-            let retainedFrames = requiresMappedRawRetention ? mappedRawFrames.map(\.bytes) : frames
-            let retainedIndexes = requiresMappedRawRetention
-                ? mappedRawFrames.map(\.originalIndex)
-                : Array(frames.indices)
+            let retainCompleteChunk = enableRawCapture
+            let retainedFrames = retainCompleteChunk ? frames : mappedRawFrames.map(\.bytes)
+            let retainedIndexes = retainCompleteChunk
+                ? Array(frames.indices)
+                : mappedRawFrames.map(\.originalIndex)
             let retainedTimestamps = requiresMappedRawRetention ? mappedRawFrames.map(\.unix) : []
             let meta = RawBatchMeta(
                 batchId: "hist-\(admittedScope.key)-\(trim)-\(fingerprint.prefix(16))",
@@ -937,7 +985,8 @@ final class Backfiller {
                 frames: retainedFrames,
                 originalFrameIndexes: retainedIndexes,
                 protocolMetadata: protocolMetadata,
-                historyEndFrame: Data(endFrame))
+                historyEndFrame: Data(endFrame),
+                trustedMappedProgressRange: trustedMappedProgressRange)
         }
 
         let rawCaptureStatus: HistoricalRawCaptureStatus
@@ -1027,6 +1076,18 @@ final class Backfiller {
         sessionRowsPersisted += tally.rows
         sessionMappedRawRecords += inserted ? mappedRawRecordCount : 0
         if inserted {
+            if chunkHadSensorContent || mappedRawRecordCount > 0 {
+                sessionFreshSensorReceipts += 1
+                sessionDurableScope = HistoricalReceiptWatermark.Scope(
+                    databaseInstanceId: receipt.databaseInstanceId,
+                    sourceIdentity: HistoricalReceiptWatermark.SourceIdentity(
+                        deviceId: receipt.deviceId,
+                        lineage: receipt.lineage,
+                        epoch: Int64(receipt.cursorEpoch),
+                        trimScope: receipt.trimScope
+                    )
+                )
+            }
             sessionNormalizedMaxTs = [sessionNormalizedMaxTs, receipt.maxDecodedTs]
                 .compactMap { $0 }.max()
             if case .materializationRequired = receipt.rawStatus {

@@ -424,6 +424,7 @@ extension WhoopStore {
                             SELECT 1 FROM historicalMaterializationJob AS job
                             WHERE job.receiptId = receipt.receiptId
                               AND job.state = 'completed'
+                              AND job.evictedAt IS NOT NULL
                         )
                   )
                 """, arguments: [cutoff])
@@ -447,6 +448,7 @@ extension WhoopStore {
                                  SELECT 1 FROM historicalMaterializationJob AS job
                                  WHERE job.receiptId = receipt.receiptId
                                    AND job.state = 'completed'
+                                   AND job.evictedAt IS NOT NULL
                              )
                        ) AS protected
                 FROM rawBatch AS raw

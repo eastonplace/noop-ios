@@ -106,6 +106,45 @@ final class Whoop5HistoricalV2021Tests: XCTestCase {
         XCTAssertEqual(p.parsed["gyro_x"]?.intArrayValue?.count, 100)
     }
 
+    func testV21MappedRawClassificationRequiresExactSharedShapeGate() {
+        let unix: UInt32 = 1_781_556_371
+        func candidate(total: Int, countA: UInt16 = 100, countB: UInt16 = 100) -> [UInt8] {
+            makeFrame(total: total, version: 21) { f in
+                putU32(&f, 15, unix)
+                f[24] = UInt8(countA & 0xff); f[25] = UInt8(countA >> 8)
+                f[630] = UInt8(countB & 0xff); f[631] = UInt8(countB >> 8)
+            }
+        }
+
+        for total in [1240, 1242, 1248] {
+            let frame = candidate(total: total)
+            let parsed = parseFrame(frame, family: .whoop5)
+            XCTAssertNotEqual(
+                historicalRecordDisposition(parsed: parsed, rawFrame: frame, family: .whoop5),
+                .mappedRaw(version: 21),
+                "only the exact 1244-byte Whoop5RawImu shape may classify as mapped raw"
+            )
+        }
+
+        let exact = candidate(total: Whoop5RawImu.bufferLength)
+        XCTAssertEqual(
+            historicalRecordDisposition(
+                parsed: parseFrame(exact, family: .whoop5), rawFrame: exact, family: .whoop5
+            ),
+            .mappedRaw(version: 21)
+        )
+
+        for (countA, countB) in [(UInt16(99), UInt16(100)), (UInt16(100), UInt16(99))] {
+            let frame = candidate(total: Whoop5RawImu.bufferLength, countA: countA, countB: countB)
+            XCTAssertNotEqual(
+                historicalRecordDisposition(
+                    parsed: parseFrame(frame, family: .whoop5), rawFrame: frame, family: .whoop5
+                ),
+                .mappedRaw(version: 21)
+            )
+        }
+    }
+
     func testV20HeaderActiveAndEmptyBlocks() {
         let unix: UInt32 = 1781556372, idx: UInt32 = 0x01A8CF26
         let frame = makeFrame(total: 2140, version: 20) { f in

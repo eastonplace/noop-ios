@@ -89,7 +89,8 @@ final class HistoricalRawMaterializationTests: XCTestCase {
             frames: [mappedFrame],
             originalFrameIndexes: [mappedIndex],
             protocolMetadata: input.protocolMetadata,
-            historyEndFrame: input.historyEndFrame
+            historyEndFrame: input.historyEndFrame,
+            trustedMappedProgressRange: ts...ts
         )
         return try await store.commitHistoricalChunk(
             streams: Streams(),
@@ -145,6 +146,55 @@ final class HistoricalRawMaterializationTests: XCTestCase {
         XCTAssertEqual(materialized, [Data(mapped)])
     }
 
+    func testReceiptMaintenanceCannotDeleteUnfinishedMaterializationJob() async throws {
+        let store = try await WhoopStore.inMemory()
+        try await store.upsertDevice(id: deviceId, mac: nil, name: nil)
+        let mapped = v20(unix: 1_781_557_150)
+        let receipt = try await commitMapped(
+            store: store,
+            trim: 78,
+            mappedFrame: mapped,
+            completeFrames: [mapped],
+            mappedIndex: 0
+        )
+        try await store.registryWriter.write { db in
+            try db.execute(sql: """
+                INSERT INTO historicalReceiptConsumer
+                    (databaseInstanceId, consumerId, deviceId, lineage, cursorEpoch,
+                     trimScope, throughGeneration, updatedAt)
+                VALUES (?, 'materialization-maintenance-test', ?, ?, ?, ?, ?, ?)
+                """, arguments: [
+                    receipt.databaseInstanceId, receipt.deviceId, receipt.lineage,
+                    receipt.cursorEpoch, receipt.trimScope, receipt.generation, receipt.committedAt,
+                ])
+        }
+
+        let result = try await store.pruneDurablePipelineHistory(
+            terminalRetention: 0,
+            receiptRetention: 0,
+            now: Date(timeIntervalSince1970: TimeInterval(receipt.committedAt + 10_000))
+        )
+
+        XCTAssertEqual(result.receiptRows, 0)
+        let jobState = try await store.historicalMaterializationJobStateForTest(receiptId: receipt.receiptId)
+        let receiptCount = try await store.registryWriter.read { db in
+            try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM historicalDataCommitJournal WHERE receiptId = ?",
+                arguments: [receipt.receiptId]
+            )
+        }
+        let rawFrames = try await store.rawFrames(
+            batchId: "mapped-78",
+            deviceId: deviceId,
+            lineage: scope.lineage,
+            cursorEpoch: scope.cursorEpoch
+        )
+        XCTAssertEqual(jobState, .pending)
+        XCTAssertEqual(receiptCount, 1)
+        XCTAssertEqual(rawFrames, [mapped])
+    }
+
     func testMappedRawAdvancesDurableFrontierWithoutNormalizedRows() async throws {
         let store = try await WhoopStore.inMemory()
         try await store.upsertDevice(id: deviceId, mac: nil, name: nil)
@@ -187,7 +237,7 @@ final class HistoricalRawMaterializationTests: XCTestCase {
         }
     }
 
-    func testCompletedJobReleasesRawBatchForNormalPruning() async throws {
+    func testCompletedJobRetainsExactRawUntilV54RetentionEvictsIt() async throws {
         let store = try await WhoopStore.inMemory()
         try await store.upsertDevice(id: deviceId, mac: nil, name: nil)
         let mapped = v20(unix: 1_781_558_000)
@@ -206,19 +256,75 @@ final class HistoricalRawMaterializationTests: XCTestCase {
             at: 1
         )
 
-        let pruned = try await store.pruneRaw(
+        let initiallyPruned = try await store.pruneRaw(
             now: 1_781_558_100,
             keepWindowSeconds: 1,
             maxUnsyncedBytes: 0
         )
 
-        XCTAssertEqual(pruned, 1)
+        XCTAssertEqual(initiallyPruned, 0)
         let completedState = try await store.historicalMaterializationJobStateForTest(
             receiptId: receipt.receiptId)
         let materialized = try await store.historicalMaterializedFramesForTest(
             receiptId: receipt.receiptId)
         XCTAssertEqual(completedState, .completed)
         XCTAssertEqual(materialized, [Data(mapped)])
+
+        try await store.pruneCompletedHistoricalRawForTest(
+            now: 1_781_558_100,
+            retentionSeconds: 0,
+            maxBytes: 0
+        )
+        let prunedAfterEviction = try await store.pruneRaw(
+            now: 1_781_558_101,
+            keepWindowSeconds: 1,
+            maxUnsyncedBytes: 0
+        )
+        XCTAssertEqual(prunedAfterEviction, 1)
+        let evictedFrames = try await store.historicalMaterializedFramesForTest(
+            receiptId: receipt.receiptId
+        )
+        XCTAssertEqual(evictedFrames, [])
+    }
+
+    func testMixedFullCaptureUsesLegacySelectionAndMaterializesOnlyMappedFrames() async throws {
+        let store = try await WhoopStore.inMemory()
+        try await store.upsertDevice(id: deviceId, mac: nil, name: nil)
+        let mapped = v20(unix: 1_781_558_300)
+        let unrelated = ordinary(unix: 2)
+        let receipt = try await commitMapped(
+            store: store,
+            trim: 79,
+            mappedFrame: mapped,
+            completeFrames: [unrelated, mapped],
+            mappedIndex: 1
+        )
+
+        // Replace the selective retained batch with an exact full-capture row to model legacy V54
+        // migration semantics: every frame is retained, but only mapped records get mapping rows.
+        let fullBlob = try WhoopStore.zlibCompressWithLength(WhoopStore.packFrames([unrelated, mapped]))
+        try await store.registryWriter.write { db in
+            try db.execute(sql: """
+                UPDATE rawBatch
+                SET frameCount = 2, byteSize = ?, framesBlob = ?
+                WHERE batchId = 'mapped-79'
+                """, arguments: [unrelated.count + mapped.count, fullBlob])
+            try db.execute(sql: """
+                UPDATE historicalMaterializationJob
+                SET selectionMode = 'legacyFullCapture',
+                    originalFrameIndexesJSON = ?, protectedByteCount = ?
+                WHERE receiptId = ?
+                """, arguments: [
+                    try JSONEncoder().encode([0, 1]), unrelated.count + mapped.count, receipt.receiptId,
+                ])
+        }
+
+        let run = try await store.materializePendingHistoricalRaw(limit: 1, now: 1_781_558_400)
+        XCTAssertEqual(run, HistoricalMaterializationRunSummary(claimed: 1, completed: 1))
+        let indexes = try await store.historicalMaterializedFrameIndexesForTest(
+            receiptId: receipt.receiptId
+        )
+        XCTAssertEqual(indexes, [1])
     }
 
     func testPendingJobIsClaimedBeforeOlderRetryableFailure() async throws {

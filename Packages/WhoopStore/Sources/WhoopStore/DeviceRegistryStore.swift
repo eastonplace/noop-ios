@@ -158,6 +158,7 @@ public struct DeviceRegistryStore: Sendable {
         // "delete all of this device's data" leaves the raw waveform behind (the same privacy defect
         // this list exists to close).
         "ppgWaveformSample", "strainV2Shadow", "todayHealthSnapshot", "historicalMaterializationJob",
+        "historicalMappedRawFrame",
         "historicalDataCommitJournal", "historicalCursor",
         "historicalAnalysisCheckpoint",
         "historicalReceiptConsumer", "historicalAnalysisWork", "analysisMutationJournal",

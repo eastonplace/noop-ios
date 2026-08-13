@@ -108,9 +108,7 @@ public func historicalRecordDisposition(
         return .mappedRaw(version: 20)
     }
     if family == .whoop5, version == 21 {
-        let completeSixAxis = ["accel_x", "accel_y", "accel_z", "gyro_x", "gyro_y", "gyro_z"]
-            .allSatisfy { parsed.parsed[$0]?.intArrayValue?.count == 100 }
-        if completeSixAxis { return .mappedRaw(version: 21) }
+        if Whoop5RawImu.isValidBuffer(rawFrame) { return .mappedRaw(version: 21) }
     }
     if parsed.parsed["heart_rate"]?.intValue != nil
         || parsed.parsed["gravity_x"]?.doubleValue != nil
@@ -247,7 +245,7 @@ public func extractHistoricalStreams(_ parsed: [ParsedFrame],
     // displayed value. The existing experimental marker keeps the candidate separate from WHOOP 4 raw ADC.
     var experimentalSpO2Minutes: [Int: (sum: Int, count: Int)] = [:]
     for r in parsed {
-        if !r.ok || r.crcOK == false { continue }
+        guard r.ok, r.envelopeOK, r.headerCRCOK == true, r.payloadCRCOK == true else { continue }
         let p = r.parsed
         switch r.typeName {
         case "HISTORICAL_DATA":

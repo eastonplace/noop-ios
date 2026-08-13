@@ -45,10 +45,11 @@ chunks. `BGProcessingTask` may resume durable materialization, but it is not a p
 relaunch on current iOS also requires the accessory setup path to satisfy Apple's restoration rules.
 Those device/runtime cases stay unqualified until tested on a locked physical iPhone.
 
-This PR keeps the existing six-pass continuation ceiling. Each burst also has a three-minute monotonic
-radio budget. Exact replays contribute no fresh progress, repeated trim + fingerprint + durable-frontier
-signatures stop immediately, and empty/stalled attempts back off the periodic floor from 15 to 30 to 60
-minutes. A 24-pass experiment remains blocked until physical energy and radio measurements qualify it.
+This PR keeps the existing six-pass continuation ceiling. Each burst also has one 180-second monotonic
+radio deadline; every next session timeout is capped by the time remaining. Exact replays contribute no
+fresh progress, repeated trim + fingerprint + source-scoped durable-frontier signatures stop immediately,
+and empty/stalled attempts back off the periodic floor from 15 to 30 to 60 minutes. A 24-pass experiment
+remains blocked until physical energy and radio measurements qualify it.
 
 ## Upstream comparison
 
@@ -63,10 +64,14 @@ then schedule interpretation separately. Production health formulas do not consu
 
 ## Verification log
 
-- Final local mixed 35-frame V18/V20/V21 Debug fixture: p50 3.361 ms, p95 3.560 ms,
-  max 3.688 ms.
-- Final local suites: WhoopProtocol 323/323, WhoopStore 425/425, and NOOPiOS 424 passed,
-  0 failed, 1 expected iOS source-contract skip. All retained package suites and seven source audits pass.
+- Final local mixed 35-frame V18/V20/V21 Debug fixture: p50 3.411 ms, p95 3.583 ms,
+  max 3.660 ms.
+- Final local suites: WhoopProtocol 326/326, WhoopStore 436/436, and NOOPiOS 430 passed,
+  0 failed, 1 expected iOS source-contract skip.
+- V55 migration proof: a missing compressed archive is reconstructed from V54 `exactFrame` rows, read
+  back from SQLite, decompressed, and compared byte-for-byte before the duplicate table is removed.
+  Existing-archive mismatch and partial-conversion mismatch both roll back the full migration, preserving
+  the V54 schema, bytes, state, and migration ledger.
 - iOS signposts: `history_chunk_decode`, `history_chunk_commit`, and `history_chunk_ack`.
 - Simulator proof: V20 commits as `materializationRequired`, produces zero normalized rows, never calls the
   rejected-frame archive, and ACKs after commit. Its decoded structural view exposes active samples only;

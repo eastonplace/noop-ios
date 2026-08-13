@@ -227,8 +227,22 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
         frame[15] = UInt8(unix & 0xFF); frame[16] = UInt8((unix >> 8) & 0xFF)
         frame[17] = UInt8((unix >> 16) & 0xFF); frame[18] = UInt8((unix >> 24) & 0xFF)
         frame[Whoop5RawOptical.blockStart] = 25
+        frame[Whoop5RawOptical.blockStart + Whoop5RawOptical.headerLength] = 0x7F
         let headerCRC = crc16Modbus(Array(frame[0..<6]))
         frame[6] = UInt8(headerCRC & 0xFF); frame[7] = UInt8((headerCRC >> 8) & 0xFF)
+        let payloadEnd = frame.count - 4
+        let payloadCRC = crc32(Array(frame[8..<payloadEnd]))
+        frame[payloadEnd] = UInt8(payloadCRC & 0xFF)
+        frame[payloadEnd + 1] = UInt8((payloadCRC >> 8) & 0xFF)
+        frame[payloadEnd + 2] = UInt8((payloadCRC >> 16) & 0xFF)
+        frame[payloadEnd + 3] = UInt8((payloadCRC >> 24) & 0xFF)
+        return frame
+    }
+
+    private func whoop5V20AllZeroFrame(unix: UInt32 = 1_781_557_000) -> [UInt8] {
+        var frame = whoop5V20Frame(unix: unix)
+        frame[Whoop5RawOptical.blockStart] = 0
+        frame[Whoop5RawOptical.blockStart + Whoop5RawOptical.headerLength] = 0
         let payloadEnd = frame.count - 4
         let payloadCRC = crc32(Array(frame[8..<payloadEnd]))
         frame[payloadEnd] = UInt8(payloadCRC & 0xFF)
@@ -481,6 +495,20 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
             return XCTFail("mapped V20 must commit as durable materialization-required raw")
         }
         XCTAssertEqual(batchId, details.rawBatch?.meta.batchId)
+    }
+
+    func testMappedRawProgressRejectsAllZeroAndImplausibleTimestamps() {
+        let now = 1_781_557_100
+        let active = whoop5V20Frame(unix: UInt32(now - 1))
+        let empty = whoop5V20AllZeroFrame(unix: UInt32(now - 1))
+        let future = whoop5V20Frame(unix: UInt32(now + FUTURE_MARGIN + 1))
+
+        XCTAssertTrue(Backfiller.mappedRawAdvancesProgress(
+            parsed: parseFrame(active, family: .whoop5), rawFrame: active, version: 20, wallNow: now))
+        XCTAssertFalse(Backfiller.mappedRawAdvancesProgress(
+            parsed: parseFrame(empty, family: .whoop5), rawFrame: empty, version: 20, wallNow: now))
+        XCTAssertFalse(Backfiller.mappedRawAdvancesProgress(
+            parsed: parseFrame(future, family: .whoop5), rawFrame: future, version: 20, wallNow: now))
     }
 
     @MainActor

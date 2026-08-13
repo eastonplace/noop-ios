@@ -48,11 +48,12 @@ public struct ParsedFrame: Codable, Equatable, Sendable {
         self.typeName = typeName
         self.seq = seq
         self.cmdName = cmdName
-        // The compatibility defaults keep explicit synthetic/test frames source-compatible. Production
-        // parsers always pass all three verdicts. Legacy JSON without these fields decodes fail-closed below.
-        self.envelopeOK = envelopeOK ?? ok
-        self.headerCRCOK = headerCRCOK ?? crcOK
-        self.payloadCRCOK = payloadCRCOK ?? crcOK
+        // Integrity-sensitive synthetic frames must opt in to every verdict. Inferring envelope/header/
+        // payload validity from `ok` or the compatibility `crcOK` alias would let hand-built frames become
+        // ingest-authoritative without proving the complete protected envelope.
+        self.envelopeOK = envelopeOK ?? false
+        self.headerCRCOK = headerCRCOK
+        self.payloadCRCOK = payloadCRCOK
         self.crcOK = crcOK
         self.lenBytes = lenBytes
         self.rawHex = rawHex
@@ -685,13 +686,14 @@ private func decodeWhoop5HistoricalV26(_ frame: [UInt8], fb: FieldBuilder) {
 /// v21 channels are named accel_/gyro_ per the gravity-shell evidence above; v20 wavelength and biological
 /// identity remain OPEN, so channels stay neutral. Whoop5RawOptical preserves the repeated block headers.
 private func decodeWhoop5HistoricalV2021(_ frame: [UInt8], fb: FieldBuilder, version: Int, payloadEnd: Int?) {
-    if frame.count > 10 {
+    let protectedEnd = min(payloadEnd ?? 0, frame.count)
+    if protectedEnd > 10 {
         fb.add(10, 1, "layout_marker", "meta", value: .int(Int(frame[10])))
     }
-    if let idx = readU32(frame, 11) {
+    if 15 <= protectedEnd, let idx = readU32(frame, 11) {
         fb.add(11, 4, "record_index", "meta", value: .int(idx), note: "monotonic lifetime record index")
     }
-    if let unix = readU32(frame, 15) {
+    if 19 <= protectedEnd, let unix = readU32(frame, 15) {
         fb.add(15, 4, "unix", "time", value: .int(unix), note: "real unix seconds")
     }
     if version == 21 {
@@ -707,13 +709,14 @@ private func decodeWhoop5HistoricalV2021(_ frame: [UInt8], fb: FieldBuilder, ver
             ("gyro_x", 640), ("gyro_y", 840), ("gyro_z", 1040),
         ]
         for (name, start) in channels {
+            guard start + 2 * Whoop5RawImu.sampleCount <= protectedEnd else { continue }
             var samples: [Int] = []
-            for i in 0..<100 {
+            for i in 0..<Whoop5RawImu.sampleCount {
                 guard let v = readI16(frame, start + i * 2) else { break }
                 samples.append(v)
             }
-            if samples.count == 100 {
-                fb.add(start, 200, name, "imu", value: .intArray(samples),
+            if samples.count == Whoop5RawImu.sampleCount {
+                fb.add(start, 2 * Whoop5RawImu.sampleCount, name, "imu", value: .intArray(samples),
                        note: "raw i16 samples (scale via Whoop5RawImu: 1/4096 g accel, 2000/32768 dps gyro)")
             }
         }

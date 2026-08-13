@@ -1,5 +1,6 @@
 import XCTest
 @testable import NOOP
+import WhoopStore
 
 @MainActor
 final class BackfillPolicyTests: XCTestCase {
@@ -172,7 +173,7 @@ final class BackfillPolicyTests: XCTestCase {
     }
 
     func testDeepDrainUsesSixProgressAndRadioBoundedContinuations() {
-        XCTAssertEqual(BackfillContinuation.defaultMaxAutoContinues, 6)
+        XCTAssertEqual(BackfillContinuation.defaultMaxTotalPasses, 6)
         XCTAssertEqual(BackfillContinuation.defaultMaxContinuousRadioSeconds, 180)
         XCTAssertTrue(BackfillContinuation.shouldAutoContinue(
             stillConnected: true,
@@ -182,7 +183,7 @@ final class BackfillPolicyTests: XCTestCase {
             rowsPersistedThisSession: 1,
             lastTrimAdvanced: true,
             continuousRadioSeconds: 179,
-            consecutiveCount: 5))
+            totalPasses: 5))
         XCTAssertFalse(BackfillContinuation.shouldAutoContinue(
             stillConnected: true,
             strapNewestTs: 1_800_000_000,
@@ -191,7 +192,7 @@ final class BackfillPolicyTests: XCTestCase {
             rowsPersistedThisSession: 1,
             lastTrimAdvanced: true,
             continuousRadioSeconds: 179,
-            consecutiveCount: 6))
+            totalPasses: 6))
         XCTAssertFalse(BackfillContinuation.shouldAutoContinue(
             stillConnected: true,
             strapNewestTs: 1_800_000_000,
@@ -200,7 +201,7 @@ final class BackfillPolicyTests: XCTestCase {
             rowsPersistedThisSession: 1,
             lastTrimAdvanced: true,
             continuousRadioSeconds: 180,
-            consecutiveCount: 0))
+            totalPasses: 1))
     }
 
     func testReplayAndRepeatedDurableSignatureCannotAutoContinue() {
@@ -215,7 +216,7 @@ final class BackfillPolicyTests: XCTestCase {
             wallNowUnix: base.newest,
             rowsPersistedThisSession: 0,
             lastTrimAdvanced: true,
-            consecutiveCount: 0),
+            totalPasses: 1),
             "a replayed receipt is ACK-safe but is not fresh radio progress")
         XCTAssertFalse(BackfillContinuation.shouldAutoContinue(
             stillConnected: true,
@@ -225,7 +226,97 @@ final class BackfillPolicyTests: XCTestCase {
             rowsPersistedThisSession: 1,
             lastTrimAdvanced: true,
             passSignatureRepeated: true,
-            consecutiveCount: 0))
+            totalPasses: 1))
+    }
+
+    func testRadioDeadlineUsesRemainingTimeAcrossSessions() {
+        let deadline = HistoricalRadioDeadline(startedAt: 100, budgetSeconds: 180)
+
+        XCTAssertEqual(deadline.sessionTimeout(at: 100, idleTimeout: 60), 60)
+        XCTAssertEqual(deadline.sessionTimeout(at: 250, idleTimeout: 60), 30)
+        XCTAssertEqual(deadline.sessionTimeout(at: 280, idleTimeout: 60), 0)
+        XCTAssertEqual(deadline.uptimeDeadline, 280)
+    }
+
+    func testTotalPassesAndProductivePassesRemainSeparate() {
+        var passes = HistoricalBurstPassTracker()
+        passes.startPass()
+        passes.finishPass(freshSourceProgress: false)
+        passes.startPass()
+        passes.finishPass(freshSourceProgress: true)
+
+        XCTAssertEqual(passes.totalPasses, 2)
+        XCTAssertEqual(passes.productivePasses, 1)
+    }
+
+    func testDisconnectContributesToAdaptiveBackoff() {
+        var tracker = HistoricalEmptyBackoffTracker()
+        tracker.recordDisconnect(inFlight: true, freshProgress: false)
+        XCTAssertEqual(tracker.consecutiveEmpty, 1)
+        tracker.recordDisconnect(inFlight: true, freshProgress: true)
+        XCTAssertEqual(tracker.consecutiveEmpty, 0)
+        tracker.recordDisconnect(inFlight: false, freshProgress: false)
+        XCTAssertEqual(tracker.consecutiveEmpty, 0)
+    }
+
+    func testSourceFrontierExcludesOtherDatabaseLineageEpochAndTrimScope() {
+        func receipt(
+            generation: Int64,
+            database: String = "database-a",
+            lineage: String = "lineage-a",
+            epoch: Int = 3,
+            trimScope: String = "historical",
+            maxTs: Int
+        ) -> HistoricalDataCommitReceipt {
+            HistoricalDataCommitReceipt(
+                receiptId: "r-\(generation)", generation: generation,
+                databaseInstanceId: database, deviceId: "strap-a", trim: Int(generation),
+                chunkEndUnix: maxTs, committedAt: maxTs + 1, rawBatchId: nil,
+                insertedRows: HistoricalStreamInsertCounts(hr: 1),
+                fingerprint: String(repeating: "0", count: 64),
+                lineage: lineage, cursorEpoch: epoch, trimScope: trimScope,
+                maxDecodedTs: maxTs
+            )
+        }
+        let scope = HistoricalCursorScope(
+            deviceId: "strap-a", lineage: "lineage-a", cursorEpoch: 3,
+            trimScope: "historical"
+        )
+        let frontier = HistoricalSourceFrontier.aggregate(
+            receipts: [
+                receipt(generation: 1, maxTs: 100),
+                receipt(generation: 2, database: "database-b", maxTs: 900),
+                receipt(generation: 3, lineage: "lineage-b", maxTs: 800),
+                receipt(generation: 4, epoch: 4, maxTs: 700),
+                receipt(generation: 5, trimScope: "replay", maxTs: 600),
+            ],
+            databaseInstanceId: "database-a",
+            cursorScope: scope
+        )
+
+        XCTAssertEqual(frontier.maxTs, 100)
+        XCTAssertEqual(frontier.scope.databaseInstanceId, "database-a")
+        XCTAssertEqual(frontier.scope.sourceIdentity.deviceId, "strap-a")
+        XCTAssertEqual(frontier.scope.sourceIdentity.lineage, "lineage-a")
+        XCTAssertEqual(frontier.scope.sourceIdentity.epoch, 3)
+        XCTAssertEqual(frontier.scope.sourceIdentity.trimScope, "historical")
+    }
+
+    func testMaterializationReplayStillWakesDueWork() {
+        let receipt = HistoricalDataCommitReceipt(
+            receiptId: "mapped", generation: 1, databaseInstanceId: "database-a",
+            deviceId: "strap-a", trim: 1, chunkEndUnix: 100, committedAt: 101,
+            rawBatchId: "batch-a", insertedRows: HistoricalStreamInsertCounts(),
+            fingerprint: String(repeating: "0", count: 64),
+            rawStatus: .materializationRequired(batchId: "batch-a")
+        )
+
+        XCTAssertTrue(HistoricalMaterializationWakeState.shouldWakeAfterAcknowledgment(
+            receipt: receipt, outcome: .replayed, due: true
+        ))
+        XCTAssertFalse(HistoricalMaterializationWakeState.shouldWakeAfterAcknowledgment(
+            receipt: receipt, outcome: .replayed, due: false
+        ))
     }
 
     func testEmptyBackoffTrackerSaturatesAndFreshReceiptClearsIt() {

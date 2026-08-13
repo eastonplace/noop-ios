@@ -23,6 +23,7 @@ final class HistoricalTimestampGateTests: XCTestCase {
     private func histFrame(unix: Int, bpm: Int = 60) -> ParsedFrame {
         ParsedFrame(
             ok: true, typeName: "HISTORICAL_DATA", seq: 24, cmdName: nil, crcOK: true,
+            envelopeOK: true, headerCRCOK: true, payloadCRCOK: true,
             lenBytes: 0, rawHex: "", fields: [],
             parsed: ["hist_version": .int(24), "unix": .int(unix), "heart_rate": .int(bpm)]
         )
@@ -32,6 +33,7 @@ final class HistoricalTimestampGateTests: XCTestCase {
     private func eventFrame(kind: String, unix: Int) -> ParsedFrame {
         ParsedFrame(
             ok: true, typeName: "EVENT", seq: 48, cmdName: nil, crcOK: true,
+            envelopeOK: true, headerCRCOK: true, payloadCRCOK: true,
             lenBytes: 0, rawHex: "", fields: [],
             parsed: ["event": .string(kind), "event_timestamp": .int(unix)]
         )

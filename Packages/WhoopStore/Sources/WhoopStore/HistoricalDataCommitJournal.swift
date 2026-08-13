@@ -383,19 +383,24 @@ public struct HistoricalRawBatch: Equatable, Sendable {
     public let originalFrameIndexes: [Int]
     public let protocolMetadata: Data
     public let historyEndFrame: Data?
+    /// Only mapped records that passed the production timestamp/content progress gates. The retained
+    /// archive may still contain implausible or mapped-empty records for exact research replay.
+    public let trustedMappedProgressRange: ClosedRange<Int>?
 
     public init(
         meta: RawBatchMeta,
         frames: [[UInt8]],
         originalFrameIndexes: [Int]? = nil,
         protocolMetadata: Data = Data(),
-        historyEndFrame: Data? = nil
+        historyEndFrame: Data? = nil,
+        trustedMappedProgressRange: ClosedRange<Int>? = nil
     ) {
         self.meta = meta
         self.frames = frames
         self.originalFrameIndexes = originalFrameIndexes ?? Array(frames.indices)
         self.protocolMetadata = protocolMetadata
         self.historyEndFrame = historyEndFrame
+        self.trustedMappedProgressRange = trustedMappedProgressRange
     }
 
     /// The raw batch can provide the exact identity input when retention is enabled. A Backfiller that
@@ -934,9 +939,16 @@ extension WhoopStore {
             if case .materializationRequired = effectiveRawStatus,
                let packedRawBatch,
                let rawBatch {
+                let selectionMode = rawBatch.originalFrameIndexes == Array(fingerprintInput.orderedFrames.indices)
+                    ? "legacyFullCapture"
+                    : "selectiveMapped"
                 try WhoopStore.insertHistoricalMaterializationJob(
                     receiptId: receiptId,
+                    databaseInstanceId: databaseInstanceId,
+                    trimScope: resolvedScope.trimScope,
+                    selectionMode: selectionMode,
                     rawMeta: packedRawBatch.meta,
+                    trustedMappedProgressRange: rawBatch.trustedMappedProgressRange,
                     originalFrameIndexes: rawBatch.originalFrameIndexes,
                     createdAt: committedAt,
                     in: db

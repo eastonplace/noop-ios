@@ -176,6 +176,11 @@ extension WhoopStore {
                           AND r.generation BETWEEN
                               w.firstReceiptGeneration AND w.lastReceiptGeneration
                       )
+                      AND NOT EXISTS (
+                        SELECT 1 FROM historicalMaterializationJob m
+                        WHERE m.receiptId = r.receiptId
+                          AND (m.state != 'completed' OR m.evictedAt IS NULL)
+                      )
                     """, arguments: [receiptCutoff])
                 result.receiptRows = db.changesCount
             }
