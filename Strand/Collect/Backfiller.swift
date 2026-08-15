@@ -96,6 +96,18 @@ struct HistoricalCommitContext: Equatable, Sendable {
     let sourceIdentity: HistoricalReceiptWatermark.SourceIdentity
 }
 
+/// Immutable WHOOP 5 secure-session ownership admitted for one historical offload.
+///
+/// This is intentionally separate from the durable cursor scope. The scope identifies where bytes are
+/// committed; this value identifies the live BLE/secure attempt that is allowed to route frames and ACK
+/// those bytes. A reconnect to the same peripheral changes `connectGeneration`, while a restarted secure
+/// handshake on that connection changes `attemptEpoch`.
+struct Whoop5HistoricalSessionAdmission: Equatable, Sendable {
+    let peripheralID: UUID
+    let connectGeneration: Int
+    let attemptEpoch: UInt64
+}
+
 enum BackfillFailure: Equatable, Sendable {
     case integrity(trim: UInt32)
     case fingerprint(trim: UInt32)
@@ -138,6 +150,9 @@ final class Backfiller {
     /// HISTORY_END metadata.data[10:18]) that the high-freq-sync ack form requires verbatim. The caller
     /// returns only after CoreBluetooth confirms this exact write on the admitted connection.
     private let ackTrim: (_ scope: HistoricalCursorScope, _ trim: UInt32, _ endData: [UInt8]) async -> Bool
+    /// WHOOP 5 secure route. The live owner receives the same immutable admission that entered `begin` and
+    /// every `ingest`, so it can bind the confirmed write to peripheral, connection, and attempt identity.
+    private let ackTrimForWhoop5Admission: ((_ scope: HistoricalCursorScope, _ trim: UInt32, _ endData: [UInt8], _ admission: Whoop5HistoricalSessionAdmission) async -> Bool)?
     private let extract: Extractor
     private let parse: Parser
     /// Research toggle. When false (DEFAULT) no raw frames are persisted — the chunk's
@@ -301,6 +316,11 @@ final class Backfiller {
     /// once per distinct layout this session. Default nil (inert) so tests / non-prod inits are untouched.
     private let firmwareLayout: ((Int) -> Void)?
     private let onFailure: ((BackfillFailure) -> Void)?
+    /// Live owner check supplied by BLEManager. The admitted value is frozen at `begin`; every route and
+    /// post-suspension continuation must still match both that value and the caller's current secure owner.
+    private let isWhoop5AdmissionCurrent: @MainActor (Whoop5HistoricalSessionAdmission) -> Bool
+    private(set) var whoop5Admission: Whoop5HistoricalSessionAdmission?
+    private var requiresWhoop5Admission = false
 
     init(store: BackfillStoreWriting,
          deviceId: String,
@@ -318,6 +338,8 @@ final class Backfiller {
          connectionLog: ((String) -> Void)? = nil,
          firmwareLayout: ((Int) -> Void)? = nil,
          onFailure: ((BackfillFailure) -> Void)? = nil,
+         isWhoop5AdmissionCurrent: @escaping @MainActor (Whoop5HistoricalSessionAdmission) -> Bool = { _ in true },
+         ackTrimForWhoop5Admission: ((_ scope: HistoricalCursorScope, _ trim: UInt32, _ endData: [UInt8], _ admission: Whoop5HistoricalSessionAdmission) async -> Bool)? = nil,
          // The default (prod) Extractor reads the opt-in HR-from-PPG sub-lag interpolation flag (Test Centre →
          // Experimental algorithms) at decode time and threads it into the pure decoder, so the pure package
          // never reaches for UserDefaults. Default OFF = byte-identical to today. Tests inject their own seam.
@@ -343,8 +365,18 @@ final class Backfiller {
         self.connectionLog = connectionLog
         self.firmwareLayout = firmwareLayout
         self.onFailure = onFailure
+        self.isWhoop5AdmissionCurrent = isWhoop5AdmissionCurrent
+        self.ackTrimForWhoop5Admission = ackTrimForWhoop5Admission
+        self.whoop5Admission = nil
         self.extract = extract
         self.parse = parse
+    }
+
+    private func ownsRoute(_ admission: Whoop5HistoricalSessionAdmission?) -> Bool {
+        if admission == nil { return !requiresWhoop5Admission }
+        guard whoop5Admission == admission else { return false }
+        guard let admission else { return true }
+        return isWhoop5AdmissionCurrent(admission)
     }
 
     private func fail(_ failure: BackfillFailure) {
@@ -366,13 +398,26 @@ final class Backfiller {
     /// Called by BLEManager when the strap signals a historical offload is beginning.
     /// chunkOpen starts TRUE: the high-freq-sync biometric replay streams records immediately and
     /// sends one HISTORY_START then repeated HISTORY_ENDs, so we must accumulate from the outset.
+    @discardableResult
     func begin(
         family: DeviceFamily,
         continuedAfterRows: Bool = false,
         sourceIdentity: HistoricalReceiptWatermark.SourceIdentity? = nil,
-        historicalCursorScope: HistoricalCursorScope
-    ) {
+        historicalCursorScope: HistoricalCursorScope,
+        whoop5Admission: Whoop5HistoricalSessionAdmission? = nil
+    ) -> Bool {
         sessionGeneration &+= 1
+        requiresWhoop5Admission = whoop5Admission != nil
+        self.whoop5Admission = nil
+        guard whoop5Admission.map(isWhoop5AdmissionCurrent) ?? true else {
+            isBackfilling = false
+            chunk.removeAll(keepingCapacity: true)
+            sessionProtocolMetadata.removeAll(keepingCapacity: true)
+            chunkOpen = false
+            log?("Backfill: rejected stale WHOOP 5 secure-session admission before history begin.")
+            return false
+        }
+        self.whoop5Admission = whoop5Admission
         self.family = family
         self.historicalCursorScope = historicalCursorScope
         if let sourceIdentity {
@@ -411,10 +456,28 @@ final class Backfiller {
         // re-publishes them as soon as the range reply arrives.
         sessionOldestUnix = nil
         sessionNewestUnix = nil
+        return true
     }
 
     /// Feed one raw BLE frame into the state machine. May trigger async store operations.
     func ingest(_ frame: [UInt8]) async {
+        await ingest(frame, admittedBy: nil)
+    }
+
+    /// Explicit secure-session route for WHOOP 5 history. Once a session begins with an admission, the
+    /// legacy unowned route and frames carrying any other admission are rejected before they mutate state.
+    func ingest(_ frame: [UInt8], admittedBy admission: Whoop5HistoricalSessionAdmission) async {
+        await ingest(frame, admittedBy: Optional(admission))
+    }
+
+    private func ingest(
+        _ frame: [UInt8],
+        admittedBy admission: Whoop5HistoricalSessionAdmission?
+    ) async {
+        guard ownsRoute(admission) else {
+            log?("Backfill: ignored historical frame from a stale or unowned secure-session admission.")
+            return
+        }
         switch classifyHistoricalMeta(parseFrame(frame, family: family)) {
         case .start:
             sessionProtocolMetadata = Data(frame)
@@ -422,7 +485,7 @@ final class Backfiller {
             chunk.removeAll(keepingCapacity: true)
             chunkOpen = true
         case .end(let unix, let trim):
-            await finishChunk(unix: unix, trim: trim, endFrame: frame)
+            await finishChunk(unix: unix, trim: trim, endFrame: frame, admission: admission)
         case .complete:
             isBackfilling = false
             chunk.removeAll(keepingCapacity: true)
@@ -626,7 +689,13 @@ final class Backfiller {
         }
     }
 
-    private func finishChunk(unix: UInt32, trim: UInt32, endFrame: [UInt8]) async {
+    private func finishChunk(
+        unix: UInt32,
+        trim: UInt32,
+        endFrame: [UInt8],
+        admission: Whoop5HistoricalSessionAdmission?
+    ) async {
+        guard ownsRoute(admission) else { return }
         guard let endData = Backfiller.endData(from: endFrame, family: family) else { return }
 
         // Capture every mutable admission input before the detached decode can suspend. In particular,
@@ -757,7 +826,7 @@ final class Backfiller {
                 return
             }
             PerformanceTrace.end(decodeTrace, changedRows: frames.count)
-            guard sessionGeneration == admittedSessionGeneration else {
+            guard sessionGeneration == admittedSessionGeneration, ownsRoute(admission) else {
                 log?("Backfill: dropped decoded trim=\(trim) from a superseded session before commit.")
                 return
             }
@@ -1029,7 +1098,7 @@ final class Backfiller {
         if let beforeHistoricalCommit {
             await beforeHistoricalCommit()
         }
-        guard sessionGeneration == admittedSessionGeneration else {
+        guard sessionGeneration == admittedSessionGeneration, ownsRoute(admission) else {
             log?("Backfill: dropped trim=\(trim) because its session was superseded before commit.")
             return
         }
@@ -1058,7 +1127,7 @@ final class Backfiller {
             )
         } catch {
             PerformanceTrace.end(commitTrace)
-            guard sessionGeneration == admittedSessionGeneration else { return }
+            guard sessionGeneration == admittedSessionGeneration, ownsRoute(admission) else { return }
             log?("Backfill: failed to atomically commit historical chunk (trim=\(trim)): \(error) — holding ack so the strap re-sends this chunk; history won't advance until the local commit succeeds.")
             fail(.commit(trim: trim))
             return
@@ -1066,14 +1135,13 @@ final class Backfiller {
         let receipt = commitResult.receipt
         let inserted = commitResult.outcome == .inserted
         PerformanceTrace.end(commitTrace, changedRows: inserted ? receipt.insertedRows.total : 0)
-        guard sessionGeneration == admittedSessionGeneration else {
+        guard sessionGeneration == admittedSessionGeneration, ownsRoute(admission) else {
             // The receipt is durable under its original scope, but a newer session now owns the strap.
             // Never publish its state or ACK it through the new session.
-            log?("Backfill: committed trim=\(trim) from a superseded session — leaving it unacked for safe replay.")
+            log?("Backfill: committed trim=\(trim) after secure-session ownership changed — leaving it unacked with zero current-session progress for safe replay.")
             return
         }
         if inserted {
-            onChunk?(chunkHadSensorContent, chunkWasConsoleOnly)
             onHistoricalCommit?(receipt)
             let durableSource = HistoricalReceiptWatermark.SourceIdentity(
                 deviceId: receipt.deviceId,
@@ -1092,6 +1160,39 @@ final class Backfiller {
             ? decodedForCommit.gravity.map(\.ts) + decodedForCommit.hr.map(\.ts)
             : []
         let tally = Backfiller.chunkTally(counts: freshCounts, timestamps: freshTimestamps)
+
+        guard ownsRoute(admission) else {
+            log?("Backfill: secure-session ownership changed before trim=\(trim) ACK — leaving the durable receipt for replay.")
+            return
+        }
+        let ackTrace = PerformanceTrace.begin("history_chunk_ack")
+        let ackConfirmed: Bool
+        if let admission {
+            guard let ackTrimForWhoop5Admission else {
+                PerformanceTrace.end(ackTrace)
+                log?("Backfill: no owner-bound WHOOP 5 ACK route for trim=\(trim) — leaving the durable receipt for replay.")
+                return
+            }
+            ackConfirmed = await ackTrimForWhoop5Admission(admittedScope, trim, endData, admission)
+        } else {
+            ackConfirmed = await ackTrim(admittedScope, trim, endData)
+        }
+        PerformanceTrace.end(ackTrace)
+        guard sessionGeneration == admittedSessionGeneration, ownsRoute(admission) else {
+            log?("Backfill: ignored ACK result for trim=\(trim) after its session was superseded.")
+            return
+        }
+        guard ackConfirmed else {
+            // A receipt is durable, but the strap did not confirm the exact ACK on the admitted BLE
+            // session. Hold every later ACK: a fresh session can replay the idempotent receipt safely,
+            // while the strap retains this chunk rather than trimming beyond the unconfirmed frontier.
+            log?("Backfill: historical ACK was not confirmed for admitted scope \(admittedScope.key), trim=\(trim) — holding later ACKs so the strap re-sends this frontier.")
+            fail(.acknowledgment(trim: trim))
+            return
+        }
+        if inserted {
+            onChunk?(chunkHadSensorContent, chunkWasConsoleOnly)
+        }
         sessionRowsPersisted += tally.rows
         sessionMappedRawRecords += inserted ? mappedRawRecordCount : 0
         if inserted {
@@ -1121,47 +1222,16 @@ final class Backfiller {
         sessionSkinTempRows += freshCounts.skinTemp
         sessionNightKeys.formUnion(tally.nights)
 
-        // Connection test mode: per-chunk offload PROGRESS (running session totals), so a report shows
-        // the offload advancing rather than only its final outcome. Gated zero-cost.
+        // Only the still-current secure owner may expose continuation progress from this receipt.
         emitConnection("offload progress trim=\(trim) chunkRows=\(tally.rows) "
             + "sessionRows=\(sessionRowsPersisted) sessionMotion=\(sessionMotionRows) nights=\(sessionNights)")
-
-        // #150 / #783 / #1: trim=0xFFFFFFFF is the strap's "no valid flash cursor" sentinel. Its MEANING
-        // depends on whether this run already banked anything. On the FIRST end of a fresh offload it means
-        // "no banked history" (a clock/charge state). But the auto-continuation (#364) re-kicks
-        // SEND_HISTORICAL after a run that DID persist rows, and the very next end then carries 0xFFFFFFFF
-        // to mean "you are caught up, nothing left past the last trim", NOT "no history". Emitting the scary
-        // "fully charge it" line there was wrong and alarmed users whose strap had just synced fine (#783).
-        // We gate this AFTER the persist block (#1): a bad-clock/flash strap can emit records on the SAME
-        // 0xFFFFFFFF END, so `sessionRowsPersisted` must already include THIS end's own rows before the
-        // pick, otherwise a records-bearing no-cursor END false-alarms "no banked history". So gate on
-        // `sessionRowsPersisted == 0` HERE: if rows landed (this run or this END), log the neutral caught-up
-        // line; a genuinely empty session (0 rows) still gets the real no-history guidance. Logs once per
-        // session (loggedNoCursor) and the ack still proceeds below.
         if trim == 0xFFFFFFFF, !loggedNoCursor {
             loggedNoCursor = true
             log?(Backfiller.noCursorLine(
                 rowsPersisted: sessionRowsPersisted,
                 mappedRawRecords: sessionMappedRawRecords,
                 continuedAfterRows: continuedAfterRows))
-            // Connection test mode: the no-cursor sentinel as a compact tagged line (gated zero-cost).
             emitConnection(ConnectionTrace.noCursorLine())
-        }
-
-        let ackTrace = PerformanceTrace.begin("history_chunk_ack")
-        let ackConfirmed = await ackTrim(admittedScope, trim, endData)
-        PerformanceTrace.end(ackTrace)
-        guard sessionGeneration == admittedSessionGeneration else {
-            log?("Backfill: ignored ACK result for trim=\(trim) after its session was superseded.")
-            return
-        }
-        guard ackConfirmed else {
-            // A receipt is durable, but the strap did not confirm the exact ACK on the admitted BLE
-            // session. Hold every later ACK: a fresh session can replay the idempotent receipt safely,
-            // while the strap retains this chunk rather than trimming beyond the unconfirmed frontier.
-            log?("Backfill: historical ACK was not confirmed for admitted scope \(admittedScope.key), trim=\(trim) — holding later ACKs so the strap re-sends this frontier.")
-            fail(.acknowledgment(trim: trim))
-            return
         }
         lastAckedTrim = trim   // #364: record the advanced cursor for the auto-continue spin-detector
         sessionLastAckedFingerprint = fingerprint
@@ -1172,6 +1242,7 @@ final class Backfiller {
     /// Clears state without acking — the chunk was never durably committed.
     func timeoutFired() {
         sessionGeneration &+= 1
+        whoop5Admission = nil
         isBackfilling = false
         chunk.removeAll(keepingCapacity: true)
         chunkOpen = false

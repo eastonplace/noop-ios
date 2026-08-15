@@ -3,6 +3,7 @@ import CoreBluetooth
 import WhoopProtocol
 import WhoopStore
 import StrandAnalytics
+import NoopPhase34Core
 // #78/#747 hole-4: the one-shot bond-loop salvage probe listens for the app-foreground notification,
 // which lives in UIKit on iOS and AppKit on macOS (see installForegroundSalvageProbe).
 #if os(iOS)
@@ -797,9 +798,17 @@ public final class BLEManager: NSObject, ObservableObject {
         let scope: HistoricalCursorScope
         let peripheralID: UUID
         let connectGeneration: Int
+        let secureSessionID: Whoop5SecureSessionID?
+        let storeGeneration: Int
         /// Distinguishes two historical sessions on the same physical BLE connection. A late write
         /// callback must not confirm a replacement session that happens to use the same trim.
         let sessionGeneration: Int
+    }
+    /// Ownership captured at the public history-request seam. This prevents a request admitted under one
+    /// secure attempt or store instance from being started after either owner has been replaced.
+    private struct HistoricalSyncRequestOwnership: Equatable {
+        let secureSessionID: Whoop5SecureSessionID?
+        let storeGeneration: Int
     }
     /// The single safe-trim ACK currently waiting for CoreBluetooth's `.withResponse` completion.
     /// Backfiller serializes chunk completion, so there can never be more than one legitimate request.
@@ -822,28 +831,47 @@ public final class BLEManager: NSObject, ObservableObject {
     enum ConfirmedWritePurpose: Equatable, Sendable {
         case bondHandshake
         case clientHello
+        case protocolProof
         case genericCommand
         case historicalAck
     }
 
     private struct ConfirmedCommandWrite {
+        let id: UUID
         let peripheralID: UUID
         let characteristicUUID: CBUUID
+        let characteristicIdentity: UUID
         let connectGeneration: Int
+        let secureAttemptEpoch: UInt64?
         let purpose: ConfirmedWritePurpose
+        let command: UInt8
+        let requestSequence: UInt8
         let historicalAck: HistoricalAckWriteIdentity?
+    }
+    private struct QueuedWhoop5ConfirmedWrite {
+        let owner: ConfirmedCommandWrite
+        let data: Data
+        let peripheral: CBPeripheral
+        let characteristic: CBCharacteristic
     }
     private var admittedHistoricalBackfill: HistoricalBackfillAdmission?
     private var historicalSessionGeneration = 0
     private var pendingHistoricalAck: PendingHistoricalAck?
     private var confirmedCommandWrites: [ConfirmedCommandWrite] = []
+    private var queuedWhoop5ConfirmedWrites: [QueuedWhoop5ConfirmedWrite] = []
+    private var activeWhoop5ConfirmedWriteID: UUID?
+    private var whoop5ConfirmedWriteTimeout: DispatchWorkItem?
+    private var characteristicIdentities: [ObjectIdentifier: UUID] = [:]
     private var historicalAckTimeout: DispatchWorkItem?
     static let historicalAckConfirmationTimeout: TimeInterval = 8
+    static let whoop5ConfirmedWriteTimeout: TimeInterval = 8
     /// Wall time of the most recent offload frame OR HISTORY_COMPLETE — drives the #174 deep-packet
     /// cooldown. A type-0x2F frame arriving just after a backfill ends (backfilling already flipped
     /// false) is a TRAILING historical frame, not the live R22 stream; it must not be miscounted as a
     /// "live deep packet". nil until the first offload frame this process.
     private var lastOffloadFrameAt: Date?
+    private var loggedWhoop5OffloadDeepPacket = false
+    private var loggedWhoop5TrailingDeepPacket = false
     /// Window after the last offload frame/HISTORY_COMPLETE during which a type-0x2F frame is treated
     /// as trailing-historical, not live. ~10 s comfortably covers the post-completion drain lull.
     static let deepPacketLiveCooldownSeconds: TimeInterval = 10
@@ -1040,8 +1068,13 @@ public final class BLEManager: NSObject, ObservableObject {
     /// Re-entrancy guard for captureRawAccel: true while a bounded on-demand window is running.
     /// A second tap is a no-op until the active capture's asyncAfter block fires and clears this.
     private var rawCaptureInFlight = false
-    /// Ordered queue of frames awaiting drain through the serial Backfiller task.
-    private var backfillFrameQueue: [[UInt8]] = []
+    /// Ordered queue of frames awaiting drain through the serial Backfiller task. WHOOP 5 frames retain
+    /// the secure owner captured at delegate receipt so an actor hop cannot route them into a later session.
+    private struct AdmittedBackfillFrame {
+        let bytes: [UInt8]
+        let whoop5Admission: Whoop5HistoricalSessionAdmission?
+    }
+    private var backfillFrameQueue: [AdmittedBackfillFrame] = []
     /// Accumulates durable writes across an auto-continued history burst. The dashboard is notified once
     /// only after `maybeAutoContinueBackfill` proves the burst has quiesced.
     private var backfillBurstPublication = BackfillBurstPublication()
@@ -1114,6 +1147,9 @@ public final class BLEManager: NSObject, ObservableObject {
     private var reassembler = Reassembler()
     private var seq: UInt8 = 0
     private var didBond = false
+    private var whoop5SecureSession = Whoop5SecureSession()
+    private var whoop5R22Attempt: Whoop5R22Attempt?
+    private var pendingWhoop5HapticResponses: Set<UInt8> = []
     /// WHOOP 5/MG only: realtime HR has been armed (puffin TOGGLE_REALTIME_HR sent) once this connection.
     private var whoop5RealtimeArmed = false
     /// Once-per-connection guard for the 5/MG offload kick (connectHandshakeDone + requestSync +
@@ -1329,7 +1365,18 @@ public final class BLEManager: NSObject, ObservableObject {
                                 // UNIVERSAL clock-drift: bank the strap's historical layout so the export's
                                 // universal clock-drift line is firmware-aware on every export. Unconditional.
                                 firmwareLayout: { [weak self] v in self?.state.setStrapFirmwareLayout(v) },
-                                onFailure: { [weak self] failure in self?.handleBackfillFailure(failure) })
+                                onFailure: { [weak self] failure in self?.handleBackfillFailure(failure) },
+                                isWhoop5AdmissionCurrent: { [weak self] admission in
+                                    self?.isCurrentWhoop5HistoricalAdmission(admission) == true
+                                },
+                                ackTrimForWhoop5Admission: { [weak self] scope, trim, endData, admission in
+                                    guard let self,
+                                          self.isCurrentWhoop5HistoricalAdmission(admission) else { return false }
+                                    return await self.ackHistoricalChunk(
+                                        scope: scope,
+                                        trim: trim,
+                                        endData: endData)
+                                })
         // Strand: no server uploader/sync — all data stays on-device.
         scheduleHistoricalMaterialization(on: store)
 
@@ -1454,11 +1501,13 @@ public final class BLEManager: NSObject, ObservableObject {
         // multi-WHOOP switch attached straight back to the previously-held strap, ignoring the new active
         // device (registry said B, radio stayed on A). No pin (single-WHOOP) → always true, unchanged.
         if let p = peripheral, p.state == .connected, isPreferredPeripheral(p) {
-            state.markConnected()
             p.delegate = self
+            whoop5SecureSession.refresh(peripheralID: p.identifier, connectGeneration: connectGeneration)
             log("Already connected to \(model.displayName) — refreshing services and notifications")
             discoverPrimaryServices(on: p)
-            enableLiveNotifications(reason: "manual refresh")
+            if selectedModel.deviceFamily != .whoop5 || whoop5SecureReady {
+                enableLiveNotifications(reason: "manual refresh")
+            }
             return
         }
         // Existing OS-level connections for this WHOOP family. CoreBluetooth keeps a bonded strap connected
@@ -1845,7 +1894,8 @@ public final class BLEManager: NSObject, ObservableObject {
     ///   - writeType: BLE write type; defaults to `.withoutResponse` so all existing call
     ///     sites are unaffected. Pass `.withResponse` for acked commands (e.g. historicalDataResult).
     public func send(_ command: WhoopCommand, payload: [UInt8] = [0x00],
-                     writeType: CBCharacteristicWriteType = .withoutResponse) {
+                     writeType: CBCharacteristicWriteType = .withoutResponse,
+                     responseLabel: String? = nil) {
         // #314 parity: CoreBluetooth already covers both Android defects here — this `p.state == .connected`
         // guard makes a write a no-op once the radio powers off (no DeadObjectException to crash on), and
         // centralManagerDidUpdateState publishes state.connected = false on .poweredOff, so the iOS/macOS UI
@@ -1861,6 +1911,10 @@ public final class BLEManager: NSObject, ObservableObject {
         // firmware-alarm family on that same proven transport. Everything else stays dropped.
         // WHOOP 4.0 is unaffected.
         if selectedModel.deviceFamily == .whoop5 {
+            guard whoop5SecureReady else {
+                log("send(\(command.label)) refused — WHOOP 5/MG secure session is not ready; standard 0x2A37 HR remains available")
+                return
+            }
             // Allowlist: live (toggle HR, buzz), the firmware-alarm family (set/get/run/disable —
             // same command numbers as WHOOP4 over puffin framing; the 5/MG REVISION_4/REVISION_2
             // bodies are built at the call sites and pad4 covers their 20-/2-byte bodies), the two
@@ -1900,11 +1954,22 @@ public final class BLEManager: NSObject, ObservableObject {
             // 4-byte boundary, which this 12-byte payload needs. WHOOP 4.0 is untouched (79 + its own frame).
             let isHaptics = command == .runHapticsPattern
             let puffinCmd: UInt8 = isHaptics ? 0x13 : command.rawValue
-            let puffinPayload: [UInt8] = isHaptics ? [0x01, 47, 152, 0, 0, 0, 0, 0, 0, 0, 0, 0] : payload
+            let requestedLoops = payload.count > 1 ? Int(payload[1]) : 1
+            let puffinPayload: [UInt8] = isHaptics
+                ? MaverickHaptics.notificationBuzz(loops: requestedLoops)
+                : payload
             seq = seq &+ 1
-            let frame = puffinCommandFrame(cmd: puffinCmd, seq: seq, payload: puffinPayload)
+            let requestSequence = seq
+            let frame = puffinCommandFrame(cmd: puffinCmd, seq: requestSequence, payload: puffinPayload)
+            if command == .setConfig, let responseLabel, let sessionID = currentWhoop5SecureSessionID {
+                if whoop5R22Attempt?.sessionID != sessionID { whoop5R22Attempt = Whoop5R22Attempt(sessionID: sessionID) }
+                whoop5R22Attempt?.track(flag: responseLabel, requestSequence: requestSequence)
+            }
+            if isHaptics { pendingWhoop5HapticResponses.insert(requestSequence) }
             writeValue(Data(frame), to: ch, on: p, type: writeType,
-                       confirmedPurpose: confirmedWritePurpose(for: command))
+                       confirmedPurpose: confirmedWritePurpose(for: command),
+                       command: puffinCmd,
+                       requestSequence: requestSequence)
             let cmdNote = isHaptics ? " cmd=0x13" : ""
             if command == .historicalDataResult {
                 historicalAckLogCounter += 1
@@ -1919,7 +1984,9 @@ public final class BLEManager: NSObject, ObservableObject {
         seq = seq &+ 1
         let frame = command.frame(seq: seq, payload: payload)
         writeValue(Data(frame), to: ch, on: p, type: writeType,
-                   confirmedPurpose: confirmedWritePurpose(for: command))
+                   confirmedPurpose: confirmedWritePurpose(for: command),
+                   command: command.rawValue,
+                   requestSequence: seq)
         log("→ \(command.label) payload=\(hex(payload))")
     }
 
@@ -1973,13 +2040,32 @@ public final class BLEManager: NSObject, ObservableObject {
     private func isCurrentHistoricalBackfill(_ admission: HistoricalBackfillAdmission) -> Bool {
         guard admittedHistoricalBackfill == admission,
               connectGeneration == admission.connectGeneration,
+              historicalMaterializationStoreGeneration == admission.storeGeneration,
               state.connected,
               let current = peripheral,
               current.identifier == admission.peripheralID,
               current.state == .connected else {
             return false
         }
+        if selectedModel.deviceFamily == .whoop5 {
+            guard let secureID = admission.secureSessionID,
+                  secureID == currentWhoop5SecureSessionID,
+                  whoop5SecureSession.authorizesProprietaryCommand(sessionID: secureID) else { return false }
+        }
         return true
+    }
+
+    /// Resolve the compact Backfiller owner through BLEManager's full admission, including store and
+    /// historical-session generations. The compact value can never resurrect an older store lineage.
+    private func isCurrentWhoop5HistoricalAdmission(
+        _ owner: Whoop5HistoricalSessionAdmission
+    ) -> Bool {
+        guard let admission = admittedHistoricalBackfill,
+              let secureID = admission.secureSessionID,
+              secureID.peripheralID == owner.peripheralID,
+              secureID.connectGeneration == owner.connectGeneration,
+              secureID.attemptEpoch == owner.attemptEpoch else { return false }
+        return isCurrentHistoricalBackfill(admission)
     }
 
     /// Complete a pending safe-trim ACK exactly once. A disconnect, session replacement, timeout, or
@@ -2005,6 +2091,52 @@ public final class BLEManager: NSObject, ObservableObject {
         admittedHistoricalBackfill = nil
     }
 
+    private var currentWhoop5SecureSessionID: Whoop5SecureSessionID? {
+        guard selectedModel.deviceFamily == .whoop5,
+              let id = whoop5SecureSession.id,
+              id.peripheralID == peripheral?.identifier,
+              id.connectGeneration == connectGeneration else { return nil }
+        return id
+    }
+
+    private var whoop5SecureReady: Bool {
+        guard let id = currentWhoop5SecureSessionID else { return false }
+        return whoop5SecureSession.authorizesProprietaryCommand(sessionID: id)
+    }
+
+    /// Clear every authorization-bearing flag before observers can see a replacement connection.
+    private func admitConnectionGeneration(_ peripheral: CBPeripheral) {
+        invalidateHistoricalBackfill(reason: "a newer BLE connection was admitted")
+        connectGeneration &+= 1
+        historicalSourceEpoch &+= 1
+        didBond = false
+        connectHandshakeDone = false
+        whoop5SessionStarted = false
+        whoop5RealtimeArmed = false
+        cmdNotifyConfirmedActive = false
+        connectSettledSignaled = false
+        state.bonded = false
+        state.encryptedBond = false
+        state.syncChunksThisSession = 0
+        historicalProgress.begin()
+        lastOffloadFrameAt = nil
+        loggedWhoop5OffloadDeepPacket = false
+        loggedWhoop5TrailingDeepPacket = false
+        whoop5R22Attempt = nil
+        pendingWhoop5HapticResponses.removeAll()
+        queuedWhoop5ConfirmedWrites.removeAll()
+        activeWhoop5ConfirmedWriteID = nil
+        whoop5ConfirmedWriteTimeout?.cancel()
+        whoop5ConfirmedWriteTimeout = nil
+        if selectedModel.deviceFamily == .whoop5 {
+            _ = whoop5SecureSession.acceptConnection(
+                peripheralID: peripheral.identifier,
+                connectGeneration: connectGeneration)
+        } else {
+            whoop5SecureSession.disconnect()
+        }
+    }
+
     nonisolated static func confirmedWritePurpose(
         command: WhoopCommand,
         isHistoricalAck: Bool
@@ -2027,24 +2159,47 @@ public final class BLEManager: NSObject, ObservableObject {
         to characteristic: CBCharacteristic,
         on peripheral: CBPeripheral,
         type writeType: CBCharacteristicWriteType,
-        confirmedPurpose: ConfirmedWritePurpose
+        confirmedPurpose: ConfirmedWritePurpose,
+        command: UInt8 = 0,
+        requestSequence: UInt8 = 0
     ) {
         if writeType == .withResponse {
-            recordConfirmedCommandWrite(
+            let owner = makeConfirmedCommandWrite(
                 purpose: confirmedPurpose,
                 peripheral: peripheral,
-                characteristic: characteristic)
+                characteristic: characteristic,
+                command: command,
+                requestSequence: requestSequence)
+            confirmedCommandWrites.append(owner)
+            if selectedModel.deviceFamily == .whoop5, characteristic.uuid == Self.whoop5CmdWriteChar {
+                queuedWhoop5ConfirmedWrites.append(QueuedWhoop5ConfirmedWrite(
+                    owner: owner,
+                    data: data,
+                    peripheral: peripheral,
+                    characteristic: characteristic))
+                issueNextWhoop5ConfirmedWriteIfPossible()
+                return
+            }
         }
         peripheral.writeValue(data, for: characteristic, type: writeType)
     }
 
-    /// Register a response write before issuing it. A queued generic write must consume its own
-    /// CoreBluetooth callback before a later historical ACK is allowed to consume the next callback.
-    private func recordConfirmedCommandWrite(
+    private func characteristicIdentity(for characteristic: CBCharacteristic) -> UUID {
+        let key = ObjectIdentifier(characteristic)
+        if let existing = characteristicIdentities[key] { return existing }
+        let identity = UUID()
+        characteristicIdentities[key] = identity
+        return identity
+    }
+
+    /// Register complete operation ownership before a write can trigger its delegate callback.
+    private func makeConfirmedCommandWrite(
         purpose: ConfirmedWritePurpose,
         peripheral: CBPeripheral,
-        characteristic: CBCharacteristic
-    ) {
+        characteristic: CBCharacteristic,
+        command: UInt8,
+        requestSequence: UInt8
+    ) -> ConfirmedCommandWrite {
         let historicalAck: HistoricalAckWriteIdentity?
         if purpose == .historicalAck,
            let pending = pendingHistoricalAck,
@@ -2057,12 +2212,49 @@ public final class BLEManager: NSObject, ObservableObject {
         } else {
             historicalAck = nil
         }
-        confirmedCommandWrites.append(ConfirmedCommandWrite(
+        return ConfirmedCommandWrite(
+            id: UUID(),
             peripheralID: peripheral.identifier,
             characteristicUUID: characteristic.uuid,
+            characteristicIdentity: characteristicIdentity(for: characteristic),
             connectGeneration: connectGeneration,
+            secureAttemptEpoch: currentWhoop5SecureSessionID?.attemptEpoch,
             purpose: purpose,
-            historicalAck: historicalAck))
+            command: command,
+            requestSequence: requestSequence,
+            historicalAck: historicalAck)
+    }
+
+    private func issueNextWhoop5ConfirmedWriteIfPossible() {
+        guard activeWhoop5ConfirmedWriteID == nil,
+              let next = queuedWhoop5ConfirmedWrites.first else { return }
+        guard let sessionID = currentWhoop5SecureSessionID,
+              next.owner.peripheralID == sessionID.peripheralID,
+              next.owner.connectGeneration == sessionID.connectGeneration,
+              next.owner.secureAttemptEpoch == sessionID.attemptEpoch,
+              next.characteristic === cmdCharacteristic else {
+            queuedWhoop5ConfirmedWrites.removeFirst()
+            issueNextWhoop5ConfirmedWriteIfPossible()
+            return
+        }
+        activeWhoop5ConfirmedWriteID = next.owner.id
+        queuedWhoop5ConfirmedWrites.removeFirst()
+        next.peripheral.writeValue(next.data, for: next.characteristic, type: .withResponse)
+        let operationID = next.owner.id
+        let timeout = DispatchWorkItem { [weak self] in
+            guard let self, self.activeWhoop5ConfirmedWriteID == operationID else { return }
+            self.activeWhoop5ConfirmedWriteID = nil
+            self.queuedWhoop5ConfirmedWrites.removeAll()
+            if let currentID = self.currentWhoop5SecureSessionID {
+                self.whoop5SecureSession.fail(sessionID: currentID)
+            }
+            self.invalidateHistoricalBackfill(reason: "WHOOP 5 confirmed write timed out")
+            self.state.lastSyncError = "Secure session write timed out. Reconnecting the strap."
+            self.log("WHOOP 5/MG: confirmed write timed out; revoking generation \(self.connectGeneration) before reconnect")
+            if let peripheral = self.peripheral { self.central.cancelPeripheralConnection(peripheral) }
+        }
+        whoop5ConfirmedWriteTimeout = timeout
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.whoop5ConfirmedWriteTimeout, execute: timeout)
     }
 
     /// CoreBluetooth can surface a delayed disconnect for a different peripheral while a newer link is
@@ -2195,12 +2387,28 @@ public final class BLEManager: NSObject, ObservableObject {
     /// Start a historical-offload session: tell the store machine to begin, flip the routing
     /// flag, kick the strap with sendHistoricalData, and arm the idle timeout.
     @discardableResult
-    private func beginBackfill() -> Bool {
+    private func beginBackfill(requiring requestOwnership: HistoricalSyncRequestOwnership) -> Bool {
         // Never offload before the connect handshake has run: a racing foreground/restore trigger
         // firing SEND_HISTORICAL ahead of hello/SET_CLOCK was part of the storm that stopped serving.
         guard connectHandshakeDone else {
             log("Backfill: deferred — connect handshake not done yet")
             return false
+        }
+        if selectedModel.deviceFamily == .whoop5, !whoop5SecureReady {
+            log("Backfill: deferred — current WHOOP 5/MG secure proof is not ready")
+            return false
+        }
+        guard requestOwnership.storeGeneration == historicalMaterializationStoreGeneration else {
+            log("Backfill: deferred — history request belongs to a replaced store generation")
+            return false
+        }
+        if selectedModel.deviceFamily == .whoop5 {
+            guard let secureID = requestOwnership.secureSessionID,
+                  secureID == currentWhoop5SecureSessionID,
+                  whoop5SecureSession.authorizesProprietaryCommand(sessionID: secureID) else {
+                log("Backfill: deferred — history request belongs to a replaced secure session")
+                return false
+            }
         }
         if let historicalRadioDeadline {
             let remaining = historicalRadioDeadline.remaining(at: ProcessInfo.processInfo.systemUptime)
@@ -2257,16 +2465,29 @@ public final class BLEManager: NSObject, ObservableObject {
         // session. It can remain committed, but it cannot ACK the new physical strap.
         invalidateHistoricalBackfill(reason: "historical session was replaced")
         historicalSessionGeneration &+= 1
+        let secureID = requestOwnership.secureSessionID
         admittedHistoricalBackfill = HistoricalBackfillAdmission(
             scope: admittedScope,
             peripheralID: admittedPeripheral.identifier,
             connectGeneration: connectGeneration,
+            secureSessionID: secureID,
+            storeGeneration: historicalMaterializationStoreGeneration,
             sessionGeneration: historicalSessionGeneration)
-        backfiller.begin(
+        let whoop5Admission = secureID.map {
+            Whoop5HistoricalSessionAdmission(
+                peripheralID: $0.peripheralID,
+                connectGeneration: $0.connectGeneration,
+                attemptEpoch: $0.attemptEpoch)
+        }
+        guard backfiller.begin(
             family: selectedModel.deviceFamily,
             continuedAfterRows: historicalBurstPasses.productivePasses > 0,
             sourceIdentity: admittedSource,
-            historicalCursorScope: admittedScope)
+            historicalCursorScope: admittedScope,
+            whoop5Admission: whoop5Admission) else {
+            invalidateHistoricalBackfill(reason: "secure-session ownership disappeared before history begin")
+            return false
+        }
         if historicalRadioDeadline == nil {
             historicalRadioDeadline = HistoricalRadioDeadline(
                 startedAt: ProcessInfo.processInfo.systemUptime,
@@ -2284,8 +2505,9 @@ public final class BLEManager: NSObject, ObservableObject {
         state.rejectedFramesUnarchived = 0
         state.decodedChunksThisSession = 0
         state.consoleChunksThisSession = 0
-        state.r22FlagsAccepted = 0
         state.deepPacketsThisSession = 0
+        loggedWhoop5OffloadDeepPacket = false
+        loggedWhoop5TrailingDeepPacket = false
         historicalAckLogCounter = 0
         // Payload MUST be [0x00], NOT empty: verified on-device that this strap serves type-47 only with
         // [0x00] (empty → 0 frames on a clean stable link with ~2k records pending); the Mac ground-truth
@@ -2301,7 +2523,22 @@ public final class BLEManager: NSObject, ObservableObject {
     /// synchronously (delegate order) and drained sequentially in small slices, so START /
     /// data / END chunk assembly is never reordered while the UI still gets time to paint.
     private func routeBackfillFrame(_ frame: [UInt8]) {
-        backfillFrameQueue.append(frame)
+        let whoop5Admission: Whoop5HistoricalSessionAdmission?
+        if selectedModel.deviceFamily == .whoop5 {
+            guard let admission = admittedHistoricalBackfill,
+                  isCurrentHistoricalBackfill(admission),
+                  let secureID = admission.secureSessionID else {
+                log("Backfill: ignored WHOOP 5 frame without current secure-session ownership")
+                return
+            }
+            whoop5Admission = Whoop5HistoricalSessionAdmission(
+                peripheralID: secureID.peripheralID,
+                connectGeneration: secureID.connectGeneration,
+                attemptEpoch: secureID.attemptEpoch)
+        } else {
+            whoop5Admission = nil
+        }
+        backfillFrameQueue.append(AdmittedBackfillFrame(bytes: frame, whoop5Admission: whoop5Admission))
         guard !backfillDraining else { return }
         backfillDraining = true
         Task { @MainActor in await drainBackfillFrames() }
@@ -2313,8 +2550,12 @@ public final class BLEManager: NSObject, ObservableObject {
             let batch = Array(backfillFrameQueue.prefix(count))
             backfillFrameQueue.removeFirst(count)
 
-            for f in batch {
-                await backfiller?.ingest(f)
+            for admittedFrame in batch {
+                if let admission = admittedFrame.whoop5Admission {
+                    await backfiller?.ingest(admittedFrame.bytes, admittedBy: admission)
+                } else {
+                    await backfiller?.ingest(admittedFrame.bytes)
+                }
                 afterBackfillIngest()
                 if !backfilling {
                     backfillFrameQueue.removeAll(keepingCapacity: true)
@@ -3231,7 +3472,7 @@ public final class BLEManager: NSObject, ObservableObject {
         let want = screenWantsRealtime || continuousCaptureWantsNow()
         wantsRealtime = want   // keep-alive + post-bond arm-on-connect read this derived value
         guard want != realtimeArmed else { return }                      // no edge — nothing to send
-        guard selectedModel.deviceFamily == .whoop4 || state.bonded else { return }   // can't reach the strap yet
+        guard selectedModel.deviceFamily == .whoop4 || whoop5SecureReady else { return }
         realtimeArmed = want
         send(.toggleRealtimeHR, payload: [want ? 0x01 : 0x00])
     }
@@ -3257,25 +3498,26 @@ public final class BLEManager: NSObject, ObservableObject {
         // entirely, so counting it as a "deep packet" gave 4.0 owners a bogus deep-data counter (#346).
         guard selectedModel.deviceFamily == .whoop5 else { return }
         guard frame.count > 10 else { return }
-        if frame[8] == 0x24, frame[10] == WhoopCommand.setConfig.rawValue {
-            state.r22FlagsAccepted += 1
-            let total = Whoop5Config.enableR22Sequence.count
-            if state.r22FlagsAccepted == total {
-                log("Deep-data: strap ACCEPTED all \(total)/\(total) R22 flags ✓ — keep it on; watching for deep packets.")
-            }
-        }
         if frame[8] == 0x2F {
             if duringOffload {
                 // Trailing-history reference point: a 0x2F arriving during the offload is banked
                 // history (handled by the Backfiller). Remember when it landed so the cooldown below
                 // can discount the few that dribble in just after the session ends.
                 lastOffloadFrameAt = Date()
+                if !loggedWhoop5OffloadDeepPacket {
+                    loggedWhoop5OffloadDeepPacket = true
+                    log("Deep-data: validated type-0x2F records arrived during NOOP's current history offload; this is history, not a separate live stream.")
+                }
                 return
             }
             // Cooldown guard: a 0x2F within deepPacketLiveCooldownSeconds of our own last offload
             // frame/HISTORY_COMPLETE is a trailing historical record from that session.
             if let last = lastOffloadFrameAt,
                Date().timeIntervalSince(last) < BLEManager.deepPacketLiveCooldownSeconds {
+                if !loggedWhoop5TrailingDeepPacket {
+                    loggedWhoop5TrailingDeepPacket = true
+                    log("Deep-data: validated type-0x2F records arrived as trailing history after NOOP's offload; this is not a separate live stream.")
+                }
                 return
             }
             // A 0x2F outside our offload is historical-offload data, not a live R22 stream (#494) —
@@ -3283,7 +3525,7 @@ public final class BLEManager: NSObject, ObservableObject {
             // Surface it as a diagnostic, but don't claim a live-stream "unlock".
             state.deepPacketsThisSession += 1
             if state.deepPacketsThisSession == 1 {
-                log("Deep-data: type-0x2F received outside our offload — this is historical-offload data (another BLE client pulling the strap's history, or a trailing flush), not a live R22 stream (#494).")
+                log("Deep-data: validated type-0x2F records arrived through another client's history pull; this is not a separate live R22 stream (#494).")
             } else if state.deepPacketsThisSession.isMultiple(of: 50) {
                 log("Deep-data: \(state.deepPacketsThisSession) type-0x2F historical-offload frames seen outside our session.")
             }
@@ -3307,7 +3549,7 @@ public final class BLEManager: NSObject, ObservableObject {
         guard PuffinExperiment.deepDataEnabled else {
             log("Deep-data: the deep-data experiment is off — enable it in Settings → Experimental first."); return
         }
-        guard state.connected, state.encryptedBond else {
+        guard state.connected, whoop5SecureReady, let sessionID = currentWhoop5SecureSessionID else {
             // The R22 SET_CONFIG writes go over the encrypted command channel, so the live-HR-only
             // shortcut (`bonded` true, `encryptedBond` false on a 5/MG still owned by the official app,
             // #69/#266) can't carry them. Require the genuine bond, or the writes silently fail (#269).
@@ -3316,15 +3558,19 @@ public final class BLEManager: NSObject, ObservableObject {
         guard state.worn else {
             log("Deep-data: the R22 stream is on-wrist only — put the strap ON, then try again."); return
         }
-        state.r22FlagsAccepted = 0   // fresh attempt — count this send's ACKs from zero
+        state.r22FlagsAccepted = 0
+        whoop5R22Attempt = Whoop5R22Attempt(sessionID: sessionID)
         let frames = Whoop5Config.enableR22Sequence
         log("Deep-data: sending the \(frames.count)-flag enable_r22 sequence (experimental, reversible)…")
         for (i, flag) in frames.enumerated() {
             DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(80 * i)) { [weak self] in
-                guard let self else { return }
+                guard let self,
+                      self.currentWhoop5SecureSessionID == sessionID,
+                      self.whoop5SecureReady else { return }
                 self.send(.setConfig,
                           payload: [0x01] + Whoop5Config.payloadBody(name: flag.name, value: flag.value),
-                          writeType: .withResponse)
+                          writeType: .withResponse,
+                          responseLabel: flag.name)
             }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(80 * frames.count + 200)) { [weak self] in
@@ -3342,8 +3588,8 @@ public final class BLEManager: NSObject, ObservableObject {
         guard selectedModel.deviceFamily == .whoop5 else {
             log("Broadcast HR: needs a WHOOP 5.0/MG strap selected — ignored."); return
         }
-        guard state.connected, state.bonded else {
-            log("Broadcast HR: connect and bond a 5/MG strap first — ignored."); return
+        guard state.connected, whoop5SecureReady else {
+            log("Broadcast HR: current WHOOP 5/MG secure session is not ready — ignored."); return
         }
         let value: UInt8 = on ? 0x31 : 0x30   // ASCII '1' / '0'
         send(.setDeviceConfig,
@@ -3463,6 +3709,10 @@ public final class BLEManager: NSObject, ObservableObject {
         let family = selectedModel.deviceFamily
         guard state.connected, state.bonded, let p = peripheral, p.state == .connected else {
             log("reboot: connect + bond first — ignored (connected=\(state.connected) bonded=\(state.bonded))")
+            return
+        }
+        guard family != .whoop5 || whoop5SecureReady else {
+            log("reboot: WHOOP 5/MG secure session is not ready — ignored")
             return
         }
         // Supersede any still-pending reboot (cancels its timers + resets the flag) so a repeat tap can't
@@ -3623,6 +3873,16 @@ public final class BLEManager: NSObject, ObservableObject {
     @discardableResult
     func requestSync(_ trigger: BackfillTrigger) -> Bool {
         guard !restoreInProgress else { return false }
+        let requestOwnership = HistoricalSyncRequestOwnership(
+            secureSessionID: selectedModel.deviceFamily == .whoop5 ? currentWhoop5SecureSessionID : nil,
+            storeGeneration: historicalMaterializationStoreGeneration)
+        if selectedModel.deviceFamily == .whoop5 {
+            guard let secureID = requestOwnership.secureSessionID,
+                  whoop5SecureSession.authorizesProprietaryCommand(sessionID: secureID) else {
+                log("Backfill: (trigger) refused before admission — current WHOOP 5/MG secure proof is not ready")
+                return false
+            }
+        }
         guard BLEManager.shouldRunPeriodicBackfill(
             connected: state.connected, bonded: state.bonded, backfilling: backfilling) else { return false }
         let now = Date().timeIntervalSince1970
@@ -3642,7 +3902,7 @@ public final class BLEManager: NSObject, ObservableObject {
             log("Backfill: \(trigger) skipped (rate-limited; last \(last.map { Int(now - $0) } ?? -1)s ago)")
             return false
         }
-        if beginBackfill() {
+        if beginBackfill(requiring: requestOwnership) {
             UserDefaults.standard.set(now, forKey: BLEManager.backfillLastAtKey)
             // Every successful trigger moves the next periodic deadline, including manual/strap/connect
             // attempts. This avoids leaving an older timer armed only to wake and fail the same floor.
@@ -3912,6 +4172,10 @@ public final class BLEManager: NSObject, ObservableObject {
                 log("Alarm: 5/MG firmware alarm needs the Experimental toggle (unconfirmed) — not armed")
                 return .experimentalDisabled
             }
+            guard whoop5SecureReady else {
+                log("Alarm: 5/MG secure session is not ready — not armed")
+                return .queuedForReconnect
+            }
             // 5/MG SET_ALARM_TIME is REVISION_4: [04][id][u32 sec][u16 subsec][12-byte 47/152
             // pattern, overallLoop 7, 30 s]. No SET_CLOCK preamble (see doc comment above).
             let wakeMs = Int64((date.timeIntervalSince1970 * 1000).rounded())
@@ -3973,6 +4237,10 @@ public final class BLEManager: NSObject, ObservableObject {
         // refused, and there's nothing armed to refuse once disarmed.
         UserDefaults.standard.set(0, forKey: "alarm.rejectStreak")
         if selectedModel.deviceFamily == .whoop5 {
+            guard whoop5SecureReady else {
+                log("Alarm: 5/MG secure session is not ready — not disarmed")
+                return
+            }
             // 5/MG DISABLE_ALARM is REVISION_2 [0x02, 0xFF]; the rev-1 [0x01] form below is WHOOP4.
             send(.disableAlarm, payload: AlarmPayload.disableRev2())
             log("Alarm: disarmed (5/MG rev2)")
@@ -3985,23 +4253,25 @@ public final class BLEManager: NSObject, ObservableObject {
     /// Request the currently-armed alarm time from the strap (response arrives on cmd-notify char).
     /// Parsing the reply is optional/bonus — the raw bytes will appear in the BLE log.
     func getStrapAlarm() {
+        if selectedModel.deviceFamily == .whoop5, !whoop5SecureReady {
+            log("Alarm: 5/MG secure session is not ready — request refused")
+            return
+        }
         send(.getAlarmTime, payload: [0x01])
         log("Alarm: requested current alarm time")
     }
 
     /// One-shot user buzz (#921): the on-device-confirmed "vibrate the strap now" sequence.
     ///
-    /// Uses RUN_HAPTICS_PATTERN (cmd 79) with patternId=2, 3 loops (the same pattern the official
-    /// WHOOP app uses for alarms; verified: patternId=2, observed for interoperability), plus RUN_ALARM
-    /// (cmd 68) as a belt-and-suspenders. patternId=2 gives the characteristic graduated alarm buzz.
+    /// WHOOP 4 uses RUN_HAPTICS_PATTERN (cmd 79) with patternId=2, 3 loops plus RUN_ALARM (cmd 68).
+    /// WHOOP 5/MG sends only the Maverick notify haptic (cmd 0x13); it never appends RUN_ALARM.
     /// A bare RUN_HAPTICS_PATTERN write is exactly what a WHOOP 4.0 was reported ignoring on the
     /// Siri-shortcut path (#921), so every user-facing one-shot buzz (the Live "Buzz strap" button,
     /// the Buzz Strap App Intent) routes through here instead of composing its own write.
     ///
-    /// Both writes are ACKNOWLEDGED (.withResponse): a backgrounded shortcut on a busy link can
+    /// Writes are ACKNOWLEDGED (.withResponse): a backgrounded shortcut on a busy link can
     /// silently drop an unacknowledged write, which is how #921 logged "Run Haptics" with no
-    /// vibration. On a 5/MG, send() remaps cmd 79 to the maverick 0x13 notify buzz and RUN_ALARM
-    /// carries the REVISION_2 body; both are already on the 5/MG command allowlist.
+    /// vibration. On a 5/MG, send() remaps cmd 79 to the Maverick 0x13 notify buzz.
     ///
     /// Alternative waveform form (12-byte):
     ///   [wfe1=47, wfe2=152, 0,0,0,0,0,0, loop u16=0, overall_loop=7, dur=30]
@@ -4014,10 +4284,13 @@ public final class BLEManager: NSObject, ObservableObject {
             log("Buzz: not sent — strap is not connected")
             return .queuedForReconnect
         }
+        if selectedModel.deviceFamily == .whoop5, !whoop5SecureReady {
+            log("Buzz: not sent — WHOOP 5/MG secure session is not ready")
+            return .queuedForReconnect
+        }
         send(.runHapticsPattern, payload: [2, 3, 0, 0, 0], writeType: .withResponse)  // patternId=2, 3 loops (5/MG: send() remaps to the maverick notify buzz)
         if selectedModel.deviceFamily == .whoop5 {
-            send(.runAlarm, payload: AlarmPayload.runAlarmRev2(), writeType: .withResponse)   // REVISION_2 [0x02, alarmId]
-            log("Buzz: one-shot fired (5/MG maverick buzz + runAlarm rev2, acked)")
+            log("Buzz: Maverick 0x13 haptic queued; ATT, protocol acceptance, and physical confirmation are separate facts")
             return .sentAwaitingReadback
         }
         send(.runAlarm, payload: [0x01], writeType: .withResponse)
@@ -4350,17 +4623,12 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
 
     public func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         cancelScanFallback()
-        // A new physical connection makes every prior historical ACK admission invalid, even when
-        // CoreBluetooth reuses the same CBPeripheral object across reconnects.
-        invalidateHistoricalBackfill(reason: "a newer BLE connection was admitted")
         failedConnectAttempts = 0   // a successful connect clears the reconnect backoff (#414)
         restoredPeripheral = nil
         preparePeripheral(peripheral)
-        // Clear the per-connection bond BEFORE publishing the connected uuid below. SourceCoordinator's #52
-        // re-adoption gate keys off `encryptedBond` at the instant `connectedPeripheralUUID` is observed —
-        // an ordinary `didConnect` publish must always read false (only the deliberate post-bond #52
-        // handoff republish carries it true), so this clear has to precede the publish, not follow it.
-        state.encryptedBond = false   // re-proved per connection at the genuine-bond site (#69)
+        // This is the one accepted-generation seam. It clears every old handshake/session/progress owner
+        // before the connected UUID is published, so observers can never combine a new link with stale proof.
+        admitConnectionGeneration(peripheral)
         // Multi-WHOOP: publish the strap's stable BLE identity so the app can persist it onto the active
         // registry device (it observes this and calls registry.setPeripheralId). Additive observation
         // only — BLEManager stays decoupled from the store and the connect flow below is unchanged.
@@ -4373,8 +4641,6 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         // (#711). While tripped, keep the guide up and instead clear it once THIS connection proves healthy,
         // i.e. it survives past the loop's quick-timeout window (below), or on a clean teardown
         // (disconnect() resets the detector and clears the guide too).
-        connectGeneration &+= 1
-        historicalSourceEpoch &+= 1
         resetClockRecoveryForConnection()
         // Data Range markers belong to the physical connection that returned them. Never let a stale
         // previous-generation marker become this generation's approximate clock fallback.
@@ -4496,6 +4762,13 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         }
         bondedAt = nil   // cleared after the bond-loop detector above read it (#617)
         state.markDisconnected()
+        whoop5SecureSession.disconnect()
+        whoop5R22Attempt = nil
+        pendingWhoop5HapticResponses.removeAll()
+        queuedWhoop5ConfirmedWrites.removeAll()
+        activeWhoop5ConfirmedWriteID = nil
+        whoop5ConfirmedWriteTimeout?.cancel()
+        whoop5ConfirmedWriteTimeout = nil
         state.encryptedBond = false   // cleared with didBond; next session must re-prove the bond (#69)
         state.charging = nil          // a stale charging flag must not outlive the link
         state.strapFirmware = nil     // a stale firmware version must not outlive the link
@@ -4561,6 +4834,8 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         state.r22FlagsAccepted = 0
         state.deepPacketsThisSession = 0
         lastOffloadFrameAt = nil   // #174: don't carry a stale cooldown reference into the next session
+        loggedWhoop5OffloadDeepPacket = false
+        loggedWhoop5TrailingDeepPacket = false
         // #580: a fresh connection earns a fresh empty-offload streak — a strap that was history-empty last
         // session might bank this time (or vice-versa). Clear the experimental note too; the next offload
         // re-derives it. (The honest flag is per-link, like the syncing pill / reject counters above.)
@@ -4691,12 +4966,14 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         reassembler = Reassembler(family: selectedModel.deviceFamily)
         router.family = selectedModel.deviceFamily
         configureCollectorFamily()
-        // Collection only runs post-bond, so a restored link was already bonded;
-        // seed those flags now. `didWriteValueFor` won't re-fire on its own.
-        state.bonded = true
-        state.encryptedBond = true   // a restored link was genuinely encrypted-bonded before (#69)
-        didBond = true
-        noteGenuineBond(of: p)   // #52: a restored link was genuinely bonded; eligible as a re-adopt target
+        // CoreBluetooth restoration proves only that the OS remembers a peripheral. It does not prove
+        // this process owns a current encrypted protocol session. Both connected and disconnected restore
+        // shapes therefore start with every authorization flag cleared.
+        state.bonded = false
+        state.encryptedBond = false
+        didBond = false
+        connectHandshakeDone = false
+        whoop5SessionStarted = false
         // A restored connection is a fresh physical link for the bounded GET_CLOCK retry state. The
         // process usually has no clockRef after restore, but treating this as a fresh generation also
         // prevents a stale Data Range marker/retry counter from a pre-suspension connection leaking in.
@@ -4705,16 +4982,16 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         // Ensure the store is ready before restored BLE data arrives (idempotent; no-op if already built).
         Task { @MainActor in await bootstrapStore() }
         if p.state == .connected {
-            invalidateHistoricalBackfill(reason: "a restored BLE connection replaced the prior session")
-            connectGeneration &+= 1
-            historicalSourceEpoch &+= 1
+            admitConnectionGeneration(p)
             connectedPeripheralUUID = p.identifier.uuidString
             state.markConnected()
-            log("Restored CONNECTED peripheral \(p.identifier) — re-discovering services")
+            log("Restored CONNECTED peripheral \(p.identifier) — unverified; re-discovering secure session")
             discoverPrimaryServices(on: p)
         } else {
+            invalidateHistoricalBackfill(reason: "restored peripheral is disconnected and unverified")
+            whoop5SecureSession.disconnect()
             state.markDisconnected()
-            log("Restored DISCONNECTED peripheral \(p.identifier) — reconnect on poweredOn")
+            log("Restored DISCONNECTED peripheral \(p.identifier) — unverified; reconnect on poweredOn")
             if central.state == .poweredOn { central.connect(p, options: nil) }
         }
     }
@@ -4781,26 +5058,8 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                 writeValue(Data(bondFrame), to: c, on: peripheral, type: .withResponse,
                            confirmedPurpose: Self.handshakeConfirmedWritePurpose(for: .whoop4))
             case BLEManager.whoop5CmdWriteChar:
-                // EXPERIMENTAL WHOOP 5.0/MG: a 5/MG strap starts a session with the static CLIENT_HELLO
-                // frame, not the WHOOP4 confirmed-write bond. The confirmed callback owns the secure
-                // handshake transition for this family. Live HR/battery come from the standard profiles;
-                // this opens the puffin session. Unverified on real MG hardware.
                 cmdCharacteristic = c
-                if let hello = selectedModel.deviceFamily.clientHello {
-                    // CONTRIBUTOR FIX (issue #17 — diagnosed from the logs, unverified on hardware here):
-                    // write CLIENT_HELLO with .withResponse so CoreBluetooth runs just-works bonding when
-                    // the link needs authenticating, AND so didWriteValueFor fires. That callback is where
-                    // we mark the link established and (re)subscribe the puffin notify chars — the strap
-                    // rejects them with "Authentication is insufficient" until the connection is encrypted,
-                    // and the old .withoutResponse write never triggered bonding, so it hung forever at
-                    // "Finishing the secure pairing handshake…".
-                    log("WHOOP 5/MG: writing CLIENT_HELLO to fd4b0002 with response (to trigger bonding, experimental).")
-                    state.pairingHint = nil   // fresh attempt; clear any stale pairing-mode guidance
-                    writeValue(Data(hello), to: c, on: peripheral, type: .withResponse,
-                               confirmedPurpose: Self.handshakeConfirmedWritePurpose(for: .whoop5))
-                }
-                // The realtime-HR stream is armed POST-bond (in didWriteValueFor / startRealtime) with
-                // puffin framing — not here. Writing it pre-bond on an unauthenticated link did nothing.
+                _ = characteristicIdentity(for: c)
             case BLEManager.cmdNotifyChar,
                  BLEManager.eventNotifyChar,
                  BLEManager.dataNotifyChar,
@@ -4825,8 +5084,42 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                 // is insufficient", which (per a 5/MG owner's verified flow, issue #17) also wedges the bond.
                 // didWriteValueFor subscribes them once the CLIENT_HELLO .withResponse write confirms.
                 if BLEManager.whoop5NotifyChars.contains(c.uuid) {
-                    whoop5NotifyCharacteristics.append(c)
+                    if let index = whoop5NotifyCharacteristics.firstIndex(where: { $0.uuid == c.uuid }) {
+                        // A duplicate discovery can replace CoreBluetooth's characteristic object. Keep
+                        // the current instance so a callback for the retired object cannot prove this one.
+                        if whoop5NotifyCharacteristics[index] !== c {
+                            whoop5NotifyCharacteristics[index] = c
+                        }
+                    } else {
+                        whoop5NotifyCharacteristics.append(c)
+                    }
+                    _ = characteristicIdentity(for: c)
                 }
+            }
+        }
+        // One fd4b discovery callback represents the complete requested set. Retain every characteristic
+        // first, then let the current attempt coalesce the one allowed CLIENT_HELLO write.
+        if service.uuid == BLEManager.whoop5Service,
+           let sessionID = currentWhoop5SecureSessionID,
+           let commandCharacteristic = cmdCharacteristic {
+            let required = Set(Self.whoop5NotifyChars.map { $0.uuidString.lowercased() })
+            let discovered = Set(whoop5NotifyCharacteristics.map { $0.uuid.uuidString.lowercased() })
+            let shouldSendHello = whoop5SecureSession.collectProtectedCharacteristics(
+                commandCharacteristicFound: commandCharacteristic.uuid == Self.whoop5CmdWriteChar,
+                requiredNotificationIDs: required,
+                discoveryComplete: discovered == required,
+                sessionID: sessionID)
+            if shouldSendHello, let hello = selectedModel.deviceFamily.clientHello {
+                log("WHOOP 5/MG: fd4b set collected; writing one CLIENT_HELLO with response")
+                state.pairingHint = nil
+                writeValue(
+                    Data(hello),
+                    to: commandCharacteristic,
+                    on: peripheral,
+                    type: .withResponse,
+                    confirmedPurpose: .clientHello,
+                    command: 0,
+                    requestSequence: 0)
             }
         }
     }
@@ -4838,8 +5131,11 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
         // Consume the matching `.withResponse` write before validating the active link. A callback from
         // an old peripheral or characteristic still retires its exact queued token, so it cannot swallow
         // a later write from the current connection.
+        let callbackCharacteristicIdentity = characteristicIdentity(for: characteristic)
         let tokenIndex = confirmedCommandWrites.firstIndex(where: {
-            $0.peripheralID == peripheral.identifier && $0.characteristicUUID == characteristic.uuid
+            $0.peripheralID == peripheral.identifier
+                && $0.characteristicUUID == characteristic.uuid
+                && $0.characteristicIdentity == callbackCharacteristicIdentity
         })
         if tokenIndex == nil {
             let message = "Unexpected confirmed-write callback without an owner for the active BLE connection."
@@ -4853,6 +5149,14 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
             return
         }
         let confirmedWrite = confirmedCommandWrites.remove(at: tokenIndex!)
+        let isWhoop5CommandWrite = characteristic.uuid == Self.whoop5CmdWriteChar
+        let wasActiveWhoop5Operation = !isWhoop5CommandWrite
+            || activeWhoop5ConfirmedWriteID == confirmedWrite.id
+        if isWhoop5CommandWrite, wasActiveWhoop5Operation {
+            activeWhoop5ConfirmedWriteID = nil
+            whoop5ConfirmedWriteTimeout?.cancel()
+            whoop5ConfirmedWriteTimeout = nil
+        }
         let acceptsGeneration = Self.shouldAcceptConfirmedWriteCallback(
                 eventPeripheralID: peripheral.identifier,
                 eventCharacteristicUUID: characteristic.uuid,
@@ -4862,10 +5166,14 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                 queuedPeripheralID: confirmedWrite.peripheralID,
                 queuedCharacteristicUUID: confirmedWrite.characteristicUUID,
                 queuedConnectGeneration: confirmedWrite.connectGeneration)
-        if !acceptsGeneration || !isCurrentPeripheralCallback(peripheral) || !isCurrentCharacteristicCallback(characteristic) {
+        let acceptsSecureAttempt = confirmedWrite.secureAttemptEpoch == nil
+            || confirmedWrite.secureAttemptEpoch == currentWhoop5SecureSessionID?.attemptEpoch
+        if !acceptsGeneration || !acceptsSecureAttempt || !wasActiveWhoop5Operation
+            || !isCurrentPeripheralCallback(peripheral) || !isCurrentCharacteristicCallback(characteristic) {
             log("Ignored stale confirmed-write callback from BLE generation \(confirmedWrite.connectGeneration)")
             return
         }
+        if isWhoop5CommandWrite { issueNextWhoop5ConfirmedWriteIfPossible() }
         if confirmedWrite.purpose == .historicalAck, let historicalAck = confirmedWrite.historicalAck {
             if let pending = pendingHistoricalAck,
                pending.characteristicUUID == characteristic.uuid,
@@ -4895,11 +5203,28 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
             state.lastSyncError = "History sync failed because its BLE acknowledgment lost session ownership. Reconnect the strap."
             return
         }
+        if confirmedWrite.purpose == .protocolProof {
+            guard let sessionID = currentWhoop5SecureSessionID else { return }
+            let accepted = whoop5SecureSession.confirmProtocolProofWrite(
+                sessionID: sessionID,
+                succeeded: error == nil)
+            log(error == nil
+                ? "WHOOP 5/MG GET_HELLO proof: ATT confirmed"
+                : "WHOOP 5/MG GET_HELLO proof: ATT failed")
+            if !accepted, let error {
+                state.lastSyncError = "Secure proof write failed: \(error.localizedDescription)"
+            }
+            return
+        }
         if confirmedWrite.purpose == .genericCommand {
             if let error {
                 log("Confirmed command write failed: \(error.localizedDescription)")
             } else {
-                log("Confirmed command write acknowledged")
+                if confirmedWrite.command == 0x13 {
+                    log("Buzz: ATT confirmed for request sequence \(confirmedWrite.requestSequence); protocol and physical confirmation still pending")
+                } else {
+                    log("Confirmed command write acknowledged")
+                }
             }
             return
         }
@@ -4911,6 +5236,9 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
             return
         }
         if let error = error {
+            if confirmedWrite.purpose == .clientHello, let sessionID = currentWhoop5SecureSessionID {
+                _ = whoop5SecureSession.confirmClientHello(sessionID: sessionID, succeeded: false)
+            }
             state.historicalSyncSessionState = .failed
             state.lastSyncError = "Secure handshake failed: \(error.localizedDescription)"
             log("Confirmed write failed: \(error.localizedDescription)")
@@ -4990,75 +5318,27 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
         // which the strap refused before the link was encrypted. Do NOT run the WHOOP4 command handshake
         // below — a 5/MG strap rejects WHOOP4-framed commands (the send() guard drops them anyway).
         if selectedModel.deviceFamily == .whoop5 {
-            if !didBond {
-                didBond = true
-                state.bonded = true
-                state.encryptedBond = true   // genuine encrypted bond (not the live-HR shortcut) — #69
-                state.historicalSyncSessionState = .ready
-                bondedAt = Date()            // #617: start the bond→drop stopwatch for the bond-loop detector
-                state.pairingHint = nil
-                bondRefusalStreak = 0         // #78: a genuine bond resets the refusal streak
-                bondGiveUp.reset()            // #747/#750: a genuine bond clears the give-up + re-arms auto-reconnect
-                autoReconnectPausedForBondLoop = false
-                bondLoopPausedAt = nil
-                noteGenuineBond(of: peripheral)   // #52: this strap bonds fine; clears any pin-refusal streak
-                emitConnectionBondState("encryptedBond family=whoop5 (CLIENT_HELLO acked)")
-                log("WHOOP 5/MG: CLIENT_HELLO acked — link established; subscribing notify chars (experimental).")
+            guard let sessionID = currentWhoop5SecureSessionID,
+                  whoop5SecureSession.confirmClientHello(sessionID: sessionID, succeeded: true) else {
+                log("WHOOP 5/MG: ignored CLIENT_HELLO callback outside the current pending attempt")
+                return
             }
+            didBond = true
+            state.bonded = true
+            state.encryptedBond = true
+            bondedAt = Date()
+            state.pairingHint = nil
+            bondRefusalStreak = 0
+            bondGiveUp.reset()
+            autoReconnectPausedForBondLoop = false
+            bondLoopPausedAt = nil
+            noteGenuineBond(of: peripheral)
+            emitConnectionBondState("encryptedBond family=whoop5 (CLIENT_HELLO ATT confirmed; protocol proof pending)")
+            log("WHOOP 5/MG: CLIENT_HELLO ATT confirmed — requesting protected notifications")
             for c in whoop5NotifyCharacteristics where !c.isNotifying {
                 requestNotify(c, on: peripheral, reason: "post-bond puffin")
             }
             enableLiveNotifications(reason: "post-bond 5/MG")   // standard HR/battery that failed pre-bond
-            // Arm realtime HR with puffin framing — the verified step that makes a bonded 5/MG strap start
-            // streaming (issue #17). Once per connection; keep-alive skips 5/MG, so this is the trigger.
-            // (Opening Live later also arms it via startRealtime(), now that send() routes the 5/MG toggle.)
-            // #927: RE-DERIVE the want at arm time, never the precomputed `wantsRealtime`: that value can
-            // be up to a keep-alive tick (30 s) stale, and a reconnect just OUTSIDE the overnight window
-            // would re-arm the flood from it and stay armed until the next tick.
-            let realtimeWantNow = screenWantsRealtime || continuousCaptureWantsNow()
-            wantsRealtime = realtimeWantNow
-            if realtimeWantNow && !whoop5RealtimeArmed {
-                whoop5RealtimeArmed = true
-                realtimeArmed = true   // keep reconcileRealtime()'s edge tracking in sync with the arm
-                log("WHOOP 5/MG: arming realtime HR (puffin TOGGLE_REALTIME_HR)")
-                send(.toggleRealtimeHR, payload: [0x01])
-            }
-            startKeepAlive()                                    // re-subscribe + liveness watchdog
-            // Kick the historical offload ONCE per connection — this is the 5/MG edition of the WHOOP4
-            // connect handshake. The purpose token above keeps command and history callbacks out of this
-            // branch. Keep the session gate as defense in depth. `whoop5SessionStarted` resets on disconnect.
-            if !whoop5SessionStarted {
-                whoop5SessionStarted = true
-                connectHandshakeDone = true     // unblocks beginBackfill()'s guard
-                log("WHOOP 5/MG: connect handshake done — backfill unblocked")
-                noteRebootReconnectIfNeeded()
-                // Re-apply the Broadcast-HR device-config flag if the user opted in (#181).
-                if PuffinExperiment.broadcastHrEnabled { setBroadcastHr(true) }
-                // Clock the strap BEFORE history: an un-clocked WHOOP 5 discards sensor data ("RTC
-                // timestamp … is invalid; not saving data to flash") and history offloads "succeed"
-                // with metadata only. Same 8-byte payload as the WHOOP4 handshake, puffin-framed;
-                // GET_CLOCK's reply rides the puffin notify chars and never touches the WHOOP4
-                // clockRef correlation path. The 1.5s deferral below keeps clock-before-history.
-                // Hardware-validated ordering (#78 fork).
-                send(.setClock, payload: BLEManager.setClockPayload())
-                send(.getClock, payload: [])
-                log("WHOOP 5/MG: clock synced (set/get) — strap can persist history now")
-                log("WHOOP 5/MG: scheduling first historical offload (connect)")
-                // Deferred ~1.5s so the puffin notify subscriptions settle before SEND_HISTORICAL_DATA,
-                // mirroring the WHOOP4 kick. requestSync → beginBackfill is itself gated on
-                // connectHandshakeDone, so a racing foreground/restore trigger can't fire it early.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.requestSync(.connect) }
-                startBackfillTimer()            // re-offload the type-47 store every backfillIntervalSeconds
-                // #34: signal settled directly (skip the cmd-notify gate `maybeSignalConnectSettled()`
-                // uses) — armStrapAlarm's 5/MG branch never sends GET_ALARM_TIME (log-only readback is
-                // WHOOP4-only, and the 5/MG alarm itself stays behind the Experimental toggle), so there's
-                // no reply-channel race to wait out here; this just keeps the re-arm-on-bond signal firing
-                // for 5/MG the way it did before `connectSettled` replaced raw `bonded`.
-                if !connectSettledSignaled {
-                    connectSettledSignaled = true
-                    state.connectSettled &+= 1
-                }
-            }
             return
         }
 
@@ -5145,6 +5425,94 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
         connectSettledSignaled = true
         state.connectSettled &+= 1
         log("Connect settled: handshake done + cmd-notify confirmed — alarm re-arm (if due) can fire now")
+    }
+
+    private func handleWhoop5CommandResponse(_ parsed: ParsedFrame, frame: [UInt8]) {
+        guard parsed.typeName == "COMMAND_RESPONSE",
+              frame.count > 10,
+              let sessionID = currentWhoop5SecureSessionID,
+              let requestSequenceValue = parsed.responseRequestSequence,
+              let resultValue = parsed.responseResult,
+              let requestSequence = UInt8(exactly: requestSequenceValue),
+              let result = UInt8(exactly: resultValue) else { return }
+        let command = frame[10]
+        let integrityValid = parsed.envelopeOK
+            && parsed.headerCRCOK == true
+            && parsed.payloadCRCOK == true
+
+        if whoop5SecureSession.acceptProtocolProofResponse(
+            command: command,
+            requestSequence: requestSequence,
+            result: result,
+            integrityValid: integrityValid,
+            sessionID: sessionID) {
+            log("WHOOP 5/MG GET_HELLO proof: protocol accepted for current session")
+            completeWhoop5SecureReady(sessionID: sessionID)
+            return
+        }
+
+        if command == WhoopCommand.setConfig.rawValue, var attempt = whoop5R22Attempt {
+            let accepted = attempt.acceptResponse(
+                command: command,
+                requestSequence: requestSequence,
+                result: result,
+                integrityValid: integrityValid,
+                sessionID: sessionID)
+            whoop5R22Attempt = attempt
+            state.r22FlagsAccepted = attempt.acceptedFlags.count
+            if accepted {
+                log("Deep-data: SET_CONFIG seq=\(requestSequence) accepted (\(attempt.acceptedFlags.count)/\(Whoop5Config.enableR22Sequence.count))")
+            } else if integrityValid, attempt.rejectedFlags.count > 0 {
+                log("Deep-data: SET_CONFIG seq=\(requestSequence) rejected result=\(result)")
+            }
+        }
+
+        if command == 0x13, pendingWhoop5HapticResponses.contains(requestSequence) {
+            guard integrityValid else {
+                log("Buzz: protocol response failed CRC/envelope validation for request sequence \(requestSequence)")
+                return
+            }
+            pendingWhoop5HapticResponses.remove(requestSequence)
+            if result == 1 {
+                log("Buzz: protocol accepted request sequence \(requestSequence); physical motor confirmation is still device-observed proof")
+            } else {
+                log("Buzz: protocol rejected request sequence \(requestSequence) result=\(result); no physical confirmation")
+            }
+        }
+    }
+
+    private func completeWhoop5SecureReady(sessionID: Whoop5SecureSessionID) {
+        guard currentWhoop5SecureSessionID == sessionID,
+              whoop5SecureSession.authorizesProprietaryCommand(sessionID: sessionID),
+              !whoop5SessionStarted else { return }
+        whoop5SessionStarted = true
+        connectHandshakeDone = true
+        state.bonded = true
+        state.encryptedBond = true
+        state.historicalSyncSessionState = .ready
+        noteRebootReconnectIfNeeded()
+
+        let realtimeWantNow = screenWantsRealtime || continuousCaptureWantsNow()
+        wantsRealtime = realtimeWantNow
+        if realtimeWantNow && !whoop5RealtimeArmed {
+            whoop5RealtimeArmed = true
+            realtimeArmed = true
+            send(.toggleRealtimeHR, payload: [0x01])
+        }
+        startKeepAlive()
+        if PuffinExperiment.broadcastHrEnabled { setBroadcastHr(true) }
+        send(.setClock, payload: BLEManager.setClockPayload())
+        send(.getClock, payload: [])
+        log("WHOOP 5/MG: secureReady — proprietary commands and history admitted")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            guard let self, self.currentWhoop5SecureSessionID == sessionID, self.whoop5SecureReady else { return }
+            self.requestSync(.connect)
+        }
+        startBackfillTimer()
+        if !connectSettledSignaled {
+            connectSettledSignaled = true
+            state.connectSettled &+= 1
+        }
     }
 
     /// SET_CLOCK(10) payload — the 8-byte form `[seconds u32 LE][subseconds u32 LE]`, subseconds in
@@ -5463,6 +5831,8 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
             // standard 0x2A37 / 0x2A19 profiles handled above.
             if BLEManager.whoop5NotifyChars.contains(characteristic.uuid) {
                 for frame in reassembler.feed(bytes) {
+                    let parsed = parseFrame(frame, family: .whoop5)
+                    handleWhoop5CommandResponse(parsed, frame: frame)
                     let isOffload = backfilling && BLEManager.isOffloadFrame(frame, family: .whoop5)
                     noteWhoop5R22Telemetry(frame, duringOffload: isOffload)   // #174 deep-data telemetry
                     // Durable EVENT-frame log for deep-data research (#103) — BEFORE the offload
@@ -5485,7 +5855,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                         router.dispatchLiveGestureIfFresh(frame: frame, now: strapClockNow)
                         continue
                     }
-                    router.handle(frame: frame)
+                    router.handle(parsed: parsed, frame: frame)
                     // NOTE: we deliberately do NOT ingest live 5/MG REALTIME_DATA into the Collector
                     // here. For a 5/MG the standard 0x2A37 Heart-Rate profile is already the RELIABLE,
                     // continuously-persisted live source (see didUpdateValueFor 0x2A37 → ingestStandardHR);
@@ -5506,6 +5876,33 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
               isCurrentCharacteristicCallback(characteristic) else {
             log("Ignored stale notification-state callback for \(peripheral.identifier)")
             return
+        }
+        if BLEManager.whoop5NotifyChars.contains(characteristic.uuid),
+           let sessionID = currentWhoop5SecureSessionID {
+            let allRequiredConfirmed = whoop5SecureSession.confirmProtectedNotification(
+                characteristic.uuid.uuidString.lowercased(),
+                enabled: error == nil && characteristic.isNotifying,
+                sessionID: sessionID)
+            if allRequiredConfirmed,
+               let commandCharacteristic = cmdCharacteristic {
+                seq = seq &+ 1
+                let proofSequence = seq
+                if whoop5SecureSession.beginProtocolProof(sequence: proofSequence, sessionID: sessionID) {
+                    let frame = puffinCommandFrame(
+                        cmd: WhoopCommand.getHello.rawValue,
+                        seq: proofSequence,
+                        payload: [0x00])
+                    log("WHOOP 5/MG: protected notifications confirmed; sending owned GET_HELLO proof seq=\(proofSequence)")
+                    writeValue(
+                        Data(frame),
+                        to: commandCharacteristic,
+                        on: peripheral,
+                        type: .withResponse,
+                        confirmedPurpose: .protocolProof,
+                        command: WhoopCommand.getHello.rawValue,
+                        requestSequence: proofSequence)
+                }
+            }
         }
         if let error = error {
             log("Notify enable failed for \(characteristic.uuid): \(error.localizedDescription)")

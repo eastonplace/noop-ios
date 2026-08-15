@@ -94,3 +94,41 @@ private struct Ack: Codable, Equatable, Sendable { let trim: Int }
     #expect(token.payload?.trim == 2)
     #expect(queue.count == 1)
 }
+
+@Test func callbackAfterTimeoutCannotAuthorizeCharacteristicInstanceReplacement() {
+    let peripheral = UUID()
+    let timedOutCharacteristic = UUID()
+    let replacementCharacteristic = UUID()
+    var queue = ConfirmedWriteTokenQueue<Ack>()
+    queue.append(ConfirmedWriteToken(
+        peripheralId: peripheral,
+        characteristicId: "fd4b0002",
+        characteristicGeneration: timedOutCharacteristic,
+        connectionGeneration: 1,
+        enqueuedAt: Date(),
+        payload: Ack(trim: 1)
+    ))
+    queue.append(ConfirmedWriteToken(
+        peripheralId: peripheral,
+        characteristicId: "fd4b0002",
+        characteristicGeneration: replacementCharacteristic,
+        connectionGeneration: 2,
+        enqueuedAt: Date(),
+        payload: Ack(trim: 2)
+    ))
+
+    let delayed = queue.consume(
+        peripheralId: peripheral,
+        characteristicId: "fd4b0002",
+        characteristicGeneration: timedOutCharacteristic,
+        currentPeripheralId: peripheral,
+        currentCharacteristicGeneration: replacementCharacteristic,
+        currentConnectionGeneration: 2
+    )
+    guard case .stale(let token) = delayed else {
+        Issue.record("Expected the timed-out operation to remain stale")
+        return
+    }
+    #expect(token.payload?.trim == 1)
+    #expect(queue.count == 1)
+}

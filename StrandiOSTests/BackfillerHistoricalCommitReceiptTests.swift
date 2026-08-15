@@ -195,6 +195,122 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
         func cursor(_ name: String) async throws -> Int? { nil }
     }
 
+    /// Models a receipt becoming durable before the committing task returns to Backfiller. Exact retries
+    /// return `.replayed`, matching WhoopStore's idempotent receipt contract.
+    private actor DurableReplayStore: BackfillStoreWriting {
+        private let firstInsertGate: AsyncGate
+        private var receiptsByFingerprint: [String: HistoricalDataCommitReceipt] = [:]
+        private var didPauseFirstInsert = false
+
+        init(firstInsertGate: AsyncGate) {
+            self.firstInsertGate = firstInsertGate
+        }
+
+        func commitHistoricalChunk(
+            streams: Streams,
+            deviceId: String,
+            trim: Int,
+            chunkEndUnix: Int,
+            rawBatch: HistoricalRawBatch?,
+            committedAt: Int,
+            scope: HistoricalCursorScope,
+            fingerprint: String,
+            fingerprintInput: HistoricalReceivedFrameFingerprintInput,
+            rawCaptureStatus: HistoricalRawCaptureStatus?,
+            rawRange: HistoricalRawRangeEvidence?,
+            burst: HistoricalDataCommitBurst?,
+            timestampHeal: HistoricalTimestampHeal?,
+            isFinal: Bool
+        ) async throws -> HistoricalDataCommitReceipt {
+            try await commitHistoricalChunkResult(
+                streams: streams,
+                deviceId: deviceId,
+                trim: trim,
+                chunkEndUnix: chunkEndUnix,
+                rawBatch: rawBatch,
+                committedAt: committedAt,
+                scope: scope,
+                fingerprint: fingerprint,
+                fingerprintInput: fingerprintInput,
+                rawCaptureStatus: rawCaptureStatus,
+                rawRange: rawRange,
+                burst: burst,
+                timestampHeal: timestampHeal,
+                isFinal: isFinal
+            ).receipt
+        }
+
+        func commitHistoricalChunkResult(
+            streams: Streams,
+            deviceId: String,
+            trim: Int,
+            chunkEndUnix: Int,
+            rawBatch: HistoricalRawBatch?,
+            committedAt: Int,
+            scope: HistoricalCursorScope,
+            fingerprint: String,
+            fingerprintInput: HistoricalReceivedFrameFingerprintInput,
+            rawCaptureStatus: HistoricalRawCaptureStatus?,
+            rawRange: HistoricalRawRangeEvidence?,
+            burst: HistoricalDataCommitBurst?,
+            timestampHeal: HistoricalTimestampHeal?,
+            isFinal: Bool
+        ) async throws -> HistoricalCommitResult {
+            if let receipt = receiptsByFingerprint[fingerprint] {
+                return HistoricalCommitResult(receipt: receipt, outcome: .replayed)
+            }
+            let receipt = HistoricalDataCommitReceipt(
+                receiptId: "ownership-\(trim)",
+                generation: Int64(trim),
+                databaseInstanceId: "ownership-db",
+                deviceId: deviceId,
+                trim: trim,
+                chunkEndUnix: chunkEndUnix,
+                committedAt: committedAt,
+                rawBatchId: rawBatch?.meta.batchId,
+                insertedRows: HistoricalStreamInsertCounts(
+                    hr: streams.hr.count,
+                    rr: streams.rr.count,
+                    events: streams.events.count,
+                    battery: streams.battery.count,
+                    spo2: streams.spo2.count,
+                    skinTemp: streams.skinTemp.count,
+                    resp: streams.resp.count,
+                    gravity: streams.gravity.count,
+                    steps: streams.steps.count,
+                    sleepState: streams.sleepState.count,
+                    ppgHr: streams.ppgHr.count,
+                    ppgWaveform: streams.ppgWaveform.count),
+                fingerprint: fingerprint,
+                lineage: scope.lineage,
+                cursorEpoch: scope.cursorEpoch,
+                trimScope: scope.trimScope,
+                rawStatus: rawCaptureStatus,
+                rawRange: rawRange ?? fingerprintInput.rawRangeEvidence,
+                burst: burst,
+                timestampHeal: timestampHeal,
+                isFinal: isFinal)
+            receiptsByFingerprint[fingerprint] = receipt
+            if !didPauseFirstInsert {
+                didPauseFirstInsert = true
+                await firstInsertGate.wait()
+            }
+            return HistoricalCommitResult(receipt: receipt, outcome: .inserted)
+        }
+
+        @discardableResult
+        func insert(_ streams: Streams, deviceId: String) async throws
+            -> (hr: Int, rr: Int, events: Int, battery: Int,
+                spo2: Int, skinTemp: Int, resp: Int, gravity: Int) {
+            (0, 0, 0, 0, 0, 0, 0, 0)
+        }
+
+        func enqueueRawBatch(_ meta: RawBatchMeta, frames: [[UInt8]]) async throws {}
+        func setCursor(_ name: String, _ value: Int) async throws {}
+        func cursor(_ name: String) async throws -> Int? { nil }
+        func receiptCount() -> Int { receiptsByFingerprint.count }
+    }
+
     private func historyEndFrame(trim: UInt32, unix: UInt32 = 1_700_000_000) -> [UInt8] {
         func le32(_ value: UInt32) -> [UInt8] {
             [
@@ -985,5 +1101,130 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
         XCTAssertEqual(ackedScopes, [])
         XCTAssertFalse(backfiller.persistStalled)
         XCTAssertNil(backfiller.lastAckedTrim)
+    }
+
+    @MainActor
+    func testSecureOwnershipLossAfterDurableCommitWithholdsAckAndProgressUntilExactReplay() async {
+        let gate = AsyncGate()
+        let store = DurableReplayStore(firstInsertGate: gate)
+        let peripheral = UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")!
+        let firstAdmission = Whoop5HistoricalSessionAdmission(
+            peripheralID: peripheral, connectGeneration: 7, attemptEpoch: 41)
+        let replayAdmission = Whoop5HistoricalSessionAdmission(
+            peripheralID: peripheral, connectGeneration: 8, attemptEpoch: 42)
+        var currentAdmission = firstAdmission
+        var ackedAdmissions: [Whoop5HistoricalSessionAdmission] = []
+        var publishedReceipts: [String] = []
+        var acknowledgedOutcomes: [HistoricalCommitOutcome] = []
+        let scope = HistoricalCursorScope(
+            deviceId: "strap-a", lineage: "registry-A", cursorEpoch: 3)
+        let backfiller = Backfiller(
+            store: store,
+            deviceId: "strap-a",
+            ackTrim: { _, _, _ in false },
+            onHistoricalCommit: { publishedReceipts.append($0.receiptId) },
+            onHistoricalAcknowledged: { _, outcome in acknowledgedOutcomes.append(outcome) },
+            isWhoop5AdmissionCurrent: { $0 == currentAdmission },
+            ackTrimForWhoop5Admission: { _, _, _, admission in
+                ackedAdmissions.append(admission)
+                return true
+            },
+            extract: { _, _, _, _, _ in
+                Streams(hr: [HRSample(ts: 1_781_557_000, bpm: 60)])
+            })
+        let record = whoop5V18Frame(unix: 1_781_557_000)
+        let end = whoop5HistoryEndFrame
+        XCTAssertTrue(backfiller.begin(
+            family: .whoop5,
+            historicalCursorScope: scope,
+            whoop5Admission: firstAdmission))
+
+        let firstAttempt = Task { @MainActor in
+            await backfiller.ingest(record, admittedBy: firstAdmission)
+            await backfiller.ingest(end, admittedBy: firstAdmission)
+        }
+        while !(await gate.waiting) {
+            await Task.yield()
+        }
+
+        // The receipt is already durable inside the store. Transfer ownership before it returns.
+        currentAdmission = replayAdmission
+        await gate.open()
+        await firstAttempt.value
+
+        let receiptCountAfterOwnershipLoss = await store.receiptCount()
+        XCTAssertEqual(receiptCountAfterOwnershipLoss, 1)
+        XCTAssertEqual(ackedAdmissions, [])
+        XCTAssertEqual(publishedReceipts, [])
+        XCTAssertEqual(acknowledgedOutcomes, [])
+        XCTAssertEqual(backfiller.sessionRowsPersisted, 0)
+        XCTAssertEqual(backfiller.sessionFreshSensorReceipts, 0)
+        XCTAssertNil(backfiller.sessionDurableScope)
+        XCTAssertNil(backfiller.sessionDurableMaxTs)
+        XCTAssertNil(backfiller.sessionLastAckedFingerprint)
+        XCTAssertNil(backfiller.lastAckedTrim)
+
+        XCTAssertTrue(backfiller.begin(
+            family: .whoop5,
+            continuedAfterRows: false,
+            historicalCursorScope: scope,
+            whoop5Admission: replayAdmission))
+        await backfiller.ingest(record, admittedBy: replayAdmission)
+        await backfiller.ingest(end, admittedBy: replayAdmission)
+
+        let receiptCountAfterReplay = await store.receiptCount()
+        XCTAssertEqual(receiptCountAfterReplay, 1, "the later attempt must replay the exact receipt")
+        XCTAssertEqual(ackedAdmissions, [replayAdmission])
+        XCTAssertEqual(publishedReceipts, [], "a replay must not publish fresh receipt progress")
+        XCTAssertEqual(acknowledgedOutcomes, [.replayed])
+        XCTAssertEqual(backfiller.sessionRowsPersisted, 0)
+        XCTAssertEqual(backfiller.sessionFreshSensorReceipts, 0)
+        XCTAssertNil(backfiller.sessionDurableMaxTs)
+        XCTAssertNotNil(backfiller.lastAckedTrim)
+    }
+
+    @MainActor
+    func testStaleOrMissingSecureAdmissionCannotRouteHistoryFrames() async {
+        let store = SourceCaptureStore()
+        let peripheral = UUID(uuidString: "11111111-2222-3333-4444-555555555555")!
+        let staleAdmission = Whoop5HistoricalSessionAdmission(
+            peripheralID: peripheral, connectGeneration: 11, attemptEpoch: 90)
+        let currentAdmission = Whoop5HistoricalSessionAdmission(
+            peripheralID: peripheral, connectGeneration: 12, attemptEpoch: 91)
+        let liveAdmission = currentAdmission
+        var ackCount = 0
+        let scope = HistoricalCursorScope(
+            deviceId: "strap-a", lineage: "registry-A", cursorEpoch: 5)
+        let backfiller = Backfiller(
+            store: store,
+            deviceId: "strap-a",
+            ackTrim: { _, _, _ in false },
+            isWhoop5AdmissionCurrent: { $0 == liveAdmission },
+            ackTrimForWhoop5Admission: { _, _, _, _ in ackCount += 1; return true },
+            extract: { _, _, _, _, _ in Streams() })
+
+        XCTAssertFalse(backfiller.begin(
+            family: .whoop5,
+            historicalCursorScope: scope,
+            whoop5Admission: staleAdmission))
+        await backfiller.ingest(whoop5HistoryEndFrame, admittedBy: staleAdmission)
+        let idsAfterRejectedBegin = await store.deviceIds()
+        XCTAssertEqual(idsAfterRejectedBegin, [])
+
+        XCTAssertTrue(backfiller.begin(
+            family: .whoop5,
+            historicalCursorScope: scope,
+            whoop5Admission: currentAdmission))
+        await backfiller.ingest(whoop5HistoryEndFrame, admittedBy: staleAdmission)
+        await backfiller.ingest(whoop5HistoryEndFrame)
+        let idsAfterStaleRoutes = await store.deviceIds()
+        XCTAssertEqual(idsAfterStaleRoutes, [])
+        XCTAssertEqual(ackCount, 0)
+
+        await backfiller.ingest(whoop5HistoryEndFrame, admittedBy: currentAdmission)
+        let idsAfterCurrentRoute = await store.deviceIds()
+        XCTAssertEqual(idsAfterCurrentRoute, ["strap-a"])
+        XCTAssertEqual(ackCount, 1)
+        XCTAssertEqual(backfiller.whoop5Admission, liveAdmission)
     }
 }

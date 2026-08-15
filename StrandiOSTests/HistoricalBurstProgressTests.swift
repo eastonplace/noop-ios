@@ -132,4 +132,38 @@ final class HistoricalBurstProgressTests: XCTestCase {
 
         XCTAssertNil(live.historicalSyncPassProgress)
     }
+
+    @MainActor
+    func testNewConnectionClearsStaleChunkAndPassProgressWithoutMovingDurableFrontier() {
+        let live = LiveState()
+        let durableFrontier = max(live.historicalDataFrontierAt ?? 0, 1_700_000_000) + 1
+        live.noteHistoricalDataFrontier(durableFrontier)
+        live.syncChunksThisSession = 4
+        live.publishHistoricalSyncProgress(
+            HistoricalSyncPassProgress(rowsPersisted: 120, passNumber: 1,
+                                       latestFrontierUnix: Int(durableFrontier), publishedAt: 10))
+
+        live.markConnected(at: 20)
+
+        XCTAssertEqual(live.syncChunksThisSession, 0)
+        XCTAssertNil(live.historicalSyncPassProgress)
+        XCTAssertEqual(live.historicalDataFrontierAt, durableFrontier)
+        XCTAssertEqual(live.historicalSyncSessionState, .waitingForSecureHandshake)
+    }
+
+    @MainActor
+    func testDuplicateConnectedRefreshPreservesCurrentSessionProgress() {
+        let live = LiveState()
+        live.markConnected(at: 20)
+        live.syncChunksThisSession = 3
+        let progress = HistoricalSyncPassProgress(
+            rowsPersisted: 30, passNumber: 1, latestFrontierUnix: 1_700_000_010, publishedAt: 21)
+        live.publishHistoricalSyncProgress(progress)
+
+        live.markConnected(at: 22)
+
+        XCTAssertEqual(live.syncChunksThisSession, 3)
+        XCTAssertEqual(live.historicalSyncPassProgress, progress)
+        XCTAssertEqual(live.connectedAt, 20)
+    }
 }

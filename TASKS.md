@@ -1,5 +1,13 @@
 # Active work
 
+- [~] #37 Repair WHOOP 5/MG secure-session ownership from exact SHA `93d563d`.
+  - Keep PR #37 draft, open, and unmerged.
+  - Preserve bundle identity, phone data, in-place install behavior, and the existing BLE/history pipeline.
+  - Require current peripheral, connection generation, secure-attempt epoch, confirmed-write ownership,
+    CRC-valid protocol proof, and secure-session history ownership before proprietary work or progress.
+  - [x] Implement and run protocol, store, iOS, migration, query-plan, lifecycle, and secure-session tests.
+  - [x] Commit, push, and verify the exact remote PR head without merging.
+
 - [~] #36 Make WHOOP history ingestion durable and UI-responsive.
   - PR #37 remains draft and must not merge before every external gate passes.
   - Preserve the PR #29 shared database pool and save-before-ACK contract.

@@ -30,6 +30,11 @@ public struct ParsedFrame: Codable, Equatable, Sendable {
     public let fields: [DecodedField]
     public let parsed: [String: ParsedValue]
 
+    /// WHOOP 5/MG COMMAND_RESPONSE ownership bytes. These are the generic bytes immediately before
+    /// the command-specific response body and are intentionally exposed without interpreting tokens.
+    public var responseRequestSequence: Int? { parsed["response_request_sequence"]?.intValue }
+    public var responseResult: Int? { parsed["response_result"]?.intValue }
+
     public init(
         ok: Bool,
         typeName: String,
@@ -352,7 +357,10 @@ private func parseFrameWhoop5(_ frame: [UInt8], collectFields: Bool) -> ParsedFr
     let cmdByte = frame.count > innerStart + 2 ? Int(frame[innerStart + 2]) : 0
     let delta = innerStart - 4                       // = 4
     let payloadEnd = declaredLength.map { ($0 + 8) - 4 }   // start of CRC32 trailer
-    let spec = schema.packet(forType: t)
+    // Puffin type 38 is the WHOOP 5/MG image of COMMAND_RESPONSE type 36. Use the canonical schema
+    // post-hook as well as the canonical name; otherwise type 38 responses retain no ownership bytes.
+    let schemaType = t == PuffinPacketType.puffinCommandResponse ? 36 : t
+    let spec = schema.packet(forType: schemaType)
     if spec == nil {
         fb.add(innerStart + 2, 1, "cmd", "cmd",
                value: frame.count > innerStart + 2 ? .int(cmdByte) : nil)
@@ -777,11 +785,15 @@ public func whoop5HistoricalAckFrame(endData: [UInt8], seq: UInt8) -> [UInt8] {
 /// a short stub on this firmware (REPORT_VERSION_INFO / GET_EXTENDED_BATTERY_INFO) or aren't served
 /// (GET_CLOCK — unneeded, since realtime + historical carry real unix) are intentionally left undecoded.
 private func decodeWhoop5CommandResponse(_ frame: [UInt8], fb: FieldBuilder, schema: Schema, payloadEnd: Int?) {
-    guard let payloadEnd = payloadEnd, 11 < payloadEnd, payloadEnd <= frame.count else { return }
+    guard let payloadEnd = payloadEnd, 13 <= payloadEnd, payloadEnd <= frame.count else { return }
     let respCmd = Int(frame[10])
     let name = schema.enumName("CommandNumber", respCmd)   // e.g. "GET_BATTERY_LEVEL(26)"
     let pay = Array(frame[11..<payloadEnd])
     fb.region(11, payloadEnd, "response payload", "cmd")
+    // Every observed WHOOP 5/MG response begins with the originating request sequence and protocol
+    // result. The decoded command body still starts at pay[2], preserving the existing field offsets.
+    fb.add(11, 1, "response_request_sequence", "cmd", value: .int(Int(pay[0])))
+    fb.add(12, 1, "response_result", "cmd", value: .int(Int(pay[1])))
     if name.hasPrefix("GET_BATTERY_LEVEL"), pay.count >= 3 {
         // Direct percent at pay[2] (47% confirmed against the app) — the 4.0 deci-percent ÷10 is gone.
         fb.add(11 + 2, 1, "battery_pct", "battery", value: .double(Double(pay[2])), note: "%")

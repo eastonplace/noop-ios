@@ -421,8 +421,12 @@ public final class LiveState: ObservableObject {
     }
 
     public func markConnected(at timestamp: TimeInterval = Date().timeIntervalSince1970) {
-        if !connected || connectedAt == nil { connectedAt = timestamp }
+        guard !connected else { return }
+        connectedAt = timestamp
         connected = true
+        historicalBurstProgress.markFinalized()
+        syncChunksThisSession = 0
+        clearHistoricalSyncProgress()
         historicalSyncSessionState = .waitingForSecureHandshake
     }
 
