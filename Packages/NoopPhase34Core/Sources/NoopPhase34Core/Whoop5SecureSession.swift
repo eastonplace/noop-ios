@@ -23,7 +23,8 @@ public struct Whoop5SecureSessionID: Codable, Equatable, Hashable, Sendable {
 }
 
 /// The bounded WHOOP 5/MG authorization state. It deliberately knows nothing about CoreBluetooth;
-/// BLEManager owns transport and feeds only current-generation evidence into this value.
+/// BLEManager owns transport and feeds only current-generation evidence into this value. The ATT write
+/// result and COMMAND_RESPONSE are independent facts because CoreBluetooth does not order those delegates.
 public struct Whoop5SecureSession: Codable, Equatable, Sendable {
     public private(set) var state: Whoop5SecureSessionState = .disconnected
     public private(set) var id: Whoop5SecureSessionID?
@@ -35,6 +36,7 @@ public struct Whoop5SecureSession: Codable, Equatable, Sendable {
     private var discoveredCommandCharacteristic = false
     private var discoveryComplete = false
     private var proofWriteConfirmed = false
+    private var proofResponseConfirmed = false
 
     public init() {}
 
@@ -49,12 +51,7 @@ public struct Whoop5SecureSession: Codable, Equatable, Sendable {
         )
         id = newID
         state = .standardOnly
-        pendingProofSequence = nil
-        requiredProtectedNotifications.removeAll()
-        confirmedProtectedNotifications.removeAll()
-        discoveredCommandCharacteristic = false
-        discoveryComplete = false
-        proofWriteConfirmed = false
+        resetAttemptEvidence()
         return newID
     }
 
@@ -69,7 +66,7 @@ public struct Whoop5SecureSession: Codable, Equatable, Sendable {
         discoveryComplete: Bool,
         sessionID: Whoop5SecureSessionID
     ) -> Bool {
-        guard id == sessionID, state != .failed, state != .disconnected else { return false }
+        guard id == sessionID, state == .standardOnly else { return false }
         discoveredCommandCharacteristic = discoveredCommandCharacteristic || commandCharacteristicFound
         requiredProtectedNotifications.formUnion(requiredNotificationIDs)
         self.discoveryComplete = self.discoveryComplete || discoveryComplete
@@ -81,7 +78,7 @@ public struct Whoop5SecureSession: Codable, Equatable, Sendable {
     public mutating func confirmClientHello(sessionID: Whoop5SecureSessionID, succeeded: Bool) -> Bool {
         guard id == sessionID, state == .clientHelloPending else { return false }
         guard succeeded else {
-            state = .failed
+            failCurrentAttempt()
             return false
         }
         state = .protectedNotificationsPending
@@ -94,8 +91,9 @@ public struct Whoop5SecureSession: Codable, Equatable, Sendable {
         sessionID: Whoop5SecureSessionID
     ) -> Bool {
         guard id == sessionID, state == .protectedNotificationsPending else { return false }
-        guard enabled, requiredProtectedNotifications.contains(characteristicID) else {
-            if requiredProtectedNotifications.contains(characteristicID) { state = .failed }
+        guard requiredProtectedNotifications.contains(characteristicID) else { return false }
+        guard enabled else {
+            failCurrentAttempt()
             return false
         }
         confirmedProtectedNotifications.insert(characteristicID)
@@ -108,6 +106,7 @@ public struct Whoop5SecureSession: Codable, Equatable, Sendable {
               confirmedProtectedNotifications == requiredProtectedNotifications else { return false }
         pendingProofSequence = sequence
         proofWriteConfirmed = false
+        proofResponseConfirmed = false
         state = .protocolProofPending
         return true
     }
@@ -115,10 +114,11 @@ public struct Whoop5SecureSession: Codable, Equatable, Sendable {
     public mutating func confirmProtocolProofWrite(sessionID: Whoop5SecureSessionID, succeeded: Bool) -> Bool {
         guard id == sessionID, state == .protocolProofPending else { return false }
         guard succeeded else {
-            state = .failed
+            failCurrentAttempt()
             return false
         }
         proofWriteConfirmed = true
+        _ = resolveProtocolProofIfReady()
         return true
     }
 
@@ -133,37 +133,63 @@ public struct Whoop5SecureSession: Codable, Equatable, Sendable {
     ) -> Bool {
         guard id == sessionID,
               state == .protocolProofPending,
-              proofWriteConfirmed,
               pendingProofSequence == requestSequence,
               command == getHelloCommand,
-              result == successResult,
               integrityValid else { return false }
-        pendingProofSequence = nil
-        state = .secureReady
-        return true
+        guard result == successResult else {
+            failCurrentAttempt()
+            return false
+        }
+        proofResponseConfirmed = true
+        return resolveProtocolProofIfReady()
     }
 
     public mutating func fail(sessionID: Whoop5SecureSessionID) {
         guard id == sessionID else { return }
-        state = .failed
-        pendingProofSequence = nil
-        proofWriteConfirmed = false
+        failCurrentAttempt()
     }
 
     public mutating func disconnect() {
         state = .disconnected
         id = nil
+        resetAttemptEvidence()
+    }
+
+    public func authorizesProprietaryCommand(sessionID: Whoop5SecureSessionID) -> Bool {
+        id == sessionID && state == .secureReady
+    }
+
+    private mutating func resolveProtocolProofIfReady() -> Bool {
+        guard state == .protocolProofPending,
+              proofWriteConfirmed,
+              proofResponseConfirmed else { return false }
+        pendingProofSequence = nil
+        state = .secureReady
+        return true
+    }
+
+    private mutating func failCurrentAttempt() {
+        state = .failed
+        pendingProofSequence = nil
+        proofWriteConfirmed = false
+        proofResponseConfirmed = false
+    }
+
+    private mutating func resetAttemptEvidence() {
         pendingProofSequence = nil
         requiredProtectedNotifications.removeAll()
         confirmedProtectedNotifications.removeAll()
         discoveredCommandCharacteristic = false
         discoveryComplete = false
         proofWriteConfirmed = false
+        proofResponseConfirmed = false
     }
+}
 
-    public func authorizesProprietaryCommand(sessionID: Whoop5SecureSessionID) -> Bool {
-        id == sessionID && state == .secureReady
-    }
+public enum Whoop5R22ResponseOutcome: Equatable, Sendable {
+    case ignored
+    case accepted(flag: String)
+    case rejected(flag: String, result: UInt8)
 }
 
 public struct Whoop5R22Attempt: Codable, Equatable, Sendable {
@@ -177,10 +203,16 @@ public struct Whoop5R22Attempt: Codable, Equatable, Sendable {
     }
 
     public mutating func track(flag: String, requestSequence: UInt8) {
+        acceptedFlags.remove(flag)
+        rejectedFlags.remove(flag)
+        pendingByRequestSequence = pendingByRequestSequence.filter { $0.value != flag }
         pendingByRequestSequence[requestSequence] = flag
     }
 
-    @discardableResult
+    public mutating func discard(requestSequence: UInt8) {
+        pendingByRequestSequence.removeValue(forKey: requestSequence)
+    }
+
     public mutating func acceptResponse(
         command: UInt8,
         requestSequence: UInt8,
@@ -189,16 +221,18 @@ public struct Whoop5R22Attempt: Codable, Equatable, Sendable {
         sessionID: Whoop5SecureSessionID,
         setConfigCommand: UInt8 = 120,
         successResult: UInt8 = 1
-    ) -> Bool {
+    ) -> Whoop5R22ResponseOutcome {
         guard self.sessionID == sessionID,
               command == setConfigCommand,
               integrityValid,
-              let flag = pendingByRequestSequence.removeValue(forKey: requestSequence) else { return false }
+              let flag = pendingByRequestSequence.removeValue(forKey: requestSequence) else { return .ignored }
         if result == successResult {
+            rejectedFlags.remove(flag)
             acceptedFlags.insert(flag)
-            return true
+            return .accepted(flag: flag)
         }
+        acceptedFlags.remove(flag)
         rejectedFlags.insert(flag)
-        return false
+        return .rejected(flag: flag, result: result)
     }
 }

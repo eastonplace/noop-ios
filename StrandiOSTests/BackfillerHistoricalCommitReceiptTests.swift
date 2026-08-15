@@ -4,6 +4,11 @@ import WhoopProtocol
 import WhoopStore
 
 final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
+    private let fixtureWhoop5Admission = Whoop5HistoricalSessionAdmission(
+        peripheralID: UUID(uuidString: "99999999-AAAA-BBBB-CCCC-DDDDDDDDDDDD")!,
+        connectGeneration: 1,
+        attemptEpoch: 1)
+
     @MainActor
     private final class EventLedger {
         private(set) var events: [String] = []
@@ -627,15 +632,17 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
             deviceId: "strap-a",
             ackTrim: { _, _, _ in ackCount += 1; return true },
             rejectedSink: { _, _, _ in rejectedArchiveCalls += 1; return true },
-            onChunk: { decoded, _ in if decoded { decodedChunks += 1 } })
+            onChunk: { decoded, _ in if decoded { decodedChunks += 1 } },
+            ackTrimForWhoop5Admission: { _, _, _, _ in ackCount += 1; return true })
         backfiller.begin(
             family: .whoop5,
-            historicalCursorScope: HistoricalCursorScope(deviceId: "strap-a", lineage: "test-lineage"))
+            historicalCursorScope: HistoricalCursorScope(deviceId: "strap-a", lineage: "test-lineage"),
+            whoop5Admission: fixtureWhoop5Admission)
 
-        await backfiller.ingest(before)
-        await backfiller.ingest(frame)
-        await backfiller.ingest(after)
-        await backfiller.ingest(whoop5HistoryEndFrame)
+        await backfiller.ingest(before, admittedBy: fixtureWhoop5Admission)
+        await backfiller.ingest(frame, admittedBy: fixtureWhoop5Admission)
+        await backfiller.ingest(after, admittedBy: fixtureWhoop5Admission)
+        await backfiller.ingest(whoop5HistoryEndFrame, admittedBy: fixtureWhoop5Admission)
 
         let committedDetails = await store.commitDetails()
         let details = try XCTUnwrap(committedDetails)
@@ -661,14 +668,16 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
         let backfiller = Backfiller(
             store: store,
             deviceId: "strap-a",
-            ackTrim: { _, _, _ in true })
+            ackTrim: { _, _, _ in true },
+            ackTrimForWhoop5Admission: { _, _, _, _ in true })
         backfiller.begin(
             family: .whoop5,
             historicalCursorScope: HistoricalCursorScope(
-                deviceId: "strap-a", lineage: "test-lineage"))
+                deviceId: "strap-a", lineage: "test-lineage"),
+            whoop5Admission: fixtureWhoop5Admission)
 
-        await backfiller.ingest(frame)
-        await backfiller.ingest(whoop5HistoryEndFrame)
+        await backfiller.ingest(frame, admittedBy: fixtureWhoop5Admission)
+        await backfiller.ingest(whoop5HistoryEndFrame, admittedBy: fixtureWhoop5Admission)
 
         let committedDetails = await store.commitDetails()
         let details = try XCTUnwrap(committedDetails)
@@ -708,14 +717,16 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
         let backfiller = Backfiller(
             store: store,
             deviceId: "strap-a",
-            ackTrim: { _, _, _ in true })
+            ackTrim: { _, _, _ in true },
+            ackTrimForWhoop5Admission: { _, _, _, _ in true })
         backfiller.begin(
             family: .whoop5,
             historicalCursorScope: HistoricalCursorScope(
-                deviceId: "strap-a", lineage: "test-lineage"))
+                deviceId: "strap-a", lineage: "test-lineage"),
+            whoop5Admission: fixtureWhoop5Admission)
 
-        await backfiller.ingest(frame)
-        await backfiller.ingest(whoop5HistoryEndFrame)
+        await backfiller.ingest(frame, admittedBy: fixtureWhoop5Admission)
+        await backfiller.ingest(whoop5HistoryEndFrame, admittedBy: fixtureWhoop5Admission)
 
         let committedDetails = await store.commitDetails()
         let details = try XCTUnwrap(committedDetails)
@@ -740,17 +751,19 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
             store: store,
             deviceId: "strap-a",
             ackTrim: { _, _, _ in true },
-            enableRawCapture: true)
+            enableRawCapture: true,
+            ackTrimForWhoop5Admission: { _, _, _, _ in true })
         backfiller.begin(
             family: .whoop5,
             historicalCursorScope: HistoricalCursorScope(
-                deviceId: "strap-a", lineage: "test-lineage"))
+                deviceId: "strap-a", lineage: "test-lineage"),
+            whoop5Admission: fixtureWhoop5Admission)
 
-        await backfiller.ingest(olderV18)
-        await backfiller.ingest(v20)
-        await backfiller.ingest(console)
-        await backfiller.ingest(newerV18)
-        await backfiller.ingest(whoop5HistoryEndFrame)
+        await backfiller.ingest(olderV18, admittedBy: fixtureWhoop5Admission)
+        await backfiller.ingest(v20, admittedBy: fixtureWhoop5Admission)
+        await backfiller.ingest(console, admittedBy: fixtureWhoop5Admission)
+        await backfiller.ingest(newerV18, admittedBy: fixtureWhoop5Admission)
+        await backfiller.ingest(whoop5HistoryEndFrame, admittedBy: fixtureWhoop5Admission)
 
         let committedDetails = await store.commitDetails()
         let details = try XCTUnwrap(committedDetails)
@@ -814,14 +827,16 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
                 deviceId: "strap-a",
                 ackTrim: { _, _, _ in ackCount += 1; return true },
                 rejectedSink: { frames, _, _ in archived.append(frames); return true },
-                onFailure: { failures.append($0) })
+                onFailure: { failures.append($0) },
+                ackTrimForWhoop5Admission: { _, _, _, _ in ackCount += 1; return true })
             backfiller.begin(
                 family: .whoop5,
                 historicalCursorScope: HistoricalCursorScope(
-                    deviceId: "strap-a", lineage: "test-lineage"))
+                    deviceId: "strap-a", lineage: "test-lineage"),
+                whoop5Admission: fixtureWhoop5Admission)
 
-            await backfiller.ingest(corrupt)
-            await backfiller.ingest(whoop5HistoryEndFrame)
+            await backfiller.ingest(corrupt, admittedBy: fixtureWhoop5Admission)
+            await backfiller.ingest(whoop5HistoryEndFrame, admittedBy: fixtureWhoop5Admission)
 
             let committedDeviceIds = await store.deviceIds()
             XCTAssertEqual(committedDeviceIds, [], "\(label) must not commit")
@@ -926,17 +941,19 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
             store: SourceCaptureStore(),
             deviceId: "strap-a",
             ackTrim: { _, _, _ in true },
+            ackTrimForWhoop5Admission: { _, _, _, _ in true },
             parse: { bytes, family in
                 counter.increment()
                 return parseFrame(bytes, family: family)
             })
         backfiller.begin(
             family: .whoop5,
-            historicalCursorScope: HistoricalCursorScope(deviceId: "strap-a", lineage: "test-lineage"))
+            historicalCursorScope: HistoricalCursorScope(deviceId: "strap-a", lineage: "test-lineage"),
+            whoop5Admission: fixtureWhoop5Admission)
         let records = [whoop5V20Frame(unix: 1_781_557_000), whoop5V20Frame(unix: 1_781_557_001)]
 
-        for frame in records { await backfiller.ingest(frame) }
-        await backfiller.ingest(whoop5HistoryEndFrame)
+        for frame in records { await backfiller.ingest(frame, admittedBy: fixtureWhoop5Admission) }
+        await backfiller.ingest(whoop5HistoryEndFrame, admittedBy: fixtureWhoop5Admission)
 
         XCTAssertEqual(counter.count, records.count, "reject classification must reuse parsed frames")
     }
@@ -1202,6 +1219,14 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
             isWhoop5AdmissionCurrent: { $0 == liveAdmission },
             ackTrimForWhoop5Admission: { _, _, _, _ in ackCount += 1; return true },
             extract: { _, _, _, _, _ in Streams() })
+
+        XCTAssertFalse(backfiller.begin(
+            family: .whoop5,
+            historicalCursorScope: scope,
+            whoop5Admission: nil))
+        await backfiller.ingest(whoop5HistoryEndFrame)
+        let idsAfterMissingAdmission = await store.deviceIds()
+        XCTAssertEqual(idsAfterMissingAdmission, [])
 
         XCTAssertFalse(backfiller.begin(
             family: .whoop5,

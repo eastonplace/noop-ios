@@ -2,9 +2,9 @@ import Foundation
 import Testing
 @testable import NoopPhase34Core
 
-private let protectedNotifications: Set<String> = ["fd4b0003", "fd4b0004", "fd4b0005"]
+private let protectedNotifications: Set<String> = ["fd4b0003", "fd4b0004", "fd4b0005", "fd4b0007"]
 
-private func makeProofPending() -> (Whoop5SecureSession, Whoop5SecureSessionID) {
+private func makeProtocolProofPending(confirmWrite: Bool = true) -> (Whoop5SecureSession, Whoop5SecureSessionID) {
     var session = Whoop5SecureSession()
     let id = session.acceptConnection(peripheralID: UUID(), connectGeneration: 1)
     let shouldSendHello = session.collectProtectedCharacteristics(
@@ -21,9 +21,15 @@ private func makeProofPending() -> (Whoop5SecureSession, Whoop5SecureSessionID) 
     }
     let proofStarted = session.beginProtocolProof(sequence: 42, sessionID: id)
     #expect(proofStarted)
-    let proofWriteConfirmed = session.confirmProtocolProofWrite(sessionID: id, succeeded: true)
-    #expect(proofWriteConfirmed)
+    if confirmWrite {
+        let proofWriteConfirmed = session.confirmProtocolProofWrite(sessionID: id, succeeded: true)
+        #expect(proofWriteConfirmed)
+    }
     return (session, id)
+}
+
+private func makeProofPending() -> (Whoop5SecureSession, Whoop5SecureSessionID) {
+    makeProtocolProofPending()
 }
 
 @Test func acceptedConnectionClearsRetainedHandshakeState() {
@@ -101,10 +107,33 @@ func restoredPeripheralIsUnverified(wasConnected: Bool) {
     #expect(session.authorizesProprietaryCommand(sessionID: id))
 }
 
+@Test func protocolResponseBeforeATTStillCompletes() {
+    var (session, id) = makeProtocolProofPending(confirmWrite: false)
+    let responseCompleted = session.acceptProtocolProofResponse(
+        command: 145, requestSequence: 42, result: 1,
+        integrityValid: true, sessionID: id)
+    #expect(!responseCompleted)
+    #expect(session.state == .protocolProofPending)
+    let writeAccepted = session.confirmProtocolProofWrite(sessionID: id, succeeded: true)
+    #expect(writeAccepted)
+    #expect(session.state == .secureReady)
+}
+
+@Test func ATTBeforeProtocolResponseStillCompletes() {
+    var (session, id) = makeProtocolProofPending(confirmWrite: false)
+    let writeAccepted = session.confirmProtocolProofWrite(sessionID: id, succeeded: true)
+    #expect(writeAccepted)
+    #expect(session.state == .protocolProofPending)
+    let responseCompleted = session.acceptProtocolProofResponse(
+        command: 145, requestSequence: 42, result: 1,
+        integrityValid: true, sessionID: id)
+    #expect(responseCompleted)
+    #expect(session.state == .secureReady)
+}
+
 @Test(arguments: [
     (144 as UInt8, 42 as UInt8, 1 as UInt8, true),
     (145 as UInt8, 43 as UInt8, 1 as UInt8, true),
-    (145 as UInt8, 42 as UInt8, 0 as UInt8, true),
     (145 as UInt8, 42 as UInt8, 1 as UInt8, false),
 ])
 func proofMismatchCannotAuthorize(command: UInt8, sequence: UInt8, result: UInt8, integrity: Bool) {
@@ -118,6 +147,33 @@ func proofMismatchCannotAuthorize(command: UInt8, sequence: UInt8, result: UInt8
     )
     #expect(!accepted)
     #expect(session.state == .protocolProofPending)
+}
+
+@Test func matchedNegativeProofResultFailsImmediately() {
+    var (session, id) = makeProtocolProofPending(confirmWrite: false)
+    let responseCompleted = session.acceptProtocolProofResponse(
+        command: 145, requestSequence: 42, result: 0,
+        integrityValid: true, sessionID: id)
+    #expect(!responseCompleted)
+    #expect(session.state == .failed)
+}
+
+@Test func discoveryContractFreezesAfterHelloStarts() {
+    var session = Whoop5SecureSession()
+    let id = session.acceptConnection(peripheralID: UUID(), connectGeneration: 1)
+    let first = session.collectProtectedCharacteristics(
+        commandCharacteristicFound: true,
+        requiredNotificationIDs: protectedNotifications,
+        discoveryComplete: true,
+        sessionID: id)
+    #expect(first)
+    let duplicate = session.collectProtectedCharacteristics(
+        commandCharacteristicFound: true,
+        requiredNotificationIDs: protectedNotifications.union(["unexpected"]),
+        discoveryComplete: true,
+        sessionID: id)
+    #expect(!duplicate)
+    #expect(!session.requiredProtectedNotifications.contains("unexpected"))
 }
 
 @Test func authenticationRefusalFailsClosedWithStandardFallback() {
@@ -181,10 +237,31 @@ func proofMismatchCannotAuthorize(command: UInt8, sequence: UInt8, result: UInt8
     let wrongCommand = attempt.acceptResponse(command: 119, requestSequence: 10, result: 1, integrityValid: true, sessionID: id)
     let success = attempt.acceptResponse(command: 120, requestSequence: 10, result: 1, integrityValid: true, sessionID: id)
     let rejection = attempt.acceptResponse(command: 120, requestSequence: 11, result: 0, integrityValid: true, sessionID: id)
-    #expect(!wrongCommand)
-    #expect(success)
-    #expect(!rejection)
+    #expect(wrongCommand == .ignored)
+    #expect(success == .accepted(flag: "a"))
+    #expect(rejection == .rejected(flag: "b", result: 0))
     #expect(attempt.acceptedFlags == ["a"])
     #expect(attempt.rejectedFlags == ["b"])
     #expect(session.state == .protocolProofPending)
+}
+
+@Test func r22UnmatchedResponseAfterRejectionRemainsIgnored() {
+    let (_, id) = makeProofPending()
+    var attempt = Whoop5R22Attempt(sessionID: id)
+    attempt.track(flag: "x", requestSequence: 1)
+    #expect(attempt.acceptResponse(
+        command: 120, requestSequence: 1, result: 3,
+        integrityValid: true, sessionID: id) == .rejected(flag: "x", result: 3))
+    #expect(attempt.acceptResponse(
+        command: 120, requestSequence: 99, result: 3,
+        integrityValid: true, sessionID: id) == .ignored)
+    attempt.track(flag: "x", requestSequence: 2)
+    #expect(attempt.rejectedFlags.isEmpty)
+    let retiredRetry = attempt.acceptResponse(
+        command: 120, requestSequence: 1, result: 1,
+        integrityValid: true, sessionID: id)
+    #expect(retiredRetry == .ignored)
+    #expect(attempt.acceptResponse(
+        command: 120, requestSequence: 2, result: 1,
+        integrityValid: true, sessionID: id) == .accepted(flag: "x"))
 }

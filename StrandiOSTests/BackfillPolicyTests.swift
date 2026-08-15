@@ -1,5 +1,6 @@
 import XCTest
 @testable import NOOP
+import NoopPhase34Core
 import WhoopStore
 
 @MainActor
@@ -59,6 +60,75 @@ final class BackfillPolicyTests: XCTestCase {
         XCTAssertEqual(
             BLEManager.confirmedWritePurpose(command: .historicalDataResult, isHistoricalAck: true),
             .historicalAck)
+    }
+
+    func testWhoopFiveConnectedRefreshPreservesOrRecoversSecureAttempt() {
+        XCTAssertEqual(BLEManager.whoop5ConnectedRefreshAction(for: .standardOnly), .continueDiscovery)
+        XCTAssertEqual(BLEManager.whoop5ConnectedRefreshAction(for: .clientHelloPending), .coalesceAttempt)
+        XCTAssertEqual(BLEManager.whoop5ConnectedRefreshAction(for: .protectedNotificationsPending), .coalesceAttempt)
+        XCTAssertEqual(BLEManager.whoop5ConnectedRefreshAction(for: .protocolProofPending), .coalesceAttempt)
+        XCTAssertEqual(BLEManager.whoop5ConnectedRefreshAction(for: .secureReady), .refreshLiveOnly)
+        XCTAssertEqual(BLEManager.whoop5ConnectedRefreshAction(for: .failed), .reconnect)
+    }
+
+    func testRestoredProtectedNotificationMustRearmOffThenOn() {
+        XCTAssertEqual(
+            BLEManager.whoop5InitialNotificationAction(isAlreadyNotifying: true),
+            .requestOffBeforeOn)
+        XCTAssertEqual(
+            BLEManager.whoop5InitialNotificationAction(isAlreadyNotifying: false),
+            .requestOn)
+    }
+
+    func testFrozenCharacteristicReplacementRevokesOnlyDifferentInstance() {
+        XCTAssertFalse(BLEManager.shouldRevokeFrozenCharacteristic(
+            hasFrozenInstance: false, isSameInstance: false))
+        XCTAssertFalse(BLEManager.shouldRevokeFrozenCharacteristic(
+            hasFrozenInstance: true, isSameInstance: true))
+        XCTAssertTrue(BLEManager.shouldRevokeFrozenCharacteristic(
+            hasFrozenInstance: true, isSameInstance: false))
+    }
+
+    func testSecureStageDeadlineIsBoundToSessionAndLatestArm() {
+        let session = Whoop5SecureSessionID(
+            peripheralID: UUID(), connectGeneration: 4, attemptEpoch: 9)
+        let staleSession = Whoop5SecureSessionID(
+            peripheralID: session.peripheralID, connectGeneration: 3, attemptEpoch: 8)
+        let deadline = UUID()
+        XCTAssertTrue(BLEManager.shouldFireWhoop5SecureDeadline(
+            expectedSessionID: session,
+            currentSessionID: session,
+            expectedDeadlineID: deadline,
+            currentDeadlineID: deadline,
+            secureReady: false))
+        XCTAssertFalse(BLEManager.shouldFireWhoop5SecureDeadline(
+            expectedSessionID: session,
+            currentSessionID: staleSession,
+            expectedDeadlineID: deadline,
+            currentDeadlineID: deadline,
+            secureReady: false))
+        XCTAssertFalse(BLEManager.shouldFireWhoop5SecureDeadline(
+            expectedSessionID: session,
+            currentSessionID: session,
+            expectedDeadlineID: deadline,
+            currentDeadlineID: UUID(),
+            secureReady: false))
+        XCTAssertFalse(BLEManager.shouldFireWhoop5SecureDeadline(
+            expectedSessionID: session,
+            currentSessionID: session,
+            expectedDeadlineID: deadline,
+            currentDeadlineID: deadline,
+            secureReady: true))
+    }
+
+    func testWhoopFiveStandardHeartRateDoesNotClaimSecureSession() {
+        let live = LiveState()
+        live.connected = true
+        live.streamingLiveHR = true
+        live.standardHRMode = "Live HR only - secure WHOOP session is still being established."
+        XCTAssertFalse(live.bonded)
+        XCTAssertFalse(live.encryptedBond)
+        XCTAssertEqual(live.connectionStatusLabel, "Live HR only · securing")
     }
 
     func testStaleDisconnectCannotTearDownCurrentConnection() {

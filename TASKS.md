@@ -1,12 +1,24 @@
 # Active work
 
-- [~] #37 Repair WHOOP 5/MG secure-session ownership from exact SHA `93d563d`.
+- [x] #37 Repair WHOOP 5/MG secure-session ownership from exact SHA `93d563d` and close the
+  exact-head QA findings reported against `8a833cfa`.
   - Keep PR #37 draft, open, and unmerged.
   - Preserve bundle identity, phone data, in-place install behavior, and the existing BLE/history pipeline.
   - Require current peripheral, connection generation, secure-attempt epoch, confirmed-write ownership,
     CRC-valid protocol proof, and secure-session history ownership before proprietary work or progress.
-  - [x] Implement and run protocol, store, iOS, migration, query-plan, lifecycle, and secure-session tests.
-  - [x] Commit, push, and verify the exact remote PR head without merging.
+  - [x] Close order-independent GET_HELLO proof,
+    bounded secure lifecycle, restored-notify rearm, frozen fd4b instances, issued-only callback owners,
+    fail-closed WHOOP 5 history admission, truthful pre-proof UI, and exact response-ledger cleanup.
+  - [x] Run all eight Swift packages plus the complete iOS suite: WhoopProtocol 327/327,
+    WhoopStore 447/447, NoopPhase34Core 80/80, and NOOPiOS 447 tests with one expected skip and zero
+    failures. Migration/SQL, query-plan/store, lifecycle, source-contract, and focused audit gates pass.
+  - [x] Pass the unsigned generic-iPhone Simulator Release build under Swift 6 warnings-as-errors.
+  - [x] Preserve the bundle/project identity and V54/V55/V56 migration sources; add no migration or
+    background pipeline.
+  - [x] Commit, push, and verify the exact remote PR head without merging or removing draft status.
+  - [ ] Remaining external gates: restore hosted Actions after the account billing/spend restriction,
+    restore signing for team `479HYY24G2`, then run the signed physical-device secure-session and
+    Release/background/restoration/radio/energy/memory/thermal qualification on the final SHA.
 
 - [~] #36 Make WHOOP history ingestion durable and UI-responsive.
   - PR #37 remains draft and must not merge before every external gate passes.

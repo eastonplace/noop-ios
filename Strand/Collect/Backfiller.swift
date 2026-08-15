@@ -407,8 +407,16 @@ final class Backfiller {
         whoop5Admission: Whoop5HistoricalSessionAdmission? = nil
     ) -> Bool {
         sessionGeneration &+= 1
-        requiresWhoop5Admission = whoop5Admission != nil
+        requiresWhoop5Admission = family == .whoop5
         self.whoop5Admission = nil
+        guard family != .whoop5 || whoop5Admission != nil else {
+            isBackfilling = false
+            chunk.removeAll(keepingCapacity: true)
+            sessionProtocolMetadata.removeAll(keepingCapacity: true)
+            chunkOpen = false
+            log?("Backfill: rejected WHOOP 5 history begin without secure-session admission.")
+            return false
+        }
         guard whoop5Admission.map(isWhoop5AdmissionCurrent) ?? true else {
             isBackfilling = false
             chunk.removeAll(keepingCapacity: true)
