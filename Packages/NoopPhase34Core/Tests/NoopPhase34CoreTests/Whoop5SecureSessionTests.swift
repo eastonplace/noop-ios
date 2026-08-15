@@ -93,6 +93,111 @@ func restoredPeripheralIsUnverified(wasConnected: Bool) {
     #expect(session.state == .standardOnly)
 }
 
+@Test func secureRecoveryBacksOffThenPauses() {
+    var recovery = Whoop5SecureRecoveryTracker()
+    let peripheral = UUID()
+    let expected: [Whoop5SecureRecoveryDecision] = [
+        .reconnect(afterSeconds: 3, attempt: 1, maximumAutomaticAttempts: 5),
+        .reconnect(afterSeconds: 6, attempt: 2, maximumAutomaticAttempts: 5),
+        .reconnect(afterSeconds: 12, attempt: 3, maximumAutomaticAttempts: 5),
+        .reconnect(afterSeconds: 24, attempt: 4, maximumAutomaticAttempts: 5),
+        .reconnect(afterSeconds: 60, attempt: 5, maximumAutomaticAttempts: 5),
+        .pauseStandardOnly(failures: 6),
+    ]
+
+    for decision in expected {
+        #expect(recovery.recordFailure(peripheralID: peripheral) == decision)
+    }
+    #expect(recovery.recordFailure(peripheralID: peripheral) == .pauseStandardOnly(failures: 6))
+    #expect(recovery.isPaused)
+}
+
+@Test func physicalReconnectDoesNotResetSecureRecovery() {
+    var recovery = Whoop5SecureRecoveryTracker()
+    let peripheral = UUID()
+    _ = recovery.recordFailure(peripheralID: peripheral)
+
+    #expect(recovery.consecutiveFailures == 1)
+    #expect(recovery.recordFailure(peripheralID: peripheral)
+        == .reconnect(afterSeconds: 6, attempt: 2, maximumAutomaticAttempts: 5))
+}
+
+@Test func secureReadyAndExplicitRetryResetRecovery() {
+    var recovery = Whoop5SecureRecoveryTracker(retryDelaysSeconds: [0])
+    let peripheral = UUID()
+    _ = recovery.recordFailure(peripheralID: peripheral)
+    _ = recovery.recordFailure(peripheralID: peripheral)
+    #expect(recovery.isPaused)
+
+    recovery.markSecureReady(peripheralID: peripheral)
+    #expect(recovery.consecutiveFailures == 0)
+    #expect(!recovery.isPaused)
+
+    _ = recovery.recordFailure(peripheralID: peripheral)
+    _ = recovery.recordFailure(peripheralID: peripheral)
+    recovery.explicitRetry(peripheralID: peripheral)
+    #expect(recovery.consecutiveFailures == 0)
+    #expect(!recovery.isPaused)
+}
+
+@Test func differentPeripheralStartsFreshSecureRecoverySeries() {
+    var recovery = Whoop5SecureRecoveryTracker()
+    let first = UUID()
+    let second = UUID()
+    _ = recovery.recordFailure(peripheralID: first)
+    _ = recovery.recordFailure(peripheralID: first)
+
+    #expect(recovery.recordFailure(peripheralID: second)
+        == .reconnect(afterSeconds: 3, attempt: 1, maximumAutomaticAttempts: 5))
+    #expect(recovery.peripheralID == second)
+}
+
+@Test func discoveryContractFailsClosedForMissingServiceOrCharacteristic() {
+    #expect(!Whoop5DiscoveryContract.hasRequiredService(
+        discoveredServiceIDs: ["180d", "180f"], requiredServiceID: "fd4b"))
+    #expect(Whoop5DiscoveryContract.hasRequiredService(
+        discoveredServiceIDs: ["fd4b"], requiredServiceID: "FD4B"))
+    #expect(!Whoop5DiscoveryContract.hasRequiredCharacteristics(
+        commandFound: false,
+        discoveredNotificationIDs: protectedNotifications,
+        requiredNotificationIDs: protectedNotifications))
+    #expect(!Whoop5DiscoveryContract.hasRequiredCharacteristics(
+        commandFound: true,
+        discoveredNotificationIDs: protectedNotifications.subtracting(["fd4b0007"]),
+        requiredNotificationIDs: protectedNotifications))
+    #expect(Whoop5DiscoveryContract.hasRequiredCharacteristics(
+        commandFound: true,
+        discoveredNotificationIDs: protectedNotifications,
+        requiredNotificationIDs: protectedNotifications))
+}
+
+@Test func protectedFramesRemainProofOnlyUntilSecureReady() {
+    #expect(Whoop5ProtectedFrameAdmission.evaluate(
+        secureReady: false, integrityValid: true) == .protocolProofOnly)
+    #expect(Whoop5ProtectedFrameAdmission.evaluate(
+        secureReady: true, integrityValid: false) == .dropInvalid)
+    #expect(Whoop5ProtectedFrameAdmission.evaluate(
+        secureReady: true, integrityValid: true) == .routeCurrentSession)
+}
+
+@Test func everyStaleProtectedFrameClassIsQuarantinedBeforeProof() {
+    let staleProtectedFrameClasses = [
+        "EVENT",
+        "BATTERY_RESPONSE",
+        "FIRMWARE_RESPONSE",
+        "HAPTIC_COMMAND_RESPONSE",
+        "HISTORICAL_DATA",
+    ]
+
+    for frameClass in staleProtectedFrameClasses {
+        #expect(
+            Whoop5ProtectedFrameAdmission.evaluate(
+                secureReady: false,
+                integrityValid: true) == .protocolProofOnly,
+            "\(frameClass) must not reach telemetry, history, router, capture, or UI before proof")
+    }
+}
+
 @Test func fullSecurePathRequiresOwnedStrictProof() {
     var (session, id) = makeProofPending()
     let accepted = session.acceptProtocolProofResponse(

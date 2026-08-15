@@ -62,6 +62,15 @@ final class BackfillPolicyTests: XCTestCase {
             .historicalAck)
     }
 
+    func testWhoopFiveAuthenticationLossRevokesBeforeQueuedWriteCanIssue() {
+        XCTAssertEqual(
+            BLEManager.whoop5WriteLaneDisposition(authenticationLost: true),
+            .revokeBeforeAdvance)
+        XCTAssertEqual(
+            BLEManager.whoop5WriteLaneDisposition(authenticationLost: false),
+            .advance)
+    }
+
     func testWhoopFiveConnectedRefreshPreservesOrRecoversSecureAttempt() {
         XCTAssertEqual(BLEManager.whoop5ConnectedRefreshAction(for: .standardOnly), .continueDiscovery)
         XCTAssertEqual(BLEManager.whoop5ConnectedRefreshAction(for: .clientHelloPending), .coalesceAttempt)
@@ -69,6 +78,20 @@ final class BackfillPolicyTests: XCTestCase {
         XCTAssertEqual(BLEManager.whoop5ConnectedRefreshAction(for: .protocolProofPending), .coalesceAttempt)
         XCTAssertEqual(BLEManager.whoop5ConnectedRefreshAction(for: .secureReady), .refreshLiveOnly)
         XCTAssertEqual(BLEManager.whoop5ConnectedRefreshAction(for: .failed), .reconnect)
+    }
+
+    func testSystemForegroundPreservesSecureRecoveryPause() {
+        XCTAssertFalse(BLEManager.shouldAllowWhoop5SystemReconnect(secureRecoveryPaused: true))
+        XCTAssertTrue(BLEManager.shouldAllowWhoop5SystemReconnect(secureRecoveryPaused: false))
+    }
+
+    func testDuplicateServiceDiscoveryCannotReplaceAnActiveStageDeadline() {
+        XCTAssertTrue(BLEManager.shouldArmWhoop5CharacteristicDiscoveryDeadline(state: .standardOnly))
+        XCTAssertFalse(BLEManager.shouldArmWhoop5CharacteristicDiscoveryDeadline(state: .clientHelloPending))
+        XCTAssertFalse(BLEManager.shouldArmWhoop5CharacteristicDiscoveryDeadline(state: .protectedNotificationsPending))
+        XCTAssertFalse(BLEManager.shouldArmWhoop5CharacteristicDiscoveryDeadline(state: .protocolProofPending))
+        XCTAssertFalse(BLEManager.shouldArmWhoop5CharacteristicDiscoveryDeadline(state: .secureReady))
+        XCTAssertFalse(BLEManager.shouldArmWhoop5CharacteristicDiscoveryDeadline(state: .failed))
     }
 
     func testRestoredProtectedNotificationMustRearmOffThenOn() {
@@ -121,6 +144,44 @@ final class BackfillPolicyTests: XCTestCase {
             secureReady: true))
     }
 
+    func testMissingServiceCallbackFiresOnlyTheExactConnectionDeadline() {
+        let current = Whoop5SecureSessionID(
+            peripheralID: UUID(), connectGeneration: 7, attemptEpoch: 12)
+        let replacement = Whoop5SecureSessionID(
+            peripheralID: current.peripheralID, connectGeneration: 8, attemptEpoch: 13)
+        let discoveryDeadline = UUID()
+
+        XCTAssertTrue(BLEManager.shouldFireWhoop5SecureDeadline(
+            expectedSessionID: current,
+            currentSessionID: current,
+            expectedDeadlineID: discoveryDeadline,
+            currentDeadlineID: discoveryDeadline,
+            secureReady: false))
+        XCTAssertFalse(BLEManager.shouldFireWhoop5SecureDeadline(
+            expectedSessionID: current,
+            currentSessionID: replacement,
+            expectedDeadlineID: discoveryDeadline,
+            currentDeadlineID: discoveryDeadline,
+            secureReady: false))
+    }
+
+    func testOneSecureFailureIsCountedOncePerExactAttempt() {
+        let attempt = Whoop5SecureSessionID(
+            peripheralID: UUID(), connectGeneration: 7, attemptEpoch: 12)
+        let replacement = Whoop5SecureSessionID(
+            peripheralID: attempt.peripheralID, connectGeneration: 8, attemptEpoch: 13)
+
+        XCTAssertTrue(BLEManager.shouldRecordWhoop5SecureFailure(
+            sessionID: attempt,
+            alreadyRecordedSessionID: nil))
+        XCTAssertFalse(BLEManager.shouldRecordWhoop5SecureFailure(
+            sessionID: attempt,
+            alreadyRecordedSessionID: attempt))
+        XCTAssertTrue(BLEManager.shouldRecordWhoop5SecureFailure(
+            sessionID: replacement,
+            alreadyRecordedSessionID: attempt))
+    }
+
     func testWhoopFiveStandardHeartRateDoesNotClaimSecureSession() {
         let live = LiveState()
         live.connected = true
@@ -129,6 +190,32 @@ final class BackfillPolicyTests: XCTestCase {
         XCTAssertFalse(live.bonded)
         XCTAssertFalse(live.encryptedBond)
         XCTAssertEqual(live.connectionStatusLabel, "Live HR only · securing")
+    }
+
+    func testStandardHeartRateModeDoesNotLeakAcrossBiometricTeardown() {
+        let live = LiveState()
+        live.connected = true
+        live.streamingLiveHR = true
+        live.standardHRMode = "Live HR only - secure WHOOP session is still being established."
+
+        live.clearBiometrics()
+
+        XCTAssertFalse(live.streamingLiveHR)
+        XCTAssertNil(live.standardHRMode)
+        XCTAssertEqual(live.connectionStatusLabel, "Connected")
+    }
+
+    func testLiveHeartRateOnlyLabelRequiresCurrentStreamAndDistinguishesPause() {
+        let live = LiveState()
+        live.connected = true
+        live.standardHRMode = "Live HR only - secure WHOOP session is still being established."
+        XCTAssertEqual(live.connectionStatusLabel, "Connected")
+
+        live.streamingLiveHR = true
+        XCTAssertEqual(live.connectionStatusLabel, "Live HR only · securing")
+
+        live.standardHRMode = "Live HR only - secure session paused after 6 failures. Tap Connect to retry."
+        XCTAssertEqual(live.connectionStatusLabel, "Live HR only · paused")
     }
 
     func testStaleDisconnectCannotTearDownCurrentConnection() {

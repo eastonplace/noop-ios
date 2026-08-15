@@ -186,6 +186,88 @@ public struct Whoop5SecureSession: Codable, Equatable, Sendable {
     }
 }
 
+public enum Whoop5SecureRecoveryDecision: Equatable, Sendable {
+    case reconnect(afterSeconds: Int, attempt: Int, maximumAutomaticAttempts: Int)
+    case pauseStandardOnly(failures: Int)
+}
+
+/// Cross-connection recovery ownership for one WHOOP 5/MG secure session. A physical BLE connection is
+/// not a recovery success; only current-session protocol proof or an explicit user action clears the series.
+public struct Whoop5SecureRecoveryTracker: Equatable, Sendable {
+    public let retryDelaysSeconds: [Int]
+
+    public private(set) var peripheralID: UUID?
+    public private(set) var consecutiveFailures = 0
+    public private(set) var isPaused = false
+
+    public init(retryDelaysSeconds: [Int] = [3, 6, 12, 24, 60]) {
+        let normalized = retryDelaysSeconds.map { max(0, $0) }
+        self.retryDelaysSeconds = normalized.isEmpty ? [3] : normalized
+    }
+
+    public mutating func recordFailure(peripheralID: UUID) -> Whoop5SecureRecoveryDecision {
+        if self.peripheralID != peripheralID {
+            reset()
+            self.peripheralID = peripheralID
+        }
+        guard !isPaused else { return .pauseStandardOnly(failures: consecutiveFailures) }
+
+        consecutiveFailures += 1
+        guard consecutiveFailures <= retryDelaysSeconds.count else {
+            isPaused = true
+            return .pauseStandardOnly(failures: consecutiveFailures)
+        }
+        return .reconnect(
+            afterSeconds: retryDelaysSeconds[consecutiveFailures - 1],
+            attempt: consecutiveFailures,
+            maximumAutomaticAttempts: retryDelaysSeconds.count)
+    }
+
+    public mutating func markSecureReady(peripheralID: UUID) {
+        guard self.peripheralID == nil || self.peripheralID == peripheralID else { return }
+        reset()
+    }
+
+    public mutating func explicitRetry(peripheralID: UUID? = nil) {
+        reset()
+        self.peripheralID = peripheralID
+    }
+
+    public mutating func reset() {
+        peripheralID = nil
+        consecutiveFailures = 0
+        isPaused = false
+    }
+}
+
+public enum Whoop5ProtectedFrameAdmission: Equatable, Sendable {
+    case protocolProofOnly
+    case dropInvalid
+    case routeCurrentSession
+
+    public static func evaluate(secureReady: Bool, integrityValid: Bool) -> Self {
+        guard secureReady else { return .protocolProofOnly }
+        return integrityValid ? .routeCurrentSession : .dropInvalid
+    }
+}
+
+public enum Whoop5DiscoveryContract {
+    public static func hasRequiredService(
+        discoveredServiceIDs: Set<String>,
+        requiredServiceID: String
+    ) -> Bool {
+        discoveredServiceIDs.contains(requiredServiceID.lowercased())
+    }
+
+    public static func hasRequiredCharacteristics(
+        commandFound: Bool,
+        discoveredNotificationIDs: Set<String>,
+        requiredNotificationIDs: Set<String>
+    ) -> Bool {
+        commandFound && discoveredNotificationIDs == requiredNotificationIDs
+    }
+}
+
 public enum Whoop5R22ResponseOutcome: Equatable, Sendable {
     case ignored
     case accepted(flag: String)

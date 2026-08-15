@@ -483,7 +483,14 @@ public final class LiveState: ObservableObject {
 
     public var connectionStatusLabel: String {
         if connected && encryptedBond { return streamingLiveHR ? "Secure · streaming" : "Secure · connected" }
-        if connected && standardHRMode?.hasPrefix("Live HR only") == true { return "Live HR only · securing" }
+        if connected,
+           streamingLiveHR,
+           let standardHRMode,
+           standardHRMode.hasPrefix("Live HR only") {
+            return standardHRMode.contains("paused")
+                ? "Live HR only · paused"
+                : "Live HR only · securing"
+        }
         if connected && streamingLiveHR { return "Connected · streaming" }
         if connected { return "Connected" }
         if bonded { return "Bonded · idle" }
