@@ -152,6 +152,108 @@ func restoredPeripheralIsUnverified(wasConnected: Bool) {
     #expect(recovery.peripheralID == second)
 }
 
+@Test func sixDirectPreSecureDisconnectsUseTheBoundedRecoverySeries() {
+    var recovery = Whoop5SecureRecoveryController()
+    let peripheral = UUID()
+    let expected: [Whoop5SecureRecoveryDecision] = [
+        .reconnect(afterSeconds: 3, attempt: 1, maximumAutomaticAttempts: 5),
+        .reconnect(afterSeconds: 6, attempt: 2, maximumAutomaticAttempts: 5),
+        .reconnect(afterSeconds: 12, attempt: 3, maximumAutomaticAttempts: 5),
+        .reconnect(afterSeconds: 24, attempt: 4, maximumAutomaticAttempts: 5),
+        .reconnect(afterSeconds: 60, attempt: 5, maximumAutomaticAttempts: 5),
+        .pauseStandardOnly(failures: 6),
+    ]
+
+    for (offset, decision) in expected.enumerated() {
+        let sessionID = Whoop5SecureSessionID(
+            peripheralID: peripheral,
+            connectGeneration: offset + 1,
+            attemptEpoch: UInt64(offset + 1))
+        #expect(recovery.recordFailure(sessionID: sessionID) == decision)
+    }
+    #expect(recovery.tracker.isPaused)
+}
+
+@Test func delegateFailureAndDisconnectCountTheSameAttemptOnce() {
+    var recovery = Whoop5SecureRecoveryController()
+    let sessionID = Whoop5SecureSessionID(
+        peripheralID: UUID(), connectGeneration: 9, attemptEpoch: 10)
+
+    #expect(recovery.recordFailure(sessionID: sessionID)
+        == .reconnect(afterSeconds: 3, attempt: 1, maximumAutomaticAttempts: 5))
+    #expect(recovery.recordFailure(sessionID: sessionID) == nil)
+    #expect(recovery.tracker.consecutiveFailures == 1)
+}
+
+@Test func secureReadyMakesTheNextPreProofDisconnectAFirstFailure() {
+    var recovery = Whoop5SecureRecoveryController()
+    let peripheral = UUID()
+    let first = Whoop5SecureSessionID(
+        peripheralID: peripheral, connectGeneration: 1, attemptEpoch: 1)
+    _ = recovery.recordFailure(sessionID: first)
+    recovery.markSecureReady(sessionID: Whoop5SecureSessionID(
+        peripheralID: peripheral, connectGeneration: 2, attemptEpoch: 2))
+
+    let replacement = Whoop5SecureSessionID(
+        peripheralID: peripheral, connectGeneration: 3, attemptEpoch: 3)
+    #expect(recovery.recordFailure(sessionID: replacement)
+        == .reconnect(afterSeconds: 3, attempt: 1, maximumAutomaticAttempts: 5))
+}
+
+@Test func restoredAndPoweredOnDiscoveryStartsOnceAndKeepsOneDeadline() {
+    var discovery = Whoop5DiscoveryCoordinator()
+    let sessionID = Whoop5SecureSessionID(
+        peripheralID: UUID(), connectGeneration: 4, attemptEpoch: 5)
+    let requestID = UUID()
+    let deadlineID = UUID()
+
+    let restored = discovery.startIfNeeded(
+        sessionID: sessionID, requestID: requestID, deadlineID: deadlineID)
+    let poweredOn = discovery.startIfNeeded(
+        sessionID: sessionID, requestID: UUID(), deadlineID: UUID())
+
+    #expect(restored == .start(Whoop5DiscoveryOwnership(
+        sessionID: sessionID, requestID: requestID, deadlineID: deadlineID)))
+    #expect(poweredOn == .coalesce(Whoop5DiscoveryOwnership(
+        sessionID: sessionID, requestID: requestID, deadlineID: deadlineID)))
+    #expect(discovery.ownership?.deadlineID == deadlineID)
+}
+
+@Test func duplicateDiscoveryCallbacksAdvanceEachOwnedPhaseOnce() {
+    var discovery = Whoop5DiscoveryCoordinator()
+    let sessionID = Whoop5SecureSessionID(
+        peripheralID: UUID(), connectGeneration: 6, attemptEpoch: 7)
+    _ = discovery.startIfNeeded(sessionID: sessionID)
+
+    let firstServices = discovery.acceptServices(sessionID: sessionID)
+    let duplicateServices = discovery.acceptServices(sessionID: sessionID)
+    let firstCharacteristics = discovery.acceptCharacteristics(sessionID: sessionID)
+    let duplicateCharacteristics = discovery.acceptCharacteristics(sessionID: sessionID)
+    #expect(firstServices)
+    #expect(!duplicateServices)
+    #expect(firstCharacteristics)
+    #expect(!duplicateCharacteristics)
+    #expect(discovery.owns(sessionID: sessionID, phase: .complete))
+    #expect(!discovery.owns(sessionID: sessionID, phase: .servicesRequested))
+    #expect(!discovery.owns(sessionID: sessionID, phase: .characteristicsRequested))
+}
+
+@Test(arguments: [
+    (true, true, Whoop5FallbackMode.standardOnlyConfirmed),
+    (true, false, Whoop5FallbackMode.securePausedNoHR),
+    (false, true, Whoop5FallbackMode.securePausedNoHR),
+    (false, false, Whoop5FallbackMode.securePausedNoHR),
+])
+func terminalFallbackKeepsOnlyAConfirmedCurrentStandardHRLink(
+    linkIsConnected: Bool,
+    standardHRConfirmed: Bool,
+    expected: Whoop5FallbackMode
+) {
+    #expect(Whoop5FallbackMode.terminalPause(
+        linkIsConnected: linkIsConnected,
+        standardHRConfirmed: standardHRConfirmed) == expected)
+}
+
 @Test func discoveryContractFailsClosedForMissingServiceOrCharacteristic() {
     #expect(!Whoop5DiscoveryContract.hasRequiredService(
         discoveredServiceIDs: ["180d", "180f"], requiredServiceID: "fd4b"))

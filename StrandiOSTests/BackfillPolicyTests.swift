@@ -1,4 +1,5 @@
 import XCTest
+import CoreBluetooth
 @testable import NOOP
 import NoopPhase34Core
 import WhoopStore
@@ -71,6 +72,32 @@ final class BackfillPolicyTests: XCTestCase {
             .advance)
     }
 
+    func testEveryWhoopFiveTransportAuthorizationLossRevokesGenericAndHistoricalLanes() {
+        let errors: [Error] = [
+            CBATTError(.insufficientAuthentication),
+            CBATTError(.insufficientEncryption),
+            CBATTError(.insufficientAuthorization),
+            CBATTError(.insufficientEncryptionKeySize),
+            CBError(.encryptionTimedOut),
+            CBError(.peerRemovedPairingInformation),
+        ]
+        let purposes: [BLEManager.ConfirmedWritePurpose] = [.genericCommand, .historicalAck]
+
+        for purpose in purposes {
+            for error in errors {
+                let authorizationLost = BLEManager.isWhoop5TransportAuthorizationLoss(error)
+                XCTAssertTrue(authorizationLost, "\(purpose) must classify \(error)")
+                XCTAssertEqual(
+                    BLEManager.whoop5WriteLaneDisposition(authenticationLost: authorizationLost),
+                    .revokeBeforeAdvance,
+                    "\(purpose) write B must remain unissued after write A returns \(error)")
+            }
+        }
+        XCTAssertFalse(BLEManager.isWhoop5TransportAuthorizationLoss(CBError(.connectionTimeout)))
+        XCTAssertFalse(BLEManager.isWhoop5TransportAuthorizationLoss(CBError(.operationCancelled)))
+        XCTAssertFalse(BLEManager.isWhoop5TransportAuthorizationLoss(CBATTError(.requestNotSupported)))
+    }
+
     func testWhoopFiveConnectedRefreshPreservesOrRecoversSecureAttempt() {
         XCTAssertEqual(BLEManager.whoop5ConnectedRefreshAction(for: .standardOnly), .continueDiscovery)
         XCTAssertEqual(BLEManager.whoop5ConnectedRefreshAction(for: .clientHelloPending), .coalesceAttempt)
@@ -85,13 +112,26 @@ final class BackfillPolicyTests: XCTestCase {
         XCTAssertTrue(BLEManager.shouldAllowWhoop5SystemReconnect(secureRecoveryPaused: false))
     }
 
-    func testDuplicateServiceDiscoveryCannotReplaceAnActiveStageDeadline() {
-        XCTAssertTrue(BLEManager.shouldArmWhoop5CharacteristicDiscoveryDeadline(state: .standardOnly))
-        XCTAssertFalse(BLEManager.shouldArmWhoop5CharacteristicDiscoveryDeadline(state: .clientHelloPending))
-        XCTAssertFalse(BLEManager.shouldArmWhoop5CharacteristicDiscoveryDeadline(state: .protectedNotificationsPending))
-        XCTAssertFalse(BLEManager.shouldArmWhoop5CharacteristicDiscoveryDeadline(state: .protocolProofPending))
-        XCTAssertFalse(BLEManager.shouldArmWhoop5CharacteristicDiscoveryDeadline(state: .secureReady))
-        XCTAssertFalse(BLEManager.shouldArmWhoop5CharacteristicDiscoveryDeadline(state: .failed))
+    func testRestoreAndPoweredOnDiscoveryCoalesceBeforeBothCallbackPhases() {
+        var discovery = Whoop5DiscoveryCoordinator()
+        let sessionID = Whoop5SecureSessionID(
+            peripheralID: UUID(), connectGeneration: 4, attemptEpoch: 5)
+        let requestID = UUID()
+        let deadlineID = UUID()
+
+        _ = discovery.startIfNeeded(
+            sessionID: sessionID,
+            requestID: requestID,
+            deadlineID: deadlineID)
+        _ = discovery.startIfNeeded(sessionID: sessionID)
+
+        XCTAssertEqual(discovery.ownership?.requestID, requestID)
+        XCTAssertEqual(discovery.ownership?.deadlineID, deadlineID)
+        XCTAssertTrue(discovery.acceptServices(sessionID: sessionID))
+        XCTAssertFalse(discovery.acceptServices(sessionID: sessionID))
+        XCTAssertTrue(discovery.acceptCharacteristics(sessionID: sessionID))
+        XCTAssertFalse(discovery.acceptCharacteristics(sessionID: sessionID))
+        XCTAssertEqual(discovery.ownership?.deadlineID, deadlineID)
     }
 
     func testRestoredProtectedNotificationMustRearmOffThenOn() {
@@ -180,6 +220,56 @@ final class BackfillPolicyTests: XCTestCase {
         XCTAssertTrue(BLEManager.shouldRecordWhoop5SecureFailure(
             sessionID: replacement,
             alreadyRecordedSessionID: attempt))
+    }
+
+    func testDirectPreSecureDisconnectAdmissionAndSecureReadyReset() {
+        for state in [
+            Whoop5SecureSessionState.standardOnly,
+            .clientHelloPending,
+            .protectedNotificationsPending,
+            .protocolProofPending,
+            .failed,
+        ] {
+            XCTAssertTrue(BLEManager.shouldRecordWhoop5PreSecureDisconnect(
+                family: .whoop5,
+                intentional: false,
+                state: state,
+                hasSessionID: true))
+        }
+        XCTAssertFalse(BLEManager.shouldRecordWhoop5PreSecureDisconnect(
+            family: .whoop5, intentional: true, state: .standardOnly, hasSessionID: true))
+        XCTAssertFalse(BLEManager.shouldRecordWhoop5PreSecureDisconnect(
+            family: .whoop5, intentional: false, state: .secureReady, hasSessionID: true))
+        XCTAssertFalse(BLEManager.shouldRecordWhoop5PreSecureDisconnect(
+            family: .whoop4, intentional: false, state: .standardOnly, hasSessionID: true))
+    }
+
+    func testSixWhoopFiveClientHelloRefusalsKeepTheFullSecureRetrySchedule() {
+        var legacy = BondRefusalGiveUp()
+        var recovery = Whoop5SecureRecoveryController()
+        let peripheral = UUID()
+        let expected: [Whoop5SecureRecoveryDecision] = [
+            .reconnect(afterSeconds: 3, attempt: 1, maximumAutomaticAttempts: 5),
+            .reconnect(afterSeconds: 6, attempt: 2, maximumAutomaticAttempts: 5),
+            .reconnect(afterSeconds: 12, attempt: 3, maximumAutomaticAttempts: 5),
+            .reconnect(afterSeconds: 24, attempt: 4, maximumAutomaticAttempts: 5),
+            .reconnect(afterSeconds: 60, attempt: 5, maximumAutomaticAttempts: 5),
+            .pauseStandardOnly(failures: 6),
+        ]
+
+        for (index, decision) in expected.enumerated() {
+            let legacyThresholdReached = legacy.recordRefusal()
+            if legacyThresholdReached {
+                XCTAssertFalse(BLEManager.legacyBondRefusalOwnsReconnectPause(for: .whoop5))
+                XCTAssertTrue(BLEManager.legacyBondRefusalOwnsReconnectPause(for: .whoop4))
+            }
+            let sessionID = Whoop5SecureSessionID(
+                peripheralID: peripheral,
+                connectGeneration: index + 1,
+                attemptEpoch: UInt64(index + 1))
+            XCTAssertEqual(recovery.recordFailure(sessionID: sessionID), decision)
+        }
+        XCTAssertTrue(recovery.tracker.isPaused)
     }
 
     func testWhoopFiveStandardHeartRateDoesNotClaimSecureSession() {

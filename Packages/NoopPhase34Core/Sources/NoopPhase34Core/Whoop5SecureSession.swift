@@ -240,6 +240,154 @@ public struct Whoop5SecureRecoveryTracker: Equatable, Sendable {
     }
 }
 
+/// Owns failure de-duplication and retry policy across physical WHOOP 5/MG connections. The same
+/// exact secure attempt can fail in a delegate error and then disconnect; it must count once.
+public struct Whoop5SecureRecoveryController: Equatable, Sendable {
+    public private(set) var tracker: Whoop5SecureRecoveryTracker
+    public private(set) var recordedSessionID: Whoop5SecureSessionID?
+
+    public init(tracker: Whoop5SecureRecoveryTracker = Whoop5SecureRecoveryTracker()) {
+        self.tracker = tracker
+    }
+
+    public mutating func recordFailure(
+        sessionID: Whoop5SecureSessionID
+    ) -> Whoop5SecureRecoveryDecision? {
+        guard recordedSessionID != sessionID else { return nil }
+        recordedSessionID = sessionID
+        return tracker.recordFailure(peripheralID: sessionID.peripheralID)
+    }
+
+    public mutating func markSecureReady(sessionID: Whoop5SecureSessionID) {
+        tracker.markSecureReady(peripheralID: sessionID.peripheralID)
+        recordedSessionID = nil
+    }
+
+    public mutating func explicitRetry(peripheralID: UUID? = nil) {
+        tracker.explicitRetry(peripheralID: peripheralID)
+        recordedSessionID = nil
+    }
+
+    public mutating func reset() {
+        tracker.reset()
+        recordedSessionID = nil
+    }
+}
+
+public enum Whoop5DiscoveryPhase: Equatable, Sendable {
+    case servicesRequested
+    case characteristicsRequested
+    case complete
+}
+
+public struct Whoop5DiscoveryOwnership: Equatable, Sendable {
+    public let sessionID: Whoop5SecureSessionID
+    public let requestID: UUID
+    public let deadlineID: UUID
+    public private(set) var phase: Whoop5DiscoveryPhase
+
+    public init(
+        sessionID: Whoop5SecureSessionID,
+        requestID: UUID = UUID(),
+        deadlineID: UUID = UUID(),
+        phase: Whoop5DiscoveryPhase = .servicesRequested
+    ) {
+        self.sessionID = sessionID
+        self.requestID = requestID
+        self.deadlineID = deadlineID
+        self.phase = phase
+    }
+
+    /// Returns true only for the first matching service callback. The phase advances before the caller
+    /// asks Core Bluetooth for characteristics, so a duplicate service callback cannot issue request B.
+    public mutating func acceptServices(sessionID: Whoop5SecureSessionID) -> Bool {
+        guard self.sessionID == sessionID, phase == .servicesRequested else { return false }
+        phase = .characteristicsRequested
+        return true
+    }
+
+    /// Returns true only for the matching characteristic request. Late callbacks after CLIENT_HELLO has
+    /// begun are ignored by phase, while the BLE integration separately checks frozen object identity.
+    public mutating func acceptCharacteristics(sessionID: Whoop5SecureSessionID) -> Bool {
+        guard self.sessionID == sessionID, phase == .characteristicsRequested else { return false }
+        phase = .complete
+        return true
+    }
+
+    public func owns(
+        sessionID: Whoop5SecureSessionID,
+        phase expectedPhase: Whoop5DiscoveryPhase
+    ) -> Bool {
+        self.sessionID == sessionID && phase == expectedPhase
+    }
+}
+
+public enum Whoop5DiscoveryStartDecision: Equatable, Sendable {
+    case start(Whoop5DiscoveryOwnership)
+    case coalesce(Whoop5DiscoveryOwnership)
+}
+
+public struct Whoop5DiscoveryCoordinator: Equatable, Sendable {
+    public private(set) var ownership: Whoop5DiscoveryOwnership?
+
+    public init() {}
+
+    public mutating func startIfNeeded(
+        sessionID: Whoop5SecureSessionID,
+        requestID: UUID = UUID(),
+        deadlineID: UUID = UUID()
+    ) -> Whoop5DiscoveryStartDecision {
+        if let ownership, ownership.sessionID == sessionID {
+            return .coalesce(ownership)
+        }
+        let newOwnership = Whoop5DiscoveryOwnership(
+            sessionID: sessionID,
+            requestID: requestID,
+            deadlineID: deadlineID)
+        ownership = newOwnership
+        return .start(newOwnership)
+    }
+
+    public mutating func acceptServices(sessionID: Whoop5SecureSessionID) -> Bool {
+        guard var ownership else { return false }
+        let accepted = ownership.acceptServices(sessionID: sessionID)
+        if accepted { self.ownership = ownership }
+        return accepted
+    }
+
+    public mutating func acceptCharacteristics(sessionID: Whoop5SecureSessionID) -> Bool {
+        guard var ownership else { return false }
+        let accepted = ownership.acceptCharacteristics(sessionID: sessionID)
+        if accepted { self.ownership = ownership }
+        return accepted
+    }
+
+    public func owns(
+        sessionID: Whoop5SecureSessionID,
+        phase: Whoop5DiscoveryPhase
+    ) -> Bool {
+        ownership?.owns(sessionID: sessionID, phase: phase) == true
+    }
+
+    public mutating func reset() {
+        ownership = nil
+    }
+}
+
+public enum Whoop5FallbackMode: Equatable, Sendable {
+    case none
+    case securing
+    case standardOnlyConfirmed
+    case securePausedNoHR
+
+    public static func terminalPause(
+        linkIsConnected: Bool,
+        standardHRConfirmed: Bool
+    ) -> Self {
+        linkIsConnected && standardHRConfirmed ? .standardOnlyConfirmed : .securePausedNoHR
+    }
+}
+
 public enum Whoop5ProtectedFrameAdmission: Equatable, Sendable {
     case protocolProofOnly
     case dropInvalid

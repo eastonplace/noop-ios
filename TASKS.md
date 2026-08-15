@@ -1,7 +1,7 @@
 # Active work
 
 - [x] #37 Repair WHOOP 5/MG secure-session ownership from exact SHA `93d563d` and close the
-  exact-head QA findings reported against `8a833cfa` and `96f4d10a`.
+  exact-head QA findings reported against `8a833cfa`, `96f4d10a`, and `19353da`.
   - Keep PR #37 draft, open, and unmerged.
   - Preserve bundle identity, phone data, in-place install behavior, and the existing BLE/history pipeline.
   - Require current peripheral, connection generation, secure-attempt epoch, confirmed-write ownership,
@@ -9,9 +9,9 @@
   - [x] Close order-independent GET_HELLO proof,
     bounded secure lifecycle, restored-notify rearm, frozen fd4b instances, issued-only callback owners,
     fail-closed WHOOP 5 history admission, truthful pre-proof UI, and exact response-ledger cleanup.
-  - [x] Run all eight Swift packages plus the complete iOS suite: WhoopProtocol 327/327,
-    WhoopStore 447/447, NoopPhase34Core 87/87, and NOOPiOS 454 tests with one expected skip and zero
-    failures. Migration/SQL, query-plan/store, lifecycle, source-contract, and focused audit gates pass.
+  - [x] Run all eight Swift packages plus the complete iOS suite: 2,368 XCTest cases and 93 Swift
+    Testing cases across the packages, plus 457 NOOPiOS tests with one expected skip and zero failures.
+    Migration/SQL, query-plan/store, lifecycle, source-contract, and focused audit gates pass.
   - [x] Pass the unsigned generic-iPhone Simulator Release build under Swift 6 warnings-as-errors.
   - [x] Preserve the bundle/project identity and V54/V55/V56 migration sources; add no migration or
     background pipeline.
@@ -19,6 +19,10 @@
   - [x] Close the exact-head QA findings reported against `96f4d10a`: connection-bound discovery
     deadline, bounded cross-connection secure recovery, pre-proof protected-frame quarantine,
     result-before-next-write ordering with authentication revocation, and stale standard-HR UI teardown.
+  - [x] Close the exact-head QA findings reported against `19353da`: count direct pre-proof disconnects,
+    bind restored discovery to one request owner and absolute deadline, classify every documented
+    transport-authorization loss, give WHOOP 5 retry timing one owner, and make terminal standard-only
+    fallback subscription and status state truthful.
   - [ ] Remaining external gates: restore hosted Actions after the account billing/spend restriction,
     restore signing for team `479HYY24G2`, then run the signed physical-device secure-session and
     Release/background/restoration/radio/energy/memory/thermal qualification on the final SHA.
