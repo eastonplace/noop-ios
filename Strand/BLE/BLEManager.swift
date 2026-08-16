@@ -6056,7 +6056,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
             result: result,
             integrityValid: integrityValid,
             sessionID: sessionID) {
-            log("WHOOP 5/MG GET_HELLO proof: protocol accepted for current session")
+            log("WHOOP 5/MG GET_HELLO proof: protocol accepted for current session (response byte \(result), \(frame.count) bytes)")
             completeWhoop5SecureReady(sessionID: sessionID)
             return
         }

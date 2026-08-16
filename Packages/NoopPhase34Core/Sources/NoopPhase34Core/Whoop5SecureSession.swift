@@ -125,21 +125,19 @@ public struct Whoop5SecureSession: Codable, Equatable, Sendable {
     public mutating func acceptProtocolProofResponse(
         command: UInt8,
         requestSequence: UInt8,
-        result: UInt8,
+        // GET_HELLO's second response byte is command-specific, not a portable success flag. A physical
+        // MG returned 2 for its owned, CRC-valid long response; current-session ownership and integrity
+        // are the proof. Keep accepting the byte so other command ledgers can still interpret their own.
+        result _: UInt8,
         integrityValid: Bool,
         sessionID: Whoop5SecureSessionID,
-        getHelloCommand: UInt8 = 145,
-        successResult: UInt8 = 1
+        getHelloCommand: UInt8 = 145
     ) -> Bool {
         guard id == sessionID,
               state == .protocolProofPending,
               pendingProofSequence == requestSequence,
               command == getHelloCommand,
               integrityValid else { return false }
-        guard result == successResult else {
-            failCurrentAttempt()
-            return false
-        }
         proofResponseConfirmed = true
         return resolveProtocolProofIfReady()
     }

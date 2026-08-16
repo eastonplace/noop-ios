@@ -75,6 +75,21 @@ final class Whoop5CommandResponseTests: XCTestCase {
         XCTAssertEqual(f.parsed["fw_version"]?.stringValue, "50.38.1.0")
     }
 
+    func testHelloPreservesPhysicalOwnershipBytesWithoutAssigningGenericResultSemantics() {
+        var frame = bytes(helloHex)
+        frame[11] = 1
+        frame[12] = 2
+        frame = puffinCommandResponseFixtureRechecksummed(frame)
+
+        let f = parseFrame(frame, family: .whoop5)
+        XCTAssertEqual(f.typeName, "COMMAND_RESPONSE")
+        XCTAssertEqual(f.crcOK, true)
+        XCTAssertEqual(f.responseRequestSequence, 1)
+        XCTAssertEqual(f.responseResult, 2)
+        XCTAssertEqual(f.parsed["device_name"]?.stringValue, "WHOOP-FAKE01")
+        XCTAssertEqual(f.parsed["fw_version"]?.stringValue, "50.38.1.0")
+    }
+
     /// SYNTHETIC all-zero GET_HELLO: the guards must fail closed — no device name, no firmware.
     private let helloZeroHex =
         "aa0174000001ffe12402910000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000063ef7ada"

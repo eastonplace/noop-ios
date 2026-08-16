@@ -300,12 +300,13 @@ func terminalFallbackKeepsOnlyAConfirmedCurrentStandardHRLink(
     }
 }
 
-@Test func fullSecurePathRequiresOwnedStrictProof() {
+@Test(arguments: [0 as UInt8, 2 as UInt8, 255 as UInt8])
+func fullSecurePathRequiresOwnedStrictProofRegardlessOfGETHELLOResult(result: UInt8) {
     var (session, id) = makeProofPending()
     let accepted = session.acceptProtocolProofResponse(
         command: 145,
         requestSequence: 42,
-        result: 1,
+        result: result,
         integrityValid: true,
         sessionID: id
     )
@@ -317,7 +318,7 @@ func terminalFallbackKeepsOnlyAConfirmedCurrentStandardHRLink(
 @Test func protocolResponseBeforeATTStillCompletes() {
     var (session, id) = makeProtocolProofPending(confirmWrite: false)
     let responseCompleted = session.acceptProtocolProofResponse(
-        command: 145, requestSequence: 42, result: 1,
+        command: 145, requestSequence: 42, result: 2,
         integrityValid: true, sessionID: id)
     #expect(!responseCompleted)
     #expect(session.state == .protocolProofPending)
@@ -332,16 +333,16 @@ func terminalFallbackKeepsOnlyAConfirmedCurrentStandardHRLink(
     #expect(writeAccepted)
     #expect(session.state == .protocolProofPending)
     let responseCompleted = session.acceptProtocolProofResponse(
-        command: 145, requestSequence: 42, result: 1,
+        command: 145, requestSequence: 42, result: 2,
         integrityValid: true, sessionID: id)
     #expect(responseCompleted)
     #expect(session.state == .secureReady)
 }
 
 @Test(arguments: [
-    (144 as UInt8, 42 as UInt8, 1 as UInt8, true),
-    (145 as UInt8, 43 as UInt8, 1 as UInt8, true),
-    (145 as UInt8, 42 as UInt8, 1 as UInt8, false),
+    (144 as UInt8, 42 as UInt8, 2 as UInt8, true),
+    (145 as UInt8, 43 as UInt8, 0 as UInt8, true),
+    (145 as UInt8, 42 as UInt8, 255 as UInt8, false),
 ])
 func proofMismatchCannotAuthorize(command: UInt8, sequence: UInt8, result: UInt8, integrity: Bool) {
     var (session, id) = makeProofPending()
@@ -354,15 +355,7 @@ func proofMismatchCannotAuthorize(command: UInt8, sequence: UInt8, result: UInt8
     )
     #expect(!accepted)
     #expect(session.state == .protocolProofPending)
-}
-
-@Test func matchedNegativeProofResultFailsImmediately() {
-    var (session, id) = makeProtocolProofPending(confirmWrite: false)
-    let responseCompleted = session.acceptProtocolProofResponse(
-        command: 145, requestSequence: 42, result: 0,
-        integrityValid: true, sessionID: id)
-    #expect(!responseCompleted)
-    #expect(session.state == .failed)
+    #expect(!session.authorizesProprietaryCommand(sessionID: id))
 }
 
 @Test func discoveryContractFreezesAfterHelloStarts() {

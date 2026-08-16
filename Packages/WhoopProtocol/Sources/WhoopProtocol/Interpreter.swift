@@ -790,8 +790,10 @@ private func decodeWhoop5CommandResponse(_ frame: [UInt8], fb: FieldBuilder, sch
     let name = schema.enumName("CommandNumber", respCmd)   // e.g. "GET_BATTERY_LEVEL(26)"
     let pay = Array(frame[11..<payloadEnd])
     fb.region(11, payloadEnd, "response payload", "cmd")
-    // Every observed WHOOP 5/MG response begins with the originating request sequence and protocol
-    // result. The decoded command body still starts at pay[2], preserving the existing field offsets.
+    // Observed WHOOP 5/MG responses begin with the originating request sequence and a command-specific
+    // response byte. It is 1 for captured battery/data-range responses, while a physical MG GET_HELLO
+    // returned 2; preserve the byte for each command owner instead of assigning one global success meaning.
+    // The decoded command body still starts at pay[2], preserving the existing field offsets.
     fb.add(11, 1, "response_request_sequence", "cmd", value: .int(Int(pay[0])))
     fb.add(12, 1, "response_result", "cmd", value: .int(Int(pay[1])))
     if name.hasPrefix("GET_BATTERY_LEVEL"), pay.count >= 3 {

@@ -12,6 +12,15 @@
   - [~] Issue-specific automated and read-only data gates pass. The rejected-history copy contains
     1,513 records, not the expected 154, so no duplicate issue was closed. Hosted CI, signed physical
     WHOOP 5/MG proof, and the small/large-iPhone lifecycle and route visual gates remain required.
+  - [~] Physical WHOOP 5/MG QA on Easton's iPhone reproduced a secure-session regression at
+    `16eae200`: an owned, CRC-valid GET_HELLO response returned command-specific byte `2`, while
+    `Whoop5SecureSession` incorrectly required generic success value `1` and paused recovery after six
+    failures. The bounded fix preserves current-session, command, sequence, ATT, notification, and CRC
+    gates while treating only GET_HELLO's byte as non-authoritative. No BLE command, notification order,
+    ACK order, schema, or phone data changed. NoopPhase34Core passed 120 tests, WhoopProtocol passed 328,
+    and NOOPiOS passed 471 with one expected skip. The signed in-place build reached `Active · Full Bond`
+    on Easton's WHOOP 5.0/MG, resumed history with received chunks, reported a healthy current packet,
+    and executed a user-confirmed protected vibration command. The app container and phone data remained intact.
 
 - [x] #37 Repair WHOOP 5/MG secure-session ownership from exact SHA `93d563d` and close the
   exact-head QA findings reported against `8a833cfa`, `96f4d10a`, and `19353da`.
