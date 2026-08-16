@@ -149,36 +149,59 @@ struct RawFix: Equatable {
 /// Pure, stateful fix gate: drops low-accuracy fixes and physically-impossible jumps, returning the
 /// accepted point or nil. Keeps the last accepted fix to gate the next. A direct port of Android
 /// `TrackFilter` (so a weak-signal run admits the same legitimate fixes and rejects the same teleports).
+struct TrackFilterAcceptedFix: Equatable {
+    let point: RouteMath.LatLng
+    let startsNewSegment: Bool
+}
+
 final class TrackFilter {
-    // 50 m is the realistic consumer-GPS gate during activity (Strava-class apps use ~50 m). The speed
-    // gate below still rejects teleports, so the looser accuracy gate admits legitimate running fixes
-    // without letting GPS jumps inflate the track. Identical thresholds to Android (#324).
     private let maxAccuracyM: Double
-    private let maxSpeedMps: Double   // ~43 km/h; well above running, below GPS teleports
+    private let maxSpeedMps: Double
+    private let segmentGapSeconds: Double
+    private let minimumPointDistanceM: Double
     private var last: RawFix?
 
-    init(maxAccuracyM: Double = 50, maxSpeedMps: Double = 12) {
-        self.maxAccuracyM = maxAccuracyM
-        self.maxSpeedMps = maxSpeedMps
+    init(
+        maxAccuracyM: Double = 50,
+        maxSpeedMps: Double = 12,
+        segmentGapSeconds: Double = 120,
+        minimumPointDistanceM: Double = 1
+    ) {
+        self.maxAccuracyM = max(0, maxAccuracyM)
+        self.maxSpeedMps = max(0, maxSpeedMps)
+        self.segmentGapSeconds = max(1, segmentGapSeconds)
+        self.minimumPointDistanceM = max(0, minimumPointDistanceM)
     }
 
-    /// Accept a fix or reject it (nil). Rejects: an invalid / too-coarse accuracy, an out-of-range
-    /// coordinate, or a jump from the last accepted fix faster than `maxSpeedMps`.
+    /// Compatibility API for existing callers and tests. New recording code uses the metadata form so a
+    /// long interruption starts a separate stored segment.
     func accept(_ fix: RawFix) -> RouteMath.LatLng? {
-        // CoreLocation reports a negative horizontalAccuracy when the fix is invalid; treat that as a
-        // drop, same as an over-coarse reading. (Android sees 0 for "no accuracy"; we treat < 0 as bad.)
+        acceptWithMetadata(fix)?.point
+    }
+
+    /// Accept one strictly newer, non-duplicate fix. A long gap may move far without creating a line
+    /// across the map. Short-interval teleports still fail the speed gate.
+    func acceptWithMetadata(_ fix: RawFix) -> TrackFilterAcceptedFix? {
         if fix.accuracyM < 0 || fix.accuracyM > maxAccuracyM { return nil }
         guard (-90...90).contains(fix.lat), (-180...180).contains(fix.lon) else { return nil }
+
+        let point = RouteMath.LatLng(fix.lat, fix.lon)
+        var startsNewSegment = false
         if let prev = last {
-            let dt = Double(fix.tMs - prev.tMs) / 1000.0
-            if dt > 0 {
-                let d = RouteMath.haversineMeters(RouteMath.LatLng(prev.lat, prev.lon),
-                                                  RouteMath.LatLng(fix.lat, fix.lon))
-                if d / dt > maxSpeedMps { return nil }
-            }
+            let elapsedMilliseconds = fix.tMs - prev.tMs
+            guard elapsedMilliseconds > 0 else { return nil }
+            let elapsedSeconds = Double(elapsedMilliseconds) / 1000.0
+            let distance = RouteMath.haversineMeters(
+                RouteMath.LatLng(prev.lat, prev.lon),
+                point)
+            guard distance >= minimumPointDistanceM else { return nil }
+
+            startsNewSegment = elapsedSeconds > segmentGapSeconds
+            if !startsNewSegment, distance / elapsedSeconds > maxSpeedMps { return nil }
         }
+
         last = fix
-        return RouteMath.LatLng(fix.lat, fix.lon)
+        return TrackFilterAcceptedFix(point: point, startsNewSegment: startsNewSegment)
     }
 
     func restore(lastAccepted fix: RawFix) {
@@ -494,8 +517,11 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
         var appendedPoints: [ActiveGpsJournalPoint] = []
         appendedPoints.reserveCapacity(fixes.count)
         for fix in fixes {
-            if let pt = filter.accept(fix) {
-                let beginsSegment = startsNewSegmentOnNextFix || segments.isEmpty
+            if let accepted = filter.acceptWithMetadata(fix) {
+                let pt = accepted.point
+                let beginsSegment = startsNewSegmentOnNextFix
+                    || accepted.startsNewSegment
+                    || segments.isEmpty
                 if beginsSegment {
                     segments.append([pt])
                     startsNewSegmentOnNextFix = false

@@ -105,6 +105,9 @@ public enum AnalyticsEngine {
         /// a personal skin-temp baseline from these nightly means and re-derives
         /// `DailyMetric.skinTempDevC` in a second pass. APPROXIMATE.
         public let nightlySkinTempC: Double?
+        /// Read-only provenance for the wear, window, and range gates that produced
+        /// `nightlySkinTempC`. This never changes storage or scoring semantics.
+        public let skinTempDiagnostic: SkinTempFunnelDiagnostic?
         /// Per-session per-epoch MOTION magnitudes (H8), keyed by each matched session's detected start
         /// (`SleepSession.start`), on the same 30 s epoch grid as that session's `stagesJSON`. The caller
         /// persists these via `WhoopStore.persistSessionMotion` after upserting the sleep-session rows. A
@@ -122,6 +125,7 @@ public enum AnalyticsEngine {
         public init(daily: DailyMetric, sleepSessions: [SleepSession],
                     cachedSleep: [CachedSleepSession], workouts: [ExerciseSession],
                     recovery: Double?, strain: Double?, nightlySkinTempC: Double? = nil,
+                    skinTempDiagnostic: SkinTempFunnelDiagnostic? = nil,
                     restScore: Double? = nil,
                     chargeConfidence: ScoreConfidence = .calibrating,
                     effortConfidence: ScoreConfidence = .calibrating,
@@ -136,6 +140,7 @@ public enum AnalyticsEngine {
             self.chargeDrivers = chargeDrivers
             self.skinTempRelative = skinTempRelative
             self.nightlySkinTempC = nightlySkinTempC
+            self.skinTempDiagnostic = skinTempDiagnostic
             self.restScore = restScore
             self.chargeConfidence = chargeConfidence
             self.effortConfidence = effortConfidence
@@ -633,8 +638,13 @@ public enum AnalyticsEngine {
         // personal baseline. In pass 1 baselines.skinTemp is nil so the deviation is nil
         // and the mean is harvested; IntelligenceEngine seeds the baseline from those means
         // and re-derives the deviation in pass 2 (mirrors avgHrv→recovery). APPROXIMATE.
-        let nightlySkinTempC = wornNightlySkinTempC(matched, hr: hr, skinTemp: skinTemp,
-                                                    family: skinTempFamily, anchorRaw: skinTempAnchorRaw)
+        let skinTempDiagnostic = skinTempFunnel(
+            matched,
+            hr: hr,
+            skinTemp: skinTemp,
+            family: skinTempFamily,
+            anchorRaw: skinTempAnchorRaw)
+        let nightlySkinTempC = skinTempDiagnostic.mean
         let skinTempDevC: Double? = nightlySkinTempC.flatMap { (v: Double) -> Double? in
             guard let b = baselines.skinTemp, b.usable else { return nil }
             return round2(Baselines.deviation(v, state: b).delta)
@@ -897,6 +907,7 @@ public enum AnalyticsEngine {
         return DayResult(daily: daily, sleepSessions: matched, cachedSleep: cachedSleep,
                          workouts: workouts, recovery: recovery, strain: strain,
                          nightlySkinTempC: nightlySkinTempC,
+                         skinTempDiagnostic: skinTempDiagnostic,
                          restScore: restScore,
                          chargeConfidence: chargeConfidence,
                          effortConfidence: effortConfidence,

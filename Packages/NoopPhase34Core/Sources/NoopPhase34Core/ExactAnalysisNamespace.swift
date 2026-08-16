@@ -9,6 +9,10 @@ public struct ExactAnalysisNamespace: Equatable, Sendable {
     public let historyLineage: String
     public let cursorEpoch: Int
 
+    public static func defaultComputedDeviceId(forRawDeviceId rawDeviceId: String) -> String {
+        rawDeviceId.trimmingCharacters(in: .whitespacesAndNewlines) + "-noop"
+    }
+
     public init(
         rawDeviceId: String,
         computedDeviceId: String? = nil,
@@ -18,15 +22,16 @@ public struct ExactAnalysisNamespace: Equatable, Sendable {
         cursorEpoch: Int
     ) throws {
         let raw = rawDeviceId.trimmingCharacters(in: .whitespacesAndNewlines)
-        let computed = (computedDeviceId ?? (raw + "-noop"))
+        let computed = (computedDeviceId ?? Self.defaultComputedDeviceId(forRawDeviceId: raw))
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let lineage = historyLineage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty, !computed.isEmpty, !lineage.isEmpty, cursorEpoch >= 0 else {
             throw ExactAnalysisNamespaceError.invalidIdentity
         }
 
-        let baselines = importedBaselineDeviceIds ?? [raw]
-        guard baselines.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
+        let baselines = (importedBaselineDeviceIds ?? [raw])
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard baselines.allSatisfy({ !$0.isEmpty }) else {
             throw ExactAnalysisNamespaceError.invalidIdentity
         }
 

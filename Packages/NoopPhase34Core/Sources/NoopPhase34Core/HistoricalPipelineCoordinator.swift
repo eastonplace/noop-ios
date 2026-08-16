@@ -267,6 +267,14 @@ public struct HistoricalPipelineDrainResult: Equatable, Sendable {
         deferredWorkCount: 0,
         alreadyDraining: true
     )
+
+    public static func combine(_ accumulated: Self, _ next: Self) -> Self {
+        Self(
+            completedWorkCount: accumulated.completedWorkCount + next.completedWorkCount,
+            deferredWorkCount: accumulated.deferredWorkCount + next.deferredWorkCount,
+            alreadyDraining: accumulated.alreadyDraining || next.alreadyDraining
+        )
+    }
 }
 
 private actor PipelineLeaseHealth {
@@ -294,13 +302,16 @@ public actor HistoricalPipelineCoordinator {
     private let owner: String
     private let leaseDuration: TimeInterval
     private let maximumItemsPerDrain: Int
-    private lazy var drainGate = LosslessDrainSignalGate<HistoricalPipelineDrainResult> { [weak self] in
-        await self?.drainSignal() ?? HistoricalPipelineDrainResult(
-            completedWorkCount: 0,
-            deferredWorkCount: 1,
-            alreadyDraining: false
-        )
-    }
+    private lazy var drainGate = LosslessDrainSignalGate<HistoricalPipelineDrainResult>(
+        combine: { HistoricalPipelineDrainResult.combine($0, $1) },
+        operation: { [weak self] in
+            await self?.drainSignal() ?? HistoricalPipelineDrainResult(
+                completedWorkCount: 0,
+                deferredWorkCount: 1,
+                alreadyDraining: false
+            )
+        }
+    )
 
     public init(
         dependencies: HistoricalPipelineDependencies,

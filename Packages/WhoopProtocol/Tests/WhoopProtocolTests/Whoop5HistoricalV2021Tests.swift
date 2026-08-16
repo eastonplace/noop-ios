@@ -7,8 +7,8 @@ import XCTest
 ///
 /// Both versions reuse the v18 record header (layout version @9, marker @10, record index u32 @11, unix
 /// u32 @15). v21 (1244 B) carries six 100-sample i16 IMU channels — accelerometer @28/@228/@428 and
-/// gyroscope @640/@840/@1040 (#493); v20 (2140 B) carries five blocks of two 50-sample i32 channels, each
-/// block gated by a presence byte (0x19 = active, 0x00 = empty). The layout was established from captured
+/// gyroscope @640/@840/@1040 (#493); v20 (2140 B) carries five blocks of two 25-sample i32 channels. The
+/// first byte of each 21-byte block header is the shared count. The layout was established from captured
 /// v20/v21 frames; these tests exercise the decode mechanics on frames assembled with valid header-CRC16
 /// and trailer-CRC32 envelopes — plus one real captured v21 buffer for the gravity-shell identity check.
 final class Whoop5HistoricalV2021Tests: XCTestCase {
@@ -106,20 +106,58 @@ final class Whoop5HistoricalV2021Tests: XCTestCase {
         XCTAssertEqual(p.parsed["gyro_x"]?.intArrayValue?.count, 100)
     }
 
+    func testV21MappedRawClassificationRequiresExactSharedShapeGate() {
+        let unix: UInt32 = 1_781_556_371
+        func candidate(total: Int, countA: UInt16 = 100, countB: UInt16 = 100) -> [UInt8] {
+            makeFrame(total: total, version: 21) { f in
+                putU32(&f, 15, unix)
+                f[24] = UInt8(countA & 0xff); f[25] = UInt8(countA >> 8)
+                f[630] = UInt8(countB & 0xff); f[631] = UInt8(countB >> 8)
+            }
+        }
+
+        for total in [1240, 1242, 1248] {
+            let frame = candidate(total: total)
+            let parsed = parseFrame(frame, family: .whoop5)
+            XCTAssertNotEqual(
+                historicalRecordDisposition(parsed: parsed, rawFrame: frame, family: .whoop5),
+                .mappedRaw(version: 21),
+                "only the exact 1244-byte Whoop5RawImu shape may classify as mapped raw"
+            )
+        }
+
+        let exact = candidate(total: Whoop5RawImu.bufferLength)
+        XCTAssertEqual(
+            historicalRecordDisposition(
+                parsed: parseFrame(exact, family: .whoop5), rawFrame: exact, family: .whoop5
+            ),
+            .mappedRaw(version: 21)
+        )
+
+        for (countA, countB) in [(UInt16(99), UInt16(100)), (UInt16(100), UInt16(99))] {
+            let frame = candidate(total: Whoop5RawImu.bufferLength, countA: countA, countB: countB)
+            XCTAssertNotEqual(
+                historicalRecordDisposition(
+                    parsed: parseFrame(frame, family: .whoop5), rawFrame: frame, family: .whoop5
+                ),
+                .mappedRaw(version: 21)
+            )
+        }
+    }
+
     func testV20HeaderActiveAndEmptyBlocks() {
         let unix: UInt32 = 1781556372, idx: UInt32 = 0x01A8CF26
         let frame = makeFrame(total: 2140, version: 20) { f in
             f[10] = 0x81
             putU32(&f, 11, idx)
             putU32(&f, 15, unix)
-            // Block 0 active: presence byte + two i32 channels.
-            f[0x1a] = 0x19
+            // Block 0 active: shared count + two i32 channel slots.
+            f[0x1a] = 25
             for i in 0..<50 { putI32(&f, 0x2f + i * 4, Int32(100000 + i)) }   // ch b0_0
             for i in 0..<50 { putI32(&f, 0xf7 + i * 4, Int32(200000 - i)) }   // ch b0_1
-            // Block 1 empty: presence byte stays 0x00, channel slots stay zero.
-            f[0x1c0] = 0x00
-            // Block 3 active (gated tail block): presence + one channel.
-            f[0x50c] = 0x19
+            // Block 1 empty: count stays zero. Block 3 is active.
+            f[0x1c0] = 0
+            f[0x50c] = 25
             for i in 0..<50 { putI32(&f, 0x521 + i * 4, Int32(140 + i)) }
             for i in 0..<50 { putI32(&f, 0x5e9 + i * 4, Int32(130 + i)) }
         }
@@ -129,11 +167,11 @@ final class Whoop5HistoricalV2021Tests: XCTestCase {
         XCTAssertEqual(p.parsed["layout_marker"]?.intValue, 0x81)
         XCTAssertEqual(p.parsed["record_index"]?.intValue, Int(idx))
         XCTAssertEqual(p.parsed["unix"]?.intValue, Int(unix))
-        XCTAssertEqual(p.parsed["sensor_channel_samples"]?.intValue, 50)
+        XCTAssertEqual(p.parsed["sensor_channel_samples"]?.intValue, 25)
         // Active blocks 0 and 3 -> 4 channels; empty block 1 contributes none.
         XCTAssertEqual(p.parsed["sensor_channels_present"]?.intValue, 4)
         let b00 = p.parsed["channel_b0_0"]?.intArrayValue ?? []
-        XCTAssertEqual(b00.count, 50); XCTAssertEqual(b00.first, 100000); XCTAssertEqual(b00.last, 100049)
+        XCTAssertEqual(b00.count, 25); XCTAssertEqual(b00.first, 100000); XCTAssertEqual(b00.last, 100024)
         XCTAssertEqual(p.parsed["channel_b0_1"]?.intArrayValue?.first, 200000)
         XCTAssertEqual(p.parsed["channel_b3_0"]?.intArrayValue?.first, 140)
         // Empty block 1 produced no channel.

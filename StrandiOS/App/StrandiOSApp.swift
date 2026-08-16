@@ -372,7 +372,17 @@ struct StrandiOSApp: App {
 
     var body: some Scene {
         WindowGroup {
-            iOSRootView()
+            Group {
+                #if DEBUG
+                if CommandLine.arguments.contains("--storage-recovery-qa") {
+                    StorageView()
+                } else {
+                    iOSRootView()
+                }
+                #else
+                iOSRootView()
+                #endif
+            }
                 .contentSurfacePresentation(.flat)
                 .background(StrandPalette.appCanvas.ignoresSafeArea())
                 .environmentObject(model)

@@ -79,6 +79,8 @@ extension LiveState {
 
     public func clearBiometrics() {
         heartRate = nil
+        streamingLiveHR = false
+        standardHRMode = nil
         rr.removeAll(keepingCapacity: true)
         rrRecent.removeAll(keepingCapacity: true)
         clearBatterySamples()

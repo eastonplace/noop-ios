@@ -63,6 +63,61 @@ public func isPlausibleHistoricalUnix(_ ts: Int, wallNow: Int,
 ///
 /// Used by the Backfiller/BLEManager to archive undecodable history BEFORE acking the trim. Mirrors
 /// the Android rejectedHistoricalRecords so one mapping toolchain re-ingests both archives.
+public enum HistoricalRecordDisposition: Equatable, Sendable {
+    case materializedKnown(version: Int?)
+    case mappedRaw(version: Int)
+    case consoleOrMetadata
+    case invalidCRC(version: Int?)
+    case invalidEnvelope(version: Int?)
+    case unmappedLayout(version: Int?)
+
+    public var isRejected: Bool {
+        switch self {
+        case .invalidCRC, .invalidEnvelope, .unmappedLayout: true
+        default: false
+        }
+    }
+
+    public var requiresMappedRawRetention: Bool {
+        if case .mappedRaw = self { return true }
+        return false
+    }
+}
+
+/// Classify one already-parsed frame without decoding it again. This is the production chunk-path
+/// contract; `rejectedHistoricalRecords` remains only as a compatibility wrapper for archive replay.
+public func historicalRecordDisposition(
+    parsed: ParsedFrame,
+    rawFrame: [UInt8],
+    family: DeviceFamily
+) -> HistoricalRecordDisposition {
+    let typeIndex = family == .whoop5 ? 8 : 4
+    let versionIndex = family == .whoop5 ? 9 : 5
+    guard rawFrame.count > typeIndex, Int(rawFrame[typeIndex]) == 47 else {
+        return .consoleOrMetadata
+    }
+    let version = rawFrame.count > versionIndex ? Int(rawFrame[versionIndex]) : nil
+    guard parsed.ok, parsed.envelopeOK else { return .invalidEnvelope(version: version) }
+    guard parsed.headerCRCOK == true, parsed.payloadCRCOK == true else {
+        return .invalidCRC(version: version)
+    }
+    guard parsed.parsed["unix"]?.intValue != nil else { return .unmappedLayout(version: version) }
+
+    if family == .whoop5, version == 20,
+       parsed.parsed["sensor_block_count"]?.intValue == Whoop5RawOptical.blockCount {
+        return .mappedRaw(version: 20)
+    }
+    if family == .whoop5, version == 21 {
+        if Whoop5RawImu.isValidBuffer(rawFrame) { return .mappedRaw(version: 21) }
+    }
+    if parsed.parsed["heart_rate"]?.intValue != nil
+        || parsed.parsed["gravity_x"]?.doubleValue != nil
+        || parsed.parsed["ppg_waveform"]?.intArrayValue != nil {
+        return .materializedKnown(version: version)
+    }
+    return .unmappedLayout(version: version)
+}
+
 public func rejectedHistoricalRecords(_ rawFrames: [[UInt8]], family: DeviceFamily) -> [[UInt8]] {
     // The type byte sits at the inner-record start: frame[4] on WHOOP 4.0, frame[8] on WHOOP 5/MG
     // (the puffin envelope is 4 bytes longer). hist_version sits one byte past the type+seq+cmd
@@ -75,14 +130,7 @@ public func rejectedHistoricalRecords(_ rawFrames: [[UInt8]], family: DeviceFami
         guard f.count > typeIndex, Int(f[typeIndex]) == 47 else { return false }
         if family == .whoop5, f.count > versionIndex, Int(f[versionIndex]) == 26 { return false }  // v26 PPG: has its own durable stream (ppgWaveform), not this reject archive
         let p = parseFrame(f, family: family)
-        // Envelope/CRC reject: parse failed outright or the CRC32 trailer mismatched.
-        if !p.ok || p.crcOK == false { return true }
-        // Unmapped layout: the envelope parsed but no usable biometrics decoded. A record is genuinely
-        // undecodable only if it has no timestamp, or NEITHER heart rate NOR motion. v25 (issue #30)
-        // carries gravity but no per-second HR (PPG-derived), so a gravity-bearing record is real data
-        // the sleep stager uses — keep it. Only HR-less AND gravity-less type-47 records are rejected.
-        return p.parsed["unix"]?.intValue == nil
-            || (p.parsed["heart_rate"]?.intValue == nil && p.parsed["gravity_x"]?.doubleValue == nil)
+        return historicalRecordDisposition(parsed: p, rawFrame: f, family: family).isRejected
     }
 }
 
@@ -197,7 +245,7 @@ public func extractHistoricalStreams(_ parsed: [ParsedFrame],
     // displayed value. The existing experimental marker keeps the candidate separate from WHOOP 4 raw ADC.
     var experimentalSpO2Minutes: [Int: (sum: Int, count: Int)] = [:]
     for r in parsed {
-        if !r.ok || r.crcOK == false { continue }
+        guard r.ok, r.envelopeOK, r.headerCRCOK == true, r.payloadCRCOK == true else { continue }
         let p = r.parsed
         switch r.typeName {
         case "HISTORICAL_DATA":

@@ -15,11 +15,95 @@ public struct ParsedFrame: Codable, Equatable, Sendable {
     public let typeName: String
     public let seq: Int?
     public let cmdName: String?
+    /// Structural envelope verdict. This checks the declared frame boundary independently from either
+    /// checksum so a valid protected prefix with trailing bytes cannot be treated as a complete frame.
+    public let envelopeOK: Bool
+    /// Header checksum verdict (`CRC8` on WHOOP 4, `CRC16-Modbus` on WHOOP 5/MG).
+    public let headerCRCOK: Bool?
+    /// Payload CRC32 verdict. `nil` means the payload could not be verified.
+    public let payloadCRCOK: Bool?
+    /// Compatibility alias for the payload CRC32 result. New integrity-sensitive code must use the
+    /// explicit envelope/header/payload properties above.
     public let crcOK: Bool?
     public let lenBytes: Int
     public let rawHex: String
     public let fields: [DecodedField]
     public let parsed: [String: ParsedValue]
+
+    /// WHOOP 5/MG COMMAND_RESPONSE ownership bytes. These are the generic bytes immediately before
+    /// the command-specific response body and are intentionally exposed without interpreting tokens.
+    public var responseRequestSequence: Int? { parsed["response_request_sequence"]?.intValue }
+    public var responseResult: Int? { parsed["response_result"]?.intValue }
+
+    public init(
+        ok: Bool,
+        typeName: String,
+        seq: Int?,
+        cmdName: String?,
+        crcOK: Bool?,
+        envelopeOK: Bool? = nil,
+        headerCRCOK: Bool? = nil,
+        payloadCRCOK: Bool? = nil,
+        lenBytes: Int,
+        rawHex: String,
+        fields: [DecodedField],
+        parsed: [String: ParsedValue]
+    ) {
+        self.ok = ok
+        self.typeName = typeName
+        self.seq = seq
+        self.cmdName = cmdName
+        // Integrity-sensitive synthetic frames must opt in to every verdict. Inferring envelope/header/
+        // payload validity from `ok` or the compatibility `crcOK` alias would let hand-built frames become
+        // ingest-authoritative without proving the complete protected envelope.
+        self.envelopeOK = envelopeOK ?? false
+        self.headerCRCOK = headerCRCOK
+        self.payloadCRCOK = payloadCRCOK
+        self.crcOK = crcOK
+        self.lenBytes = lenBytes
+        self.rawHex = rawHex
+        self.fields = fields
+        self.parsed = parsed
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case ok, typeName, seq, cmdName, envelopeOK, headerCRCOK, payloadCRCOK, crcOK
+        case lenBytes, rawHex, fields, parsed
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        ok = try values.decode(Bool.self, forKey: .ok)
+        typeName = try values.decode(String.self, forKey: .typeName)
+        seq = try values.decodeIfPresent(Int.self, forKey: .seq)
+        cmdName = try values.decodeIfPresent(String.self, forKey: .cmdName)
+        crcOK = try values.decodeIfPresent(Bool.self, forKey: .crcOK)
+        // Old captures did not preserve a complete envelope/header verdict. Do not infer one from the
+        // payload CRC: an imported legacy capture must never become ACK-authoritative by accident.
+        envelopeOK = try values.decodeIfPresent(Bool.self, forKey: .envelopeOK) ?? false
+        headerCRCOK = try values.decodeIfPresent(Bool.self, forKey: .headerCRCOK)
+        payloadCRCOK = try values.decodeIfPresent(Bool.self, forKey: .payloadCRCOK) ?? crcOK
+        lenBytes = try values.decode(Int.self, forKey: .lenBytes)
+        rawHex = try values.decode(String.self, forKey: .rawHex)
+        fields = try values.decode([DecodedField].self, forKey: .fields)
+        parsed = try values.decode([String: ParsedValue].self, forKey: .parsed)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(ok, forKey: .ok)
+        try values.encode(typeName, forKey: .typeName)
+        try values.encodeIfPresent(seq, forKey: .seq)
+        try values.encodeIfPresent(cmdName, forKey: .cmdName)
+        try values.encode(envelopeOK, forKey: .envelopeOK)
+        try values.encodeIfPresent(headerCRCOK, forKey: .headerCRCOK)
+        try values.encodeIfPresent(payloadCRCOK, forKey: .payloadCRCOK)
+        try values.encodeIfPresent(crcOK, forKey: .crcOK)
+        try values.encode(lenBytes, forKey: .lenBytes)
+        try values.encode(rawHex, forKey: .rawHex)
+        try values.encode(fields, forKey: .fields)
+        try values.encode(parsed, forKey: .parsed)
+    }
 }
 
 // MARK: - low-level readers (LE), nil when out of range (mirrors interpreter._read)
@@ -185,8 +269,11 @@ public func parseFrame(_ frame: [UInt8], collectFields: Bool = false) -> ParsedF
     let cmdByte = frame.count > 6 ? Int(frame[6]) : 0
     let cmdName = (t == 35 || t == 36) ? schema.enumName("CommandNumber", cmdByte) : nil
 
+    let envelopeOK = length.map { $0 >= 7 && frame.count == $0 + 4 } ?? false
     return ParsedFrame(ok: true, typeName: typeName, seq: seq, cmdName: cmdName,
-                       crcOK: crcOK, lenBytes: frame.count, rawHex: rawHex,
+                       crcOK: crcOK, envelopeOK: envelopeOK,
+                       headerCRCOK: check.crc8OK, payloadCRCOK: check.crc32OK,
+                       lenBytes: frame.count, rawHex: rawHex,
                        fields: fb.fields, parsed: fb.parsed)
 }
 
@@ -270,7 +357,10 @@ private func parseFrameWhoop5(_ frame: [UInt8], collectFields: Bool) -> ParsedFr
     let cmdByte = frame.count > innerStart + 2 ? Int(frame[innerStart + 2]) : 0
     let delta = innerStart - 4                       // = 4
     let payloadEnd = declaredLength.map { ($0 + 8) - 4 }   // start of CRC32 trailer
-    let spec = schema.packet(forType: t)
+    // Puffin type 38 is the WHOOP 5/MG image of COMMAND_RESPONSE type 36. Use the canonical schema
+    // post-hook as well as the canonical name; otherwise type 38 responses retain no ownership bytes.
+    let schemaType = t == PuffinPacketType.puffinCommandResponse ? 36 : t
+    let spec = schema.packet(forType: schemaType)
     if spec == nil {
         fb.add(innerStart + 2, 1, "cmd", "cmd",
                value: frame.count > innerStart + 2 ? .int(cmdByte) : nil)
@@ -326,8 +416,11 @@ private func parseFrameWhoop5(_ frame: [UInt8], collectFields: Bool) -> ParsedFr
     let cmdName = (t == 35 || t == 36 || t == PuffinPacketType.puffinCommandResponse)
         ? schema.enumName("CommandNumber", cmdByte) : nil
 
+    let envelopeOK = declaredLength.map { $0 >= 4 && frame.count == $0 + 8 } ?? false
     return ParsedFrame(ok: true, typeName: typeName, seq: seq, cmdName: cmdName,
-                       crcOK: crcOK, lenBytes: frame.count, rawHex: rawHex,
+                       crcOK: crcOK, envelopeOK: envelopeOK,
+                       headerCRCOK: check.crc8OK, payloadCRCOK: check.crc32OK,
+                       lenBytes: frame.count, rawHex: rawHex,
                        fields: fb.fields, parsed: fb.parsed)
 }
 
@@ -594,22 +687,21 @@ private func decodeWhoop5HistoricalV26(_ frame: [UInt8], fb: FieldBuilder) {
 ///     accelerometer at @28 / @228 / @428 and gyroscope at @640 / @840 / @1040 (200 B apart; countB @630 =
 ///     100). This is 6-axis IMU, not optical: the accel channels sphere-fit to a ~1 g gravity shell on a
 ///     stationary strap (validated by Whoop5RawImu over 1423 real buffers, #423/#493).
-///   • v20 (2140 B): five channel blocks, each preceded by a presence byte (0x19 = active, 0x00 =
-///     empty / zero-filled); an active block holds two 50-sample i32 channels. The presence bytes sit at
-///     @0x1a / @0x1c0 / @0x366 / @0x50c / @0x6b2; the ten channel slots start at
-///     @0x2f / 0xf7 / 0x1d5 / 0x29d / 0x37b / 0x443 / 0x521 / 0x5e9 / 0x6c7 / 0x78f.
+///   • v20 (2140 B): five repeated 422-byte blocks. Each has a 21-byte shared header, two 200-byte
+///     channel slots, and one reserved byte. Active blocks hold two 25-sample signed i32 channels;
+///     the remaining channel-slot capacity is padding.
 ///
-/// v21 channels are named accel_/gyro_ per the gravity-shell evidence above; v20 sensor identity is still
-/// OPEN (no labelled/moving v20 capture in the tree) so its channels stay neutrally named. Both are exposed
-/// as raw i16 sample arrays with no scale applied here — Whoop5RawImu.decode applies the physical scales.
+/// v21 channels are named accel_/gyro_ per the gravity-shell evidence above; v20 wavelength and biological
+/// identity remain OPEN, so channels stay neutral. Whoop5RawOptical preserves the repeated block headers.
 private func decodeWhoop5HistoricalV2021(_ frame: [UInt8], fb: FieldBuilder, version: Int, payloadEnd: Int?) {
-    if frame.count > 10 {
+    let protectedEnd = min(payloadEnd ?? 0, frame.count)
+    if protectedEnd > 10 {
         fb.add(10, 1, "layout_marker", "meta", value: .int(Int(frame[10])))
     }
-    if let idx = readU32(frame, 11) {
+    if 15 <= protectedEnd, let idx = readU32(frame, 11) {
         fb.add(11, 4, "record_index", "meta", value: .int(idx), note: "monotonic lifetime record index")
     }
-    if let unix = readU32(frame, 15) {
+    if 19 <= protectedEnd, let unix = readU32(frame, 15) {
         fb.add(15, 4, "unix", "time", value: .int(unix), note: "real unix seconds")
     }
     if version == 21 {
@@ -625,41 +717,41 @@ private func decodeWhoop5HistoricalV2021(_ frame: [UInt8], fb: FieldBuilder, ver
             ("gyro_x", 640), ("gyro_y", 840), ("gyro_z", 1040),
         ]
         for (name, start) in channels {
+            guard start + 2 * Whoop5RawImu.sampleCount <= protectedEnd else { continue }
             var samples: [Int] = []
-            for i in 0..<100 {
+            for i in 0..<Whoop5RawImu.sampleCount {
                 guard let v = readI16(frame, start + i * 2) else { break }
                 samples.append(v)
             }
-            if samples.count == 100 {
-                fb.add(start, 200, name, "imu", value: .intArray(samples),
+            if samples.count == Whoop5RawImu.sampleCount {
+                fb.add(start, 2 * Whoop5RawImu.sampleCount, name, "imu", value: .intArray(samples),
                        note: "raw i16 samples (scale via Whoop5RawImu: 1/4096 g accel, 2000/32768 dps gyro)")
             }
         }
         fb.parsed["sensor_channel_samples"] = .int(100)
         return
     }
-    // version == 20: five blocks of two 50-sample i32 channels, each block gated by a presence byte.
-    let blocks: [(present: Int, ch0: Int, ch1: Int)] = [
-        (0x1a, 0x2f, 0xf7), (0x1c0, 0x1d5, 0x29d), (0x366, 0x37b, 0x443),
-        (0x50c, 0x521, 0x5e9), (0x6b2, 0x6c7, 0x78f),
-    ]
+    guard let optical = Whoop5RawOptical.decode(frame) else { return }
+    fb.parsed["sensor_block_count"] = .int(optical.blocks.count)
     var present = 0
-    for (b, blk) in blocks.enumerated() {
-        guard frame.count > blk.present, frame[blk.present] != 0 else { continue }
-        for (half, start) in [(0, blk.ch0), (1, blk.ch1)] {
-            var samples: [Int] = []
-            for i in 0..<50 {
-                guard let v = readI32(frame, start + i * 4) else { break }
-                samples.append(v)
-            }
-            if samples.count == 50 {
-                fb.add(start, 200, "channel_b\(b)_\(half)", "sensor", value: .intArray(samples),
-                       note: "raw i32 channel samples (no absolute unit)")
-                present += 1
-            }
+    for block in optical.blocks {
+        let start = Whoop5RawOptical.blockStart + block.index * Whoop5RawOptical.blockLength
+        fb.add(start, Whoop5RawOptical.headerLength, "block_b\(block.index)_header", "sensor_config",
+               value: .intArray(block.rawHeader.map(Int.init)),
+               note: "raw shared block metadata; no wavelength asserted")
+        fb.parsed["block_b\(block.index)_sample_count"] = .int(block.sampleCount)
+        guard block.sampleCount > 0 else { continue }
+        for (channelIndex, channel) in block.channels.enumerated() {
+            let sampleStart = start + Whoop5RawOptical.headerLength
+                + channelIndex * Whoop5RawOptical.channelSlotLength
+            fb.add(sampleStart, block.sampleCount * 4,
+                   "channel_b\(block.index)_\(channelIndex)", "sensor",
+                   value: .intArray(channel.samples.map(Int.init)),
+                   note: "raw signed i32 samples; paired under one shared block config")
+            present += 1
         }
     }
-    fb.parsed["sensor_channel_samples"] = .int(50)
+    fb.parsed["sensor_channel_samples"] = .int(optical.blocks.map(\.sampleCount).max() ?? 0)
     fb.parsed["sensor_channels_present"] = .int(present)
 }
 
@@ -693,11 +785,17 @@ public func whoop5HistoricalAckFrame(endData: [UInt8], seq: UInt8) -> [UInt8] {
 /// a short stub on this firmware (REPORT_VERSION_INFO / GET_EXTENDED_BATTERY_INFO) or aren't served
 /// (GET_CLOCK — unneeded, since realtime + historical carry real unix) are intentionally left undecoded.
 private func decodeWhoop5CommandResponse(_ frame: [UInt8], fb: FieldBuilder, schema: Schema, payloadEnd: Int?) {
-    guard let payloadEnd = payloadEnd, 11 < payloadEnd, payloadEnd <= frame.count else { return }
+    guard let payloadEnd = payloadEnd, 13 <= payloadEnd, payloadEnd <= frame.count else { return }
     let respCmd = Int(frame[10])
     let name = schema.enumName("CommandNumber", respCmd)   // e.g. "GET_BATTERY_LEVEL(26)"
     let pay = Array(frame[11..<payloadEnd])
     fb.region(11, payloadEnd, "response payload", "cmd")
+    // Observed WHOOP 5/MG responses begin with the originating request sequence and a command-specific
+    // response byte. It is 1 for captured battery/data-range responses, while a physical MG GET_HELLO
+    // returned 2; preserve the byte for each command owner instead of assigning one global success meaning.
+    // The decoded command body still starts at pay[2], preserving the existing field offsets.
+    fb.add(11, 1, "response_request_sequence", "cmd", value: .int(Int(pay[0])))
+    fb.add(12, 1, "response_result", "cmd", value: .int(Int(pay[1])))
     if name.hasPrefix("GET_BATTERY_LEVEL"), pay.count >= 3 {
         // Direct percent at pay[2] (47% confirmed against the app) — the 4.0 deci-percent ÷10 is gone.
         fb.add(11 + 2, 1, "battery_pct", "battery", value: .double(Double(pay[2])), note: "%")

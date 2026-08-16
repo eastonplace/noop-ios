@@ -157,6 +157,9 @@ extension WidgetSnapshot {
             return .published
         case .alreadyCurrent:
             WidgetLivePublishGate.notePublished(snap, at: now)
+            // The shared snapshot can already contain this generation while WidgetKit still holds an
+            // older empty timeline. Full publication is low-frequency, so always request a timeline read.
+            WidgetCenter.shared.reloadAllTimelines()
             scheduleOptionalWidgetEnrichment(from: model, bundle: verifiedBundle, token: token)
             return .alreadyCurrent
         case .superseded:
@@ -184,6 +187,19 @@ extension WidgetSnapshot {
                     token: token)
             }
         }
+    }
+
+    /// Convert verified HRV history into the scalar and sparkline that the widget renders. Invalid values
+    /// are omitted without touching Recovery or Strain.
+    static func widgetHRVProjection(
+        from series: [(day: String, value: Double)]
+    ) -> (current: Int?, sparkline: [Int]) {
+        let values = series.compactMap { point -> Int? in
+            guard point.value.isFinite else { return nil }
+            let rounded = Int(point.value.rounded())
+            return (5...300).contains(rounded) ? rounded : nil
+        }
+        return (values.last, Array(values.suffix(12)))
     }
 
     /// Regression seam for optional enrichment. The returned base is always the immutable verified envelope;
@@ -223,9 +239,7 @@ extension WidgetSnapshot {
         } else {
             hrvSeries = []
         }
-        let hrvSparkline = hrvSeries
-            .suffix(12)
-            .map { Int($0.value.rounded()) }
+        let hrvProjection = widgetHRVProjection(from: hrvSeries)
         let stress: (hours: [Double?]?, summary: String?)
         if let store = await model.repo.storeHandle(),
            let recordedTimeZoneIdentifier = bundle.widgetCore.recordedTimeZoneIdentifier {
@@ -249,7 +263,8 @@ extension WidgetSnapshot {
         // Start from the immutable verified payload, never the display view. The display view may contain
         // a transient live overlay; baking it back into the envelope would turn non-durable HR/battery
         // fields into verified state and could resurrect them after a transition or relaunch.
-        enriched.hrvSparkline = hrvSparkline
+        enriched.hrv = hrvProjection.current
+        enriched.hrvSparkline = hrvProjection.sparkline
         enriched.hourlyStress = stress.hours
         enriched.stressSummary = stress.summary
         let result = VerifiedWidgetEnvelopeStore.commit(

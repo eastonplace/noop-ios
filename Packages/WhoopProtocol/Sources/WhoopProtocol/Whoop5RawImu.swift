@@ -102,7 +102,7 @@ public enum Whoop5RawImu {
     }
 
     /// One shared, constant-time shape gate for every public interpretation of the buffer.
-    private static func isValidBuffer(_ f: [UInt8]) -> Bool {
+    public static func isValidBuffer(_ f: [UInt8]) -> Bool {
         f.count == bufferLength
             && u16(f, countAOff) == sampleCount
             && u16(f, countBOff) == sampleCount

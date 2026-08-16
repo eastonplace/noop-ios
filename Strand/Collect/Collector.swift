@@ -98,6 +98,13 @@ final class Collector {
         return try? await s.latestHRSampleTs(deviceId: deviceId)
     }
 
+    /// Receipt-backed history frontier across normalized streams and mapped V20/V21 raw records.
+    /// This is the continuation signal; the HR-only read above remains the stuck-strap watchdog signal.
+    func latestHistoricalDurableFrontier() async -> HistoricalDurableFrontier? {
+        guard let s = concreteStore else { return nil }
+        return try? await s.latestHistoricalDurableFrontier(deviceId: deviceId)
+    }
+
     /// Recent gravity samples for the inactivity reminder (#419): the strap's motion over `[from, to]`,
     /// the input to the shipped `SedentaryDetector`. Empty if there's no concrete store or the read
     /// throws. Mirrors latestHRSampleTs() — the BLE offload hook reads gravity through the Collector

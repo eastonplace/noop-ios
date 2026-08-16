@@ -24,6 +24,18 @@ final class Whoop5CommandResponseTests: XCTestCase {
         return out
     }
 
+    private func puffinCommandResponseFixtureRechecksummed(_ source: [UInt8]) -> [UInt8] {
+        var frame = source
+        let declaredLength = Int(frame[2]) | (Int(frame[3]) << 8)
+        let payloadEnd = declaredLength + 4
+        let checksum = crc32(frame, 8, payloadEnd)
+        frame[payloadEnd] = UInt8(checksum & 0xFF)
+        frame[payloadEnd + 1] = UInt8((checksum >> 8) & 0xFF)
+        frame[payloadEnd + 2] = UInt8((checksum >> 16) & 0xFF)
+        frame[payloadEnd + 3] = UInt8((checksum >> 24) & 0xFF)
+        return frame
+    }
+
     /// Real GET_BATTERY_LEVEL(26) response: payload `02 01 2f …` → 0x2f = 47%.
     private let batteryHex = "aa0110000100208124931a02012f000000000000f1c132cb"
 
@@ -31,6 +43,8 @@ final class Whoop5CommandResponseTests: XCTestCase {
         let f = parseFrame(bytes(batteryHex), family: .whoop5)
         XCTAssertEqual(f.typeName, "COMMAND_RESPONSE")
         XCTAssertEqual(f.crcOK, true)
+        XCTAssertEqual(f.responseRequestSequence, 2)
+        XCTAssertEqual(f.responseResult, 1)
         XCTAssertEqual(f.parsed["battery_pct"]?.doubleValue, 47)   // NOT 4.7 — the ÷10 is dropped
     }
 
@@ -42,6 +56,8 @@ final class Whoop5CommandResponseTests: XCTestCase {
         let f = parseFrame(bytes(dataRangeHex), family: .whoop5)
         XCTAssertEqual(f.typeName, "COMMAND_RESPONSE")
         XCTAssertEqual(f.crcOK, true)
+        XCTAssertEqual(f.responseRequestSequence, 7)
+        XCTAssertEqual(f.responseResult, 1)
         XCTAssertEqual(f.parsed["history_oldest"]?.intValue, 1778377136)   // 2026-05-10
         XCTAssertEqual(f.parsed["history_newest"]?.intValue, 1780926332)   // 2026-06-08
     }
@@ -59,6 +75,21 @@ final class Whoop5CommandResponseTests: XCTestCase {
         XCTAssertEqual(f.parsed["fw_version"]?.stringValue, "50.38.1.0")
     }
 
+    func testHelloPreservesPhysicalOwnershipBytesWithoutAssigningGenericResultSemantics() {
+        var frame = bytes(helloHex)
+        frame[11] = 1
+        frame[12] = 2
+        frame = puffinCommandResponseFixtureRechecksummed(frame)
+
+        let f = parseFrame(frame, family: .whoop5)
+        XCTAssertEqual(f.typeName, "COMMAND_RESPONSE")
+        XCTAssertEqual(f.crcOK, true)
+        XCTAssertEqual(f.responseRequestSequence, 1)
+        XCTAssertEqual(f.responseResult, 2)
+        XCTAssertEqual(f.parsed["device_name"]?.stringValue, "WHOOP-FAKE01")
+        XCTAssertEqual(f.parsed["fw_version"]?.stringValue, "50.38.1.0")
+    }
+
     /// SYNTHETIC all-zero GET_HELLO: the guards must fail closed — no device name, no firmware.
     private let helloZeroHex =
         "aa0174000001ffe12402910000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000063ef7ada"
@@ -68,5 +99,16 @@ final class Whoop5CommandResponseTests: XCTestCase {
         XCTAssertEqual(f.crcOK, true)
         XCTAssertNil(f.parsed["device_name"])   // pay[16] == 0 → no printable name
         XCTAssertNil(f.parsed["fw_version"])     // pay[93] != 50 → fails the generation guard
+    }
+
+    func testPuffinCommandResponseUsesCanonicalDecoder() {
+        var frame = bytes(batteryHex)
+        frame[8] = UInt8(PuffinPacketType.puffinCommandResponse)
+        frame = puffinCommandResponseFixtureRechecksummed(frame)
+        let f = parseFrame(frame, family: .whoop5)
+        XCTAssertEqual(f.typeName, "COMMAND_RESPONSE")
+        XCTAssertEqual(f.responseRequestSequence, 2)
+        XCTAssertEqual(f.responseResult, 1)
+        XCTAssertEqual(f.parsed["battery_pct"]?.doubleValue, 47)
     }
 }

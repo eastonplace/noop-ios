@@ -24,6 +24,22 @@ protocol BackfillStoreWriting: AnyObject, Sendable {
         timestampHeal: HistoricalTimestampHeal?,
         isFinal: Bool
     ) async throws -> HistoricalDataCommitReceipt
+    func commitHistoricalChunkResult(
+        streams: Streams,
+        deviceId: String,
+        trim: Int,
+        chunkEndUnix: Int,
+        rawBatch: HistoricalRawBatch?,
+        committedAt: Int,
+        scope: HistoricalCursorScope,
+        fingerprint: String,
+        fingerprintInput: HistoricalReceivedFrameFingerprintInput,
+        rawCaptureStatus: HistoricalRawCaptureStatus?,
+        rawRange: HistoricalRawRangeEvidence?,
+        burst: HistoricalDataCommitBurst?,
+        timestampHeal: HistoricalTimestampHeal?,
+        isFinal: Bool
+    ) async throws -> HistoricalCommitResult
     @discardableResult
     func insert(_ streams: Streams, deviceId: String) async throws
         -> (hr: Int, rr: Int, events: Int, battery: Int,
@@ -31,6 +47,45 @@ protocol BackfillStoreWriting: AnyObject, Sendable {
     func enqueueRawBatch(_ meta: RawBatchMeta, frames: [[UInt8]]) async throws
     func setCursor(_ name: String, _ value: Int) async throws
     func cursor(_ name: String) async throws -> Int?
+}
+
+extension BackfillStoreWriting {
+    /// Existing test/import stores are inserts unless they explicitly model a replay. WhoopStore supplies
+    /// the concrete race-safe implementation and reports `.replayed` for an exact durable receipt.
+    func commitHistoricalChunkResult(
+        streams: Streams,
+        deviceId: String,
+        trim: Int,
+        chunkEndUnix: Int,
+        rawBatch: HistoricalRawBatch?,
+        committedAt: Int,
+        scope: HistoricalCursorScope,
+        fingerprint: String,
+        fingerprintInput: HistoricalReceivedFrameFingerprintInput,
+        rawCaptureStatus: HistoricalRawCaptureStatus?,
+        rawRange: HistoricalRawRangeEvidence?,
+        burst: HistoricalDataCommitBurst?,
+        timestampHeal: HistoricalTimestampHeal?,
+        isFinal: Bool
+    ) async throws -> HistoricalCommitResult {
+        let receipt = try await commitHistoricalChunk(
+            streams: streams,
+            deviceId: deviceId,
+            trim: trim,
+            chunkEndUnix: chunkEndUnix,
+            rawBatch: rawBatch,
+            committedAt: committedAt,
+            scope: scope,
+            fingerprint: fingerprint,
+            fingerprintInput: fingerprintInput,
+            rawCaptureStatus: rawCaptureStatus,
+            rawRange: rawRange,
+            burst: burst,
+            timestampHeal: timestampHeal,
+            isFinal: isFinal
+        )
+        return HistoricalCommitResult(receipt: receipt, outcome: .inserted)
+    }
 }
 
 extension WhoopStore: BackfillStoreWriting {}
@@ -41,7 +96,20 @@ struct HistoricalCommitContext: Equatable, Sendable {
     let sourceIdentity: HistoricalReceiptWatermark.SourceIdentity
 }
 
+/// Immutable WHOOP 5 secure-session ownership admitted for one historical offload.
+///
+/// This is intentionally separate from the durable cursor scope. The scope identifies where bytes are
+/// committed; this value identifies the live BLE/secure attempt that is allowed to route frames and ACK
+/// those bytes. A reconnect to the same peripheral changes `connectGeneration`, while a restarted secure
+/// handshake on that connection changes `attemptEpoch`.
+struct Whoop5HistoricalSessionAdmission: Equatable, Sendable {
+    let peripheralID: UUID
+    let connectGeneration: Int
+    let attemptEpoch: UInt64
+}
+
 enum BackfillFailure: Equatable, Sendable {
+    case integrity(trim: UInt32)
     case fingerprint(trim: UInt32)
     case commit(trim: UInt32)
     case acknowledgment(trim: UInt32)
@@ -65,6 +133,7 @@ final class Backfiller {
     /// The trailing session-range markers are the strap's GET_DATA_RANGE oldest/newest for THIS sync
     /// (#547 session-relative gate); nil when the range isn't known yet (the absolute-only floor applies).
     typealias Extractor = @Sendable ([ParsedFrame], Int, Int, Int?, Int?) -> Streams
+    typealias Parser = @Sendable ([UInt8], DeviceFamily) -> ParsedFrame
 
     private let store: BackfillStoreWriting
     /// Current device id for the next session. An admitted session never reads this after decode starts;
@@ -81,7 +150,11 @@ final class Backfiller {
     /// HISTORY_END metadata.data[10:18]) that the high-freq-sync ack form requires verbatim. The caller
     /// returns only after CoreBluetooth confirms this exact write on the admitted connection.
     private let ackTrim: (_ scope: HistoricalCursorScope, _ trim: UInt32, _ endData: [UInt8]) async -> Bool
+    /// WHOOP 5 secure route. The live owner receives the same immutable admission that entered `begin` and
+    /// every `ingest`, so it can bind the confirmed write to peripheral, connection, and attempt identity.
+    private let ackTrimForWhoop5Admission: ((_ scope: HistoricalCursorScope, _ trim: UInt32, _ endData: [UInt8], _ admission: Whoop5HistoricalSessionAdmission) async -> Bool)?
     private let extract: Extractor
+    private let parse: Parser
     /// Research toggle. When false (DEFAULT) no raw frames are persisted — the chunk's
     /// decoded streams are still durable and the trim is still acked (decoded is the product of
     /// record). Injected for tests; backed by UserDefaults in the production init site.
@@ -127,6 +200,25 @@ final class Backfiller {
     /// tell a banking strap from a broken one. Reset at begin(); read by BLEManager at session end to emit
     /// "persisted N rows (M with motion) across K night(s)". Nights are day-keys (ts / 86400).
     private(set) var sessionRowsPersisted = 0
+    /// Valid V20/V21 records banked as one packed raw batch for deferred materialization. These records
+    /// are durable sensor progress even though they intentionally do not expand into per-sample rows on
+    /// the BLE/ACK path.
+    private(set) var sessionMappedRawRecords = 0
+    /// Newly committed receipt work for this admitted source. A decoded sensor chunk can be new receipt
+    /// progress even when every normalized row deduplicates; exact receipt replays and console-only chunks
+    /// remain zero.
+    private(set) var sessionFreshSensorReceipts = 0
+    /// Complete durable source fence for the newest fresh sensor receipt in this session.
+    private(set) var sessionDurableScope: HistoricalReceiptWatermark.Scope?
+    /// Fresh durable timestamps from receipts created in this session. Replayed receipts never update
+    /// these fields, so the BLE continuation layer cannot mistake a lost-ACK retry for new progress.
+    private(set) var sessionNormalizedMaxTs: Int?
+    private(set) var sessionMappedRawMaxTs: Int?
+    var sessionDurableMaxTs: Int? {
+        [sessionNormalizedMaxTs, sessionMappedRawMaxTs].compactMap { $0 }.max()
+    }
+    /// Fingerprint of the final chunk whose exact trim ACK was confirmed in this session.
+    private(set) var sessionLastAckedFingerprint: String?
     /// #42: set by `begin` when this session continues an auto-continue burst (#364) that already banked
     /// rows in an earlier session, so a trim=0xFFFFFFFF END here reads as "caught up", not "no history".
     /// Without it the fresh session's `sessionRowsPersisted` is 0 and the scary "charge to 100%" line
@@ -200,6 +292,9 @@ final class Backfiller {
     /// Context-aware handoff seam. This is the producer-owned source identity until the receipt schema
     /// carries durable lineage/epoch fields itself.
     private let onHistoricalCommitContext: ((HistoricalCommitContext) -> Void)?
+    /// Runs only after Core Bluetooth confirms the exact trim ACK. Deferred materialization is scheduled
+    /// through this seam so large V20/V21 work can never move back onto the save-before-ACK path.
+    private let onHistoricalAcknowledged: ((HistoricalDataCommitReceipt, HistoricalCommitOutcome) -> Void)?
     /// Deterministic async test seam. Production leaves this nil; tests can pause after detached decode
     /// and switch the mutable current source before the commit resumes.
     private let beforeHistoricalCommit: (() async -> Void)?
@@ -221,6 +316,11 @@ final class Backfiller {
     /// once per distinct layout this session. Default nil (inert) so tests / non-prod inits are untouched.
     private let firmwareLayout: ((Int) -> Void)?
     private let onFailure: ((BackfillFailure) -> Void)?
+    /// Live owner check supplied by BLEManager. The admitted value is frozen at `begin`; every route and
+    /// post-suspension continuation must still match both that value and the caller's current secure owner.
+    private let isWhoop5AdmissionCurrent: @MainActor (Whoop5HistoricalSessionAdmission) -> Bool
+    private(set) var whoop5Admission: Whoop5HistoricalSessionAdmission?
+    private var requiresWhoop5Admission = false
 
     init(store: BackfillStoreWriting,
          deviceId: String,
@@ -230,6 +330,7 @@ final class Backfiller {
          rejectedSink: ((_ frames: [[UInt8]], _ trim: UInt32, _ family: DeviceFamily) -> Bool)? = nil,
          onHistoricalCommit: ((HistoricalDataCommitReceipt) -> Void)? = nil,
          onHistoricalCommitContext: ((HistoricalCommitContext) -> Void)? = nil,
+         onHistoricalAcknowledged: ((HistoricalDataCommitReceipt, HistoricalCommitOutcome) -> Void)? = nil,
          beforeHistoricalCommit: (() async -> Void)? = nil,
          onChunk: ((_ decoded: Bool, _ console: Bool) -> Void)? = nil,
          sourceIdentity: HistoricalReceiptWatermark.SourceIdentity? = nil,
@@ -237,12 +338,15 @@ final class Backfiller {
          connectionLog: ((String) -> Void)? = nil,
          firmwareLayout: ((Int) -> Void)? = nil,
          onFailure: ((BackfillFailure) -> Void)? = nil,
+         isWhoop5AdmissionCurrent: @escaping @MainActor (Whoop5HistoricalSessionAdmission) -> Bool = { _ in true },
+         ackTrimForWhoop5Admission: ((_ scope: HistoricalCursorScope, _ trim: UInt32, _ endData: [UInt8], _ admission: Whoop5HistoricalSessionAdmission) async -> Bool)? = nil,
          // The default (prod) Extractor reads the opt-in HR-from-PPG sub-lag interpolation flag (Test Centre →
          // Experimental algorithms) at decode time and threads it into the pure decoder, so the pure package
          // never reaches for UserDefaults. Default OFF = byte-identical to today. Tests inject their own seam.
          extract: @escaping Extractor = { extractHistoricalStreams($0, deviceClockRef: $1, wallClockRef: $2,
                                                                     sessionOldestUnix: $3, sessionNewestUnix: $4,
-                                                                    subLagInterp: PuffinExperiment.ppgHrSubLagInterpEnabled) }) {
+                                                                    subLagInterp: PuffinExperiment.ppgHrSubLagInterpEnabled) },
+         parse: @escaping Parser = { parseFrame($0, family: $1) }) {
         self.store = store
         let admittedSource = sourceIdentity ?? HistoricalReceiptWatermark.SourceIdentity(deviceId: deviceId)
         self.deviceId = deviceId
@@ -254,13 +358,25 @@ final class Backfiller {
         self.rejectedSink = rejectedSink
         self.onHistoricalCommit = onHistoricalCommit
         self.onHistoricalCommitContext = onHistoricalCommitContext
+        self.onHistoricalAcknowledged = onHistoricalAcknowledged
         self.beforeHistoricalCommit = beforeHistoricalCommit
         self.onChunk = onChunk
         self.connectionActive = connectionActive
         self.connectionLog = connectionLog
         self.firmwareLayout = firmwareLayout
         self.onFailure = onFailure
+        self.isWhoop5AdmissionCurrent = isWhoop5AdmissionCurrent
+        self.ackTrimForWhoop5Admission = ackTrimForWhoop5Admission
+        self.whoop5Admission = nil
         self.extract = extract
+        self.parse = parse
+    }
+
+    private func ownsRoute(_ admission: Whoop5HistoricalSessionAdmission?) -> Bool {
+        if admission == nil { return !requiresWhoop5Admission }
+        guard whoop5Admission == admission else { return false }
+        guard let admission else { return true }
+        return isWhoop5AdmissionCurrent(admission)
     }
 
     private func fail(_ failure: BackfillFailure) {
@@ -282,13 +398,34 @@ final class Backfiller {
     /// Called by BLEManager when the strap signals a historical offload is beginning.
     /// chunkOpen starts TRUE: the high-freq-sync biometric replay streams records immediately and
     /// sends one HISTORY_START then repeated HISTORY_ENDs, so we must accumulate from the outset.
+    @discardableResult
     func begin(
         family: DeviceFamily,
         continuedAfterRows: Bool = false,
         sourceIdentity: HistoricalReceiptWatermark.SourceIdentity? = nil,
-        historicalCursorScope: HistoricalCursorScope
-    ) {
+        historicalCursorScope: HistoricalCursorScope,
+        whoop5Admission: Whoop5HistoricalSessionAdmission? = nil
+    ) -> Bool {
         sessionGeneration &+= 1
+        requiresWhoop5Admission = family == .whoop5
+        self.whoop5Admission = nil
+        guard family != .whoop5 || whoop5Admission != nil else {
+            isBackfilling = false
+            chunk.removeAll(keepingCapacity: true)
+            sessionProtocolMetadata.removeAll(keepingCapacity: true)
+            chunkOpen = false
+            log?("Backfill: rejected WHOOP 5 history begin without secure-session admission.")
+            return false
+        }
+        guard whoop5Admission.map(isWhoop5AdmissionCurrent) ?? true else {
+            isBackfilling = false
+            chunk.removeAll(keepingCapacity: true)
+            sessionProtocolMetadata.removeAll(keepingCapacity: true)
+            chunkOpen = false
+            log?("Backfill: rejected stale WHOOP 5 secure-session admission before history begin.")
+            return false
+        }
+        self.whoop5Admission = whoop5Admission
         self.family = family
         self.historicalCursorScope = historicalCursorScope
         if let sourceIdentity {
@@ -305,6 +442,12 @@ final class Backfiller {
         sessionProtocolMetadata.removeAll(keepingCapacity: true)
         chunkOpen = true
         sessionRowsPersisted = 0
+        sessionMappedRawRecords = 0
+        sessionFreshSensorReceipts = 0
+        sessionDurableScope = nil
+        sessionNormalizedMaxTs = nil
+        sessionMappedRawMaxTs = nil
+        sessionLastAckedFingerprint = nil
         sessionMotionRows = 0
         sessionSkinTempRows = 0
         sessionNightKeys.removeAll(keepingCapacity: true)
@@ -321,10 +464,28 @@ final class Backfiller {
         // re-publishes them as soon as the range reply arrives.
         sessionOldestUnix = nil
         sessionNewestUnix = nil
+        return true
     }
 
     /// Feed one raw BLE frame into the state machine. May trigger async store operations.
     func ingest(_ frame: [UInt8]) async {
+        await ingest(frame, admittedBy: nil)
+    }
+
+    /// Explicit secure-session route for WHOOP 5 history. Once a session begins with an admission, the
+    /// legacy unowned route and frames carrying any other admission are rejected before they mutate state.
+    func ingest(_ frame: [UInt8], admittedBy admission: Whoop5HistoricalSessionAdmission) async {
+        await ingest(frame, admittedBy: Optional(admission))
+    }
+
+    private func ingest(
+        _ frame: [UInt8],
+        admittedBy admission: Whoop5HistoricalSessionAdmission?
+    ) async {
+        guard ownsRoute(admission) else {
+            log?("Backfill: ignored historical frame from a stale or unowned secure-session admission.")
+            return
+        }
         switch classifyHistoricalMeta(parseFrame(frame, family: family)) {
         case .start:
             sessionProtocolMetadata = Data(frame)
@@ -332,7 +493,7 @@ final class Backfiller {
             chunk.removeAll(keepingCapacity: true)
             chunkOpen = true
         case .end(let unix, let trim):
-            await finishChunk(unix: unix, trim: trim, endFrame: frame)
+            await finishChunk(unix: unix, trim: trim, endFrame: frame, admission: admission)
         case .complete:
             isBackfilling = false
             chunk.removeAll(keepingCapacity: true)
@@ -381,9 +542,16 @@ final class Backfiller {
     /// The one-line session success summary (#150) — the success-side log that never existed. Returns nil
     /// when nothing persisted (so a console-only / caught-up session stays quiet and the existing
     /// empty-banking diagnostics speak instead).
-    nonisolated static func sessionSummaryLine(rows: Int, motion: Int, skinTemp: Int, nights: Int) -> String? {
-        guard rows > 0 else { return nil }
-        return "Backfill: session persisted \(rows) rows (\(motion) with motion, \(skinTemp) skin-temp) across \(nights) night(s)."
+    nonisolated static func sessionSummaryLine(
+        rows: Int,
+        motion: Int,
+        skinTemp: Int,
+        nights: Int,
+        mappedRawRecords: Int = 0
+    ) -> String? {
+        guard rows > 0 || mappedRawRecords > 0 else { return nil }
+        let rawClause = mappedRawRecords > 0 ? ", \(mappedRawRecords) mapped raw record(s)" : ""
+        return "Backfill: session persisted \(rows) rows (\(motion) with motion, \(skinTemp) skin-temp\(rawClause)) across \(nights) night(s)."
     }
 
     /// #67 diag: the persisted-nights DATE RANGE plus the offload's effective clock state — the two facts
@@ -424,9 +592,14 @@ final class Backfiller {
     /// "caught up, nothing left past the last trim", NOT "no history". Emitting the alarming "fully charge
     /// it" line there falsely scared users whose strap had just synced fine. So pick by `rowsPersisted`:
     /// > 0 gives a neutral caught-up line; 0 gives the genuine no-history guidance. Pure so a fixture pins both.
-    nonisolated static func noCursorLine(rowsPersisted: Int, continuedAfterRows: Bool = false) -> String {
-        if rowsPersisted > 0 {
-            return "Backfill: reached the end of available history (trim=0xFFFFFFFF) - caught up after persisting \(rowsPersisted) row(s) this run. Nothing more to offload."
+    nonisolated static func noCursorLine(
+        rowsPersisted: Int,
+        mappedRawRecords: Int = 0,
+        continuedAfterRows: Bool = false
+    ) -> String {
+        if rowsPersisted > 0 || mappedRawRecords > 0 {
+            let rawClause = mappedRawRecords > 0 ? " and banking \(mappedRawRecords) mapped raw record(s)" : ""
+            return "Backfill: reached the end of available history (trim=0xFFFFFFFF) - caught up after persisting \(rowsPersisted) row(s)\(rawClause) this run. Nothing more to offload."
         }
         // #42: the empty tail of an auto-continue burst (#364) that banked rows in an EARLIER session. The
         // strap synced fine — this pass just confirms we're caught up — so DON'T false-alarm "no banked
@@ -468,19 +641,69 @@ final class Backfiller {
     /// `endFrame` carries the 8-byte `end_data` the ack requires.
     /// The pure decode result of one offload chunk, produced OFF the main actor (see finishChunk).
     private struct DecodedChunk: Sendable {
+        struct MappedRawFrame: Sendable {
+            let originalIndex: Int
+            let bytes: [UInt8]
+            let version: Int
+            let unix: Int
+        }
+
         let parsed: [ParsedFrame]
         let decoded: Streams
         let rejected: [[UInt8]]
+        let integrityFailures: [[UInt8]]
+        let mappedRawFrames: [MappedRawFrame]
+        let fingerprintInput: HistoricalReceivedFrameFingerprintInput
+        let fingerprint: String
     }
 
-    private static func receivedTimestampRange(
+    nonisolated private static func receivedTimestampRange(
         from parsed: [ParsedFrame]
     ) -> (min: Int?, max: Int?) {
-        let timestamps = parsed.compactMap { $0.parsed["unix"]?.intValue }
+        // Full capture retains console and metadata packets too. Their protocol-specific fields can also
+        // be named `unix` without describing a historical sensor record, so only historical layouts own
+        // the complete-chunk evidence range.
+        let timestamps = parsed.compactMap { frame -> Int? in
+            guard frame.parsed["hist_version"] != nil else { return nil }
+            return frame.parsed["unix"]?.intValue
+        }
         return (timestamps.min(), timestamps.max())
     }
 
-    private func finishChunk(unix: UInt32, trim: UInt32, endFrame: [UInt8]) async {
+    /// A mapped V20/V21 frame may be retained as exact evidence without being trusted as session
+    /// progress. Progress additionally requires a plausible capture timestamp and actual sensor values.
+    /// V20 requires nonzero mapped channel evidence. V21 requires nonzero accelerometer evidence; it does
+    /// not impose a gravity-norm gate that could reject valid dynamic IMU captures.
+    nonisolated static func mappedRawAdvancesProgress(
+        parsed: ParsedFrame,
+        rawFrame: [UInt8],
+        version: Int,
+        wallNow: Int
+    ) -> Bool {
+        guard let unix = parsed.parsed["unix"]?.intValue,
+              isPlausibleHistoricalUnix(unix, wallNow: wallNow) else { return false }
+        switch version {
+        case 20:
+            return parsed.parsed.contains { key, value in
+                guard key.hasPrefix("channel_b"), !key.contains("sample_count") else { return false }
+                return value.intArrayValue?.contains(where: { $0 != 0 }) == true
+            }
+        case 21:
+            return ["accel_x", "accel_y", "accel_z"].contains { key in
+                parsed.parsed[key]?.intArrayValue?.contains(where: { $0 != 0 }) == true
+            }
+        default:
+            return false
+        }
+    }
+
+    private func finishChunk(
+        unix: UInt32,
+        trim: UInt32,
+        endFrame: [UInt8],
+        admission: Whoop5HistoricalSessionAdmission?
+    ) async {
+        guard ownsRoute(admission) else { return }
         guard let endData = Backfiller.endData(from: endFrame, family: family) else { return }
 
         // Capture every mutable admission input before the detached decode can suspend. In particular,
@@ -515,6 +738,14 @@ final class Backfiller {
         var rawClockRef: ClockRef?
         var receivedMinTs: Int?
         var receivedMaxTs: Int?
+        var mappedRawVersions: Set<Int> = []
+        var mappedRawRecordCount = 0
+        var trustedMappedProgressRange: ClosedRange<Int>?
+        var mappedRawFrames: [DecodedChunk.MappedRawFrame] = []
+        var preparedFingerprintInput: HistoricalReceivedFrameFingerprintInput?
+        var preparedFingerprint: String?
+        var chunkHadSensorContent = false
+        var chunkWasConsoleOnly = false
 
         if !frames.isEmpty {
             // type-47 HISTORICAL_DATA carries its OWN real-unix timestamp — extractHistoricalStreams
@@ -532,29 +763,109 @@ final class Backfiller {
                 sessionClockWall = ref.wall
                 sessionUsedIdentityRef = (clockRef == nil)
             }
-            // PERF (2026-07-03): the heavy decode — parseFrame ×N, extractHistoricalStreams, and the
-            // reject-classifier's SECOND full parse — runs OFF the main actor so a long history offload no
-            // longer freezes the UI (was ~54K parseFrame calls on main for a 27K-row import). Pure functions
-            // only; every @Published write, the store insert, and the ack/cursor sequence below stay on the
-            // main actor in the SAME order, so the persist→archive→cursor→ack trim-safety is untouched.
+            // The heavy decode runs off the main actor. Classification consumes the same ParsedFrame values;
+            // it must never call parseFrame a second time because V20/V21 allocate large sample arrays.
+            // Every @Published write, the store insert, and the ack/cursor sequence below stay on the main
+            // actor in the SAME order, so the persist→archive→cursor→ack trim-safety is untouched.
             let fam = family
             let dev = ref.device, wall = ref.wall
             let oldest = sessionOldestUnix, newest = sessionNewestUnix
             let extractFn = extract   // keep the injected Extractor seam (tests override it); prod == extractHistoricalStreams
-            let d = await Task.detached(priority: .utility) { () -> DecodedChunk in
-                let parsed = frames.map { parseFrame($0, family: fam) }
-                let decoded = extractFn(parsed, dev, wall, oldest, newest)
-                let rejected = rejectedHistoricalRecords(frames, family: fam)
-                return DecodedChunk(parsed: parsed, decoded: decoded, rejected: rejected)
-            }.value
-            guard sessionGeneration == admittedSessionGeneration else {
+            let parseFn = parse
+            let decodeTrace = PerformanceTrace.begin("history_chunk_decode")
+            let d: DecodedChunk
+            do {
+                d = try await Task.detached(priority: .utility) { () throws -> DecodedChunk in
+                    let parsed = frames.map { parseFn($0, fam) }
+                    let decoded = extractFn(parsed, dev, wall, oldest, newest)
+                    let dispositions = zip(parsed, frames).map {
+                        historicalRecordDisposition(parsed: $0.0, rawFrame: $0.1, family: fam)
+                    }
+                    let rejected = zip(frames, dispositions).compactMap { frame, disposition in
+                        disposition.isRejected ? frame : nil
+                    }
+                    // Integrity protects the complete received chunk, not only type-47 sensor records.
+                    // A damaged START/console frame can otherwise be classified as non-sensor metadata
+                    // and get washed away by a later valid END. Keep the reject archive type-specific,
+                    // but fail the durable receipt/ACK gate for every unverifiable inbound envelope.
+                    let integrityFailures = zip(frames, parsed).compactMap { frame, parsed in
+                        guard parsed.ok,
+                              parsed.envelopeOK,
+                              parsed.headerCRCOK == true,
+                              parsed.payloadCRCOK == true else { return frame }
+                        return nil
+                    }
+                    let mappedRawFrames = dispositions.enumerated().compactMap { index, disposition
+                        -> DecodedChunk.MappedRawFrame? in
+                        guard case .mappedRaw(let version) = disposition,
+                              let unix = parsed[index].parsed["unix"]?.intValue else { return nil }
+                        return DecodedChunk.MappedRawFrame(
+                            originalIndex: index,
+                            bytes: frames[index],
+                            version: version,
+                            unix: unix
+                        )
+                    }
+                    let range = Backfiller.receivedTimestampRange(from: parsed)
+                    let fingerprintInput = HistoricalReceivedFrameFingerprintInput(
+                        orderedFrames: frames,
+                        protocolMetadata: protocolMetadata,
+                        historyEndFrame: Data(endFrame),
+                        minReceivedTs: range.min,
+                        maxReceivedTs: range.max)
+                    let fingerprint = try WhoopStore.historicalReceivedFrameFingerprint(
+                        input: fingerprintInput,
+                        scope: admittedScope,
+                        trim: Int(trim))
+                    return DecodedChunk(
+                        parsed: parsed,
+                        decoded: decoded,
+                        rejected: rejected,
+                        integrityFailures: integrityFailures,
+                        mappedRawFrames: mappedRawFrames,
+                        fingerprintInput: fingerprintInput,
+                        fingerprint: fingerprint
+                    )
+                }.value
+            } catch {
+                PerformanceTrace.end(decodeTrace)
+                log?("Backfill: failed to fingerprint historical chunk (trim=\(trim)): \(error) — holding ack so the strap re-sends this chunk.")
+                fail(.fingerprint(trim: trim))
+                return
+            }
+            PerformanceTrace.end(decodeTrace, changedRows: frames.count)
+            guard sessionGeneration == admittedSessionGeneration, ownsRoute(admission) else {
                 log?("Backfill: dropped decoded trim=\(trim) from a superseded session before commit.")
                 return
             }
             let parsed = d.parsed
-            let range = Backfiller.receivedTimestampRange(from: parsed)
-            receivedMinTs = range.min
-            receivedMaxTs = range.max
+            mappedRawFrames = d.mappedRawFrames
+            mappedRawVersions = Set(mappedRawFrames.map(\.version))
+            let wallNow = Int(Date().timeIntervalSince1970)
+            mappedRawRecordCount = zip(d.parsed, frames).filter { parsed, rawFrame in
+                guard case .mappedRaw(let version) = historicalRecordDisposition(
+                    parsed: parsed, rawFrame: rawFrame, family: fam
+                ) else { return false }
+                return Backfiller.mappedRawAdvancesProgress(
+                    parsed: parsed, rawFrame: rawFrame, version: version, wallNow: wallNow
+                )
+            }.count
+            let trustedMappedTimestamps = zip(d.parsed, frames).compactMap { parsed, rawFrame -> Int? in
+                guard case .mappedRaw(let version) = historicalRecordDisposition(
+                    parsed: parsed, rawFrame: rawFrame, family: fam
+                ), Backfiller.mappedRawAdvancesProgress(
+                    parsed: parsed, rawFrame: rawFrame, version: version, wallNow: wallNow
+                ) else { return nil }
+                return parsed.parsed["unix"]?.intValue
+            }
+            if let minimum = trustedMappedTimestamps.min(),
+               let maximum = trustedMappedTimestamps.max() {
+                trustedMappedProgressRange = minimum...maximum
+            }
+            preparedFingerprintInput = d.fingerprintInput
+            preparedFingerprint = d.fingerprint
+            receivedMinTs = d.fingerprintInput.minReceivedTs
+            receivedMaxTs = d.fingerprintInput.maxReceivedTs
             // Observability (PR #241): log which layout this strap emits on a HEALTHY sync too — the
             // unmapped-version path below only fires for layouts NOOP can't decode, so a normal log
             // never revealed v18/v24/v25/v26. Once per distinct layout this session.
@@ -571,6 +882,8 @@ final class Backfiller {
                     let decodable = parsed.contains {
                         $0.parsed["heart_rate"] != nil || $0.parsed["gravity_x"] != nil
                             || $0.parsed["ppg_waveform"] != nil
+                            || $0.parsed["sensor_block_count"] != nil
+                            || $0.parsed["gyro_x"] != nil
                     }
                     return ConnectionTrace.firmwareLine(version: v, decodable: decodable)
                 }())
@@ -606,6 +919,7 @@ final class Backfiller {
             // either) — checking heart_rate alone false-flagged v25/v26 as unmapped (#156, sudden-break).
             for p in parsed {
                 guard let v = p.parsed["hist_version"]?.intValue,
+                      !mappedRawVersions.contains(v),
                       p.parsed["heart_rate"] == nil,
                       p.parsed["gravity_x"] == nil,
                       p.parsed["ppg_waveform"] == nil,
@@ -654,11 +968,17 @@ final class Backfiller {
             let rejected = d.rejected
             // Tally this chunk's outcome so a completed-but-empty session is distinguishable from a
             // caught-up one (#77 family): did it decode sensor rows, and was it console-only?
-            onChunk?(!decoded.isEmpty, decoded.isEmpty && rejected.isEmpty)
+            let storedMappedRaw = !mappedRawVersions.isEmpty
+            chunkHadSensorContent = !decoded.isEmpty || mappedRawRecordCount > 0
+            chunkWasConsoleOnly = decoded.isEmpty && !storedMappedRaw && rejected.isEmpty
             // A chunk that produced no rows AND held no genuine rejects was pure console output — say
             // so calmly so it doesn't read as data loss (the "rejected frames" red herring, #77/#120).
-            if decoded.isEmpty && rejected.isEmpty {
+            if decoded.isEmpty && !storedMappedRaw && rejected.isEmpty {
                 log?("Backfill: \(frames.count) frame(s) this chunk carried no sensor records (strap console/diagnostic output) — normal, nothing to persist (trim=\(trim)).")
+            }
+            if storedMappedRaw {
+                let versions = mappedRawVersions.sorted().map { "v\($0)" }.joined(separator: ", ")
+                log?("Backfill: mapped \(versions) sensor records will be retained packed for background materialization (trim=\(trim)).")
             }
             // Log + hex-sample the GENUINE rejects whenever there are any — INCLUDING a partially-decoded
             // chunk (some good rows alongside CRC-failed / unmapped records), which used to archive those
@@ -687,6 +1007,15 @@ final class Backfiller {
                     return
                 }
             }
+            // A valid but unknown firmware layout may be archived and ACKed: its exact bytes are durable.
+            // A corrupt or unverifiable envelope is different. Archiving it is diagnostic only; it cannot
+            // authorize the durable receipt or make the strap release its sole trusted copy.
+            if !d.integrityFailures.isEmpty {
+                log?("Backfill: \(d.integrityFailures.count) frame(s) failed complete envelope integrity "
+                    + "(trim=\(trim)) — NOT committing or acking this chunk.")
+                fail(.integrity(trim: trim))
+                return
+            }
         }
 
         // #57: an earlier failure means this logical offload no longer has a contiguous durable frontier.
@@ -700,49 +1029,68 @@ final class Backfiller {
         // Raw metadata needs a concrete range even when its frames carry no decodable unix field, so the
         // retained batch may use the HISTORY_END timestamp as a fallback. The fingerprint must preserve
         // the actual range decoded from the received frames, including nil when no timestamp was present.
-        let fingerprintInput = HistoricalReceivedFrameFingerprintInput(
+        let fingerprintInput = preparedFingerprintInput ?? HistoricalReceivedFrameFingerprintInput(
             orderedFrames: frames,
             protocolMetadata: protocolMetadata,
             historyEndFrame: Data(endFrame),
             minReceivedTs: receivedMinTs,
             maxReceivedTs: receivedMaxTs)
         let fingerprint: String
-        do {
-            fingerprint = try WhoopStore.historicalReceivedFrameFingerprint(
-                input: fingerprintInput,
-                scope: admittedScope,
-                trim: Int(trim))
-        } catch {
-            log?("Backfill: failed to fingerprint historical chunk (trim=\(trim)): \(error) — holding ack so the strap re-sends this chunk.")
-            fail(.fingerprint(trim: trim))
-            return
+        if let preparedFingerprint {
+            fingerprint = preparedFingerprint
+        } else {
+            do {
+                fingerprint = try WhoopStore.historicalReceivedFrameFingerprint(
+                    input: fingerprintInput,
+                    scope: admittedScope,
+                    trim: Int(trim))
+            } catch {
+                log?("Backfill: failed to fingerprint historical chunk (trim=\(trim)): \(error) — holding ack so the strap re-sends this chunk.")
+                fail(.fingerprint(trim: trim))
+                return
+            }
         }
 
         // Raw evidence uses content-version identity too. A retry with different valid data at the same
         // trim must not collide with a prior batch ID, while an exact replay resolves to the same batch.
-        if enableRawCapture, !frames.isEmpty, let rawClockRef {
+        let requiresMappedRawRetention = !mappedRawVersions.isEmpty
+        if (enableRawCapture || requiresMappedRawRetention), !frames.isEmpty, let rawClockRef {
+            let retainCompleteChunk = enableRawCapture
+            let retainedFrames = retainCompleteChunk ? frames : mappedRawFrames.map(\.bytes)
+            let retainedIndexes = retainCompleteChunk
+                ? Array(frames.indices)
+                : mappedRawFrames.map(\.originalIndex)
+            let retainedTimestamps = retainCompleteChunk
+                ? [receivedMinTs, receivedMaxTs].compactMap { $0 }
+                : mappedRawFrames.map(\.unix)
+            let protectedMappedByteCount = mappedRawFrames.reduce(0) { $0 + $1.bytes.count }
             let meta = RawBatchMeta(
                 batchId: "hist-\(admittedScope.key)-\(trim)-\(fingerprint.prefix(16))",
                 deviceId: admittedScope.deviceId,
                 clockRef: rawClockRef,
                 capturedAt: Int(Date().timeIntervalSince1970),
-                startTs: receivedMinTs ?? Int(unix),
-                endTs: receivedMaxTs ?? Int(unix),
-                frameCount: frames.count,
-                byteSize: frames.reduce(0) { $0 + $1.count },
+                startTs: retainedTimestamps.min() ?? receivedMinTs ?? Int(unix),
+                endTs: retainedTimestamps.max() ?? receivedMaxTs ?? Int(unix),
+                frameCount: retainedFrames.count,
+                byteSize: retainedFrames.reduce(0) { $0 + $1.count },
                 lineage: admittedScope.lineage,
                 cursorEpoch: admittedScope.cursorEpoch)
             rawBatchForCommit = HistoricalRawBatch(
                 meta: meta,
-                frames: frames,
+                frames: retainedFrames,
+                originalFrameIndexes: retainedIndexes,
                 protocolMetadata: protocolMetadata,
-                historyEndFrame: Data(endFrame))
+                historyEndFrame: Data(endFrame),
+                trustedMappedProgressRange: trustedMappedProgressRange,
+                protectedMappedByteCount: protectedMappedByteCount)
         }
 
         let rawCaptureStatus: HistoricalRawCaptureStatus
         let rawRange: HistoricalRawRangeEvidence
         if let rawBatch = rawBatchForCommit {
-            rawCaptureStatus = .captured(batchId: rawBatch.meta.batchId)
+            rawCaptureStatus = requiresMappedRawRetention
+                ? .materializationRequired(batchId: rawBatch.meta.batchId)
+                : .captured(batchId: rawBatch.meta.batchId)
             rawRange = HistoricalRawRangeEvidence(
                 source: .retainedRawBatch,
                 minReceivedTs: rawBatch.meta.startTs,
@@ -758,16 +1106,17 @@ final class Backfiller {
         if let beforeHistoricalCommit {
             await beforeHistoricalCommit()
         }
-        guard sessionGeneration == admittedSessionGeneration else {
+        guard sessionGeneration == admittedSessionGeneration, ownsRoute(admission) else {
             log?("Backfill: dropped trim=\(trim) because its session was superseded before commit.")
             return
         }
 
         // Rows, optional raw capture, the trim cursor, and this receipt commit as one SQLite unit. The
         // receipt is the only object later Phase 2 stages may use to trigger analysis or UI publication.
-        let receipt: HistoricalDataCommitReceipt
+        let commitResult: HistoricalCommitResult
+        let commitTrace = PerformanceTrace.begin("history_chunk_commit")
         do {
-            receipt = try await store.commitHistoricalChunk(
+            commitResult = try await store.commitHistoricalChunkResult(
                 streams: decodedForCommit,
                 deviceId: admittedScope.deviceId,
                 trim: Int(trim),
@@ -785,62 +1134,79 @@ final class Backfiller {
                 isFinal: trim == UInt32.max
             )
         } catch {
-            guard sessionGeneration == admittedSessionGeneration else { return }
+            PerformanceTrace.end(commitTrace)
+            guard sessionGeneration == admittedSessionGeneration, ownsRoute(admission) else { return }
             log?("Backfill: failed to atomically commit historical chunk (trim=\(trim)): \(error) — holding ack so the strap re-sends this chunk; history won't advance until the local commit succeeds.")
             fail(.commit(trim: trim))
             return
         }
-        guard sessionGeneration == admittedSessionGeneration else {
+        let receipt = commitResult.receipt
+        let inserted = commitResult.outcome == .inserted
+        PerformanceTrace.end(commitTrace, changedRows: inserted ? receipt.insertedRows.total : 0)
+        guard sessionGeneration == admittedSessionGeneration, ownsRoute(admission) else {
             // The receipt is durable under its original scope, but a newer session now owns the strap.
             // Never publish its state or ACK it through the new session.
-            log?("Backfill: committed trim=\(trim) from a superseded session — leaving it unacked for safe replay.")
+            log?("Backfill: committed trim=\(trim) after secure-session ownership changed — leaving it unacked with zero current-session progress for safe replay.")
             return
         }
-        onHistoricalCommit?(receipt)
-        let durableSource = HistoricalReceiptWatermark.SourceIdentity(
-            deviceId: receipt.deviceId,
-            lineage: receipt.lineage,
-            epoch: Int64(receipt.cursorEpoch),
-            trimScope: receipt.trimScope)
-        onHistoricalCommitContext?(HistoricalCommitContext(receipt: receipt, sourceIdentity: durableSource))
+        if inserted {
+            onHistoricalCommit?(receipt)
+            let durableSource = HistoricalReceiptWatermark.SourceIdentity(
+                deviceId: receipt.deviceId,
+                lineage: receipt.lineage,
+                epoch: Int64(receipt.cursorEpoch),
+                trimScope: receipt.trimScope)
+            onHistoricalCommitContext?(HistoricalCommitContext(receipt: receipt, sourceIdentity: durableSource))
+        } else {
+            log?("Backfill: exact durable receipt replay at trim=\(trim) — ACKing safely with zero fresh progress.")
+        }
 
         // Success-side observability (#150): tally only receipt-backed rows. This includes every
         // persisted stream, including WHOOP 5 step, sleep-state, and PPG samples.
-        let tally = Backfiller.chunkTally(
-            counts: receipt.insertedRows,
-            timestamps: decodedForCommit.gravity.map(\.ts) + decodedForCommit.hr.map(\.ts)
-        )
-        sessionRowsPersisted += tally.rows
-        sessionMotionRows += tally.motion
-        sessionSkinTempRows += receipt.insertedRows.skinTemp
-        sessionNightKeys.formUnion(tally.nights)
-
-        // Connection test mode: per-chunk offload PROGRESS (running session totals), so a report shows
-        // the offload advancing rather than only its final outcome. Gated zero-cost.
-        emitConnection("offload progress trim=\(trim) chunkRows=\(tally.rows) "
-            + "sessionRows=\(sessionRowsPersisted) sessionMotion=\(sessionMotionRows) nights=\(sessionNights)")
-
-        // #150 / #783 / #1: trim=0xFFFFFFFF is the strap's "no valid flash cursor" sentinel. Its MEANING
-        // depends on whether this run already banked anything. On the FIRST end of a fresh offload it means
-        // "no banked history" (a clock/charge state). But the auto-continuation (#364) re-kicks
-        // SEND_HISTORICAL after a run that DID persist rows, and the very next end then carries 0xFFFFFFFF
-        // to mean "you are caught up, nothing left past the last trim", NOT "no history". Emitting the scary
-        // "fully charge it" line there was wrong and alarmed users whose strap had just synced fine (#783).
-        // We gate this AFTER the persist block (#1): a bad-clock/flash strap can emit records on the SAME
-        // 0xFFFFFFFF END, so `sessionRowsPersisted` must already include THIS end's own rows before the
-        // pick, otherwise a records-bearing no-cursor END false-alarms "no banked history". So gate on
-        // `sessionRowsPersisted == 0` HERE: if rows landed (this run or this END), log the neutral caught-up
-        // line; a genuinely empty session (0 rows) still gets the real no-history guidance. Logs once per
-        // session (loggedNoCursor) and the ack still proceeds below.
-        if trim == 0xFFFFFFFF, !loggedNoCursor {
-            loggedNoCursor = true
-            log?(Backfiller.noCursorLine(rowsPersisted: sessionRowsPersisted, continuedAfterRows: continuedAfterRows))
-            // Connection test mode: the no-cursor sentinel as a compact tagged line (gated zero-cost).
-            emitConnection(ConnectionTrace.noCursorLine())
+        let freshCounts = inserted ? receipt.insertedRows : HistoricalStreamInsertCounts()
+        let decodedSkinTemp = decodedForCommit.skinTemp
+        let skinTempFirst = decodedSkinTemp.first?.ts
+        let skinTempLast = decodedSkinTemp.last?.ts
+        if let traceTimestamp = skinTempFirst ?? skinTempLast {
+            emitConnection(SkinTemperatureTrace(
+                stage: .persistence,
+                source: .wearable,
+                family: String(describing: family),
+                day: SkinTemperatureTrace.localDay(for: traceTimestamp),
+                queryFrom: skinTempFirst ?? traceTimestamp,
+                queryTo: skinTempLast ?? traceTimestamp,
+                sampleCount: decodedSkinTemp.count,
+                firstTimestamp: skinTempFirst,
+                lastTimestamp: skinTempLast,
+                persistenceOutcome: inserted ? "inserted" : "replayed",
+                insertedCount: freshCounts.skinTemp,
+                conversionCount: nil,
+                isAvailable: nil
+            ).line)
         }
+        let freshTimestamps = inserted
+            ? decodedForCommit.gravity.map(\.ts) + decodedForCommit.hr.map(\.ts)
+            : []
+        let tally = Backfiller.chunkTally(counts: freshCounts, timestamps: freshTimestamps)
 
-        let ackConfirmed = await ackTrim(admittedScope, trim, endData)
-        guard sessionGeneration == admittedSessionGeneration else {
+        guard ownsRoute(admission) else {
+            log?("Backfill: secure-session ownership changed before trim=\(trim) ACK — leaving the durable receipt for replay.")
+            return
+        }
+        let ackTrace = PerformanceTrace.begin("history_chunk_ack")
+        let ackConfirmed: Bool
+        if let admission {
+            guard let ackTrimForWhoop5Admission else {
+                PerformanceTrace.end(ackTrace)
+                log?("Backfill: no owner-bound WHOOP 5 ACK route for trim=\(trim) — leaving the durable receipt for replay.")
+                return
+            }
+            ackConfirmed = await ackTrimForWhoop5Admission(admittedScope, trim, endData, admission)
+        } else {
+            ackConfirmed = await ackTrim(admittedScope, trim, endData)
+        }
+        PerformanceTrace.end(ackTrace)
+        guard sessionGeneration == admittedSessionGeneration, ownsRoute(admission) else {
             log?("Backfill: ignored ACK result for trim=\(trim) after its session was superseded.")
             return
         }
@@ -852,13 +1218,61 @@ final class Backfiller {
             fail(.acknowledgment(trim: trim))
             return
         }
+        if inserted {
+            onChunk?(chunkHadSensorContent, chunkWasConsoleOnly)
+        }
+        sessionRowsPersisted += tally.rows
+        sessionMappedRawRecords += inserted ? mappedRawRecordCount : 0
+        if inserted {
+            if chunkHadSensorContent || mappedRawRecordCount > 0 {
+                sessionFreshSensorReceipts += 1
+                sessionDurableScope = HistoricalReceiptWatermark.Scope(
+                    databaseInstanceId: receipt.databaseInstanceId,
+                    sourceIdentity: HistoricalReceiptWatermark.SourceIdentity(
+                        deviceId: receipt.deviceId,
+                        lineage: receipt.lineage,
+                        epoch: Int64(receipt.cursorEpoch),
+                        trimScope: receipt.trimScope
+                    )
+                )
+            }
+            sessionNormalizedMaxTs = [sessionNormalizedMaxTs, receipt.maxDecodedTs]
+                .compactMap { $0 }.max()
+            if case .materializationRequired = receipt.rawStatus {
+                sessionMappedRawMaxTs = [
+                    sessionMappedRawMaxTs,
+                    rawBatchForCommit?.trustedMappedProgressRange?.upperBound,
+                ]
+                    .compactMap { $0 }.max()
+            }
+        }
+        sessionMotionRows += tally.motion
+        sessionSkinTempRows += freshCounts.skinTemp
+        sessionNightKeys.formUnion(tally.nights)
+
+        // Only the still-current secure owner may expose continuation progress from this receipt.
+        emitConnection("offload progress trim=\(trim) chunkRows=\(tally.rows) "
+            + "chunkSkinTemp=\(freshCounts.skinTemp) sessionRows=\(sessionRowsPersisted) "
+            + "sessionMotion=\(sessionMotionRows) sessionSkinTemp=\(sessionSkinTempRows) "
+            + "nights=\(sessionNights)")
+        if trim == 0xFFFFFFFF, !loggedNoCursor {
+            loggedNoCursor = true
+            log?(Backfiller.noCursorLine(
+                rowsPersisted: sessionRowsPersisted,
+                mappedRawRecords: sessionMappedRawRecords,
+                continuedAfterRows: continuedAfterRows))
+            emitConnection(ConnectionTrace.noCursorLine())
+        }
         lastAckedTrim = trim   // #364: record the advanced cursor for the auto-continue spin-detector
+        sessionLastAckedFingerprint = fingerprint
+        onHistoricalAcknowledged?(receipt, commitResult.outcome)
     }
 
     /// Called when a backfill watchdog timer fires (strap went silent mid-offload).
     /// Clears state without acking — the chunk was never durably committed.
     func timeoutFired() {
         sessionGeneration &+= 1
+        whoop5Admission = nil
         isBackfilling = false
         chunk.removeAll(keepingCapacity: true)
         chunkOpen = false

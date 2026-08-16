@@ -1,15 +1,9 @@
 import XCTest
 @testable import NoopPhase34Core
 
-private struct AccumulatingProbeResult: Equatable, Sendable, DrainSignalResultAccumulating {
+private struct AccumulatingProbeResult: Equatable, Sendable {
     let completed: Int
     let deferred: Int
-
-    static func combineDrainResults(_ accumulated: Any, _ next: Any) -> Any {
-        guard let lhs = accumulated as? Self, let rhs = next as? Self else { return next }
-        return Self(completed: lhs.completed + rhs.completed,
-                    deferred: lhs.deferred + rhs.deferred)
-    }
 }
 
 private actor GatePassSequence {
@@ -85,9 +79,14 @@ final class PR29Round5RootFixTests: XCTestCase {
             .init(completed: 4, deferred: 0),
             .init(completed: 0, deferred: 1),
         ])
-        let gate = LosslessDrainSignalGate<AccumulatingProbeResult> {
-            await sequence.next()
-        }
+        let gate = LosslessDrainSignalGate<AccumulatingProbeResult>(
+            combine: {
+                .init(
+                    completed: $0.completed + $1.completed,
+                    deferred: $0.deferred + $1.deferred)
+            },
+            operation: { await sequence.next() }
+        )
 
         let first = Task { await gate.signal() }
         await sequence.waitUntilFirstStarted()

@@ -20,6 +20,7 @@ struct TrendsView: View {
     @State private var showingReport = false
     @State private var loadedData = TrendsLoadedData.empty
     @State private var screenSnapshot: TrendsScreenSnapshot?
+    @State private var loadState = LatestWinsLoadState()
     @State private var civilContext = TrendsCivilContext.current()
     @State var selectedMetric: ProductionTrendMetric = .recovery
     @State var selectedRange: TrendRange = .month
@@ -78,7 +79,10 @@ struct TrendsView: View {
         ScreenScaffold(
             title: "Trends",
             subtitle: "Selected ranges and weekly reviews.",
-            onRefresh: { _ = await repo.refresh(.currentDay) },
+            onRefresh: {
+                _ = await repo.refresh(.currentDay)
+                await loadDataForCurrentRevision()
+            },
             lazy: true,
             topBackground: nil,
             trailing: {
@@ -93,6 +97,24 @@ struct TrendsView: View {
                 .foregroundStyle(StrandPalette.textPrimary)
             }
         ) {
+            if let message = loadState.errorMessage {
+                NoopCard {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Trends could not refresh")
+                            .font(StrandFont.headline)
+                            .foregroundStyle(StrandPalette.textPrimary)
+                        Text(message)
+                            .font(StrandFont.subhead)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                        Button {
+                            Task { await loadDataForCurrentRevision() }
+                        } label: {
+                            Label("Try again", systemImage: "arrow.clockwise")
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+            }
             if repo.days.isEmpty {
                 ComingSoon(what: repo.loaded
                     ? "Trends need history to draw. Import your WHOOP export in Data Sources to see weeks, months and years instantly."
@@ -140,6 +162,7 @@ struct TrendsView: View {
             weekOffset = boundedOffset
             return
         }
+        let requestID = loadState.begin()
         let revision = Int(truncatingIfNeeded: repo.refreshSeq
             &+ Int(repo.canonicalHealth.trendsRevision))
         let anchorDay = civilContext.localDay
@@ -151,15 +174,27 @@ struct TrendsView: View {
             timeZoneIdentifier: timeZoneIdentifier,
             rangeDays: rangeDays,
             weekOffset: offset
-        ) else { return }
-        guard !Task.isCancelled,
+        ) else {
+            _ = loadState.finish(
+                .failed("NOOP could not read the selected Trends range."),
+                requestID: requestID)
+            return
+        }
+        guard !Task.isCancelled else {
+            _ = loadState.finish(.cancelled, requestID: requestID)
+            return
+        }
+        guard loadState.owns(requestID),
               revision == Int(truncatingIfNeeded: repo.refreshSeq
                 &+ Int(repo.canonicalHealth.trendsRevision)),
               anchorDay == civilContext.localDay,
               timeZoneIdentifier == civilContext.timeZoneIdentifier,
               rangeDays == TrendsBounds.clampRangeDays(selectedRange.days),
               offset == TrendsBounds.clampWeekOffset(weekOffset)
-        else { return }
+        else {
+            _ = loadState.finish(.cancelled, requestID: requestID)
+            return
+        }
         let revisionAdjusted = TrendsLoadedData(
             loadIdentity: next.loadIdentity,
             revision: revision,
@@ -171,11 +206,15 @@ struct TrendsView: View {
             appleDays: next.appleDays
         )
         if revisionAdjusted != loadedData { loadedData = revisionAdjusted }
+        _ = loadState.finish(
+            revisionAdjusted.canonicalDays.isEmpty ? .empty : .loaded,
+            requestID: requestID)
     }
 
     @MainActor
     private func rebuildScreenSnapshot() async {
         let key = screenSnapshotKey
+        let requestID = loadState.currentRequestID
         let data = loadedData
         guard data.revision >= 0 else { return }
         var calendar = Calendar.autoupdatingCurrent
@@ -208,7 +247,17 @@ struct TrendsView: View {
         } onCancel: {
             worker.cancel()
         }
+        if !Task.isCancelled,
+           key == screenSnapshotKey,
+           loadState.owns(requestID),
+           next == nil,
+           !data.canonicalDays.isEmpty {
+            _ = loadState.finish(
+                .failed("The selected Trends range could not be rendered."),
+                requestID: requestID)
+        }
         guard !Task.isCancelled, key == screenSnapshotKey, let next else { return }
+        guard loadState.owns(requestID) else { return }
         screenSnapshot = next
     }
 }

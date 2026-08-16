@@ -27,12 +27,18 @@ import WhoopStore
 // Everything is computed live from `repo.days` (+ the stored series), so the math
 // is fully inspectable — see the "How this is computed" card at the bottom.
 
+private struct StressDaytimeLoad {
+    let daytime: DaytimeStress.Result
+    let stressIndex: StressIndex.Components?
+    let frequencyDomain: HRVFreqDomain.Bands?
+}
+
 struct StressView: View {
     @EnvironmentObject var repo: Repository
 
     /// The stored 0–3 stress series ("my-whoop"), oldest→newest. Empty → derive.
     @State private var storedSeries: [(day: String, value: Double)] = []
-    @State private var loaded = false
+    @State private var loadState = LatestWinsLoadState()
     /// Trend window for the chart (W/M/3M/6M/1Y/ALL).
     @State private var range: ExploreRange = .month
 
@@ -61,6 +67,7 @@ struct StressView: View {
 
     var body: some View {
         ScreenScaffold(title: "Stress", subtitle: "Autonomic load from HRV and resting heart rate",
+                       onRefresh: { await load() },
                        // PERF (scroll): lazy column — byte-identical layout (LazyVStack == eager VStack
                        // alignment/spacing/header). The content is one inner eager VStack, so the staggered
                        // section reveal is unchanged; this only defers building that stack until it scrolls in.
@@ -71,10 +78,15 @@ struct StressView: View {
                        topBackground: nil) {
             if let model {
                 content(model)
-            } else if !loaded {
-                ComingSoon(what: "Reading your heart-rate variability and resting heart rate…")
             } else {
-                emptyState
+                switch loadState.phase {
+                case .failed(_, let message):
+                    loadErrorState(message)
+                case .empty(_), .loaded(_):
+                    emptyState
+                case .idle, .loading(_), .cancelled(_):
+                    ComingSoon(what: "Reading your heart-rate variability and resting heart rate…")
+                }
             }
         }
         .onAppear { rebuildModelIfNeeded() }
@@ -82,17 +94,45 @@ struct StressView: View {
         .task(id: repo.refreshSeq) { await load() }
     }
 
+    @MainActor
     private func load() async {
-        storedSeries = await repo.series(key: "stress", source: "my-whoop")
-        loaded = true
+        let requestID = loadState.begin()
+        let repositoryRevision = repo.refreshSeq
+        let sourceDeviceID = repo.deviceId
+        guard await repo.storeHandle() != nil else {
+            _ = loadState.finish(
+                .failed("NOOP could not open the local health store."),
+                requestID: requestID)
+            return
+        }
+
+        let nextStoredSeries = await repo.series(key: "stress", source: "my-whoop")
+        let nextDaytime = await readDaytime(deviceID: sourceDeviceID)
+        guard !Task.isCancelled else {
+            _ = loadState.finish(.cancelled, requestID: requestID)
+            return
+        }
+        guard loadState.owns(requestID),
+              repositoryRevision == repo.refreshSeq,
+              sourceDeviceID == repo.deviceId else {
+            _ = loadState.finish(.cancelled, requestID: requestID)
+            return
+        }
+
+        storedSeries = nextStoredSeries
+        daytime = nextDaytime.daytime
+        stressIndex = nextDaytime.stressIndex
+        freqHRV = nextDaytime.frequencyDomain
         rebuildModelIfNeeded()
-        await loadDaytime()
+
+        let hasData = model != nil || !nextDaytime.daytime.hours.isEmpty
+        _ = loadState.finish(hasData ? .loaded : .empty, requestID: requestID)
     }
 
-    /// Read TODAY's banked HR + R-R and build the intraday stress timeline. Local-day
-    /// window [midnight, now]; the helper buckets it into waking hours and reuses the
-    /// daily score's math, so this is the same proxy at a finer grain — never a new score.
-    private func loadDaytime() async {
+    /// Read TODAY's banked HR + R-R without mutating view state. The caller publishes this value only
+    /// after it proves that the request still owns the selected repository revision.
+    @MainActor
+    private func readDaytime(deviceID: String) async -> StressDaytimeLoad {
         let cal = Calendar.current
         let startOfDay = cal.startOfDay(for: Date())
         let from = Int(startOfDay.timeIntervalSince1970)
@@ -100,26 +140,18 @@ struct StressView: View {
         let tz = TimeZone.current.secondsFromGMT(for: Date())
 
         let hr = await repo.hrSamples(from: from, to: to, limit: 200_000)
-        // Too few HR samples: empty the timeline AND clear the advanced readouts in lockstep. Without this
-        // reset a later refresh that hits this path would leave the Advanced HRV card showing stale values
-        // next to an empty timeline (the readouts are only recomputed past this guard).
         guard hr.count >= DaytimeStress.minHourHRSamples else {
-            daytime = .empty
-            stressIndex = nil
-            freqHRV = nil
-            return
+            return StressDaytimeLoad(
+                daytime: .empty,
+                stressIndex: nil,
+                frequencyDomain: nil)
         }
         let rr = (try? await repo.storeHandle()?.rrIntervals(
-            deviceId: repo.deviceId, from: from, to: to, limit: 200_000)) ?? []
-
-        daytime = DaytimeStress.analyze(hr: hr, rr: rr, tzOffsetSeconds: tz)
-
-        // ADDITIVE advanced readouts, computed on-demand from the SAME `rr` (no extra fetch, no
-        // DB / schema change, and no effect on the 0..3 score above). Each engine returns nil when
-        // its own gate is not met (Baevsky needs >= 20 clean beats; freq-HRV needs >= 60 s span),
-        // in which case its row is simply hidden.
-        stressIndex = StressIndex.components(rr: rr)
-        freqHRV = HRVFreqDomain.freqDomain(rr: rr)
+            deviceId: deviceID, from: from, to: to, limit: 200_000)) ?? []
+        return StressDaytimeLoad(
+            daytime: DaytimeStress.analyze(hr: hr, rr: rr, tzOffsetSeconds: tz),
+            stressIndex: StressIndex.components(rr: rr),
+            frequencyDomain: HRVFreqDomain.freqDomain(rr: rr))
     }
 
     /// Recompute the cached `StressModel` only when (repo.days, storedSeries)
@@ -130,6 +162,25 @@ struct StressView: View {
         guard signature != modelSignature else { return }
         modelSignature = signature
         model = StressModel(days: repo.days, stored: storedSeries)
+    }
+
+    private func loadErrorState(_ message: String) -> some View {
+        NoopCard {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Stress could not refresh")
+                    .font(StrandFont.headline)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                Text(message)
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                Button {
+                    Task { await load() }
+                } label: {
+                    Label("Try again", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.bordered)
+            }
+        }
     }
 
     // MARK: Loaded content

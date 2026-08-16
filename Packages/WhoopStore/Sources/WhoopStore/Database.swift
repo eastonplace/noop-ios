@@ -1022,6 +1022,9 @@ extension WhoopStore {
         PR29V51Migrations.register(on: &migrator)
         PR29V52Migrations.register(on: &migrator)
         PR29V53Migrations.register(on: &migrator)
+        PR37V54Migrations.register(on: &migrator)
+        PR37V55Migrations.register(on: &migrator)
+        PR37V56Migrations.register(on: &migrator)
         return migrator
     }
 }

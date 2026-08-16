@@ -719,6 +719,11 @@ typealias RouteMapRepresentable = NSViewRepresentable
 #endif
 
 #if canImport(MapKit)
+struct WorkoutRouteRenderIdentity: Equatable {
+    let segments: [[RouteMath.LatLng]]
+    let showsEndpoints: Bool
+}
+
 struct WorkoutRouteMap: RouteMapRepresentable {
     let segments: [[RouteMath.LatLng]]
     let showsEndpoints: Bool
@@ -747,13 +752,17 @@ struct WorkoutRouteMap: RouteMapRepresentable {
         map.isRotateEnabled = false
         map.isPitchEnabled = false
         map.showsUserLocation = false
-        configure(map)
+        configure(map, coordinator: context.coordinator)
         return map
     }
 
     /// Draw the polyline + start/end pins and frame the route. Replaces any existing overlays so a
     /// re-render doesn't stack them.
-    private func configure(_ map: MKMapView) {
+    private func configure(_ map: MKMapView, coordinator: Coordinator) {
+        let identity = WorkoutRouteRenderIdentity(
+            segments: segments,
+            showsEndpoints: showsEndpoints)
+        guard coordinator.accepts(identity) else { return }
         map.removeOverlays(map.overlays)
         map.removeAnnotations(map.annotations)
         let coordinates = coordinateSegments.filter { $0.count >= 2 }
@@ -780,6 +789,14 @@ struct WorkoutRouteMap: RouteMapRepresentable {
     }
 
     final class Coordinator: NSObject, MKMapViewDelegate {
+        private var renderedIdentity: WorkoutRouteRenderIdentity?
+
+        func accepts(_ identity: WorkoutRouteRenderIdentity) -> Bool {
+            guard renderedIdentity != identity else { return false }
+            renderedIdentity = identity
+            return true
+        }
+
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
             guard let line = overlay as? MKPolyline else { return MKOverlayRenderer(overlay: overlay) }
             let r = MKPolylineRenderer(polyline: line)
@@ -796,11 +813,15 @@ struct WorkoutRouteMap: RouteMapRepresentable {
     #if canImport(UIKit)
     private var UIEdgeInsetsLikePadding: UIEdgeInsets { UIEdgeInsets(top: 24, left: 24, bottom: 24, right: 24) }
     func makeUIView(context: Context) -> MKMapView { makeMap(context: context) }
-    func updateUIView(_ map: MKMapView, context: Context) { configure(map) }
+    func updateUIView(_ map: MKMapView, context: Context) {
+        configure(map, coordinator: context.coordinator)
+    }
     #elseif canImport(AppKit)
     private var UIEdgeInsetsLikePadding: NSEdgeInsets { NSEdgeInsets(top: 24, left: 24, bottom: 24, right: 24) }
     func makeNSView(context: Context) -> MKMapView { makeMap(context: context) }
-    func updateNSView(_ map: MKMapView, context: Context) { configure(map) }
+    func updateNSView(_ map: MKMapView, context: Context) {
+        configure(map, coordinator: context.coordinator)
+    }
     #endif
 }
 

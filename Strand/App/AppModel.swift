@@ -3058,15 +3058,52 @@ final class AppModel: ObservableObject {
         var db: Int64?
         var inbox: Int64
         var importTemp: Int64
+        var historicalQuarantine: HistoricalQuarantineSummary
     }
 
     /// Gather the storage report off the main actor: the GRDB file (+ WAL/SHM) from the store, plus the
     /// `Documents/Inbox/` picker-drop directory and the import temp files this app writes.
     func storageReport() async -> StorageReport {
-        let db = await repo.storeHandle()?.databaseFileSizeBytes()
+        let store = await repo.storeHandle()
+        let db = await store?.databaseFileSizeBytes()
+        let quarantine = (try? await store?.historicalQuarantineSummary())
+            ?? HistoricalQuarantineSummary()
         let inbox = Self.inboxSizeBytes()
         let temp = Self.importTempSizeBytes()
-        return StorageReport(db: db, inbox: inbox, importTemp: temp)
+        return StorageReport(
+            db: db,
+            inbox: inbox,
+            importTemp: temp,
+            historicalQuarantine: quarantine
+        )
+    }
+
+    func historicalQuarantinedJobs() async -> [HistoricalQuarantinedJob] {
+        guard let store = await repo.storeHandle() else { return [] }
+        return (try? await store.historicalQuarantinedJobs()) ?? []
+    }
+
+    func historicalQuarantinedArchive(receiptId: String) async -> HistoricalQuarantinedArchive? {
+        guard let store = await repo.storeHandle() else { return nil }
+        return try? await store.historicalQuarantinedArchive(receiptId: receiptId)
+    }
+
+    @discardableResult
+    func retryHistoricalQuarantinedJob(receiptId: String) async -> Bool {
+        guard let store = await repo.storeHandle(),
+              (try? await store.retryQuarantinedHistoricalMaterialization(receiptId: receiptId)) == true
+        else { return false }
+        ble.wakeHistoricalMaterializationForRecovery()
+        return true
+    }
+
+    @discardableResult
+    func discardHistoricalQuarantinedArchive(receiptId: String) async -> Bool {
+        guard let store = await repo.storeHandle(),
+              (try? await store.discardQuarantinedHistoricalArchive(receiptId: receiptId)) == true
+        else { return false }
+        try? await store.checkpointWAL()
+        return true
     }
 
     /// Total bytes in `Documents/Inbox/` (the picker's `asCopy:true` drops). 0 on macOS / when absent.

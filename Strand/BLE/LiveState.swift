@@ -421,8 +421,12 @@ public final class LiveState: ObservableObject {
     }
 
     public func markConnected(at timestamp: TimeInterval = Date().timeIntervalSince1970) {
-        if !connected || connectedAt == nil { connectedAt = timestamp }
+        guard !connected else { return }
+        connectedAt = timestamp
         connected = true
+        historicalBurstProgress.markFinalized()
+        syncChunksThisSession = 0
+        clearHistoricalSyncProgress()
         historicalSyncSessionState = .waitingForSecureHandshake
     }
 
@@ -478,7 +482,16 @@ public final class LiveState: ObservableObject {
     }
 
     public var connectionStatusLabel: String {
-        if connected && bonded { return "Bonded · streaming" }
+        if connected && encryptedBond { return streamingLiveHR ? "Secure · streaming" : "Secure · connected" }
+        if connected,
+           streamingLiveHR,
+           let standardHRMode,
+           standardHRMode.hasPrefix("Live HR only") {
+            return standardHRMode.contains("paused")
+                ? "Live HR only · paused"
+                : "Live HR only · securing"
+        }
+        if connected && streamingLiveHR { return "Connected · streaming" }
         if connected { return "Connected" }
         if bonded { return "Bonded · idle" }
         return "Disconnected"

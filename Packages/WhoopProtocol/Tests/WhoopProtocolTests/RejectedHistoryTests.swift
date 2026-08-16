@@ -40,6 +40,39 @@ final class RejectedHistoryTests: XCTestCase {
         XCTAssertTrue(rejected.isEmpty)
     }
 
+    func testMappedV20AndV21AreStoredRawNotRejected() {
+        func mappedFrame(total: Int, version: UInt8) -> [UInt8] {
+            var frame = [UInt8](repeating: 0, count: total)
+            frame[0] = 0xAA; frame[1] = 0x01
+            let declared = total - 8
+            frame[2] = UInt8(declared & 0xff); frame[3] = UInt8((declared >> 8) & 0xff)
+            frame[4] = 0x01; frame[8] = 47; frame[9] = version
+            frame[15] = 0x00; frame[16] = 0xf1; frame[17] = 0x53; frame[18] = 0x65
+            if version == 20 {
+                frame[26] = 25
+            } else if version == 21 {
+                frame[24] = 100
+                frame[630] = 100
+            }
+            let headerCRC = crc16Modbus(Array(frame[0..<6]))
+            frame[6] = UInt8(headerCRC & 0xff); frame[7] = UInt8(headerCRC >> 8)
+            let payloadEnd = total - 4
+            let payloadCRC = crc32(Array(frame[8..<payloadEnd]))
+            for i in 0..<4 { frame[payloadEnd + i] = UInt8((payloadCRC >> UInt32(i * 8)) & 0xff) }
+            return frame
+        }
+
+        for (total, version) in [(2_140, UInt8(20)), (1_244, UInt8(21))] {
+            let raw = mappedFrame(total: total, version: version)
+            let parsed = parseFrame(raw, family: .whoop5)
+            XCTAssertEqual(
+                historicalRecordDisposition(parsed: parsed, rawFrame: raw, family: .whoop5),
+                .mappedRaw(version: Int(version))
+            )
+            XCTAssertTrue(rejectedHistoricalRecords([raw], family: .whoop5).isEmpty)
+        }
+    }
+
     // MARK: - undecodable records ARE rejected
 
     func testCRCCorruptWhoop4RecordIsRejected() {

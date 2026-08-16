@@ -121,7 +121,10 @@ public func verifyFrame(_ frame: [UInt8]) -> FrameCheck {
         // inner record = frame[4..<length]
         crc32OK = crc32(frame, 4, length) == u32le(frame, length)
     }
-    let ok = crc8OK && (crc32OK ?? false)
+    // The payload CRC protects only the declared prefix. Reject trailing or truncated bytes so
+    // FrameCheck.ok has the same complete-envelope meaning for WHOOP 4 as it does for WHOOP 5/MG.
+    let exactLength = frame.count == length + 4
+    let ok = exactLength && crc8OK && (crc32OK ?? false)
     return FrameCheck(ok: ok, length: length, crc8OK: crc8OK, crc32OK: crc32OK)
 }
 
@@ -169,26 +172,30 @@ private func verifyFrameWhoop5(_ frame: [UInt8]) -> FrameCheck {
 
     var crc32OK: Bool? = nil
     if frame.count >= total {
-        // payload spans [8, total-4); CRC32 trailer is the final 4 bytes of the frame.
+        // payload spans [8, total-4); CRC32 trailer is the final 4 bytes of the declared frame.
         let payloadEnd = total - 4
-        // payload = frame[8..<payloadEnd], checksummed in place.
+        // payload = frame[8..<payloadEnd], checksummed in place. Preserve this diagnostic result even
+        // when trailing bytes follow the declared frame; exact envelope length is enforced separately.
         let want = crc32(frame, 8, payloadEnd)
         let got = u32le(frame, payloadEnd)
         crc32OK = want == got
     }
 
-    let ok = headerCRCOK && (crc32OK ?? false)
+    // A valid prefix with unprotected trailing bytes is not a valid WHOOP 5 frame. Requiring exact
+    // length here makes FrameCheck.ok the complete durable-envelope predicate used at the ACK boundary.
+    let exactLength = frame.count == total
+    let ok = exactLength && headerCRCOK && (crc32OK ?? false)
     // Report the header outcome through crc8OK so callers have a single header-CRC signal.
     return FrameCheck(ok: ok, length: declaredLength, crc8OK: headerCRCOK, crc32OK: crc32OK)
 }
 
-/// Reconstruct a complete frame from a bare payload (data == frame[7:]).
-/// Some captures store only the data portion; rebuild the envelope with a correct zlib
-/// crc32 and a placeholder crc8 byte (0x00). Mirrors framing.py frame_from_payload.
+/// Reconstruct a complete, integrity-valid frame from a bare payload (data == frame[7:]).
+/// Some captures store only the data portion; rebuild both the header CRC8 and payload CRC32.
 public func frameFromPayload(_ data: [UInt8], type: UInt8, seq: UInt8 = 0, cmd: UInt8 = 0) -> [UInt8] {
     let inner: [UInt8] = [type, seq, cmd] + data
     let length = inner.count + 4
-    var frame: [UInt8] = [0xAA, UInt8(length & 0xFF), UInt8((length >> 8) & 0xFF), 0x00]
+    let lengthBytes = [UInt8(length & 0xFF), UInt8((length >> 8) & 0xFF)]
+    var frame: [UInt8] = [0xAA, lengthBytes[0], lengthBytes[1], crc8(lengthBytes)]
     frame.append(contentsOf: inner)
     let c = crc32(inner)
     frame.append(UInt8(c & 0xFF))
