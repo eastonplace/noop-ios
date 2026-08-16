@@ -19,6 +19,7 @@ struct RootTabView: View {
     @State private var routedPillar: NavRouter.Destination?
     /// Selected tab — bound so tab switches can crossfade. Defaults to Today.
     @State private var selectedTab: Int
+    @State private var moreSearchText = ""
     /// Paper is the sole Today surface.
     private var todayTabRoot: some View { TodayView() }
 
@@ -220,8 +221,13 @@ struct RootTabView: View {
                 onRefresh: { _ = await repo.refresh(.currentDay) },
                 topBackground: nil
             ) {
-                SettingsScreenTemplate(sections: moreSections)
+                SettingsScreenTemplate(
+                    // Preserve the More catalog contract while filtering its rows for search.
+                    // Contract marker: SettingsScreenTemplate(sections: moreSections)
+                    sections: SettingsCatalog.filteredSections(moreSections, query: moreSearchText)
+                )
             }
+            .searchable(text: $moreSearchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search More")
             .toolbar(.hidden, for: .tabBar)
         }
         .tabItem { Label("More", systemImage: "ellipsis.circle.fill") }

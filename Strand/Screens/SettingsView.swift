@@ -161,6 +161,7 @@ struct SettingsView: View {
 
     /// Profile header navigation is explicit instead of expanding a giant inline wall of cards.
     @State private var showProfileSettings = false
+    @State private var settingsSearchText = ""
 
     var body: some View {
         ScreenScaffold(title: "Settings",
@@ -173,10 +174,11 @@ struct SettingsView: View {
                     recovery: model.repo.today?.recovery,
                     action: { showProfileSettings = true }
                 ),
-                sections: settingsSections,
+                sections: SettingsCatalog.filteredSections(settingsSections, query: settingsSearchText),
                 versionLine: "NOOP \(bundleVersionString) · build \(bundleBuildString) · local & private"
             )
         }
+        .searchable(text: $settingsSearchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search Settings")
         .alert(backupAlertTitle, isPresented: $showBackupAlert) {
             Button("OK", role: .cancel) { }
         } message: {
