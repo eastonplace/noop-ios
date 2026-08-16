@@ -140,10 +140,12 @@ public extension StressModuleCard {
         value: Double?,
         nowHour: Int = 17,
         surfaceStyle: ComponentSurfaceStyle = .flat,
+        presentationMode: StressPresentationMode = .baselineCalibration,
         onOpen: @escaping () -> Void = {}
     ) {
         self.hours = hours
         self.value = value
+        self.presentationMode = presentationMode
         self.nowHour = nowHour
         self.surfaceStyle = surfaceStyle
         self.onOpen = onOpen

@@ -33,6 +33,17 @@ final class LatestWinsLoadStateTests: XCTestCase {
         XCTAssertEqual(state.phase, .cancelled(requestID: cancelled))
     }
 
+    func testFailedRequestCanRetryAsANewOwner() {
+        var state = LatestWinsLoadState()
+        let failed = state.begin()
+        XCTAssertTrue(state.finish(.failed("temporary read failed"), requestID: failed))
+
+        let retry = state.begin()
+        XCTAssertGreaterThan(retry, failed)
+        XCTAssertTrue(state.finish(.loaded, requestID: retry))
+        XCTAssertEqual(state.phase, .loaded(requestID: retry))
+    }
+
     func testRequestIdentifierWrapDoesNotUseZero() {
         var state = LatestWinsLoadState()
         for _ in 0..<4 {

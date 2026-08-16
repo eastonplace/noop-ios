@@ -74,6 +74,37 @@ public enum StressModuleBand {
         }
     }
 
+    public static func word(_ value: Double?, mode: StressPresentationMode) -> String {
+        switch mode {
+        case .baselineCalibration:
+            return "Calibrating"
+        case .dailyOnly:
+            return "No same-day signal"
+        case .intradayOnly, .combined:
+            guard let value else { return "Insufficient signal" }
+            return word(value)
+        case .empty:
+            return "No data"
+        }
+    }
+
+    public static func why(_ value: Double?, mode: StressPresentationMode) -> String {
+        switch mode {
+        case .baselineCalibration:
+            return "First nights build your baseline."
+        case .dailyOnly:
+            return "The daily baseline is ready; today has not supplied enough hourly signal."
+        case .intradayOnly:
+            return value == nil
+                ? "Same-day signal is present but not yet scorable."
+                : "Same-day signal is available while the daily baseline calibrates."
+        case .combined:
+            return why(value)
+        case .empty:
+            return "No stress signal is available yet."
+        }
+    }
+
     public static func color(_ value: Double?) -> Color {
         guard let value else { return StrandPalette.textTertiary }
         return StressHeatStyle.color(for: value)
@@ -94,6 +125,8 @@ public struct StressModuleCard: View {
     let hours: [Double?]
     /// The daily 0–3 value; `nil` = calibrating.
     let value: Double?
+    /// Shared data-coverage semantics used by StressView and Today.
+    let presentationMode: StressPresentationMode
     /// The hour index the "now" tick sits under (clamped to 0…23).
     var nowHour: Int = 17
     var surfaceStyle: ComponentSurfaceStyle = .flat
@@ -219,10 +252,10 @@ public struct StressModuleCard: View {
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textTertiary)
             } else {
-                Text(StressModuleBand.word(value))
+                Text(StressModuleBand.word(value, mode: presentationMode))
                     .font(StrandFont.caption.weight(.semibold))
                     .foregroundStyle(value == nil ? StrandPalette.textSecondary : accent)
-                Text(StressModuleBand.why(value))
+                Text(StressModuleBand.why(value, mode: presentationMode))
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textTertiary)
                     .lineLimit(1)
@@ -356,7 +389,11 @@ public struct StressModuleCard: View {
             }
         } else {
             HStack {
-                Text("Wear through a few days to unlock the hourly ribbon.")
+                Text(presentationMode == .dailyOnly
+                     ? "No same-day signal to score yet."
+                     : presentationMode == .intradayOnly
+                        ? "Same-day signal is present but not yet scorable."
+                        : "Wear through a few days to unlock the hourly ribbon.")
                     .font(StrandFont.micro)
                     .foregroundStyle(StrandPalette.textTertiary)
                 Spacer(minLength: 0)
@@ -400,9 +437,11 @@ public struct StressModuleCard: View {
     }
 
     private var accessibilitySummary: String {
-        guard let value else { return "Today's stress, calibrating. First nights build your baseline." }
+        guard let value else {
+            return "Today's stress, \(StressModuleBand.word(nil, mode: presentationMode)). \(StressModuleBand.why(nil, mode: presentationMode))"
+        }
         var parts = [
-            "Today's stress \(String(format: "%.1f", value)), \(StressModuleBand.word(value))",
+            "Today's stress \(String(format: "%.1f", value)), \(StressModuleBand.word(value, mode: presentationMode))",
         ]
         if let peak {
             parts.append("peak \(String(format: "%.1f", peak.level)) at \(Self.hourLabel(peak.hour))")

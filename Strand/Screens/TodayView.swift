@@ -275,6 +275,7 @@ private struct TodayScreenSnapshot: Equatable {
         let hours: [Double?]
         let value: Double?
         let nowHour: Int
+        let presentationMode: StressPresentationMode
     }
 
     struct Health: Equatable {
@@ -332,7 +333,7 @@ private struct TodaySnapshotStressSection: View, @preconcurrency Equatable {
 
     var body: some View {
         StressModuleCard(hours: snapshot.hours, value: snapshot.value, nowHour: snapshot.nowHour,
-                         onOpen: onOpen)
+                         presentationMode: snapshot.presentationMode, onOpen: onOpen)
     }
 }
 
@@ -1769,11 +1770,20 @@ struct TodayView: View {
                 HRTrackPoint(id: index, t: point.date.timeIntervalSince(midnight), bpm: point.value)
             }
         let tiles = enabledDashboardCards.map { healthDashboardTile($0, day: day) }
+        let stressMode = StressPresentation.mode(
+            dailyAvailable: stressToday != nil,
+            intraday: daytimeStress
+        )
+        let stressValue = StressPresentation.headlineScore(
+            dailyScore: stressToday,
+            intraday: daytimeStress
+        )
         return TodayScreenSnapshot(
             hero: .init(pillars: pillars, glance: paperGlanceText,
                         showsWorkoutAction: selectedDayOffset == 0),
             heart: .init(samples: heartSamples, restingHR: day?.restingHr.map(Double.init)),
-            stress: .init(hours: stressRibbonSlots, value: stressToday, nowHour: demoSceneHour),
+            stress: .init(hours: stressRibbonSlots, value: stressValue, nowHour: demoSceneHour,
+                          presentationMode: stressMode),
             health: .init(tiles: tiles,
                           status: String(localized: "\(enabledDashboardCards.count) of 9 metrics selected"))
         )
@@ -1953,38 +1963,56 @@ struct TodayView: View {
     }
 
     private func healthDashboardTile(_ card: DashboardCard, day: DailyMetric?) -> HealthDashboardTileModel {
-        let fullValue = dashboardValue(card, day: day)
+        let skinTemperature = card == .skinTemp ? resolvedSkinTemperature(for: day) : nil
+        let fullValue = dashboardValue(card, day: day, skinTemperature: skinTemperature)
         let unit = card.unit.isEmpty ? nil : card.unit
         let value = unit.map { fullValue.replacingOccurrences(of: " \($0)", with: "") } ?? fullValue
         return HealthDashboardTileModel(
             id: card.id, icon: card.icon, label: card.title, value: value, unit: unit,
-            spark: dashboardSpark(card), rail: dashboardRail(card, day: day), accent: dashboardTint(card)
+            spark: dashboardSpark(card, day: day),
+            rail: dashboardRail(card, day: day, skinTemperature: skinTemperature), accent: dashboardTint(card)
         )
     }
 
     private var dashboardCatalogItems: [DashboardCatalogItem] {
         let day = displayDay
         return DashboardCardPrefs.eligibleCards(hydrationEnabled: hydrationEnabled).map {
-            DashboardCatalogItem(card: $0, value: dashboardValue($0, day: day),
-                                 spark: dashboardSpark($0), tint: dashboardTint($0))
+            let skinTemperature = $0 == .skinTemp ? resolvedSkinTemperature(for: day) : nil
+            return DashboardCatalogItem(
+                card: $0,
+                value: dashboardValue($0, day: day, skinTemperature: skinTemperature),
+                spark: dashboardSpark($0, day: day),
+                tint: dashboardTint($0)
+            )
         }
     }
 
-    private func dashboardSpark(_ card: DashboardCard) -> [Double] {
+    private func dashboardSpark(
+        _ card: DashboardCard,
+        day: DailyMetric? = nil
+    ) -> [Double] {
         switch card {
-        case .hrv: sparks["hrv"] ?? []
-        case .restingHr: sparks["rhr"] ?? []
-        case .respiratory: sparks["resp_rate"] ?? []
-        case .bloodOxygen: sparks["spo2"] ?? []
-        case .skinTemp: sparks["skin_temp"] ?? []
-        case .sleep: sparks["sleep_total_min"] ?? []
-        case .steps: sparks["steps"] ?? []
-        case .calories: sparks["active_kcal"] ?? []
-        default: []
+        case .hrv: return sparks["hrv"] ?? []
+        case .restingHr: return sparks["rhr"] ?? []
+        case .respiratory: return sparks["resp_rate"] ?? []
+        case .bloodOxygen: return sparks["spo2"] ?? []
+        case .skinTemp:
+            return DatedHealthMetricResolver.skinTemperatureHistory(
+                rows: repo.vitalMetricRows,
+                targetDay: day?.day ?? selectedDayKey
+            )
+        case .sleep: return sparks["sleep_total_min"] ?? []
+        case .steps: return sparks["steps"] ?? []
+        case .calories: return sparks["active_kcal"] ?? []
+        default: return []
         }
     }
 
-    private func dashboardRail(_ card: DashboardCard, day: DailyMetric?) -> HealthTileRail {
+    private func dashboardRail(
+        _ card: DashboardCard,
+        day: DailyMetric?,
+        skinTemperature: DatedHealthMetricValue? = nil
+    ) -> HealthTileRail {
         switch card {
         case .hrv:
             return vitalRail(value: day?.avgHrv, history: sparks["hrv"] ?? [],
@@ -1998,12 +2026,16 @@ struct TodayView: View {
         case .bloodOxygen:
             return vitalRail(value: day?.spo2Pct, history: [], population: 95...100, cfg: nil)
         case .skinTemp:
-            guard let value = day?.skinTempDevC else { return .none }
+            guard let skinTemperature else { return .none }
+            let value = skinTemperature.value
             let absolute = VitalBands.isAbsoluteSkinTemp(value)
             let population: ClosedRange<Double> = absolute ? (33.0...36.0) : (-0.6...0.6)
             return vitalRail(value: value,
                              history: VitalBands.skinTempHistory(matching: value,
-                                                                  in: (sparks["skin_temp"] ?? []).map(Optional.some)).compactMap { $0 },
+                                                                  in: DatedHealthMetricResolver.skinTemperatureHistory(
+                                                                    rows: repo.vitalMetricRows,
+                                                                    targetDay: day?.day ?? selectedDayKey
+                                                                  ).map(Optional.some)).compactMap { $0 },
                              population: population,
                              cfg: absolute ? Baselines.metricCfg["skin_temp"] : VitalBands.skinTempDeviationCfg)
         case .hydration:
@@ -3010,11 +3042,22 @@ struct TodayView: View {
         }
     }
 
+    private func resolvedSkinTemperature(for day: DailyMetric?) -> DatedHealthMetricValue? {
+        DatedHealthMetricResolver.skinTemperature(
+            rows: repo.vitalMetricRows,
+            targetDay: day?.day ?? selectedDayKey
+        )
+    }
+
     /// Resolve a dashboard card's CURRENT display value from the values Today already loads, with its unit
     /// suffix appended. Returns ", " when the value isn't available yet, never a fabricated number. Reuses
     /// the same reads the Key-Metrics tiles use (displayDay vitals, restScore / sleep duration, the pinned
     /// Stress / Fitness age / Vitality, steps, calories).
-    private func dashboardValue(_ card: DashboardCard, day: DailyMetric? = nil) -> String {
+    private func dashboardValue(
+        _ card: DashboardCard,
+        day: DailyMetric? = nil,
+        skinTemperature: DatedHealthMetricValue? = nil
+    ) -> String {
         let d = day ?? displayDay
         func withUnit(_ s: String) -> String {
             guard s != "—" else { return "—" }
@@ -3038,7 +3081,7 @@ struct TodayView: View {
             return d?.spo2Pct.map { String(format: "%.0f%%", $0) } ?? "—"
         case .skinTemp:
             // Stored as a deviation from baseline (°C); show it signed so +/- reads honestly.
-            return d?.skinTempDevC.map { String(format: "%+.1f°", $0) } ?? "—"
+            return skinTemperature.map { String(format: "%+.1f°", $0.value) } ?? "—"
         case .sleep:
             return sleepValue(d)
         case .steps:

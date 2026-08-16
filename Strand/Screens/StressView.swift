@@ -65,6 +65,10 @@ struct StressView: View {
     @State private var model: StressModel?
     @State private var modelSignature: StressInputs?
 
+    private var presentation: StressPresentation {
+        StressPresentation(daily: model, intraday: daytime)
+    }
+
     var body: some View {
         ScreenScaffold(title: "Stress", subtitle: "Autonomic load from HRV and resting heart rate",
                        onRefresh: { await load() },
@@ -77,7 +81,9 @@ struct StressView: View {
                        // Stress screen sits in the same liquid atmosphere as every other tab.
                        topBackground: nil) {
             if let model {
-                content(model)
+                content(model, mode: presentation.mode)
+            } else if presentation.mode == .intradayOnly {
+                intradayOnlyContent(presentation.intraday)
             } else {
                 switch loadState.phase {
                 case .failed(_, let message):
@@ -186,7 +192,42 @@ struct StressView: View {
     // MARK: Loaded content
 
     @ViewBuilder
-    private func content(_ model: StressModel) -> some View {
+    private func intradayOnlyContent(_ day: DaytimeStress.Result) -> some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+            NoopCard(tint: StressRamp.calm) {
+                VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
+                    Text("Intraday stress").strandOverline()
+                    Text(day.scored.isEmpty
+                         ? "Same-day signal is present, but there is not enough scored data yet."
+                         : "Showing the same-day stress signal while the daily baseline is still calibrating.")
+                        .font(StrandFont.subhead)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            if hasAdvancedReadouts {
+                advancedReadoutsCard()
+            }
+            daytimeSection(day)
+        }
+        .sheet(isPresented: $showBreathe) {
+            NavigationStack {
+                BreathingView()
+                    .toolbar {
+                        ToolbarItem {
+                            Button("Done") { showBreathe = false }
+                        }
+                    }
+            }
+            #if os(macOS)
+            .frame(width: 520, height: 760)
+            #endif
+        }
+    }
+
+    @ViewBuilder
+    private func content(_ model: StressModel, mode: StressPresentationMode) -> some View {
         VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
 
             // 1. HERO — the liquid stress-level vessel + band + one plain-English line, all in one card.
@@ -199,6 +240,19 @@ struct StressView: View {
             if hasAdvancedReadouts {
                 advancedReadoutsCard()
                     .staggeredAppear(index: 1)
+            }
+
+            if mode.lacksSameDaySignal {
+                NoopCard(tint: StressRamp.calm) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Daily baseline available").strandOverline()
+                        Text("There is not enough same-day signal to build the hourly timeline yet.")
+                            .font(StrandFont.footnote)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .staggeredAppear(index: 1)
             }
 
             // 2. Today's numbers — uniform tiles in one grid.
