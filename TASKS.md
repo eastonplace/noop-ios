@@ -1,5 +1,23 @@
 # Active work
 
+- [~] Start a brand-new draft PR for the correctness, simplification, Settings, and WHOOP-only audit.
+  - Base: `b72ff860660915f5e709d106649820b8a4d284f3`.
+  - Branch: `codex/noop-audit-p0-settings-whoop-20260816`.
+  - Isolated worktree: `/private/tmp/noop-audit-p0-settings-whoop-20260816`.
+  - Preserve the installed app, bundle identity, App Group, keychain, database, and phone data.
+  - [x] Read the handoff package and required audit documents in the requested order.
+  - [x] Run four bounded read-only `gpt-5.6-luna` / max-reasoning audit lanes; no other subagent model was used.
+  - [x] Implement and test Stress presentation modes and dated Home skin-temperature selection.
+  - [x] Add the verified-sink bootstrap decision seam and tests without integrating an unproven phone repair.
+  - [x] Add searchable Settings and More filtering with stable catalog IDs and preserved closures/actions.
+  - [x] Run XcodeGen, the NOOPiOS simulator build, simulator tests, all eight package suites, and source audits.
+  - [x] Complete the coverage inventory, root-cause report, migration boundaries, performance evidence, and audit-of-audit.
+  - [x] Package reports and copied simulator logs under `docs/audit/2026-08-16/`.
+  - [ ] Confirm the installed App Group verified-sink token and current phone trace before changing launch bootstrap.
+  - [ ] Identify the first failed skin-temperature pipeline stage from a current database copy and device logs.
+  - [ ] Run physical WHOOP, energy, background, radio, thermal, and migration gates.
+  - [ ] Commit evidence by scope, push, and create one draft PR; do not merge.
+
 - [~] #37 Apply the packaged simplifications and high-confidence open-issue root slices at exact
   SHA `439ac11321650920908ee611ad044ecd95a9cc63`.
   - Keep PR #37 draft, open, and unmerged.
