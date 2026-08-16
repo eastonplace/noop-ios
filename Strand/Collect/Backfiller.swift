@@ -1164,6 +1164,26 @@ final class Backfiller {
         // Success-side observability (#150): tally only receipt-backed rows. This includes every
         // persisted stream, including WHOOP 5 step, sleep-state, and PPG samples.
         let freshCounts = inserted ? receipt.insertedRows : HistoricalStreamInsertCounts()
+        let decodedSkinTemp = decodedForCommit.skinTemp
+        let skinTempFirst = decodedSkinTemp.first?.ts
+        let skinTempLast = decodedSkinTemp.last?.ts
+        if let traceTimestamp = skinTempFirst ?? skinTempLast {
+            emitConnection(SkinTemperatureTrace(
+                stage: .persistence,
+                source: .wearable,
+                family: String(describing: family),
+                day: SkinTemperatureTrace.localDay(for: traceTimestamp),
+                queryFrom: skinTempFirst ?? traceTimestamp,
+                queryTo: skinTempLast ?? traceTimestamp,
+                sampleCount: decodedSkinTemp.count,
+                firstTimestamp: skinTempFirst,
+                lastTimestamp: skinTempLast,
+                persistenceOutcome: inserted ? "inserted" : "replayed",
+                insertedCount: freshCounts.skinTemp,
+                conversionCount: nil,
+                isAvailable: nil
+            ).line)
+        }
         let freshTimestamps = inserted
             ? decodedForCommit.gravity.map(\.ts) + decodedForCommit.hr.map(\.ts)
             : []
@@ -1232,7 +1252,9 @@ final class Backfiller {
 
         // Only the still-current secure owner may expose continuation progress from this receipt.
         emitConnection("offload progress trim=\(trim) chunkRows=\(tally.rows) "
-            + "sessionRows=\(sessionRowsPersisted) sessionMotion=\(sessionMotionRows) nights=\(sessionNights)")
+            + "chunkSkinTemp=\(freshCounts.skinTemp) sessionRows=\(sessionRowsPersisted) "
+            + "sessionMotion=\(sessionMotionRows) sessionSkinTemp=\(sessionSkinTempRows) "
+            + "nights=\(sessionNights)")
         if trim == 0xFFFFFFFF, !loggedNoCursor {
             loggedNoCursor = true
             log?(Backfiller.noCursorLine(

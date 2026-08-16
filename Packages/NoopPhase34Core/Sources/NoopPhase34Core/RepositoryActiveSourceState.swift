@@ -6,13 +6,13 @@ public struct RepositoryLiveSourceDescriptor: Codable, Equatable, Sendable {
     public let cursorEpoch: Int
 
     public init(id: String, historyLineage: String, cursorEpoch: Int) throws {
-        guard !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !historyLineage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              cursorEpoch >= 0 else {
+        let normalizedID = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedLineage = historyLineage.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedID.isEmpty, !normalizedLineage.isEmpty, cursorEpoch >= 0 else {
             throw RepositoryLiveSourceStateError.invalidDescriptor
         }
-        self.id = id
-        self.historyLineage = historyLineage
+        self.id = normalizedID
+        self.historyLineage = normalizedLineage
         self.cursorEpoch = cursorEpoch
     }
 
@@ -67,7 +67,9 @@ public enum ActiveSourceReadPolicy {
         case .none:
             return [canonicalComputedId]
         case let .active(source):
-            let liveComputed = source.id + "-noop"
+            let liveComputed = ExactAnalysisNamespace.defaultComputedDeviceId(
+                forRawDeviceId: source.id
+            )
             return liveComputed == canonicalComputedId
                 ? [canonicalComputedId]
                 : [canonicalComputedId, liveComputed]

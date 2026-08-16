@@ -3080,7 +3080,7 @@ public final class BLEManager: NSObject, ObservableObject {
                 state.noteHistoricalDataFrontier(TimeInterval(frontier))
             }
             // #77 / #91: a sync that COMPLETED but discarded records must not read as a clean
-            // "History synced" — the wording distinguishes bytes saved on this Mac from bytes the
+            // "History synced" — the wording distinguishes bytes saved on this device from bytes the
             // full archive could not preserve, so "saved" is never claimed falsely.
             let archived = state.rejectedFramesThisSession
             let unarchived = state.rejectedFramesUnarchived
@@ -3112,7 +3112,7 @@ public final class BLEManager: NSObject, ObservableObject {
             if unarchived > 0 {
                 state.lastSyncError = "Synced, but \(archived + unarchived) record(s) couldn't be decoded (unrecognised strap firmware layout), and the on-device archive is full - the \(unarchived) newest weren't preserved. Please share a strap log so the layout can be mapped."
             } else if archived > 0 {
-                state.lastSyncError = "Synced, but \(archived) record(s) couldn't be decoded (unrecognised strap firmware layout). The raw bytes were saved on this Mac - please share a strap log so the layout can be mapped."
+                state.lastSyncError = "Synced, but \(archived) record(s) couldn't be decoded (unrecognised strap firmware layout). The raw bytes were saved on this device - please share a strap log so the layout can be mapped."
             } else if bankedNothing {
                 // #77 / #214 family: the offload COMPLETED but the strap handed over no sensor records
                 // at all — either console/diagnostic output across many chunks, OR a near-empty

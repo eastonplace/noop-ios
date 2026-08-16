@@ -161,6 +161,8 @@ final class IntelligenceEngine: ObservableObject {
         /// where `rr` is in scope and replayed through `diagnosticSink` in pass 2 (which is main-actor
         /// isolated). nil when the night has no in-sleep R-R.
         let hrvDiag: String?
+        /// Structured day-level skin-temperature query, conversion, and availability provenance.
+        let skinTempTrace: String?
         /// One privacy-safe reason an upstream day was not scored. A sparse raw stream is materially
         /// different from a stager that found no sleep, so it must survive into the shareable strap log.
         let skippedLine: String?
@@ -793,6 +795,7 @@ final class IntelligenceEngine: ObservableObject {
                         stepsTrace: [],
                         hrvTrace: [],
                         hrvDiag: nil,
+                        skinTempTrace: nil,
                         skippedLine: "sleep day=\(day) SKIPPED hrSamples=\(hr.count) (need ≥200)"
                     ))
                     continue
@@ -988,6 +991,21 @@ final class IntelligenceEngine: ObservableObject {
                     hrvDiag = "hrv diag day=\(res.daily.day) rmssd=\(ms(h.rmssd))ms sdnn=\(ms(h.sdnn))ms "
                         + "meanNN=\(ms(h.meanNN))ms rr=\(h.nInput)/\(h.nClean) rejected=\(rej)% coverage=\(cov) dupBeats=\(dup)"
                 }
+                let skinTempTrace = SkinTemperatureTrace(
+                    stage: .analysis,
+                    source: .wearable,
+                    family: String(describing: skinFamily),
+                    day: day,
+                    queryFrom: from,
+                    queryTo: to,
+                    sampleCount: skin.count,
+                    firstTimestamp: skin.first?.ts,
+                    lastTimestamp: skin.last?.ts,
+                    persistenceOutcome: nil,
+                    insertedCount: nil,
+                    conversionCount: res.skinTempDiagnostic?.kept,
+                    isAvailable: res.nightlySkinTempC != nil
+                ).line
                 // ── Steps test mode: 5/MG raw-counter trace ──────────────────────────────────────────────
                 // Only built when the Steps mode is on (the gate was read once before the loop). Recomputes
                 // the SAME wrap-aware @57 sum analyzeDay just ran, over the SAME `daySteps` calendar-day
@@ -1026,7 +1044,7 @@ final class IntelligenceEngine: ObservableObject {
                 out.append(DayScan(result: res, rhrLine: rhrLine,
                                    readOwner: owner, hrRows: hr.count,
                                    sleepTrace: sleepTrace, stepsTrace: stepsTrace, hrvTrace: hrvTrace,
-                                   hrvDiag: hrvDiag, skippedLine: nil))
+                                   hrvDiag: hrvDiag, skinTempTrace: skinTempTrace, skippedLine: nil))
             }
                 return out
             }
@@ -1066,6 +1084,7 @@ final class IntelligenceEngine: ObservableObject {
             nightlyRespByDay[res.daily.day] = res.daily.respRateBpm
             nightlySkinByDay[res.daily.day] = res.nightlySkinTempC
             if let line = scan.rhrLine { diagnosticSink?(line, nil) }
+            if let line = scan.skinTempTrace { diagnosticSink?(line, nil) }
             // Sleep & Rest test mode (E5): replay this day's gate-trace + Rest lines tagged `.sleep` so they
             // land under the profile tag in the export. Empty unless the mode is active.
             for line in scan.sleepTrace { diagnosticSink?(line, .sleep) }

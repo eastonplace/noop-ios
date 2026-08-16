@@ -194,11 +194,42 @@ public enum Whoop5SecureRecoveryDecision: Equatable, Sendable {
 /// Cross-connection recovery ownership for one WHOOP 5/MG secure session. A physical BLE connection is
 /// not a recovery success; only current-session protocol proof or an explicit user action clears the series.
 public struct Whoop5SecureRecoveryTracker: Equatable, Sendable {
-    public let retryDelaysSeconds: [Int]
+    private enum RecoveryState: Equatable, Sendable {
+        case idle
+        case ready(peripheralID: UUID)
+        case retrying(peripheralID: UUID, failures: Int)
+        case paused(peripheralID: UUID, failures: Int)
+    }
 
-    public private(set) var peripheralID: UUID?
-    public private(set) var consecutiveFailures = 0
-    public private(set) var isPaused = false
+    public let retryDelaysSeconds: [Int]
+    private var recoveryState: RecoveryState = .idle
+
+    public var peripheralID: UUID? {
+        switch recoveryState {
+        case .idle:
+            return nil
+        case let .ready(peripheralID):
+            return peripheralID
+        case let .retrying(peripheralID, _):
+            return peripheralID
+        case let .paused(peripheralID, _):
+            return peripheralID
+        }
+    }
+
+    public var consecutiveFailures: Int {
+        switch recoveryState {
+        case .idle, .ready:
+            return 0
+        case let .retrying(_, failures), let .paused(_, failures):
+            return failures
+        }
+    }
+
+    public var isPaused: Bool {
+        if case .paused = recoveryState { return true }
+        return false
+    }
 
     public init(retryDelaysSeconds: [Int] = [3, 6, 12, 24, 60]) {
         let normalized = retryDelaysSeconds.map { max(0, $0) }
@@ -206,37 +237,55 @@ public struct Whoop5SecureRecoveryTracker: Equatable, Sendable {
     }
 
     public mutating func recordFailure(peripheralID: UUID) -> Whoop5SecureRecoveryDecision {
-        if self.peripheralID != peripheralID {
-            reset()
-            self.peripheralID = peripheralID
+        let priorFailures: Int
+        switch recoveryState {
+        case .idle:
+            priorFailures = 0
+        case let .ready(currentPeripheralID):
+            if currentPeripheralID == peripheralID {
+                priorFailures = 0
+            } else {
+                recoveryState = .ready(peripheralID: peripheralID)
+                priorFailures = 0
+            }
+        case let .retrying(currentPeripheralID, failures):
+            if currentPeripheralID == peripheralID {
+                priorFailures = failures
+            } else {
+                recoveryState = .ready(peripheralID: peripheralID)
+                priorFailures = 0
+            }
+        case let .paused(currentPeripheralID, failures):
+            guard currentPeripheralID != peripheralID else {
+                return .pauseStandardOnly(failures: failures)
+            }
+            recoveryState = .ready(peripheralID: peripheralID)
+            priorFailures = 0
         }
-        guard !isPaused else { return .pauseStandardOnly(failures: consecutiveFailures) }
 
-        consecutiveFailures += 1
-        guard consecutiveFailures <= retryDelaysSeconds.count else {
-            isPaused = true
-            return .pauseStandardOnly(failures: consecutiveFailures)
+        let failures = priorFailures + 1
+        guard failures <= retryDelaysSeconds.count else {
+            recoveryState = .paused(peripheralID: peripheralID, failures: failures)
+            return .pauseStandardOnly(failures: failures)
         }
+        recoveryState = .retrying(peripheralID: peripheralID, failures: failures)
         return .reconnect(
-            afterSeconds: retryDelaysSeconds[consecutiveFailures - 1],
-            attempt: consecutiveFailures,
+            afterSeconds: retryDelaysSeconds[failures - 1],
+            attempt: failures,
             maximumAutomaticAttempts: retryDelaysSeconds.count)
     }
 
     public mutating func markSecureReady(peripheralID: UUID) {
         guard self.peripheralID == nil || self.peripheralID == peripheralID else { return }
-        reset()
+        recoveryState = .idle
     }
 
     public mutating func explicitRetry(peripheralID: UUID? = nil) {
-        reset()
-        self.peripheralID = peripheralID
+        recoveryState = peripheralID.map { .ready(peripheralID: $0) } ?? .idle
     }
 
     public mutating func reset() {
-        peripheralID = nil
-        consecutiveFailures = 0
-        isPaused = false
+        recoveryState = .idle
     }
 }
 

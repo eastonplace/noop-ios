@@ -49,6 +49,16 @@ struct HistoricalPipelineRuntimeResult: Equatable, Sendable {
     /// Nil means the count read failed. Never report an infrastructure failure as zero pending work.
     let pendingWork: Int?
     let alreadyRunning: Bool
+
+    static func combine(_ accumulated: Self, _ next: Self) -> Self {
+        Self(
+            admittedReceipts: accumulated.admittedReceipts + next.admittedReceipts,
+            completedWork: accumulated.completedWork + next.completedWork,
+            deferredWork: accumulated.deferredWork + next.deferredWork,
+            pendingWork: next.pendingWork ?? accumulated.pendingWork,
+            alreadyRunning: accumulated.alreadyRunning || next.alreadyRunning
+        )
+    }
 }
 
 enum HistoricalPipelineRuntimeError: Error {
@@ -62,15 +72,18 @@ actor HistoricalPipelineRuntime {
     private let dependencies: HistoricalPipelineRuntimeDependencies
     private let quiescence = PipelineQuiescence()
     private var coordinatorEpochByRuntimeEpoch: [UInt64: UInt64] = [:]
-    private lazy var drainGate = LosslessDrainSignalGate<HistoricalPipelineRuntimeResult> { [weak self] in
-        await self?.drain() ?? HistoricalPipelineRuntimeResult(
-            admittedReceipts: 0,
-            completedWork: 0,
-            deferredWork: 1,
-            pendingWork: nil,
-            alreadyRunning: false
-        )
-    }
+    private lazy var drainGate = LosslessDrainSignalGate<HistoricalPipelineRuntimeResult>(
+        combine: { HistoricalPipelineRuntimeResult.combine($0, $1) },
+        operation: { [weak self] in
+            await self?.drain() ?? HistoricalPipelineRuntimeResult(
+                admittedReceipts: 0,
+                completedWork: 0,
+                deferredWork: 1,
+                pendingWork: nil,
+                alreadyRunning: false
+            )
+        }
+    )
 
     init(dependencies: HistoricalPipelineRuntimeDependencies) {
         self.dependencies = dependencies

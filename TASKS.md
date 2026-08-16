@@ -1,5 +1,18 @@
 # Active work
 
+- [~] #37 Apply the packaged simplifications and high-confidence open-issue root slices at exact
+  SHA `439ac11321650920908ee611ad044ecd95a9cc63`.
+  - Keep PR #37 draft, open, and unmerged.
+  - Preserve the installed app, bundle identity, database, App Group, phone data, schema, scoring,
+    BLE commands, and save-before-ACK ordering.
+  - [x] Verified both guarded package results byte-for-byte against the exact-source synthetic tree;
+    the task changes were already present, so neither package was reapplied.
+  - [x] Run the eight Swift package suites, repository source audits, XcodeGen, and NOOPiOS tests:
+    2,468 package tests and 472 NOOPiOS tests passed, with one expected skip in each layer.
+  - [~] Issue-specific automated and read-only data gates pass. The rejected-history copy contains
+    1,513 records, not the expected 154, so no duplicate issue was closed. Hosted CI, signed physical
+    WHOOP 5/MG proof, and the small/large-iPhone lifecycle and route visual gates remain required.
+
 - [x] #37 Repair WHOOP 5/MG secure-session ownership from exact SHA `93d563d` and close the
   exact-head QA findings reported against `8a833cfa`, `96f4d10a`, and `19353da`.
   - Keep PR #37 draft, open, and unmerged.
