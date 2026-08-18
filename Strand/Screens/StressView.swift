@@ -66,7 +66,14 @@ struct StressView: View {
     @State private var modelSignature: StressInputs?
 
     private var presentation: StressPresentation {
-        StressPresentation(daily: model, intraday: daytime)
+        StressPresentation(
+            daily: model,
+            intraday: daytime,
+            historyAvailable: StressPresentation.historyAvailable(
+                days: repo.days,
+                stored: storedSeries
+            )
+        )
     }
 
     var body: some View {
@@ -83,13 +90,20 @@ struct StressView: View {
             if let model {
                 content(model, mode: presentation.mode)
             } else if presentation.mode == .intradayOnly {
-                intradayOnlyContent(presentation.intraday)
+                intradayOnlyContent(
+                    presentation.intraday,
+                    baselineBuilding: !presentation.historyAvailable
+                )
             } else {
                 switch loadState.phase {
                 case .failed(_, let message):
                     loadErrorState(message)
                 case .empty(_), .loaded(_):
-                    emptyState
+                    if presentation.mode == .empty {
+                        noSignalState
+                    } else {
+                        baselineCalibrationState
+                    }
                 case .idle, .loading(_), .cancelled(_):
                     ComingSoon(what: "Reading your heart-rate variability and resting heart rate…")
                 }
@@ -192,14 +206,21 @@ struct StressView: View {
     // MARK: Loaded content
 
     @ViewBuilder
-    private func intradayOnlyContent(_ day: DaytimeStress.Result) -> some View {
+    private func intradayOnlyContent(
+        _ day: DaytimeStress.Result,
+        baselineBuilding: Bool
+    ) -> some View {
         VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
             NoopCard(tint: StressRamp.calm) {
                 VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
                     Text("Intraday stress").strandOverline()
                     Text(day.scored.isEmpty
-                         ? "Same-day signal is present, but there is not enough scored data yet."
-                         : "Showing the same-day stress signal while the daily baseline is still calibrating.")
+                         ? (baselineBuilding
+                            ? "Same-day signal is present, but there is not enough scored data yet while your baseline builds."
+                            : "Same-day signal is present, but there is not enough scored data yet.")
+                         : (baselineBuilding
+                            ? "Showing the same-day stress signal while your daily baseline builds."
+                            : "Showing the same-day stress signal; a daily score has not landed yet."))
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -683,8 +704,22 @@ struct StressView: View {
 
     // MARK: Empty state
 
-    private var emptyState: some View {
-        ComingSoon(what: "No stress history yet. Import your WHOOP export in Data Sources to see it.")
+    private var baselineCalibrationState: some View {
+        ComingSoon(what: "Building your stress baseline. Wear your WHOOP overnight or import prior history.")
+    }
+
+    private var noSignalState: some View {
+        NoopCard(tint: StressRamp.calm) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("No stress signal today")
+                    .font(StrandFont.headline)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                Text("Your historical baseline is available, but today has not supplied enough daily or hourly signal.")
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 }
 

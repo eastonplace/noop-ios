@@ -56,6 +56,19 @@ public enum SettingsCatalog {
         }
     }
 
+    /// Preserve a curated category index for an empty query, but search a separate
+    /// flattened set of navigable leaf rows once the user types.
+    public static func searchSections(
+        indexSections: [SettingsSectionModel],
+        resultSections: [SettingsSectionModel],
+        query: String
+    ) -> [SettingsSectionModel] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty
+            ? indexSections
+            : filteredSections(resultSections, query: trimmed)
+    }
+
     public static func filteredSections(
         _ sections: [SettingsSectionModel],
         query: String

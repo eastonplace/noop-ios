@@ -18,33 +18,60 @@ struct DatedHealthMetricValue: Equatable, Sendable {
     let freshness: DatedHealthMetricFreshness
 }
 
+/// One immutable selection for a skin-temperature surface. Current value, provenance,
+/// sparkline identity, and rail history are resolved from the same row scan.
+struct DatedHealthMetricPresentation: Equatable, Sendable {
+    let current: DatedHealthMetricValue
+    let history: [Double]
+}
+
 /// Resolves the newest recent skin-temperature daily value without changing conversion
 /// or analysis rules. Imported WHOOP data wins over computed data for the same day; local
 /// cache remains a preview/test fallback. Apple Health is intentionally not a skin-temp source.
 enum DatedHealthMetricResolver {
     static let defaultMaximumAgeDays = 7
 
-    static func skinTemperature(
+    static func skinTemperaturePresentation(
         rows: [SourcedDailyMetric],
         targetDay: String,
-        maximumAgeDays: Int = defaultMaximumAgeDays
-    ) -> DatedHealthMetricValue? {
-        guard maximumAgeDays >= 0 else { return nil }
+        maximumAgeDays: Int = defaultMaximumAgeDays,
+        window: Int = 14
+    ) -> DatedHealthMetricPresentation? {
+        guard maximumAgeDays >= 0, window > 0 else { return nil }
         let points = resolvedSkinPoints(rows: rows, through: targetDay)
         guard let point = points.last else { return nil }
         let age = dayDistance(from: point.day, to: targetDay)
         guard age >= 0, age <= maximumAgeDays else { return nil }
-        return DatedHealthMetricValue(
+
+        let current = DatedHealthMetricValue(
             day: point.day,
             ageDays: age,
             value: point.value,
             source: point.source,
             freshness: age == 0 ? .current : .recent
         )
+        let absolute = VitalBands.isAbsoluteSkinTemp(point.value)
+        let history = points
+            .filter { VitalBands.isAbsoluteSkinTemp($0.value) == absolute }
+            .suffix(window)
+            .map(\.value)
+        return DatedHealthMetricPresentation(current: current, history: history)
     }
 
-    /// The same resolved identity as `skinTemperature`, expanded into a trail for the
-    /// tile sparkline and rail. Absolute Celsius and deviation Celsius never share a trail.
+    static func skinTemperature(
+        rows: [SourcedDailyMetric],
+        targetDay: String,
+        maximumAgeDays: Int = defaultMaximumAgeDays
+    ) -> DatedHealthMetricValue? {
+        skinTemperaturePresentation(
+            rows: rows,
+            targetDay: targetDay,
+            maximumAgeDays: maximumAgeDays
+        )?.current
+    }
+
+    /// The same resolved identity as `skinTemperature`, expanded into a trail for legacy
+    /// callers. Today uses `skinTemperaturePresentation` so it scans and selects only once.
     static func skinTemperatureHistory(
         rows: [SourcedDailyMetric],
         targetDay: String,
@@ -70,8 +97,6 @@ enum DatedHealthMetricResolver {
         rows: [SourcedDailyMetric],
         through targetDay: String
     ) -> [SkinPoint] {
-        // Keep this order explicit. It mirrors the existing source contract without
-        // importing the VitalSigns view's private helper or changing that surface.
         let sourceOrder: [DailyMetricSource] = [.whoopImport, .noopComputed, .localCache]
         var byDay: [String: SkinPoint] = [:]
         for source in sourceOrder {
@@ -95,8 +120,14 @@ enum DatedHealthMetricResolver {
               let end = dayFormatter.date(from: later) else {
             return Int.max
         }
-        return Calendar(identifier: .gregorian).dateComponents([.day], from: start, to: end).day ?? Int.max
+        return dayCalendar.dateComponents([.day], from: start, to: end).day ?? Int.max
     }
+
+    private static let dayCalendar: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar
+    }()
 
     private static let dayFormatter: DateFormatter = {
         let formatter = DateFormatter()

@@ -140,12 +140,22 @@ public extension StressModuleCard {
         value: Double?,
         nowHour: Int = 17,
         surfaceStyle: ComponentSurfaceStyle = .flat,
-        presentationMode: StressPresentationMode = .baselineCalibration,
+        presentationMode: StressPresentationMode? = nil,
+        baselineBuilding: Bool = false,
         onOpen: @escaping () -> Void = {}
     ) {
         self.hours = hours
         self.value = value
-        self.presentationMode = presentationMode
+        let hasScoredHours = hours.contains { $0 != nil }
+        self.presentationMode = presentationMode ?? {
+            switch (value != nil, hasScoredHours) {
+            case (true, true): return .combined
+            case (true, false): return .dailyOnly
+            case (false, true): return .intradayOnly
+            case (false, false): return .empty
+            }
+        }()
+        self.baselineBuilding = baselineBuilding
         self.nowHour = nowHour
         self.surfaceStyle = surfaceStyle
         self.onOpen = onOpen

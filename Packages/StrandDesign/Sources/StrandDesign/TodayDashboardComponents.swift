@@ -202,19 +202,21 @@ public struct HealthDashboardTileModel: Identifiable, Equatable {
     public let label: String
     public let value: String
     public let unit: String?
+    public let detail: String?
     public let spark: [Double]
     public let rail: HealthTileRail
     public let accent: Color
 
     public init(id: String, icon: String, label: String, value: String, unit: String? = nil,
-                spark: [Double] = [], rail: HealthTileRail = .none, accent: Color) {
+                detail: String? = nil, spark: [Double] = [],
+                rail: HealthTileRail = .none, accent: Color) {
         self.id = id; self.icon = icon; self.label = label; self.value = value; self.unit = unit
-        self.spark = spark; self.rail = rail; self.accent = accent
+        self.detail = detail; self.spark = spark; self.rail = rail; self.accent = accent
     }
 
     public static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.id == rhs.id && lhs.label == rhs.label && lhs.value == rhs.value && lhs.unit == rhs.unit
-            && lhs.spark == rhs.spark && lhs.rail == rhs.rail
+            && lhs.detail == rhs.detail && lhs.spark == rhs.spark && lhs.rail == rhs.rail
     }
 }
 
@@ -303,6 +305,13 @@ public struct HealthDashboardTile: View {
                 Text(verbatim: model.label).font(StrandFont.micro).foregroundStyle(StrandPalette.textSecondary)
                     .lineLimit(1).minimumScaleFactor(0.7)
                 Spacer(minLength: 0)
+                if let detail = model.detail {
+                    Text(verbatim: detail)
+                        .font(StrandFont.micro)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
                 if case .typical(_, _, false) = model.rail {
                     Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 8, weight: .bold))
                         .foregroundStyle(StrandPalette.statusWarning)
@@ -328,7 +337,10 @@ public struct HealthDashboardTile: View {
         .frame(maxWidth: .infinity, minHeight: 78, alignment: .leading)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(model.label), \(model.value)\(model.unit.map { " \($0)" } ?? "")")
+        .accessibilityLabel(
+            "\(model.label), \(model.value)\(model.unit.map { " \($0)" } ?? "")"
+                + (model.detail.map { ", \($0)" } ?? "")
+        )
         .accessibilityHint("Opens details")
     }
 }

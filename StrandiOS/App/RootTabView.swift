@@ -222,9 +222,11 @@ struct RootTabView: View {
                 topBackground: nil
             ) {
                 SettingsScreenTemplate(
-                    // Preserve the More catalog contract while filtering its rows for search.
-                    // Contract marker: SettingsScreenTemplate(sections: moreSections)
-                    sections: SettingsCatalog.filteredSections(moreSections, query: moreSearchText)
+                    sections: SettingsCatalog.searchSections(
+                        indexSections: moreSections,
+                        resultSections: moreSearchSections,
+                        query: moreSearchText
+                    )
                 )
             }
             .searchable(text: $moreSearchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search More")
@@ -297,23 +299,37 @@ struct RootTabView: View {
             SettingsSectionModel(
                 id: "account-help",
                 header: "Account & Help",
-                rows: [
-                    .navDetail(
-                        id: "settings",
-                        icon: "gearshape.fill",
-                        tint: StrandPalette.textSecondary,
-                        title: "Settings",
-                        subtitle: "Profile, device, scoring, appearance, privacy, and advanced tools"
-                    ) { SettingsView() },
-                    .navDetail(
-                        id: "support",
-                        icon: "heart.fill",
-                        tint: StrandPalette.metricRose,
-                        title: "Support",
-                        subtitle: "Help, troubleshooting, and support for the project"
-                    ) { SupportView() },
-                ]
+                rows: accountHelpRows
             ),
+        ]
+    }
+
+    private var moreSearchSections: [SettingsSectionModel] {
+        [
+            SettingsSectionModel(id: "understand-results", header: "Understand", rows: understandRows),
+            SettingsSectionModel(id: "train-recover-results", header: "Train & recover", rows: trainRecoverRows),
+            SettingsSectionModel(id: "data-devices-results", header: "Data & devices", rows: dataDeviceRows),
+            SettingsSectionModel(id: "plan-automate-results", header: "Plan & automate", rows: planAutomateRows),
+            SettingsSectionModel(id: "account-help-results", header: "Account & Help", rows: accountHelpRows),
+        ]
+    }
+
+    private var accountHelpRows: [SettingsRowModel] {
+        [
+            .navDetail(
+                id: "settings",
+                icon: "gearshape.fill",
+                tint: StrandPalette.textSecondary,
+                title: "Settings",
+                subtitle: "Profile, device, scoring, appearance, privacy, and advanced tools"
+            ) { SettingsView() },
+            .navDetail(
+                id: "support",
+                icon: "heart.fill",
+                tint: StrandPalette.metricRose,
+                title: "Support",
+                subtitle: "Help, troubleshooting, and support for the project"
+            ) { SupportView() },
         ]
     }
 

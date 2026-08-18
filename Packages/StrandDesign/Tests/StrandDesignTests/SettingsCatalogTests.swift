@@ -3,38 +3,110 @@ import XCTest
 @testable import StrandDesign
 
 final class SettingsCatalogTests: XCTestCase {
-    private func sections() -> [SettingsSectionModel] {
+    private func indexSections() -> [SettingsSectionModel] {
         [
             SettingsSectionModel(
-                id: "health",
-                header: "Health & Scoring",
+                id: "browse",
+                header: "Browse",
                 rows: [
                     .navDetail(
-                        id: "recovery-and-scoring",
-                        icon: "waveform.path.ecg",
-                        tint: .blue,
-                        title: "Recovery & scoring",
-                        subtitle: "Baseline calibration and score controls"
+                        id: "understand",
+                        icon: "brain.head.profile",
+                        tint: .purple,
+                        title: "Understand your data",
+                        subtitle: "Patterns, coaching, metric exploration, and comparisons"
                     ) { EmptyView() },
                     .navDetail(
-                        id: "skin-temperature",
-                        icon: "thermometer.medium",
+                        id: "train-recover",
+                        icon: "figure.run",
+                        tint: .blue,
+                        title: "Train & recover",
+                        subtitle: "Workouts, health, stress, and timing"
+                    ) { EmptyView() },
+                    .navDetail(
+                        id: "data-devices",
+                        icon: "externaldrive",
+                        tint: .cyan,
+                        title: "Data & devices",
+                        subtitle: "Sources, backups, and exports"
+                    ) { EmptyView() },
+                    .navDetail(
+                        id: "plan-automate",
+                        icon: "wand.and.stars",
                         tint: .orange,
-                        title: "Skin temperature",
-                        subtitle: "Overnight temperature and illness context"
+                        title: "Plan & automate",
+                        subtitle: "Alarms, automations, diagnostics, and shortcuts"
                     ) { EmptyView() }
                 ]
             ),
             SettingsSectionModel(
-                id: "advanced",
-                header: "Advanced",
+                id: "account-help",
+                header: "Account & Help",
+                rows: [
+                    .navDetail(
+                        id: "settings",
+                        icon: "gearshape",
+                        tint: .gray,
+                        title: "Settings",
+                        subtitle: "Profile and app preferences"
+                    ) { EmptyView() }
+                ]
+            )
+        ]
+    }
+
+    private func resultSections() -> [SettingsSectionModel] {
+        [
+            SettingsSectionModel(
+                id: "train-results",
+                header: "Train & recover",
+                rows: [
+                    .navDetail(
+                        id: "intervals",
+                        icon: "timer",
+                        tint: .orange,
+                        title: "Intervals",
+                        subtitle: "Simple interval timing"
+                    ) { EmptyView() },
+                    .navDetail(
+                        id: "lab-book",
+                        icon: "books.vertical",
+                        tint: .purple,
+                        title: "Lab Book",
+                        subtitle: "Experiments and observations"
+                    ) { EmptyView() }
+                ]
+            ),
+            SettingsSectionModel(
+                id: "data-results",
+                header: "Data & devices",
+                rows: [
+                    .navDetail(
+                        id: "backup-sync",
+                        icon: "externaldrive",
+                        tint: .cyan,
+                        title: "Backup & Sync",
+                        subtitle: "Create and restore portable backups"
+                    ) { EmptyView() },
+                    .navDetail(
+                        id: "data-sources",
+                        icon: "externaldrive.fill",
+                        tint: .cyan,
+                        title: "Data Sources",
+                        subtitle: "Imports, source priority, storage, and cleanup"
+                    ) { EmptyView() }
+                ]
+            ),
+            SettingsSectionModel(
+                id: "plan-results",
+                header: "Plan & automate",
                 rows: [
                     .navDetail(
                         id: "test-centre",
                         icon: "stethoscope",
                         tint: .cyan,
                         title: "Test Centre",
-                        subtitle: "Diagnostics and sensor evidence"
+                        subtitle: "Connection, sensor, scoring, and notification checks"
                     ) { EmptyView() }
                 ]
             )
@@ -42,28 +114,80 @@ final class SettingsCatalogTests: XCTestCase {
     }
 
     func testSearchMatchesSectionBreadcrumbAndKeywords() {
-        let results = SettingsCatalog.filteredSections(sections(), query: "baseline")
-        XCTAssertEqual(results.flatMap(\.rows).map(\.id), ["recovery-and-scoring"])
+        let results = SettingsCatalog.filteredSections(resultSections(), query: "data backup")
+        XCTAssertEqual(results.flatMap(\.rows).map(\.id), ["backup-sync"])
     }
 
-    func testSearchPreservesStableRouteIDsAndDoesNotMutateInput() {
-        let original = sections()
+    func testEmptySearchPreservesIndexInsteadOfFlatteningResults() {
+        let results = SettingsCatalog.searchSections(
+            indexSections: indexSections(),
+            resultSections: resultSections(),
+            query: "   "
+        )
+        XCTAssertEqual(results.map(\.id), ["browse", "account-help"])
+        XCTAssertEqual(results.flatMap(\.rows).map(\.id), [
+            "understand",
+            "train-recover",
+            "data-devices",
+            "plan-automate",
+            "settings"
+        ])
+    }
+
+    func testNonemptySearchReturnsDirectLeafRoutes() {
+        XCTAssertEqual(
+            SettingsCatalog.searchSections(
+                indexSections: indexSections(),
+                resultSections: resultSections(),
+                query: "interval"
+            ).flatMap(\.rows).map(\.id),
+            ["intervals"]
+        )
+        XCTAssertEqual(
+            SettingsCatalog.searchSections(
+                indexSections: indexSections(),
+                resultSections: resultSections(),
+                query: "lab"
+            ).flatMap(\.rows).map(\.id),
+            ["lab-book"]
+        )
+        XCTAssertEqual(
+            SettingsCatalog.searchSections(
+                indexSections: indexSections(),
+                resultSections: resultSections(),
+                query: "backup"
+            ).flatMap(\.rows).map(\.id),
+            ["backup-sync"]
+        )
+        XCTAssertEqual(
+            SettingsCatalog.searchSections(
+                indexSections: indexSections(),
+                resultSections: resultSections(),
+                query: "data sources"
+            ).flatMap(\.rows).map(\.id),
+            ["data-sources"]
+        )
+        XCTAssertEqual(
+            SettingsCatalog.searchSections(
+                indexSections: indexSections(),
+                resultSections: resultSections(),
+                query: "test centre"
+            ).flatMap(\.rows).map(\.id),
+            ["test-centre"]
+        )
+    }
+
+    func testItemsPreserveStableRouteIDsAndInput() {
+        let original = resultSections()
         let items = SettingsCatalog.items(from: original)
-        let filtered = SettingsCatalog.filteredSections(original, query: "advanced")
 
         XCTAssertEqual(items.map(\.id), [
-            "health/recovery-and-scoring",
-            "health/skin-temperature",
-            "advanced/test-centre"
+            "train-results/intervals",
+            "train-results/lab-book",
+            "data-results/backup-sync",
+            "data-results/data-sources",
+            "plan-results/test-centre"
         ])
-        XCTAssertEqual(filtered.flatMap(\.rows).map(\.id), ["test-centre"])
-        XCTAssertEqual(original.flatMap(\.rows).count, 3)
-    }
-
-    func testEmptySearchReturnsAllSections() {
-        XCTAssertEqual(
-            SettingsCatalog.filteredSections(sections(), query: "").flatMap(\.rows).map(\.id),
-            ["recovery-and-scoring", "skin-temperature", "test-centre"]
-        )
+        XCTAssertEqual(original.flatMap(\.rows).count, 5)
     }
 }

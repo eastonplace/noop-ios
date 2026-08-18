@@ -233,7 +233,9 @@ try:
     require(
         "StrandiOS/App/RootTabView.swift",
         "SmartAlarmCommandReconciler()",
-        "SettingsScreenTemplate(sections: moreSections)",
+        "SettingsCatalog.searchSections(",
+        "resultSections: moreSearchSections",
+        "private var moreSearchSections",
         "MoreCategoryView",
         "understandRows",
         "planAutomateRows",

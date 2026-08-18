@@ -276,6 +276,7 @@ private struct TodayScreenSnapshot: Equatable {
         let value: Double?
         let nowHour: Int
         let presentationMode: StressPresentationMode
+        let baselineBuilding: Bool
     }
 
     struct Health: Equatable {
@@ -333,7 +334,9 @@ private struct TodaySnapshotStressSection: View, @preconcurrency Equatable {
 
     var body: some View {
         StressModuleCard(hours: snapshot.hours, value: snapshot.value, nowHour: snapshot.nowHour,
-                         presentationMode: snapshot.presentationMode, onOpen: onOpen)
+                         presentationMode: snapshot.presentationMode,
+                         baselineBuilding: snapshot.baselineBuilding,
+                         onOpen: onOpen)
     }
 }
 
@@ -455,6 +458,9 @@ struct TodayView: View {
     // Design Reset / #582, the pinned "Your cards" values (Stress / Fitness age / Vitality), surfaced
     // on Today so the buried Explore features sit on the home screen. Loaded in loadAll; nil hides the row.
     @State private var stressToday: Double?
+    /// Coverage evidence cached with the history-wide snapshot. It distinguishes a first
+    /// baseline from a known baseline that simply has no usable signal today.
+    @State private var stressHistoryAvailable = false
     /// Today's intraday stress read for the ribbon (same DaytimeStress proxy the Stress
     /// screens use). nil until loaded; `.empty` when the day has no scorable hours.
     @State private var daytimeStress: DaytimeStress.Result?
@@ -1772,7 +1778,8 @@ struct TodayView: View {
         let tiles = enabledDashboardCards.map { healthDashboardTile($0, day: day) }
         let stressMode = StressPresentation.mode(
             dailyAvailable: stressToday != nil,
-            intraday: daytimeStress
+            intraday: daytimeStress,
+            historyAvailable: stressHistoryAvailable
         )
         let stressValue = StressPresentation.headlineScore(
             dailyScore: stressToday,
@@ -1783,7 +1790,8 @@ struct TodayView: View {
                         showsWorkoutAction: selectedDayOffset == 0),
             heart: .init(samples: heartSamples, restingHR: day?.restingHr.map(Double.init)),
             stress: .init(hours: stressRibbonSlots, value: stressValue, nowHour: demoSceneHour,
-                          presentationMode: stressMode),
+                          presentationMode: stressMode,
+                          baselineBuilding: !stressHistoryAvailable && stressToday == nil),
             health: .init(tiles: tiles,
                           status: String(localized: "\(enabledDashboardCards.count) of 9 metrics selected"))
         )
@@ -1963,13 +1971,14 @@ struct TodayView: View {
     }
 
     private func healthDashboardTile(_ card: DashboardCard, day: DailyMetric?) -> HealthDashboardTileModel {
-        let skinTemperature = card == .skinTemp ? resolvedSkinTemperature(for: day) : nil
-        let fullValue = dashboardValue(card, day: day, skinTemperature: skinTemperature)
+        let skinTemperature = card == .skinTemp ? resolvedSkinTemperaturePresentation(for: day) : nil
+        let fullValue = dashboardValue(card, day: day, skinTemperature: skinTemperature?.current)
         let unit = card.unit.isEmpty ? nil : card.unit
         let value = unit.map { fullValue.replacingOccurrences(of: " \($0)", with: "") } ?? fullValue
         return HealthDashboardTileModel(
             id: card.id, icon: card.icon, label: card.title, value: value, unit: unit,
-            spark: dashboardSpark(card, day: day),
+            detail: skinTemperature.flatMap { Self.skinTemperatureAgeLabel(ageDays: $0.current.ageDays) },
+            spark: dashboardSpark(card, day: day, skinTemperature: skinTemperature),
             rail: dashboardRail(card, day: day, skinTemperature: skinTemperature), accent: dashboardTint(card)
         )
     }
@@ -1977,11 +1986,11 @@ struct TodayView: View {
     private var dashboardCatalogItems: [DashboardCatalogItem] {
         let day = displayDay
         return DashboardCardPrefs.eligibleCards(hydrationEnabled: hydrationEnabled).map {
-            let skinTemperature = $0 == .skinTemp ? resolvedSkinTemperature(for: day) : nil
+            let skinTemperature = $0 == .skinTemp ? resolvedSkinTemperaturePresentation(for: day) : nil
             return DashboardCatalogItem(
                 card: $0,
-                value: dashboardValue($0, day: day, skinTemperature: skinTemperature),
-                spark: dashboardSpark($0, day: day),
+                value: dashboardValue($0, day: day, skinTemperature: skinTemperature?.current),
+                spark: dashboardSpark($0, day: day, skinTemperature: skinTemperature),
                 tint: dashboardTint($0)
             )
         }
@@ -1989,7 +1998,8 @@ struct TodayView: View {
 
     private func dashboardSpark(
         _ card: DashboardCard,
-        day: DailyMetric? = nil
+        day: DailyMetric? = nil,
+        skinTemperature: DatedHealthMetricPresentation? = nil
     ) -> [Double] {
         switch card {
         case .hrv: return sparks["hrv"] ?? []
@@ -1997,10 +2007,9 @@ struct TodayView: View {
         case .respiratory: return sparks["resp_rate"] ?? []
         case .bloodOxygen: return sparks["spo2"] ?? []
         case .skinTemp:
-            return DatedHealthMetricResolver.skinTemperatureHistory(
-                rows: repo.vitalMetricRows,
-                targetDay: day?.day ?? selectedDayKey
-            )
+            return skinTemperature?.history
+                ?? resolvedSkinTemperaturePresentation(for: day)?.history
+                ?? []
         case .sleep: return sparks["sleep_total_min"] ?? []
         case .steps: return sparks["steps"] ?? []
         case .calories: return sparks["active_kcal"] ?? []
@@ -2011,7 +2020,7 @@ struct TodayView: View {
     private func dashboardRail(
         _ card: DashboardCard,
         day: DailyMetric?,
-        skinTemperature: DatedHealthMetricValue? = nil
+        skinTemperature: DatedHealthMetricPresentation? = nil
     ) -> HealthTileRail {
         switch card {
         case .hrv:
@@ -2027,15 +2036,14 @@ struct TodayView: View {
             return vitalRail(value: day?.spo2Pct, history: [], population: 95...100, cfg: nil)
         case .skinTemp:
             guard let skinTemperature else { return .none }
-            let value = skinTemperature.value
+            let value = skinTemperature.current.value
             let absolute = VitalBands.isAbsoluteSkinTemp(value)
             let population: ClosedRange<Double> = absolute ? (33.0...36.0) : (-0.6...0.6)
             return vitalRail(value: value,
-                             history: VitalBands.skinTempHistory(matching: value,
-                                                                  in: DatedHealthMetricResolver.skinTemperatureHistory(
-                                                                    rows: repo.vitalMetricRows,
-                                                                    targetDay: day?.day ?? selectedDayKey
-                                                                  ).map(Optional.some)).compactMap { $0 },
+                             history: VitalBands.skinTempHistory(
+                                matching: value,
+                                in: skinTemperature.history.map(Optional.some)
+                             ).compactMap { $0 },
                              population: population,
                              cfg: absolute ? Baselines.metricCfg["skin_temp"] : VitalBands.skinTempDeviationCfg)
         case .hydration:
@@ -3042,11 +3050,18 @@ struct TodayView: View {
         }
     }
 
-    private func resolvedSkinTemperature(for day: DailyMetric?) -> DatedHealthMetricValue? {
-        DatedHealthMetricResolver.skinTemperature(
+    private func resolvedSkinTemperaturePresentation(
+        for day: DailyMetric?
+    ) -> DatedHealthMetricPresentation? {
+        DatedHealthMetricResolver.skinTemperaturePresentation(
             rows: repo.vitalMetricRows,
             targetDay: day?.day ?? selectedDayKey
         )
+    }
+
+    nonisolated static func skinTemperatureAgeLabel(ageDays: Int) -> String? {
+        guard ageDays > 0 else { return nil }
+        return String(localized: "\(ageDays)d ago")
     }
 
     /// Resolve a dashboard card's CURRENT display value from the values Today already loads, with its unit
@@ -4636,9 +4651,14 @@ struct TodayView: View {
         // Your cards (#582 / Design Reset): Stress / Fitness age / Vitality for the pinned home cards.
         // #753: Stress mirrors StressView. `StressModel(days:stored:).score` is TODAY's score (stored row
         // preferred, else derived off the live RHR/HRV baseline), so the pinned card never lags the detail
-        // page on a day with no banked stress row. nil (no usable signal) keeps the honest "Calibrating"
-        // placeholder, matching StressView's empty state. Fitness age / Vitality keep their merged reads.
-        stressToday = StressModel(days: repo.days, stored: await stressStoredA)?.score
+        // page on a day with no banked stress row. Cached history evidence distinguishes a first baseline
+        // from an established baseline with no usable signal today. Fitness age / Vitality keep their merged reads.
+        let storedStress = await stressStoredA
+        stressHistoryAvailable = StressPresentation.historyAvailable(
+            days: repo.days,
+            stored: storedStress
+        )
+        stressToday = StressModel(days: repo.days, stored: storedStress)?.score
         // Craft pass (003): the Today ribbon draws the REAL hourly curve — the old
         // repeat-fill painted the whole day one color and lied about when stress ran high.
         await loadDaytimeStressForRibbon()
@@ -4668,6 +4688,7 @@ struct TodayView: View {
             xiaomiDays: xiaomiDays,
             xiaomiSleeps: xiaomiSleeps,
             stressToday: stressToday,
+            stressHistoryAvailable: stressHistoryAvailable,
             fitnessAgeToday: fitnessAgeToday,
             vitalityToday: vitalityToday
         )
@@ -4686,6 +4707,7 @@ struct TodayView: View {
         xiaomiDays = c.xiaomiDays
         xiaomiSleeps = c.xiaomiSleeps
         stressToday = c.stressToday
+        stressHistoryAvailable = c.stressHistoryAvailable
         fitnessAgeToday = c.fitnessAgeToday
         vitalityToday = c.vitalityToday
         // Hydration is deliberately NOT part of the snapshot (#989): logging a drink never bumps
@@ -5278,6 +5300,7 @@ struct TodayHistoryWideCache {
     let xiaomiDays: Int
     let xiaomiSleeps: Int
     let stressToday: Double?
+    let stressHistoryAvailable: Bool
     let fitnessAgeToday: Double?
     let vitalityToday: Double?
     // Hydration total/goal intentionally absent (#989): mutations don't bump refreshSeq, so a cached

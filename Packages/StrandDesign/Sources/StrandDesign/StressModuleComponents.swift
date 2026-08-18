@@ -78,9 +78,7 @@ public enum StressModuleBand {
         switch mode {
         case .baselineCalibration:
             return "Calibrating"
-        case .dailyOnly:
-            return "No same-day signal"
-        case .intradayOnly, .combined:
+        case .dailyOnly, .intradayOnly, .combined:
             guard let value else { return "Insufficient signal" }
             return word(value)
         case .empty:
@@ -88,20 +86,29 @@ public enum StressModuleBand {
         }
     }
 
-    public static func why(_ value: Double?, mode: StressPresentationMode) -> String {
+    public static func why(
+        _ value: Double?,
+        mode: StressPresentationMode,
+        baselineBuilding: Bool = false
+    ) -> String {
         switch mode {
         case .baselineCalibration:
             return "First nights build your baseline."
         case .dailyOnly:
-            return "The daily baseline is ready; today has not supplied enough hourly signal."
+            return "The daily score is ready; today has not supplied enough hourly signal."
         case .intradayOnly:
-            return value == nil
-                ? "Same-day signal is present but not yet scorable."
-                : "Same-day signal is available while the daily baseline calibrates."
+            guard value != nil else {
+                return baselineBuilding
+                    ? "Same-day signal is present but not yet scorable while your baseline builds."
+                    : "Same-day signal is present but not yet scorable."
+            }
+            return baselineBuilding
+                ? "Same-day signal is available while your daily baseline builds."
+                : "Same-day signal is available; a daily score has not landed yet."
         case .combined:
             return why(value)
         case .empty:
-            return "No stress signal is available yet."
+            return "No stress signal is available for today."
         }
     }
 
@@ -127,6 +134,8 @@ public struct StressModuleCard: View {
     let value: Double?
     /// Shared data-coverage semantics used by StressView and Today.
     let presentationMode: StressPresentationMode
+    /// True only when the caller has proved that historical baseline evidence is absent.
+    var baselineBuilding: Bool = false
     /// The hour index the "now" tick sits under (clamped to 0…23).
     var nowHour: Int = 17
     var surfaceStyle: ComponentSurfaceStyle = .flat
@@ -255,7 +264,11 @@ public struct StressModuleCard: View {
                 Text(StressModuleBand.word(value, mode: presentationMode))
                     .font(StrandFont.caption.weight(.semibold))
                     .foregroundStyle(value == nil ? StrandPalette.textSecondary : accent)
-                Text(StressModuleBand.why(value, mode: presentationMode))
+                Text(StressModuleBand.why(
+                    value,
+                    mode: presentationMode,
+                    baselineBuilding: baselineBuilding
+                ))
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textTertiary)
                     .lineLimit(1)
@@ -438,7 +451,7 @@ public struct StressModuleCard: View {
 
     private var accessibilitySummary: String {
         guard let value else {
-            return "Today's stress, \(StressModuleBand.word(nil, mode: presentationMode)). \(StressModuleBand.why(nil, mode: presentationMode))"
+            return "Today's stress, \(StressModuleBand.word(nil, mode: presentationMode)). \(StressModuleBand.why(nil, mode: presentationMode, baselineBuilding: baselineBuilding))"
         }
         var parts = [
             "Today's stress \(String(format: "%.1f", value)), \(StressModuleBand.word(value, mode: presentationMode))",
