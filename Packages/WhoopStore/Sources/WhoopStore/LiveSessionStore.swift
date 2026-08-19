@@ -59,6 +59,7 @@ extension WhoopStore {
                     pushCount = excluded.pushCount,
                     easeCount = excluded.easeCount,
                     hrSource = excluded.hrSource
+                WHERE excluded.endTs IS NOT NULL OR liveSession.endTs IS NULL
                 """, arguments: [deviceId, r.startTs, r.endTs, r.chargeAtStart, r.floorBpm, r.ceilingBpm,
                                  r.inBandSec, r.belowSec, r.aboveSec, r.pushCount, r.easeCount, r.hrSource])
             return db.changesCount

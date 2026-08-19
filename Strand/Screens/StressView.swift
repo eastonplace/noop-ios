@@ -661,7 +661,9 @@ struct StressView: View {
     private func windowedTrend(_ model: StressModel) -> [TrendPoint] {
         let all = model.fullTrend
         guard let days = range.days, let last = all.last?.date else { return all }
-        let cutoff = last.addingTimeInterval(-Double(days - 1) * 86_400)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        guard let cutoff = calendar.date(byAdding: .day, value: -(days - 1), to: last) else { return all }
         let slice = all.filter { $0.date >= cutoff }
         return slice.count >= 2 ? slice : all
     }

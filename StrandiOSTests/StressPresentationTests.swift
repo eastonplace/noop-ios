@@ -2,6 +2,7 @@ import XCTest
 @testable import NOOP
 import StrandAnalytics
 import StrandDesign
+import WhoopStore
 
 final class StressPresentationTests: XCTestCase {
     private func result(hours: [DaytimeStress.HourPoint]) -> DaytimeStress.Result {
@@ -11,6 +12,24 @@ final class StressPresentationTests: XCTestCase {
             sustainedRun: 0,
             dayMean: hours.compactMap(\.level).first,
             peak: hours.first(where: { $0.level != nil })
+        )
+    }
+
+    private func day(_ key: String, rhr: Int? = nil, hrv: Double? = nil) -> DailyMetric {
+        DailyMetric(
+            day: key,
+            totalSleepMin: nil,
+            efficiency: nil,
+            deepMin: nil,
+            remMin: nil,
+            lightMin: nil,
+            disturbances: nil,
+            restingHr: rhr,
+            avgHrv: hrv,
+            recovery: nil,
+            strain: nil,
+            exerciseCount: nil,
+            skinTempDevC: nil
         )
     }
 
@@ -85,6 +104,65 @@ final class StressPresentationTests: XCTestCase {
         XCTAssertEqual(
             StressModuleBand.why(1.4, mode: .intradayOnly, baselineBuilding: false),
             "Same-day signal is available; a daily score has not landed yet."
+        )
+    }
+
+    func testPastDayUsesItsExactPersistedValueRatherThanLatestDay() {
+        let days = [
+            day("2026-08-14", rhr: 50, hrv: 60),
+            day("2026-08-15", rhr: 54, hrv: 50),
+            day("2026-08-16", rhr: 60, hrv: 38),
+        ]
+        let stored = [
+            (day: "2026-08-15", value: 0.7),
+            (day: "2026-08-16", value: 2.4),
+        ]
+
+        XCTAssertEqual(
+            StressPresentation.dailyScore(for: "2026-08-15", days: days, stored: stored),
+            0.7
+        )
+        XCTAssertEqual(
+            StressPresentation.dailyScore(for: "2026-08-16", days: days, stored: stored),
+            2.4
+        )
+    }
+
+    func testFutureRowsDoNotProvidePastDayCalibrationEvidence() {
+        let days = [
+            day("2026-08-15"),
+            day("2026-08-16", rhr: 60, hrv: 38),
+        ]
+        let stored = [(day: "2026-08-16", value: 2.4)]
+
+        XCTAssertFalse(
+            StressPresentation.historyAvailable(
+                for: "2026-08-15",
+                days: days,
+                stored: stored
+            )
+        )
+        XCTAssertTrue(
+            StressPresentation.historyAvailable(
+                for: "2026-08-17",
+                days: days,
+                stored: stored
+            )
+        )
+    }
+
+    func testMissingTargetDayNeverBorrowsTheLatestDerivedDay() {
+        let days = [
+            day("2026-08-14", rhr: 50, hrv: 60),
+            day("2026-08-16", rhr: 60, hrv: 38),
+        ]
+
+        XCTAssertNil(
+            StressPresentation.dailyScore(
+                for: "2026-08-15",
+                days: days,
+                stored: []
+            )
         )
     }
 }

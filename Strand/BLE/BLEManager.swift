@@ -4110,7 +4110,7 @@ public final class BLEManager: NSObject, ObservableObject {
         // the old 120s rule disconnected/rescanned a perfectly healthy link every ~2 min (the thrash this
         // fixes). A WHOOP 4 (real "not recording" path) keeps the tight 120s fuse unchanged.
         let bounceFuse: TimeInterval =
-            (selectedModel.deviceFamily == .whoop5 && whoop5EmptyOffload.historyEmpty) ? 600 : 120
+            selectedModel.deviceFamily == .whoop5 ? 600 : 120
         if Date().timeIntervalSince(lastDataAt) > bounceFuse {
             log("No data for >\(Int(bounceFuse))s — bouncing link to resume streaming")
             invalidateHistoricalBackfill(reason: "the liveness watchdog is reconnecting the link")

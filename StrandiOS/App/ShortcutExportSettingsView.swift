@@ -10,10 +10,30 @@ struct ShortcutExportSettingsView: View {
     @AppStorage(ShortcutHealthExport.enabledKey) private var enabled = false
 
     var body: some View {
-        ScreenScaffold(title: "Shortcuts Export",
-                       subtitle: "Strap data into Apple Health without HealthKit, for sideloaded installs.") {
-            exportCard
+        NativeSettingsList {
+            Section {
+                Toggle("Export for Shortcuts", isOn: $enabled)
+                    .font(.caption)
+                LabeledContent("File", value: "noop_sync.txt")
+                    .font(.caption)
+                LabeledContent("Location", value: "On My iPhone › NOOP")
+                    .font(.caption)
+            } header: {
+                Text("Apple Health export")
+            } footer: {
+                Text("When enabled, NOOP rewrites a plain-text file when you leave the app. A Siri Shortcut can read the file and add 15-minute heart rate, HRV, and steps to Apple Health without a HealthKit entitlement.")
+            }
+
+            Section {
+                Text("This is intended for sideloaded builds that cannot carry Apple's HealthKit entitlement. The file stays on this iPhone unless you move or share it.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("Privacy")
+            }
         }
+        .navigationTitle("Shortcuts Export")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     private var exportCard: some View {

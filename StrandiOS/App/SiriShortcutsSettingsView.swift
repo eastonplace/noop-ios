@@ -11,11 +11,26 @@ import StrandDesign
 /// this app automatically.
 struct SiriShortcutsSettingsView: View {
     var body: some View {
-        ScreenScaffold(title: "Siri & Shortcuts",
-                       subtitle: "Run NOOP actions hands-free.") {
-            tips
-            shortcutsCard
+        NativeSettingsList {
+            Section {
+                SiriTipView(intent: BuzzStrapIntent(), isVisible: .constant(true))
+                SiriTipView(intent: MarkMomentIntent(), isVisible: .constant(true))
+            } header: {
+                Text("Ready-made actions")
+            } footer: {
+                Text("Buzz your strap or mark a moment from Siri, Spotlight, Shortcuts, Back Tap, or an automation.")
+            }
+
+            Section {
+                ShortcutsLink()
+            } header: {
+                Text("Shortcuts app")
+            } footer: {
+                Text("Use NOOP actions in a longer Shortcut or personal automation.")
+            }
         }
+        .navigationTitle("Siri & Shortcuts")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     private var tips: some View {

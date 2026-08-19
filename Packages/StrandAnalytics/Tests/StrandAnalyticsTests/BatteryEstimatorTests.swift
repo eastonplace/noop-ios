@@ -20,6 +20,20 @@ final class BatteryEstimatorTests: XCTestCase {
         XCTAssertEqual(e.currentSoc, 90, accuracy: 1e-6)
     }
 
+    func testNewDecliningSampleRecalculatesRemainingRunway() {
+        let first = BatteryEstimator.estimate(
+            samples: [(0, 100), (10 * h, 90)],
+            ratedHours: BatteryEstimator.ratedLifeHoursWhoop5)!
+        let later = BatteryEstimator.estimate(
+            samples: [(0, 100), (10 * h, 90), (20 * h, 80)],
+            ratedHours: BatteryEstimator.ratedLifeHoursWhoop5)!
+
+        XCTAssertEqual(first.source, .measured)
+        XCTAssertEqual(later.source, .measured)
+        XCTAssertEqual(first.remainingHours, 90, accuracy: 1e-6)
+        XCTAssertEqual(later.remainingHours, 80, accuracy: 1e-6)
+    }
+
     func testRatedFallbackWhenSpanTooShort() {
         // A single reading has no span to fit, so it falls back to rated: 50 / (100/108) = 54h.
         let e = BatteryEstimator.estimate(samples: [(0, 50)],
@@ -136,8 +150,161 @@ final class BatteryEstimatorTests: XCTestCase {
         XCTAssertEqual(e.currentSoc, 90, accuracy: 1e-6)
     }
 
+    func testInvalidAndImpossibleSamplesAreIgnored() {
+        let e = BatteryEstimator.estimate(
+            samples: [(0, 120), (0, 50), (2 * h, .nan), (-h, 80), (3 * h, 99)],
+            ratedHours: BatteryEstimator.ratedLifeHoursWhoop5)!
+
+        XCTAssertEqual(e.source, .rated)
+        XCTAssertEqual(e.currentSoc, 99, accuracy: 1e-6)
+        XCTAssertEqual(e.remainingHours, 99 / (100 / 288), accuracy: 1e-6)
+    }
+
+    func testImpossibleDrainRateFallsBackInsteadOfTrustingNoise() {
+        let e = BatteryEstimator.estimate(
+            samples: [(0, 100), (h, 80), (2 * h, 79)],
+            ratedHours: BatteryEstimator.ratedLifeHoursWhoop5)!
+
+        XCTAssertEqual(e.source, .rated)
+        XCTAssertEqual(e.currentSoc, 79, accuracy: 1e-6)
+    }
+
+    func testUnchangedOrIncreasingReadingsStayOnRatedFallback() {
+        let e = BatteryEstimator.estimate(
+            samples: [(0, 50), (3 * h, 55), (6 * h, 55)],
+            ratedHours: BatteryEstimator.ratedLifeHoursWhoop5)!
+
+        XCTAssertEqual(e.source, .rated)
+        XCTAssertEqual(e.remainingHours, 55 / (100 / 288), accuracy: 1e-6)
+    }
+
     func testLabelSwitchesHoursToDaysAt48h() {
         XCTAssertEqual(BatteryEstimator.label(hours: 14), "~14h")
         XCTAssertEqual(BatteryEstimator.label(hours: 108), "~4.5 days")
+    }
+
+    func testLiveProjectionCountsDownOnlyWhileActivelyDischarging() {
+        let estimate = BatteryEstimator.Estimate(
+            remainingHours: 72,
+            source: .measured,
+            currentSoc: 50
+        )
+
+        XCTAssertEqual(
+            BatteryEstimator.projectedRemainingHours(
+                estimate: estimate,
+                anchoredAt: 10 * h,
+                asOf: 12 * h,
+                activelyDischarging: true,
+                sessionStartedAt: 0
+            ),
+            70,
+            accuracy: 1e-6
+        )
+        XCTAssertEqual(
+            BatteryEstimator.projectedRemainingHours(
+                estimate: estimate,
+                anchoredAt: 10 * h,
+                asOf: 12 * h,
+                activelyDischarging: false
+            ),
+            72,
+            accuracy: 1e-6
+        )
+    }
+
+    func testLiveProjectionCountsDownWithoutAnOptionalSessionBoundary() {
+        let estimate = BatteryEstimator.Estimate(
+            remainingHours: 72,
+            source: .measured,
+            currentSoc: 50
+        )
+
+        XCTAssertEqual(
+            BatteryEstimator.projectedRemainingHours(
+                estimate: estimate,
+                anchoredAt: 10 * h,
+                asOf: 12 * h,
+                activelyDischarging: true
+            ),
+            70,
+            accuracy: 1e-6
+        )
+    }
+
+    func testLiveProjectionNeverReportsNegativeRuntime() {
+        let estimate = BatteryEstimator.Estimate(
+            remainingHours: 1,
+            source: .rated,
+            currentSoc: 1
+        )
+        XCTAssertEqual(
+            BatteryEstimator.projectedRemainingHours(
+                estimate: estimate,
+                anchoredAt: 0,
+                asOf: 2 * h,
+                activelyDischarging: true,
+                sessionStartedAt: 0
+            ),
+            0,
+            accuracy: 1e-6
+        )
+    }
+
+    func testLiveLabelKeepsUsefulHourAndMinutePrecision() {
+        XCTAssertEqual(BatteryEstimator.liveLabel(hours: 0.5), "~30m")
+        XCTAssertEqual(BatteryEstimator.liveLabel(hours: 14.5), "~14h 30m")
+        XCTAssertEqual(BatteryEstimator.liveLabel(hours: 73), "~3d 1h")
+    }
+
+    func testLiveProjectionFreezesWhenSampleIsStale() {
+        let estimate = BatteryEstimator.Estimate(remainingHours: 72, source: .measured, currentSoc: 50)
+
+        XCTAssertEqual(
+            BatteryEstimator.projectedRemainingHours(
+                estimate: estimate,
+                anchoredAt: 0,
+                asOf: BatteryEstimator.liveProjectionMaxAgeSeconds + 1,
+                activelyDischarging: true,
+                sessionStartedAt: 0),
+            72,
+            accuracy: 1e-6)
+    }
+
+    func testLiveProjectionDoesNotUseHistoryBeforeReconnect() {
+        let estimate = BatteryEstimator.Estimate(remainingHours: 72, source: .measured, currentSoc: 50)
+
+        XCTAssertEqual(
+            BatteryEstimator.projectedRemainingHours(
+                estimate: estimate,
+                anchoredAt: 100,
+                asOf: 200,
+                activelyDischarging: true,
+                sessionStartedAt: 150),
+            72,
+            accuracy: 1e-6)
+        XCTAssertEqual(
+            BatteryEstimator.projectedRemainingHours(
+                estimate: estimate,
+                anchoredAt: 175,
+                asOf: 200,
+                activelyDischarging: true,
+                sessionStartedAt: 150),
+            72 - 25.0 / 3600,
+            accuracy: 1e-6)
+    }
+
+    func testDisconnectedProjectionRemainsStable() {
+        let estimate = BatteryEstimator.Estimate(remainingHours: 72, source: .measured, currentSoc: 50)
+
+        XCTAssertEqual(
+            BatteryEstimator.projectedRemainingHours(
+                estimate: estimate,
+                anchoredAt: 100,
+                asOf: 10 * h,
+                activelyDischarging: false,
+                sessionStartedAt: 0),
+            72,
+            accuracy: 1e-6)
     }
 }

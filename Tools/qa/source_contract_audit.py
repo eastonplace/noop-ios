@@ -133,9 +133,9 @@ def require_device_command_center_snapshot(errors: list[str]) -> None:
     devices = ROOT / "Strand/Screens/DevicesView.swift"
     devices_text = devices.read_text(encoding="utf-8")
     for contract in (
-        "private struct DeviceCommandIdentityTimerLeaf",
-        "private struct DeviceCommandStatusTimerLeaf",
-        "private struct DeviceCommandPowerTimerLeaf",
+        "private struct DeviceCommandHeroTimerLeaf",
+        "private struct DeviceCommandSystemsTimerLeaf",
+        "private struct DeviceCommandTelemetryTimerLeaf",
         "private struct DeviceHistoricalSyncProgressLeaf",
     ):
         if contract not in devices_text:

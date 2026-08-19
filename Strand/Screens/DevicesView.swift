@@ -78,7 +78,6 @@ private struct DevicesContent: View {
     @State private var pickNewActive = false
     @State private var commandFeedback: String?
     @State private var showingActiveDeviceActions = false
-    @State private var showingCommandCenter = false
 
     private var activeDevices: [PairedDevice] { registry.devices.filter { $0.status != .archived } }
     private var removedDevices: [PairedDevice] { registry.devices.filter { $0.status == .archived } }
@@ -102,49 +101,22 @@ private struct DevicesContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+            sectionHead("DEVICES", trailing: deviceCountLabel)
+            devicesDeck
+
+            addButton
+                .staggeredAppear(index: activeDevices.count)
+
+            sectionHead("COMMAND CENTRE", trailing: String(localized: "Live controls"))
             if let device = activeDevice {
-                DeviceSummaryLiveObservation(live: live) {
-                    DeviceCard(
-                        device: device,
-                        isActive: true,
-                        isLiveConnected: live.connected,
-                        liveBatteryPct: live.batteryPct.map { Int($0.rounded()) },
-                        liveFirmware: live.strapFirmware,
-                        liveClockLine: strapClockState?.line,
-                        liveClockWarning: strapClockState?.warning,
-                        onMakeActive: {},
-                        onRename: {
-                            renameDraft = device.nickname ?? device.displayName
-                            renameTarget = device
-                        },
-                        onRemove: { removeTarget = device })
-                }
-                NoopButton("Open command centre", systemImage: "slider.horizontal.3", kind: .secondary,
-                           fullWidth: true) {
-                    showingCommandCenter = true
+                DeviceCommandCenterSnapshotObservation(live: live) { snapshot in
+                    commandCenter(device, liveSnapshot: snapshot)
                 }
             } else {
                 DataPendingNote(title: "No active device",
                                 message: "Choose a paired device or add one to see connection and sync controls.",
                                 symbol: "applewatch.slash")
             }
-
-            if !otherDevices.isEmpty {
-                sectionHead("OTHER DEVICES", trailing: String(localized: "\(otherDevices.count) paired"))
-            }
-            ForEach(Array(otherDevices.enumerated()), id: \.element.id) { idx, device in
-                DeviceCard(
-                    device: device,
-                    isActive: false,
-                    isLiveConnected: false,
-                    onMakeActive: { switchTarget = device },
-                    onRename: { renameDraft = device.nickname ?? device.displayName; renameTarget = device },
-                    onRemove: { removeTarget = device })
-                    .staggeredAppear(index: idx)
-            }
-
-            addButton
-                .staggeredAppear(index: activeDevices.count)
 
             if !removedDevices.isEmpty { removedSection }
 
@@ -157,15 +129,6 @@ private struct DevicesContent: View {
             AddDeviceWizard(live: live) { showAddWizard = false }
                 .environmentObject(model)
                 .environmentObject(live)
-        }
-        // The rich diagnostics only exist after the user deliberately opens them. This keeps the regular
-        // device list fast while streaming and scopes the live subscription to this sheet.
-        .sheet(isPresented: $showingCommandCenter) {
-            if let device = activeDevice {
-                DeviceCommandCenterSnapshotObservation(live: live) { snapshot in
-                    commandCenter(device, liveSnapshot: snapshot)
-                }
-            }
         }
         // Switch confirm
         .alert("Make this your active strap?",
@@ -252,6 +215,63 @@ private struct DevicesContent: View {
 
     // MARK: Pieces
 
+    private var deviceCountLabel: String {
+        let count = activeDevices.count
+        return count == 1 ? String(localized: "1 paired") : String(localized: "\(count) paired")
+    }
+
+    private var devicesDeck: some View {
+        VStack(spacing: 0) {
+            if let device = activeDevice {
+                DeviceSummaryLiveObservation(live: live) {
+                    DeviceCard(
+                        device: device,
+                        isActive: true,
+                        isLiveConnected: live.connected,
+                        liveBatteryPct: live.batteryPct.map { Int($0.rounded()) },
+                        liveFirmware: live.strapFirmware,
+                        liveClockLine: strapClockState?.line,
+                        liveClockWarning: strapClockState?.warning,
+                        onMakeActive: {},
+                        onRename: {
+                            renameDraft = device.nickname ?? device.displayName
+                            renameTarget = device
+                        },
+                        onRemove: { removeTarget = device })
+                }
+            }
+
+            ForEach(Array(otherDevices.enumerated()), id: \.element.id) { idx, device in
+                DeviceCard(
+                    device: device,
+                    isActive: false,
+                    isLiveConnected: false,
+                    onMakeActive: { switchTarget = device },
+                    onRename: { renameDraft = device.nickname ?? device.displayName; renameTarget = device },
+                    onRemove: { removeTarget = device })
+                    .staggeredAppear(index: idx)
+            }
+
+            if activeDevices.isEmpty {
+                Text("No devices paired")
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
+            }
+        }
+        .padding(.horizontal, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(StrandPalette.surfaceRaised)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .strokeBorder(StrandPalette.hairline, lineWidth: 1)
+                }
+        )
+        .compositingGroup()
+        .clipShape(.rect(cornerRadius: 18, style: .continuous))
+    }
+
     private func commandCenter(
         _ device: PairedDevice,
         liveSnapshot: DeviceCommandCenterLiveSnapshot.Value
@@ -279,22 +299,33 @@ private struct DevicesContent: View {
             r22FlagCount: Whoop5Config.enableR22Sequence.count,
             now: Date().timeIntervalSince1970))
 
-        return VStack(alignment: .leading, spacing: 18) {
-            componentLabel("Identity card · which strap, exactly")
-            DeviceCommandIdentityTimerLeaf(
+        let hero = commandHeroState(resolved, liveSnapshot: liveSnapshot)
+        let sync = syncRows(resolved, liveSnapshot: liveSnapshot)
+
+        return VStack(alignment: .leading, spacing: 12) {
+            DeviceCommandHeroTimerLeaf(
                 name: device.displayName,
-                firmware: liveSnapshot.strapFirmware.map { "Firmware \($0)" } ?? device.model,
-                deviceID: compactDeviceID(device.id),
+                metadata: "\(liveSnapshot.strapFirmware.map { "Firmware \($0)" } ?? device.model) · \(compactDeviceID(device.id))",
+                title: hero.title,
+                detail: hero.detail,
+                tone: hero.tone,
+                symbol: hero.symbol,
                 bondLabel: identityBondLabel(resolved, liveSnapshot: liveSnapshot),
                 bondTone: bondTone(resolved, liveSnapshot: liveSnapshot),
-                batteryFraction: liveSnapshot.batteryPct.map { $0 / 100 },
                 wristLabel: liveSnapshot.worn ? "On wrist" : "Off wrist",
-                connectedAt: liveSnapshot.connectedAt,
+                syncRows: sync,
+                items: { now in
+                    statusItems(
+                        snapshot: resolved,
+                        liveSnapshot: liveSnapshot,
+                        isWhoop: isWhoop,
+                        now: now)
+                },
                 onMenu: { showingActiveDeviceActions = true })
 
-            Divider().overlay(StrandPalette.hairline)
-            componentLabel("Command centre · every check has a verdict")
-            DeviceCommandStatusTimerLeaf { now in
+            commandPriorityCard(resolved, liveSnapshot: liveSnapshot)
+
+            DeviceCommandSystemsTimerLeaf { now in
                 statusItems(
                     snapshot: resolved,
                     liveSnapshot: liveSnapshot,
@@ -302,46 +333,52 @@ private struct DevicesContent: View {
                     now: now)
             }
 
-            Divider().overlay(StrandPalette.hairline)
-            componentLabel("Twin cards · one key-value grammar")
-            HStack(alignment: .top, spacing: 8) {
-                DeviceCommandInfoCard(icon: "arrow.triangle.2.circlepath",
-                                      title: "Sync status",
-                                      rows: syncRows(resolved, liveSnapshot: liveSnapshot))
-                DeviceCommandPowerTimerLeaf { now in
+            DeviceCommandTelemetryTimerLeaf(
+                connected: liveSnapshot.connected,
+                batteryFraction: liveSnapshot.batteryPct.map { $0 / 100 },
+                syncRows: sync,
+                powerRows: { now in
                     powerRows(liveSnapshot: liveSnapshot, now: now)
-                }
-            }
+                })
+
             if let progress = liveSnapshot.historicalSyncPassProgress {
                 DeviceHistoricalSyncProgressLeaf(progress: progress)
             }
 
-            Divider().overlay(StrandPalette.hairline)
-            componentLabel("Actions · four common fixes")
-            VStack(spacing: 8) {
-                HStack(spacing: 8) {
-                    DeviceCommandActionButton(icon: "arrow.triangle.2.circlepath", title: "Sync now",
-                                              enabled: resolved.commands.syncEnabled) {
-                        model.syncActiveDevice(); showFeedback("Syncing")
-                    }
-                    DeviceCommandActionButton(icon: "iphone.radiowaves.left.and.right", title: "Test vibration",
-                                              enabled: resolved.commands.vibrationEnabled) {
-                        model.testDeviceVibration(); showFeedback("Sent")
-                    }
-                }
-                HStack(spacing: 8) {
-                    DeviceCommandActionButton(icon: "battery.75percent", title: "Refresh battery",
-                                              enabled: resolved.commands.batteryEnabled) {
-                        model.refreshDeviceBattery(); showFeedback("Refreshing")
-                    }
-                    DeviceCommandActionButton(icon: "link",
-                                              title: liveSnapshot.connected ? "Refresh link" : "Reconnect",
-                                              prominent: !liveSnapshot.connected,
-                                              enabled: resolved.commands.linkEnabled) {
-                        model.refreshDeviceLink(); showFeedback("Refreshing")
-                    }
-                }
+            DeviceCommandDeck(
+                connected: liveSnapshot.connected,
+                syncEnabled: resolved.commands.syncEnabled,
+                vibrationEnabled: resolved.commands.vibrationEnabled,
+                batteryEnabled: resolved.commands.batteryEnabled,
+                linkEnabled: resolved.commands.linkEnabled,
+                onSync: {
+                    model.syncActiveDevice()
+                    showFeedback("Syncing")
+                },
+                onVibration: {
+                    model.testDeviceVibration()
+                    showFeedback("Sent")
+                },
+                onBattery: {
+                    model.refreshDeviceBattery()
+                    showFeedback("Refreshing")
+                },
+                onLink: {
+                    model.refreshDeviceLink()
+                    showFeedback("Refreshing")
+                })
+
+            NavigationLink {
+                TestCentreView()
+            } label: {
+                DeviceCommandNavigationRow(
+                    title: "Test Centre",
+                    detail: "Run live connection and protocol checks",
+                    icon: "stethoscope")
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Test Centre")
+
             if let commandFeedback {
                 Text(commandFeedback).font(StrandFont.micro.weight(.bold))
                     .foregroundStyle(StrandPalette.textTertiary)
@@ -351,11 +388,85 @@ private struct DevicesContent: View {
         }
     }
 
-    private func componentLabel(_ title: String) -> some View {
-        Text(title.uppercased())
-            .font(StrandFont.overline).tracking(1.35)
-            .foregroundStyle(StrandPalette.textTertiary)
-            .lineLimit(1).minimumScaleFactor(0.7)
+    private func commandHeroState(
+        _ snapshot: DeviceCommandCenterSnapshot,
+        liveSnapshot: DeviceCommandCenterLiveSnapshot.Value
+    ) -> (title: String, detail: String, tone: DeviceCommandTone, symbol: String) {
+        guard liveSnapshot.connected else {
+            return ("Looking for your strap",
+                    "Your data is safe. Collection resumes after reconnecting.",
+                    .neutral,
+                    "antenna.radiowaves.left.and.right")
+        }
+
+        switch snapshot.health.level {
+        case .healthy:
+            return ("Ready", "Collecting now · history \(snapshot.syncLabel.lowercased())", .good, "checkmark")
+        case .informational:
+            return ("Collecting", snapshot.health.primaryIssue ?? snapshot.syncLabel, .neutral, "waveform.path.ecg")
+        case .warning:
+            return ("Needs attention", snapshot.health.primaryIssue ?? "Review the flagged systems below.",
+                    .warning, "exclamationmark")
+        case .critical:
+            return ("Action needed", snapshot.health.primaryIssue ?? "Restore the device link to resume collection.",
+                    .critical, "exclamationmark")
+        }
+    }
+
+    @ViewBuilder
+    private func commandPriorityCard(
+        _ snapshot: DeviceCommandCenterSnapshot,
+        liveSnapshot: DeviceCommandCenterLiveSnapshot.Value
+    ) -> some View {
+        if !liveSnapshot.connected {
+            DeviceCommandPriorityCard(
+                eyebrow: "Do this first",
+                title: "Bring the strap nearby",
+                detail: "Keep Bluetooth on, then ask NOOP to refresh the remembered link.",
+                actionTitle: "Reconnect",
+                icon: "link",
+                tone: .neutral,
+                enabled: snapshot.commands.linkEnabled) {
+                    model.refreshDeviceLink()
+                    showFeedback("Refreshing")
+                }
+        } else if (liveSnapshot.batteryPct ?? 100) <= DeviceCommandCenterStatusResolver.criticalBatteryThreshold {
+            DeviceCommandPriorityCard(
+                eyebrow: "Do this first",
+                title: "Check strap power",
+                detail: "Refresh the battery reading, then charge soon if the low reading holds.",
+                actionTitle: "Refresh battery",
+                icon: "bolt.fill",
+                tone: .warning,
+                enabled: snapshot.commands.batteryEnabled) {
+                    model.refreshDeviceBattery()
+                    showFeedback("Refreshing")
+                }
+        } else if liveSnapshot.lastSyncError != nil || liveSnapshot.backfilling {
+            DeviceCommandPriorityCard(
+                eyebrow: "Next best action",
+                title: liveSnapshot.backfilling ? "History is catching up" : "History needs attention",
+                detail: liveSnapshot.lastSyncError ?? "NOOP is fetching durable history from the strap.",
+                actionTitle: "Sync now",
+                icon: "arrow.triangle.2.circlepath",
+                tone: liveSnapshot.lastSyncError == nil ? .neutral : .warning,
+                enabled: snapshot.commands.syncEnabled) {
+                    model.syncActiveDevice()
+                    showFeedback("Syncing")
+                }
+        } else {
+            DeviceCommandPriorityCard(
+                eyebrow: "Next best action",
+                title: "Everything looks ready",
+                detail: "Run a quick haptic check when you want to verify the active strap.",
+                actionTitle: "Test vibration",
+                icon: "checkmark.seal.fill",
+                tone: .good,
+                enabled: snapshot.commands.vibrationEnabled) {
+                    model.testDeviceVibration()
+                    showFeedback("Sent")
+                }
+        }
     }
 
     private func identityBondLabel(
@@ -394,7 +505,8 @@ private struct DevicesContent: View {
                               tone: warning == nil ? .good : .warning, subline: warning))
         }
         if isWhoop {
-            rows.append(.init(id: "sync", label: "Historical sync", value: snapshot.syncLabel,
+            rows.append(.init(id: "sync", label: "Historical sync",
+                              value: compactSyncStatus(snapshot, liveSnapshot: liveSnapshot),
                               tone: liveSnapshot.lastSyncError == nil
                                   ? (liveSnapshot.backfilling ? .neutral : .good)
                                   : .warning))
@@ -436,7 +548,8 @@ private struct DevicesContent: View {
         _ snapshot: DeviceCommandCenterSnapshot,
         liveSnapshot: DeviceCommandCenterLiveSnapshot.Value
     ) -> [DeviceCommandStatusItem] {
-        var rows = [DeviceCommandStatusItem(id: "status", label: "Status", value: snapshot.syncLabel,
+        var rows = [DeviceCommandStatusItem(id: "status", label: "Status",
+                                            value: compactSyncStatus(snapshot, liveSnapshot: liveSnapshot),
                                             tone: liveSnapshot.lastSyncError == nil ? .neutral : .warning),
                     .init(id: "completed", label: "Last completed", value: relativeTime(liveSnapshot.lastSyncedAt)),
                     .init(id: "window", label: "History window", value: liveSnapshot.strapRange.map(shortHistoryWindow) ?? "—"),
@@ -449,17 +562,61 @@ private struct DevicesContent: View {
         return rows
     }
 
+    private func compactSyncStatus(
+        _ snapshot: DeviceCommandCenterSnapshot,
+        liveSnapshot: DeviceCommandCenterLiveSnapshot.Value
+    ) -> String {
+        guard liveSnapshot.connected else { return "Waiting" }
+        if liveSnapshot.lastSyncError != nil { return "Needs attention" }
+        if liveSnapshot.backfilling { return "Catching up" }
+        if snapshot.syncLabel.localizedCaseInsensitiveContains("showing saved") {
+            return "Saved history"
+        }
+        return snapshot.syncLabel
+    }
+
     private func powerRows(
         liveSnapshot: DeviceCommandCenterLiveSnapshot.Value,
         now: Date
     ) -> [DeviceCommandStatusItem] {
-        [.init(id: "battery", label: "Battery", value: liveSnapshot.batteryPct.map { "\(Int($0.rounded()))%" } ?? "—",
-               tone: (liveSnapshot.batteryPct ?? 100) <= DeviceCommandCenterStatusResolver.criticalBatteryThreshold
-                   ? .warning
-                   : .neutral),
-         .init(id: "runtime", label: "Estimated", value: liveSnapshot.batteryRuntimeLabel ?? "—"),
-         .init(id: "charging", label: "Charging", value: liveSnapshot.charging == true ? "Yes" : liveSnapshot.charging == false ? "No" : "—"),
-         .init(id: "uptime", label: "Connection", value: connectionUptime(connectedAt: liveSnapshot.connectedAt, now: now))]
+        let runtimeLabel: String = {
+            if liveSnapshot.charging == true { return "Charging" }
+            guard let runtime = liveSnapshot.batteryRuntime else { return "Learning" }
+            let remaining = BatteryEstimator.projectedRemainingHours(
+                estimate: runtime.estimate,
+                anchoredAt: runtime.anchoredAt,
+                asOf: Int(now.timeIntervalSince1970),
+                // A missing charge bit is common between sparse status packets. Only a confirmed
+                // charging state should freeze the countdown; otherwise the live estimate would
+                // appear stuck on real straps whose charge bit has not arrived yet.
+                activelyDischarging: liveSnapshot.connected
+                    && liveSnapshot.charging != true
+                    && runtime.sessionStartedAt != nil,
+                sessionStartedAt: runtime.sessionStartedAt
+            )
+            return BatteryEstimator.liveLabel(hours: remaining)
+        }()
+
+        return [
+            DeviceCommandStatusItem(
+                id: "battery",
+                label: "Battery",
+                value: liveSnapshot.batteryPct.map { "\(Int($0.rounded()))%" } ?? "—",
+                tone: (liveSnapshot.batteryPct ?? 100)
+                    <= DeviceCommandCenterStatusResolver.criticalBatteryThreshold ? .warning : .neutral
+            ),
+            .init(id: "runtime", label: "Estimated", value: runtimeLabel),
+            .init(
+                id: "charging",
+                label: "Charging",
+                value: liveSnapshot.charging == true ? "Yes" : liveSnapshot.charging == false ? "No" : "—"
+            ),
+            .init(
+                id: "uptime",
+                label: "Connection",
+                value: connectionUptime(connectedAt: liveSnapshot.connectedAt, now: now)
+            ),
+        ]
     }
 
     private func compactDeviceID(_ id: String) -> String {
@@ -510,10 +667,11 @@ private struct DevicesContent: View {
 
     private func packetAgeFrom(timestamp: TimeInterval, now: TimeInterval) -> String {
         let seconds = max(0, Int(now - timestamp))
+        let elapsedDaySeconds = 24 * 60 * 60
         if seconds < 60 { return "just now" }
         if seconds < 3_600 { return "\(seconds / 60)m ago" }
-        if seconds < 86_400 { return "\(seconds / 3_600)h ago" }
-        return "\(seconds / 86_400)d ago"
+        if seconds < elapsedDaySeconds { return "\(seconds / 3_600)h ago" }
+        return "\(seconds / elapsedDaySeconds)d ago"
     }
 
     private func shortHistoryWindow(_ range: LiveState.StrapRange) -> String {
@@ -638,7 +796,7 @@ private struct DeviceSummaryLiveObservation<Content: View>: View {
     }
 }
 
-/// Owns the command centre's narrow adapter. The sheet no longer observes monolithic `LiveState`.
+/// Owns the command centre's narrow adapter. The route never observes monolithic `LiveState`.
 private struct DeviceCommandCenterSnapshotObservation<Content: View>: View {
     @StateObject private var snapshot: DeviceCommandCenterLiveSnapshot
     @ViewBuilder let content: (DeviceCommandCenterLiveSnapshot.Value) -> Content
@@ -656,47 +814,50 @@ private struct DeviceCommandCenterSnapshotObservation<Content: View>: View {
     }
 }
 
-/// Keeps the one-second uptime clock below the command-centre observation root.
-private struct DeviceCommandIdentityTimerLeaf: View {
+/// Keeps packet age and compact hero metrics below the command-centre observation root.
+private struct DeviceCommandHeroTimerLeaf: View {
     let name: String
-    let firmware: String
-    let deviceID: String
+    let metadata: String
+    let title: String
+    let detail: String
+    let tone: DeviceCommandTone
+    let symbol: String
     let bondLabel: String
     let bondTone: DeviceCommandTone
-    let batteryFraction: Double?
     let wristLabel: String
-    let connectedAt: TimeInterval?
+    let syncRows: [DeviceCommandStatusItem]
+    let items: (Date) -> [DeviceCommandStatusItem]
     let onMenu: () -> Void
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
-            DeviceCommandIdentityCard(
+            let currentItems = items(context.date)
+            DeviceCommandCenterHero(
                 name: name,
-                firmware: firmware,
-                deviceID: deviceID,
+                metadata: metadata,
+                title: title,
+                detail: detail,
+                tone: tone,
+                symbol: symbol,
                 bondLabel: bondLabel,
                 bondTone: bondTone,
-                batteryFraction: batteryFraction,
-                wristLabel: wristLabel,
-                connectionLabel: connectionUptime(now: context.date),
+                metrics: [
+                    .init(id: "wrist", label: "Wrist", value: wristLabel),
+                    currentItems.first(where: { $0.id == "packet" })
+                        .map { .init(id: $0.id, label: "Last packet", value: $0.value, tone: $0.tone) }
+                        ?? .init(id: "packet", label: "Last packet", value: "Waiting"),
+                    syncRows.first(where: { $0.id == "status" })
+                        .map { .init(id: $0.id, label: "Sync", value: $0.value, tone: $0.tone) }
+                        ?? .init(id: "sync", label: "Sync", value: "Waiting"),
+                ],
+                systemItems: currentItems,
                 onMenu: onMenu)
         }
     }
-
-    private func connectionUptime(now: Date) -> String {
-        guard let connectedAt else { return "—" }
-        return compactDuration(max(0, Int(now.timeIntervalSince1970 - connectedAt)))
-    }
-
-    private func compactDuration(_ seconds: Int) -> String {
-        if seconds < 60 { return "\(seconds)s" }
-        if seconds < 3_600 { return "\(seconds / 60)m" }
-        return "\(seconds / 3_600)h \((seconds % 3_600) / 60)m"
-    }
 }
 
-/// Keeps the packet-age clock below the command-centre observation root.
-private struct DeviceCommandStatusTimerLeaf: View {
+/// Keeps the packet-age verdict in the systems matrix current without widening observation.
+private struct DeviceCommandSystemsTimerLeaf: View {
     let items: (Date) -> [DeviceCommandStatusItem]
 
     init(items: @escaping (Date) -> [DeviceCommandStatusItem]) {
@@ -705,25 +866,37 @@ private struct DeviceCommandStatusTimerLeaf: View {
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
-            DeviceCommandStatusOverview(items: items(context.date))
+            DeviceCommandSystemsMatrix(items: items(context.date))
         }
     }
 }
 
-/// Keeps the duplicate uptime readout below the command-centre observation root.
-private struct DeviceCommandPowerTimerLeaf: View {
-    let rows: (Date) -> [DeviceCommandStatusItem]
+/// Keeps connection uptime inside the telemetry deck current without widening observation.
+private struct DeviceCommandTelemetryTimerLeaf: View {
+    let connected: Bool
+    let batteryFraction: Double?
+    let syncRows: [DeviceCommandStatusItem]
+    let powerRows: (Date) -> [DeviceCommandStatusItem]
 
-    init(rows: @escaping (Date) -> [DeviceCommandStatusItem]) {
-        self.rows = rows
+    init(
+        connected: Bool,
+        batteryFraction: Double?,
+        syncRows: [DeviceCommandStatusItem],
+        powerRows: @escaping (Date) -> [DeviceCommandStatusItem]
+    ) {
+        self.connected = connected
+        self.batteryFraction = batteryFraction
+        self.syncRows = syncRows
+        self.powerRows = powerRows
     }
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
-            DeviceCommandInfoCard(
-                icon: "battery.75percent",
-                title: "Power status",
-                rows: rows(context.date))
+            DeviceCommandTelemetryDeck(
+                connected: connected,
+                batteryFraction: batteryFraction,
+                syncRows: syncRows,
+                powerRows: powerRows(context.date))
         }
     }
 }

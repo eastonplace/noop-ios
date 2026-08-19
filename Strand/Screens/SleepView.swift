@@ -243,6 +243,7 @@ struct SleepView: View {
                             hasStageData: displayedNight.hasStageData
                         )
                         .staggeredAppear(index: 3)
+                        sleepRhythmEntry.staggeredAppear(index: 4)
                         napSection(
                             displayedNight.night,
                             hasStageData: displayedNight.hasStageData
@@ -267,6 +268,7 @@ struct SleepView: View {
                     LazyVStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
                         SleepAlarmEditorSection()
                         emptyState
+                        sleepRhythmEntry
                     }
                 }
             }
@@ -376,6 +378,36 @@ struct SleepView: View {
             SleepUndoTaskControl.cancelAndClear(&sleepUndoTask)
             sleepUndo = nil
         }
+    }
+
+    /// Rhythm is a sleep-context experience, not a Settings destination. Keep one direct entry on
+    /// the Sleep surface and let `RhythmHost` preserve its existing consent and lazy data-loading gates.
+    private var sleepRhythmEntry: some View {
+        NavigationLink {
+            RhythmHost()
+        } label: {
+            NoopCard(padding: NoopMetrics.cardInnerPadding, tint: StrandPalette.restColor) {
+                HStack(spacing: NoopMetrics.rowSpacing) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Rhythm")
+                            .font(StrandFont.subhead)
+                            .foregroundStyle(StrandPalette.textPrimary)
+                        Text("Experimental beat-to-beat patterns from your recent sleep")
+                            .font(StrandFont.footnote)
+                            .foregroundStyle(StrandPalette.textTertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 12)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(StrandPalette.textTertiary)
+                }
+                .frame(minHeight: 44)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Open Rhythm")
+        .accessibilityHint("Shows the experimental beat-to-beat Rhythm view")
     }
 
     private var invalidSleepWindowNotice: some View {

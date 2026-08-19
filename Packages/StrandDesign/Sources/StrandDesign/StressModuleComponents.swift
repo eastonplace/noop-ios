@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 // MARK: - Stress Module (NOOP scope, data-rich tier)
@@ -19,36 +20,60 @@ import SwiftUI
 //
 // Fixture-only: state presets in the specimen cover Calibrating / Low / Moderate / High.
 
-// MARK: Heat ramp
+// MARK: Stress ramp compatibility
 //
-// The module reads as HEAT — cool blue when calm, NOOP's stress orange as load builds,
-// red when sustained-high. (The detail chart's calm/positive/warning trio put GREEN in
-// the middle of the scale, which reads as "good" right where load starts climbing; a
-// cold→hot ramp says what stress means without a legend.) Tokens only: accent /
-// stressAccent / liveRed.
+// Keep the original public type name for source compatibility, but make every color
+// resolve through StressLoadStyle so Today and the Stress detail use one semantic ramp.
 
 public enum StressHeatStyle {
-    public static let calm = StrandPalette.accent
-    public static let elevated = StrandPalette.stressAccent
-    public static let high = StrandPalette.liveRed
+    public static let calm = StressLoadStyle.calm
+    public static let moderate = StressLoadStyle.moderate
+    public static let elevated = moderate
+    public static let high = StressLoadStyle.high
 
-    public static let stops: [Gradient.Stop] = [
-        .init(color: calm, location: 0),
-        .init(color: calm, location: 0.3),
-        .init(color: elevated, location: 0.62),
-        .init(color: high, location: 0.9),
-        .init(color: high, location: 1),
-    ]
+    public static let stops = StressLoadStyle.stops
 
     public static func color(for level: Double) -> Color {
-        StrandPalette.sample(stops: stops, at: min(max(level / 3, 0), 1))
+        StressLoadStyle.color(for: level)
     }
 
     public static func zoneColor(_ band: Int) -> Color {
         switch band {
         case 0: calm
-        case 1: elevated
+        case 1: moderate
         default: high
+        }
+    }
+}
+
+/// The calendar context represented by a stress module.
+///
+/// `.today` preserves the original title, copy, accessibility summary, and current-time
+/// marker. Historical cards name their date and never imply that the selected day is now.
+public enum StressModuleDateContext: Equatable, Sendable {
+    case today
+    case historical(date: Date)
+
+    fileprivate var isToday: Bool {
+        if case .today = self { return true }
+        return false
+    }
+
+    fileprivate var title: String {
+        switch self {
+        case .today:
+            return "Today’s Stress"
+        case .historical(let date):
+            return "Stress · \(date.formatted(.dateTime.month(.abbreviated).day().year()))"
+        }
+    }
+
+    fileprivate var accessibilitySubject: String {
+        switch self {
+        case .today:
+            return "Today's stress"
+        case .historical(let date):
+            return "Stress for \(date.formatted(.dateTime.weekday(.wide).month(.wide).day().year()))"
         }
     }
 }
@@ -89,13 +114,16 @@ public enum StressModuleBand {
     public static func why(
         _ value: Double?,
         mode: StressPresentationMode,
-        baselineBuilding: Bool = false
+        baselineBuilding: Bool = false,
+        dateContext: StressModuleDateContext = .today
     ) -> String {
         switch mode {
         case .baselineCalibration:
             return "First nights build your baseline."
         case .dailyOnly:
-            return "The daily score is ready; today has not supplied enough hourly signal."
+            return dateContext.isToday
+                ? "The daily score is ready; today has not supplied enough hourly signal."
+                : "The daily score is ready; hourly signal is unavailable for this date."
         case .intradayOnly:
             guard value != nil else {
                 return baselineBuilding
@@ -108,7 +136,9 @@ public enum StressModuleBand {
         case .combined:
             return why(value)
         case .empty:
-            return "No stress signal is available for today."
+            return dateContext.isToday
+                ? "No stress signal is available for today."
+                : "No stress signal is available for this date."
         }
     }
 
@@ -138,8 +168,30 @@ public struct StressModuleCard: View {
     var baselineBuilding: Bool = false
     /// The hour index the "now" tick sits under (clamped to 0…23).
     var nowHour: Int = 17
+    /// The calendar day represented by this module. Defaults to today's original behavior.
+    var dateContext: StressModuleDateContext = .today
     var surfaceStyle: ComponentSurfaceStyle = .flat
     var onOpen: () -> Void = {}
+
+    public init(
+        hours: [Double?],
+        value: Double?,
+        nowHour: Int = 17,
+        presentationMode: StressPresentationMode,
+        baselineBuilding: Bool = false,
+        dateContext: StressModuleDateContext = .today,
+        surfaceStyle: ComponentSurfaceStyle = .flat,
+        onOpen: @escaping () -> Void = {}
+    ) {
+        self.hours = hours
+        self.value = value
+        self.presentationMode = presentationMode
+        self.baselineBuilding = baselineBuilding
+        self.nowHour = nowHour
+        self.dateContext = dateContext
+        self.surfaceStyle = surfaceStyle
+        self.onOpen = onOpen
+    }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var revealed = false
@@ -219,7 +271,7 @@ public struct StressModuleCard: View {
     private var header: some View {
         HStack(spacing: 6) {
             StressBreathingDot(color: accent, active: (value ?? 0) >= 2)
-            Text("Today’s Stress")
+            Text(dateContext.title)
                 .font(StrandFont.overline)
                 .tracking(StrandFont.overlineTracking)
                 .foregroundStyle(StrandPalette.textSecondary)
@@ -251,8 +303,8 @@ public struct StressModuleCard: View {
 
     @ViewBuilder
     private var stateRow: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            if let sample = scrubSample {
+        if let sample = scrubSample {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
                 // Hour readout while the finger rides the ribbon.
                 Text(Self.hourLabel(sample.hour))
                     .font(StrandFont.caption.weight(.semibold))
@@ -260,23 +312,27 @@ public struct StressModuleCard: View {
                 Text("· \(StressModuleBand.word(sample.level)) hour")
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textTertiary)
-            } else {
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .animation(StrandMotion.fade, value: scrubHour)
+        } else {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(StressModuleBand.word(value, mode: presentationMode))
                     .font(StrandFont.caption.weight(.semibold))
                     .foregroundStyle(value == nil ? StrandPalette.textSecondary : accent)
                 Text(StressModuleBand.why(
                     value,
                     mode: presentationMode,
-                    baselineBuilding: baselineBuilding
+                    baselineBuilding: baselineBuilding,
+                    dateContext: dateContext
                 ))
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textTertiary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .animation(StrandMotion.fade, value: scrubHour)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .animation(StrandMotion.fade, value: scrubHour)
     }
 
     // MARK: Ribbon
@@ -313,11 +369,13 @@ public struct StressModuleCard: View {
                         .transition(.opacity)
                 }
 
-                // "Now" tick under the current hour.
-                Triangle()
-                    .fill(StrandPalette.textTertiary)
-                    .frame(width: 5, height: 3)
-                    .offset(x: slot * (CGFloat(min(max(nowHour, 0), 23)) + 0.5) - width / 2, y: 5)
+                // "Now" exists only on the live day; historical dates have no current hour.
+                if dateContext.isToday {
+                    Triangle()
+                        .fill(StrandPalette.textTertiary)
+                        .frame(width: 5, height: 3)
+                        .offset(x: slot * (CGFloat(min(max(nowHour, 0), 23)) + 0.5) - width / 2, y: 5)
+                }
             }
             .frame(maxHeight: .infinity, alignment: .bottom)
             .contentShape(Rectangle())
@@ -393,7 +451,7 @@ public struct StressModuleCard: View {
         if counts.reduce(0, +) > 0 {
             HStack(spacing: 10) {
                 bandKey(count: counts[0], word: "calm", color: StressHeatStyle.calm)
-                bandKey(count: counts[1], word: "elevated", color: StressHeatStyle.elevated)
+                bandKey(count: counts[1], word: "moderate", color: StressHeatStyle.moderate)
                 bandKey(count: counts[2], word: "high", color: StressHeatStyle.high)
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right")
@@ -403,7 +461,9 @@ public struct StressModuleCard: View {
         } else {
             HStack {
                 Text(presentationMode == .dailyOnly
-                     ? "No same-day signal to score yet."
+                     ? (dateContext.isToday
+                        ? "No same-day signal to score yet."
+                        : "No hourly signal was recorded for this date.")
                      : presentationMode == .intradayOnly
                         ? "Same-day signal is present but not yet scorable."
                         : "Wear through a few days to unlock the hourly ribbon.")
@@ -451,10 +511,10 @@ public struct StressModuleCard: View {
 
     private var accessibilitySummary: String {
         guard let value else {
-            return "Today's stress, \(StressModuleBand.word(nil, mode: presentationMode)). \(StressModuleBand.why(nil, mode: presentationMode, baselineBuilding: baselineBuilding))"
+            return "\(dateContext.accessibilitySubject), \(StressModuleBand.word(nil, mode: presentationMode)). \(StressModuleBand.why(nil, mode: presentationMode, baselineBuilding: baselineBuilding, dateContext: dateContext))"
         }
         var parts = [
-            "Today's stress \(String(format: "%.1f", value)), \(StressModuleBand.word(value, mode: presentationMode))",
+            "\(dateContext.accessibilitySubject) \(String(format: "%.1f", value)), \(StressModuleBand.word(value, mode: presentationMode))",
         ]
         if let peak {
             parts.append("peak \(String(format: "%.1f", peak.level)) at \(Self.hourLabel(peak.hour))")

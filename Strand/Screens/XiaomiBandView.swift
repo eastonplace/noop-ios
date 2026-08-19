@@ -462,7 +462,9 @@ struct XiaomiBandView: View {
         let all = raw(key)
         guard let n = r.days else { return all }
         guard let last = latestDate(key) else { return [] }
-        let cutoff = last.addingTimeInterval(-Double(n - 1) * 86_400)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        guard let cutoff = calendar.date(byAdding: .day, value: -(n - 1), to: last) else { return [] }
         return all.filter { row in
             guard let d = date(row.day) else { return false }
             return d >= cutoff

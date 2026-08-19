@@ -38,6 +38,15 @@ public enum BatteryEstimator {
     /// a partial top-up is instead stepped over, and the fit prefers the longer pre-top-up discharge segment.
     public static let nearFullPct: Double = 90.0
 
+    /// A strap cannot plausibly lose its entire charge in a few minutes. Samples implying a faster
+    /// drain than this are treated as telemetry noise rather than allowing one bad packet to produce a
+    /// wildly short runway. The endpoint fit still tolerates ordinary small reporting jitter.
+    public static let maxDrainRatePctPerHour: Double = 10.0
+
+    /// Do not keep visually counting down from a battery report that has gone quiet. The estimate from
+    /// banked history remains visible, but the live projection freezes until a fresh report arrives.
+    public static let liveProjectionMaxAgeSeconds: Int = 12 * 60 * 60
+
     // MARK: - Output
 
     /// Where the drain rate came from: the user's own measured discharge, or the rated fallback.
@@ -73,7 +82,7 @@ public enum BatteryEstimator {
     ///     chosen by the caller from the connected strap's generation.
     /// - Returns: an estimate, or nil when there isn't a single reading to anchor to.
     public static func estimate(samples: [(ts: Int, soc: Double)], ratedHours: Double) -> Estimate? {
-        let sorted = samples.sorted { $0.ts < $1.ts }
+        let sorted = sanitizedSamples(samples)
         guard let last = sorted.last else { return nil }
         let current = last.soc
 
@@ -92,7 +101,7 @@ public enum BatteryEstimator {
             let drop = first.soc - lastRun.soc
             guard spanHours >= minSpanHours, drop >= minDropPct else { return nil }
             let rate = drop / spanHours
-            return rate > 0 ? rate : nil
+            return rate > 0 && rate <= maxDrainRatePctPerHour ? rate : nil
         }()
 
         let rate = measuredRate ?? (100.0 / max(ratedHours, 1))
@@ -176,7 +185,7 @@ public enum BatteryEstimator {
     /// cost. Pure: no clock, no I/O, so fixtures stay exact. The Kotlin twin is BatteryEstimator.estimateTrace.
     public static func estimateTrace(samples: [(ts: Int, soc: Double)], ratedHours: Double)
         -> (estimate: Estimate?, trace: [String]) {
-        let sorted = samples.sorted { $0.ts < $1.ts }
+        let sorted = sanitizedSamples(samples)
         guard let last = sorted.last, let first0 = sorted.first else {
             return (nil, ["battery series=0 readings, no reading to anchor to"])
         }
@@ -228,11 +237,27 @@ public enum BatteryEstimator {
 
         let measured = spanPass && dropPass && run.count >= 2
             && (run.first!.soc - run.last!.soc) / (Double(run.last!.ts - run.first!.ts) / 3600.0) > 0
+            && (run.first!.soc - run.last!.soc) / (Double(run.last!.ts - run.first!.ts) / 3600.0)
+                <= maxDrainRatePctPerHour
         lines.append("battery gate minSpanHours \(hoursText(minSpanHours)) "
             + "\(spanPass ? "PASS" : "FAIL"), minDropPct \(socText(minDropPct)) "
             + "\(dropPass ? "PASS" : "FAIL") -> source=\(measured ? "measured" : "rated")")
 
         return (estimate(samples: samples, ratedHours: ratedHours), lines)
+    }
+
+    /// Remove impossible readings and collapse duplicate timestamps before any charge/run logic runs.
+    /// Battery rows can come from both the live BLE stream and persisted seed data, so this boundary must
+    /// be defensive even though normal ingestion already filters most duplicates.
+    private static func sanitizedSamples(_ samples: [(ts: Int, soc: Double)])
+        -> [(ts: Int, soc: Double)] {
+        var byTimestamp: [Int: (ts: Int, soc: Double)] = [:]
+        for sample in samples where sample.ts >= 0
+            && sample.soc.isFinite
+            && (0...100).contains(sample.soc) {
+            byTimestamp[sample.ts] = sample
+        }
+        return byTimestamp.values.sorted { $0.ts < $1.ts }
     }
 
     private static func socText(_ v: Double) -> String { String(format: "%.1f", v) }
@@ -245,6 +270,43 @@ public enum BatteryEstimator {
     public static func label(hours: Double) -> String {
         if hours < 48 { return "~\(Int(hours.rounded()))h" }
         return "~\(String(format: "%.1f", hours / 24)) days"
+    }
+
+    /// A command-centre readout that visibly advances between sparse strap battery reports. The
+    /// estimator remains anchored to real SoC history; this only projects its remaining runtime from
+    /// the latest sample while the strap is known to be connected and discharging.
+    public static func projectedRemainingHours(
+        estimate: Estimate,
+        anchoredAt: Int?,
+        asOf now: Int,
+        activelyDischarging: Bool,
+        sessionStartedAt: Int? = nil,
+        maxAgeSeconds: Int = liveProjectionMaxAgeSeconds
+    ) -> Double {
+        guard activelyDischarging,
+              let anchoredAt,
+              now > anchoredAt,
+              now - anchoredAt <= max(0, maxAgeSeconds),
+              sessionStartedAt.map({ anchoredAt >= $0 }) ?? true else {
+            return max(0, estimate.remainingHours)
+        }
+        return max(0, estimate.remainingHours - Double(now - anchoredAt) / 3_600)
+    }
+
+    /// More useful than the compact badge label for a live operational surface: days retain an hour
+    /// component and sub-two-day estimates retain minutes, so the value changes without pretending the
+    /// underlying SoC sensor is more precise than it is.
+    public static func liveLabel(hours: Double) -> String {
+        let boundedMinutes = max(0, Int((hours * 60).rounded()))
+        if boundedMinutes < 60 {
+            return "~\(boundedMinutes)m"
+        }
+        if boundedMinutes < 48 * 60 {
+            return "~\(boundedMinutes / 60)h \(boundedMinutes % 60)m"
+        }
+        let days = boundedMinutes / (24 * 60)
+        let hoursRemainder = (boundedMinutes % (24 * 60)) / 60
+        return "~\(days)d \(hoursRemainder)h"
     }
 
     // MARK: - Predictive low-battery alert policy

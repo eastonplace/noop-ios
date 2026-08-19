@@ -54,9 +54,13 @@ struct FullDayChartView: View {
     /// Bumped on every settled zoom/metric change so the re-read task re-runs at the new resolution.
     @State private var reloadTick = 0
 
+    private var nextDayStart: Date {
+        Repository.dateByAddingCalendarDays(1, to: dayStart)
+    }
+
     /// The full clamp the zoom window can never escape — the selected calendar day.
     private var dayBounds: ClosedRange<Date> {
-        dayStart...dayStart.addingTimeInterval(86_400)
+        dayStart...nextDayStart
     }
 
     /// #986: a continuous left-drag can scroll back to the shown day plus the two before it (a rolling
@@ -64,7 +68,7 @@ struct FullDayChartView: View {
     /// so one drag can't fling through weeks. The default view is still exactly one day (xRange: dayBounds);
     /// this only widens the pan clamp, and the data reload keys on the visible window so panned-to days load.
     private var panBounds: ClosedRange<Date> {
-        dayStart.addingTimeInterval(-2 * 86_400)...dayBounds.upperBound
+        Repository.dateByAddingCalendarDays(-2, to: dayStart)...nextDayStart
     }
 
     /// The currently-visible window (zoomed or the whole day).
@@ -162,7 +166,7 @@ struct FullDayChartView: View {
     /// Step the shown day by `delta` days, clamped so you can never go past today, and drop any zoom so the
     /// new day opens at full-day scale.
     private func stepDay(_ delta: Int) {
-        let next = dayStart.addingTimeInterval(Double(delta) * 86_400)
+        let next = Repository.dateByAddingCalendarDays(delta, to: dayStart)
         if delta > 0 && next > Repository.logicalDayStart(Date()) { return }
         withAnimation(StrandMotion.interactive) {
             dayStart = next
@@ -173,7 +177,8 @@ struct FullDayChartView: View {
     private var dayLabel: String {
         let today = Repository.logicalDayStart(Date())
         if Calendar.current.isDate(dayStart, inSameDayAs: today) { return String(localized: "Today") }
-        if Calendar.current.isDate(dayStart, inSameDayAs: today.addingTimeInterval(-86_400)) { return String(localized: "Yesterday") }
+        let yesterday = Repository.dateByAddingCalendarDays(-1, to: today)
+        if Calendar.current.isDate(dayStart, inSameDayAs: yesterday) { return String(localized: "Yesterday") }
         return Self.dayFmt.string(from: dayStart)
     }
 
@@ -358,7 +363,10 @@ struct FullDayChartView: View {
     /// on the Sleep tab (#318). Both repo reads are today-relative, so `days:` walks back far enough from
     /// now to cover the shown day; the +2 pad mirrors TodayView's sleep read (the night straddles midnight).
     private func reloadAnnotations() async {
-        let daysBack = max(0, Int(Date().timeIntervalSince(dayStart) / 86_400)) + 2
+        let calendar = Calendar.current
+        let currentDayStart = calendar.startOfDay(for: Date())
+        let civilDaysBack = calendar.dateComponents([.day], from: dayStart, to: currentDayStart).day ?? 0
+        let daysBack = max(0, civilDaysBack) + 2
 
         let sleepCandidates: [OverviewHRChart.SleepSpan] = await repo.allSleepSessions(days: daysBack)
             .map { s in

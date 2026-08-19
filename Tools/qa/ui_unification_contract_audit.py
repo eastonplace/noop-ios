@@ -218,11 +218,19 @@ try:
     )
     require(
         "Strand/Screens/SettingsView.swift",
-        "SettingsScreenTemplate",
+        "SettingsRootView(status: settingsRootStatus)",
+        "settingsDestination(",
         "displaySettingsDetail",
         "strapSettingsDetail",
         "recoverySettingsDetail",
-        ".navDetail(",
+    )
+    require(
+        "Strand/Screens/SettingsRouteCatalog.swift",
+        "enum SettingsRouteID",
+        "static let rootSections",
+        "static let searchItems",
+        "case testCentre",
+        "NativeSettingsList",
     )
     forbid(
         "Strand/Screens/SettingsView.swift",
@@ -233,12 +241,24 @@ try:
     require(
         "StrandiOS/App/RootTabView.swift",
         "SmartAlarmCommandReconciler()",
-        "SettingsCatalog.searchSections(",
-        "resultSections: moreSearchSections",
-        "private var moreSearchSections",
+        "settingsTab.tag(3)",
+        "private var settingsTab: some View",
+        ".environment(\\.screenScaffoldPresentation, .settingsDetail)",
+        ".environment(\\.appHeaderChromeVisibility, .hidden)",
+        'Item(title: "Settings", icon: "gearshape", tag: 3)',
+        "case .intervals:",
+    )
+    forbid(
+        "StrandiOS/App/RootTabView.swift",
+        "private var moreTab",
         "MoreCategoryView",
-        "understandRows",
-        "planAutomateRows",
+        "moreSearchSections",
+        "SupportView()",
+    )
+    require(
+        "Strand/Screens/DevicesView.swift",
+        'title: "Test Centre"',
+        "TestCentreView()",
     )
     forbid(
         "StrandiOS/App/RootTabView.swift",

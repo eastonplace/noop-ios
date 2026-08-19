@@ -49,6 +49,20 @@ final class StressIndexTests: XCTestCase {
         XCTAssertNil(StressIndex.stressIndex(rawRR: rr))
     }
 
+    func testMostlyRejectedSpotCaptureReturnsNil() {
+        let valid: [Double] = [
+            700, 720, 740, 760, 780, 800, 820, 840, 860, 800, 800,
+            800, 800, 820, 780, 800, 810, 790, 800, 800, 805, 795
+        ]
+        XCTAssertNotNil(StressIndex.components(rawRR: valid))
+        XCTAssertNil(
+            StressIndex.components(rawRR: valid + Array(repeating: 2500, count: 14))
+        )
+        XCTAssertNotNil(
+            StressIndex.components(rawRR: valid + Array(repeating: 2500, count: 7))
+        )
+    }
+
     func testRRIntervalOverloadMatchesRaw() {
         let raw: [Double] = [700, 720, 740, 760, 780, 800, 820, 840, 860, 800, 800,
                              800, 800, 820, 780, 800, 810, 790, 800, 800, 805, 795]

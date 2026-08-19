@@ -3,11 +3,11 @@ import SwiftUI
 import StrandDesign
 
 /// iOS navigation shell. On iPhone the natural structure is a `TabView` with the most-used screens as
-/// tabs and everything else under a "More" list.
+/// first-class tabs and contextual tools reached from their owning surfaces.
 struct RootTabView: View {
     @EnvironmentObject private var repo: Repository
-    /// Cross-screen navigation requests (e.g. Live → "Manage devices"). Devices isn't a tab — it lives
-    /// behind the More list — so a request presents it as a sheet, matching the quick-action screens.
+    /// Cross-screen navigation requests (e.g. Live → "Manage devices"). Devices isn't a tab, so a request
+    /// presents it as a sheet, matching the quick-action screens.
     @EnvironmentObject private var router: NavRouter
 
     /// Which quick-action screen the centre FAB is presenting (nil = sheet closed).
@@ -19,7 +19,6 @@ struct RootTabView: View {
     @State private var routedPillar: NavRouter.Destination?
     /// Selected tab — bound so tab switches can crossfade. Defaults to Today.
     @State private var selectedTab: Int
-    @State private var moreSearchText = ""
     /// Paper is the sole Today surface.
     private var todayTabRoot: some View { TodayView() }
 
@@ -35,7 +34,7 @@ struct RootTabView: View {
             initialTab = switch requested {
             case "trends": 1
             case "sleep": 2
-            case "more": 3
+            case "more", "settings": 3
             default: 0
             }
         }
@@ -58,7 +57,7 @@ struct RootTabView: View {
             tab(todayTabRoot, "Today", "square.grid.2x2").tag(0)
             tab(TrendsView(), "Trends", "chart.bar").tag(1)
             tab(SleepView(), "Sleep", "moon").tag(2)
-            moreTab.tag(3)
+            settingsTab.tag(3)
         }
         .toolbar(.hidden, for: .tabBar)
         .animation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24), value: selectedTab)
@@ -97,8 +96,11 @@ struct RootTabView: View {
             case .devices:
                 showDevices = true
                 router.requestedDestination = nil
-            case .insightsHub, .labBook, .fusedRecord, .rhythm, .settings, .updates:
+            case .insightsHub, .labBook, .fusedRecord, .rhythm, .updates:
                 routedPillar = destination
+                router.requestedDestination = nil
+            case .settings:
+                withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) { selectedTab = 3 }
                 router.requestedDestination = nil
             case .trends:
                 withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) { selectedTab = 1 }
@@ -165,8 +167,8 @@ struct RootTabView: View {
                     withAnimation(Self.sheetEase) { quickAction = picked }
                 }
             }
-            .presentationDetents([.height(390)])
-            .presentationDragIndicator(.hidden)
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
         case .live:
             quickScreen(LiveView())
         case .activeWorkout:
@@ -177,6 +179,8 @@ struct RootTabView: View {
             quickScreen(CoachingRootView())
         case .breathe:
             quickScreen(BreathingView())
+        case .intervals:
+            quickScreen(IntervalTimerView())
         }
     }
 
@@ -203,6 +207,25 @@ struct RootTabView: View {
         }
     }
 
+    /// Settings is the one tab that intentionally keeps the native navigation bar. Its large title,
+    /// always-visible search field, grouped lists, and inline detail titles should behave like iOS
+    /// Settings instead of inheriting the dashboard tabs' hidden-bar chrome.
+    private var settingsTab: some View {
+        NavigationStack {
+            SettingsView()
+                .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        }
+        // Keep the Settings presentation on the navigation container itself. SwiftUI may host
+        // nested NavigationLink destinations outside the view that created the link, so applying
+        // these values only to the first destination lets third- and fourth-level screens fall
+        // back to NOOP's dashboard scaffold. Container ownership makes every depth use the same
+        // native grouped-list vocabulary.
+        .environment(\.screenScaffoldPresentation, .settingsDetail)
+        .environment(\.appHeaderChromeVisibility, .hidden)
+        .toolbar(.hidden, for: .tabBar)
+        .tabItem { Label("Settings", systemImage: "gearshape") }
+    }
+
     private func tab<V: View>(_ view: V, _ title: LocalizedStringKey, _ icon: String) -> some View {
         NavigationStack {
             view
@@ -212,332 +235,10 @@ struct RootTabView: View {
         .toolbar(.hidden, for: .tabBar)
         .tabItem { Label(title, systemImage: icon) }
     }
-
-    private var moreTab: some View {
-        NavigationStack {
-            ScreenScaffold(
-                title: "More",
-                subtitle: "Tools grouped by what you are trying to do",
-                onRefresh: { _ = await repo.refresh(.currentDay) },
-                topBackground: nil
-            ) {
-                SettingsScreenTemplate(
-                    sections: SettingsCatalog.searchSections(
-                        indexSections: moreSections,
-                        resultSections: moreSearchSections,
-                        query: moreSearchText
-                    )
-                )
-            }
-            .searchable(text: $moreSearchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search More")
-            .toolbar(.hidden, for: .tabBar)
-        }
-        .tabItem { Label("More", systemImage: "ellipsis.circle.fill") }
-    }
-
-    private var moreSections: [SettingsSectionModel] {
-        [
-            SettingsSectionModel(
-                id: "browse",
-                header: "Browse",
-                footer: "Open a focused group instead of scanning one long wall of tools.",
-                rows: [
-                    .navDetail(
-                        id: "understand",
-                        icon: "brain.head.profile",
-                        tint: StrandPalette.metricPurple,
-                        title: "Understand your data",
-                        subtitle: "Patterns, coaching, metric exploration, and comparisons"
-                    ) {
-                        MoreCategoryView(
-                            title: "Understand",
-                            subtitle: "Turn your history into patterns and decisions",
-                            rows: understandRows
-                        )
-                    },
-                    .navDetail(
-                        id: "train-recover",
-                        icon: "figure.run.circle.fill",
-                        tint: StrandPalette.strainAccent,
-                        title: "Train & recover",
-                        subtitle: "Live data, workouts, health, stress, breathing, and timing"
-                    ) {
-                        MoreCategoryView(
-                            title: "Train & recover",
-                            subtitle: "Record, review, and regulate your body",
-                            rows: trainRecoverRows
-                        )
-                    },
-                    .navDetail(
-                        id: "data-devices",
-                        icon: "externaldrive.connected.to.line.below.fill",
-                        tint: StrandPalette.metricCyan,
-                        title: "Data & devices",
-                        subtitle: "Sources, Apple Health, fused records, backups, and exports"
-                    ) {
-                        MoreCategoryView(
-                            title: "Data & devices",
-                            subtitle: "Connect, inspect, move, and protect your data",
-                            rows: dataDeviceRows
-                        )
-                    },
-                    .navDetail(
-                        id: "plan-automate",
-                        icon: "wand.and.stars",
-                        tint: StrandPalette.metricAmber,
-                        title: "Plan & automate",
-                        subtitle: "Alarms, automations, diagnostics, and Siri shortcuts"
-                    ) {
-                        MoreCategoryView(
-                            title: "Plan & automate",
-                            subtitle: "Set up routines and technical tools",
-                            rows: planAutomateRows
-                        )
-                    },
-                ]
-            ),
-            SettingsSectionModel(
-                id: "account-help",
-                header: "Account & Help",
-                rows: accountHelpRows
-            ),
-        ]
-    }
-
-    private var moreSearchSections: [SettingsSectionModel] {
-        [
-            SettingsSectionModel(id: "understand-results", header: "Understand", rows: understandRows),
-            SettingsSectionModel(id: "train-recover-results", header: "Train & recover", rows: trainRecoverRows),
-            SettingsSectionModel(id: "data-devices-results", header: "Data & devices", rows: dataDeviceRows),
-            SettingsSectionModel(id: "plan-automate-results", header: "Plan & automate", rows: planAutomateRows),
-            SettingsSectionModel(id: "account-help-results", header: "Account & Help", rows: accountHelpRows),
-        ]
-    }
-
-    private var accountHelpRows: [SettingsRowModel] {
-        [
-            .navDetail(
-                id: "settings",
-                icon: "gearshape.fill",
-                tint: StrandPalette.textSecondary,
-                title: "Settings",
-                subtitle: "Profile, device, scoring, appearance, privacy, and advanced tools"
-            ) { SettingsView() },
-            .navDetail(
-                id: "support",
-                icon: "heart.fill",
-                tint: StrandPalette.metricRose,
-                title: "Support",
-                subtitle: "Help, troubleshooting, and support for the project"
-            ) { SupportView() },
-        ]
-    }
-
-    private var understandRows: [SettingsRowModel] {
-        [
-            .navDetail(
-                id: "what-moves-you",
-                icon: "wand.and.sparkles",
-                tint: StrandPalette.metricPurple,
-                title: "What Moves You",
-                subtitle: "Your strongest relationships and recurring behavior signals"
-            ) { InsightsHubView() },
-            .navDetail(
-                id: "intelligence",
-                icon: "brain.head.profile",
-                tint: StrandPalette.recoveryData,
-                title: "Intelligence",
-                subtitle: "Forecasts, confidence, and engine-backed explanations"
-            ) { IntelligenceView() },
-            .navDetail(
-                id: "coach",
-                icon: "sparkles",
-                tint: StrandPalette.metricAmber,
-                title: "Coach",
-                subtitle: "Personalized guidance grounded in your local history"
-            ) { CoachView() },
-            .navDetail(
-                id: "explore",
-                icon: "square.grid.2x2.fill",
-                tint: StrandPalette.metricCyan,
-                title: "Explore metrics",
-                subtitle: "Open every recorded and derived metric in one catalog"
-            ) { MetricExplorerView() },
-            .navDetail(
-                id: "compare",
-                icon: "rectangle.split.2x1.fill",
-                tint: StrandPalette.sleepAccent,
-                title: "Compare",
-                subtitle: "Place two periods or metrics side by side"
-            ) { CompareView() },
-        ]
-    }
-
-    private var trainRecoverRows: [SettingsRowModel] {
-        [
-            .navDetail(
-                id: "live",
-                icon: "waveform.path.ecg",
-                tint: StrandPalette.liveRed,
-                title: "Live",
-                subtitle: "Current heart rate, strap state, and live session controls"
-            ) { LiveView() },
-            .navDetail(
-                id: "workouts",
-                icon: "figure.run",
-                tint: StrandPalette.strainAccent,
-                title: "Workouts",
-                subtitle: "Record, finish, edit, and review training sessions"
-            ) { WorkoutsView() },
-            .navDetail(
-                id: "health",
-                icon: "heart.text.square.fill",
-                tint: StrandPalette.metricRose,
-                title: "Health",
-                subtitle: "Vitals, trends, flags, and health context"
-            ) { HealthView() },
-            .navDetail(
-                id: "lab-book",
-                icon: "books.vertical.fill",
-                tint: StrandPalette.metricPurple,
-                title: "Lab Book",
-                subtitle: "Experiments, observations, and personal evidence"
-            ) { LabBookView() },
-            .navDetail(
-                id: "stress",
-                icon: "bolt.heart.fill",
-                tint: StrandPalette.stressAccent,
-                title: "Stress",
-                subtitle: "Daytime stress, check-ins, and regulation tools"
-            ) { StressView() },
-            .navDetail(
-                id: "breathe",
-                icon: "wind",
-                tint: StrandPalette.recoveryData,
-                title: "Breathe",
-                subtitle: "Guided breathing sessions with live feedback"
-            ) { BreathingView() },
-            .navDetail(
-                id: "intervals",
-                icon: "timer",
-                tint: StrandPalette.metricAmber,
-                title: "Intervals",
-                subtitle: "Simple interval timing for structured sessions"
-            ) { IntervalTimerView() },
-            .navDetail(
-                id: "rhythm",
-                icon: "waveform.path",
-                tint: StrandPalette.sleepAccent,
-                title: "Rhythm",
-                subtitle: "Daily timing, sleep regularity, and circadian patterns"
-            ) { RhythmHost() },
-        ]
-    }
-
-    private var dataDeviceRows: [SettingsRowModel] {
-        [
-            .navDetail(
-                id: "fused-record",
-                icon: "square.stack.3d.up.fill",
-                tint: StrandPalette.metricPurple,
-                title: "Your data, fused",
-                subtitle: "One chronological record across local sources"
-            ) { FusedRecordHost() },
-            .navDetail(
-                id: "apple-health",
-                icon: "heart.fill",
-                tint: StrandPalette.metricRose,
-                title: "Apple Health",
-                subtitle: "Read and write permissions, sync, and source status"
-            ) { AppleHealthView() },
-            .navDetail(
-                id: "mi-band",
-                icon: "figure.walk.motion",
-                tint: StrandPalette.metricCyan,
-                title: "Mi Band",
-                subtitle: "Xiaomi band connection and supported data"
-            ) { XiaomiBandView() },
-            .navDetail(
-                id: "data-sources",
-                icon: "externaldrive.fill",
-                tint: StrandPalette.metricCyan,
-                title: "Data Sources",
-                subtitle: "Imports, source priority, storage, and cleanup"
-            ) { DataSourcesView() },
-            .navDetail(
-                id: "backup-sync",
-                icon: "externaldrive.fill.badge.icloud",
-                tint: StrandPalette.sleepAccent,
-                title: "Backup & Sync",
-                subtitle: "Create, restore, and inspect portable backups"
-            ) { BackupSyncView() },
-            .navDetail(
-                id: "shortcuts-export",
-                icon: "square.and.arrow.up.fill",
-                tint: StrandPalette.metricAmber,
-                title: "Shortcuts Export",
-                subtitle: "Configure files and values exposed to Shortcuts"
-            ) { ShortcutExportSettingsView() },
-        ]
-    }
-
-    private var planAutomateRows: [SettingsRowModel] {
-        [
-            .navDetail(
-                id: "alarms",
-                icon: "alarm.fill",
-                tint: StrandPalette.sleepAccent,
-                title: "Alarms",
-                subtitle: "Wake mode, weekdays, wind-down, test buzz, and backup status"
-            ) { SmartAlarmView() },
-            .navDetail(
-                id: "automations",
-                icon: "wand.and.stars",
-                tint: StrandPalette.metricPurple,
-                title: "Automations",
-                subtitle: "Run local actions from strap and app events"
-            ) { AutomationsView() },
-            .navDetail(
-                id: "test-centre",
-                icon: "stethoscope",
-                tint: StrandPalette.metricCyan,
-                title: "Test Centre",
-                subtitle: "Connection, sensor, scoring, and notification checks"
-            ) { TestCentreView() },
-            .navDetail(
-                id: "siri-shortcuts",
-                icon: "mic.fill",
-                tint: StrandPalette.metricRose,
-                title: "Siri & Shortcuts",
-                subtitle: "Voice and system actions exposed by NOOP"
-            ) { SiriShortcutsSettingsView() },
-        ]
-    }
-}
-
-private struct MoreCategoryView: View {
-    let title: LocalizedStringKey
-    let subtitle: LocalizedStringKey
-    let rows: [SettingsRowModel]
-
-    var body: some View {
-        ScreenScaffold(title: title, subtitle: subtitle, lazy: true, topBackground: nil) {
-            SettingsScreenTemplate(
-                sections: [
-                    SettingsSectionModel(
-                        id: "tools",
-                        header: "Tools",
-                        rows: rows
-                    )
-                ]
-            )
-        }
-        .environment(\.screenScaffoldNavigationRole, .detail)
-    }
 }
 
 private enum QuickAction: Int, Identifiable {
-    case menu, live, activeWorkout, workout, journal, breathe
+    case menu, live, activeWorkout, workout, journal, breathe, intervals
     var id: Int { rawValue }
 }
 
@@ -590,16 +291,21 @@ private struct QuickActionSheet: View {
 
             Divider().overlay(StrandPalette.hairline)
 
-            row("Live HR", subtitle: "Start live heart rate", icon: "heart.fill",
-                tint: StrandPalette.liveRed) { onPick(.live) }
-            row("Start workout", subtitle: "Track a workout", icon: "figure.run",
-                tint: StrandPalette.ink) { onPick(.workout) }
-            row("Log journal", subtitle: "How are you feeling?", icon: "square.and.pencil",
-                tint: StrandPalette.journalAccent) { onPick(.journal) }
-            row("Breathe", subtitle: "Guided breathing", icon: "wind",
-                tint: StrandPalette.chargeAccent) { onPick(.breathe) }
-
-            Spacer(minLength: 0)
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    row("Live HR", subtitle: "Start live heart rate", icon: "heart.fill",
+                        tint: StrandPalette.liveRed) { onPick(.live) }
+                    row("Start workout", subtitle: "Track a workout", icon: "figure.run",
+                        tint: StrandPalette.ink) { onPick(.workout) }
+                    row("Log journal", subtitle: "How are you feeling?", icon: "square.and.pencil",
+                        tint: StrandPalette.journalAccent) { onPick(.journal) }
+                    row("Breathe", subtitle: "Guided breathing", icon: "wind",
+                        tint: StrandPalette.chargeAccent) { onPick(.breathe) }
+                    row("Intervals", subtitle: "Run an interval timer", icon: "timer",
+                        tint: StrandPalette.strainAccent) { onPick(.intervals) }
+                }
+            }
+            .scrollIndicators(.hidden)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(StrandPalette.card.ignoresSafeArea())
@@ -661,7 +367,7 @@ private struct PaperTabBar: View {
         Item(title: "Today", icon: "square.grid.2x2", tag: 0),
         Item(title: "Trends", icon: "chart.bar", tag: 1),
         Item(title: "Sleep", icon: "moon", tag: 2),
-        Item(title: "More", icon: "ellipsis", tag: 3),
+        Item(title: "Settings", icon: "gearshape", tag: 3),
     ]
 
     var body: some View {

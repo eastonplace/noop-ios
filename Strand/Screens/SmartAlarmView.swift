@@ -6,6 +6,7 @@ import StrandAnalytics
 /// The UI owns no BLE/notification side effects; every editor writes shared state and the app-root
 /// `SmartAlarmRuntimeController` reconciles one generation-safe configuration.
 struct SmartAlarmView: View {
+    @Environment(\.screenScaffoldPresentation) private var presentation
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     @EnvironmentObject private var model: AppModel
@@ -35,13 +36,19 @@ struct SmartAlarmView: View {
     @State private var scheduleToolsExpanded = false
 
     var body: some View {
-        ScreenScaffold(title: "Alarms",
-                       subtitle: "Wake and wind-down controls.") {
-            VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
-                alarmHeroSection
-                scheduleAndStrapTools
-                windDownCard
-                honestyCard
+        Group {
+            if presentation == .settingsDetail {
+                nativeSettingsBody
+            } else {
+                ScreenScaffold(title: "Alarms",
+                               subtitle: "Wake and wind-down controls.") {
+                    VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
+                        alarmHeroSection
+                        scheduleAndStrapTools
+                        windDownCard
+                        honestyCard
+                    }
+                }
             }
         }
         .task {
@@ -53,6 +60,113 @@ struct SmartAlarmView: View {
         } message: {
             Text("Allow notifications in Settings before enabling the wind-down nudge.")
         }
+    }
+
+    private var nativeSettingsBody: some View {
+        NativeSettingsList {
+            Section {
+                Toggle("Strap alarm", isOn: $behavior.smartAlarmEnabled)
+                    .font(.caption)
+                Picker("Wake mode", selection: SleepAlarmEditorSupport.modeBinding(alarmMode)) {
+                    ForEach(wakeModes) { mode in
+                        Text(mode.title).tag(mode.id)
+                    }
+                }
+                .font(.caption)
+                DatePicker("Wake time", selection: alarmTimeBinding, displayedComponents: .hourAndMinute)
+                    .font(.caption)
+                LabeledContent("Backup notification", value: alarmRuntime.backupStatus)
+                    .font(.caption)
+                Button("Test Strap Alarm") { model.buzzStrapOnce() }
+            } header: {
+                Text("Wake alarm")
+            } footer: {
+                Text("The primary alarm is a silent strap vibration. Keep a Clock alarm as a dependable backup because notification delivery can be limited by Focus or permissions.")
+            }
+
+            Section {
+                ForEach(Self.weekdayOrder, id: \.self) { weekday in
+                    Toggle(
+                        Self.weekdayName(weekday),
+                        isOn: Binding(
+                            get: { Self.alarmWeekdayIsSelected(weekday, in: behavior.smartAlarmWeekdays) },
+                            set: { _ in
+                                behavior.smartAlarmWeekdays = Self.alarmToggledWeekday(
+                                    weekday,
+                                    in: behavior.smartAlarmWeekdays
+                                )
+                            }
+                        )
+                    )
+                    .font(.caption)
+                }
+            } header: {
+                Text("Alarm days")
+            } footer: {
+                Text(Self.alarmWeekdaySummary(behavior.smartAlarmWeekdays))
+            }
+
+            Section {
+                Toggle("Wind-down reminder", isOn: $windDownOn)
+                    .font(.caption)
+                    .onChangeCompat(of: windDownOn) { enabled in
+                        WindDownNudge.setEnabled(enabled) { outcome in
+                            switch outcome {
+                            case .scheduled, .off:
+                                windDownOn = WindDownNudge.isEnabled
+                            case .denied:
+                                windDownOn = false
+                                windDownPermissionDenied = true
+                            }
+                        }
+                    }
+                if windDownOn {
+                    DatePicker("Default wake time", selection: wakeBinding, displayedComponents: .hourAndMinute)
+                        .font(.caption)
+                    LabeledContent("Reminder time", value: Self.windDownTimeLabel(WindDownNudge.nudgeMinuteOfDay()))
+                        .font(.caption)
+                    Toggle("Different time per day", isOn: $perDayOn)
+                        .font(.caption)
+                        .onChangeCompat(of: perDayOn) { enabled in
+                            if !enabled {
+                                WindDownNudge.setWakeOverrides([:])
+                                overrides = [:]
+                            }
+                        }
+                }
+            } header: {
+                Text("Wind-down")
+            } footer: {
+                Text("The reminder is calculated from your wake time and current Sleep Need. It is a suggestion, not an alarm.")
+            }
+
+            if windDownOn && perDayOn {
+                Section("Daily wake times") {
+                    ForEach(Self.weekdayOrder, id: \.self) { weekday in
+                        DatePicker(
+                            Self.weekdayName(weekday),
+                            selection: overrideBinding(weekday, effective: overrides[weekday] ?? wakeMinutes),
+                            displayedComponents: .hourAndMinute
+                        )
+                        .font(.caption)
+                    }
+                }
+            }
+
+            if let evidence = alarmRuntime.evidence {
+                Section("Last evaluation") {
+                    LabeledContent("Decision", value: Self.decisionWord(evidence.decision))
+                        .font(.caption)
+                    Text(evidence.reason)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .navigationTitle("Sleep & Alarm")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 
     private var recoveryHistoryCount: Int {

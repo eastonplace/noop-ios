@@ -41,6 +41,150 @@ struct AppleHealthLoadKey: Equatable {
     let dayKey: String
 }
 
+#if os(iOS)
+/// The Settings destination for Apple Health. The chart-heavy Apple Health browser remains a data
+/// surface; Settings owns only authorization, sync, and the exact local-data contract.
+struct AppleHealthSettingsView: View {
+    @EnvironmentObject private var health: HealthKitBridge
+    @EnvironmentObject private var repo: Repository
+
+    var body: some View {
+        NativeSettingsList {
+            Section {
+                LabeledContent("Status", value: statusLabel)
+                    .font(.caption)
+
+                if let lastSync = health.lastSync {
+                    LabeledContent("Last sync", value: lastSync.formatted(date: .abbreviated, time: .shortened))
+                        .font(.caption)
+                }
+
+                primaryAction
+
+                if health.syncing {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("Syncing Apple Health…")
+                    }
+                    .font(.caption)
+                }
+
+                if let error = health.lastError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            } header: {
+                Text("Connection")
+            } footer: {
+                Text(connectionExplanation)
+            }
+
+            Section("Data NOOP reads") {
+                Text("Heart rate, HRV, blood oxygen, respiratory rate, sleep, steps, energy, workouts, VO₂ max, weight, body fat, lean mass, and BMI")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Data NOOP writes") {
+                Text("NOOP-computed strap metrics, sleep, workouts, heart rate, energy, and distance where Apple Health grants write access")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Text("Apple Health data is processed and stored on this iPhone. NOOP does not upload it.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("Privacy")
+            }
+        }
+        .navigationTitle("Apple Health")
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            await health.refreshAuthIfPreviouslyGranted(requestNewTypes: false)
+        }
+    }
+
+    @ViewBuilder private var primaryAction: some View {
+        switch health.auth {
+        case .unknown:
+            Button("Enable Apple Health") {
+                Task {
+                    await health.requestAuthorization()
+                    await health.sync()
+                    _ = await repo.refresh(.currentDay)
+                }
+            }
+            .disabled(health.syncing)
+
+        case .authorized:
+            Button("Sync Now") {
+                Task {
+                    await health.sync()
+                    _ = await repo.refresh(.currentDay)
+                }
+            }
+            .disabled(health.syncing)
+
+        case .denied:
+            Link("Open Health Permissions", destination: URL(string: UIApplication.openSettingsURLString)!)
+
+        case .entitlementMissing:
+            NavigationLink("Import Apple Health Export") {
+                DataSourcesView()
+                    .environment(\.screenScaffoldPresentation, .settingsDetail)
+            }
+
+        case .unavailable:
+            EmptyView()
+        }
+    }
+
+    private var statusLabel: String {
+        switch health.auth {
+        case .unknown: "Not enabled"
+        case .unavailable: "Unavailable"
+        case .denied: "Permission needed"
+        case .authorized: health.syncing ? "Syncing" : "Connected"
+        case .entitlementMissing: "Unsupported by this build"
+        }
+    }
+
+    private var connectionExplanation: String {
+        switch health.auth {
+        case .unknown:
+            "Enable Apple Health to read and write the categories listed below. You choose each permission in Apple's system sheet."
+        case .unavailable:
+            "Apple Health is not available on this device."
+        case .denied:
+            "Allow access in iOS Settings to resume Apple Health sync."
+        case .authorized:
+            "NOOP reads on launch and when you return to the app. Sync Now requests an immediate refresh."
+        case .entitlementMissing:
+            "This installed build was signed without Apple's HealthKit entitlement. File import remains available and does not require that entitlement."
+        }
+    }
+}
+#else
+struct AppleHealthSettingsView: View {
+    var body: some View {
+        NativeSettingsList {
+            Section {
+                Text("Live Apple Health access is available in NOOP for iPhone.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                NavigationLink("Import Apple Health Export") { DataSourcesView() }
+            } header: {
+                Text("Apple Health")
+            }
+        }
+        .navigationTitle("Apple Health")
+    }
+}
+#endif
+
 struct AppleHealthView: View {
     @EnvironmentObject var repo: Repository
 
@@ -345,7 +489,9 @@ struct AppleHealthView: View {
     private func computeWindowedRows() -> [AppleDaily] {
         guard let n = range.days else { return appleRows }
         guard let lastDay = appleRows.last?.day, let last = date(lastDay) else { return [] }
-        let cutoff = last.addingTimeInterval(-Double(n - 1) * 86_400)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        guard let cutoff = calendar.date(byAdding: .day, value: -(n - 1), to: last) else { return [] }
         return appleRows.filter { row in
             guard let d = date(row.day) else { return false }
             return d >= cutoff
@@ -718,7 +864,9 @@ struct AppleHealthView: View {
         let all = raw(key)
         guard let n = r.days else { return all }
         guard let last = latestDate(key) else { return [] }
-        let cutoff = last.addingTimeInterval(-Double(n - 1) * 86_400)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        guard let cutoff = calendar.date(byAdding: .day, value: -(n - 1), to: last) else { return [] }
         return all.filter { row in
             guard let d = date(row.day) else { return false }
             return d >= cutoff

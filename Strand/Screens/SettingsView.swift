@@ -160,58 +160,45 @@ struct SettingsView: View {
     @Environment(\.openURL) private var openURL
 
     /// Profile header navigation is explicit instead of expanding a giant inline wall of cards.
-    @State private var showProfileSettings = false
-    @State private var settingsSearchText = ""
 
     var body: some View {
-        ScreenScaffold(title: "Settings",
-                       subtitle: "Customize NOOP to your preferences.") {
-            SettingsScreenTemplate(
-                profile: SettingsProfileHeader(
-                    initials: profileInitials,
-                    name: profileDisplayName,
-                    subtitle: memberSinceLine,
-                    recovery: model.repo.today?.recovery,
-                    action: { showProfileSettings = true }
-                ),
-                sections: SettingsCatalog.filteredSections(settingsSections, query: settingsSearchText),
-                versionLine: "NOOP \(bundleVersionString) · build \(bundleBuildString) · local & private"
-            )
-        }
-        .searchable(text: $settingsSearchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search Settings")
-        .alert(backupAlertTitle, isPresented: $showBackupAlert) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text(backupAlertMessage)
-        }
-        .confirmationDialog("Recalibrate your Recovery baseline?",
-                            isPresented: $showRecalibrateConfirm, titleVisibility: .visible) {
-            Button("Recalibrate") { recalibrateHrvBaseline() }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("This restarts the roughly 4-night build-up for Recovery and your HRV baseline. Your history stays. Use it if a bad first week, like wearing it while sick, set your baseline off.")
-        }
-        .sheet(isPresented: $showWhatsNew) {
-            WhatsNewView(onClose: { showWhatsNew = false })
-        }
-        .sheet(isPresented: $showScoringGuide) {
-            ScoringGuideView(onClose: { showScoringGuide = false })
-        }
-        .sheet(isPresented: $showHowNoopWorks) {
-            HowNoopWorksView(onClose: { showHowNoopWorks = false })
-        }
-        .sheet(isPresented: $showStepsCalibration) {
-            StepsCalibrationSheet(repo: model.repo, onClose: { showStepsCalibration = false })
-                .environmentObject(profile)
-        }
-        #if os(iOS)
-        .sheet(isPresented: $showDiagnostics) {
-            DiagnosticsSheet(onClose: { showDiagnostics = false })
-        }
-        #endif
-        .navigationDestination(isPresented: $showProfileSettings) {
-            profileSettingsDetail
-        }
+        SettingsRootView(status: settingsRootStatus)
+            .navigationDestination(for: SettingsRouteID.self) { route in
+                settingsDestination(route)
+                    .environment(\.screenScaffoldNavigationRole, .detail)
+                    .environment(\.screenScaffoldPresentation, .settingsDetail)
+                    .environment(\.appHeaderChromeVisibility, .hidden)
+            }
+            .alert(backupAlertTitle, isPresented: $showBackupAlert) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(backupAlertMessage)
+            }
+            .confirmationDialog("Recalibrate your Recovery baseline?",
+                                isPresented: $showRecalibrateConfirm, titleVisibility: .visible) {
+                Button("Recalibrate") { recalibrateHrvBaseline() }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("This restarts the roughly 4-night build-up for Recovery and your HRV baseline. Your history stays. Use it if a bad first week, like wearing it while sick, set your baseline off.")
+            }
+            .sheet(isPresented: $showWhatsNew) {
+                WhatsNewView(onClose: { showWhatsNew = false })
+            }
+            .sheet(isPresented: $showScoringGuide) {
+                ScoringGuideView(onClose: { showScoringGuide = false })
+            }
+            .sheet(isPresented: $showHowNoopWorks) {
+                HowNoopWorksView(onClose: { showHowNoopWorks = false })
+            }
+            .sheet(isPresented: $showStepsCalibration) {
+                StepsCalibrationSheet(repo: model.repo, onClose: { showStepsCalibration = false })
+                    .environmentObject(profile)
+            }
+            #if os(iOS)
+            .sheet(isPresented: $showDiagnostics) {
+                DiagnosticsSheet(onClose: { showDiagnostics = false })
+            }
+            #endif
     }
 
     private var profileInitials: String {
@@ -223,227 +210,643 @@ struct SettingsView: View {
         (Bundle.main.infoDictionary?["CFBundleVersion"] as? String) ?? "—"
     }
 
-    /// Standard rows use the promoted binding grammar. Specialised tools keep their
-    /// proven production controls, but each now lives behind a focused destination instead
-    /// of one giant disclosure card.
-    private var settingsSections: [SettingsSectionModel] {
-        let unitSelection = Binding<String>(
-            get: { unitSystem == .imperial ? "US" : "Metric" },
-            set: { unitSystemRaw = $0 == "US" ? UnitSystem.imperial.rawValue : UnitSystem.metric.rawValue }
-        )
-        let appearanceSelection = Binding<String>(
-            get: { (AppearanceMode(rawValue: appearanceRaw) ?? .system).label },
-            set: { label in
-                appearanceRaw = AppearanceMode.allCases.first(where: { $0.label == label })?.rawValue
-                    ?? AppearanceMode.system.rawValue
-            }
-        )
+    private var settingsRootStatus: SettingsRootStatus {
+        let appearance = (AppearanceMode(rawValue: appearanceRaw) ?? .system).label
+        let units = unitSystem == .imperial ? "US" : "Metric"
+        return SettingsRootStatus(values: [
+            .whoop: live.connected ? "Connected" : "Not connected",
+            .syncBattery: powerSavingEnabled
+                ? "Power saving on"
+                : (continuousHrvEnabled ? "Continuous HRV on" : "Standard"),
+            .appearanceUnits: "\(appearance) · \(units)",
+            .workoutPreferences: autoDetectWorkoutsEnabled ? "Auto detect on" : "Defaults",
+            .diagnosticsExperimental: puffinExperiments || deepDataEnabled ? "Experiments on" : nil,
+            .privacyDeletion: "Local",
+            .about: bundleVersionString,
+        ].compactMapValues { $0 })
+    }
 
-        return [
-            SettingsSectionModel(
-                id: "preferences",
-                header: "Preferences",
-                rows: [
-                    .segmented(
-                        id: "units",
-                        icon: "ruler",
-                        tint: StrandPalette.accent,
-                        title: "Units",
-                        options: ["US", "Metric"],
-                        selection: unitSelection
-                    ),
-                    .segmented(
-                        id: "appearance",
-                        icon: "circle.lefthalf.filled",
-                        tint: StrandPalette.textSecondary,
-                        title: "Appearance",
-                        options: AppearanceMode.allCases.map(\.label),
-                        selection: appearanceSelection
-                    ),
-                    .navDetail(
-                        id: "display-and-units",
-                        icon: "paintbrush.pointed.fill",
-                        tint: StrandPalette.metricPurple,
-                        title: "Display & units",
-                        subtitle: "Temperature, Strain scale, app icon, charts, and day-cycle scene"
-                    ) { displaySettingsDetail },
-                    .navDetail(
-                        id: "notifications",
-                        icon: "bell.fill",
-                        tint: StrandPalette.metricAmber,
-                        title: "Alerts & reminders",
-                        subtitle: "Wrist alerts, coaching, inactivity, stress, illness, and battery"
-                    ) { AutomationsView() },
-                ]
-            ),
-            SettingsSectionModel(
-                id: "profile-and-device",
-                header: "Profile & Device",
-                rows: [
-                    .navDetail(
-                        id: "profile",
-                        icon: "person.crop.circle.fill",
-                        tint: StrandPalette.recoveryData,
-                        title: "Profile",
-                        subtitle: "Identity, age, body measurements, zones, and personal baselines"
-                    ) { profileSettingsDetail },
-                    .navDetail(
-                        id: "strap-and-collection",
-                        icon: "sensor.tag.radiowaves.forward.fill",
-                        tint: StrandPalette.metricCyan,
-                        title: "Strap & collection",
-                        subtitle: "Connection, naming, background capture, and low-battery behavior"
-                    ) { strapSettingsDetail },
-                ]
-            ),
-            SettingsSectionModel(
-                id: "experience-and-scoring",
-                header: "Experience & Scoring",
-                rows: [
-                    .navDetail(
-                        id: "features-and-workouts",
-                        icon: "figure.run.circle.fill",
-                        tint: StrandPalette.strainAccent,
-                        title: "Features & workouts",
-                        subtitle: "Live Activity, hydration, workout detection, and screen behavior"
-                    ) { featureSettingsDetail },
-                    .navDetail(
-                        id: "recovery-and-scoring",
-                        icon: "waveform.path.ecg.rectangle.fill",
-                        tint: StrandPalette.recoveryData,
-                        title: "Recovery & scoring",
-                        subtitle: "Baseline calibration and score-specific controls"
-                    ) { recoverySettingsDetail },
-                ]
-            ),
-            SettingsSectionModel(
-                id: "data-and-support",
-                header: "Data & Support",
-                footer: "Your health data stays local. Exports are files you control.",
-                rows: [
-                    .navDetail(
-                        id: "data-sources",
-                        icon: "externaldrive.fill",
-                        tint: StrandPalette.metricCyan,
-                        title: "Data management",
-                        subtitle: "Imports, Apple Health, source priority, storage, and cleanup"
-                    ) { DataSourcesView() },
-                    .navDetail(
-                        id: "export-data",
-                        icon: "square.and.arrow.up.fill",
-                        tint: StrandPalette.sleepAccent,
-                        title: "Export your data",
-                        subtitle: "Create portable backups and files for analysis"
-                    ) { BackupSyncView() },
-                    .navDetail(
-                        id: "backup-restore",
-                        icon: "arrow.triangle.2.circlepath.circle.fill",
-                        tint: StrandPalette.metricAmber,
-                        title: "Backup & restore",
-                        subtitle: "Local database checkpoint, restore, and recovery tools"
-                    ) { backupSettingsDetail },
-                    .navDetail(
-                        id: "support",
-                        icon: "heart.fill",
-                        tint: StrandPalette.metricRose,
-                        title: "Support & donation",
-                        subtitle: "Help, diagnostics guidance, and project support"
-                    ) { SupportView() },
-                ]
-            ),
-            SettingsSectionModel(
-                id: "advanced",
-                header: "Advanced",
-                footer: "Technical tools are separated from everyday preferences so the main screen stays scannable.",
-                rows: [
-                    .navDetail(
-                        id: "test-centre",
-                        icon: "stethoscope",
-                        tint: StrandPalette.metricCyan,
-                        title: "Test Centre",
-                        subtitle: "Connection, sensor, notification, and scoring diagnostics"
-                    ) { TestCentreView() },
-                    .navDetail(
-                        id: "experimental",
-                        icon: "flask.fill",
-                        tint: StrandPalette.metricPurple,
-                        title: "Experimental",
-                        subtitle: "WHOOP 5/MG probes, raw capture, and opt-in data features"
-                    ) { experimentalSettingsDetail },
-                    .navDetail(
-                        id: "about",
-                        icon: "info.circle.fill",
-                        tint: StrandPalette.textSecondary,
-                        title: "About NOOP",
-                        subtitle: "Version, diagnostics, updates, explainers, and legal information"
-                    ) { aboutSettingsDetail },
-                ]
-            ),
-        ]
+    @ViewBuilder
+    private func settingsDestination(_ route: SettingsRouteID) -> some View {
+        switch route {
+        case .personalProfile:
+            profileSettingsDetail
+        case .scoringBaselines:
+            recoverySettingsDetail
+        case .whoop:
+            strapSettingsDetail
+        case .syncBattery:
+            syncBatterySettingsDetail
+        case .appleHealth:
+            AppleHealthSettingsView()
+        case .dataSourcesStorage:
+            NativeSettingsList {
+                Section("Sources") {
+                    NavigationLink("Data Sources") { DataSourcesView() }
+                }
+            }
+            .navigationTitle("Data Sources & Storage")
+        case .backupExport:
+            NativeSettingsList {
+                Section("Backup & Export") {
+                    NavigationLink("Backup & Sync") { BackupSyncView() }
+                    NavigationLink("Local backup & restore") { backupSettingsDetail }
+                    NavigationLink("Shortcuts Export") { ShortcutExportSettingsView() }
+                }
+            }
+            .navigationTitle("Backup & Export")
+        case .notificationsAlerts:
+            AutomationsView()
+        case .appearanceUnits:
+            displaySettingsDetail
+        case .workoutPreferences:
+            featureSettingsDetail
+        case .sleepAlarm:
+            SmartAlarmView()
+        case .automationsShortcuts:
+            NativeSettingsList {
+                Section("Automation") {
+                    NavigationLink("Automations") { AutomationsView() }
+                    NavigationLink("Siri & Shortcuts") { SiriShortcutsSettingsView() }
+                }
+            }
+            .navigationTitle("Automations & Shortcuts")
+        case .diagnosticsExperimental:
+            NativeSettingsList {
+                Section("Diagnostics") {
+                    NavigationLink("Test Centre") { TestCentreView() }
+                    #if os(iOS)
+                    Button("Environment diagnostics") { showDiagnostics = true }
+                    #endif
+                }
+                Section("Experimental") {
+                    NavigationLink("Experimental features") { experimentalSettingsDetail }
+                }
+            }
+            .navigationTitle("Diagnostics & Experimental")
+        case .testCentre:
+            TestCentreView()
+        case .privacyDeletion:
+            NativeSettingsList {
+                Section {
+                    NavigationLink("Data Sources & Storage") { DataSourcesView() }
+                    NavigationLink("Apple Health data") { AppleHealthSettingsView() }
+                } header: {
+                    Text("Data owners")
+                } footer: {
+                    Text("NOOP stores health data locally. Deletion tools remain with the source that owns the data.")
+                }
+            }
+            .navigationTitle("Privacy & data deletion")
+        case .about:
+            HowNoopWorksView()
+        }
     }
 
     private var profileSettingsDetail: some View {
-        settingsDetail("Profile", subtitle: "Personal inputs used by zones, calories, Sleep, and Recovery") {
-            profilePhotoCard
-            profileCard
+        let hasAvatar = profile.hasAvatar
+        return NativeSettingsList {
+            Section {
+                HStack(spacing: 12) {
+                    ProfileAvatarView(imageData: profile.avatarImageData, size: 36)
+                    PhotosPicker(selection: $avatarPickerItem, matching: .images) {
+                        Text(hasAvatar ? "Change Photo" : "Choose Photo")
+                            .font(.caption)
+                    }
+                    if hasAvatar {
+                        Spacer()
+                        Button("Remove", role: .destructive) { profile.clearAvatar() }
+                            .font(.caption)
+                    }
+                }
+            } header: {
+                Text("Photo")
+            } footer: {
+                Text("Optional and stored only on this device.")
+            }
+
+            Section {
+                DatePicker(
+                    "Date of birth",
+                    selection: $profile.dateOfBirth,
+                    in: ProfileStore.dateOfBirthRange,
+                    displayedComponents: .date
+                )
+                .font(.caption)
+                Picker("Sex", selection: $profile.sex) {
+                    Text("Male").tag("male")
+                    Text("Female").tag("female")
+                    Text("Non-binary").tag("nonbinary")
+                }
+                .font(.caption)
+            } header: {
+                Text("Personal")
+            }
+
+            Section {
+                Stepper(
+                    "Weight · \(nativeWeightLabel)",
+                    value: nativeWeightBinding,
+                    in: unitSystem == .imperial ? 66...551 : 30...250,
+                    step: unitSystem == .imperial ? 1 : 0.5
+                )
+                .font(.caption)
+                Stepper(
+                    "Height · \(nativeHeightLabel)",
+                    value: nativeHeightBinding,
+                    in: unitSystem == .imperial ? 47...91 : 120...230,
+                    step: 1
+                )
+                .font(.caption)
+                Stepper(
+                    "Waist · \(nativeWaistLabel)",
+                    value: nativeWaistBinding,
+                    in: unitSystem == .imperial ? 0...79 : 0...200,
+                    step: 1
+                )
+                .font(.caption)
+            } header: {
+                Text("Measurements")
+            } footer: {
+                Text("Waist is optional and adds the VO₂ max estimate. Measure around the middle at the navel.")
+            }
+
+            Section {
+                Stepper(
+                    "Max heart rate · \(profile.hrMaxOverride > 0 ? profile.hrMaxOverride : profile.hrMax) bpm",
+                    value: $profile.hrMaxOverride,
+                    in: 0...240,
+                    step: 1
+                )
+                .font(.caption)
+                if profile.hrMaxOverride > 0 {
+                    Button("Use Automatic Max Heart Rate") { profile.hrMaxOverride = 0 }
+                        .font(.caption)
+                }
+                Stepper(
+                    "Counter ticks per step · \(profile.stepTicksPerStep.formatted(.number.precision(.fractionLength(1))))",
+                    value: $profile.stepTicksPerStep,
+                    in: 0.5...30,
+                    step: 0.5
+                )
+                .font(.caption)
+                Stepper(
+                    "WHOOP 4 step estimate · \(profile.stepsManualCoefficient > 0 ? profile.stepsManualCoefficient.formatted(.number.precision(.fractionLength(2))) : stepsCalibrationSummary)",
+                    value: $profile.stepsManualCoefficient,
+                    in: 0...10,
+                    step: 0.05
+                )
+                .font(.caption)
+                if profile.stepsManualCoefficient > 0 {
+                    Button("Use Automatic Step Estimate") { profile.stepsManualCoefficient = 0 }
+                        .font(.caption)
+                }
+            } header: {
+                Text("Calibration")
+            } footer: {
+                Text("These values drive heart-rate zones, calorie estimates, Recovery baselines, and WHOOP step calibration.")
+            }
         }
+        .navigationTitle("Profile")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .onChange(of: avatarPickerItem) { _, newItem in
+            guard let newItem else { return }
+            Task {
+                let data = try? await newItem.loadTransferable(type: Data.self)
+                await MainActor.run {
+                    if let data { profile.setAvatar(data) }
+                    avatarPickerItem = nil
+                }
+            }
+        }
+    }
+
+    private var nativeWeightBinding: Binding<Double> {
+        unitSystem == .imperial
+            ? Binding(
+                get: { UnitFormatter.kgToPounds(profile.weightKg) },
+                set: { profile.weightKg = $0 / UnitFormatter.poundsPerKilogram }
+            )
+            : $profile.weightKg
+    }
+
+    private var nativeHeightBinding: Binding<Double> {
+        unitSystem == .imperial
+            ? Binding(
+                get: { profile.heightCm / 2.54 },
+                set: { profile.heightCm = $0 * 2.54 }
+            )
+            : $profile.heightCm
+    }
+
+    private var nativeWaistBinding: Binding<Double> {
+        unitSystem == .imperial
+            ? Binding(
+                get: { profile.waistCm / 2.54 },
+                set: { profile.waistCm = $0 * 2.54 }
+            )
+            : $profile.waistCm
+    }
+
+    private var nativeWeightLabel: String {
+        unitSystem == .imperial
+            ? "\(Int(nativeWeightBinding.wrappedValue.rounded())) lb"
+            : "\(profile.weightKg.formatted(.number.precision(.fractionLength(1)))) kg"
+    }
+
+    private var nativeHeightLabel: String {
+        if unitSystem == .imperial {
+            let inches = Int(nativeHeightBinding.wrappedValue.rounded())
+            return "\(inches / 12) ft \(inches % 12) in"
+        }
+        return "\(Int(profile.heightCm.rounded())) cm"
+    }
+
+    private var nativeWaistLabel: String {
+        guard profile.waistCm > 0 else { return String(localized: "Not set") }
+        return unitSystem == .imperial
+            ? "\(Int(nativeWaistBinding.wrappedValue.rounded())) in"
+            : "\(Int(profile.waistCm.rounded())) cm"
     }
 
     private var displaySettingsDetail: some View {
-        settingsDetail("Display & units", subtitle: "Choose how NOOP looks and formats measurements") {
-            unitsCard
-            appearanceCard
+        NativeSettingsList {
+            Section {
+                Picker("Measurement system", selection: $unitSystemRaw) {
+                    Text("Metric").tag(UnitSystem.metric.rawValue)
+                    Text("US").tag(UnitSystem.imperial.rawValue)
+                }
+                .font(.caption)
+                Picker("Temperature", selection: $temperatureRaw) {
+                    Text("Match measurement system").tag("")
+                    Text("Celsius").tag(TemperatureUnit.celsius.rawValue)
+                    Text("Fahrenheit").tag(TemperatureUnit.fahrenheit.rawValue)
+                }
+                .font(.caption)
+                LabeledContent("Strain scale", value: "0–21")
+                    .font(.caption)
+            } header: {
+                Text("Units")
+            } footer: {
+                Text("NOOP stores measurements in their canonical units and converts them only for display.")
+            }
+
+            Section {
+                Picker(
+                    "Theme",
+                    selection: Binding(
+                        get: { AppearanceMode(rawValue: appearanceRaw) ?? .system },
+                        set: { appearanceRaw = $0.rawValue }
+                    )
+                ) {
+                    ForEach(AppearanceMode.allCases, id: \.rawValue) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+                .font(.caption)
+                Picker(
+                    "Chart colors",
+                    selection: Binding(
+                        get: { ChartStyle.resolve(chartStyleRaw) },
+                        set: { chartStyleRaw = $0.rawValue }
+                    )
+                ) {
+                    ForEach(ChartStyle.allCases, id: \.rawValue) { style in
+                        Text(style.label).tag(style)
+                    }
+                }
+                .font(.caption)
+                Toggle("Day-cycle background", isOn: $showDayCycleBackground)
+                    .font(.caption)
+                #if os(iOS)
+                Picker("App icon", selection: $useNavyIcon) {
+                    Text("Default").tag(false)
+                    Text("Navy").tag(true)
+                }
+                .font(.caption)
+                .onChangeCompat(of: useNavyIcon) { applyAppIcon($0) }
+                #endif
+            } header: {
+                Text("Appearance")
+            } footer: {
+                Text("System follows the iPhone appearance. Day-cycle adds a subtle time-of-day scene behind Today.")
+            }
         }
+        .navigationTitle("Appearance & Units")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 
     private var strapSettingsDetail: some View {
-        settingsDetail("Strap & collection", subtitle: "Connection and on-device collection behavior") {
-            strapCard
-            powerSavingCard
+        NativeSettingsList {
+            Section {
+                LabeledContent("Status", value: strapStatusTitle)
+                    .font(.caption)
+                if let pct = live.batteryPct {
+                    LabeledContent(
+                        "Battery",
+                        value: live.charging == true
+                            ? "\(Int(pct.rounded()))% · Charging"
+                            : "\(Int(pct.rounded()))%"
+                    )
+                    .font(.caption)
+                }
+                Text(strapStatusDetail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Button("Re-scan") { model.scan() }
+                Button("Disconnect") { model.disconnect() }
+                    .disabled(!live.connected && !live.bonded)
+            } header: {
+                Text("Connection")
+            } footer: {
+                Text("NOOP pairs directly with your WHOOP over Bluetooth. It does not require the WHOOP app or cloud.")
+            }
+
+            Section {
+                Button("Copy Strap Log") {
+                    PlatformPasteboard.copy(live.exportableLogText())
+                }
+                Button("Save Strap Log…") {
+                    FileExport.exportText(
+                        live.exportableLogText(),
+                        suggestedName: FileExport.timestampedName("noop-strap-log", ext: "txt")
+                    )
+                }
+            } header: {
+                Text("Diagnostics")
+            } footer: {
+                Text("The strap log records what NOOP saw and is useful when reporting a connection problem.")
+            }
+
+            if live.connected && selectedWhoopModelRaw == WhoopModel.whoop4.rawValue {
+                Section {
+                    LabeledContent("Current name", value: live.advertisingName ?? "—")
+                        .font(.caption)
+                    TextField("New strap name", text: $strapNameDraft)
+                        .font(.caption)
+                        .textInputAutocapitalization(.words)
+                        .autocorrectionDisabled()
+                    Button("Rename Strap") {
+                        model.ble.renameStrap(strapNameDraft)
+                    }
+                    .disabled(strapNameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    if let status = live.renameStatus {
+                        Text(status).font(.caption).foregroundStyle(.secondary)
+                    }
+                } header: {
+                    Text("Name")
+                } footer: {
+                    Text("WHOOP 4.0 restarts after a rename. The new Bluetooth name appears on the next connection.")
+                }
+            }
+
+            #if os(iOS)
+            Section {
+                Toggle("Live heart rate in Dynamic Island", isOn: $liveActivityEnabled)
+                    .font(.caption)
+            } footer: {
+                Text("Shows live heart rate on the Lock Screen and in the Dynamic Island while the strap is connected.")
+            }
+            #endif
         }
+        .navigationTitle("WHOOP")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+    }
+
+    private var syncBatterySettingsDetail: some View {
+        NativeSettingsList {
+            Section {
+                Toggle("Continuous HRV capture", isOn: $continuousHrvEnabled)
+                    .font(.caption)
+                    .onChangeCompat(of: continuousHrvEnabled) { on in
+                        model.ble.setKeepRealtimeForData(on)
+                    }
+                if continuousHrvEnabled {
+                    Toggle("Overnight only", isOn: $continuousHrvOvernightOnly)
+                        .font(.caption)
+                        .onChangeCompat(of: continuousHrvOvernightOnly) { _ in
+                            model.ble.setKeepRealtimeForData(PuffinExperiment.keepRealtimeForDataEnabled)
+                        }
+                }
+            } header: {
+                Text("Collection")
+            } footer: {
+                Text(continuousHrvEnabled && continuousHrvOvernightOnly
+                     ? "Keeps beat-to-beat capture active during quiet hours. Daytime Stress readings are sparser and battery use is lower."
+                     : "Keeps the detailed beat-to-beat stream active for broader HRV, Recovery, Sleep, and Stress coverage. This uses more strap battery.")
+            }
+
+            Section {
+                Toggle("Power saving mode", isOn: $powerSavingEnabled)
+                    .font(.caption)
+                    .onChangeCompat(of: powerSavingEnabled) { _ in model.applyPowerSaving() }
+
+                if powerSavingEnabled {
+                    LabeledContent("Start below", value: "\(powerSavingPct)%")
+                        .font(.caption)
+                    Slider(
+                        value: Binding(
+                            get: { Double(powerSavingPct) },
+                            set: { powerSavingPct = Int($0) }
+                        ),
+                        in: 10...30,
+                        step: 5,
+                        onEditingChanged: { editing in
+                            if !editing { model.applyPowerSaving() }
+                        }
+                    )
+                    .accessibilityLabel("Power saving battery threshold")
+
+                    Toggle(
+                        "Pause HRV capture",
+                        isOn: Binding(
+                            get: { !pauseHrvDisabled },
+                            set: { pauseHrvDisabled = !$0 }
+                        )
+                    )
+                    .font(.caption)
+                    .onChangeCompat(of: pauseHrvDisabled) { _ in model.applyPowerSaving() }
+                }
+            } header: {
+                Text("Battery")
+            } footer: {
+                Text("Power saving slows background sync from every 15 minutes to every 45 minutes while the strap is low. Stored strap data is retrieved during the next sync.")
+            }
+        }
+        .navigationTitle("Sync & battery")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 
     private var featureSettingsDetail: some View {
-        settingsDetail("Features & workouts", subtitle: "Optional experiences and workout behavior") {
-            featuresCard
+        NativeSettingsList {
+            Section {
+                Toggle("Hydration tracking", isOn: $hydrationEnabled).font(.caption)
+                Toggle("Auto-detect workouts", isOn: $autoDetectWorkoutsEnabled).font(.caption)
+                Toggle("Keep screen on during workouts", isOn: $workoutKeepScreenOn).font(.caption)
+            } header: {
+                Text("Features")
+            } footer: {
+                Text("Hydration adds a local water log. Workout detection only suggests sessions and never saves one without confirmation. Keeping the screen awake uses more phone battery.")
+            }
         }
+        .navigationTitle("Workout & Features")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 
     private var recoverySettingsDetail: some View {
-        settingsDetail("Recovery & scoring", subtitle: "Calibrate and understand your scoring inputs") {
-            recoveryCard
+        NativeSettingsList {
+            Section {
+                Button("Recalibrate Recovery Baseline") { showRecalibrateConfirm = true }
+            } header: {
+                Text("Baseline")
+            } footer: {
+                Text("Recalibration restarts the roughly four-night baseline build from tonight. Existing history is kept.")
+            }
+
+            Section {
+                Text("Recovery uses your own recent HRV, resting heart rate, respiratory rate, and other available nightly signals. It becomes more personal as enough nights accumulate.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("Scoring")
+            }
         }
+        .navigationTitle("Scoring & Baselines")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 
     private var experimentalSettingsDetail: some View {
-        settingsDetail("Experimental", subtitle: "Opt-in technical features with explicit tradeoffs") {
-            experimentalCard
+        NativeSettingsList {
+            Section {
+                Toggle("Live Sessions", isOn: $liveSessionsBeta).font(.caption)
+                Toggle("Experimental sleep staging", isOn: $experimentalSleepV2Enabled).font(.caption)
+            } header: {
+                Text("Features")
+            } footer: {
+                Text("Live Sessions provides silence-first workout coaching. Sleep staging changes how future nights are divided into light, deep, and REM.")
+            }
+
+            if showFiveMGControls {
+                Section {
+                    Toggle("WHOOP 5/MG protocol probes", isOn: $puffinExperiments).font(.caption)
+                    Toggle("WHOOP 5/MG deep data", isOn: $deepDataEnabled).font(.caption)
+                    if deepDataEnabled {
+                        Button("Send Enable Sequence to Strap") { model.ble.enableWhoop5DeepData() }
+                            .disabled(deepDataButtonDisabled)
+                        Text(deepDataButtonReason).font(.caption).foregroundStyle(.secondary)
+                        LabeledContent("Accepted flags", value: "\(live.r22FlagsAccepted) of 15")
+                            .font(.caption)
+                    }
+                    Toggle("Broadcast heart rate", isOn: $broadcastHrEnabled)
+                        .font(.caption)
+                        .onChangeCompat(of: broadcastHrEnabled) { enabled in model.ble.setBroadcastHr(enabled) }
+                    Toggle("Record puffin frames", isOn: $puffinCapture).font(.caption)
+                    if live.puffinCaptureCount > 0 {
+                        LabeledContent("Captured frames", value: "\(live.puffinCaptureCount)")
+                            .font(.caption)
+                        Button("Export Frames…") { exportPuffinCaptures() }
+                        Button("Export Frames and Strap Log…") { exportRawAndLog() }
+                    }
+                } header: {
+                    Text("WHOOP 5 / MG")
+                } footer: {
+                    Text("These protocol tools are experimental. Deep-data and broadcast actions write reversible feature flags to the strap; capture only records frames the strap already sent.")
+                }
+            }
+
+            Section {
+                Button(rawCsvBusy ? "Exporting…" : "Export Raw Sensor Data…") { exportRawSensorCSV() }
+                    .disabled(rawCsvBusy)
+                Toggle("Daily strap-log export", isOn: $debugExportOn)
+                    .font(.caption)
+                    .onChangeCompat(of: debugExportOn) { enabled in ScheduledDebugExport.setEnabled(enabled) }
+                if debugExportOn {
+                    DatePicker("Time", selection: debugExportTimeBinding, displayedComponents: .hourAndMinute)
+                        .font(.caption)
+                    Button("Run Export Now") { runScheduledExportNow() }
+                }
+            } header: {
+                Text("Diagnostics")
+            } footer: {
+                Text(debugExportCaption)
+            }
         }
+        .navigationTitle("Experimental")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .onAppear { ScheduledDebugExport.activateIfEnabled() }
     }
 
     private var backupSettingsDetail: some View {
-        settingsDetail("Backup & restore", subtitle: "Protect or recover the local NOOP database") {
-            backupCard
-        }
-    }
+        NativeSettingsList {
+            Section {
+                Button("Export Full Backup…") { runExport() }
+                    .disabled(backupBusy)
+                Button("Import Full Backup…") { runImport() }
+                    .disabled(backupBusy)
+                Button("Export CSV…") { runCsvExport() }
+                    .disabled(backupBusy)
+                if backupBusy {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("Working…")
+                    }
+                    .font(.caption)
+                }
+            } header: {
+                Text("Manual backup")
+            } footer: {
+                Text("Import replaces the current database after confirmation. NOOP keeps a side copy of the previous data during restore.")
+            }
 
-    private var aboutSettingsDetail: some View {
-        settingsDetail("About NOOP", subtitle: "Version, updates, documentation, and diagnostics") {
-            aboutCard
+            Section {
+                NavigationLink("Folder Backup & Sync") { BackupSyncView() }
+            } header: {
+                Text("Scheduled backup")
+            } footer: {
+                Text("Choose a Files folder for on-demand and approximately daily backups.")
+            }
+
+            Section {
+                Text("A .noopbak file is an unencrypted copy of your health database. Protect it like other sensitive health data.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("Privacy")
+            }
         }
+        .navigationTitle("Backup & Restore")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 
     private func settingsDetail<Content: View>(
         _ title: LocalizedStringKey,
         subtitle: LocalizedStringKey,
-        @ViewBuilder content: @escaping () -> Content
+        @ViewBuilder content: () -> Content
     ) -> some View {
-        ScreenScaffold(title: title, subtitle: subtitle, lazy: true, topBackground: nil) {
-            LazyVStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
-                content()
-            }
+        NativeSettingsList {
+            content()
         }
-        .environment(\.screenScaffoldNavigationRole, .detail)
+        .navigationTitle(title)
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .accessibilityHint(subtitle)
     }
 
     // MARK: - Strap power saving (#477)
@@ -630,19 +1033,6 @@ struct SettingsView: View {
                     .buttonStyle(.plain)
                 }
             }
-        }
-    }
-
-    private var paperSupportSummary: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
-            SectionHeader("Support")
-            NavigationLink { SupportView() } label: {
-                PaperCard(padding: 14) {
-                    SettingsRow(icon: "heart", title: "Support & Donation",
-                                subtitle: "Help keep NOOP independent.")
-                }
-            }
-            .buttonStyle(.plain)
         }
     }
 
@@ -1128,6 +1518,50 @@ struct SettingsView: View {
 
     // MARK: - Strap
 
+    private var collectionCard: some View {
+        SettingsSection(
+            icon: "waveform.path.ecg",
+            title: "Continuous HRV capture",
+            blurb: "Choose when NOOP keeps the detailed beat-to-beat stream active. More coverage uses more strap battery."
+        ) {
+            VStack(alignment: .leading, spacing: 16) {
+                Toggle(isOn: $continuousHrvEnabled) {
+                    Text("Continuous HRV capture")
+                        .font(StrandFont.subhead)
+                        .foregroundStyle(StrandPalette.textPrimary)
+                }
+                .toggleStyle(.switch)
+                .tint(StrandPalette.ink)
+                .onChangeCompat(of: continuousHrvEnabled) { on in
+                    model.ble.setKeepRealtimeForData(on)
+                }
+
+                Text("Keeps the detailed beat-to-beat heart-rate stream running beyond live screens so NOOP captures more overnight HRV, Recovery, Sleep, and daytime Stress signal.")
+                    .font(StrandFont.caption)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if continuousHrvEnabled {
+                    Divider().overlay(StrandPalette.hairline)
+                    Toggle(isOn: $continuousHrvOvernightOnly) {
+                        Text("Overnight only")
+                            .font(StrandFont.subhead)
+                            .foregroundStyle(StrandPalette.textPrimary)
+                    }
+                    .toggleStyle(.switch)
+                    .tint(StrandPalette.ink)
+                    .onChangeCompat(of: continuousHrvOvernightOnly) { _ in
+                        model.ble.setKeepRealtimeForData(PuffinExperiment.keepRealtimeForDataEnabled)
+                    }
+                    Text("Limits the stream to your quiet-hours window, roughly halving its battery cost. Daytime Stress readings will be sparser.")
+                        .font(StrandFont.caption)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
     private var strapCard: some View {
         SettingsSection(
             icon: "antenna.radiowaves.left.and.right",
@@ -1178,42 +1612,6 @@ struct SettingsView: View {
                     .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
-
-                Divider().overlay(StrandPalette.hairline)
-
-                // MARK: Continuous HRV capture — keep the dense beat-to-beat (R-R) stream armed 24/7.
-                Toggle(isOn: $continuousHrvEnabled) {
-                    Text("Continuous HRV capture")
-                        .font(StrandFont.subhead)
-                        .foregroundStyle(StrandPalette.textPrimary)
-                }
-                .toggleStyle(.switch)
-                .tint(StrandPalette.ink)
-                .onChangeCompat(of: continuousHrvEnabled) { on in model.ble.setKeepRealtimeForData(on) }
-                Text("Keeps the detailed beat-to-beat heart-rate stream running all day and night, not just while a live screen is open, so NOOP captures much more for overnight HRV, recovery and sleep. Uses more battery: your strap streams heart rate continuously while connected.")
-                    .font(StrandFont.caption)
-                    .foregroundStyle(StrandPalette.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                // #927 Overnight only: window-gate the continuous stream to the nightly quiet-hours
-                // window. Re-pushing the UNCHANGED base preference just re-runs the BLE reconciler,
-                // which re-derives the window gate and arms/disarms on the edge immediately.
-                if continuousHrvEnabled {
-                    Toggle(isOn: $continuousHrvOvernightOnly) {
-                        Text("Overnight only")
-                            .font(StrandFont.subhead)
-                            .foregroundStyle(StrandPalette.textPrimary)
-                    }
-                    .toggleStyle(.switch)
-                    .tint(StrandPalette.ink)
-                    .onChangeCompat(of: continuousHrvOvernightOnly) { _ in
-                        model.ble.setKeepRealtimeForData(PuffinExperiment.keepRealtimeForDataEnabled)
-                    }
-                    Text("Runs the stream only during your quiet hours window (22:00 to 07:00 by default), roughly halving the battery cost. Daytime Stress readings will be sparser, since Stress reads this live stream.")
-                        .font(StrandFont.caption)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
 
                 // MARK: Strap name — rename the WHOOP 4.0's BLE advertising name (Harvard command set).
                 if live.connected && selectedWhoopModelRaw == WhoopModel.whoop4.rawValue {
@@ -2488,33 +2886,28 @@ struct SettingsView: View {
 /// A grouped settings card: a "Settings" overline + icon + title header, an explanatory blurb,
 /// then content. A faint accent-blue wash anchors the card to NOOP's neutral chrome (WHOOP skin).
 private struct SettingsSection<Content: View>: View {
-    let icon: String
     let title: LocalizedStringKey
     let blurb: LocalizedStringKey
-    @ViewBuilder var content: () -> Content
+    @ViewBuilder let content: Content
+
+    init(
+        icon _: String,
+        title: LocalizedStringKey,
+        blurb: LocalizedStringKey,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.blurb = blurb
+        self.content = content()
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
-            SectionHeader(title)
-            PaperCard {
-                VStack(alignment: .leading, spacing: NoopMetrics.space4) {
-                    HStack(spacing: NoopMetrics.space2 + 2) {
-                        Image(systemName: icon)
-                            .foregroundStyle(StrandPalette.textPrimary)
-                            .frame(width: 32, height: 32)
-                            .background(StrandPalette.inset, in: Circle())
-                            .accessibilityHidden(true)
-                        Text(title)
-                            .font(StrandFont.body.weight(.semibold))
-                            .foregroundStyle(StrandPalette.textPrimary)
-                    }
-                Text(blurb)
-                    .font(StrandFont.subhead)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    content()
-                }
-            }
+        Section {
+            content
+        } header: {
+            Text(title)
+        } footer: {
+            Text(blurb)
         }
     }
 }
@@ -2531,68 +2924,41 @@ private struct DiagnosticsSheet: View {
     private let lines: [String] = IOSDiagnostics.capture().summaryLines()
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Diagnostics").font(StrandFont.title2)
-                        .foregroundStyle(StrandPalette.textPrimary)
-                    Text("Attach this to a bug report.").font(StrandFont.caption)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                }
-                Spacer()
-                Button(action: onClose) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 20))
-                        .foregroundStyle(StrandPalette.textTertiary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close")
-            }
-            .padding(20)
-
-            Divider().overlay(StrandPalette.hairline)
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 8) {
+        NavigationStack {
+            List {
+                Section {
                     if lines.isEmpty {
                         Text("No iOS diagnostics available.")
-                            .font(StrandFont.subhead)
-                            .foregroundStyle(StrandPalette.textTertiary)
+                            .foregroundStyle(.secondary)
                     } else {
                         ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
                             Text(line)
-                                .font(StrandFont.mono(12))
-                                .foregroundStyle(StrandPalette.textSecondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .font(.system(.caption, design: .monospaced))
                                 .textSelection(.enabled)
                         }
                     }
+                } header: {
+                    Text("Environment")
+                } footer: {
+                    Text("Attach this snapshot to a bug report. It contains device and app environment details, not health records.")
                 }
-                .padding(16)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(StrandPalette.surfaceInset,
-                            in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .padding(20)
-            }
 
-            Divider().overlay(StrandPalette.hairline)
-
-            HStack {
-                Spacer()
-                Button {
-                    // UIPasteboard via the shared cross-platform wrapper.
-                    PlatformPasteboard.copy(lines.joined(separator: "\n"))
-                } label: {
-                    Label("Copy", systemImage: "doc.on.doc")
-                        .frame(minWidth: 120)
+                Section {
+                    Button("Copy Diagnostics") {
+                        PlatformPasteboard.copy(lines.joined(separator: "\n"))
+                    }
+                    .disabled(lines.isEmpty)
                 }
-                .buttonStyle(NoopButtonStyle(.primary))
-                .disabled(lines.isEmpty)
             }
-            .padding(16)
+            .listStyle(.insetGrouped)
+            .navigationTitle("Diagnostics")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done", action: onClose)
+                }
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(StrandPalette.surfaceBase)
     }
 }
 #endif
@@ -2966,9 +3332,12 @@ struct StepsCalibrationSheet: View {
         var motions: [Double] = []
         for entry in phoneDays.prefix(10) {           // scan a few extra to fill 7 after motion gaps
             guard let dayDate = dayParser.date(from: entry.day) else { continue }
-            let mid = Int(calendar.startOfDay(for: dayDate).timeIntervalSince1970)
-            let grav = (try? await store.gravitySamples(deviceId: repo.deviceId, from: mid,
-                                                        to: mid + 86_400 - 1, limit: 200_000)) ?? []
+            let dayStart = calendar.startOfDay(for: dayDate)
+            guard let nextDayStart = calendar.date(byAdding: .day, value: 1, to: dayStart) else { continue }
+            let lo = Int(dayStart.timeIntervalSince1970)
+            let hi = Int(nextDayStart.timeIntervalSince1970) - 1
+            let grav = (try? await store.gravitySamples(deviceId: repo.deviceId, from: lo,
+                                                        to: hi, limit: 200_000)) ?? []
             let motion = StepsEstimateEngine.dayMotionIntensity(grav)
             guard motion > 0, let est = StepsEstimateEngine.estimate(motion: motion, calibration: cal) else { continue }
             motions.append(motion)

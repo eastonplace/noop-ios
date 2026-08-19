@@ -37,6 +37,21 @@ final class LiveSessionStoreTests: XCTestCase {
         XCTAssertEqual(mine.map { $0.startTs }, [5000, 1000], "newest first, other device excluded")
     }
 
+    func test_late_start_cannot_reopen_a_finalized_session() async throws {
+        let store = try await WhoopStore.inMemory()
+        let ended = LiveSessionRow(
+            startTs: 3000, endTs: 4200, chargeAtStart: 62,
+            floorBpm: 125, ceilingBpm: 151,
+            inBandSec: 900, belowSec: 180, aboveSec: 120,
+            pushCount: 1, easeCount: 2, hrSource: "whoop"
+        )
+        _ = try await store.upsertLiveSession(ended, deviceId: "my-whoop")
+        _ = try await store.upsertLiveSession(started(3000), deviceId: "my-whoop")
+
+        let rows = try await store.recentLiveSessions(deviceId: "my-whoop", limit: 1)
+        XCTAssertEqual(rows, [ended])
+    }
+
     func test_charge_may_be_unknown() async throws {
         let store = try await WhoopStore.inMemory()
         let noCharge = LiveSessionRow(startTs: 2000, endTs: nil, chargeAtStart: nil, floorBpm: 120,

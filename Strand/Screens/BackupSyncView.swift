@@ -6,6 +6,7 @@ import StrandDesign
 /// already in that folder. Snapshots are the existing `.noopbak` whole-DB format. Point the folder at
 /// Google Drive / iCloud / Dropbox for off-device sync with no in-app cloud account.
 struct BackupSyncView: View {
+    @Environment(\.screenScaffoldPresentation) private var presentation
     @EnvironmentObject var model: AppModel
 
     @State private var auto = FolderBackup.autoEnabled
@@ -44,11 +45,17 @@ struct BackupSyncView: View {
     }
 
     var body: some View {
-        ScreenScaffold(
-            title: "Backup & Sync",
-            subtitle: "Keep your local data safe."
-        ) {
-            SettingsScreenTemplate(sections: backupSections)
+        Group {
+            if presentation == .settingsDetail {
+                nativeSettingsBody
+            } else {
+                ScreenScaffold(
+                    title: "Backup & Sync",
+                    subtitle: "Keep your local data safe."
+                ) {
+                    SettingsScreenTemplate(sections: backupSections)
+                }
+            }
         }
         .paperToast(
             isPresented: Binding(
@@ -79,6 +86,73 @@ struct BackupSyncView: View {
                 ? "Replace all current data with the backup from \(absoluteTime(snap.timeMs))? This cannot be undone."
                 : "Replace all current data with the backup \(snap.name)? This cannot be undone.")
         }
+    }
+
+    private var nativeSettingsBody: some View {
+        NativeSettingsList {
+            Section {
+                LabeledContent("Folder", value: folderLabel ?? "Not selected")
+                    .font(.caption)
+                Button(folderLabel == nil ? "Choose Folder…" : "Change Folder…") { chooseFolder() }
+                    .disabled(busy)
+            } header: {
+                Text("Backup location")
+            } footer: {
+                Text("Choose an iCloud Drive or local Files folder. NOOP does not create a cloud account.")
+            }
+
+            Section {
+                Toggle("Daily auto-backup", isOn: $auto)
+                    .font(.caption)
+                    .disabled(folderLabel == nil)
+                    .onChangeCompat(of: auto) { enabled in FolderBackup.autoEnabled = enabled }
+                LabeledContent(
+                    "Last backup",
+                    value: lastMs > 0 ? relativeTime(lastMs) : "Never"
+                )
+                .font(.caption)
+                Button("Back Up Now") { backupNow() }
+                    .disabled(folderLabel == nil || busy)
+                if busy {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("Working…")
+                    }
+                    .font(.caption)
+                }
+            } header: {
+                Text("Automatic backup")
+            } footer: {
+                Text("NOOP checks for a due daily backup when the app opens and keeps the latest \(FolderBackup.keepCount).")
+            }
+
+            Section {
+                Button("Restore from Backup…") { openRestorePicker() }
+                    .disabled(folderLabel == nil || busy)
+                if let operationFailure {
+                    Text(operationFailure.message)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                    Button(operationFailure.actionTitle) { retry(operationFailure.retry) }
+                }
+            } header: {
+                Text("Restore")
+            } footer: {
+                Text("Restore replaces the current local database. NOOP asks for confirmation before it changes data.")
+            }
+
+            Section {
+                Text("A .noopbak file is an unencrypted copy of your health database. Protect any folder that contains one.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("Privacy")
+            }
+        }
+        .navigationTitle("Backup & Sync")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 
     private var backupSections: [SettingsSectionModel] {

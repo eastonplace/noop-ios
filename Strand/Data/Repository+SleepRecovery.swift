@@ -189,10 +189,9 @@ extension Repository {
         // imported nils. Whole-row replacement here previously erased real computed HRV/RHR on a
         // same-day imported placeholder, starving the baseline and leaving recovered Charge blank.
         let wakeDate = Date(timeIntervalSince1970: TimeInterval(safeEnd))
-        let offset = TimeZone.current.secondsFromGMT(for: wakeDate)
-        let day = AnalyticsEngine.dayString(safeEnd, offsetSec: offset)
-        let (historyStart, historyStartOverflow) = safeEnd.subtractingReportingOverflow(180 * 86_400)
-        guard !historyStartOverflow else {
+        let calendar = Calendar.current
+        let day = Repository.localDayKey(wakeDate, calendar: calendar)
+        guard let historyStartDate = calendar.date(byAdding: .day, value: -180, to: wakeDate) else {
             return MissedSleepRecoverySaveResult(
                 status: .invalidWindow,
                 title: "Check the sleep window",
@@ -201,7 +200,7 @@ extension Repository {
                 sessionStart: nil,
                 sessionEnd: nil)
         }
-        let fromDay = AnalyticsEngine.dayString(historyStart, offsetSec: offset)
+        let fromDay = Repository.localDayKey(historyStartDate, calendar: calendar)
         async let computedHistoryRead = store.dailyMetrics(
             deviceId: computedId, from: fromDay, to: day)
         async let importedHistoryRead = store.dailyMetrics(

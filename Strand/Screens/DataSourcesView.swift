@@ -6,6 +6,7 @@ import StrandAnalytics
 import WhoopStore
 
 struct DataSourcesView: View {
+    @Environment(\.screenScaffoldPresentation) private var presentation
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var repo: Repository
     @EnvironmentObject var live: LiveState
@@ -74,18 +75,17 @@ struct DataSourcesView: View {
     }
 
     var body: some View {
-        ScreenScaffold(title: "Data Sources",
-                       subtitle: "Import or connect your data.",
-                       onRefresh: { _ = await repo.refresh(.currentDay) },
-                       // PERF: a nine-card import/source column (WHOOP, Apple Health, Xiaomi, nutrition,
-                       // lifting, activity files, wearables, broadcast-out, live strap). The LazyVStack
-                       // path is byte-identical layout. The cards stay in their inner VStack(sectionSpacing)
-                       // for pixel-identical spacing, so the lazy win is partial until they're promoted to
-                       // direct children. NOTE: this screen still observes `LiveState` for the broadcaster
-                       // lifecycle binding in onAppear/onDisappear, so a ~1 Hz tick still re-evaluates the
-                       // built cards — that observation can't be removed here (see the lane-B2 note).
-                       lazy: true) {
-            SettingsScreenTemplate(sections: dataSourceSections)
+        Group {
+            if presentation == .settingsDetail {
+                nativeSettingsBody
+            } else {
+                ScreenScaffold(title: "Data Sources",
+                               subtitle: "Import or connect your data.",
+                               onRefresh: { _ = await repo.refresh(.currentDay) },
+                               lazy: true) {
+                    SettingsScreenTemplate(sections: dataSourceSections)
+                }
+            }
         }
         .onAppear {
             // Point the broadcaster's diagnostic sink at this screen's `live` so its broadcast-out
@@ -154,6 +154,80 @@ struct DataSourcesView: View {
                 announcement: importSuccessToast
             )
         }
+    }
+
+    private var nativeSettingsBody: some View {
+        NativeSettingsList {
+            Section {
+                importButton("WHOOP Export", target: .whoop, importing: model.isImporting(.whoop))
+                importButton("Apple Health Export", target: .appleHealth, importing: model.isImporting(.appleHealth))
+                importButton("Xiaomi / Mi Fitness Export", target: .xiaomi, importing: model.isImporting(.xiaomi))
+            } header: {
+                Text("Health sources")
+            } footer: {
+                Text("Imports run locally and add data to the existing source. They do not upload the selected file.")
+            }
+
+            Section("Other imports") {
+                importButton("Nutrition CSV", target: .nutrition, importing: nutritionImporting)
+                importButton("Lifting Log", target: .lifting, importing: liftingImporting)
+                importButton("Workout File", target: .activityFile, importing: activityFileImporting)
+                importButton("Oura, Fitbit, or Garmin Export", target: .wearable, importing: wearableImporting)
+            }
+
+            Section {
+                Toggle("Broadcast live heart rate", isOn: $broadcastHrEnabled)
+                    .font(.caption)
+                    .onChangeCompat(of: broadcastHrEnabled) { enabled in
+                        if enabled { hrBroadcaster.start() } else { hrBroadcaster.stop() }
+                    }
+                LabeledContent("WHOOP history", value: "\(repo.days.count) days")
+                    .font(.caption)
+                LabeledContent("Stored sleeps", value: "\(repo.sleeps.count)")
+                    .font(.caption)
+            } header: {
+                Text("Connections")
+            } footer: {
+                Text("Heart-rate broadcast uses standard local Bluetooth so nearby gym equipment can read the live strap signal.")
+            }
+
+            Section {
+                Button("Remove Apple Health Imported Data", role: .destructive) {
+                    confirmDeleteAppleHealth = true
+                }
+                .disabled(model.hasActiveImport || appleHealthDeleting)
+                if let appleHealthDeletedSummary {
+                    Text(appleHealthDeletedSummary).font(.caption).foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("Delete imported data")
+            } footer: {
+                Text("This removes only rows imported from Apple Health. Live strap data is not changed.")
+            }
+        }
+        .navigationTitle("Data Sources")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+    }
+
+    @ViewBuilder
+    private func importButton(
+        _ title: String,
+        target: ImportTarget,
+        importing: Bool
+    ) -> some View {
+        Button {
+            presentImporter(target)
+        } label: {
+            HStack {
+                Text(importing ? String(localized: "Importing…") : title)
+                    .font(.caption)
+                Spacer()
+                if importing { ProgressView().controlSize(.small) }
+            }
+        }
+        .disabled(model.hasActiveImport || nutritionImporting || liftingImporting || activityFileImporting || wearableImporting)
     }
 
     private func destructiveSheet<Content: View>(@ViewBuilder content: () -> Content) -> some View {

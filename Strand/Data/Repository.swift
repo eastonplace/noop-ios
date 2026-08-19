@@ -4201,7 +4201,7 @@ final class Repository: ObservableObject {
     private static let autoDetectDismissedMax = 200
     /// Spans whose END is older than this many seconds can never be re-suggested (detection only scans
     /// the last ~2 days), so we drop them. 30 days, matching the Android twin byte-for-byte.
-    private static let autoDetectDismissedMaxAgeSec = 30 * 86_400
+    private static let autoDetectDismissedMaxAgeSec = 30 * 24 * 60 * 60
 
     /// Parse the END time (seconds) out of a "startSec:endSec" token; nil if malformed.
     private func autoDetectTokenEnd(_ token: String) -> Int? {
@@ -4236,7 +4236,7 @@ final class Repository: ObservableObject {
     func autoDetectCandidate(daysBack: Int = 2) async -> DetectedWorkout? {
         guard PuffinExperiment.autoDetectWorkoutsEnabled else { return nil }
         let now = Int(Date().timeIntervalSince1970)
-        let from = now - daysBack * 86_400
+        let from = now - daysBack * 24 * 60 * 60
         let samples = await hrSamples(from: from, to: now, limit: 200_000)
         guard samples.count >= 2 else { return nil }
         let hr = samples.map { (ts: $0.ts, bpm: $0.bpm) }

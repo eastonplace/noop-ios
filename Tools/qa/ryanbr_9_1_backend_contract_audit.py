@@ -275,7 +275,9 @@ try:
         "Packages/WhoopProtocol/Sources/WhoopProtocol/Whoop5RawImu.swift",
         "public static func rawColumns",
         "public static func baseTs",
-        "private static func isValidBuffer",
+        # HistoricalStreams classifies v21 frames through the same full-shape gate, so this helper is
+        # intentionally public within WhoopProtocol instead of file-private.
+        "public static func isValidBuffer",
         "guard isValidBuffer(f) else { return nil }",
         "output[column * sampleCount + index]",
     )

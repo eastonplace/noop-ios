@@ -175,10 +175,11 @@ enum DeviceCommandCenterStatusResolver {
 
     private static func relativeAgo(_ timestamp: TimeInterval, now: TimeInterval) -> String {
         let seconds = max(0, Int(now - timestamp))
+        let elapsedDaySeconds = 24 * 60 * 60
         if seconds < 60 { return "just now" }
         if seconds < 3_600 { return "\(seconds / 60) min ago" }
-        if seconds < 86_400 { return "\(seconds / 3_600) hr ago" }
-        return "\(seconds / 86_400) d ago"
+        if seconds < elapsedDaySeconds { return "\(seconds / 3_600) hr ago" }
+        return "\(seconds / elapsedDaySeconds) d ago"
     }
 }
 
@@ -266,9 +267,10 @@ enum HistoricalSyncStatusResolver {
 
     private static func relativeAgo(_ timestamp: TimeInterval, now: TimeInterval) -> String {
         let seconds = max(0, Int(now - timestamp))
+        let elapsedDaySeconds = 24 * 60 * 60
         if seconds < 60 { return "just now" }
         if seconds < 3_600 { return "\(seconds / 60) min ago" }
-        if seconds < 86_400 { return "\(seconds / 3_600) hr ago" }
-        return "\(seconds / 86_400) d ago"
+        if seconds < elapsedDaySeconds { return "\(seconds / 3_600) hr ago" }
+        return "\(seconds / elapsedDaySeconds) d ago"
     }
 }

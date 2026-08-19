@@ -275,6 +275,7 @@ private struct TodayScreenSnapshot: Equatable {
         let hours: [Double?]
         let value: Double?
         let nowHour: Int
+        let dateContext: StressModuleDateContext
         let presentationMode: StressPresentationMode
         let baselineBuilding: Bool
     }
@@ -336,6 +337,7 @@ private struct TodaySnapshotStressSection: View, @preconcurrency Equatable {
         StressModuleCard(hours: snapshot.hours, value: snapshot.value, nowHour: snapshot.nowHour,
                          presentationMode: snapshot.presentationMode,
                          baselineBuilding: snapshot.baselineBuilding,
+                         dateContext: snapshot.dateContext,
                          onOpen: onOpen)
     }
 }
@@ -458,6 +460,9 @@ struct TodayView: View {
     // Design Reset / #582, the pinned "Your cards" values (Stress / Fitness age / Vitality), surfaced
     // on Today so the buried Explore features sit on the home screen. Loaded in loadAll; nil hides the row.
     @State private var stressToday: Double?
+    /// Persisted Stress points used to resolve the exact selected day. Keeping the series alongside the
+    /// history-wide cache prevents a past-day card from silently dropping the stored winner.
+    @State private var stressStored: [(day: String, value: Double)] = []
     /// Coverage evidence cached with the history-wide snapshot. It distinguishes a first
     /// baseline from a known baseline that simply has no usable signal today.
     @State private var stressHistoryAvailable = false
@@ -597,11 +602,6 @@ struct TodayView: View {
     /// Advances only when a first-paint metric crosses its freshness boundary. It restarts the one-shot
     /// freshness task without adding a repeating timer to Today.
     @State private var firstPaintFreshnessScheduleRevision = 0
-
-    // Support sheet (donate + contact), opened from the home toolbar on macOS, and from an
-    // in-content control on iOS (a primary tab has no NavigationStack, so a `.toolbar` item never
-    // renders on iPhone, the affordance was dead there before this in-flow button + sheet, #185-class).
-    @State private var showingSupport = false
 
     // "How your scores work" guide, presented at a specific score's section when the ⓘ on that
     // score (or the first-run card) is tapped. nil = not shown. ScoreSection is Identifiable, so
@@ -1776,22 +1776,45 @@ struct TodayView: View {
                 HRTrackPoint(id: index, t: point.date.timeIntervalSince(midnight), bpm: point.value)
             }
         let tiles = enabledDashboardCards.map { healthDashboardTile($0, day: day) }
+        let stressTargetDay = day?.day ?? selectedDayKey
+        let stressDaily = selectedDayOffset == 0
+            ? stressToday
+            : StressPresentation.dailyScore(
+                for: stressTargetDay,
+                days: repo.days,
+                stored: stressStored
+            )
+        let stressIntraday = selectedDayOffset == 0 ? daytimeStress : nil
+        let stressHasHistory = selectedDayOffset == 0
+            ? stressHistoryAvailable
+            : StressPresentation.historyAvailable(
+                for: stressTargetDay,
+                days: repo.days,
+                stored: stressStored
+            )
         let stressMode = StressPresentation.mode(
-            dailyAvailable: stressToday != nil,
-            intraday: daytimeStress,
-            historyAvailable: stressHistoryAvailable
+            dailyAvailable: stressDaily != nil,
+            intraday: stressIntraday,
+            historyAvailable: stressHasHistory
         )
         let stressValue = StressPresentation.headlineScore(
-            dailyScore: stressToday,
-            intraday: daytimeStress
+            dailyScore: stressDaily,
+            intraday: stressIntraday
         )
         return TodayScreenSnapshot(
             hero: .init(pillars: pillars, glance: paperGlanceText,
                         showsWorkoutAction: selectedDayOffset == 0),
             heart: .init(samples: heartSamples, restingHR: day?.restingHr.map(Double.init)),
-            stress: .init(hours: stressRibbonSlots, value: stressValue, nowHour: demoSceneHour,
-                          presentationMode: stressMode,
-                          baselineBuilding: !stressHistoryAvailable && stressToday == nil),
+            stress: .init(
+                hours: selectedDayOffset == 0 ? stressRibbonSlots : Array(repeating: nil, count: 24),
+                value: stressValue,
+                nowHour: demoSceneHour,
+                dateContext: selectedDayOffset == 0
+                    ? .today
+                    : .historical(date: selectedLogicalDay),
+                presentationMode: stressMode,
+                baselineBuilding: !stressHasHistory && stressDaily == nil
+            ),
             health: .init(tiles: tiles,
                           status: String(localized: "\(enabledDashboardCards.count) of 9 metrics selected"))
         )
@@ -1931,7 +1954,10 @@ struct TodayView: View {
     }
 
     fileprivate static func paperClockLabel(_ seconds: TimeInterval) -> String {
-        let normalized = min(max(seconds, 0), 86_400)
+        // HRTrackPoint.t is a nominal seconds-from-midnight coordinate for this compact live card,
+        // not a civil-day boundary. Keep the display coordinate bounded to one clock face.
+        let nominalClockSpan = TimeInterval(24 * 60 * 60)
+        let normalized = min(max(seconds, 0), nominalClockSpan)
         let date = Calendar.current.startOfDay(for: Date()).addingTimeInterval(normalized)
         return paperClockFormatter.string(from: date)
     }
@@ -2116,7 +2142,6 @@ struct TodayView: View {
                 #endif
                 HealthAlertBanner()
                 AutoWorkoutCard()
-                DonationNudgeCard()
                 ActiveWorkoutIndicatorSection()
                 // Keep the Recovery empty state honest while a historical offload is still writing. The
                 // score can legitimately trail Sleep until the corresponding R-R frames land, so surface
@@ -2233,36 +2258,12 @@ struct TodayView: View {
             DataSourcesView().environment(\.screenScaffoldNavigationRole, .detail)
         }
         #if os(macOS)
-        // macOS hosts the Support affordance in the window toolbar (RootView's NavigationSplitView
-        // supplies the toolbar) and presents it as the fixed-width SupportModalOverlay panel. On iOS
-        // this path is unavailable (no nav bar on a primary tab) and the 560pt panel would overflow
-        // iPhone, so the in-content `supportRow` + auto-sized `.sheet` below take over instead.
         .toolbar {
-            // Support heart on the LEADING (left) edge of the window toolbar.
-            ToolbarItem(placement: .navigation) {
-                Button { showingSupport = true } label: {
-                    Image(systemName: "heart.fill")
-                        .foregroundStyle(StrandPalette.metricRose)
-                        .attentionWiggle(period: 4)
-                }
-                .help("Support NOOP: donate or get in touch")
-                .accessibilityLabel("Support NOOP: donate or get in touch")
-            }
-            // The Updates "ringer" on the TRAILING (top-right) edge, separated from the heart (iOS hosts
-            // it in the compact top bar instead).
             ToolbarItem(placement: .primaryAction) {
                 updateBell.help("Updates")
             }
         }
-        .overlay {
-            if showingSupport {
-                SupportModalOverlay(isPresented: $showingSupport)
-            }
-        }
-        .animation(.easeOut(duration: 0.18), value: showingSupport)
         #else
-        // iOS: present Support as an auto-sized sheet (sizes to the device, unlike the 560pt overlay).
-        .sheet(isPresented: $showingSupport) { SupportView() }
         // Profile/settings from the top-bar button.
         .sheet(isPresented: $showSettings) { settingsSheet }
         .sheet(isPresented: $showLiveWorkout) {
@@ -2393,7 +2394,7 @@ struct TodayView: View {
 
     /// "New here?", a single, dismissible card that points first-time users at the guide. Tapping the
     /// card opens the guide; the ✕ closes it. Either action sets `scoringGuideCardSeen`, so it shows
-    /// once and never again. Mirrors the DonationNudgeCard's in-flow, never-modal pattern.
+    /// once and never again. It stays in-flow and never blocks the dashboard.
     private var scoringGuideFirstRunCard: some View {
         NoopCard {
             HStack(alignment: .top, spacing: 14) {
@@ -2453,46 +2454,6 @@ struct TodayView: View {
         // Press-down feedback for the tappable card surface.
         .strandPressable()
     }
-
-    #if os(iOS)
-    // MARK: Support entry point (iOS), the in-content stand-in for the macOS toolbar heart.
-
-    /// An in-flow card that opens the Support sheet (donate + contact). The whole card is the tap
-    /// target; reuses the heart.fill + metricRose styling and the accessibility copy of the macOS
-    /// toolbar button so both platforms read identically. iOS-only, macOS keeps the toolbar item.
-    private var supportRow: some View {
-        Button {
-            StrandHaptic.selection.play()
-            showingSupport = true
-        } label: {
-            NoopCard {
-                HStack(spacing: 14) {
-                    Image(systemName: "heart.fill")
-                        .font(.system(size: 18))
-                        .foregroundStyle(StrandPalette.metricRose)
-                        .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Support NOOP")
-                            .font(StrandFont.headline)
-                            .foregroundStyle(StrandPalette.textPrimary)
-                        Text("Donate or get in touch. Totally optional.")
-                            .font(StrandFont.subhead)
-                            .foregroundStyle(StrandPalette.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(StrandPalette.textTertiary)
-                        .accessibilityHidden(true)
-                }
-            }
-        }
-        // Press-down feedback for the full-card button surface.
-        .buttonStyle(StrandPressableButtonStyle())
-        .accessibilityLabel("Support NOOP: donate or get in touch")
-    }
-    #endif
 
     // MARK: Readiness, on-device training-readiness synthesis (HRV / resting-HR / load).
 
@@ -4654,6 +4615,7 @@ struct TodayView: View {
         // page on a day with no banked stress row. Cached history evidence distinguishes a first baseline
         // from an established baseline with no usable signal today. Fitness age / Vitality keep their merged reads.
         let storedStress = await stressStoredA
+        stressStored = storedStress
         stressHistoryAvailable = StressPresentation.historyAvailable(
             days: repo.days,
             stored: storedStress
@@ -4688,6 +4650,7 @@ struct TodayView: View {
             xiaomiDays: xiaomiDays,
             xiaomiSleeps: xiaomiSleeps,
             stressToday: stressToday,
+            stressStored: stressStored,
             stressHistoryAvailable: stressHistoryAvailable,
             fitnessAgeToday: fitnessAgeToday,
             vitalityToday: vitalityToday
@@ -4707,6 +4670,7 @@ struct TodayView: View {
         xiaomiDays = c.xiaomiDays
         xiaomiSleeps = c.xiaomiSleeps
         stressToday = c.stressToday
+        stressStored = c.stressStored
         stressHistoryAvailable = c.stressHistoryAvailable
         fitnessAgeToday = c.fitnessAgeToday
         vitalityToday = c.vitalityToday
@@ -5300,6 +5264,7 @@ struct TodayHistoryWideCache {
     let xiaomiDays: Int
     let xiaomiSleeps: Int
     let stressToday: Double?
+    let stressStored: [(day: String, value: Double)]
     let stressHistoryAvailable: Bool
     let fitnessAgeToday: Double?
     let vitalityToday: Double?

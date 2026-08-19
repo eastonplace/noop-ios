@@ -17,6 +17,21 @@
   - [ ] Identify the first failed skin-temperature pipeline stage from a current database copy and device logs.
   - [ ] Run physical WHOOP, energy, background, radio, thermal, and migration gates.
   - [ ] Commit evidence by scope, push, and create one draft PR; do not merge.
+  - [~] Integrate the 2026-08-18 PR #45 Settings/RyanBR handoff from exact source SHA
+    `25f64b1cc91d587e784cfc20c1fdc779f7aff806` on local branch
+    `integrate/pr45-settings-ryanbr`; preserve local `main` and untracked `outputs/`, run local
+    validation only, and keep hosted workflows disabled until user approval.
+    - [~] Modernize the integrated Settings, Test Centre, Trends Explore, Quick Actions, About NOOP,
+      Sleep/Rhythm, and Stress surfaces with StrandDesign components and Apple HIG behavior; rerun
+      local automated and simulator visual gates before any commit or push.
+      - [x] Merge the Devices summary and Command Centre into one command-centre-styled route while
+        preserving pairing, device management, diagnostics, Test Centre, and protected actions.
+      - [x] Derive a live battery-runway estimate from timestamped battery drain observations, with
+        bounded confidence and truthful fallback states when the sample is insufficient or charging.
+      - [x] Rework the complete Settings route hierarchy into searchable native grouped lists/forms,
+        remove decorative row icons, and preserve every existing control and destination through deep routes.
+      - [x] Re-run zero-warning audits, warnings-as-errors package/app gates, full simulator tests, and
+        visual QA of Devices, Command Centre, Settings search, and representative deep Settings routes.
 
 - [~] #37 Apply the packaged simplifications and high-confidence open-issue root slices at exact
   SHA `439ac11321650920908ee611ad044ecd95a9cc63`.

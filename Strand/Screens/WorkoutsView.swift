@@ -522,6 +522,12 @@ struct WorkoutsView: View {
     /// most recent session, not "now", so an old log still resolves).
     private var latestTs: Int? { allRows.map(\.startTs).max() }
 
+    private func calendarCutoff(anchor: Int, daysBack: Int) -> Int {
+        let anchorDate = Date(timeIntervalSince1970: TimeInterval(anchor))
+        let cutoffDate = Repository.dateByAddingCalendarDays(-max(0, daysBack), to: anchorDate)
+        return Int(cutoffDate.timeIntervalSince1970)
+    }
+
     /// The active filter (#64), composed once. Sport / source / search all apply AFTER the window cut,
     /// so the effort hero, tiles, breakdown, zones and list all read one filtered set.
     private var filter: WorkoutFilter {
@@ -535,7 +541,7 @@ struct WorkoutsView: View {
         let windowed: [WorkoutRow]
         if let days = r.days {
             guard let last = latestTs else { return [] }
-            let cutoff = last - days * 86_400
+            let cutoff = calendarCutoff(anchor: last, daysBack: days)
             windowed = allRows.filter { $0.startTs >= cutoff }
         } else {
             windowed = allRows
@@ -581,7 +587,7 @@ struct WorkoutsView: View {
     private func defaultRange(for source: [WorkoutRow]) -> Range {
         guard let last = source.map(\.startTs).max() else { return .all }
         for r in Range.allCases where r.days != nil {
-            let cutoff = last - (r.days ?? 0) * 86_400
+            let cutoff = calendarCutoff(anchor: last, daysBack: r.days ?? 0)
             if source.filter({ $0.startTs >= cutoff }).count >= 2 { return r }
         }
         return .all
@@ -767,9 +773,10 @@ struct WorkoutsView: View {
 
     private var workoutScoreDelta: String {
         guard let anchor = latestTs else { return String(localized: "No weekly comparison") }
-        let day = 86_400
-        let current = allRows.filter { $0.startTs >= anchor - 7 * day }.compactMap(canonicalWorkoutStrain)
-        let previous = allRows.filter { $0.startTs < anchor - 7 * day && $0.startTs >= anchor - 14 * day }
+        let currentCutoff = calendarCutoff(anchor: anchor, daysBack: 7)
+        let previousCutoff = calendarCutoff(anchor: anchor, daysBack: 14)
+        let current = allRows.filter { $0.startTs >= currentCutoff }.compactMap(canonicalWorkoutStrain)
+        let previous = allRows.filter { $0.startTs < currentCutoff && $0.startTs >= previousCutoff }
             .compactMap(canonicalWorkoutStrain)
         guard !current.isEmpty, !previous.isEmpty else { return String(localized: "Building your weekly comparison") }
         let currentMean = current.reduce(0, +) / Double(current.count)
@@ -1818,30 +1825,30 @@ private struct WorkoutsActiveWorkoutButtonLeaf: View {
 @MainActor
 private func previewWorkoutRows() -> [WorkoutRow] {
     let now = Int(Date().timeIntervalSince1970)
-    let day = 86_400
+    let elapsedDaySeconds = 24 * 60 * 60
     return [
-        WorkoutRow(startTs: now - day * 0 - 3600, endTs: now - day * 0,
+        WorkoutRow(startTs: now - elapsedDaySeconds * 0 - 3600, endTs: now - elapsedDaySeconds * 0,
                    sport: "Running", source: "whoop", durationS: 3600, energyKcal: 712,
                    avgHr: 152, maxHr: 178, strain: 14.2, distanceM: 10_400,
                    zonesJSON: #"{"z1":12.5,"z2":28.0,"z3":33.5,"z4":18.0,"z5":6.0}"#, notes: nil),
-        WorkoutRow(startTs: now - day * 1 - 2700, endTs: now - day * 1,
+        WorkoutRow(startTs: now - elapsedDaySeconds * 1 - 2700, endTs: now - elapsedDaySeconds * 1,
                    sport: "Strength Training", source: "whoop", durationS: 2700, energyKcal: 388,
                    avgHr: 118, maxHr: 156, strain: 9.4, distanceM: nil,
                    zonesJSON: nil, notes: nil),
-        WorkoutRow(startTs: now - day * 2 - 1800, endTs: now - day * 2,
+        WorkoutRow(startTs: now - elapsedDaySeconds * 2 - 1800, endTs: now - elapsedDaySeconds * 2,
                    sport: "Cycling", source: "apple_health", durationS: 1800, energyKcal: 240,
                    avgHr: nil, maxHr: nil, strain: nil, distanceM: 12_800,
                    zonesJSON: nil, notes: nil),
-        WorkoutRow(startTs: now - day * 3 - 1500, endTs: now - day * 3,
+        WorkoutRow(startTs: now - elapsedDaySeconds * 3 - 1500, endTs: now - elapsedDaySeconds * 3,
                    sport: "Running", source: "apple_health", durationS: 1500, energyKcal: 310,
                    avgHr: nil, maxHr: nil, strain: nil, distanceM: 5_100,
                    zonesJSON: nil, notes: nil),
-        WorkoutRow(startTs: now - day * 4 - 3300, endTs: now - day * 4,
+        WorkoutRow(startTs: now - elapsedDaySeconds * 4 - 3300, endTs: now - elapsedDaySeconds * 4,
                    sport: "Cycling", source: "whoop", durationS: 3300, energyKcal: 540,
                    avgHr: 134, maxHr: 162, strain: 11.8, distanceM: 24_600,
                    // Android key shape on purpose — exercises the cross-platform parser.
                    zonesJSON: #"{"zone1":20.0,"zone2":35.0,"zone3":30.0,"zone4":10.0}"#, notes: nil),
-        WorkoutRow(startTs: now - day * 6 - 2400, endTs: now - day * 6,
+        WorkoutRow(startTs: now - elapsedDaySeconds * 6 - 2400, endTs: now - elapsedDaySeconds * 6,
                    sport: "Yoga", source: "whoop", durationS: 2400, energyKcal: 165,
                    avgHr: 92, maxHr: 118, strain: 5.1, distanceM: nil,
                    zonesJSON: nil, notes: nil),

@@ -99,7 +99,7 @@ enum AppleDemoSeeder {
         let polar = PairedDevice(
             id: "polar-h10-demo", brand: "Polar", model: "H10", nickname: nil,
             sourceKind: .liveBLE, capabilities: [.hr, .hrv], status: .paired,
-            addedAt: now - 86_400, lastSeenAt: now - 3_600)
+            addedAt: now - 24 * 60 * 60, lastSeenAt: now - 3_600)
         try? registry.add(polar)
     }
 

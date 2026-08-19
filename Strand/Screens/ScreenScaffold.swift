@@ -6,8 +6,14 @@ enum ScreenScaffoldNavigationRole: Sendable {
     case detail
 }
 
+enum ScreenScaffoldPresentation: Sendable {
+    case standard
+    case settingsDetail
+}
+
 extension EnvironmentValues {
     @Entry var screenScaffoldNavigationRole: ScreenScaffoldNavigationRole = .root
+    @Entry var screenScaffoldPresentation: ScreenScaffoldPresentation = .standard
 }
 
 /// Captures the process-wide `AppModel` as a plain reference for a heavy screen root.
@@ -108,6 +114,7 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var hSizeClass
     @Environment(\.screenScaffoldNavigationRole) private var navigationRole
+    @Environment(\.screenScaffoldPresentation) private var presentation
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.appHeaderChromeVisibility) private var appHeaderChromeVisibility
@@ -161,7 +168,7 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: showsCompactHeader)
         .safeAreaInset(edge: .top, spacing: 0) {
-            if appHeaderChromeVisibility == .visible { AppHeaderChrome() }
+            if presentation == .standard, appHeaderChromeVisibility == .visible { AppHeaderChrome() }
         }
         // This is a vertical screen contract. Because the exact-width column cannot overflow, size-based
         // horizontal bounce resolves to disabled and the page cannot expose an off-canvas edge.
@@ -183,6 +190,7 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
             .ignoresSafeArea()
         }
         .modifier(RefreshableIfNeeded(onRefresh: onRefresh))
+        .modifier(ScreenScaffoldSettingsNavigation(title: title, presentation: presentation))
         #if os(macOS)
         // The mac window toolbar's default vibrant material washed the top of the liquid day-of-sky WHITE
         // (the scroll-under-titlebar blend). Hide it so the sky reads edge-to-edge and dark, like iOS.
@@ -217,7 +225,7 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
 
     @ViewBuilder private var headerForColumn: some View {
         #if os(iOS)
-        if title != nil || subtitle != nil {
+        if presentation == .standard, title != nil || subtitle != nil {
             expandedHeader
                 .accessibilityHidden(showsCompactHeader)
                 .onGeometryChange(for: Bool.self) { proxy in
@@ -275,6 +283,31 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
                               onDark: overSky, trailing: trailing)
     }
 }
+
+#if os(iOS)
+private struct ScreenScaffoldSettingsNavigation: ViewModifier {
+    let title: LocalizedStringKey?
+    let presentation: ScreenScaffoldPresentation
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if presentation == .settingsDetail, let title {
+            content
+                .navigationTitle(title)
+                .navigationBarTitleDisplayMode(.inline)
+        } else {
+            content
+        }
+    }
+}
+#else
+private struct ScreenScaffoldSettingsNavigation: ViewModifier {
+    let title: LocalizedStringKey?
+    let presentation: ScreenScaffoldPresentation
+
+    func body(content: Content) -> some View { content }
+}
+#endif
 
 extension ScreenScaffold where Trailing == EmptyView {
     /// Convenience init for the common case with no header trailing element — keeps every existing
@@ -358,11 +391,12 @@ struct SyncingHistoryNote: View {
 func relativeAgo(_ epochSeconds: TimeInterval,
                  now: TimeInterval = Date().timeIntervalSince1970) -> String {
     let d = max(0, Int(now - epochSeconds))
+    let elapsedDaySeconds = 24 * 60 * 60
     switch d {
     case ..<60:     return String(localized: "just now")
     case ..<3600:   return String(localized: "\(d / 60) min ago")
-    case ..<86_400: return String(localized: "\(d / 3600) h ago")
-    default:        return String(localized: "\(d / 86_400) d ago")
+    case ..<elapsedDaySeconds: return String(localized: "\(d / 3600) h ago")
+    default:        return String(localized: "\(d / elapsedDaySeconds) d ago")
     }
 }
 

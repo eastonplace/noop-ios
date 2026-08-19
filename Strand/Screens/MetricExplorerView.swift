@@ -463,7 +463,9 @@ struct MetricDetailView: View {
     private func slice(for r: ExploreRange) -> [(day: String, value: Double)] {
         guard let days = r.days else { return series }
         guard let lastDay = series.last?.day, let last = parseDay(lastDay) else { return [] }
-        let cutoff = last.addingTimeInterval(-Double(days - 1) * 86_400)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        guard let cutoff = calendar.date(byAdding: .day, value: -(days - 1), to: last) else { return [] }
         return series.filter { row in
             guard let d = parseDay(row.day) else { return false }
             return d >= cutoff
@@ -506,7 +508,9 @@ struct MetricDetailView: View {
     private var historySpanDays: Int {
         guard let firstDay = series.first?.day, let lastDay = series.last?.day,
               let first = parseDay(firstDay), let last = parseDay(lastDay) else { return 0 }
-        return Int(last.timeIntervalSince(first) / 86_400)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar.dateComponents([.day], from: first, to: last).day ?? 0
     }
 
     /// Whether a range chip is selectable (#943, reimplemented from ryanbr's PR): a longer

@@ -20,7 +20,13 @@ import StrandDesign
 // no jargon, no em-dashes. Kotlin's primer composable mirrors these four sections.
 
 struct HowNoopWorksView: View {
-    let onClose: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.screenScaffoldPresentation) private var presentation
+    private let onClose: (() -> Void)?
+
+    init(onClose: (() -> Void)? = nil) {
+        self.onClose = onClose
+    }
 
     /// The four primer sections, in the order the spec lists them. The icon + tint give
     /// each card its own glance-able identity, echoing the colour worlds used elsewhere.
@@ -87,33 +93,73 @@ struct HowNoopWorksView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-                .background(StrandPalette.card)
-            Divider().overlay(StrandPalette.hairline)
-            ScrollView {
-                VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
-                    introCard
-                    ForEach(Section.allCases) { section in
-                        primerCard(section)
+        Group {
+            if presentation == .settingsDetail, onClose == nil {
+                nativeSettingsBody
+            } else {
+                VStack(spacing: 0) {
+                    header
+                        .background(StrandPalette.card)
+                    Divider().overlay(StrandPalette.hairline)
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
+                            introCard
+                            ForEach(Section.allCases) { section in
+                                primerCard(section)
+                            }
+                            scoringMethodsCard
+                            footerNote
+                        }
+                        .padding(20)
                     }
-                    scoringMethodsCard
-                    footerNote
+                    if onClose != nil {
+                        Divider().overlay(StrandPalette.hairline)
+                        footerBar
+                    }
                 }
-                .padding(20)
+                #if os(macOS)
+                .frame(width: 560, height: 640)
+                #else
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .noopSheetPresentation(largeFirst: true)
+                #endif
+                .background(StrandPalette.surfaceBase)
             }
-            Divider().overlay(StrandPalette.hairline)
-            footerBar
         }
-        // Same sizing split as ScoringGuideView / WhatsNewView: a fixed window on macOS,
-        // fill the presented sheet on iOS so nothing runs off a narrow phone screen (#185).
-        #if os(macOS)
-        .frame(width: 560, height: 640)
-        #else
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .noopSheetPresentation(largeFirst: true)
+    }
+
+    private var nativeSettingsBody: some View {
+        NativeSettingsList {
+            SwiftUI.Section {
+                Text("NOOP turns locally stored health signals into Sleep, Recovery, and Strain without requiring a cloud account.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("About")
+            }
+
+            ForEach(Section.allCases) { section in
+                SwiftUI.Section {
+                    Text(section.body)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Text(section.title)
+                }
+            }
+
+            SwiftUI.Section {
+                Text("Scores are calculated on this device. Imported source scores can remain visible for reference, but NOOP does not present them as its own calculations.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("Scoring")
+            }
+        }
+        .navigationTitle("About NOOP")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
         #endif
-        .background(StrandPalette.surfaceBase)
     }
 
     // MARK: - Header / footer
@@ -131,13 +177,15 @@ struct HowNoopWorksView: View {
                     .foregroundStyle(StrandPalette.textSecondary)
             }
             Spacer()
-            Button(action: onClose) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 22))
-                    .foregroundStyle(StrandPalette.textTertiary)
+            if onClose != nil {
+                Button(action: close) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 22))
+                        .foregroundStyle(StrandPalette.textTertiary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Close")
         }
         .padding(20)
     }
@@ -145,7 +193,7 @@ struct HowNoopWorksView: View {
     private var footerBar: some View {
         HStack {
             Spacer()
-            Button(action: onClose) {
+            Button(action: close) {
                 Text("Got it").frame(minWidth: 120).padding(.vertical, 4)
             }
             .buttonStyle(.borderedProminent)
@@ -153,6 +201,14 @@ struct HowNoopWorksView: View {
             .keyboardShortcut(.defaultAction)
         }
         .padding(16)
+    }
+
+    private func close() {
+        if let onClose {
+            onClose()
+        } else {
+            dismiss()
+        }
     }
 
     // MARK: - Cards

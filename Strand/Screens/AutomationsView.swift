@@ -4,6 +4,7 @@ import StrandDesign
 /// Automations — turn the strap's physical inputs (double-tap, wrist on/off) and live biometrics
 /// into actions (Shortcuts, and Mac-only screen lock) and haptic coaching. All on-device.
 struct AutomationsView: View {
+    @Environment(\.screenScaffoldPresentation) private var presentation
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var behavior: BehaviorStore
     // PERF: this screen does NOT observe `LiveState`. Its only live-dependent pixel is the "Strap
@@ -36,14 +37,142 @@ struct AutomationsView: View {
     #endif
 
     var body: some View {
-        ScreenScaffold(title: "Automations",
-                       subtitle: "On-device actions and reminders.",
-                       // PERF: the cards are direct children of the scaffold column, so the LazyVStack
-                       // path (byte-identical layout) genuinely builds the off-screen cards on demand
-                       // instead of constructing all eight/nine + their toggle subtrees up-front.
-                       lazy: true) {
-            SettingsScreenTemplate(sections: automationSections)
+        Group {
+            if presentation == .settingsDetail {
+                nativeSettingsBody
+            } else {
+                ScreenScaffold(title: "Automations",
+                               subtitle: "On-device actions and reminders.",
+                               lazy: true) {
+                    SettingsScreenTemplate(sections: automationSections)
+                }
+            }
         }
+    }
+
+    private var nativeSettingsBody: some View {
+        NativeSettingsList {
+            #if os(iOS)
+            Section {
+                Toggle("Enable wrist alerts", isOn: $wristAlertsMaster)
+                    .font(.caption)
+            } header: {
+                Text("Alerts")
+            } footer: {
+                Text("This is the master switch for every wrist alert enabled below.")
+            }
+            #endif
+
+            Section {
+                Picker("When I double-tap", selection: $behavior.doubleTapAction) {
+                    ForEach(doubleTapOptions) { Text($0.label).tag($0) }
+                }
+                .font(.caption)
+                if behavior.doubleTapAction == .runShortcut {
+                    TextField("Shortcut name", text: $behavior.doubleTapShortcut)
+                        .font(.caption)
+                        .autocorrectionDisabled()
+                }
+                Button("Test Double-tap Action") {
+                    model.runMacAction(behavior.doubleTapAction, shortcut: behavior.doubleTapShortcut)
+                }
+                .disabled(behavior.doubleTapAction == .none)
+            } header: {
+                Text("Double-tap")
+            } footer: {
+                Text("Runs the selected action when the strap reports its double-tap gesture.")
+            }
+
+            Section {
+                TextField("Shortcut when taken off", text: $behavior.wristOffShortcut)
+                    .font(.caption)
+                    .autocorrectionDisabled()
+                TextField("Shortcut when put back on", text: $behavior.wristOnShortcut)
+                    .font(.caption)
+                    .autocorrectionDisabled()
+            } header: {
+                Text("Wear and presence")
+            } footer: {
+                Text("Optional Shortcut names let the strap change Focus, pause media, or run another local automation.")
+            }
+
+            Section {
+                Toggle("HR-zone coaching", isOn: $behavior.zoneCoaching).font(.caption)
+                Toggle("Stress check-ins", isOn: $behavior.stressCheckIn).font(.caption)
+                if behavior.stressCheckIn {
+                    Toggle("Auto-nudge", isOn: $behavior.stressAutoNudge).font(.caption)
+                    Toggle("Respect quiet hours", isOn: $behavior.stressQuietHours).font(.caption)
+                    Toggle("Use my resonance pace", isOn: $behavior.stressUseResonancePace).font(.caption)
+                }
+            } header: {
+                Text("Coaching")
+            } footer: {
+                Text("Coaching uses brief strap haptics. Stress check-ins are informational and are not medical alerts.")
+            }
+
+            Section {
+                Toggle("Inactivity reminder", isOn: $inactivity.enabled).font(.caption)
+                if inactivity.enabled {
+                    Stepper("Sitting for \(inactivity.thresholdMinutes) min", value: $inactivity.thresholdMinutes, in: 15...120, step: 15)
+                        .font(.caption)
+                    Stepper("Re-nudge every \(inactivity.reNudgeMinutes) min", value: $inactivity.reNudgeMinutes, in: 15...120, step: 15)
+                        .font(.caption)
+                    Stepper("Buzz strength \(inactivity.buzzLoops)×", value: $inactivity.buzzLoops, in: 1...4)
+                        .font(.caption)
+                    Toggle("Only when worn", isOn: onlyWhenWornBinding).font(.caption)
+                    Toggle("Only during active hours", isOn: $inactivity.activeHoursEnabled).font(.caption)
+                    if inactivity.activeHoursEnabled {
+                        DatePicker("From", selection: activeStartBinding, displayedComponents: .hourAndMinute).font(.caption)
+                        DatePicker("To", selection: activeEndBinding, displayedComponents: .hourAndMinute).font(.caption)
+                    }
+                }
+            } header: {
+                Text("Inactivity")
+            } footer: {
+                Text("A gentle reminder inferred from strap motion after history sync. It can lag real time by a sync or two.")
+            }
+
+            Section {
+                Toggle("Illness early-warning", isOn: $behavior.illnessWatch)
+                    .font(.caption)
+                    .onChangeCompat(of: behavior.illnessWatch) { enabled in
+                        model.reevaluateIllness()
+                        if enabled { IllnessNotifier.requestAuthorization() }
+                    }
+                if cycleOptInApplies {
+                    Toggle("Cycle awareness", isOn: $cycleAwareness)
+                        .font(.caption)
+                        .onChangeCompat(of: cycleAwareness) { enabled in
+                            model.cycleAwarenessEnabled = enabled
+                            Task { await model.refreshV5Signals() }
+                        }
+                }
+                Toggle("Rhythm visualization", isOn: $rhythmEnabled).font(.caption)
+                if rhythmEnabled {
+                    Button("Open Rhythm") { router.openRhythm() }
+                }
+            } header: {
+                Text("Health insights")
+            } footer: {
+                Text("These optional on-device signals are for awareness only and are not diagnoses.")
+            }
+
+            Section {
+                Toggle("Low and full battery alerts", isOn: $behavior.batteryAlerts)
+                    .font(.caption)
+                    .onChangeCompat(of: behavior.batteryAlerts) { enabled in
+                        if enabled { BatteryNotifier.requestAuthorization() }
+                    }
+            } header: {
+                Text("Battery")
+            } footer: {
+                Text("Notifies at low battery and again when charging reaches full, at most once per charge cycle.")
+            }
+        }
+        .navigationTitle("Notifications & Alerts")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 
     private var automationSections: [SettingsSectionModel] {

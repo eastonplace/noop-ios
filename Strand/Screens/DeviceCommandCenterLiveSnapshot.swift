@@ -9,6 +9,12 @@ import StrandAnalytics
 /// they can invalidate SwiftUI.
 @MainActor
 final class DeviceCommandCenterLiveSnapshot: ObservableObject {
+    struct BatteryRuntime: Equatable {
+        var estimate: BatteryEstimator.Estimate
+        var anchoredAt: Int?
+        var sessionStartedAt: Int?
+    }
+
     struct Value: Equatable {
         var connected: Bool
         var connectedAt: TimeInterval?
@@ -21,7 +27,7 @@ final class DeviceCommandCenterLiveSnapshot: ObservableObject {
         var lastSyncError: String?
         var strapNeedsReboot: Bool
         var batteryPct: Double?
-        var batteryRuntimeLabel: String?
+        var batteryRuntime: BatteryRuntime?
         var charging: Bool?
         var historySyncExperimental: Bool
         var standardHRMode: String?
@@ -56,7 +62,11 @@ final class DeviceCommandCenterLiveSnapshot: ObservableObject {
             lastSyncError: live.lastSyncError,
             strapNeedsReboot: live.strapNeedsReboot,
             batteryPct: live.batteryPct,
-            batteryRuntimeLabel: live.batteryEstimate.map { BatteryEstimator.label(hours: $0.remainingHours) },
+            batteryRuntime: Self.batteryRuntime(
+                samples: live.batterySamples,
+                ratedHours: live.batteryRatedHours,
+                sessionStartedAt: live.connectedAt.map { Int($0) }
+            ),
             charging: live.charging,
             historySyncExperimental: live.historySyncExperimental,
             standardHRMode: live.standardHRMode,
@@ -101,12 +111,35 @@ final class DeviceCommandCenterLiveSnapshot: ObservableObject {
         bind(live.$worn, to: \.worn)
         bind(live.$historicalSyncPassProgress, to: \.historicalSyncPassProgress)
 
-        let batteryRuntime = Publishers.CombineLatest(live.$batterySamples, live.$batteryRatedHours)
-            .map { samples, ratedHours in
-                BatteryEstimator.estimate(samples: samples, ratedHours: ratedHours)
-                    .map { BatteryEstimator.label(hours: $0.remainingHours) }
+        let batteryRuntime = Publishers.CombineLatest3(
+            live.$batterySamples,
+            live.$batteryRatedHours,
+            live.$connectedAt
+        )
+            .map { samples, ratedHours, connectedAt in
+                Self.batteryRuntime(
+                    samples: samples,
+                    ratedHours: ratedHours,
+                    sessionStartedAt: connectedAt.map { Int($0) })
             }
-        bind(batteryRuntime, to: \.batteryRuntimeLabel)
+        bind(batteryRuntime, to: \.batteryRuntime)
+    }
+
+    private static func batteryRuntime(
+        samples: [(ts: Int, soc: Double)],
+        ratedHours: Double,
+        sessionStartedAt: Int?
+    ) -> BatteryRuntime? {
+        guard let estimate = BatteryEstimator.estimate(samples: samples, ratedHours: ratedHours) else {
+            return nil
+        }
+        let validSamples = samples.filter {
+            $0.ts >= 0 && $0.soc.isFinite && (0...100).contains($0.soc)
+        }
+        return BatteryRuntime(
+            estimate: estimate,
+            anchoredAt: validSamples.map(\.ts).max(),
+            sessionStartedAt: sessionStartedAt)
     }
 
     private func bind<P: Publisher, Output: Equatable>(

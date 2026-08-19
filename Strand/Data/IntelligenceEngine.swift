@@ -667,11 +667,14 @@ final class IntelligenceEngine: ObservableObject {
         let regDevices = (try? registry.all()) ?? []
         let regActiveId = (try? registry.activeDeviceId()) ?? deviceId
 
-        // Floor `now` to LOCAL midnight (#277) so each `dayStart` lands on a local-day boundary and the
-        // day keys are LOCAL calendar days, consistent with the dashboard's local "today" lookup. A
-        // west-of-UTC user's evening crosses midnight UTC; bucketing by UTC put it in the next UTC day,
-        // which the local read never found (Toronto/UTC-4 report).
-        guard let nowLocalMidnight = Self.midnightLocal(now, offsetSec: tzOffset) else {
+        // Resolve today's real LOCAL civil-day boundary (#277). A fixed-offset epoch floor is wrong on a
+        // daylight-saving transition because the offset at `referenceNow` may differ from the offset at
+        // that day's midnight. Use the same calendar enumerator as every scored day instead.
+        guard let currentCivilDayStart = Self.civilDayWindows(
+            reference: referenceNow,
+            startOffset: 0,
+            count: 1,
+            calendar: analysisCalendar).first?.start else {
             performanceChangedRows = 0
             note = String(localized: "Unable to establish a valid local-day window.")
             return false
@@ -849,14 +852,11 @@ final class IntelligenceEngine: ObservableObject {
                 let wristEvents = bundle.events
                 let wristOff = AnalyticsEngine.offWristIntervals(events: wristEvents, windowEnd: to)
 
-                // Calendar-day window for the ADDITIVE daily totals (steps + calories). The night window
-                // above is anchored to the current time-of-day and ends at dayStart+12h, so for a PAST
-                // day whose late hours sit after that bound those hours are never read and the totals
-                // undercount. Read exactly [localMidnight(day), localMidnight(day)+86400) and hand it to
-                // analyzeDay's dayHr/daySteps, which use it ONLY for those totals. `dayStart` is already a
-                // LOCAL midnight; midnightLocal is idempotent on it (the store range is inclusive, so end
-                // at -1 s). (#277 , local-day bucketing.)
-                guard let dayMid = Self.midnightLocal(dayStart, offsetSec: tzOffset) else { continue }
+                // Calendar-day window for the ADDITIVE daily totals (steps + calories). The civil-day
+                // enumerator owns both bounds, so spring-forward and fall-back days use their real local
+                // duration instead of a fixed-offset approximation. The store range is inclusive, so end
+                // at one second before the next civil-day start. (#277, local-day bucketing.)
+                let dayMid = civilDay.start
                 let dayEnd = civilDay.nextStart - 1
                 // Same `owner` as the night window above (I2): the additive day totals must come from the
                 // one device that owns the day, never a mix.
@@ -962,7 +962,7 @@ final class IntelligenceEngine: ObservableObject {
                                                      // Per-window HRV detail ONLY for the most-recent night
                                                      // (dayStart == today's local midnight), so the 5000-line
                                                      // ring buffer isn't flooded; every night keeps the summary.
-                                                     hrvWindowDetail: dayStart == nowLocalMidnight,
+                                                     hrvWindowDetail: dayStart == currentCivilDayStart,
                                                      deepHrvWindow: deepHrvWindow)
                 // #195: whole-night HRV cleaning-pipeline summary for the always-on strap log, so a "reads ~2x
                 // too high" report is triageable without the HRV test mode: RMSSD vs SDNN (rmssd >> sdnn =
@@ -1999,7 +1999,7 @@ final class IntelligenceEngine: ObservableObject {
     /// 4.0 workout is never touched and a still-sparse window is a no-op.
     private func rescoreManualWorkouts(store: WhoopStore, profile up: UserProfile) async -> Int {
         let now = Int(Date().timeIntervalSince1970)
-        let since = now - 14 * 86_400
+        let since = now - 14 * 24 * 60 * 60
         guard let rows = try? await store.workouts(deviceId: deviceId, from: since, to: now, limit: 200)
         else { return 0 }
         let hrMax = Double(profile.hrMax)
@@ -2331,26 +2331,30 @@ final class IntelligenceEngine: ObservableObject {
         return SleepStageTotals.habitualMidsleepSec(blocks, offsetSec: offsetSec)
     }
 
+    /// Epoch seconds in one UTC date. This is intentionally fixed because UTC has no daylight-saving
+    /// transition; local health-day boundaries use `civilDayWindows` instead.
+    nonisolated private static let epochDaySeconds = 24 * 60 * 60
+
     /// Floor a unix-seconds timestamp to 00:00:00 of its UTC calendar day. Mirrors the Android
     /// IntelligenceEngine.midnightUtc; the floorMod form is correct for any sign.
     /// Returns nil when the mathematical floor cannot be represented in `Int` (for example Int.min, which
     /// sits inside a UTC day whose true floor is below Int.min). A raw bad-clock value must not wrap into a
     /// plausible modern day.
     nonisolated static func midnightUtc(_ ts: Int) -> Int? {
-        let (midnight, overflow) = ts.subtractingReportingOverflow(floorMod(ts, 86_400))
+        let (midnight, overflow) = ts.subtractingReportingOverflow(floorMod(ts, epochDaySeconds))
         return overflow ? nil : midnight
     }
 
-    /// Floor a unix-seconds timestamp to 00:00:00 of its LOCAL calendar day (#277). `offsetSec` is
-    /// seconds EAST of UTC. Shift into local time, floor to the local day, shift back:
-    /// `ts - floorMod(ts + offsetSec, 86400)`. floorMod keeps the floor correct for negative offsets
-    /// and negative timestamps. `offsetSec == 0` reduces exactly to `midnightUtc`. Mirrors the
-    /// Android IntelligenceEngine.midnightLocal byte-for-byte.
+    /// Floor a unix-seconds timestamp onto a fixed-offset local epoch grid. `offsetSec` is seconds EAST
+    /// of UTC. This helper is retained for protocol/timestamp compatibility; health-day enumeration uses
+    /// `civilDayWindows`, which has the time-zone identity needed to handle daylight-saving boundaries.
+    /// floorMod keeps the floor correct for negative offsets and negative timestamps. `offsetSec == 0`
+    /// reduces exactly to `midnightUtc`. Mirrors the Android IntelligenceEngine.midnightLocal arithmetic.
     nonisolated static func midnightLocal(_ ts: Int, offsetSec: Int) -> Int? {
         let (localTimestamp, shiftOverflow) = ts.addingReportingOverflow(offsetSec)
         guard !shiftOverflow else { return nil }
         let (localMidnight, floorOverflow) = localTimestamp.subtractingReportingOverflow(
-            floorMod(localTimestamp, 86_400))
+            floorMod(localTimestamp, epochDaySeconds))
         guard !floorOverflow else { return nil }
         let (utcMidnight, unshiftOverflow) = localMidnight.subtractingReportingOverflow(offsetSec)
         return unshiftOverflow ? nil : utcMidnight

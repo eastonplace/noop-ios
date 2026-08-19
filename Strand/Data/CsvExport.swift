@@ -41,7 +41,7 @@ enum CsvExport {
         let importedIds = repo.importedReadIds
         let computedIds = repo.computedReadIds
         let fromDay = "0000-01-01", toDay = "9999-12-31"
-        let hi = Int(Date().timeIntervalSince1970) + 86_400
+        let hi = Int(Date().timeIntervalSince1970) + 24 * 60 * 60
 
         do {
             // Fetch every source off the WhoopStore actor (each `await store.*` already hops off main).

@@ -29,7 +29,7 @@ enum ShortcutHealthExport {
     /// Aggregation window: 15 minutes, epoch-aligned — the same boundaries hrBuckets(900) groups by.
     static let windowSeconds = 900
     /// Catch-up bound: never reach further back than 7 days, even on a first run or after a long gap.
-    static let lookbackSeconds = 7 * 86_400
+    static let lookbackSeconds = 7 * 24 * 60 * 60
     /// Reboot/reset guard for the cumulative u16 step counter — same cap as AnalyticsEngine's
     /// daily-steps math (a reset is byte-indistinguishable from a wrap; a huge corrected delta
     /// is a reset, not steps).
