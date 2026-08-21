@@ -1,32 +1,36 @@
 import SwiftUI
 
-// MARK: - Paper card surface + StrandCard
-//
-// `frostedCardSurface` keeps its public name so existing call sites compile, but the
-// rendered surface is now the Paper card: white, 16pt corners, a warm 1pt border, and
-// a near-invisible shadow. Legacy tint arguments are deliberately ignored; R3 reserves
-// pillar color for data, never card chrome.
+// MARK: - Shared card surface
 
 public extension View {
-    /// Apply the frosted-card surface as a background. `tint` colours the diagonal
-    /// wash + border bias; nil uses the flat raised surface with no wash.
+    /// Apply the shared dark card surface. A metric tint adds a quiet corner wash while the card
+    /// chrome stays neutral. Existing call sites and component structure remain unchanged.
     func frostedCardSurface(
         tint: Color? = nil,
         cornerRadius: CGFloat = NoopMetrics.cardRadius,
         washStrength: Double = 1.0
     ) -> some View {
-        background(FrostedCardSurface(tint: tint, cornerRadius: cornerRadius, washStrength: washStrength))
+        background(
+            FrostedCardSurface(
+                tint: tint,
+                cornerRadius: cornerRadius,
+                washStrength: washStrength
+            )
+        )
     }
 }
 
-/// The Paper-card background fill and border. Standalone so it can be a
-/// `.background { }` (animation never reaches the card's content subtree — #104).
+/// One card background for all modules. The gradient follows WHOOP's dark graphite surface.
 public struct FrostedCardSurface: View {
     public var tint: Color?
     public var cornerRadius: CGFloat
     public var washStrength: Double
 
-    public init(tint: Color? = nil, cornerRadius: CGFloat = NoopMetrics.cardRadius, washStrength: Double = 1.0) {
+    public init(
+        tint: Color? = nil,
+        cornerRadius: CGFloat = NoopMetrics.cardRadius,
+        washStrength: Double = 1.0
+    ) {
         self.tint = tint
         self.cornerRadius = cornerRadius
         self.washStrength = washStrength
@@ -34,22 +38,36 @@ public struct FrostedCardSurface: View {
 
     public var body: some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        shape
-            .fill(StrandPalette.card)
-            .overlay(shape.strokeBorder(StrandPalette.cardBorder, lineWidth: 1))
-            .shadow(color: Color.black.opacity(0.10), radius: 8, x: 0, y: 2)
+        let strength = min(max(washStrength, 0), 1)
+
+        ZStack {
+            shape.fill(
+                LinearGradient(
+                    colors: [StrandPalette.cardFillTop, StrandPalette.cardFillBottom],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+
+            if let tint {
+                shape.fill(
+                    LinearGradient(
+                        colors: [tint.opacity(0.12 * strength), .clear],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+            }
+
+            shape.strokeBorder(StrandPalette.cardBorder, lineWidth: 1)
+        }
+        .shadow(color: Color.black.opacity(0.24), radius: 10, x: 0, y: 5)
     }
 }
 
-// MARK: - StrandCard (§9.4 Cards)
-//
-// The card container — now the Paper surface, but the PUBLIC API is
-// unchanged (padding, cornerRadius, content). Adds an optional `tint` (defaulted)
-// so callers can opt into a domain wash without breaking existing call sites.
-// Keeps the mandated hover lift via `.strandCardHover()`.
+// MARK: - StrandCard
 
 public struct StrandCard<Content: View>: View {
-
     public var padding: CGFloat
     public var cornerRadius: CGFloat
     public var tint: Color?
@@ -97,10 +115,8 @@ public struct StrandCard<Content: View>: View {
     }
 }
 
-// MARK: - Hover lift modifier
+// MARK: - Hover lift
 
-/// The mandated hover behavior: shadow-md + translateY(-1px) and a hairline →
-/// hairline.strong border on hover. Apply to any card-like surface.
 public struct StrandCardHover: ViewModifier {
     public var cornerRadius: CGFloat
     @State private var hovering = false
@@ -111,22 +127,19 @@ public struct StrandCardHover: ViewModifier {
 
     public func body(content: Content) -> some View {
         content
-            // Hover emphasis: brighten the hairline edge (the frosted surface owns the
-            // resting border) and add the mandated lift (shadow + translateY(-1px)).
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(StrandPalette.hairlineStrong, lineWidth: 1)
                     .opacity(hovering ? 1 : 0)
             )
             .shadow(
-                color: hovering ? Color.black.opacity(0.08) : .clear,
-                radius: hovering ? 5 : 0,
+                color: hovering ? Color.black.opacity(0.34) : .clear,
+                radius: hovering ? 12 : 0,
                 x: 0,
-                y: hovering ? 2 : 0
+                y: hovering ? 6 : 0
             )
             .offset(y: hovering ? -1 : 0)
             .animation(StrandMotion.interactive, value: hovering)
-            // .onHover is unavailable on watchOS (no pointer); the watch never hovers a card.
             #if !os(watchOS)
             .onHover { hovering = $0 }
             #endif
@@ -134,24 +147,13 @@ public struct StrandCardHover: ViewModifier {
 }
 
 public extension View {
-    /// Apply the Strand card hover lift (shadow + -1px translate + border emphasis).
     func strandCardHover(cornerRadius: CGFloat = NoopMetrics.cardRadius) -> some View {
         modifier(StrandCardHover(cornerRadius: cornerRadius))
     }
 }
 
-// MARK: - Touch press feedback (iOS) — the hover lift's touch analogue.
-//
-// `.onHover` never fires on a touchscreen, so tappable cards/rows feel dead on iPhone.
-// This gives a subtle press-DOWN state (scale + edge emphasis) for direct manipulation,
-// honouring Reduce Motion (which swaps the transform for a gentle dim). It's additive to
-// the hover lift: hover (pointer NEAR) and pressed (finger/click DOWN) animate distinct
-// properties on the shared StrandMotion.interactive spring, so they compose without a
-// double-bounce. Exposed two ways — a ButtonStyle for Button/NavigationLink-as-card (the
-// `.plain` replacement), and a `.strandPressable()` modifier for `.onTapGesture`-driven cards.
+// MARK: - Touch feedback
 
-/// Drop-in replacement for `.buttonStyle(.plain)` on full-card Buttons / NavigationLinks:
-/// a subtle press-down scale + hairline-strong edge.
 public struct StrandPressableButtonStyle: ButtonStyle {
     public var cornerRadius: CGFloat
     public var scale: CGFloat
@@ -177,9 +179,6 @@ public struct StrandPressableButtonStyle: ButtonStyle {
     }
 }
 
-/// Backs `.strandPressable()` — a press-down state for cards driven by `.onTapGesture`
-/// (no Button). A 0-distance drag tracks the finger; @GestureState auto-resets on release
-/// or when a parent scroll claims the gesture.
 public struct StrandPressableModifier: ViewModifier {
     public var cornerRadius: CGFloat
     public var scale: CGFloat
@@ -209,9 +208,10 @@ public struct StrandPressableModifier: ViewModifier {
 }
 
 public extension View {
-    /// Subtle touch press-down feedback for a tappable card/row that uses `.onTapGesture`
-    /// (not a Button). For Buttons/NavigationLinks, use `StrandPressableButtonStyle` instead.
-    func strandPressable(cornerRadius: CGFloat = NoopMetrics.cardRadius, scale: CGFloat = 0.985) -> some View {
+    func strandPressable(
+        cornerRadius: CGFloat = NoopMetrics.cardRadius,
+        scale: CGFloat = 0.985
+    ) -> some View {
         modifier(StrandPressableModifier(cornerRadius: cornerRadius, scale: scale))
     }
 }
@@ -219,30 +219,38 @@ public extension View {
 #if DEBUG && !os(watchOS)
 #Preview("StrandCard") {
     VStack(spacing: 16) {
-        StrandCard {
+        StrandCard(tint: StrandPalette.sleepAccent) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Sleep performance").strandOverline()
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text("87").font(StrandFont.number(34)).foregroundStyle(StrandPalette.textPrimary)
-                    Text("%").font(StrandFont.headline).foregroundStyle(StrandPalette.textTertiary)
+                    Text("87")
+                        .font(StrandFont.number(34))
+                        .foregroundStyle(StrandPalette.textPrimary)
+                    Text("%")
+                        .font(StrandFont.headline)
+                        .foregroundStyle(StrandPalette.textTertiary)
                 }
                 Text("7h 42m asleep · 92% efficiency")
-                    .font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textSecondary)
             }
         }
+
         StrandCard {
             HStack {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Resting HR").strandOverline()
-                    Text("51 bpm").font(StrandFont.title2).foregroundStyle(StrandPalette.textPrimary)
+                    Text("51 bpm")
+                        .font(StrandFont.title2)
+                        .foregroundStyle(StrandPalette.textPrimary)
                 }
                 Spacer()
-                Sparkline(values: (0..<30).map { i -> Double in 50 + 4 * sin(Double(i) / 5) })
-                    .frame(width: 120, height: 40)
+                Sparkline(values: (0..<30).map { index -> Double in
+                    50 + 4 * sin(Double(index) / 5)
+                })
+                .frame(width: 120, height: 40)
             }
         }
-        Text("Hover the cards to see the lift.")
-            .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
     }
     .padding(28)
     .frame(width: 420, height: 360)
