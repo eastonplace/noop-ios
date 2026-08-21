@@ -26,13 +26,13 @@ public enum ChartStyle: String, CaseIterable, Identifiable, Sendable {
 }
 
 public extension View {
-    /// Apply the single supported chart style without changing view identity.
+    /// Apply the single supported chart style without changing view identity or mutating global state.
     ///
     /// The former implementation keyed the complete app tree by the stored value. That forced
     /// every visible screen, task, scroll position, and chart to rebuild when the preference changed.
-    /// A fixed style needs no identity reset.
+    /// The palette is fixed at its default style, so this compatibility modifier can stay inert.
     func chartStyle(_ raw: String) -> some View {
-        StrandPalette.chartStyle = ChartStyle.resolve(raw)
+        _ = raw
         return self
     }
 }
