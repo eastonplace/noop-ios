@@ -185,10 +185,10 @@ public enum StrandPalette {
     public static var recoveryStops: [Gradient.Stop] {
         [
             .init(color: recoveryLow, location: 0.00),
-            .init(color: recoveryLow, location: 0.329),
-            .init(color: recoveryMed, location: 0.330),
-            .init(color: recoveryMed, location: 0.659),
-            .init(color: recoveryHigh, location: 0.660),
+            .init(color: recoveryLow, location: 0.339),
+            .init(color: recoveryMed, location: 0.340),
+            .init(color: recoveryMed, location: 0.669),
+            .init(color: recoveryHigh, location: 0.670),
             .init(color: recoveryHigh, location: 1.00),
         ]
     }
@@ -302,8 +302,8 @@ public enum StrandPalette {
     public static func recoveryColor(_ score: Double) -> Color {
         guard !isClassic else { return sample(stops: cRecoveryStops, at: score / 100.0) }
         switch score {
-        case ..<33: return recoveryLow
-        case ..<66: return recoveryMed
+        case ..<34: return recoveryLow
+        case ..<67: return recoveryMed
         default: return recoveryHigh
         }
     }
