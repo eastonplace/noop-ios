@@ -3,7 +3,7 @@ import SwiftUI
 // MARK: - App visual mode
 
 /// The app has one supported data-visualization grammar. The legacy cases remain readable so
-/// existing stored preferences do not break, but every value resolves to the WHOOP-aligned style.
+/// existing stored preferences do not break, but every value resolves to the brand-aligned style.
 public enum ChartStyle: String, CaseIterable, Identifiable, Sendable {
     case titanium
     case classic
@@ -15,7 +15,7 @@ public enum ChartStyle: String, CaseIterable, Identifiable, Sendable {
     public static let storageKey = "chart.style"
 
     public var label: String {
-        String(localized: "WHOOP", bundle: .module)
+        String(localized: "Default", bundle: .module)
     }
 
     /// Resolve all stored values to the single supported data style.
@@ -50,7 +50,7 @@ public enum AppearanceMode: String, CaseIterable, Identifiable, Sendable {
     public static let storageKey = "theme.appearance"
 
     public var label: String {
-        String(localized: "WHOOP Dark", bundle: .module)
+        String(localized: "Dark", bundle: .module)
     }
 
     public var symbol: String { "moon.stars.fill" }
