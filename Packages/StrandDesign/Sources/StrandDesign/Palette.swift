@@ -1,263 +1,227 @@
 import SwiftUI
 
-// MARK: - Hex Color Helper
+// MARK: - Hex color helper
 
 public extension Color {
-    /// Parse a hex string ("#0B0D12" / "0B0D12" RGB, or "#AARRGGBB"/"RRGGBBAA" RGBA) to sRGB
-    /// components in 0...1. Shared by `Color(hex:)` and the dynamic `Color(light:dark:)` provider.
+    /// Parse an RGB or RGBA hex string into sRGB components.
     static func sRGBComponents(hex: String) -> (r: Double, g: Double, b: Double, a: Double) {
         let raw = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
         var int: UInt64 = 0
         Scanner(string: raw).scanHexInt64(&int)
         switch raw.count {
-        case 8: // RRGGBBAA
-            return (Double((int >> 24) & 0xFF) / 255.0, Double((int >> 16) & 0xFF) / 255.0,
-                    Double((int >> 8) & 0xFF) / 255.0, Double(int & 0xFF) / 255.0)
-        default: // RRGGBB (6) and any fallback
-            return (Double((int >> 16) & 0xFF) / 255.0, Double((int >> 8) & 0xFF) / 255.0,
-                    Double(int & 0xFF) / 255.0, 1.0)
+        case 8:
+            return (
+                Double((int >> 24) & 0xFF) / 255.0,
+                Double((int >> 16) & 0xFF) / 255.0,
+                Double((int >> 8) & 0xFF) / 255.0,
+                Double(int & 0xFF) / 255.0
+            )
+        default:
+            return (
+                Double((int >> 16) & 0xFF) / 255.0,
+                Double((int >> 8) & 0xFF) / 255.0,
+                Double(int & 0xFF) / 255.0,
+                1.0
+            )
         }
     }
 
-    /// Create a Color from a hex string like "#0B0D12" or "0B0D12" (RGB) or "#AARRGGBB" / "RRGGBBAA".
-    /// Supported lengths: 6 (RGB), 8 (RGBA).
     init(hex: String) {
         let c = Color.sRGBComponents(hex: hex)
         self.init(.sRGB, red: c.r, green: c.g, blue: c.b, opacity: c.a)
     }
 
-    /// A colour that resolves to `light` or `dark` (both hex strings) per the active appearance.
-    /// Backed by a `UIColor`/`NSColor` dynamic provider, so a single token automatically re-resolves
-    /// at every one of its call sites when the colour scheme flips — no per-view environment plumbing.
-    /// This is the whole light-theme strategy: only the token definitions change, never the call sites.
+    /// Compatibility initializer for the former two-theme palette.
+    /// Noop now has one fixed dark appearance, so the dark value is always authoritative.
     init(light: String, dark: String) {
-        #if os(watchOS)
-        // watchOS has no UITraitCollection / dynamic-provider UIColor, and our watch app is effectively
-        // always dark, so a token resolves straight to its dark hex. No per-scheme plumbing on the wrist.
+        _ = light
         self.init(hex: dark)
-        #elseif canImport(UIKit)
-        self.init(UIColor { trait in
-            let c = Color.sRGBComponents(hex: trait.userInterfaceStyle == .dark ? dark : light)
-            return UIColor(red: CGFloat(c.r), green: CGFloat(c.g), blue: CGFloat(c.b), alpha: CGFloat(c.a))
-        })
-        #elseif canImport(AppKit)
-        self.init(nsColor: NSColor(name: nil) { appearance in
-            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-            let c = Color.sRGBComponents(hex: isDark ? dark : light)
-            return NSColor(srgbRed: CGFloat(c.r), green: CGFloat(c.g), blue: CGFloat(c.b), alpha: CGFloat(c.a))
-        })
-        #else
-        self.init(hex: dark)
-        #endif
     }
 }
 
-// MARK: - Strand Palette
+// MARK: - Strand palette
 //
-// The Paper theme: a warm off-white canvas, white bordered cards, near-black ink, and
-// one restrained data accent per health pillar. Light mode is the visual source of
-// truth; every semantic token also carries an intentional warm near-black dark value.
-//
-// PUBLIC API IS FROZEN: every property name below is depended on by screens across
-// macOS / iOS, so the names never change — only the VALUES were re-themed. New
-// Titanium & Gold tokens (gold ramp, titanium ramp, gradients) are ADDED at the end
-// of the type; nothing existing was removed or renamed.
+// One WHOOP-aligned dark color system. Public names stay stable so all existing views inherit the
+// migration without component rewrites. Metric colors retain their specific meaning. Generic chrome,
+// links, selection, and primary actions use WHOOP teal.
 
 public enum StrandPalette {
 
-    /// The full-page canvas used by the iPhone/iPad app's flat-content grammar.
-    /// Other platforms intentionally resolve to the existing canvas so adopting this
-    /// token in shared screen code cannot redesign macOS or watchOS.
     #if os(iOS)
-    public static let appCanvas      = Color(light: "#FFFFFF", dark: "#0B0D10")
+    public static let appCanvas = Color(hex: "#101518")
     #else
-    public static let appCanvas      = canvas
+    public static let appCanvas = canvas
     #endif
 
-    // MARK: Paper surfaces
-    public static let canvas         = Color(light: "#F7F6F3", dark: "#131311")
-    public static let card           = Color(light: "#FFFFFF", dark: "#1C1C1A")
-    public static let cardBorder     = Color(light: "#ECEBE7", dark: "#2A2A27")
-    public static let inset          = Color(light: "#F4F3F0", dark: "#232321")
-    public static let surfaceBase    = canvas
-    public static let surfaceRaised  = card
+    // MARK: Surfaces
+
+    public static let canvas = Color(hex: "#101518")
+    public static let card = Color(hex: "#182126")
+    public static let cardBorder = Color(hex: "#2A383F")
+    public static let inset = Color(hex: "#202C32")
+    public static let surfaceBase = canvas
+    public static let surfaceRaised = card
     public static let surfaceOverlay = card
-    public static let surfaceInset   = inset
-    public static let hairline       = Color(light: "#00000014", dark: "#FFFFFF14")
-    public static let hairlineStrong = cardBorder
+    public static let surfaceInset = inset
+    public static let hairline = Color(hex: "#FFFFFF14")
+    public static let hairlineStrong = Color(hex: "#FFFFFF2E")
 
-    // MARK: Text — warm ink on paper / warm off-white on near-black
-    public static let textPrimary    = Color(light: "#000000", dark: "#F2F1EE")
-    public static let textSecondary  = Color(light: "#666666", dark: "#A5A4A0")
-    // AC-3: these are the nearest warm grays that keep the tertiary hierarchy while
-    // clearing 4.5:1 on canvas in both schemes (4.57 light, 5.17 dark).
-    public static let textTertiary   = Color(light: "#72706C", dark: "#888782")
+    // MARK: Text
 
-    // MARK: Text ON a permanently-dark surface (scheme-invariant)
-    // Use these — NOT textPrimary/Secondary/Tertiary — for labels/pills drawn over a fill that is pinned
-    // dark in BOTH themes (e.g. the Liquid Today hero score card + session-start row, whose `heroFill` is
-    // a fixed near-black). The regular text tokens FLIP to dark ink in Light mode, so on a fixed-dark card
-    // they render dark-on-near-black and vanish (#1013). These hold the light-on-dark values in BOTH
-    // schemes, so a label always reads on the card. (Same hex as the *.dark side of the text tokens.)
-    public static let onDarkPrimary   = Color(hex: "#F2F1EE")
-    public static let onDarkSecondary = Color(hex: "#A5A4A0")
-    public static let onDarkTertiary  = Color(hex: "#6E6D69")
+    public static let textPrimary = Color(hex: "#FFFFFF")
+    public static let textSecondary = Color(hex: "#C3CDD2")
+    public static let textTertiary = Color(hex: "#8E9DA4")
 
-    // MARK: Glow — ambient bloom behind heroes / charts (additive on dark; faint warm on light)
-    public static let glowAmbient    = Color(light: "#F0E4C0", dark: "#3A2D0A")
+    public static let onDarkPrimary = textPrimary
+    public static let onDarkSecondary = textSecondary
+    public static let onDarkTertiary = textTertiary
+
+    public static let glowAmbient = Color(hex: "#063D2E")
 
     // MARK: Chrome and actions
-    // `accent` is retained as a compatibility alias for generic links/selection. The audit found 351
-    // mixed call sites, so action components migrate to `ink` and data call sites to pillar tokens in
-    // their owning tasks rather than changing every meaning behind one legacy name at once.
-    public static let ink            = Color(light: "#0E0E0E", dark: "#F2F1EE")
-    public static let onInk          = Color(light: "#FFFFFF", dark: "#141414")
-    public static let link           = Color(light: "#3B82F6", dark: "#60A5FA")
-    public static let accent         = link
-    public static let accentHover    = Color(light: "#2563EB", dark: "#93C5FD")
-    public static let accentMuted    = Color(light: "#EFF6FF", dark: "#1E293B")
-    public static let focusRing      = link
-    /// Opacity for dimmed/disabled sections (shared so screens don't invent their own value).
+
+    public static let ink = Color(hex: "#00F19F")
+    public static let onInk = Color(hex: "#07120E")
+    public static let link = Color(hex: "#00F19F")
+    public static let accent = link
+    public static let accentHover = Color(hex: "#66F8C7")
+    public static let accentMuted = Color(hex: "#123D32")
+    public static let focusRing = link
     public static let disabledOpacity: Double = 0.45
 
-    // MARK: Pillar accents and semantic tints
-    public static let chargeAccent   = Color(hex: "#43C173")
-    public static let chargeTint     = Color(hex: "#183124")
-    public static let effortAccent   = strainAccent
-    public static let effortTint     = Color(hex: "#2A2440")
-    public static let restAccent     = sleepAccent
-    public static let restTint       = Color(hex: "#232840")
-    public static let stressAccent   = Color(hex: "#FF8A00")
-    public static let stressTint     = Color(hex: "#382F1E")
-    public static let liveRed        = Color(hex: "#F26B6F")
-    public static let liveRedTint    = Color(hex: "#3A2021")
+    // MARK: Pillars and semantic data
 
-    // F3: graphic data tokens are scheme-invariant WHOOP hexes. Paper changes the canvas,
-    // never the biometric palette. Recovery is the only banded pillar.
-    public static let recoveryHigh   = Color(hex: "#16EC06")
-    public static let recoveryMed    = Color(hex: "#FFDE00")
-    public static let recoveryLow    = Color(hex: "#FF0026")
-    public static let recoveryData   = Color(hex: "#67AEE6")
-    public static let strainAccent   = Color(hex: "#0093E7")
-    public static let sleepAccent    = Color(hex: "#7BA1BB")
-    public static let sleepNeedTeal  = Color(hex: "#00F19F")
+    public static let chargeAccent = Color(hex: "#16EC06")
+    public static let chargeTint = Color(hex: "#163817")
+    public static let effortAccent = strainAccent
+    public static let effortTint = Color(hex: "#102F43")
+    public static let restAccent = sleepAccent
+    public static let restTint = Color(hex: "#26343D")
+    public static let stressAccent = Color(hex: "#FF8A00")
+    public static let stressTint = Color(hex: "#3A2A18")
+    public static let liveRed = Color(hex: "#FF0026")
+    public static let liveRedTint = Color(hex: "#3A1720")
 
-    // Journal and Experimental affordances intentionally keep their purple identity
-    // when the old Strain token migrates to constant Strain blue.
-    public static let journalAccent  = Color(hex: "#7C4DFF")
+    /// WHOOP score colors. Keep each color tied to its metric meaning.
+    public static let recoveryHigh = Color(hex: "#16EC06")
+    public static let recoveryMed = Color(hex: "#FFDE00")
+    public static let recoveryLow = Color(hex: "#FF0026")
+    public static let recoveryData = Color(hex: "#67AEE6")
+    public static let strainAccent = Color(hex: "#0093E7")
+    public static let sleepAccent = Color(hex: "#7BA1BB")
+    public static let sleepNeedTeal = Color(hex: "#00F19F")
 
-    public static let stressRestful  = chargeAccent
-    public static let stressLow      = Color(hex: "#CDE7D6")
-    public static let stressMedium   = stressAccent
-    public static let stressHigh     = liveRed
+    public static let journalAccent = Color(hex: "#8E6FD6")
 
-    public static let success        = Color(hex: "#16C784")
-    public static let info           = Color(hex: "#2D8CFF")
-    public static let warning        = Color(hex: "#FFB020")
-    public static let warningBg      = Color(light: "#FBF1E6", dark: "#3A291E")
-    public static let destructive    = Color(hex: "#FF3B30")
-    public static let error          = destructive
+    public static let stressRestful = Color(hex: "#16EC06")
+    public static let stressLow = Color(hex: "#7BA1BB")
+    public static let stressMedium = Color(hex: "#FFDE00")
+    public static let stressHigh = Color(hex: "#FF0026")
 
-    // MARK: - Chart style (data-viz colour mode) — Titanium (brand) or Classic (throwback)
-    //
-    // Set from `@AppStorage(ChartStyle.storageKey)` at the app root. The DATA-RAMP accessors below
-    // (recoveryStops, strainStops, hrZones, sleepStageColor, stress gradient, status, metric, and the
-    // DomainTheme worlds) branch on this — so flipping it re-colours every gauge/chart/scale to the
-    // classic red→green readiness scale, in BOTH light and dark, with NO call-site changes. Chrome
-    // (surfaces, text, accent) is never touched.
+    public static let success = Color(hex: "#16EC06")
+    public static let info = Color(hex: "#0093E7")
+    public static let warning = Color(hex: "#FFDE00")
+    public static let warningBg = Color(hex: "#3A3314")
+    public static let destructive = Color(hex: "#FF0026")
+    public static let error = destructive
+
+    // MARK: Data style compatibility
+
     public static var chartStyle: ChartStyle = .titanium
-    @inline(__always) static var isClassic: Bool { chartStyle == .classic }
+    @inline(__always) static var isClassic: Bool { false }
 
-    // MARK: Classic (throwback) data ramps — the recognizable health-app scale. Light/dark tuned.
-    // Recovery: red → orange → amber → lime → green.
+    // The legacy ramps remain available for binary/source compatibility. The fixed app style does not
+    // select them, and the fixed-dark color initializer resolves their dark values.
     static let cRecovery000 = Color(light: "#CB3A2F", dark: "#E5483B")
     static let cRecovery030 = Color(light: "#D87328", dark: "#EE8B3C")
     static let cRecovery055 = Color(light: "#CFA528", dark: "#F2C53D")
     static let cRecovery078 = Color(light: "#74A53A", dark: "#A6D04E")
     static let cRecovery100 = Color(light: "#2E9E4F", dark: "#46B45A")
     static let cRecoveryStops: [Gradient.Stop] = [
-        .init(color: cRecovery000, location: 0.00), .init(color: cRecovery030, location: 0.30),
-        .init(color: cRecovery055, location: 0.55), .init(color: cRecovery078, location: 0.78),
+        .init(color: cRecovery000, location: 0.00),
+        .init(color: cRecovery030, location: 0.30),
+        .init(color: cRecovery055, location: 0.55),
+        .init(color: cRecovery078, location: 0.78),
         .init(color: cRecovery100, location: 1.00),
     ]
-    // Strain: the classic light→deep blue cardiovascular ramp.
+
     static let cStrain000 = Color(light: "#5E92D6", dark: "#7FB2E8")
     static let cStrain033 = Color(light: "#3A74C4", dark: "#4A90E2")
     static let cStrain066 = Color(light: "#284F9C", dark: "#2F6FCB")
     static let cStrain100 = Color(light: "#1C3E80", dark: "#1E4FA0")
     static let cStrainStops: [Gradient.Stop] = [
-        .init(color: cStrain000, location: 0.00), .init(color: cStrain033, location: 0.33),
-        .init(color: cStrain066, location: 0.66), .init(color: cStrain100, location: 1.00),
+        .init(color: cStrain000, location: 0.00),
+        .init(color: cStrain033, location: 0.33),
+        .init(color: cStrain066, location: 0.66),
+        .init(color: cStrain100, location: 1.00),
     ]
-    // Sleep: grey awake, blue light, deep indigo, purple REM.
+
     static let cSleepAwake = Color(light: "#8C95A3", dark: "#C9CCD6")
     static let cSleepLight = Color(light: "#3A80D6", dark: "#6FA8E8")
-    static let cSleepDeep  = Color(light: "#203E73", dark: "#2A4C8F")
-    static let cSleepREM   = Color(light: "#6A4FC0", dark: "#8E6FD6")
-    // HR zones: grey → green → yellow → orange → red.
+    static let cSleepDeep = Color(light: "#203E73", dark: "#2A4C8F")
+    static let cSleepREM = Color(light: "#6A4FC0", dark: "#8E6FD6")
+
     static let cZone1 = Color(light: "#828D9B", dark: "#9AA7B5")
     static let cZone2 = Color(light: "#2E9E4F", dark: "#46B45A")
     static let cZone3 = Color(light: "#CFA528", dark: "#F2C53D")
     static let cZone4 = Color(light: "#D87328", dark: "#EE8B3C")
     static let cZone5 = Color(light: "#CB3A2F", dark: "#E5483B")
-    // Stress: calm green → amber → red.
+
     static let cStressStops: [Gradient.Stop] = [
         .init(color: Color(light: "#2E9E4F", dark: "#46B45A"), location: 0.0),
         .init(color: Color(light: "#CFA528", dark: "#F2C53D"), location: 0.5),
         .init(color: Color(light: "#CB3A2F", dark: "#E5483B"), location: 1.0),
     ]
 
-    // MARK: Recovery / Charge gradient — retained for legacy charts until flat ScoreRing lands.
-    // Every stop stays in the canonical Charge green family (R3); score meaning is unchanged.
-    public static let recovery000 = Color(hex: "#245C38")
-    public static let recovery030 = Color(hex: "#2F7849")
-    public static let recovery055 = Color(hex: "#38975C")
-    public static let recovery078 = Color(hex: "#43AD69")
-    public static let recovery100 = chargeAccent
+    // MARK: Recovery
 
-    /// Ordered gradient stops for the recovery scale (Titanium gold ramp, or the Classic red→green).
+    public static let recovery000 = recoveryLow
+    public static let recovery030 = recoveryLow
+    public static let recovery055 = recoveryMed
+    public static let recovery078 = recoveryHigh
+    public static let recovery100 = recoveryHigh
+
+    /// Hard band boundaries keep recovery colors meaningful instead of blending them into new states.
     public static var recoveryStops: [Gradient.Stop] {
-        isClassic ? cRecoveryStops : [
-            .init(color: recovery000, location: 0.00),
-            .init(color: recovery030, location: 0.30),
-            .init(color: recovery055, location: 0.55),
-            .init(color: recovery078, location: 0.78),
-            .init(color: recovery100, location: 1.00),
+        [
+            .init(color: recoveryLow, location: 0.00),
+            .init(color: recoveryLow, location: 0.329),
+            .init(color: recoveryMed, location: 0.330),
+            .init(color: recoveryMed, location: 0.659),
+            .init(color: recoveryHigh, location: 0.660),
+            .init(color: recoveryHigh, location: 1.00),
         ]
     }
 
-    /// The signature recovery gradient (bronze → champagne, or Classic red→green).
     public static var recoveryGradient: Gradient { Gradient(stops: recoveryStops) }
 
-    // MARK: Strain — C13 is constant blue at every value; bands change words, never color.
+    // MARK: Strain
+
     public static let strain000 = strainAccent
     public static let strain033 = strainAccent
     public static let strain066 = strainAccent
     public static let strain100 = strainAccent
 
     public static var strainStops: [Gradient.Stop] {
-        isClassic ? cStrainStops : [
-            .init(color: strain000, location: 0.00),
-            .init(color: strain033, location: 0.33),
-            .init(color: strain066, location: 0.66),
-            .init(color: strain100, location: 1.00),
+        [
+            .init(color: strainAccent, location: 0.00),
+            .init(color: strainAccent, location: 1.00),
         ]
     }
 
-    /// The strain gradient (output / heat, or the Classic blue ramp).
     public static var strainGradient: Gradient { Gradient(stops: strainStops) }
 
-    // MARK: Fixed data-visualization ramps (never derived from pillar tokens)
-    public static let stageAwake = Color(hex: "#E5484D")
-    public static let stageREM   = Color(hex: "#A8CBF7")
-    public static let stageLight = Color(hex: "#5B9BF6")
-    public static let stageDeep  = Color(hex: "#1E3A8A")
-    public static var sleepAwake: Color { stageAwake }
-    public static var sleepREM:   Color { stageREM }
-    public static var sleepLight: Color { stageLight }
-    public static var sleepDeep:  Color { stageDeep }
+    // MARK: Sleep stages and heart-rate zones
 
-    // C14 + F3: WHOOP's exact HR-zone grammar in both appearances.
+    public static let stageAwake = Color(hex: "#E5484D")
+    public static let stageREM = Color(hex: "#A8CBF7")
+    public static let stageLight = Color(hex: "#5B9BF6")
+    public static let stageDeep = Color(hex: "#1E3A8A")
+    public static var sleepAwake: Color { stageAwake }
+    public static var sleepREM: Color { stageREM }
+    public static var sleepLight: Color { stageLight }
+    public static var sleepDeep: Color { stageDeep }
+
     public static let zoneZ5 = Color(hex: "#FF6B2C")
     public static let zoneZ4 = Color(hex: "#FFA424")
     public static let zoneZ3 = Color(hex: "#33BE66")
@@ -268,253 +232,179 @@ public enum StrandPalette {
     public static var zone3: Color { zoneZ3 }
     public static var zone4: Color { zoneZ4 }
     public static var zone5: Color { zoneZ5 }
-
-    /// HR zones indexed 1...5; index 0 mirrors zone1 for convenience.
     public static var hrZones: [Color] { [zone1, zone1, zone2, zone3, zone4, zone5] }
 
-    // MARK: Status
+    // MARK: Status and metrics
+
     public static var statusPositive: Color { success }
-    public static var statusWarning:  Color { warning }
+    public static var statusWarning: Color { warning }
     public static var statusCritical: Color { destructive }
 
-    // MARK: Per-metric accents — HRV / SpO₂ / energy / risk. Classic leans the traditional hues (purple HRV, red risk).
-    public static var metricCyan:   Color { link }
+    public static var metricCyan: Color { sleepNeedTeal }
     public static var metricPurple: Color { journalAccent }
-    public static var metricAmber:  Color { stressAccent }
-    public static var metricRose:   Color { liveRed }
+    public static var metricAmber: Color { stressAccent }
+    public static var metricRose: Color { liveRed }
 
-    // MARK: - Titanium & Gold domain "colour worlds" (NEW)
-    //
-    // Each daily score owns a two-stop accent gradient (deep → bright) plus a glow.
-    // These drive the layered gauges, frosted-card tints and scenic heroes. Charge
-    // owns the brand gold; Strain the amber ramp; Sleep the blue scale.
+    // MARK: Domain color worlds
 
-    // Each domain's accent / glow follows the chart style: Titanium (gold/amber/blue) or Classic
-    // (Charge=green, Strain=blue, Sleep=indigo, Stress=amber) so card tints + gauge tips + glows match
-    // the data scale. The gauge ARC itself samples the recovery/strain/stress STOPS above, so it goes
-    // full red→green / blue / green→red in Classic regardless of these.
-
-    /// Charge (recovery) — green.
-    public static var chargeColor: Color  { chargeAccent }
-    public static var chargeDeep: Color   { Color(hex: "#319E5C") }
-    public static var chargeBright: Color { Color(hex: "#64D58A") }
-    public static var chargeGlow: Color   { chargeAccent }
-    /// Diagonal accent pair for the Charge card wash + gauge stroke (deep → bright).
+    public static var chargeColor: Color { chargeAccent }
+    public static var chargeDeep: Color { Color(hex: "#0BAF13") }
+    public static var chargeBright: Color { recoveryHigh }
+    public static var chargeGlow: Color { recoveryHigh }
     public static var chargeGradient: Gradient { Gradient(colors: [chargeDeep, chargeBright]) }
 
-    /// Compatibility aliases for internal `.effort` identifiers; rendered Strain is always C13 blue.
-    public static var effortColor: Color  { strainAccent }
-    public static var effortDeep: Color   { strainAccent }
+    public static var effortColor: Color { strainAccent }
+    public static var effortDeep: Color { strainAccent }
     public static var effortBright: Color { strainAccent }
-    public static var effortGlow: Color   { strainAccent }
+    public static var effortGlow: Color { strainAccent }
     public static var effortGradient: Gradient { Gradient(colors: [effortDeep, effortBright]) }
 
-    /// Compatibility aliases for internal `.rest` identifiers; rendered Sleep is C13 slate-blue.
-    public static var restColor: Color  { sleepAccent }
-    public static var restDeep: Color   { sleepAccent }
+    public static var restColor: Color { sleepAccent }
+    public static var restDeep: Color { Color(hex: "#4F7187") }
     public static var restBright: Color { sleepAccent }
-    public static var restGlow: Color   { sleepAccent }
+    public static var restGlow: Color { sleepAccent }
     public static var restGradient: Gradient { Gradient(colors: [restDeep, restBright]) }
 
-    /// Stress — amber, with the fixed restful→high ramp used only by stress timelines.
-    public static var stressColor: Color  { stressAccent }
-    public static var stressDeep: Color   { success }
-    public static var stressBright: Color { liveRed }
-    public static var stressGlow: Color   { stressAccent }
-    /// 3-stop gauge ramp: calm → balanced → high.
+    public static var stressColor: Color { stressAccent }
+    public static var stressDeep: Color { success }
+    public static var stressBright: Color { destructive }
+    public static var stressGlow: Color { stressAccent }
     public static var stressGradient: Gradient { Gradient(colors: [stressDeep, stressColor, stressBright]) }
 
-    // MARK: Scenic background (NEW) — detail-screen hero gradient + starfield.
-    /// Radial canvas: lit center → deep edge. Used by `ScenicHeroBackground` (warm-lit on light).
-    public static let scenicCenter     = Color(light: "#FBF6EA", dark: "#1C2128")
-    public static let scenicEdge       = Color(light: "#EDE6D6", dark: "#121518")
-    /// Star tint for the scenic starfield (very faint on light; the hero suppresses stars there).
-    public static let scenicStar       = Color(light: "#D8CDB6", dark: "#C8CFD8")
+    // MARK: Shared backgrounds and compatibility ramps
 
-    /// Frosted-card tint endpoints (white→warm on light; the accent wash sits over them).
-    public static let cardFillTop      = Color(light: "#FFFFFF", dark: "#15243C")
-    public static let cardFillBottom   = Color(light: "#FAF7F0", dark: "#0B1424")
+    public static let scenicCenter = Color(hex: "#283339")
+    public static let scenicEdge = Color(hex: "#101518")
+    public static let scenicStar = Color(hex: "#C8CFD8")
 
-    // MARK: - Titanium & Gold core tokens (NEW)
-    //
-    // The brand gold ramp (buttons, ring fills, FAB, active chrome) and the neutral
-    // titanium ramp (tiles, avatars, icon plates). Same names + hexes on Android so
-    // Apple and Android match byte-for-byte.
+    public static let cardFillTop = Color(hex: "#283339")
+    public static let cardFillBottom = Color(hex: "#101518")
 
-    /// Brand gold — primary accent. Gold FILLS stay bright (dark text on them is legible in both schemes);
-    /// only a hair deeper on light so the fill doesn't wash out against white.
-    public static let gold          = Color(light: "#3A78C8", dark: "#60A0E0") // repointed to WHOOP blue (gold killed 2026-06-22)
-    /// Bright blue — accent highlight / hover (was champagne).
-    public static let goldLight     = Color(light: "#6FA8E0", dark: "#9FC8F0")
-    /// Deep blue — accent low stop (was bronze).
-    public static let goldDeep      = Color(light: "#2A5C9E", dark: "#3A78C8")
-    /// Near-black brown — text / icons placed ON gold surfaces (scheme-invariant; gold fills stay gold).
-    public static let goldDeepText  = Color(hex: "#FFFFFF") // white text/icons on accent fills (WHOOP, gold killed)
-    /// The bright core dot at a gauge arc tip / sparkline head. White reads as a highlight on the dark
-    /// canvas; on light it would vanish into the white card, so it flips to a deep ink that reads as a
-    /// crisp centre on the (deepened) coloured tip bead.
-    public static let tipCore       = Color(light: "#241B06", dark: "#FFFFFF")
-    /// High-vis signal yellow — sparing emphasis (badges / alerts); deepened on light to stay visible.
-    public static let signalYellow  = Color(light: "#E8A800", dark: "#FFD63D")
-    /// 135–155° gold ramp for buttons, ring fills, FAB (light → gold → deep).
-    public static let goldGradient  = Gradient(colors: [goldLight, gold, goldDeep])
+    /// Legacy "gold" names now resolve to the unified teal action ramp.
+    public static let gold = Color(hex: "#00F19F")
+    public static let goldLight = Color(hex: "#66F8C7")
+    public static let goldDeep = Color(hex: "#00A96F")
+    public static let goldDeepText = Color(hex: "#07120E")
+    public static let tipCore = Color(hex: "#FFFFFF")
+    public static let signalYellow = Color(hex: "#FFDE00")
+    public static let goldGradient = Gradient(colors: [goldLight, gold, goldDeep])
 
-    /// Brushed-titanium ramp (top highlight → mid body → low → deep) for tiles, avatars and icon plates.
-    /// Shifted to a MID-grey ramp on light so brushed-metal tiles stay visible against white cards.
-    public static let titaniumTop   = Color(light: "#DDE1E6", dark: "#F1F3F5")
-    public static let titaniumMid   = Color(light: "#BBC2C9", dark: "#C9CFD4")
-    public static let titaniumLow   = Color(light: "#98A0A8", dark: "#969DA4")
-    public static let titaniumDeep  = Color(hex: "#6B737B")
-    /// 150° titanium ramp for tiles / avatars / icon plates.
-    public static let titaniumGradient = Gradient(colors: [titaniumTop, titaniumMid, titaniumLow, titaniumDeep])
+    public static let titaniumTop = Color(hex: "#B7C4CA")
+    public static let titaniumMid = Color(hex: "#7E8F97")
+    public static let titaniumLow = Color(hex: "#56666E")
+    public static let titaniumDeep = Color(hex: "#344249")
+    public static let titaniumGradient = Gradient(
+        colors: [titaniumTop, titaniumMid, titaniumLow, titaniumDeep]
+    )
 
-    // MARK: - Sampling helpers
+    // MARK: Sampling helpers
 
-    /// Sample the recovery gradient (bronze → champagne) at a recovery score 0...100.
-    /// Returns the exact interpolated color used everywhere recovery is tinted.
     public static func recoveryColor(_ score: Double) -> Color {
-        sample(stops: recoveryStops, at: score / 100.0)
-    }
-
-    /// C13 Strain is constant blue; the stored value never changes its color.
-    public static func strainColor(_ strain: Double) -> Color {
-        strainAccent
-    }
-
-    /// Strain tint sampled by a 0...1 fraction (e.g. value/scaleMax), spreading the full ember→amber
-    /// ramp. Prefer this for gauge tips / value-tinted accents so a high Strain reads as bright amber
-    /// rather than ember. `strainColor(_:)` stays for callers holding a 0...100 value.
-    public static func effortTint(fraction: Double) -> Color {
-        strainAccent
-    }
-
-    /// The state word for a recovery score, per spec §9.3.
-    /// DEPLETED · LOW · MODERATE · PRIMED · PEAK
-    public static func recoveryState(_ score: Double) -> String {
+        guard !isClassic else { return sample(stops: cRecoveryStops, at: score / 100.0) }
         switch score {
-        case ..<25:  return String(localized: "DEPLETED", bundle: .module)
-        case ..<50:  return String(localized: "LOW", bundle: .module)
-        case ..<70:  return String(localized: "MODERATE", bundle: .module)
-        case ..<88:  return String(localized: "PRIMED", bundle: .module)
-        default:     return String(localized: "PEAK", bundle: .module)
+        case ..<33: return recoveryLow
+        case ..<66: return recoveryMed
+        default: return recoveryHigh
         }
     }
 
-    /// HR-zone color for a 0...5 zone index (clamped).
+    public static func strainColor(_ strain: Double) -> Color {
+        _ = strain
+        return strainAccent
+    }
+
+    public static func effortTint(fraction: Double) -> Color {
+        _ = fraction
+        return strainAccent
+    }
+
+    public static func recoveryState(_ score: Double) -> String {
+        switch score {
+        case ..<25: return String(localized: "DEPLETED", bundle: .module)
+        case ..<50: return String(localized: "LOW", bundle: .module)
+        case ..<70: return String(localized: "MODERATE", bundle: .module)
+        case ..<88: return String(localized: "PRIMED", bundle: .module)
+        default: return String(localized: "PEAK", bundle: .module)
+        }
+    }
+
     public static func hrZoneColor(_ zone: Int) -> Color {
         let z = max(1, min(5, zone))
         return hrZones[z]
     }
 
-    /// Color for a sleep stage by canonical name (awake/light/deep/rem).
     public static func sleepStageColor(_ stage: SleepStage) -> Color {
         switch stage {
         case .awake: return sleepAwake
         case .light: return sleepLight
-        case .deep:  return sleepDeep
-        case .rem:   return sleepREM
+        case .deep: return sleepDeep
+        case .rem: return sleepREM
         }
     }
 
-    // MARK: - Linear gradient stop interpolation
-
-    /// Interpolate a set of gradient stops at a normalized position 0...1.
-    /// Clamps out-of-range positions to the end stops.
     public static func sample(stops: [Gradient.Stop], at position: Double) -> Color {
         guard let first = stops.first else { return .clear }
         guard stops.count > 1 else { return first.color }
         let t = min(max(position, 0.0), 1.0)
 
-        // Find the bracketing pair.
         var lower = stops[0]
         var upper = stops[stops.count - 1]
-        for i in 0..<(stops.count - 1) {
-            let a = stops[i]
-            let b = stops[i + 1]
+        for index in 0..<(stops.count - 1) {
+            let a = stops[index]
+            let b = stops[index + 1]
             if t >= a.location && t <= b.location {
                 lower = a
                 upper = b
                 break
             }
         }
+
         let span = upper.location - lower.location
         let localT = span > 0 ? (t - lower.location) / span : 0
         return interpolate(lower.color, upper.color, localT)
     }
 
-    /// Linear-interpolate two colors in sRGB space.
     static func interpolate(_ a: Color, _ b: Color, _ t: Double) -> Color {
         let ca = ColorComponentCache.components(of: a)
         let cb = ColorComponentCache.components(of: b)
-        let tt = min(max(t, 0.0), 1.0)
+        let value = min(max(t, 0.0), 1.0)
         return Color(
             .sRGB,
-            red:   ca.r + (cb.r - ca.r) * tt,
-            green: ca.g + (cb.g - ca.g) * tt,
-            blue:  ca.b + (cb.b - ca.b) * tt,
-            opacity: ca.a + (cb.a - ca.a) * tt
+            red: ca.r + (cb.r - ca.r) * value,
+            green: ca.g + (cb.g - ca.g) * value,
+            blue: ca.b + (cb.b - ca.b) * value,
+            opacity: ca.a + (cb.a - ca.a) * value
         )
     }
 }
 
-// MARK: - Resolved-component memo cache
-//
-// PERF: `interpolate(_:_:_:)` is the leaf of ALL gradient sampling — every sparkline point, every pip
-// segment, every gauge tip, every heat-strip cell calls `sample(stops:at:)` → `interpolate`, which used
-// to build a fresh UIColor/NSColor and run `getRed()` on BOTH endpoints on every single call. The stop
-// colours are a tiny fixed set of static `let`s, so resolving them over and over dominated the draw.
-//
-// This memoizes the resolved sRGB components per Color. Crucially the cache is keyed on the CURRENT
-// resolved appearance as well as the Color, because the palette tokens are dynamic `Color(light:dark:)`
-// providers that resolve to DIFFERENT components per light/dark — so a bare Color key would return a
-// stale, wrong-scheme value after an appearance flip. Including the appearance token in the key makes
-// the cache miss (and re-resolve) exactly when the scheme changes, so the output stays byte-identical to
-// calling `rgbaComponents` directly. Bounded so a pathological caller can't grow it without limit.
+// MARK: - Resolved component cache
+
+/// Gradient endpoints are static palette colors. Cache their resolved components once.
 enum ColorComponentCache {
-    private static var store: [Key: (r: Double, g: Double, b: Double, a: Double)] = [:]
+    private static var store: [Color: (r: Double, g: Double, b: Double, a: Double)] = [:]
     private static let lock = NSLock()
 
-    private struct Key: Hashable {
-        let color: Color
-        let appearance: Int
-    }
-
-    /// A small integer identifying the current resolved appearance (light vs dark), matching the trait
-    /// that `UIColor(color)` / `NSColor(color)` resolves against at this call site.
-    private static var appearanceToken: Int {
-        #if os(watchOS)
-        // No UITraitCollection on watchOS; the watch app is always dark, so the cache key is constant.
-        return 1
-        #elseif canImport(UIKit)
-        return UITraitCollection.current.userInterfaceStyle == .dark ? 1 : 0
-        #elseif canImport(AppKit)
-        let match = NSAppearance.currentDrawing().bestMatch(from: [.aqua, .darkAqua])
-        return match == .darkAqua ? 1 : 0
-        #else
-        return 0
-        #endif
-    }
-
     static func components(of color: Color) -> (r: Double, g: Double, b: Double, a: Double) {
-        let key = Key(color: color, appearance: appearanceToken)
         lock.lock()
-        if let hit = store[key] {
+        if let hit = store[color] {
             lock.unlock()
             return hit
         }
         lock.unlock()
+
         let resolved = color.rgbaComponents
         lock.lock()
-        // Cap the cache so an adversarial stream of unique colours can't grow it unboundedly; the real
-        // working set is the handful of static palette stops, so this ceiling is never hit in practice.
-        if store.count > 512 { store.removeAll(keepingCapacity: true) }
-        store[key] = resolved
+        if store.count > 512 {
+            store.removeAll(keepingCapacity: true)
+        }
+        store[color] = resolved
         lock.unlock()
         return resolved
     }
 }
 
-// MARK: - Sleep stage enum (shared with Hypnogram)
+// MARK: - Sleep stage
 
 public enum SleepStage: String, CaseIterable, Sendable {
     case awake
@@ -522,23 +412,21 @@ public enum SleepStage: String, CaseIterable, Sendable {
     case deep
     case rem
 
-    /// Display label.
     public var label: String {
         switch self {
         case .awake: return String(localized: "Awake", bundle: .module)
         case .light: return String(localized: "Light", bundle: .module)
-        case .deep:  return String(localized: "Deep", bundle: .module)
-        case .rem:   return "REM"
+        case .deep: return String(localized: "Deep", bundle: .module)
+        case .rem: return "REM"
         }
     }
 
-    /// Vertical band order (top = awake, bottom = deep) for hypnogram layout.
     public var bandRank: Int {
         switch self {
         case .awake: return 0
-        case .rem:   return 1
+        case .rem: return 1
         case .light: return 2
-        case .deep:  return 3
+        case .deep: return 3
         }
     }
 }
@@ -546,16 +434,21 @@ public enum SleepStage: String, CaseIterable, Sendable {
 // MARK: - Color component extraction
 
 extension Color {
-    /// Resolve to sRGB RGBA components in 0...1. Works on macOS 13+ via platform color bridge.
     var rgbaComponents: (r: Double, g: Double, b: Double, a: Double) {
         #if canImport(AppKit)
         let ns = NSColor(self).usingColorSpace(.sRGB) ?? NSColor(self)
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        var r: CGFloat = 0
+        var g: CGFloat = 0
+        var b: CGFloat = 0
+        var a: CGFloat = 0
         ns.getRed(&r, green: &g, blue: &b, alpha: &a)
         return (Double(r), Double(g), Double(b), Double(a))
         #elseif canImport(UIKit)
         let ui = UIColor(self)
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        var r: CGFloat = 0
+        var g: CGFloat = 0
+        var b: CGFloat = 0
+        var a: CGFloat = 0
         ui.getRed(&r, green: &g, blue: &b, alpha: &a)
         return (Double(r), Double(g), Double(b), Double(a))
         #else
@@ -574,51 +467,28 @@ extension Color {
                 ("overlay", StrandPalette.surfaceOverlay),
                 ("inset", StrandPalette.surfaceInset),
                 ("hairline", StrandPalette.hairline),
-                ("hairline.strong", StrandPalette.hairlineStrong),
+                ("strong", StrandPalette.hairlineStrong),
             ])
             swatchRow("Text", [
                 ("primary", StrandPalette.textPrimary),
                 ("secondary", StrandPalette.textSecondary),
                 ("tertiary", StrandPalette.textTertiary),
             ])
-            swatchRow("Accent", [
-                ("accent", StrandPalette.accent),
+            swatchRow("Actions", [
+                ("teal", StrandPalette.accent),
                 ("hover", StrandPalette.accentHover),
                 ("muted", StrandPalette.accentMuted),
             ])
-            swatchRow("Gold", [
-                ("gold", StrandPalette.gold),
-                ("light", StrandPalette.goldLight),
-                ("deep", StrandPalette.goldDeep),
-                ("deepText", StrandPalette.goldDeepText),
-                ("signal", StrandPalette.signalYellow),
+            swatchRow("Scores", [
+                ("recovery", StrandPalette.recoveryHigh),
+                ("strain", StrandPalette.strainAccent),
+                ("sleep", StrandPalette.sleepAccent),
+                ("need", StrandPalette.sleepNeedTeal),
             ])
-            swatchRow("Titanium", [
-                ("top", StrandPalette.titaniumTop),
-                ("mid", StrandPalette.titaniumMid),
-                ("low", StrandPalette.titaniumLow),
-                ("deep", StrandPalette.titaniumDeep),
-            ])
-            VStack(alignment: .leading, spacing: 8) {
-                Text("RECOVERY GRADIENT").font(.caption).foregroundStyle(StrandPalette.textTertiary)
-                LinearGradient(gradient: StrandPalette.recoveryGradient, startPoint: .leading, endPoint: .trailing)
-                    .frame(height: 36).clipShape(RoundedRectangle(cornerRadius: 8))
-            }
-            VStack(alignment: .leading, spacing: 8) {
-                Text("STRAIN RAMP").font(.caption).foregroundStyle(StrandPalette.textTertiary)
-                LinearGradient(gradient: StrandPalette.strainGradient, startPoint: .leading, endPoint: .trailing)
-                    .frame(height: 36).clipShape(RoundedRectangle(cornerRadius: 8))
-            }
-            swatchRow("Sleep stages", [
-                ("awake", StrandPalette.sleepAwake),
-                ("light", StrandPalette.sleepLight),
-                ("deep", StrandPalette.sleepDeep),
-                ("REM", StrandPalette.sleepREM),
-            ])
-            swatchRow("HR zones", [
-                ("Z1", StrandPalette.zone1), ("Z2", StrandPalette.zone2),
-                ("Z3", StrandPalette.zone3), ("Z4", StrandPalette.zone4),
-                ("Z5", StrandPalette.zone5),
+            swatchRow("Recovery bands", [
+                ("low", StrandPalette.recoveryLow),
+                ("medium", StrandPalette.recoveryMed),
+                ("high", StrandPalette.recoveryHigh),
             ])
         }
         .padding(24)
@@ -640,8 +510,13 @@ private func swatchRow(_ title: String, _ items: [(String, Color)]) -> some View
                     RoundedRectangle(cornerRadius: 8)
                         .fill(color)
                         .frame(width: 64, height: 48)
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(StrandPalette.hairline, lineWidth: 1))
-                    Text(name).font(.system(size: 9)).foregroundStyle(StrandPalette.textSecondary)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(StrandPalette.hairline, lineWidth: 1)
+                        )
+                    Text(name)
+                        .font(.system(size: 9))
+                        .foregroundStyle(StrandPalette.textSecondary)
                 }
             }
         }
