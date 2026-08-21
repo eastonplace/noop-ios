@@ -52,6 +52,7 @@ jobs:
           audits=(
             source_contract_audit.py
             ui_unification_contract_audit.py
+            whoop_ui_contract_audit.py
             workout_runtime_contract_audit.py
             workout_persistence_contract_audit.py
             trends_snapshot_contract_audit.py
