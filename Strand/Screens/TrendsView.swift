@@ -104,6 +104,8 @@ struct TrendsView: View {
                         Image(systemName: "square.and.arrow.up")
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Share Trends")
+                    .accessibilityHint("Opens a shareable Trends report")
                 }
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(StrandPalette.textPrimary)

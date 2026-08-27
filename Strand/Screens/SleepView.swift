@@ -232,7 +232,11 @@ struct SleepView: View {
                         .staggeredAppear(index: 0)
                         SleepMarkCard().staggeredAppear(index: 1)
                         // Full editor, bound to the same BehaviorStore and actuation lane as Alarms.
-                        SleepAlarmEditorSection().staggeredAppear(index: 2)
+                        SleepAlarmEditorSection()
+                            // Let the primary sleep read finish before the secondary alarm editor enters
+                            // the first viewport. This keeps its header from colliding with the custom tab bar.
+                            .padding(.top, NoopMetrics.space6)
+                            .staggeredAppear(index: 2)
                         paperSleepStages(
                             night: displayedNight.night,
                             intervals: displayedNight.intervals
@@ -267,6 +271,7 @@ struct SleepView: View {
                 } else {
                     LazyVStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
                         SleepAlarmEditorSection()
+                            .padding(.top, NoopMetrics.space6)
                         emptyState
                         sleepRhythmEntry
                     }

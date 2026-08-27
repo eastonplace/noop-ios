@@ -51,17 +51,23 @@ extension TrendsView {
                 .id("\(selectedMetric.rawValue)-\(selectedRange.rawValue)")
 
                 if selectedRange != .week {
-                    Text("Calendar heat · latest 35 days")
-                        .font(StrandFont.micro)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                    TrendMonthHeat(
-                        days: snapshot.heatDays,
-                        tint: selectedMetric.tint,
-                        referenceDate: trendReferenceDate,
-                        valueFormat: selectedMetric.format,
-                        colorScale: selectedMetric == .recovery ? .recoveryBands : .intensity
-                    )
-                    .id("heat-\(selectedMetric.rawValue)-\(selectedRange.rawValue)")
+                    VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+                        Text("Calendar heat · latest 35 days")
+                            .font(StrandFont.micro)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                        TrendMonthHeat(
+                            days: snapshot.heatDays,
+                            tint: selectedMetric.tint,
+                            referenceDate: trendReferenceDate,
+                            valueFormat: selectedMetric.format,
+                            colorScale: selectedMetric == .recovery ? .recoveryBands : .intensity
+                        )
+                        .id("heat-\(selectedMetric.rawValue)-\(selectedRange.rawValue)")
+                    }
+                    // Keep the secondary calendar detail below a clear fold; the custom tab bar owns the
+                    // lower edge of the first viewport, so this gap prevents the heatmap from reading as
+                    // clipped content instead of the next layer of the Trends story.
+                    .padding(.top, NoopMetrics.space6)
                 }
             }
 

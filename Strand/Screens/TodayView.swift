@@ -1491,9 +1491,9 @@ struct TodayView: View {
         let f = DateFormatter(); f.dateFormat = "EEE, MMM d"; f.locale = Locale(identifier: "en_US_POSIX"); return f
     }()
 
-    /// The selected day as a small locale-aware numeric date ("28/06/2026" or "6/28/2026" per region). The
-    /// top bar shows just this now, no "Today" / "Yesterday" word and no prev/next arrows. Day-change is by
-    /// horizontal swipe or by tapping to open the picker, and the rotating hint below teaches both.
+    /// The selected day as a small locale-aware date. The top bar shows just this now, no "Today" /
+    /// "Yesterday" word and no prev/next arrows. Day-change is by horizontal swipe or by tapping to open
+    /// the picker; the date remains visible while the affordance is discoverable through accessibility.
     private var dayNavDateText: String {
         // At offset 0 date off the row the resolver actually surfaces (`repo.today?.day`, same as
         // `selectedDayKey`) so the top-bar date matches Android (which dates off `today?.day`) and the
@@ -1506,10 +1506,6 @@ struct TodayView: View {
         return Self.navDayFmt.string(from: selectedLogicalDay)
     }
 
-    /// Periodic one-word hint shown in place of the date for ~1.5s every ~10s (nil = show the date). With the
-    /// arrows gone the day-nav affordances are otherwise invisible, so this teaches them in the accent colour.
-    @State private var dayNavHint: String? = nil
-    private static let dayNavHints = ["Swipe", "Tap"]
     #endif
 
     /// #829 follow-up: the named coordinate space the day-swipe drag and the HR-chart frame reader share,
@@ -1602,7 +1598,7 @@ struct TodayView: View {
             Button { showDayPicker = true } label: {
                 animatedDayNavText
                     .font(StrandFont.caption)
-                    .foregroundStyle(dayNavHint != nil ? StrandPalette.link : StrandPalette.textSecondary)
+                    .foregroundStyle(StrandPalette.textSecondary)
                     .lineLimit(1)
             }
             .buttonStyle(.plain)
@@ -1615,27 +1611,12 @@ struct TodayView: View {
             }
         }
         .frame(minHeight: 24)
-        // Cycle the swipe/tap hint: roughly every 10s flash a one-word hint for ~1.5s, alternating "Swipe" /
-        // "Tap", then return to the date. One async loop, auto-cancelled when Today goes away (no leaked timer).
-        .task {
-            var i = 0
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 10_000_000_000)
-                if Task.isCancelled { break }
-                withAnimation(.easeInOut(duration: 0.3)) { dayNavHint = Self.dayNavHints[i % Self.dayNavHints.count] }
-                i += 1
-                try? await Task.sleep(nanoseconds: 1_500_000_000)
-                withAnimation(.easeInOut(duration: 0.3)) { dayNavHint = nil }
-            }
-        }
     }
 
-    /// The date uses numeric continuity while the periodic affordance hint keeps its
-    /// existing fade. This does not own or mutate the day cursor.
+    /// Keep the date visible while preserving the lightweight numeric transition when the selected day
+    /// changes. This does not own or mutate the day cursor.
     @ViewBuilder private var animatedDayNavText: some View {
-        if let dayNavHint {
-            Text(dayNavHint).contentTransition(.opacity)
-        } else if #available(iOS 17.0, *) {
+        if #available(iOS 17.0, *) {
             Text(dayNavDateText)
                 .contentTransition(.numericText())
                 .animation(reduceMotion ? nil : StrandMotion.value, value: selectedDayOffset)
