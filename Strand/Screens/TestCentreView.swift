@@ -45,6 +45,11 @@ struct TestCentreView: View {
     @State private var showStartSport = false
     @State private var showLiveWorkout = false
     @State private var showHRVSnapshot = false
+    @State private var showingLiveActions = false
+    @State private var toastMessage: String?
+    /// `TestCentre` persists flags in UserDefaults rather than publishing them. Incrementing this
+    /// lightweight revision refreshes compact status badges after a priority action or detail toggle.
+    @State private var modeActivationRevision = 0
 
     // Section 3: scheduled daily auto-export, the same ScheduledDebugExport store the Settings card uses.
     @State private var debugExportOn = ScheduledDebugExport.isEnabled
@@ -89,23 +94,39 @@ struct TestCentreView: View {
     }
 
     private var dashboard: some View {
-        Group {
-            if presentation == .settingsDetail {
-                nativeDashboard
-            } else {
-                ScreenScaffold(title: nil, lazy: true) {
-                    LazyVStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
-                        PaperHeaderBar(title: "Test Centre",
-                                       subtitle: "Diagnostics & tools",
-                                       backAction: compactHeaderBackAction)
-                            .staggeredAppear(index: 0)
-                        liveDiagnosticsSection.staggeredAppear(index: 1)
-                        domainModesCard.staggeredAppear(index: 2)
-                        diagnosticToolsCard.staggeredAppear(index: 3)
-                        exportCard.staggeredAppear(index: 4)
-                        advancedCard.staggeredAppear(index: 5)
-                    }
+        ScreenScaffold(
+            title: presentation == .settingsDetail ? "Test Centre" : nil,
+            subtitle: presentation == .settingsDetail ? "Live diagnostics and focused capture tools." : nil,
+            lazy: true
+        ) {
+            LazyVStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+                if presentation == .standard {
+                    PaperHeaderBar(title: "Test Centre",
+                                   subtitle: "Live diagnostics",
+                                   backAction: compactHeaderBackAction)
+                        .staggeredAppear(index: 0)
                 }
+
+                VStack(alignment: .leading, spacing: 12) {
+                    TestCentreConnectionTrustLeaf(
+                        model: model,
+                        live: live,
+                        modeActivationRevision: modeActivationRevision,
+                        onMenu: { showingLiveActions = true })
+                    TestCentreRecordInspectLeaf(
+                        model: model,
+                        live: live,
+                        modeActivationRevision: modeActivationRevision,
+                        onStartWorkout: { showStartSport = true },
+                        onOpenWorkout: { showLiveWorkout = true },
+                        onRefresh: refreshStrap,
+                        onEnableWorkoutCapture: enableWorkoutCapture)
+                }
+                .staggeredAppear(index: 1)
+                domainModesCard.staggeredAppear(index: 2)
+                diagnosticToolsCard.staggeredAppear(index: 3)
+                exportCard.staggeredAppear(index: 4)
+                advancedCard.staggeredAppear(index: 5)
             }
         }
         .onAppear {
@@ -136,90 +157,33 @@ struct TestCentreView: View {
         } message: {
             Text(infoMessage)
         }
-    }
-
-    private var nativeDashboard: some View {
-        NativeSettingsList {
-            Section {
-                NativeTestCentreStatusLeaf(
-                    model: model,
-                    live: live,
-                    onStartWorkout: { showStartSport = true },
-                    onOpenWorkout: { showLiveWorkout = true },
-                    onInspectHRV: { showHRVSnapshot = true })
-            } header: {
-                Text("Live status")
-            } footer: {
-                Text("These tools inspect the current strap stream without changing stored health history.")
+        .confirmationDialog("Live diagnostic actions",
+                            isPresented: $showingLiveActions,
+                            titleVisibility: .visible) {
+            Button("Refresh strap") { refreshStrap() }
+                .disabled(!live.connected)
+            Button("Copy strap log") {
+                PlatformPasteboard.copy(live.exportableLogText())
+                showToast("Strap log copied")
             }
-
-            Section {
-                ForEach(TestCentreLayout.visibleModes(is5MG: is5MG)) { mode in
-                    NativeTestModeRow(mode: mode, report: report, live: live, model: model)
-                }
-            } header: {
-                Text("Test modes")
-            } footer: {
-                Text("Enable extra diagnostics for one area, then create a report when the issue occurs.")
-            }
-
-            Section {
-                Button("Copy Strap Log") { PlatformPasteboard.copy(live.exportableLogText()) }
-                Button("Save Strap Log…") {
-                    FileExport.exportText(
-                        live.exportableLogText(),
-                        suggestedName: FileExport.timestampedName("noop-strap-log", ext: "txt")
-                    )
-                }
-                Button("Copy Diagnostic Log") { PlatformPasteboard.copy(live.exportableLogText()) }
-                NavigationLink("Recovery Baseline Settings") {
-                    SettingsDetailHost(destination: .scoringBaselines)
-                }
-            } header: {
-                Text("Diagnostic tools")
-            }
-
-            Section {
-                Button("Create Bug Report") {
-                    report.start(mode: TestCentreView.masterReportMode, live: live, repo: model.repo)
-                }
-                Toggle("Daily auto-export", isOn: $debugExportOn)
-                    .font(.caption)
-                    .onChangeCompat(of: debugExportOn) { enabled in ScheduledDebugExport.setEnabled(enabled) }
-                if debugExportOn {
-                    DatePicker("Time", selection: debugExportTimeBinding, displayedComponents: .hourAndMinute)
-                        .font(.caption)
-                    Button("Run Export Now") { runScheduledExportNow() }
-                }
-                if let status = report.lastStatus {
-                    Text(status).font(.caption).foregroundStyle(.secondary)
-                }
-            } header: {
-                Text("Reports and export")
-            } footer: {
-                Text("Bug reports are redacted and reviewed before the system share sheet opens.")
-            }
-
-            Section {
-                Toggle("Experimental sleep staging", isOn: $experimentalSleepV2Enabled).font(.caption)
-                if is5MG {
-                    Toggle("WHOOP 5/MG protocol probes", isOn: $puffinExperiments).font(.caption)
-                    Toggle("WHOOP 5/MG deep data", isOn: $deepDataEnabled).font(.caption)
-                    Toggle("Broadcast heart rate", isOn: $broadcastHrEnabled)
-                        .font(.caption)
-                        .onChangeCompat(of: broadcastHrEnabled) { enabled in model.ble.setBroadcastHr(enabled) }
-                    Toggle("Record puffin frames", isOn: $puffinCapture).font(.caption)
-                }
-            } header: {
-                Text("Experimental")
-            } footer: {
-                Text("Experimental diagnostics are off by default and can use additional battery or storage.")
-            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Refresh the current stream or copy its redacted diagnostic log.")
         }
-        .navigationTitle("Test Centre")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
+        .paperToast(
+            isPresented: Binding(
+                get: { toastMessage != nil },
+                set: { if !$0 { toastMessage = nil } }
+            )
+        ) {
+            PaperToast(
+                LocalizedStringKey(toastMessage!),
+                announcement: toastMessage
+            )
+        }
+        .onChangeCompat(of: report.lastStatus) { status in
+            if let status { showToast(status) }
+        }
     }
 
     private var compactHeaderBackAction: (() -> Void)? {
@@ -230,40 +194,12 @@ struct TestCentreView: View {
         #endif
     }
 
-    /// E2: the live stream's trust, record and inspect tools are diagnostics, so Test Centre owns them.
-    /// The actions are the original Live wiring: AppModel.startWorkout, getBattery and HRVSnapshotView.
-    private var liveDiagnosticsSection: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
-            VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
-                SectionHeader("Live status", overline: "Signal trust")
-                TestCentreConnectionTrustLeaf(live: live)
-            }
-
-            VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
-                SectionHeader("Record & inspect", overline: "Current stream")
-                PaperCard(padding: 14) {
-                    TestCentreRecordInspectLeaf(
-                        model: model,
-                        live: live,
-                        onStartWorkout: { showStartSport = true },
-                        onOpenWorkout: { showLiveWorkout = true },
-                        onInspectHRV: { showHRVSnapshot = true })
-                }
-            }
-
-            VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
-                SectionHeader("Stream log", overline: "Inspect & export")
-                LiveLogCard(showsTestCentreLink: false)
-            }
-        }
-    }
-
     // MARK: - Section 1: Domain test modes (rendered from the registry projection)
 
     @ViewBuilder private var domainModesCard: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
-            SectionHeader("Test modes", overline: "Capture")
-            Text("Log extra detail for one part of NOOP, then include it in a bug report.")
+            SectionHeader("Test modes", overline: "Focused capture")
+            Text("Pick one system, capture the issue, then review its evidence before sharing.")
                 .font(StrandFont.caption)
                 .foregroundStyle(StrandPalette.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -272,7 +208,21 @@ struct TestCentreView: View {
                     let modes = TestCentreLayout.visibleModes(is5MG: is5MG)
                     ForEach(Array(modes.enumerated()), id: \.element.id) { idx, mode in
                         if idx > 0 { Divider().overlay(StrandPalette.hairline) }
-                        TestModeRow(mode: mode, report: report, live: live, model: model)
+                        NavigationLink {
+                            TestModeDetailView(
+                                mode: mode,
+                                report: report,
+                                live: live,
+                                model: model,
+                                onActivationChange: modeActivationChanged)
+                                .environment(\.screenScaffoldNavigationRole, .detail)
+                        } label: {
+                            TestModeNavigationLabel(
+                                mode: mode,
+                                activationRevision: modeActivationRevision)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("Opens capture controls and live readouts")
                     }
                 }
             }
@@ -291,13 +241,17 @@ struct TestCentreView: View {
                         Text("STRAP LOG").font(StrandFont.overline).tracking(StrandFont.overlineTracking)
                             .foregroundStyle(StrandPalette.textSecondary)
                         Spacer()
-                        Button("Copy") { PlatformPasteboard.copy(live.exportableLogText()) }
-                            .buttonStyle(.plain).font(StrandFont.mono).foregroundStyle(StrandPalette.accent)
-                            .frame(minWidth: 44, minHeight: 44)
-                            .contentShape(Rectangle())
+                        Button("Copy") {
+                            PlatformPasteboard.copy(live.exportableLogText())
+                            showToast("Strap log copied")
+                        }
+                        .buttonStyle(.plain).font(StrandFont.mono).foregroundStyle(StrandPalette.accent)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
                         Button("Save…") {
                             FileExport.exportText(live.exportableLogText(),
                                                   suggestedName: FileExport.timestampedName("noop-strap-log", ext: "txt"))
+                            showToast("Strap log ready to save")
                         }
                         .buttonStyle(.plain).font(StrandFont.mono).foregroundStyle(StrandPalette.accent)
                         .frame(minWidth: 44, minHeight: 44)
@@ -323,10 +277,31 @@ struct TestCentreView: View {
 
                     Divider().overlay(StrandPalette.hairline)
 
+                    NavigationLink {
+                        TestCentreLogView()
+                            .environment(\.screenScaffoldNavigationRole, .detail)
+                    } label: {
+                        DeviceCommandNavigationRow(
+                            title: "Inspect live strap log",
+                            detail: "Read the current redacted stream and load older lines",
+                            icon: "text.alignleft")
+                    }
+                    .buttonStyle(.plain)
+
+                    Divider().overlay(StrandPalette.hairline)
+
+                    NoopButton("Inspect HRV", systemImage: "waveform.path.ecg", kind: .secondary) {
+                        showHRVSnapshot = true
+                    }
+                    .disabled(!live.connected)
+
+                    Divider().overlay(StrandPalette.hairline)
+
                     // Environment dump: the IOSDiagnostics-backed block exportableLogText already carries,
                     // surfaced as a copyable readout (spec section 3.4).
                     NoopButton("Copy diagnostic log", systemImage: "info.circle", kind: .secondary) {
                         PlatformPasteboard.copy(live.exportableLogText())
+                        showToast("Diagnostic log copied")
                     }
                 }
             }
@@ -362,6 +337,7 @@ struct TestCentreView: View {
                     if let reportText = report.copyableReport {
                         Button {
                             PlatformPasteboard.copy(reportText)
+                            showToast("Redacted report copied")
                         } label: {
                             Label("Copy report.txt", systemImage: "doc.on.clipboard")
                                 .font(StrandFont.subhead)
@@ -479,227 +455,362 @@ struct TestCentreView: View {
         model.ble.flushPuffinCaptures()
         let url = ScheduledDebugExport.runNow(captureURL: live.puffinCaptureURL)
         if let url {
-            infoTitle = String(localized: "Strap log exported")
-            #if os(iOS)
-            infoMessage = String(localized: "Saved \(url.lastPathComponent) to NOOP's folder in the Files app.")
-            #else
-            infoMessage = String(localized: "Saved \(url.lastPathComponent) to your Documents folder.")
-            #endif
+            showToast("Saved \(url.lastPathComponent)")
         } else {
             infoTitle = String(localized: "Export failed")
             infoMessage = String(localized: "Couldn't write the strap log right now.")
+            showInfo = true
         }
-        showInfo = true
+    }
+
+    private func refreshStrap() {
+        model.getBattery()
+        showToast("Refreshing strap")
+    }
+
+    private func enableWorkoutCapture() {
+        TestCentre.activate(.workouts)
+        modeActivationChanged()
+        showToast("Workout and GPS capture enabled")
+    }
+
+    private func modeActivationChanged() {
+        modeActivationRevision &+= 1
+    }
+
+    private func showToast(_ message: String) {
+        toastMessage = message
     }
 }
 
-/// Observes only the compact connection summary, not the complete Test Centre route.
+/// The Test Centre's operational summary. This is intentionally a narrow observer so live HR and R-R
+/// updates redraw the hero without invalidating the complete diagnostics route.
 private struct TestCentreConnectionTrustLeaf: View {
-    @EnvironmentObject private var model: AppModel
-    @ObservedObject var live: LiveState
-
-    private var activeConnection: Bool { live.connected && live.bonded }
-
-    var body: some View {
-        PaperCard(padding: 14) {
-            VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-                HStack(alignment: .top, spacing: NoopMetrics.space3) {
-                    VStack(alignment: .leading, spacing: NoopMetrics.space1) {
-                        Text(connectionTitle)
-                            .font(StrandFont.subhead.weight(.semibold))
-                            .foregroundStyle(StrandPalette.textPrimary)
-                        Text(connectionDetail)
-                            .font(StrandFont.caption)
-                            .foregroundStyle(StrandPalette.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer(minLength: NoopMetrics.space2)
-                    StatusBadge(statusLabel,
-                                style: activeConnection ? .live : (live.connected ? .queued : .notConnected),
-                                pulsing: activeConnection)
-                }
-
-                Divider().overlay(StrandPalette.hairline)
-
-                HStack(alignment: .top, spacing: 0) {
-                    statusMetric("Heart rate", value: model.bpm.map { "\($0) bpm" } ?? "Missing")
-                    metricDivider
-                    statusMetric("Battery", value: live.batteryPct.map { "\(Int($0.rounded()))%" } ?? "Unknown")
-                    metricDivider
-                    statusMetric("R-R", value: live.rrRecent.isEmpty ? "Missing" : "\(live.rrRecent.count) recent")
-                }
-            }
-        }
-    }
-
-    private var statusLabel: LocalizedStringKey {
-        if activeConnection { return "Live" }
-        if live.connected { return "Limited" }
-        return "Offline"
-    }
-
-    private var connectionTitle: LocalizedStringKey {
-        if activeConnection { return "Strap stream trusted" }
-        if live.connected { return "Strap link needs attention" }
-        return "Strap offline"
-    }
-
-    private var connectionDetail: LocalizedStringKey {
-        if activeConnection { return "Live sensor frames are ready for tests." }
-        if live.connected { return "Radio connected, but the stream is not trusted yet." }
-        return "Connect in Live to run stream diagnostics."
-    }
-
-    private func statusMetric(_ label: LocalizedStringKey, value: String) -> some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.space1) {
-            Text(label)
-                .font(StrandFont.micro)
-                .foregroundStyle(StrandPalette.textTertiary)
-                .lineLimit(1)
-            Text(value)
-                .font(StrandFont.caption.weight(.semibold))
-                .foregroundStyle(StrandPalette.textPrimary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var metricDivider: some View {
-        Rectangle()
-            .fill(StrandPalette.hairline)
-            .frame(width: 1, height: 34)
-            .padding(.horizontal, NoopMetrics.space2)
-    }
-}
-
-/// Narrow owner for native Test Centre live status and actions.
-private struct NativeTestCentreStatusLeaf: View {
     @ObservedObject var model: AppModel
     @ObservedObject var live: LiveState
-    let onStartWorkout: () -> Void
-    let onOpenWorkout: () -> Void
-    let onInspectHRV: () -> Void
+    let modeActivationRevision: Int
+    let onMenu: () -> Void
 
-    var body: some View {
-        Group {
-            LabeledContent("Connection", value: live.connectionStatusLabel)
-                .font(.caption)
-            if let battery = live.batteryPct {
-                LabeledContent("Battery", value: "\(Int(battery.rounded()))%")
-                    .font(.caption)
-            }
-            Button(model.activeWorkout == nil ? "Record Workout" : "Open Active Workout") {
-                if model.activeWorkout == nil {
-                    onStartWorkout()
-                } else {
-                    onOpenWorkout()
-                }
-            }
-            Button("Refresh Strap") { model.getBattery() }
-                .disabled(!live.connected)
-            Button("Inspect HRV") { onInspectHRV() }
-                .disabled(!live.connected)
-        }
-    }
-}
-
-/// Keeps active-workout labels and connection-gated actions live without invalidating the diagnostic log.
-private struct NativeTestModeRow: View {
-    let mode: TestMode
-    @ObservedObject var report: TestCentreReport
-    let live: LiveState
-    let model: AppModel
-    @State private var enabled = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Toggle(mode.title, isOn: $enabled)
-                .font(.caption)
-            Text(mode.blurb)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            Button("Report \(mode.title) Issue") {
-                report.start(mode: mode, live: live, repo: model.repo)
-            }
-            .font(.caption)
-        }
-        .padding(.vertical, 2)
-        .onAppear {
-            enabled = TestCentre.active(mode.domain)
-            if mode.domain == .display, enabled { startDisplayMonitor() }
-        }
-        .onChange(of: enabled) { _, isEnabled in
-            if isEnabled { TestCentre.activate(mode.domain) } else { TestCentre.deactivate(mode.domain) }
-            if mode.domain == .display {
-                if isEnabled { startDisplayMonitor() } else { DisplayPerformanceMonitor.shared.stop() }
-            }
-        }
-        .onDisappear {
-            if mode.domain == .display { DisplayPerformanceMonitor.shared.stop() }
-        }
-    }
-
-    private func startDisplayMonitor() {
-        DisplayPerformanceMonitor.shared.emit = { [weak live] line in
-            live?.append(log: line, domain: .display)
-        }
-        DisplayPerformanceMonitor.shared.dataVolumeProvider = { [weak model] in
-            await model?.repo.dataVolumeSnapshot()
-        }
-        DisplayPerformanceMonitor.shared.start()
-    }
-}
-
-private struct TestCentreRecordInspectLeaf: View {
-    @ObservedObject var model: AppModel
-    @ObservedObject var live: LiveState
-    let onStartWorkout: () -> Void
-    let onOpenWorkout: () -> Void
-    let onInspectHRV: () -> Void
-
-    private var activeConnection: Bool { live.connected && live.bonded }
-    private var canExerciseLiveTools: Bool {
-        #if DEBUG
-        return activeConnection || CommandLine.arguments.contains("--demo-seed")
-        #else
-        return activeConnection
-        #endif
+    private var trusted: Bool { live.connected && live.bonded }
+    private var workoutCaptureOn: Bool {
+        _ = modeActivationRevision
+        return TestCentre.active(.workouts)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(activeConnection
-                 ? "Record a workout interval or inspect the live R-R stream."
-                 : "Connect a strap in Live, then return here to record or inspect its stream.")
-                .font(StrandFont.caption)
-                .foregroundStyle(StrandPalette.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-            NoopButton(model.activeWorkout == nil ? "Record workout" : "Open active workout",
-                       systemImage: model.activeWorkout == nil ? "record.circle" : "timer",
-                       kind: .primary,
-                       fullWidth: true,
-                       action: openWorkout)
-                .disabled(!canExerciseLiveTools && model.activeWorkout == nil)
-            HStack(spacing: NoopMetrics.rowSpacing) {
-                NoopButton("Refresh strap", systemImage: "arrow.clockwise", kind: .secondary) {
-                    model.getBattery()
+            SectionHeader("Live status", overline: "Signal trust")
+            DeviceCommandCenterHero(
+                name: "Live diagnostics",
+                metadata: "Test Centre · on-device",
+                title: heroTitle,
+                detail: heroDetail,
+                tone: heroTone,
+                symbol: heroSymbol,
+                bondLabel: bondLabel,
+                bondTone: heroTone,
+                metrics: metrics,
+                systemItems: systemItems,
+                onMenu: onMenu)
+        }
+    }
+
+    private var metrics: [DeviceCommandStatusItem] {
+        [
+            DeviceCommandStatusItem(
+                id: "hr",
+                label: "Heart rate",
+                value: model.bpm.map { "\($0) bpm" } ?? "Waiting",
+                tone: model.bpm == nil ? .neutral : .good),
+            DeviceCommandStatusItem(
+                id: "battery",
+                label: "Battery",
+                value: live.batteryPct.map { "\(Int($0.rounded()))%" } ?? "Unknown",
+                tone: live.batteryPct == nil ? .neutral : .good),
+            DeviceCommandStatusItem(
+                id: "rr",
+                label: "R-R stream",
+                value: live.rrRecent.isEmpty ? "Waiting" : "\(live.rrRecent.count) recent",
+                tone: live.rrRecent.isEmpty ? .neutral : .good),
+        ]
+    }
+
+    private var systemItems: [DeviceCommandStatusItem] {
+        [
+            DeviceCommandStatusItem(
+                id: "ble",
+                label: "Bluetooth",
+                value: live.connected ? "Connected" : "Offline",
+                tone: live.connected ? .good : .warning),
+            DeviceCommandStatusItem(
+                id: "bond",
+                label: "Trust",
+                value: trusted ? "Trusted" : (live.connected ? "Limited" : "Waiting"),
+                tone: trusted ? .good : (live.connected ? .warning : .neutral)),
+            DeviceCommandStatusItem(
+                id: "health",
+                label: "Heart rate",
+                value: model.bpm == nil ? "Waiting" : "Live",
+                tone: model.bpm == nil ? .neutral : .good),
+            DeviceCommandStatusItem(
+                id: "workouts",
+                label: "GPS capture",
+                value: workoutCaptureOn ? "Armed" : "Off",
+                tone: workoutCaptureOn ? .good : .neutral),
+        ]
+    }
+
+    private var heroTitle: String {
+        if trusted { return "Strap stream trusted" }
+        if live.connected { return "Stream needs attention" }
+        return "Strap offline"
+    }
+
+    private var heroDetail: String {
+        if trusted { return "Live sensor frames are ready for focused tests." }
+        if live.connected { return "Bluetooth is connected, but the sensor stream is not trusted yet." }
+        return "Reconnect the strap before relying on live heart rate or GPS diagnostics."
+    }
+
+    private var heroTone: DeviceCommandTone {
+        if trusted { return .good }
+        if live.connected { return .warning }
+        return .neutral
+    }
+
+    private var heroSymbol: String {
+        if trusted { return "checkmark" }
+        if live.connected { return "exclamationmark" }
+        return "antenna.radiowaves.left.and.right"
+    }
+
+    private var bondLabel: String {
+        if trusted { return "Live" }
+        if live.connected { return "Limited" }
+        return "Offline"
+    }
+}
+
+/// Owns the one highest-priority action beneath the live-trust hero. Keeping this separate prevents
+/// workout publications from redrawing the mode list and satisfies the scoped live-control contract.
+private struct TestCentreRecordInspectLeaf: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var live: LiveState
+    let modeActivationRevision: Int
+    let onStartWorkout: () -> Void
+    let onOpenWorkout: () -> Void
+    let onRefresh: () -> Void
+    let onEnableWorkoutCapture: () -> Void
+
+    private var trusted: Bool { live.connected && live.bonded }
+    private var workoutCaptureOn: Bool {
+        _ = modeActivationRevision
+        return TestCentre.active(.workouts)
+    }
+
+    private var canExerciseLiveTools: Bool {
+        #if DEBUG
+        return trusted || CommandLine.arguments.contains("--demo-seed")
+        #else
+        return trusted
+        #endif
+    }
+
+    @ViewBuilder var body: some View {
+        if model.activeWorkout != nil {
+            DeviceCommandPriorityCard(
+                eyebrow: "Recording now",
+                title: "Workout is active",
+                detail: "Open the live workout to check GPS, duration, and heart rate.",
+                actionTitle: "Open workout",
+                icon: "record.circle.fill",
+                tone: .good,
+                action: onOpenWorkout)
+        } else if !trusted {
+            DeviceCommandPriorityCard(
+                eyebrow: "Do this first",
+                title: "Bring the strap nearby",
+                detail: "Keep Bluetooth on, then refresh the current link before testing.",
+                actionTitle: "Refresh strap",
+                icon: "antenna.radiowaves.left.and.right",
+                tone: live.connected ? .warning : .neutral,
+                action: onRefresh)
+        } else if !workoutCaptureOn {
+            DeviceCommandPriorityCard(
+                eyebrow: "Recommended next",
+                title: "Trace a workout cleanly",
+                detail: "Arm the Workouts & GPS mode before reproducing a run issue.",
+                actionTitle: "Enable GPS test",
+                icon: "figure.run",
+                tone: .warning,
+                action: onEnableWorkoutCapture)
+        } else {
+            DeviceCommandPriorityCard(
+                eyebrow: "Ready to test",
+                title: "Workout and GPS capture is armed",
+                detail: "Start a workout, lock the phone, then return here to review the trace.",
+                actionTitle: "Record workout",
+                icon: "location.fill",
+                tone: .good,
+                enabled: canExerciseLiveTools,
+                action: onStartWorkout)
+        }
+    }
+}
+
+/// Compact row used by the main Test Centre. The persistent flag is intentionally sampled through a
+/// parent-owned revision because `TestCentre` remains a zero-cost UserDefaults gate for sensor emitters.
+private struct TestModeNavigationLabel: View {
+    let mode: TestMode
+    let activationRevision: Int
+
+    private var active: Bool {
+        _ = activationRevision
+        return TestCentre.active(mode.domain)
+    }
+
+    var body: some View {
+        DeviceCommandNavigationRow(
+            title: mode.title,
+            detail: mode.blurb,
+            icon: mode.icon,
+            status: active ? "On" : "Off",
+            statusTone: active ? .good : .neutral)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 4)
+    }
+}
+
+/// Focused drill-in for one test mode. It keeps capture state, live evidence, and reporting together
+/// without forcing every mode's controls and readouts into one long settings wall.
+private struct TestModeDetailView: View {
+    @Environment(\.screenScaffoldPresentation) private var presentation
+    #if os(iOS)
+    @Environment(\.dismiss) private var dismiss
+    #endif
+
+    let mode: TestMode
+    @ObservedObject var report: TestCentreReport
+    let live: LiveState
+    let model: AppModel
+    let onActivationChange: () -> Void
+
+    var body: some View {
+        ScreenScaffold(
+            title: presentation == .settingsDetail ? LocalizedStringKey(mode.title) : nil,
+            subtitle: presentation == .settingsDetail ? "Focused diagnostic capture" : nil,
+            lazy: true
+        ) {
+            LazyVStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+                if presentation == .standard {
+                    PaperHeaderBar(
+                        title: LocalizedStringKey(mode.title),
+                        subtitle: "Focused diagnostic capture",
+                        backAction: compactBackAction)
                 }
-                .disabled(!canExerciseLiveTools)
-                NoopButton("Inspect HRV", systemImage: "waveform.path.ecg", kind: .secondary) {
-                    onInspectHRV()
+
+                VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
+                    SectionHeader("Capture state", overline: priorityLabel)
+                    PaperCard(padding: 0) {
+                        TestModeRow(
+                            mode: mode,
+                            report: report,
+                            live: live,
+                            model: model,
+                            onActivationChange: onActivationChange)
+                    }
                 }
-                .disabled(!canExerciseLiveTools)
+
+                VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
+                    SectionHeader("Evidence profile", overline: "What NOOP records")
+                    PaperCard(padding: 14) {
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: "waveform.badge.magnifyingglass")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(StrandPalette.accent)
+                                .frame(width: 36, height: 36)
+                                .background(StrandPalette.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
+                                .accessibilityHidden(true)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("\(mode.captures.count) evidence channels")
+                                    .font(StrandFont.subhead.weight(.semibold))
+                                    .foregroundStyle(StrandPalette.textPrimary)
+                                Text(evidenceSummary)
+                                    .font(StrandFont.caption)
+                                    .foregroundStyle(StrandPalette.textSecondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        .accessibilityElement(children: .combine)
+                    }
+                }
             }
         }
     }
 
-    private func openWorkout() {
-        if model.activeWorkout == nil {
-            onStartWorkout()
-        } else {
-            onOpenWorkout()
+    private var evidenceSummary: String {
+        let labels = mode.captures.prefix(3).map(readableCaptureLabel)
+        guard !labels.isEmpty else { return "This mode adds focused context to the redacted diagnostic report." }
+        let visible = labels.joined(separator: ", ")
+        let remainder = max(0, mode.captures.count - labels.count)
+        return remainder > 0 ? "\(visible), plus \(remainder) more." : visible.capitalized + "."
+    }
+
+    private func readableCaptureLabel(_ raw: String) -> String {
+        raw.unicodeScalars.reduce(into: "") { result, scalar in
+            if CharacterSet.uppercaseLetters.contains(scalar), !result.isEmpty { result.append(" ") }
+            result.append(contentsOf: Character(scalar).lowercased())
         }
+    }
+
+    private var priorityLabel: LocalizedStringKey {
+        switch mode.priority {
+        case .high: "High priority"
+        case .med: "Standard priority"
+        case .low: "Optional"
+        }
+    }
+
+    private var compactBackAction: (() -> Void)? {
+        #if os(iOS)
+        { dismiss() }
+        #else
+        nil
+        #endif
+    }
+}
+
+/// Keeps the streaming log available without making its 200-point tail viewer part of the Test Centre
+/// landing screen. The existing bounded viewer still owns copy, save, history loading, and tail follow.
+private struct TestCentreLogView: View {
+    @Environment(\.screenScaffoldPresentation) private var presentation
+    #if os(iOS)
+    @Environment(\.dismiss) private var dismiss
+    #endif
+
+    var body: some View {
+        ScreenScaffold(
+            title: presentation == .settingsDetail ? "Live strap log" : nil,
+            subtitle: presentation == .settingsDetail ? "Redacted on-device stream" : nil
+        ) {
+            VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+                if presentation == .standard {
+                    PaperHeaderBar(
+                        title: "Live strap log",
+                        subtitle: "Redacted on-device stream",
+                        backAction: compactBackAction)
+                }
+                LiveLogCard(showsTestCentreLink: false)
+            }
+        }
+    }
+
+    private var compactBackAction: (() -> Void)? {
+        #if os(iOS)
+        { dismiss() }
+        #else
+        nil
+        #endif
     }
 }
 
@@ -710,6 +821,7 @@ private struct TestModeRow: View {
     @ObservedObject var report: TestCentreReport
     let live: LiveState
     let model: AppModel
+    let onActivationChange: () -> Void
     @State private var on: Bool = false
 
     var body: some View {
@@ -742,6 +854,7 @@ private struct TestModeRow: View {
                     .accessibilityLabel("\(mode.title) test mode")
                     .onChangeCompat(of: on) { isOn in
                         if isOn { TestCentre.activate(mode.domain) } else { TestCentre.deactivate(mode.domain) }
+                        onActivationChange()
                         // Display & Performance owns a live frame monitor. It must run ONLY while the mode
                         // is on: start it on toggle-on (after wiring its sink to the redacting .display
                         // log), tear it down on toggle-off so no display link survives. Zero-cost when off.

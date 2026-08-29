@@ -154,6 +154,7 @@ private struct DevicesContent: View {
                 do {
                     try registry.rename(device.id, to: renameDraft)
                     renameTarget = nil
+                    showFeedback("Device renamed")
                 } catch {
                     // Keep the rename sheet open when the registry write fails. The cached name is not
                     // presented as durable until the read-back succeeds.
@@ -210,6 +211,17 @@ private struct DevicesContent: View {
                 Button("Remove", role: .destructive) { removeTarget = device }
             }
             Button("Cancel", role: .cancel) { }
+        }
+        .paperToast(
+            isPresented: Binding(
+                get: { commandFeedback != nil },
+                set: { if !$0 { commandFeedback = nil } }
+            )
+        ) {
+            PaperToast(
+                LocalizedStringKey(commandFeedback!),
+                announcement: commandFeedback
+            )
         }
     }
 
@@ -371,6 +383,7 @@ private struct DevicesContent: View {
 
             NavigationLink {
                 TestCentreView()
+                    .environment(\.screenScaffoldNavigationRole, .detail)
             } label: {
                 DeviceCommandNavigationRow(
                     title: "Test Centre",
@@ -379,13 +392,6 @@ private struct DevicesContent: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Test Centre")
-
-            if let commandFeedback {
-                Text(commandFeedback).font(StrandFont.micro.weight(.bold))
-                    .foregroundStyle(StrandPalette.textTertiary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .transition(.opacity)
-            }
         }
     }
 
@@ -695,9 +701,6 @@ private struct DevicesContent: View {
 
     private func showFeedback(_ value: String) {
         commandFeedback = value
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            if commandFeedback == value { commandFeedback = nil }
-        }
     }
 
     private var addButton: some View {

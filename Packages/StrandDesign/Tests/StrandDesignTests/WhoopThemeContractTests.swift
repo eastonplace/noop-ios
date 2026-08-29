@@ -47,6 +47,15 @@ final class WhoopThemeContractTests: XCTestCase {
         assertColor(StrandPalette.recoveryData, equalsHex: "#67AEE6")
     }
 
+    func testCommandSurfaceStaysDarkAndReadableUnderFixedTheme() {
+        assertColor(StrandPalette.commandSurface, equalsHex: "#07120E")
+        XCTAssertGreaterThanOrEqual(
+            contrastRatio(StrandPalette.textPrimary, StrandPalette.commandSurface),
+            7.0,
+            "Operational cards must keep high-contrast white copy on a dark command surface."
+        )
+    }
+
     private func assertColor(
         _ actual: Color,
         equalsHex expectedHex: String,
@@ -59,5 +68,24 @@ final class WhoopThemeContractTests: XCTestCase {
         XCTAssertEqual(actualComponents.g, expected.g, accuracy: 0.001, file: file, line: line)
         XCTAssertEqual(actualComponents.b, expected.b, accuracy: 0.001, file: file, line: line)
         XCTAssertEqual(actualComponents.a, expected.a, accuracy: 0.001, file: file, line: line)
+    }
+
+    private func contrastRatio(_ foreground: Color, _ background: Color) -> Double {
+        let foregroundLuminance = relativeLuminance(foreground.rgbaComponents)
+        let backgroundLuminance = relativeLuminance(background.rgbaComponents)
+        let lighter = max(foregroundLuminance, backgroundLuminance)
+        let darker = min(foregroundLuminance, backgroundLuminance)
+        return (lighter + 0.05) / (darker + 0.05)
+    }
+
+    private func relativeLuminance(_ components: (r: Double, g: Double, b: Double, a: Double)) -> Double {
+        func linear(_ component: Double) -> Double {
+            component <= 0.04045
+                ? component / 12.92
+                : pow((component + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * linear(components.r)
+            + 0.7152 * linear(components.g)
+            + 0.0722 * linear(components.b)
     }
 }

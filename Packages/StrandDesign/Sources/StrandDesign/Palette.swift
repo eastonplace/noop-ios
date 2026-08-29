@@ -82,6 +82,10 @@ public enum StrandPalette {
 
     public static let ink = Color(hex: "#00F19F")
     public static let onInk = Color(hex: "#07120E")
+    /// Fixed inverse surface for operational cards that render white copy.
+    /// Keep this separate from `textPrimary`: the app's fixed dark theme makes
+    /// `textPrimary` white, so using it as a fill creates white-on-white UI.
+    public static let commandSurface = Color(hex: "#07120E")
     public static let link = Color(hex: "#00F19F")
     public static let accent = link
     public static let accentHover = Color(hex: "#66F8C7")

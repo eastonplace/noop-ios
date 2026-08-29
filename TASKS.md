@@ -32,6 +32,8 @@
         remove decorative row icons, and preserve every existing control and destination through deep routes.
       - [x] Re-run zero-warning audits, warnings-as-errors package/app gates, full simulator tests, and
         visual QA of Devices, Command Centre, Settings search, and representative deep Settings routes.
+      - [~] Repair Command Centre contrast, rebuild Test Centre with live command components and focused
+        drill-ins, add PaperToast action feedback, then run local tests and Simulator QA before merging.
 
 - [~] #37 Apply the packaged simplifications and high-confidence open-issue root slices at exact
   SHA `439ac11321650920908ee611ad044ecd95a9cc63`.

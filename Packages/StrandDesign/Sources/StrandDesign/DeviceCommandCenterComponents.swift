@@ -168,7 +168,7 @@ public struct DeviceCommandCenterHero: View {
         .padding(14)
         .background(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(StrandPalette.textPrimary)
+                .fill(StrandPalette.commandSurface)
                 .overlay(alignment: .topTrailing) {
                     Circle()
                         .fill(tone.color.opacity(0.12))
@@ -527,7 +527,7 @@ public struct DeviceCommandTelemetryDeck: View {
         .padding(14)
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(StrandPalette.textPrimary)
+                .fill(StrandPalette.commandSurface)
                 .overlay(alignment: .bottomTrailing) {
                     Circle()
                         .fill((connected ? StrandPalette.statusPositive : StrandPalette.textSecondary).opacity(0.09))
@@ -800,11 +800,21 @@ public struct DeviceCommandNavigationRow: View {
     public let title: String
     public let detail: String
     public let icon: String
+    public let status: String?
+    public let statusTone: DeviceCommandTone
 
-    public init(title: String, detail: String, icon: String) {
+    public init(
+        title: String,
+        detail: String,
+        icon: String,
+        status: String? = nil,
+        statusTone: DeviceCommandTone = .neutral
+    ) {
         self.title = title
         self.detail = detail
         self.icon = icon
+        self.status = status
+        self.statusTone = statusTone
     }
 
     public var body: some View {
@@ -822,8 +832,16 @@ public struct DeviceCommandNavigationRow: View {
                 Text(detail)
                     .font(StrandFont.micro)
                     .foregroundStyle(StrandPalette.textTertiary)
+                    .lineLimit(2)
             }
             Spacer(minLength: 6)
+            if let status {
+                MicroBadge(
+                    LocalizedStringKey(status),
+                    systemImage: statusTone == .good ? "record.circle.fill" : "circle",
+                    tint: statusTone.color
+                )
+            }
             Image(systemName: "chevron.right")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(StrandPalette.textTertiary)

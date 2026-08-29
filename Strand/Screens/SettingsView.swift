@@ -264,6 +264,9 @@ struct SettingsDetailHost: View {
                 }
             }
             .navigationTitle("Diagnostics & Experimental")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
         case .testCentre:
             TestCentreView()
         case .privacyDeletion:
