@@ -1,6 +1,15 @@
 #if os(iOS)
 import Foundation
 
+/// Standard widgets are budgeted, but the existing one-minute live lane may still publish while a
+/// workout owns background BLE/location execution. Outside a workout, sensor callbacks remain
+/// foreground-only so incidental background wakes cannot churn WidgetKit timelines.
+enum WidgetLivePublicationContext {
+    static func shouldPublish(sceneIsActive: Bool, hasActiveWorkout: Bool) -> Bool {
+        sceneIsActive || hasActiveWorkout
+    }
+}
+
 /// Pure publication policy for the widget's fast live lane.
 ///
 /// Connection, battery, and workout start/end transitions are user-visible state edges and publish

@@ -1754,6 +1754,7 @@ final class AppModel: ObservableObject {
         let started = Date()
         activeWorkout = ActiveWorkout(start: started, sport: resolved,
                                       maxHR: Double(profile.hrMax))
+        acquireWorkoutRealtimeHR()
         workoutFinishState = .recording
         pendingWorkoutSnapshot = nil
         pendingWorkoutEnd = nil
@@ -1940,6 +1941,7 @@ final class AppModel: ObservableObject {
                               sport: snap.sport, maxHR: Double(profile.hrMax))
         w.restore(samples: snap.samples)
         activeWorkout = w
+        acquireWorkoutRealtimeHR()
         if let gps = ActiveGpsWorkoutPersistence.load(), gps.sessionID == snap.sessionID {
             activeWorkoutIsGps = true
             gpsRecorder.restore(gps)
@@ -2095,6 +2097,7 @@ final class AppModel: ObservableObject {
             ActiveWorkoutPersistence.clear()
             ActiveGpsWorkoutPersistence.clear()
             activeWorkout = nil
+            releaseWorkoutRealtimeHR()
             activeWorkoutIsGps = false
             workoutSnapshotDurabilityFailed = false
             gpsSnapshotDurabilityFailed = false
@@ -2324,6 +2327,21 @@ final class AppModel: ObservableObject {
     /// no live HR, so every sample was dropped and the session was silently discarded). Ref-counted to
     /// match Android's `realtimeWanters` (AppViewModel.requestRealtimeHr/releaseRealtimeHr).
     private var realtimeWanters = 0
+    /// A recording session owns one realtime lease independently of whichever screen is visible. This
+    /// keeps WHOOP 5/MG HR armed while the phone is locked or the live-workout sheet is closed.
+    private var workoutOwnsRealtimeHR = false
+
+    private func acquireWorkoutRealtimeHR() {
+        guard !workoutOwnsRealtimeHR else { return }
+        workoutOwnsRealtimeHR = true
+        startRealtimeHR()
+    }
+
+    private func releaseWorkoutRealtimeHR() {
+        guard workoutOwnsRealtimeHR else { return }
+        workoutOwnsRealtimeHR = false
+        stopRealtimeHR()
+    }
 
     /// A surface that shows live HR appeared. Arms the realtime stream on the 0→1 edge , and ONLY on
     /// that edge blanks the stale smoothing window (#46) so a resume shows "," until a fresh sample

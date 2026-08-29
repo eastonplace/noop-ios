@@ -218,11 +218,18 @@ try:
     )
     require(
         "Strand/Screens/SettingsView.swift",
-        "SettingsRootView(status: settingsRootStatus)",
+        "SettingsRootHost()",
+        "struct SettingsDetailHost: View",
         "settingsDestination(",
         "displaySettingsDetail",
         "strapSettingsDetail",
         "recoverySettingsDetail",
+    )
+    require(
+        "Strand/Screens/SettingsRootHost.swift",
+        "SettingsRootView(status: rootStatus)",
+        "SettingsDetailHost(destination: route)",
+        "SettingsConnectionStatusBridge(connected: $connected)",
     )
     require(
         "Strand/Screens/SettingsRouteCatalog.swift",

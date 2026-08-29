@@ -178,6 +178,40 @@ final class BatteryEstimatorTests: XCTestCase {
         XCTAssertEqual(e.remainingHours, 55 / (100 / 288), accuracy: 1e-6)
     }
 
+    func testConflictingDuplicateTimestampsAreOrderIndependentAndConservative() throws {
+        let forward = [(ts: 0, soc: 90.0), (ts: 3 * h, soc: 70.0), (ts: 3 * h, soc: 60.0)]
+        let reversed = [(ts: 0, soc: 90.0), (ts: 3 * h, soc: 60.0), (ts: 3 * h, soc: 70.0)]
+
+        let first = try XCTUnwrap(BatteryEstimator.estimate(
+            samples: forward,
+            ratedHours: BatteryEstimator.ratedLifeHoursWhoop5))
+        let second = try XCTUnwrap(BatteryEstimator.estimate(
+            samples: reversed,
+            ratedHours: BatteryEstimator.ratedLifeHoursWhoop5))
+
+        XCTAssertEqual(first, second)
+        XCTAssertEqual(first.currentSoc, 60, accuracy: 1e-6)
+        XCTAssertEqual(first.remainingHours, 6, accuracy: 1e-6)
+    }
+
+    func testInvalidRatedLifeFailsClosed() {
+        XCTAssertNil(BatteryEstimator.estimate(samples: [(0, 50)], ratedHours: 0))
+        XCTAssertNil(BatteryEstimator.estimate(samples: [(0, 50)], ratedHours: .nan))
+        XCTAssertNil(BatteryEstimator.estimateTrace(samples: [(0, 50)], ratedHours: .infinity).estimate)
+    }
+
+    func testLabelsAndAlertRejectNonFiniteRuntime() {
+        XCTAssertEqual(BatteryEstimator.label(hours: -.infinity), "—")
+        XCTAssertEqual(BatteryEstimator.liveLabel(hours: .nan), "—")
+        XCTAssertEqual(BatteryEstimator.label(hours: -1), "~0h")
+        XCTAssertEqual(BatteryEstimator.liveLabel(hours: -1), "~0m")
+        XCTAssertEqual(
+            BatteryEstimator.runtimeAlert(remainingHours: .nan, charging: false, alerted: true).newAlerted,
+            true)
+        XCTAssertFalse(
+            BatteryEstimator.runtimeAlert(remainingHours: .nan, charging: false, alerted: false).fire)
+    }
+
     func testLabelSwitchesHoursToDaysAt48h() {
         XCTAssertEqual(BatteryEstimator.label(hours: 14), "~14h")
         XCTAssertEqual(BatteryEstimator.label(hours: 108), "~4.5 days")

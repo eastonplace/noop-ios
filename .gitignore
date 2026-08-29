@@ -21,6 +21,7 @@ Strand.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/*
 !Strand.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 build/
 DerivedData/
+.derived-data-*/
 .build/
 Packages/*/.build/
 Tools/*/.build/
@@ -69,3 +70,6 @@ __pycache__/
 # Local release artifacts
 dist/
 err.txt
+
+# Local device extraction can include hardware IDs, app paths, and health data.
+outputs/**/raw-extraction/

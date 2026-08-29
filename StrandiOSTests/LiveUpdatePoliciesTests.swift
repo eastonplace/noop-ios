@@ -6,6 +6,18 @@ import Foundation
 final class LiveUpdatePoliciesTests: XCTestCase {
     private let t0 = Date(timeIntervalSince1970: 1_700_000_000)
 
+    func testWidgetLiveContextAllowsForegroundAndBackgroundWorkoutPublication() {
+        XCTAssertTrue(WidgetLivePublicationContext.shouldPublish(
+            sceneIsActive: true, hasActiveWorkout: false))
+        XCTAssertTrue(WidgetLivePublicationContext.shouldPublish(
+            sceneIsActive: false, hasActiveWorkout: true))
+    }
+
+    func testWidgetLiveContextRejectsIncidentalBackgroundSensorWake() {
+        XCTAssertFalse(WidgetLivePublicationContext.shouldPublish(
+            sceneIsActive: false, hasActiveWorkout: false))
+    }
+
     func testWidgetPolicyForcesFirstPublicationWhenNoSnapshotExists() {
         XCTAssertTrue(WidgetLivePublishPolicy.shouldPublish(
             previous: nil,

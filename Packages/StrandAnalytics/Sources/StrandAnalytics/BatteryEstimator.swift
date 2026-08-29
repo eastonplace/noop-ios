@@ -82,6 +82,7 @@ public enum BatteryEstimator {
     ///     chosen by the caller from the connected strap's generation.
     /// - Returns: an estimate, or nil when there isn't a single reading to anchor to.
     public static func estimate(samples: [(ts: Int, soc: Double)], ratedHours: Double) -> Estimate? {
+        guard ratedHours.isFinite, ratedHours > 0 else { return nil }
         let sorted = sanitizedSamples(samples)
         guard let last = sorted.last else { return nil }
         let current = last.soc
@@ -185,6 +186,9 @@ public enum BatteryEstimator {
     /// cost. Pure: no clock, no I/O, so fixtures stay exact. The Kotlin twin is BatteryEstimator.estimateTrace.
     public static func estimateTrace(samples: [(ts: Int, soc: Double)], ratedHours: Double)
         -> (estimate: Estimate?, trace: [String]) {
+        guard ratedHours.isFinite, ratedHours > 0 else {
+            return (nil, ["battery ratedHours invalid"])
+        }
         let sorted = sanitizedSamples(samples)
         guard let last = sorted.last, let first0 = sorted.first else {
             return (nil, ["battery series=0 readings, no reading to anchor to"])
@@ -255,7 +259,15 @@ public enum BatteryEstimator {
         for sample in samples where sample.ts >= 0
             && sample.soc.isFinite
             && (0...100).contains(sample.soc) {
-            byTimestamp[sample.ts] = sample
+            if let current = byTimestamp[sample.ts] {
+                // Live and persisted rows can carry the same timestamp. Keep the lower
+                // valid SoC so the result is order-independent and never overstates runtime.
+                if sample.soc < current.soc {
+                    byTimestamp[sample.ts] = sample
+                }
+            } else {
+                byTimestamp[sample.ts] = sample
+            }
         }
         return byTimestamp.values.sorted { $0.ts < $1.ts }
     }
@@ -268,8 +280,10 @@ public enum BatteryEstimator {
     /// the caller adds the "left" / "remaining" copy. Locale-free so the tests stay stable; the UI
     /// localises the number when it renders.
     public static func label(hours: Double) -> String {
-        if hours < 48 { return "~\(Int(hours.rounded()))h" }
-        return "~\(String(format: "%.1f", hours / 24)) days"
+        guard hours.isFinite else { return "—" }
+        let bounded = max(0, hours)
+        if bounded < 48 { return "~\(Int(bounded.rounded()))h" }
+        return "~\(String(format: "%.1f", bounded / 24)) days"
     }
 
     /// A command-centre readout that visibly advances between sparse strap battery reports. The
@@ -297,6 +311,7 @@ public enum BatteryEstimator {
     /// component and sub-two-day estimates retain minutes, so the value changes without pretending the
     /// underlying SoC sensor is more precise than it is.
     public static func liveLabel(hours: Double) -> String {
+        guard hours.isFinite else { return "—" }
         let boundedMinutes = max(0, Int((hours * 60).rounded()))
         if boundedMinutes < 60 {
             return "~\(boundedMinutes)m"
@@ -330,6 +345,7 @@ public enum BatteryEstimator {
     public static func runtimeAlert(remainingHours: Double,
                                     charging: Bool?,
                                     alerted: Bool) -> (fire: Bool, newAlerted: Bool) {
+        guard remainingHours.isFinite else { return (false, alerted) }
         var armedOff = alerted
         if remainingHours >= runtimeRearmHours { armedOff = false }
         let fire = !armedOff && remainingHours <= runtimeAlertHours && charging != true

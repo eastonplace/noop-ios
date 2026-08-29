@@ -374,7 +374,9 @@ struct StrandiOSApp: App {
         WindowGroup {
             Group {
                 #if DEBUG
-                if CommandLine.arguments.contains("--storage-recovery-qa") {
+                if let component41Shot = Component41QAShot.requestedKind {
+                    Component41QAShot(kind: component41Shot)
+                } else if CommandLine.arguments.contains("--storage-recovery-qa") {
                     StorageView()
                 } else {
                     iOSRootView()
@@ -447,15 +449,24 @@ struct StrandiOSApp: App {
                     WidgetSnapshot.publishLive(from: model)
                 }
                 .onReceive(model.live.$batteryPct.dropFirst()) { _ in
-                    guard scenePhase == .active else { return }
+                    guard WidgetLivePublicationContext.shouldPublish(
+                        sceneIsActive: scenePhase == .active,
+                        hasActiveWorkout: model.activeWorkout != nil
+                    ) else { return }
                     WidgetSnapshot.publishLive(from: model)
                 }
                 .onReceive(model.live.$connected.dropFirst()) { _ in
-                    guard scenePhase == .active else { return }
+                    guard WidgetLivePublicationContext.shouldPublish(
+                        sceneIsActive: scenePhase == .active,
+                        hasActiveWorkout: model.activeWorkout != nil
+                    ) else { return }
                     WidgetSnapshot.publishLive(from: model)
                 }
                 .onReceive(model.$bpm.dropFirst()) { _ in
-                    guard scenePhase == .active else { return }
+                    guard WidgetLivePublicationContext.shouldPublish(
+                        sceneIsActive: scenePhase == .active,
+                        hasActiveWorkout: model.activeWorkout != nil
+                    ) else { return }
                     guard WidgetSnapshot.HRPublishThrottle.admit() else { return }
                     WidgetSnapshot.publishLive(from: model)
                 }

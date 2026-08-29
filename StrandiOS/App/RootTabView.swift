@@ -62,8 +62,10 @@ struct RootTabView: View {
         .toolbar(.hidden, for: .tabBar)
         .animation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24), value: selectedTab)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            PaperTabBar(selection: $selectedTab, onReselect: { _ in
-                // A reselect is a small UI refresh. It must never reload the full 4,000-day history.
+            PaperTabBar(selection: $selectedTab, onReselect: { tab in
+                // Only Today owns a current-day data refresh. Reselecting Settings, Trends, or Sleep
+                // must not wake the store or rebuild unrelated health state.
+                guard tab == 0 else { return }
                 Task { _ = await repo.refresh(.currentDay) }
             }, onQuickActions: {
                 withAnimation(Self.sheetEase) { quickAction = .menu }
@@ -251,7 +253,7 @@ private struct QuickWorkoutFlow: View {
     @State private var showLiveWorkout = false
 
     var body: some View {
-        StartWorkoutSheet { sport in
+        StartWorkoutSheet(dismissAfterStart: false) { sport in
             model.startWorkout(sport: sport)
             showLiveWorkout = true
         }

@@ -98,7 +98,9 @@ struct LiveView: View {
         .onChangeCompat(of: live.bonded) { _ in reconnectLiveSession() }
         .onChangeCompat(of: live.connected) { _ in reconnectLiveSession() }
         // Live workout mode (#238): open the in-exercise screen the moment a workout starts.
-        .onChangeCompat(of: model.activeWorkout != nil) { active in if active { showLiveWorkout = true } }
+        .onChangeCompat(of: model.activeWorkout != nil) { active in
+            if active && !showStartSport { showLiveWorkout = true }
+        }
         .sheet(isPresented: $showLiveWorkout) {
             LiveWorkoutView(onClose: { showLiveWorkout = false })
                 .environmentObject(model)
@@ -106,7 +108,9 @@ struct LiveView: View {
         }
         // Pick a named sport before starting (#519) — the live workout view then opens
         // off the activeWorkout change above, so no extra navigation is needed here.
-        .sheet(isPresented: $showStartSport) {
+        .sheet(isPresented: $showStartSport, onDismiss: {
+            if model.activeWorkout != nil { showLiveWorkout = true }
+        }) {
             StartWorkoutSheet { name in model.startWorkout(sport: name) }
         }
     }

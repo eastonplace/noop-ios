@@ -168,6 +168,22 @@ struct Component41QAGallery: View {
 /// off-screen content from being mistaken for visual QA.
 struct Component41QAShot: View {
     enum Kind { case home, large, lock, live }
+
+    /// Narrow DEBUG launch route for rendered Simulator proof. This avoids restoring the obsolete
+    /// all-screen demo router while keeping the production widget/ActivityKit views directly auditable.
+    static var requestedKind: Kind? {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let index = arguments.firstIndex(of: "--component41-shot"),
+              arguments.indices.contains(index + 1) else { return nil }
+        return switch arguments[index + 1].lowercased() {
+        case "home": .home
+        case "large": .large
+        case "lock": .lock
+        case "live": .live
+        default: nil
+        }
+    }
+
     let kind: Kind
     private let stress: [Double?] = [0.3, 0.4, 0.3, 0.2, 0.3, 0.5, 0.7, 0.9, 1.2, 1.5, 1.8, 1.4,
                                              1.0, 1.2, 1.6, 2.0, 1.7, 1.1, 0.8, 0.7, 0.6, nil, nil, nil]

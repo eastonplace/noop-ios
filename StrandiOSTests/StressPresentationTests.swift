@@ -151,6 +151,18 @@ final class StressPresentationTests: XCTestCase {
         )
     }
 
+    func testConvenienceHistoryCheckUsesLatestDayAcrossUnsortedInputs() {
+        let days = [
+            day("2026-08-16", rhr: 60, hrv: 38),
+            day("2026-08-14", rhr: 50, hrv: 60),
+        ]
+        let stored = [(day: "2026-08-15", value: 1.1)]
+
+        XCTAssertTrue(
+            StressPresentation.historyAvailable(days: days, stored: stored)
+        )
+    }
+
     func testMissingTargetDayNeverBorrowsTheLatestDerivedDay() {
         let days = [
             day("2026-08-14", rhr: 50, hrv: 60),

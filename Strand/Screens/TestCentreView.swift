@@ -7,10 +7,9 @@ import StrandImport
 ///
 /// Four sections: domain test modes (rendered from the registry projection), diagnostic tools, export
 /// and auto-export, advanced/experimental. Section 1 iterates TestCentreLayout.visibleModes so adding a
-/// profile later is a registry entry, never a new screen. The lower three sections re-host the same
-/// bindings and actions that live in SettingsView (strap log, recalibrate, scheduled export, the 5/MG
-/// experimental toggles) so the Test Centre is the one place to find them; SettingsView keeps a thin nav
-/// link in. No em-dash in any string here.
+/// The lower sections own diagnostic logs, reports, scheduled exports, and protocol test toggles.
+/// Recovery calibration and continuous HRV stay in Settings, where their policy is configured.
+/// No em-dash appears in user-facing strings here.
 struct TestCentreView: View {
     @Environment(\.screenScaffoldPresentation) private var presentation
     /// Command/state identities are captured once by inert leaves below. This large diagnostic route
@@ -40,7 +39,6 @@ struct TestCentreView: View {
     @StateObject private var report = TestCentreReport()
 
     // Section 2: recalibrate confirm.
-    @State private var showRecalibrateConfirm = false
     @State private var infoTitle = ""
     @State private var infoMessage = ""
     @State private var showInfo = false
@@ -54,8 +52,8 @@ struct TestCentreView: View {
 
     // Section 4: the experimental toggles, on the SAME @AppStorage keys as SettingsView (preserved per
     // spec section 10), so toggling here and there is one and the same setting.
-    @AppStorage(PuffinExperiment.experimentalSleepV2Key) private var experimentalSleepV2Enabled = false
-    @AppStorage(PuffinExperiment.keepRealtimeForDataKey) private var continuousHrvEnabled = false
+    @AppStorage(PuffinExperiment.experimentalSleepV2Key)
+    private var experimentalSleepV2Enabled = PuffinExperiment.experimentalSleepV2Default
     @AppStorage(PuffinExperiment.defaultsKey) private var puffinExperiments = false
     @AppStorage(PuffinExperiment.deepDataKey) private var deepDataEnabled = false
     @AppStorage(PuffinExperiment.broadcastHrKey) private var broadcastHrEnabled = false
@@ -96,7 +94,7 @@ struct TestCentreView: View {
                 nativeDashboard
             } else {
                 ScreenScaffold(title: nil, lazy: true) {
-                    VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+                    LazyVStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
                         PaperHeaderBar(title: "Test Centre",
                                        subtitle: "Diagnostics & tools",
                                        backAction: compactHeaderBackAction)
@@ -116,10 +114,11 @@ struct TestCentreView: View {
         .sheet(item: $report.pending) { _ in
             ReportReviewSheet(report: report)
         }
-        .sheet(isPresented: $showStartSport) {
+        .sheet(isPresented: $showStartSport, onDismiss: {
+            if model.activeWorkout != nil { showLiveWorkout = true }
+        }) {
             StartWorkoutSheet { name in
                 model.startWorkout(sport: name)
-                showLiveWorkout = true
             }
         }
         .sheet(isPresented: $showLiveWorkout) {
@@ -132,13 +131,6 @@ struct TestCentreView: View {
                 .environmentObject(model)
                 .environmentObject(live)
         }
-        .confirmationDialog("Recalibrate your Recovery baseline?",
-                            isPresented: $showRecalibrateConfirm, titleVisibility: .visible) {
-            Button("Recalibrate") { recalibrateCharge() }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("This restarts the roughly 4-night build-up for Recovery and your HRV baseline. Your history stays.")
-        }
         .alert(infoTitle, isPresented: $showInfo) {
             Button("OK", role: .cancel) { }
         } message: {
@@ -149,19 +141,12 @@ struct TestCentreView: View {
     private var nativeDashboard: some View {
         NativeSettingsList {
             Section {
-                LabeledContent("Connection", value: live.connectionStatusLabel)
-                    .font(.caption)
-                if let battery = live.batteryPct {
-                    LabeledContent("Battery", value: "\(Int(battery.rounded()))%")
-                        .font(.caption)
-                }
-                Button(model.activeWorkout == nil ? "Record Workout" : "Open Active Workout") {
-                    if model.activeWorkout == nil { showStartSport = true } else { showLiveWorkout = true }
-                }
-                Button("Refresh Strap") { model.getBattery() }
-                    .disabled(!live.connected)
-                Button("Inspect HRV") { showHRVSnapshot = true }
-                    .disabled(!live.connected)
+                NativeTestCentreStatusLeaf(
+                    model: model,
+                    live: live,
+                    onStartWorkout: { showStartSport = true },
+                    onOpenWorkout: { showLiveWorkout = true },
+                    onInspectHRV: { showHRVSnapshot = true })
             } header: {
                 Text("Live status")
             } footer: {
@@ -186,8 +171,10 @@ struct TestCentreView: View {
                         suggestedName: FileExport.timestampedName("noop-strap-log", ext: "txt")
                     )
                 }
-                Button("Copy Environment Dump") { PlatformPasteboard.copy(live.exportableLogText()) }
-                Button("Recalibrate Recovery Baseline") { showRecalibrateConfirm = true }
+                Button("Copy Diagnostic Log") { PlatformPasteboard.copy(live.exportableLogText()) }
+                NavigationLink("Recovery Baseline Settings") {
+                    SettingsDetailHost(destination: .scoringBaselines)
+                }
             } header: {
                 Text("Diagnostic tools")
             }
@@ -215,9 +202,6 @@ struct TestCentreView: View {
 
             Section {
                 Toggle("Experimental sleep staging", isOn: $experimentalSleepV2Enabled).font(.caption)
-                Toggle("Continuous HRV capture", isOn: $continuousHrvEnabled)
-                    .font(.caption)
-                    .onChangeCompat(of: continuousHrvEnabled) { enabled in model.ble.setKeepRealtimeForData(enabled) }
                 if is5MG {
                     Toggle("WHOOP 5/MG protocol probes", isOn: $puffinExperiments).font(.caption)
                     Toggle("WHOOP 5/MG deep data", isOn: $deepDataEnabled).font(.caption)
@@ -288,7 +272,7 @@ struct TestCentreView: View {
                     let modes = TestCentreLayout.visibleModes(is5MG: is5MG)
                     ForEach(Array(modes.enumerated()), id: \.element.id) { idx, mode in
                         if idx > 0 { Divider().overlay(StrandPalette.hairline) }
-                        TestModeRow(mode: mode, report: report)
+                        TestModeRow(mode: mode, report: report, live: live, model: model)
                     }
                 }
             }
@@ -327,18 +311,21 @@ struct TestCentreView: View {
 
                     // Recalibrate Charge baseline: the same Baselines.recalibrateRecoveryBaselines call the
                     // Settings Recovery card uses.
-                    NoopButton("Recalibrate Recovery baseline", systemImage: "arrow.triangle.2.circlepath", kind: .secondary) {
-                        showRecalibrateConfirm = true
+                    NavigationLink {
+                        SettingsDetailHost(destination: .scoringBaselines)
+                    } label: {
+                        DeviceCommandNavigationRow(
+                            title: "Recovery baseline settings",
+                            detail: "Review or restart your personal Recovery baseline",
+                            icon: "arrow.triangle.2.circlepath")
                     }
-                    Text("Re-anchors every baseline that feeds Recovery to your recent nights. No stored day is deleted.")
-                        .font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    .buttonStyle(.plain)
 
                     Divider().overlay(StrandPalette.hairline)
 
                     // Environment dump: the IOSDiagnostics-backed block exportableLogText already carries,
                     // surfaced as a copyable readout (spec section 3.4).
-                    NoopButton("Copy environment dump", systemImage: "info.circle", kind: .secondary) {
+                    NoopButton("Copy diagnostic log", systemImage: "info.circle", kind: .secondary) {
                         PlatformPasteboard.copy(live.exportableLogText())
                     }
                 }
@@ -429,13 +416,6 @@ struct TestCentreView: View {
                     }
                     .toggleStyle(.switch).tint(StrandPalette.ink)
 
-                    Toggle(isOn: $continuousHrvEnabled) {
-                        Text("Continuous HRV capture")
-                            .font(StrandFont.subhead).foregroundStyle(StrandPalette.textPrimary)
-                    }
-                    .toggleStyle(.switch).tint(StrandPalette.ink)
-                    .onChangeCompat(of: continuousHrvEnabled) { on in model.ble.setKeepRealtimeForData(on) }
-
                     // 5/MG-only probes, hidden off a 4.0 strap (the #22 gate, same as SettingsView).
                     if is5MG {
                         Divider().overlay(StrandPalette.hairline)
@@ -468,7 +448,7 @@ struct TestCentreView: View {
                         .toggleStyle(.switch).tint(StrandPalette.ink)
                     }
 
-                    Text("These are experimental probes, off by default. The fuller WHOOP 5/MG controls and the raw-sensor CSV export still live in Settings under Diagnostics.")
+                    Text("Sleep staging and WHOOP 5/MG probes live here. Continuous HRV remains in Settings under Sync & battery. Raw sensor export and Live Sessions beta remain in Settings.")
                         .font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -477,19 +457,6 @@ struct TestCentreView: View {
     }
 
     // MARK: - Shared actions (same calls as the SettingsView controls these re-host)
-
-    /// Re-anchor every baseline that feeds Charge from now, via the single cross-platform source of
-    /// truth, then kick a recompute. Same path as the Settings Recovery card.
-    private func recalibrateCharge() {
-        Baselines.recalibrateRecoveryBaselines()
-        Task {
-            await model.intelligence.analyzeRecent()
-            _ = await model.repo.refresh(.currentDay)
-        }
-        infoTitle = String(localized: "Recovery baseline recalibrating")
-        infoMessage = String(localized: "NOOP will re-learn your baseline from tonight's data onward. Your history is kept, and it takes a few nights to settle.")
-        showInfo = true
-    }
 
     private var debugExportTimeBinding: Binding<Date> {
         Binding(
@@ -606,12 +573,43 @@ private struct TestCentreConnectionTrustLeaf: View {
     }
 }
 
+/// Narrow owner for native Test Centre live status and actions.
+private struct NativeTestCentreStatusLeaf: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var live: LiveState
+    let onStartWorkout: () -> Void
+    let onOpenWorkout: () -> Void
+    let onInspectHRV: () -> Void
+
+    var body: some View {
+        Group {
+            LabeledContent("Connection", value: live.connectionStatusLabel)
+                .font(.caption)
+            if let battery = live.batteryPct {
+                LabeledContent("Battery", value: "\(Int(battery.rounded()))%")
+                    .font(.caption)
+            }
+            Button(model.activeWorkout == nil ? "Record Workout" : "Open Active Workout") {
+                if model.activeWorkout == nil {
+                    onStartWorkout()
+                } else {
+                    onOpenWorkout()
+                }
+            }
+            Button("Refresh Strap") { model.getBattery() }
+                .disabled(!live.connected)
+            Button("Inspect HRV") { onInspectHRV() }
+                .disabled(!live.connected)
+        }
+    }
+}
+
 /// Keeps active-workout labels and connection-gated actions live without invalidating the diagnostic log.
 private struct NativeTestModeRow: View {
     let mode: TestMode
     @ObservedObject var report: TestCentreReport
-    @ObservedObject var live: LiveState
-    @ObservedObject var model: AppModel
+    let live: LiveState
+    let model: AppModel
     @State private var enabled = false
 
     var body: some View {
@@ -710,25 +708,9 @@ private struct TestCentreRecordInspectLeaf: View {
 private struct TestModeRow: View {
     let mode: TestMode
     @ObservedObject var report: TestCentreReport
-    @EnvironmentObject var live: LiveState
-    @EnvironmentObject var model: AppModel
+    let live: LiveState
+    let model: AppModel
     @State private var on: Bool = false
-
-    private var elapsed: Double? {
-        TestCentre.startedAt(mode.domain).map { Date().timeIntervalSince($0) }
-    }
-
-    /// The HONEST per-mode captured-day count for a guided row (#965): distinct days THIS mode produced its
-    /// own trace on, read from the same shareable log the report exports, so each active mode accumulates
-    /// its OWN count instead of every guided row sharing one elapsed-clock number. nil for a toggle mode
-    /// (no "K of N") and when the mode is off. Recomputes with `live.log` (published) so the row updates as
-    /// new capture days land.
-    private var capturedUnits: Int? {
-        guard on, case .guided = mode.capture else { return nil }
-        return CaptureAccumulator.capturedDays(domain: mode.domain,
-                                               reportText: live.exportableLogText(),
-                                               tzOffsetSeconds: TimeZone.current.secondsFromGMT())
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -743,9 +725,7 @@ private struct TestModeRow: View {
                     Text(mode.title)
                         .font(StrandFont.subhead.weight(.semibold))
                         .foregroundStyle(StrandPalette.textPrimary)
-                    Text(TestCentreLayout.statusText(for: mode, active: on, elapsedSeconds: elapsed,
-                                                     capturedUnits: capturedUnits))
-                        .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                    TestModeStatusLeaf(mode: mode, active: on, live: live)
                 }
                 Spacer(minLength: NoopMetrics.space1)
                 Button("Report") { report.start(mode: mode, live: live, repo: model.repo) }
@@ -833,6 +813,43 @@ private struct TestModeRow: View {
             await model?.repo.dataVolumeSnapshot()
         }
         DisplayPerformanceMonitor.shared.start()
+    }
+}
+
+/// Low-frequency status for a domain mode. The complete exportable log is scanned only while
+/// a guided mode is active, and no more than once every 30 seconds.
+private struct TestModeStatusLeaf: View {
+    let mode: TestMode
+    let active: Bool
+    let live: LiveState
+
+    @ViewBuilder
+    var body: some View {
+        if active {
+            TimelineView(.periodic(from: .now, by: 30)) { context in
+                statusText(at: context.date)
+            }
+        } else {
+            statusText(at: Date())
+        }
+    }
+
+    private func statusText(at date: Date) -> some View {
+        let elapsed = TestCentre.startedAt(mode.domain).map { date.timeIntervalSince($0) }
+        let capturedUnits: Int? = {
+            guard case .guided = mode.capture else { return nil }
+            return CaptureAccumulator.capturedDays(
+                domain: mode.domain,
+                reportText: live.exportableLogText(),
+                tzOffsetSeconds: TimeZone.current.secondsFromGMT(for: date))
+        }()
+        return Text(TestCentreLayout.statusText(
+            for: mode,
+            active: active,
+            elapsedSeconds: elapsed,
+            capturedUnits: capturedUnits))
+            .font(StrandFont.caption)
+            .foregroundStyle(StrandPalette.textSecondary)
     }
 }
 

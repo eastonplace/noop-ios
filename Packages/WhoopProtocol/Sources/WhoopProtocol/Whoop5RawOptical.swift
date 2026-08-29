@@ -96,9 +96,10 @@ public struct Whoop5OpticalBlock: Equatable, Codable, Sendable {
     public let reserved: UInt8
     public let config: Whoop5OpticalBlockConfig
 
-    /// Compatibility initializer retained for existing callers. The config is derived
-    /// from the exact 21-byte header supplied by the existing fields.
-    public init(
+    /// Compatibility initializer retained for existing callers. It fails when the
+    /// supplied fields cannot reconstruct the exact 21-byte header. Invalid metadata
+    /// never becomes an all-zero configuration that looks real.
+    public init?(
         index: Int,
         sampleCount: Int,
         sharedMetadata: [UInt8],
@@ -108,26 +109,16 @@ public struct Whoop5OpticalBlock: Equatable, Codable, Sendable {
         let header = [UInt8(clamping: sampleCount)]
             + sharedMetadata
             + channels.flatMap(\.metadata)
+        guard let config = Whoop5OpticalBlockConfig.decode(header) else {
+            return nil
+        }
         self.init(
             index: index,
             sampleCount: sampleCount,
             sharedMetadata: sharedMetadata,
             channels: channels,
             reserved: reserved,
-            config: Whoop5OpticalBlockConfig.decode(header)
-                ?? Whoop5OpticalBlockConfig(
-                    sampleCount: sampleCount,
-                    sourceA: 0,
-                    driveA: 0,
-                    sourceB: 0,
-                    driveB: 0,
-                    detectorASelect: 0,
-                    rangeA: 0,
-                    offsetA: 0,
-                    detectorBSelect: 0,
-                    rangeB: 0,
-                    offsetB: 0
-                )
+            config: config
         )
     }
 

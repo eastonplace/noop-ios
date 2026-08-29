@@ -90,6 +90,16 @@ final class Whoop5RawOpticalTests: XCTestCase {
         XCTAssertNil(Whoop5RawOptical.decode(Self.reseal(frame)))
     }
 
+    func testCompatibilityInitializerFailsClosedOnMalformedHeader() {
+        XCTAssertNil(Whoop5OpticalBlock(
+            index: 0,
+            sampleCount: 1,
+            sharedMetadata: [],
+            channels: [],
+            reserved: 0
+        ))
+    }
+
     static func sealedSyntheticFrame() -> [UInt8] {
         var frame = [UInt8](repeating: 0, count: Whoop5RawOptical.bufferLength)
         frame[0] = 0xAA

@@ -91,7 +91,7 @@ struct StressPresentation {
         days: [DailyMetric],
         stored: [(day: String, value: Double)]
     ) -> Bool {
-        guard let targetDay = days.last?.day ?? stored.last?.day else {
+        guard let targetDay = (days.map(\.day) + stored.map(\.day)).max() else {
             return false
         }
         return historyAvailable(for: targetDay, days: days, stored: stored)

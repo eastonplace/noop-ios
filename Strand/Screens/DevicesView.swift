@@ -279,12 +279,13 @@ private struct DevicesContent: View {
         let isWhoop = SourceCoordinator.isWhoop(device)
         let modelName = device.model.uppercased()
         let supportsR22 = isWhoop && (modelName.contains("5") || modelName.contains("MG"))
+        let activeSyncError = liveSnapshot.backfilling ? nil : liveSnapshot.lastSyncError
         let resolved = DeviceCommandCenterStatusResolver.resolve(.init(
             isWhoop: isWhoop, supportsR22: supportsR22,
             connected: liveSnapshot.connected, encryptedBond: liveSnapshot.encryptedBond,
             bluetoothUnavailableMessage: liveSnapshot.bluetoothUnavailableMessage,
             reconnectGuide: liveSnapshot.reconnectGuide, pairingHint: liveSnapshot.pairingHint,
-            rtcWarning: strapClockState(liveSnapshot)?.warning, lastSyncError: liveSnapshot.lastSyncError,
+            rtcWarning: strapClockState(liveSnapshot)?.warning, lastSyncError: activeSyncError,
             strapNeedsReboot: liveSnapshot.strapNeedsReboot, batteryPct: liveSnapshot.batteryPct,
             historySyncExperimental: liveSnapshot.historySyncExperimental,
             standardHRMode: liveSnapshot.standardHRMode,
@@ -442,14 +443,23 @@ private struct DevicesContent: View {
                     model.refreshDeviceBattery()
                     showFeedback("Refreshing")
                 }
-        } else if liveSnapshot.lastSyncError != nil || liveSnapshot.backfilling {
+        } else if liveSnapshot.backfilling {
             DeviceCommandPriorityCard(
                 eyebrow: "Next best action",
-                title: liveSnapshot.backfilling ? "History is catching up" : "History needs attention",
-                detail: liveSnapshot.lastSyncError ?? "NOOP is fetching durable history from the strap.",
+                title: "History is catching up",
+                detail: "NOOP is fetching durable history from the strap.",
+                actionTitle: "Syncing",
+                icon: "arrow.triangle.2.circlepath",
+                tone: .neutral,
+                enabled: false) { }
+        } else if let syncError = liveSnapshot.lastSyncError {
+            DeviceCommandPriorityCard(
+                eyebrow: "Next best action",
+                title: "History needs attention",
+                detail: syncError,
                 actionTitle: "Sync now",
                 icon: "arrow.triangle.2.circlepath",
-                tone: liveSnapshot.lastSyncError == nil ? .neutral : .warning,
+                tone: .warning,
                 enabled: snapshot.commands.syncEnabled) {
                     model.syncActiveDevice()
                     showFeedback("Syncing")
@@ -507,9 +517,9 @@ private struct DevicesContent: View {
         if isWhoop {
             rows.append(.init(id: "sync", label: "Historical sync",
                               value: compactSyncStatus(snapshot, liveSnapshot: liveSnapshot),
-                              tone: liveSnapshot.lastSyncError == nil
-                                  ? (liveSnapshot.backfilling ? .neutral : .good)
-                                  : .warning))
+                              tone: liveSnapshot.backfilling
+                                  ? .neutral
+                                  : (liveSnapshot.lastSyncError == nil ? .good : .warning)))
         }
         if let r22 = snapshot.r22Label {
             rows.append(.init(id: "r22", label: "R22 configuration", value: r22,
@@ -550,7 +560,9 @@ private struct DevicesContent: View {
     ) -> [DeviceCommandStatusItem] {
         var rows = [DeviceCommandStatusItem(id: "status", label: "Status",
                                             value: compactSyncStatus(snapshot, liveSnapshot: liveSnapshot),
-                                            tone: liveSnapshot.lastSyncError == nil ? .neutral : .warning),
+                                            tone: liveSnapshot.backfilling
+                                                ? .neutral
+                                                : (liveSnapshot.lastSyncError == nil ? .neutral : .warning)),
                     .init(id: "completed", label: "Last completed", value: relativeTime(liveSnapshot.lastSyncedAt)),
                     .init(id: "window", label: "History window", value: liveSnapshot.strapRange.map(shortHistoryWindow) ?? "—"),
                     .init(id: "chunks", label: "Chunks", value: "\(liveSnapshot.syncChunksThisSession) received")]
@@ -567,8 +579,8 @@ private struct DevicesContent: View {
         liveSnapshot: DeviceCommandCenterLiveSnapshot.Value
     ) -> String {
         guard liveSnapshot.connected else { return "Waiting" }
-        if liveSnapshot.lastSyncError != nil { return "Needs attention" }
         if liveSnapshot.backfilling { return "Catching up" }
+        if liveSnapshot.lastSyncError != nil { return "Needs attention" }
         if snapshot.syncLabel.localizedCaseInsensitiveContains("showing saved") {
             return "Saved history"
         }
@@ -810,7 +822,9 @@ private struct DeviceCommandCenterSnapshotObservation<Content: View>: View {
     }
 
     var body: some View {
-        content(snapshot.value)
+        TimelineView(.periodic(from: .now, by: 60)) { _ in
+            content(snapshot.value)
+        }
     }
 }
 

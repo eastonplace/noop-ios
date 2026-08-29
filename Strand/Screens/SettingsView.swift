@@ -14,6 +14,13 @@ import WhoopStore
 /// Settings — profile (powers zones / calories / recovery), strap connection, and about.
 /// Grouped cards on surface.raised with a two-column form feel.
 struct SettingsView: View {
+    var body: some View {
+        SettingsRootHost()
+    }
+}
+
+struct SettingsDetailHost: View {
+    let destination: SettingsRouteID
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var live: LiveState
     @EnvironmentObject var profile: ProfileStore
@@ -76,13 +83,6 @@ struct SettingsView: View {
     // Alternate app icon (iOS only) — false = Titanium (primary AppIcon), true = Blue Titanium
     // ("AppIcon-Navy"). Display-only preference; the live switch goes through setAlternateIconName.
     @AppStorage("appIcon.alt") private var useNavyIcon = false
-    // Light/Dark/System theme. Read by both app roots' .preferredColorScheme; default follows the OS.
-    @AppStorage(AppearanceMode.storageKey) private var appearanceRaw = AppearanceMode.system.rawValue
-    // Chart colour style: Titanium (brand) or Classic (throwback red→green). Re-colours gauges + charts.
-    @AppStorage(ChartStyle.storageKey) private var chartStyleRaw = ChartStyle.titanium.rawValue
-    // Day-cycle scene backdrop behind Today (#698). Default ON. Off swaps the scene for a plain dark
-    // canvas. TodayView reads the same key to gate its SceneScreenBackground.
-    @AppStorage(SceneBackgroundPrefs.enabledKey) private var showDayCycleBackground = true
     // Hydration tracker (opt-in, MVP). Default OFF — when off the hydration dashboard card + detail are
     // hidden. Mirrors the Android pref so the toggle reads the same on both platforms.
     @AppStorage(HydrationStore.enabledKey) private var hydrationEnabled = false
@@ -162,43 +162,39 @@ struct SettingsView: View {
     /// Profile header navigation is explicit instead of expanding a giant inline wall of cards.
 
     var body: some View {
-        SettingsRootView(status: settingsRootStatus)
-            .navigationDestination(for: SettingsRouteID.self) { route in
-                settingsDestination(route)
-                    .environment(\.screenScaffoldNavigationRole, .detail)
-                    .environment(\.screenScaffoldPresentation, .settingsDetail)
-                    .environment(\.appHeaderChromeVisibility, .hidden)
-            }
-            .alert(backupAlertTitle, isPresented: $showBackupAlert) {
-                Button("OK", role: .cancel) { }
-            } message: {
-                Text(backupAlertMessage)
-            }
-            .confirmationDialog("Recalibrate your Recovery baseline?",
-                                isPresented: $showRecalibrateConfirm, titleVisibility: .visible) {
-                Button("Recalibrate") { recalibrateHrvBaseline() }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("This restarts the roughly 4-night build-up for Recovery and your HRV baseline. Your history stays. Use it if a bad first week, like wearing it while sick, set your baseline off.")
-            }
-            .sheet(isPresented: $showWhatsNew) {
-                WhatsNewView(onClose: { showWhatsNew = false })
-            }
-            .sheet(isPresented: $showScoringGuide) {
-                ScoringGuideView(onClose: { showScoringGuide = false })
-            }
-            .sheet(isPresented: $showHowNoopWorks) {
-                HowNoopWorksView(onClose: { showHowNoopWorks = false })
-            }
-            .sheet(isPresented: $showStepsCalibration) {
-                StepsCalibrationSheet(repo: model.repo, onClose: { showStepsCalibration = false })
-                    .environmentObject(profile)
-            }
-            #if os(iOS)
-            .sheet(isPresented: $showDiagnostics) {
-                DiagnosticsSheet(onClose: { showDiagnostics = false })
-            }
-            #endif
+        Group {
+            settingsDestination(destination)
+        }
+        .alert(backupAlertTitle, isPresented: $showBackupAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(backupAlertMessage)
+        }
+        .confirmationDialog("Recalibrate your Recovery baseline?",
+                            isPresented: $showRecalibrateConfirm, titleVisibility: .visible) {
+            Button("Recalibrate") { recalibrateHrvBaseline() }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This restarts the roughly 4-night build-up for Recovery and your HRV baseline. Your history stays. Use it if a bad first week, like wearing it while sick, set your baseline off.")
+        }
+        .sheet(isPresented: $showWhatsNew) {
+            WhatsNewView(onClose: { showWhatsNew = false })
+        }
+        .sheet(isPresented: $showScoringGuide) {
+            ScoringGuideView(onClose: { showScoringGuide = false })
+        }
+        .sheet(isPresented: $showHowNoopWorks) {
+            HowNoopWorksView(onClose: { showHowNoopWorks = false })
+        }
+        .sheet(isPresented: $showStepsCalibration) {
+            StepsCalibrationSheet(repo: model.repo, onClose: { showStepsCalibration = false })
+                .environmentObject(profile)
+        }
+        #if os(iOS)
+        .sheet(isPresented: $showDiagnostics) {
+            DiagnosticsSheet(onClose: { showDiagnostics = false })
+        }
+        #endif
     }
 
     private var profileInitials: String {
@@ -208,22 +204,6 @@ struct SettingsView: View {
 
     private var bundleBuildString: String {
         (Bundle.main.infoDictionary?["CFBundleVersion"] as? String) ?? "—"
-    }
-
-    private var settingsRootStatus: SettingsRootStatus {
-        let appearance = (AppearanceMode(rawValue: appearanceRaw) ?? .system).label
-        let units = unitSystem == .imperial ? "US" : "Metric"
-        return SettingsRootStatus(values: [
-            .whoop: live.connected ? "Connected" : "Not connected",
-            .syncBattery: powerSavingEnabled
-                ? "Power saving on"
-                : (continuousHrvEnabled ? "Continuous HRV on" : "Standard"),
-            .appearanceUnits: "\(appearance) · \(units)",
-            .workoutPreferences: autoDetectWorkoutsEnabled ? "Auto detect on" : "Defaults",
-            .diagnosticsExperimental: puffinExperiments || deepDataEnabled ? "Experiments on" : nil,
-            .privacyDeletion: "Local",
-            .about: bundleVersionString,
-        ].compactMapValues { $0 })
     }
 
     @ViewBuilder
@@ -299,7 +279,7 @@ struct SettingsView: View {
             }
             .navigationTitle("Privacy & data deletion")
         case .about:
-            HowNoopWorksView()
+            aboutSettingsDetail
         }
     }
 
@@ -494,31 +474,9 @@ struct SettingsView: View {
             }
 
             Section {
-                Picker(
-                    "Theme",
-                    selection: Binding(
-                        get: { AppearanceMode(rawValue: appearanceRaw) ?? .system },
-                        set: { appearanceRaw = $0.rawValue }
-                    )
-                ) {
-                    ForEach(AppearanceMode.allCases, id: \.rawValue) { mode in
-                        Text(mode.label).tag(mode)
-                    }
-                }
-                .font(.caption)
-                Picker(
-                    "Chart colors",
-                    selection: Binding(
-                        get: { ChartStyle.resolve(chartStyleRaw) },
-                        set: { chartStyleRaw = $0.rawValue }
-                    )
-                ) {
-                    ForEach(ChartStyle.allCases, id: \.rawValue) { style in
-                        Text(style.label).tag(style)
-                    }
-                }
-                .font(.caption)
-                Toggle("Day-cycle background", isOn: $showDayCycleBackground)
+                LabeledContent("Theme", value: AppearanceMode.system.label)
+                    .font(.caption)
+                LabeledContent("Chart colors", value: ChartStyle.titanium.label)
                     .font(.caption)
                 #if os(iOS)
                 Picker("App icon", selection: $useNavyIcon) {
@@ -531,7 +489,7 @@ struct SettingsView: View {
             } header: {
                 Text("Appearance")
             } footer: {
-                Text("System follows the iPhone appearance. Day-cycle adds a subtle time-of-day scene behind Today.")
+                Text("NOOP uses one dark visual system with fixed metric colors.")
             }
         }
         .navigationTitle("Appearance & Units")
@@ -979,40 +937,6 @@ struct SettingsView: View {
         return String(localized: "Member since \(date.formatted(.dateTime.month(.wide).year()))")
     }
 
-    private var paperPreferencesSummary: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
-            SectionHeader("Preferences")
-            PaperCard(padding: 14) {
-                VStack(spacing: 0) {
-                    SettingsRow(icon: "ruler", title: "Units", showsChevron: false) {
-                        SegmentedPillControl(
-                            [UnitSystem.imperial.rawValue, UnitSystem.metric.rawValue],
-                            selection: $unitSystemRaw
-                        ) { $0 == UnitSystem.imperial.rawValue ? "US" : "Metric" }
-                        .accessibilityLabel("Units")
-                        .frame(width: 132)
-                    }
-                    rowDivider
-                    SettingsRow(title: "Appearance", showsChevron: false) {
-                        SegmentedPillControl(
-                            [AppearanceMode.light, .system, .dark],
-                            selection: Binding(
-                                get: { AppearanceMode(rawValue: appearanceRaw) ?? .system },
-                                set: { appearanceRaw = $0.rawValue }
-                            )
-                        ) { $0.label }
-                        .accessibilityLabel("Appearance")
-                        .frame(width: 168)
-                    }
-                    rowDivider
-                    SettingsRow(icon: "bell", title: "Notifications", showsChevron: false) {
-                        Text("System")
-                    }
-                }
-            }
-        }
-    }
-
     private var paperPrivacySummary: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
             SectionHeader("Privacy & Local Data")
@@ -1423,73 +1347,6 @@ struct SettingsView: View {
                         .foregroundStyle(StrandPalette.textSecondary)
                     .accessibilityLabel("Strain scale")
                 }
-            }
-        }
-    }
-
-    // MARK: - Appearance (Theme everywhere; alternate app icon iOS-only)
-
-    /// Theme (System / Light / Dark) on every platform, plus the iOS app-icon choice. The Theme picker
-    /// writes `AppearanceMode.storageKey`, which both app roots read via `.preferredColorScheme`; because
-    /// every palette token is a dynamic `Color(light:dark:)`, the whole UI re-resolves on change.
-    private var appearanceCard: some View {
-        SettingsSection(
-            icon: "circle.lefthalf.filled",
-            title: "Appearance",
-            blurb: "Choose Light, Dark, or follow your system. Dark is the signature near-black; Light keeps the same clean look on a bright canvas."
-        ) {
-            VStack(spacing: 0) {
-                FormRow(label: "Theme") {
-                    SegmentedPillControl(
-                        AppearanceMode.allCases,
-                        selection: Binding(
-                            get: { AppearanceMode(rawValue: appearanceRaw) ?? .system },
-                            set: { appearanceRaw = $0.rawValue }
-                        )
-                    ) { $0.label }
-                    .fixedSize()
-                    .accessibilityLabel("Theme")
-                }
-                FormRow(label: "Chart colours") {
-                    // Default = NOOP's clean metric ramps; Classic = the throwback red→amber→green
-                    // readiness scale (cool→hot zones, green→red stress). Both schemes.
-                    SegmentedPillControl(
-                        ChartStyle.allCases,
-                        selection: Binding(
-                            get: { ChartStyle.resolve(chartStyleRaw) },
-                            set: { chartStyleRaw = $0.rawValue }
-                        )
-                    ) { $0.label }
-                    .fixedSize()
-                    .accessibilityLabel("Chart colours")
-                }
-                #if os(iOS)
-                FormRow(label: "App icon") {
-                    SegmentedPillControl(
-                        [false, true],
-                        selection: $useNavyIcon
-                    ) { $0 ? "Navy" : "Default" }
-                    .fixedSize()
-                    .accessibilityLabel("App icon")
-                    .onChangeCompat(of: useNavyIcon) { applyAppIcon($0) }
-                }
-                #endif
-
-                Divider().overlay(StrandPalette.hairline).padding(.vertical, 4)
-                // MARK: Day-cycle background — the time-of-day scene behind Today (#698). On by default.
-                // Off swaps it for the plain dark canvas for people who find the moving scene distracting.
-                Toggle(isOn: $showDayCycleBackground) {
-                    Text("Day-cycle background")
-                        .font(StrandFont.subhead)
-                        .foregroundStyle(StrandPalette.textPrimary)
-                }
-                .toggleStyle(.switch)
-                .tint(StrandPalette.ink)
-                Text("Shows a soft sunrise, day, dusk and night scene behind the Today screen. Turn it off for a plain dark canvas. Your cards stay exactly as readable.")
-                    .font(StrandFont.caption)
-                    .foregroundStyle(StrandPalette.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
@@ -2433,6 +2290,16 @@ struct SettingsView: View {
     }
 
     // MARK: - About
+
+    private var aboutSettingsDetail: some View {
+        ScreenScaffold(title: nil, lazy: true) {
+            aboutCard
+        }
+        .navigationTitle("About")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+    }
 
     /// The real marketing version straight from the bundle (CFBundleShortVersionString, set from
     /// project.yml MARKETING_VERSION), so the About pill can never go stale the way a hand-edited

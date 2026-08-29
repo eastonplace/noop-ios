@@ -47,6 +47,21 @@ final class SettingsRouteCatalogTests: XCTestCase {
         )
     }
 
+    func testSearchIncludesCategoryAndBreadcrumbTerms() {
+        XCTAssertEqual(
+            SettingsRouteCatalog.search("advanced test").map(\.route),
+            [.testCentre]
+        )
+        XCTAssertEqual(
+            SettingsRouteCatalog.search("profile baseline").map(\.id),
+            ["recovery-baseline"]
+        )
+        XCTAssertEqual(
+            SettingsRouteCatalog.search("device sync battery").map(\.id),
+            ["power-saving"]
+        )
+    }
+
     func testTestCentreHasOneSemanticRoute() {
         let testItems = SettingsRouteCatalog.searchItems.filter { $0.route == .testCentre }
         XCTAssertEqual(testItems.count, 1)

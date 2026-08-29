@@ -52,9 +52,15 @@ struct SettingsSearchItem: Identifiable, Equatable, Sendable {
     let route: SettingsRouteID
     let keywords: [String]
 
-    fileprivate var normalizedSearchText: String {
+    fileprivate var normalizedLeafSearchText: String {
         SettingsRouteCatalog.normalize(
             ([title] + keywords).joined(separator: " ")
+        )
+    }
+
+    fileprivate var normalizedContextSearchText: String {
+        SettingsRouteCatalog.normalize(
+            [breadcrumb, route.rawValue].joined(separator: " ")
         )
     }
 }
@@ -285,9 +291,36 @@ enum SettingsRouteCatalog {
             .filter { !$0.isEmpty }
         guard !terms.isEmpty else { return [] }
 
-        return searchItems.filter { item in
-            terms.allSatisfy { item.normalizedSearchText.contains($0) }
+        let matches = searchItems.compactMap { item -> (item: SettingsSearchItem, leaf: Int, context: Int)? in
+            var leafMatches = 0
+            var contextMatches = 0
+
+            for term in terms {
+                let leafMatch = item.normalizedLeafSearchText.contains(term)
+                let contextMatch = item.normalizedContextSearchText.contains(term)
+                guard leafMatch || contextMatch else { return nil }
+                if leafMatch { leafMatches += 1 }
+                if contextMatch { contextMatches += 1 }
+            }
+
+            return (item, leafMatches, contextMatches)
         }
+
+        // A one-word leaf query should not make every sibling match only because its
+        // breadcrumb contains that word (for example "battery" or "baseline"). If no
+        // leaf matches exist, keep context-only matches so category searches still work.
+        if terms.count == 1 {
+            let direct = matches.filter { $0.leaf > 0 }
+            return (direct.isEmpty ? matches : direct).map(\.item)
+        }
+
+        // Multi-word queries often mix category and leaf intent (for example
+        // "device sync battery"). Prefer the deepest matching context, then the leaf
+        // with the strongest direct match. Preserve catalog order for ties.
+        guard let bestContext = matches.map(\.context).max() else { return [] }
+        let scoped = matches.filter { $0.context == bestContext }
+        guard let bestLeaf = scoped.map(\.leaf).max() else { return [] }
+        return scoped.filter { $0.leaf == bestLeaf }.map(\.item)
     }
 
     static func normalize(_ value: String) -> String {

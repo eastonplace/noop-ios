@@ -263,10 +263,11 @@ struct WorkoutsView: View {
         }
         // #519: name the sport before a live session starts, then open the in-exercise view directly
         // (same direct present as the button's already-active path — no cross-view auto-present race).
-        .sheet(isPresented: $showStartSport) {
+        .sheet(isPresented: $showStartSport, onDismiss: {
+            if model.activeWorkout != nil { showLiveWorkout = true }
+        }) {
             StartWorkoutSheet { name in
                 model.startWorkout(sport: name)
-                showLiveWorkout = true
             }
         }
         // #64: name the merged session when every selected row is a bare detected bout (there's no sport

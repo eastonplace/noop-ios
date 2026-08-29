@@ -2252,10 +2252,11 @@ struct TodayView: View {
                 .environmentObject(model.live)
                 .environment(\.appHeaderChromeVisibility, .hidden)
         }
-        .sheet(isPresented: $showStartSport) {
+        .sheet(isPresented: $showStartSport, onDismiss: {
+            if model.activeWorkout != nil { showLiveWorkout = true }
+        }) {
             StartWorkoutSheet { name in
                 model.startWorkout(sport: name)
-                showLiveWorkout = true
             }
         }
         #endif

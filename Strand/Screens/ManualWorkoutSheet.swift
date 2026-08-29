@@ -326,9 +326,11 @@ struct StartWorkoutSheet: View {
     private let explainer: String
     private let actionVerb: String
     private let isWorkoutStart: Bool
+    private let dismissAfterStart: Bool
 
     init(title: String? = nil, subtitle: String? = nil, actionVerb: String? = nil,
          initialSport: String = WorkoutCatalog.defaultSportName,
+         dismissAfterStart: Bool = true,
          onStart: @escaping (_ sport: String) -> Void) {
         self.onStart = onStart
         self.heading = title ?? String(localized: "Start a workout")
@@ -336,6 +338,7 @@ struct StartWorkoutSheet: View {
             ?? String(localized: "Pick a sport. NOOP records HR, peak, average and effort from the live feed.")
         self.actionVerb = actionVerb ?? String(localized: "Start")
         self.isWorkoutStart = title == nil && actionVerb == nil
+        self.dismissAfterStart = dismissAfterStart
         _selected = State(initialValue: WorkoutCatalog.sport(named: initialSport)?.name
             ?? WorkoutCatalog.defaultSportName)
     }
@@ -543,10 +546,7 @@ struct StartWorkoutSheet: View {
         .background(StrandPalette.surfaceBase.ignoresSafeArea())
         .safeAreaInset(edge: .bottom) {
             NoopButton("\(actionVerb) \(workoutDisplayTitle)", systemImage: "play.fill",
-                       kind: .primary, fullWidth: true) {
-                onStart(selected)
-                dismiss()
-            }
+                       kind: .primary, fullWidth: true, action: performStart)
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
             .background(StrandPalette.card.opacity(0.97))
@@ -583,10 +583,8 @@ struct StartWorkoutSheet: View {
             HStack(spacing: NoopMetrics.space3) {
                 NoopButton("Cancel", kind: .tertiary) { dismiss() }
                 Spacer()
-                NoopButton("\(actionVerb) \(selected)", systemImage: "figure.run", kind: .primary) {
-                    onStart(selected)
-                    dismiss()
-                }
+                NoopButton("\(actionVerb) \(selected)", systemImage: "figure.run",
+                           kind: .primary, action: performStart)
                 .accessibilityLabel("\(actionVerb) \(selected)")
             }
         }
@@ -598,6 +596,14 @@ struct StartWorkoutSheet: View {
         .noopSheetPresentation(largeFirst: false)
         #endif
         .background(StrandPalette.surfaceOverlay)
+    }
+
+    /// The quick-action host keeps this picker alive while it presents the live workout above it.
+    /// Every ordinary host still dismisses first and presents its next sheet from `onDismiss`, avoiding
+    /// two competing sheet transitions in the same update cycle.
+    private func performStart() {
+        onStart(selected)
+        if dismissAfterStart { dismiss() }
     }
 
     private func sportSearchAndList(maxHeight: CGFloat) -> some View {

@@ -306,6 +306,31 @@ public struct DeviceCommandPriorityCard: View {
     }
 }
 
+public struct DeviceCommandSystemsSummary: Equatable, Sendable {
+    public let total: Int
+    public let verified: Int
+    public let attention: Int
+    public let unknown: Int
+
+    public init(items: [DeviceCommandStatusItem]) {
+        total = items.count
+        verified = items.filter { $0.tone == .good }.count
+        attention = items.filter { $0.tone == .warning || $0.tone == .critical }.count
+        unknown = max(0, total - verified - attention)
+    }
+
+    public var allVerified: Bool {
+        total > 0 && verified == total
+    }
+
+    public var statusLabel: String {
+        if attention > 0 { return "\(attention) flagged" }
+        if unknown > 0 { return "\(unknown) unknown" }
+        if allVerified { return "Systems verified" }
+        return "No systems"
+    }
+}
+
 public struct DeviceCommandSystemsMatrix: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
@@ -315,8 +340,8 @@ public struct DeviceCommandSystemsMatrix: View {
         self.items = items
     }
 
-    private var flagged: [DeviceCommandStatusItem] {
-        items.filter { $0.tone == .warning || $0.tone == .critical }
+    private var summary: DeviceCommandSystemsSummary {
+        DeviceCommandSystemsSummary(items: items)
     }
 
     private var columns: [GridItem] {
@@ -332,16 +357,28 @@ public struct DeviceCommandSystemsMatrix: View {
                         .font(StrandFont.overline)
                         .tracking(1)
                         .foregroundStyle(StrandPalette.textTertiary)
-                    Text("\(items.count - flagged.count)/\(items.count)")
+                    Text("\(summary.verified)/\(summary.total)")
                         .font(StrandFont.title2)
                         .monospacedDigit()
                         .foregroundStyle(StrandPalette.textPrimary)
                 }
                 Spacer(minLength: 6)
-                Label(flagged.isEmpty ? "Systems nominal" : "\(flagged.count) flagged",
-                      systemImage: flagged.isEmpty ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                Label(
+                    summary.statusLabel,
+                    systemImage: summary.attention > 0
+                        ? "exclamationmark.triangle.fill"
+                        : (summary.unknown > 0
+                            ? "questionmark.circle.fill"
+                            : (summary.allVerified ? "checkmark.circle.fill" : "circle.dashed")))
                     .font(StrandFont.micro.weight(.bold))
-                    .foregroundStyle(flagged.isEmpty ? StrandPalette.statusPositive : StrandPalette.statusWarning)
+                    .foregroundStyle(
+                        summary.attention > 0
+                            ? StrandPalette.statusWarning
+                            : (summary.unknown > 0
+                                ? StrandPalette.textSecondary
+                                : (summary.allVerified
+                                    ? StrandPalette.statusPositive
+                                    : StrandPalette.textTertiary)))
                     .multilineTextAlignment(.trailing)
             }
 

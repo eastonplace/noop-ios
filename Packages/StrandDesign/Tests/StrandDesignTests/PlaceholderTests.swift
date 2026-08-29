@@ -34,9 +34,10 @@ final class StrandDesignTests: XCTestCase {
     }
 
     func testRecoveryGradientStops() {
-        XCTAssertEqual(StrandPalette.recoveryStops.count, 5)
-        XCTAssertEqual(StrandPalette.recoveryStops.first?.location, 0.0)
-        XCTAssertEqual(StrandPalette.recoveryStops.last?.location, 1.0)
+        XCTAssertEqual(
+            StrandPalette.recoveryStops.map(\.location),
+            [0.0, 0.339, 0.340, 0.669, 0.670, 1.0]
+        )
     }
 
     func testRecoveryColorEndpoints() {

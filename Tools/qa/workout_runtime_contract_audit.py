@@ -62,6 +62,18 @@ try:
         "Strand/App/AppModel.swift",
         "let avg = samples.isEmpty ? nil : w.avgHr",
         "let peak = samples.isEmpty ? nil : w.peakHr",
+        "workoutOwnsRealtimeHR",
+        "acquireWorkoutRealtimeHR()",
+        "releaseWorkoutRealtimeHR()",
+    )
+    require(
+        "Strand/Screens/ManualWorkoutSheet.swift",
+        "dismissAfterStart",
+        "private func performStart()",
+    )
+    require(
+        "StrandiOS/App/RootTabView.swift",
+        "StartWorkoutSheet(dismissAfterStart: false)",
     )
     require(
         "StrandiOS/App/StrandiOSApp.swift",
@@ -70,6 +82,7 @@ try:
         ".removeDuplicates()",
         "ExternalSurfaceProjection",
         "externalSurface?.effort",
+        "WidgetLivePublicationContext.shouldPublish",
     )
     require(
         "StrandiOS/App/VerifiedExternalSurfaceIntegration.swift",
