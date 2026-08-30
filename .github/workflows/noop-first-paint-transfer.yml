@@ -1,0 +1,36 @@
+name: Apply validated first-paint patch
+
+on:
+  push:
+    branches:
+      - perf/first-paint-root-fix-20260829
+    paths:
+      - .github/workflows/noop-first-paint-transfer.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: perf/first-paint-root-fix-20260829
+          fetch-depth: 0
+      - name: Verify and apply exact local patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .noop-transfer/part-*.patch > /tmp/noop-first-paint.patch
+          actual="$(sha256sum /tmp/noop-first-paint.patch | cut -d ' ' -f1)"
+          test "$actual" = "2a5071c0ac4155efa93769c782c7c38030f9f6c76f567458282c9609cf7ef1c8"
+          git apply --check /tmp/noop-first-paint.patch
+          git apply /tmp/noop-first-paint.patch
+          rm -rf .noop-transfer
+          rm -f .github/workflows/noop-first-paint-transfer.yml
+          git add -A
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Fix first-paint loading across history views"
+          git push origin HEAD:perf/first-paint-root-fix-20260829
