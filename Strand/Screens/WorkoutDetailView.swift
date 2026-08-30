@@ -122,8 +122,13 @@ struct WorkoutDetailView: View {
     // MARK: - Load
 
     private func load() async {
-        let history = await repo.workoutRows(days: 4000)
-        let target = history.first {
+        // Resolve only the tapped session first. The old path loaded + reconciled up to 4,000 days of
+        // workout history before the detail could paint, even though the primary screen needs one row.
+        let targetWindow = await repo.workoutRows(
+            from: max(0, row.startTs - 60),
+            to: max(row.endTs, row.startTs + 1) + 60
+        )
+        let target = targetWindow.first {
             $0.startTs == row.startTs && $0.sport == row.sport
         } ?? row
 
@@ -139,12 +144,6 @@ struct WorkoutDetailView: View {
         // still reads as a curve, not a handful of points.
         let buckets = await repo.workoutHrBuckets(from: target.startTs, to: target.endTs)
         let points = buckets.map { TrendPoint(date: Date(timeIntervalSince1970: TimeInterval($0.ts)), value: $0.bpm) }
-        let comparison = history.filter {
-            !($0.startTs == target.startTs && $0.sport == target.sport)
-                && $0.sport.caseInsensitiveCompare(target.sport) == .orderedSame
-        }.compactMap { StrainResolver.canonicalWorkout($0)?.storedValue }
-        let typical = comparison.isEmpty ? nil : comparison.reduce(0, +) / Double(comparison.count)
-
         // Zones: prefer the imported per-workout percentages (a WHOOP-computed split), and only fall
         // back to deriving zone-minutes from the strap's own raw HR when the row has none — so we
         // never overwrite a real imported split with an on-device approximation.
@@ -167,9 +166,18 @@ struct WorkoutDetailView: View {
             self.hrPoints = points
             self.zoneMinutes = minutes
             self.zonesFromImport = fromImport
-            self.usualEffort = typical
             self.loaded = true
         }
+
+        // "Compared to your usual" is secondary context. Load it AFTER the useful detail is committed,
+        // and skip per-row HR reconciliation because this calculation only needs each stored Strain value.
+        let history = await repo.workoutRows(days: 4000, reconcileHR: false)
+        guard !Task.isCancelled else { return }
+        let comparison = history.filter {
+            !($0.startTs == target.startTs && $0.sport == target.sport)
+                && $0.sport.caseInsensitiveCompare(target.sport) == .orderedSame
+        }.compactMap { StrainResolver.canonicalWorkout($0)?.storedValue }
+        usualEffort = comparison.isEmpty ? nil : comparison.reduce(0, +) / Double(comparison.count)
     }
 
     // MARK: - Header

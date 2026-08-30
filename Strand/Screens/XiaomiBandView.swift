@@ -17,6 +17,14 @@ private struct ChartWidthKey: PreferenceKey {
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
+/// Same-state re-mount cache for the Mi Band page. The screen is often reconstructed by navigation,
+/// while its imported history has not changed. Keep the expensive source snapshot on Repository so a
+/// revisit can paint from memory and skip all metric/sleep queries.
+struct XiaomiBandLoadCache {
+    let series: [String: [(day: String, value: Double)]]
+    let sleeps: [CachedSleepSession]
+}
+
 struct XiaomiBandView: View {
     @EnvironmentObject var repo: Repository
 
@@ -130,7 +138,7 @@ struct XiaomiBandView: View {
                 }
             }
         }
-        .task(id: repo.refreshSeq) { await load() }
+        .task(id: "\(repo.refreshSeq)|\(Repository.localDayKey(Date()))") { await load(allowCache: true) }
         .onChangeCompat(of: range) { _ in rebuildWindowCache() }
         .onPreferenceChange(ChartWidthKey.self) { w in if w > 1 { chartWidthPts = w } }
     }
@@ -188,22 +196,16 @@ struct XiaomiBandView: View {
 
     // MARK: - Load
 
-    private func load() async {
-        var fetched: [String: [(day: String, value: Double)]] = [:]
-        for key in Self.seriesKeys {
-            fetched[key] = await repo.series(key: key, source: Self.source)
-        }
-        var loadedSleeps: [CachedSleepSession] = []
-        if let store = await repo.storeHandle() {
-            let far = Int(Date.distantFuture.timeIntervalSince1970)
-            loadedSleeps = (try? await store.sleepSessions(deviceId: Self.source, from: 0, to: far, limit: 4000)) ?? []
-        }
-        await MainActor.run {
-            series = fetched
-            sleeps = loadedSleeps
-            rebuildWindowCache()
-            loaded = true
-        }
+    private func load(allowCache: Bool = false) async {
+        let snapshot = await repo.performXiaomiBandLoad(
+            seriesKeys: Self.seriesKeys,
+            source: Self.source,
+            allowCache: allowCache
+        )
+        series = snapshot.series
+        sleeps = snapshot.sleeps
+        rebuildWindowCache()
+        loaded = true
     }
 
     // MARK: - Range control + header

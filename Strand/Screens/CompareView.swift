@@ -319,10 +319,31 @@ struct CompareView: View {
     /// so a repository refresh can safely replace cached rows instead of leaving
     /// Compare on a stale pre-sync snapshot.
     private func loadSelected() async {
-        for metric in selected {
-            let s = await repo.resolvedSeries(key: metric.key, source: metric.source).values
-            fullSeries[metric.id] = s
+        let loadSeq = repo.refreshSeq
+        let requests = selected.map { (id: $0.id, key: $0.key, source: $0.source) }
+        let fetched = await withTaskGroup(
+            of: (String, [(day: String, value: Double)]).self,
+            returning: [String: [(day: String, value: Double)]].self
+        ) { group in
+            for request in requests {
+                group.addTask {
+                    let values = await repo.resolvedSeries(
+                        key: request.key,
+                        source: request.source
+                    ).values
+                    return (request.id, values)
+                }
+            }
+            var result: [String: [(day: String, value: Double)]] = [:]
+            result.reserveCapacity(requests.count)
+            for await (id, values) in group { result[id] = values }
+            return result
         }
+        guard !Task.isCancelled,
+              loadSeq == repo.refreshSeq,
+              requests.map(\.id).sorted() == selected.map(\.id).sorted()
+        else { return }
+        for request in requests { fullSeries[request.id] = fetched[request.id] ?? [] }
         loadedOnce = true
     }
 

@@ -94,7 +94,15 @@ struct TodayWorkoutsView: View {
     }
 
     @MainActor private func load() async {
-        let all = await repo.workoutRows()
+        let start = Calendar.current.startOfDay(for: day)
+        guard let end = Calendar.current.date(byAdding: .day, value: 1, to: start) else {
+            loaded = true
+            return
+        }
+        let all = await repo.workoutRows(
+            from: Int(start.timeIntervalSince1970),
+            to: Int(end.timeIntervalSince1970)
+        )
         let projected = TodayWorkoutsProjection.rows(all, on: day)
         rows = projected
         loaded = true

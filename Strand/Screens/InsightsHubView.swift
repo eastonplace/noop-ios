@@ -57,11 +57,17 @@ struct InsightsHubView: View {
                        // alignment/spacing/header). The content is one inner eager VStack, so the staggered
                        // mover reveal is unchanged; this only defers building that stack until it scrolls in.
                        lazy: true) {
-            if !model.loaded {
-                ComingSoon(what: "Reading your journal and outcomes…")
-            } else {
-                VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
-                    paperHeader
+            VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+                // Header + journal entry are independent of the history-wide ranking load. Keep the
+                // destination useful immediately, then replace only the analysis section when ready.
+                paperHeader
+                if !model.loaded {
+                    DataPendingNote(
+                        title: "Reading your patterns",
+                        message: "NOOP is loading your journal and outcome history on this device.",
+                        symbol: "wand.and.sparkles"
+                    )
+                } else {
                     moversSection
                     insightCard
                     methodNote
@@ -783,8 +789,26 @@ final class InsightsHubViewModel: ObservableObject {
     // MARK: Load
 
     func load(repo: Repository) async {
+        let mergedDays = repo.days
+
+        // Independent source reads start together. The previous loop serialized journal, four outcomes,
+        // and both dose series, making the whole-page loader wait on their summed latency.
+        async let entriesLoad = repo.journalEntries()
+        async let recoveryLoad = repo.series(key: "recovery", source: "my-whoop")
+        async let hrvLoad = repo.series(key: "hrv", source: "my-whoop")
+        async let sleepLoad = repo.series(key: "sleep_performance", source: "my-whoop")
+        async let rhrLoad = repo.series(key: "rhr", source: "my-whoop")
+        async let alcoholDoseLoad = repo.series(
+            key: Self.doseKey(for: .alcohol),
+            source: Self.doseSource
+        )
+        async let caffeineDoseLoad = repo.series(
+            key: Self.doseKey(for: .caffeine),
+            source: Self.doseSource
+        )
+
         // Journal → behaviour → days (only "yes" answers count as the behaviour occurring).
-        let entries = await repo.journalEntries()
+        let entries = await entriesLoad
         var byBehaviour: [String: Set<String>] = [:]
         for e in entries where e.answeredYes {
             byBehaviour[e.question, default: []].insert(e.day)
@@ -792,10 +816,15 @@ final class InsightsHubViewModel: ObservableObject {
 
         // Outcome series: imported metricSeries ∪ the DailyMetric column fallback so an
         // account-free (strap-only) user still gets effects — the exact contract InsightsView uses.
-        let mergedDays = repo.days
+        let loadedOutcomes: [String: [(day: String, value: Double)]] = [
+            "recovery": await recoveryLoad,
+            "hrv": await hrvLoad,
+            "sleep_performance": await sleepLoad,
+            "rhr": await rhrLoad,
+        ]
         var byKey: [String: [String: Double]] = [:]
         for key in outcomeKeys {
-            let s = await repo.series(key: key, source: "my-whoop")
+            let s = loadedOutcomes[key] ?? []
             var dict: [String: Double] = [:]
             for row in s { dict[row.day] = row.value }
             for d in mergedDays where dict[d.day] == nil {
@@ -808,10 +837,13 @@ final class InsightsHubViewModel: ObservableObject {
         // behaviour's storage key. A logged "yes" with no dose row reads as dose = 1
         // (back-compatible), so we union the behaviour's logged days at dose 1 with any
         // explicit dose rows (explicit wins).
+        let loadedDoses: [DosedBehavior: [(day: String, value: Double)]] = [
+            .alcohol: await alcoholDoseLoad,
+            .caffeine: await caffeineDoseLoad,
+        ]
         var doseByBehaviour: [DosedBehavior: [String: Int]] = [:]
         for behavior in DosedBehavior.allCases {
-            let key = Self.doseKey(for: behavior)
-            let rows = await repo.series(key: key, source: Self.doseSource)
+            let rows = loadedDoses[behavior] ?? []
             var doses: [String: Int] = [:]
             // Back-compat: any logged "yes" day for a matching journal question starts at dose 1.
             for (question, days) in byBehaviour where Self.matches(behavior, question: question) {

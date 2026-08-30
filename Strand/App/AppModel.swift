@@ -2837,11 +2837,27 @@ final class AppModel: ObservableObject {
         let fromDay = Repository.dayString(now.addingTimeInterval(-3 * 86_400))
         let toDay = Repository.dayString(now.addingTimeInterval(86_400))
 
-        // Read each source's daily rows once, then pick the freshest per metric for the latest day.
-        var rowsBySource: [FusionSource: DailyMetric] = [:]
-        for (src, id) in sources {
-            let rows = (try? await store.dailyMetrics(deviceId: id, from: fromDay, to: toDay)) ?? []
-            if let latest = rows.sorted(by: { $0.day < $1.day }).last { rowsBySource[src] = latest }
+        // Read each independent source together, then pick the freshest per metric for the latest day.
+        // Source order has no effect here because FusionResolver owns precedence explicitly.
+        let rowsBySource = await withTaskGroup(
+            of: (FusionSource, DailyMetric?).self,
+            returning: [FusionSource: DailyMetric].self
+        ) { group in
+            for (source, id) in sources {
+                group.addTask {
+                    let rows = (try? await store.dailyMetrics(
+                        deviceId: id,
+                        from: fromDay,
+                        to: toDay
+                    )) ?? []
+                    return (source, rows.sorted(by: { $0.day < $1.day }).last)
+                }
+            }
+            var result: [FusionSource: DailyMetric] = [:]
+            for await (source, latest) in group {
+                if let latest { result[source] = latest }
+            }
+            return result
         }
         guard !rowsBySource.isEmpty else {
             return FusedRecord(rows: [], dayOwner: nil, contributingSourceCount: 0)
@@ -3020,6 +3036,10 @@ final class AppModel: ObservableObject {
                                                                     trace: importTraceSink())
                 try? await store.checkpointWAL()   // reclaim the WAL a bulk import grew (#590)
                 _ = await repo.refresh(.postImport)
+                // Mi Band metricSeries/sleep rows can change even when the merged dashboard projection does
+                // not bump refreshSeq. Never let a same-seq per-source page restore the pre-import snapshot.
+                repo.xiaomiCache = nil
+                repo.xiaomiLoadedSeq = -1
                 let span: String
                 if let a = summary.earliest, let b = summary.latest {
                     let f = DateFormatter(); f.dateFormat = "MMM yyyy"

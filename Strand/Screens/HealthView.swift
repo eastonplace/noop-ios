@@ -860,11 +860,16 @@ private struct FitnessAgeSection: View {
     /// "my-whoop" (the Repository merges the computed "-noop" rows under any real import). Takes the
     /// freshest point — the weekly value is keyed to the week's Saturday and refines through the week.
     private func load() async {
+        let loadSeq = repo.refreshSeq
+        async let vo2Load = repo.exploreSeries(key: "vo2max_est", source: "my-whoop")
         let faPts = await repo.exploreSeries(key: "fitness_age", source: "my-whoop")
-        let vo2Pts = await repo.exploreSeries(key: "vo2max_est", source: "my-whoop")
+        guard !Task.isCancelled, loadSeq == repo.refreshSeq else { return }
         fitnessAge = faPts.last?.value
-        vo2max = vo2Pts.last?.value
         loaded = true
+
+        let nextVO2 = await vo2Load.last?.value
+        guard !Task.isCancelled, loadSeq == repo.refreshSeq else { return }
+        vo2max = nextVO2
     }
 }
 
@@ -1108,8 +1113,14 @@ private struct VitalitySection: View {
     }
 
     private func load() async {
-        vitality = (await repo.exploreSeries(key: "vitality", source: "my-whoop")).last?.value
-        bodyAge = (await repo.exploreSeries(key: "body_age", source: "my-whoop")).last?.value
+        let loadSeq = repo.refreshSeq
+        async let vitalityLoad = repo.exploreSeries(key: "vitality", source: "my-whoop")
+        async let bodyAgeLoad = repo.exploreSeries(key: "body_age", source: "my-whoop")
+        let nextVitality = await vitalityLoad.last?.value
+        let nextBodyAge = await bodyAgeLoad.last?.value
+        guard !Task.isCancelled, loadSeq == repo.refreshSeq else { return }
+        vitality = nextVitality
+        bodyAge = nextBodyAge
         loaded = true
     }
 }
