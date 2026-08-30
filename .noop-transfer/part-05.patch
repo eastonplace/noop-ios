@@ -1,0 +1,180 @@
+ 
++/// Same-state re-mount cache for the Mi Band page. The screen is often reconstructed by navigation,
++/// while its imported history has not changed. Keep the expensive source snapshot on Repository so a
++/// revisit can paint from memory and skip all metric/sleep queries.
++struct XiaomiBandLoadCache {
++    let series: [String: [(day: String, value: Double)]]
++    let sleeps: [CachedSleepSession]
++}
++
+ struct XiaomiBandView: View {
+     @EnvironmentObject var repo: Repository
+ 
+@@ -130,7 +138,7 @@ struct XiaomiBandView: View {
+                 }
+             }
+         }
+-        .task(id: repo.refreshSeq) { await load() }
++        .task(id: "\(repo.refreshSeq)|\(Repository.localDayKey(Date()))") { await load(allowCache: true) }
+         .onChangeCompat(of: range) { _ in rebuildWindowCache() }
+         .onPreferenceChange(ChartWidthKey.self) { w in if w > 1 { chartWidthPts = w } }
+     }
+@@ -188,22 +196,16 @@ struct XiaomiBandView: View {
+ 
+     // MARK: - Load
+ 
+-    private func load() async {
+-        var fetched: [String: [(day: String, value: Double)]] = [:]
+-        for key in Self.seriesKeys {
+-            fetched[key] = await repo.series(key: key, source: Self.source)
+-        }
+-        var loadedSleeps: [CachedSleepSession] = []
+-        if let store = await repo.storeHandle() {
+-            let far = Int(Date.distantFuture.timeIntervalSince1970)
+-            loadedSleeps = (try? await store.sleepSessions(deviceId: Self.source, from: 0, to: far, limit: 4000)) ?? []
+-        }
+-        await MainActor.run {
+-            series = fetched
+-            sleeps = loadedSleeps
+-            rebuildWindowCache()
+-            loaded = true
+-        }
++    private func load(allowCache: Bool = false) async {
++        let snapshot = await repo.performXiaomiBandLoad(
++            seriesKeys: Self.seriesKeys,
++            source: Self.source,
++            allowCache: allowCache
++        )
++        series = snapshot.series
++        sleeps = snapshot.sleeps
++        rebuildWindowCache()
++        loaded = true
+     }
+ 
+     // MARK: - Range control + header
+diff --git a/StrandiOSTests/FirstPaintPerformanceRegressionTests.swift b/StrandiOSTests/FirstPaintPerformanceRegressionTests.swift
+new file mode 100644
+index 0000000000000000000000000000000000000000..b1266b1b949726276406d8d8348227c64e6b0af7
+--- /dev/null
++++ b/StrandiOSTests/FirstPaintPerformanceRegressionTests.swift
+@@ -0,0 +1,167 @@
++import XCTest
++import WhoopStore
++@testable import NOOP
++
++@MainActor
++final class FirstPaintPerformanceRegressionTests: XCTestCase {
++    private let canonical = "my-whoop"
++
++    private func makeRepo() async throws -> (Repository, WhoopStore) {
++        let store = try await WhoopStore.inMemory()
++        try await store.upsertDevice(id: canonical, mac: nil, name: "WHOOP")
++        let repo = Repository(deviceId: canonical)
++        repo.setStoreForTesting(store)
++        return (repo, store)
++    }
++
++    func testExactSourceSeriesBatchMatchesSequentialExactSourceReads() async throws {
++        let (repo, store) = try await makeRepo()
++        let source = XiaomiImporter.deviceId
++        let keys = ["steps", "rhr", "stress"]
++        let points = [
++            MetricPoint(day: "2026-08-27", key: "steps", value: 8_100),
++            MetricPoint(day: "2026-08-28", key: "steps", value: 9_200),
++            MetricPoint(day: "2026-08-27", key: "rhr", value: 51),
++            MetricPoint(day: "2026-08-28", key: "stress", value: 34),
++        ]
++        _ = try await store.upsertMetricSeries(points, deviceId: source)
++
++        let batch = await repo.exactSourceSeriesBatch(
++            keys: keys,
++            source: source,
++            fullHistory: true
++        )
++
++        for key in keys {
++            let sequential = await repo.series(key: key, source: source, fullHistory: true)
++            XCTAssertEqual(
++                batch[key, default: []].map { "\($0.day)|\($0.value)" },
++                sequential.map { "\($0.day)|\($0.value)" },
++                "batched exact-source reads must preserve the existing series contract for \(key)"
++            )
++        }
++    }
++
++    func testXiaomiSameStateLoadUsesCacheAndExplicitInvalidationReReads() async throws {
++        let (repo, store) = try await makeRepo()
++        let source = XiaomiImporter.deviceId
++        let keys = ["steps", "rhr"]
++        _ = try await store.upsertMetricSeries([
++            MetricPoint(day: "2026-08-28", key: "steps", value: 9_500),
++            MetricPoint(day: "2026-08-28", key: "rhr", value: 50),
++        ], deviceId: source)
++
++        let first = await repo.performXiaomiBandLoad(
++            seriesKeys: keys,
++            source: source,
++            allowCache: true
++        )
++        XCTAssertEqual(repo.loadFireCounts["xiaomi"], 1)
++        XCTAssertEqual(first.series["steps"]?.last?.value, 9_500)
++
++        let second = await repo.performXiaomiBandLoad(
++            seriesKeys: keys,
++            source: source,
++            allowCache: true
++        )
++        XCTAssertEqual(repo.loadFireCounts["xiaomi"], 1,
++                       "same-state navigation must restore the completed Mi Band snapshot")
++        XCTAssertEqual(second.series["steps"]?.last?.value, first.series["steps"]?.last?.value)
++
++        repo.xiaomiCache = nil
++        repo.xiaomiLoadedSeq = -1
++
++        _ = await repo.performXiaomiBandLoad(
++            seriesKeys: keys,
++            source: source,
++            allowCache: true
++        )
++        XCTAssertEqual(repo.loadFireCounts["xiaomi"], 2,
++                       "import invalidation must force the next Mi Band load back to the store")
++    }
++
++    func testExactWorkoutWindowMatchesBroadReadWithinTheSameWindow() async throws {
++        let (repo, store) = try await makeRepo()
++        let now = Int(Date().timeIntervalSince1970)
++        let targetStart = now - (2 * 86_400)
++        let target = WorkoutRow(
++            startTs: targetStart,
++            endTs: targetStart + 2_400,
++            sport: "Run",
++            source: "manual",
++            durationS: 2_400,
++            energyKcal: 320,
++            avgHr: 142,
++            maxHr: 169,
++            strain: 11.2,
++            distanceM: 6_000,
++            zonesJSON: nil,
++            notes: nil
++        )
++        let outside = WorkoutRow(
++            startTs: now - (20 * 86_400),
++            endTs: now - (20 * 86_400) + 1_800,
++            sport: "Cycling",
++            source: "manual",
++            durationS: 1_800,
++            energyKcal: 250,
++            avgHr: 130,
++            maxHr: 160,
++            strain: 8.0,
++            distanceM: nil,
++            zonesJSON: nil,
++            notes: nil
++        )
++        _ = try await store.upsertWorkouts([target, outside], deviceId: canonical)
++
++        let lo = targetStart - 60
++        let hi = target.endTs + 60
++        let exact = await repo.workoutRows(from: lo, to: hi, reconcileHR: false)
++        let broad = await repo.workoutRows(days: 4_000, reconcileHR: false)
