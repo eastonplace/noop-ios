@@ -1,0 +1,180 @@
+diff --git a/Strand/App/AppModel.swift b/Strand/App/AppModel.swift
+index df8e0c089b0420439582ee2032348403bebdcbf2..e5a80b1ab2673d11d0527dde4f7f43aee5d81f8b 100644
+--- a/Strand/App/AppModel.swift
++++ b/Strand/App/AppModel.swift
+@@ -2837,11 +2837,27 @@ final class AppModel: ObservableObject {
+         let fromDay = Repository.dayString(now.addingTimeInterval(-3 * 86_400))
+         let toDay = Repository.dayString(now.addingTimeInterval(86_400))
+ 
+-        // Read each source's daily rows once, then pick the freshest per metric for the latest day.
+-        var rowsBySource: [FusionSource: DailyMetric] = [:]
+-        for (src, id) in sources {
+-            let rows = (try? await store.dailyMetrics(deviceId: id, from: fromDay, to: toDay)) ?? []
+-            if let latest = rows.sorted(by: { $0.day < $1.day }).last { rowsBySource[src] = latest }
++        // Read each independent source together, then pick the freshest per metric for the latest day.
++        // Source order has no effect here because FusionResolver owns precedence explicitly.
++        let rowsBySource = await withTaskGroup(
++            of: (FusionSource, DailyMetric?).self,
++            returning: [FusionSource: DailyMetric].self
++        ) { group in
++            for (source, id) in sources {
++                group.addTask {
++                    let rows = (try? await store.dailyMetrics(
++                        deviceId: id,
++                        from: fromDay,
++                        to: toDay
++                    )) ?? []
++                    return (source, rows.sorted(by: { $0.day < $1.day }).last)
++                }
++            }
++            var result: [FusionSource: DailyMetric] = [:]
++            for await (source, latest) in group {
++                if let latest { result[source] = latest }
++            }
++            return result
+         }
+         guard !rowsBySource.isEmpty else {
+             return FusedRecord(rows: [], dayOwner: nil, contributingSourceCount: 0)
+@@ -3020,6 +3036,10 @@ final class AppModel: ObservableObject {
+                                                                     trace: importTraceSink())
+                 try? await store.checkpointWAL()   // reclaim the WAL a bulk import grew (#590)
+                 _ = await repo.refresh(.postImport)
++                // Mi Band metricSeries/sleep rows can change even when the merged dashboard projection does
++                // not bump refreshSeq. Never let a same-seq per-source page restore the pre-import snapshot.
++                repo.xiaomiCache = nil
++                repo.xiaomiLoadedSeq = -1
+                 let span: String
+                 if let a = summary.earliest, let b = summary.latest {
+                     let f = DateFormatter(); f.dateFormat = "MMM yyyy"
+diff --git a/Strand/Data/Repository.swift b/Strand/Data/Repository.swift
+index ef9ccdddd73cf0c10cb1e7393ea56e65d57c0fc2..14108601375a05bcb15a84624d26a3ad65415689 100644
+--- a/Strand/Data/Repository.swift
++++ b/Strand/Data/Repository.swift
+@@ -2034,6 +2034,13 @@ final class Repository: ObservableObject {
+     /// in-memory (no store queries) instead of re-running the heavy load. Not @Published.
+     var appleHealthCache: AppleHealthLoadCache?
+ 
++    /// Mi Band equivalent of the Apple Health same-state re-mount cache. The imported source is immutable
++    /// between imports, so rebuilding 15 full-history series plus sleep sessions on every navigation visit
++    /// is pure waste. Import completion explicitly invalidates this cache.
++    var xiaomiLoadedSeq = -1
++    var xiaomiLoadedDayKey = ""
++    var xiaomiCache: XiaomiBandLoadCache?
++
+     /// #849/#932 (Today day-scoped freeze): macOS cold-mounts the NavigationSplitView detail on every sidebar
+     /// switch, so `TodayView.loadDayScoped()` re-ran its full-day heavy read (the selected day's 5-minute
+     /// `hrBuckets` plus, on today, the raw per-sample `hrSamples` pass for the live Effort; 170k+ HR rows/day
+@@ -3205,6 +3212,55 @@ final class Repository: ObservableObject {
+         return pts.map { ($0.day, $0.value) }
+     }
+ 
++    /// Read several metric-series keys from one exact source concurrently. Per-source pages such as
++    /// Apple Health and Mi Band need a fixed set of independent series; issuing those reads one-by-one
++    /// makes cold-page latency the SUM of every query even though none depends on another. This helper
++    /// preserves the exact `series(key:source:days:fullHistory:)` window contract for non-canonical sources
++    /// while allowing the WhoopStore actor/database pool to schedule the independent reads together.
++    ///
++    /// The canonical WHOOP source has union/precedence rules and must keep using `series` / `exploreSeries`.
++    /// This helper intentionally rejects that source so it cannot bypass those semantics by accident.
++    func exactSourceSeriesBatch(
++        keys: [String],
++        source: String,
++        days: Int = 4000,
++        fullHistory: Bool = false
++    ) async -> [String: [(day: String, value: Double)]] {
++        guard source != canonicalDeviceId,
++              source != deviceId,
++              let store = await ensureStore()
++        else { return [:] }
++
++        let now = Date()
++        let from = fullHistory
++            ? "0000-01-01"
++            : Self.dayString(Self.dateByAddingCalendarDays(-max(0, days), to: now))
++        let to = fullHistory
++            ? "9999-12-31"
++            : Self.dayString(Self.dateByAddingCalendarDays(1, to: now))
++
++        return await withTaskGroup(of: (String, [MetricPoint]).self) { group in
++            for key in keys {
++                group.addTask {
++                    let rows = (try? await store.metricSeries(
++                        deviceId: source,
++                        key: key,
++                        from: from,
++                        to: to
++                    )) ?? []
++                    return (key, rows)
++                }
++            }
++
++            var fetched: [String: [(day: String, value: Double)]] = [:]
++            fetched.reserveCapacity(keys.count)
++            for await (key, rows) in group {
++                fetched[key] = rows.map { ($0.day, $0.value) }
++            }
++            return fetched
++        }
++    }
++
+     // MARK: - Deep Timeline (full-day full-resolution viewer , #575/#574/#582)
+     //
+     // The Deep Timeline draws a single metric across a zoomable time window at the resolution the zoom
+@@ -3840,12 +3896,19 @@ final class Repository: ObservableObject {
+     /// are filtered HERE so every consumer (Workouts screen, Today, Coach context) agrees: the engine
+     /// re-derives the detected rows each run, so a plain delete would resurrect them; the dismissed
+     /// span list is the durable "not a workout" record.
+-    func workoutRows(days: Int = 4000) async -> [WorkoutRow] {
+-        guard let store = await ensureStore() else { return [] }
++    func workoutRows(days: Int = 4000, reconcileHR: Bool = true) async -> [WorkoutRow] {
+         let now = Int(Date().timeIntervalSince1970)
+         let fromDate = Self.dateByAddingCalendarDays(-max(0, days), to: Date(timeIntervalSince1970: TimeInterval(now)))
+         let toDate = Self.dateByAddingCalendarDays(1, to: Date(timeIntervalSince1970: TimeInterval(now)))
+         let lo = Int(fromDate.timeIntervalSince1970), hi = Int(toDate.timeIntervalSince1970)
++        return await workoutRows(from: lo, to: hi, reconcileHR: reconcileHR)
++    }
++
++    /// Exact-window workout read. Detail/day screens previously called the day-count API and loaded years
++    /// of sessions only to keep one row. Keep every source, dedup, dismissal, Test Centre trace, and HR
++    /// reconciliation rule identical to `workoutRows(days:)`, but let callers bound the actual SQL window.
++    func workoutRows(from lo: Int, to hi: Int, reconcileHR: Bool = true) async -> [WorkoutRow] {
++        guard hi > lo, let store = await ensureStore() else { return [] }
+         // UNION the active strap + canonical (and their computed siblings) so workouts banked under the
+         // canonical "my-whoop" before a re-add still show, alongside the re-added strap's live workouts.
+         // De-dup identical same-source rows that appear under both union ids by natural key (the cross-SOURCE
+@@ -3879,7 +3942,7 @@ final class Repository: ObservableObject {
+             deduped = WorkoutSource.dedupCrossSource(filtered)
+         }
+         let visible = deduped.sorted { $0.startTs > $1.startTs }
+-        return await reconcileWorkoutHrWithTrace(visible, store: store)
++        return reconcileHR ? await reconcileWorkoutHrWithTrace(visible, store: store) : visible
+     }
+ 
+     /// DISPLAY-ONLY: reconcile each workout's shown Avg/Max HR with the strap trace that actually drives
+@@ -4367,21 +4430,34 @@ final class Repository: ObservableObject {
+         loadFireCounts["appleHealth", default: 0] += 1
+         #endif
+ 
++        guard let store = await ensureStore() else {
++            return AppleHealthLoadCache(appleRows: [], workoutCount: 0, series: [:])
++        }
++
+         async let rows = appleDailyRows()
+-        async let workouts = workoutRows()
++        async let seriesLoad = exactSourceSeriesBatch(
++            keys: seriesKeys,
++            source: Self.appleHealthSource,
++            fullHistory: true
++        )
++        // The page only shows an Apple Health workout COUNT. Reading the unioned, deduped workout feed
++        // used to scan every source and reconcile strap HR for hundreds of rows just to filter it back to
++        // Apple. Count the exact source directly instead; no display semantics are lost.
++        async let appleWorkoutsLoad = store.workouts(
++            deviceId: Self.appleHealthSource,
++            from: 0,
++            to: 4_102_444_800,
++            limit: 100_000
++        )
+ 
+         // The per-source page's data contract: ALL history is loaded ONCE and the range control windows it
+         // client-side, anchored to the latest data point (not "now"). The client-side widen therefore needs the
