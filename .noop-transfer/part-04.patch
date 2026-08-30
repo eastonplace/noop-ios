@@ -1,0 +1,180 @@
+ 
+-        let nextStoredSeries = await repo.series(key: "stress", source: "my-whoop")
+-        let nextDaytime = await readDaytime(deviceID: sourceDeviceID)
++        async let storedSeriesLoad = repo.series(key: "stress", source: "my-whoop")
++        async let daytimeLoad = readDaytime(deviceID: sourceDeviceID)
++        let nextStoredSeries = await storedSeriesLoad
++        let nextDaytime = await daytimeLoad
+         guard !Task.isCancelled else {
+             _ = loadState.finish(.cancelled, requestID: requestID)
+             return
+@@ -168,10 +170,14 @@ struct StressView: View {
+         }
+         let rr = (try? await repo.storeHandle()?.rrIntervals(
+             deviceId: deviceID, from: from, to: to, limit: 200_000)) ?? []
+-        return StressDaytimeLoad(
+-            daytime: DaytimeStress.analyze(hr: hr, rr: rr, tzOffsetSeconds: tz),
+-            stressIndex: StressIndex.components(rr: rr),
+-            frequencyDomain: HRVFreqDomain.freqDomain(rr: rr))
++        // These analytics walk large in-memory arrays. Keep the Repository/store reads actor-safe, then
++        // move the pure CPU work off the main actor so a dense day cannot stall navigation or scrolling.
++        return await Task { @concurrent in
++            StressDaytimeLoad(
++                daytime: DaytimeStress.analyze(hr: hr, rr: rr, tzOffsetSeconds: tz),
++                stressIndex: StressIndex.components(rr: rr),
++                frequencyDomain: HRVFreqDomain.freqDomain(rr: rr))
++        }.value
+     }
+ 
+     /// Recompute the cached `StressModel` only when (repo.days, storedSeries)
+diff --git a/Strand/Screens/TodayWorkoutsView.swift b/Strand/Screens/TodayWorkoutsView.swift
+index 13375761164cc57bbe6c01fb2a6292a3041caee1..453cd69cc8138924e27bb4e00ea02ccfda3bef0f 100644
+--- a/Strand/Screens/TodayWorkoutsView.swift
++++ b/Strand/Screens/TodayWorkoutsView.swift
+@@ -94,7 +94,15 @@ struct TodayWorkoutsView: View {
+     }
+ 
+     @MainActor private func load() async {
+-        let all = await repo.workoutRows()
++        let start = Calendar.current.startOfDay(for: day)
++        guard let end = Calendar.current.date(byAdding: .day, value: 1, to: start) else {
++            loaded = true
++            return
++        }
++        let all = await repo.workoutRows(
++            from: Int(start.timeIntervalSince1970),
++            to: Int(end.timeIntervalSince1970)
++        )
+         let projected = TodayWorkoutsProjection.rows(all, on: day)
+         rows = projected
+         loaded = true
+diff --git a/Strand/Screens/TrendsView.swift b/Strand/Screens/TrendsView.swift
+index b11a1d01d4cf7cbec95582038d5e38eaef0fc9b1..f776a4a75004de60af7f42a552ba9420e31ebd4f 100644
+--- a/Strand/Screens/TrendsView.swift
++++ b/Strand/Screens/TrendsView.swift
+@@ -183,6 +183,42 @@ struct TrendsView: View {
+         let timeZoneIdentifier = civilContext.timeZoneIdentifier
+         let rangeDays = boundedRangeDays
+         let offset = boundedOffset
++
++        // First paint from the repository's already-published coherent snapshot. The exact sparse range
++        // query below is still authoritative and replaces this provisional data when it completes, but a
++        // tab visit/range tap no longer waits on disk before the user sees the data already in memory.
++        let publishedDays = repo.canonicalDays
++        if !publishedDays.isEmpty {
++            let health = repo.canonicalHealth
++            let provisional = TrendsLoadedData(
++                loadIdentity: nil,
++                revision: revision,
++                anchorDay: anchorDay,
++                timeZoneIdentifier: timeZoneIdentifier,
++                canonicalDays: publishedDays,
++                sleepPerfByDay: Dictionary(uniqueKeysWithValues: health.sleepScoreByDay.values.map {
++                    ($0.day, $0.value)
++                }),
++                stressByDay: Dictionary(uniqueKeysWithValues: health.stressByDay.values.map {
++                    ($0.day, $0.value)
++                }),
++                appleDays: health.appleDailyByDay.values.map {
++                    AppleDaily(
++                        day: $0.day,
++                        steps: $0.steps,
++                        activeKcal: $0.activeKcal,
++                        basalKcal: $0.basalKcal,
++                        vo2max: $0.vo2max,
++                        avgHr: $0.avgHr,
++                        maxHr: $0.maxHr,
++                        walkingHr: $0.walkingHr,
++                        weightKg: $0.weightKg
++                    )
++                }.sorted { $0.day < $1.day }
++            )
++            if provisional != loadedData { loadedData = provisional }
++        }
++
+         guard let next = await repo.loadCanonicalTrendsData(
+             anchorDay: anchorDay,
+             timeZoneIdentifier: timeZoneIdentifier,
+@@ -237,11 +273,17 @@ struct TrendsView: View {
+         let metric = selectedMetric
+         let range = selectedRange
+         let offset = TrendsBounds.clampWeekOffset(weekOffset)
+-        guard let identity = data.loadIdentity,
+-              identity.rangeDays == range.days,
+-              identity.weekOffset == offset,
+-              identity.anchorDay == civilContext.localDay,
+-              identity.timeZoneIdentifier == civilContext.timeZoneIdentifier else { return }
++        if let identity = data.loadIdentity {
++            guard identity.rangeDays == range.days,
++                  identity.weekOffset == offset,
++                  identity.anchorDay == civilContext.localDay,
++                  identity.timeZoneIdentifier == civilContext.timeZoneIdentifier else { return }
++        } else {
++            // A provisional first-paint snapshot has no completed disk-load identity. Its revision/civil
++            // context still must match the live screen; the key carries the current range + week offset.
++            guard data.anchorDay == civilContext.localDay,
++                  data.timeZoneIdentifier == civilContext.timeZoneIdentifier else { return }
++        }
+         let effortDisplayFactor = UnitPrefs.currentEffortDisplayFactor()
+ 
+         let worker = Task { @concurrent in
+diff --git a/Strand/Screens/WorkoutDetailView.swift b/Strand/Screens/WorkoutDetailView.swift
+index 73d593af15f8ddfc1af873d2ed5d40f272139b1a..50a05e5f107c1ef19f462f83e27067b57d39dc5d 100644
+--- a/Strand/Screens/WorkoutDetailView.swift
++++ b/Strand/Screens/WorkoutDetailView.swift
+@@ -122,8 +122,13 @@ struct WorkoutDetailView: View {
+     // MARK: - Load
+ 
+     private func load() async {
+-        let history = await repo.workoutRows(days: 4000)
+-        let target = history.first {
++        // Resolve only the tapped session first. The old path loaded + reconciled up to 4,000 days of
++        // workout history before the detail could paint, even though the primary screen needs one row.
++        let targetWindow = await repo.workoutRows(
++            from: max(0, row.startTs - 60),
++            to: max(row.endTs, row.startTs + 1) + 60
++        )
++        let target = targetWindow.first {
+             $0.startTs == row.startTs && $0.sport == row.sport
+         } ?? row
+ 
+@@ -139,12 +144,6 @@ struct WorkoutDetailView: View {
+         // still reads as a curve, not a handful of points.
+         let buckets = await repo.workoutHrBuckets(from: target.startTs, to: target.endTs)
+         let points = buckets.map { TrendPoint(date: Date(timeIntervalSince1970: TimeInterval($0.ts)), value: $0.bpm) }
+-        let comparison = history.filter {
+-            !($0.startTs == target.startTs && $0.sport == target.sport)
+-                && $0.sport.caseInsensitiveCompare(target.sport) == .orderedSame
+-        }.compactMap { StrainResolver.canonicalWorkout($0)?.storedValue }
+-        let typical = comparison.isEmpty ? nil : comparison.reduce(0, +) / Double(comparison.count)
+-
+         // Zones: prefer the imported per-workout percentages (a WHOOP-computed split), and only fall
+         // back to deriving zone-minutes from the strap's own raw HR when the row has none — so we
+         // never overwrite a real imported split with an on-device approximation.
+@@ -167,9 +166,18 @@ struct WorkoutDetailView: View {
+             self.hrPoints = points
+             self.zoneMinutes = minutes
+             self.zonesFromImport = fromImport
+-            self.usualEffort = typical
+             self.loaded = true
+         }
++
++        // "Compared to your usual" is secondary context. Load it AFTER the useful detail is committed,
++        // and skip per-row HR reconciliation because this calculation only needs each stored Strain value.
++        let history = await repo.workoutRows(days: 4000, reconcileHR: false)
++        guard !Task.isCancelled else { return }
++        let comparison = history.filter {
++            !($0.startTs == target.startTs && $0.sport == target.sport)
++                && $0.sport.caseInsensitiveCompare(target.sport) == .orderedSame
++        }.compactMap { StrainResolver.canonicalWorkout($0)?.storedValue }
++        usualEffort = comparison.isEmpty ? nil : comparison.reduce(0, +) / Double(comparison.count)
+     }
+ 
+     // MARK: - Header
+diff --git a/Strand/Screens/XiaomiBandView.swift b/Strand/Screens/XiaomiBandView.swift
+index fffee8ce8c440df60267dbbdbaf0936523785037..9d8277a978e055d47e556e88b28ad1c998e4d5d8 100644
+--- a/Strand/Screens/XiaomiBandView.swift
++++ b/Strand/Screens/XiaomiBandView.swift
+@@ -17,6 +17,14 @@ private struct ChartWidthKey: PreferenceKey {
+     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+ }
