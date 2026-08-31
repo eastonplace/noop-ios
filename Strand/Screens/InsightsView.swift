@@ -220,30 +220,27 @@ struct InsightsView: View {
                        lazy: true,
                        // Paper's quiet base canvas keeps journal and analysis sections in one system.
                        topBackground: nil) {
-            if !loaded {
-                ComingSoon(what: "Reading your journal and outcomes…")
-            } else {
-                VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
-                    if !focusedJournal {
-                        // Existing combined/desktop callers keep their original entry ordering.
-                        whatMovesYouLink
-                    }
-                    // Native logging, always reachable: the account-free way into Insights.
-                    JournalLogCard(importedQuestions: importedQuestions,
-                                   answers: dayAnswers,
-                                   numericAnswers: dayNumeric,
-                                   dayOffset: $journalDayOffset,
-                                   onChanged: { Task { await load() } })
-                    // Mind, daily mood check-in + mood↔body correlations.
-                    // Self-contained (owns its own load/state); sits with the
-                    // journal card so the two daily-logging surfaces read as one
-                    // "log today" block above the derived insights.
-                    MindSection()
-                    // Caffeine window (#526), log an intake + a rough on-device "still active" hint.
-                    // Self-contained (owns its own UserDefaults-backed store); sits in the same
-                    // "log today" block. Opt-in: shows nothing until the user logs an intake.
-                    CaffeineLogCard()
-                    if !focusedJournal {
+            VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+                if !focusedJournal {
+                    // This route and the logging surfaces do not depend on the expensive history-wide
+                    // analysis. Keep them usable on the first frame while the derived sections refine.
+                    whatMovesYouLink
+                }
+                JournalLogCard(importedQuestions: importedQuestions,
+                               answers: dayAnswers,
+                               numericAnswers: dayNumeric,
+                               dayOffset: $journalDayOffset,
+                               onChanged: { Task { await load() } })
+                MindSection()
+                CaffeineLogCard()
+                if !focusedJournal {
+                    if !loaded {
+                        DataPendingNote(
+                            title: "Building your analysis",
+                            message: "NOOP is reading your outcome history while your journal stays available.",
+                            symbol: "chart.xyaxis.line"
+                        )
+                    } else {
                         // Legacy combined presentation remains available to existing desktop callers;
                         // iPhone's reference-aligned landing now owns the association hierarchy.
                         experimentSection
@@ -347,11 +344,27 @@ struct InsightsView: View {
             return
         }
 
+        let selectedDayKey = Repository.localDayKey(
+            Calendar.current.date(byAdding: .day, value: -journalDayOffset, to: Date()) ?? Date())
+        let mergedDays = repo.days
+
+        // All store reads below are independent. Start them together so cold-load latency is the slowest
+        // required query, not the sum of journal + four outcome series + workout history.
+        async let entriesLoad = repo.journalEntries()
+        async let importedLoad = repo.importedJournalEntries()
+        async let nativeAnswersLoad = repo.nativeJournalAnswers(day: selectedDayKey)
+        async let nativeNumericLoad = repo.nativeJournalNumeric(day: selectedDayKey)
+        async let recoveryLoad = repo.series(key: "recovery", source: "my-whoop")
+        async let hrvLoad = repo.series(key: "hrv", source: "my-whoop")
+        async let sleepLoad = repo.series(key: "sleep_performance", source: "my-whoop")
+        async let rhrLoad = repo.series(key: "rhr", source: "my-whoop")
+        async let workoutsLoad = repo.workoutRows(reconcileHR: false)
+
         // Journal → behaviours map (only "yes" answers count as the behaviour occurring).
         // journalEntries() is the imported ∪ native union (native wins per day+question). A numeric
         // log writes answeredYes=true too (#322), so a numeric item lands in the with/without split
         // here unchanged, on top of the numeric series read below.
-        let entries = await repo.journalEntries()
+        let entries = await entriesLoad
         var byBehaviour: [String: Set<String>] = [:]
         var numericByBehaviour: [String: [String: Double]] = [:]
         for e in entries where e.answeredYes {
@@ -368,25 +381,25 @@ struct InsightsView: View {
         // The logging card's inputs: the export's exact question strings (so logged days join
         // imported history) and the selected day's native chip state, a targeted read, since the
         // merged list carries no deviceId to filter on.
-        let imported = await repo.importedJournalEntries()
+        let imported = await importedLoad
         let importedQs = NSOrderedSet(array: imported.map(\.question)).array as? [String] ?? []
-        let selectedDayKey = Repository.localDayKey(
-            Calendar.current.date(byAdding: .day, value: -journalDayOffset, to: Date()) ?? Date())
-        let nativeAnswers = await repo.nativeJournalAnswers(day: selectedDayKey)
-        let nativeNumeric = await repo.nativeJournalNumeric(day: selectedDayKey)
-
-        // Daily metrics for the strap-only outcome fallback (merged, imported-wins). The view is
-        // MainActor-isolated, so reading the published cache here is on the right actor.
-        let mergedDays = repo.days
+        let nativeAnswers = await nativeAnswersLoad
+        let nativeNumeric = await nativeNumericLoad
 
         // Outcome series (Whoop) → both [day:value] dictionaries and ordered series. The imported
         // metricSeries only exists after a CSV import; fill the days it doesn't cover from the
         // merged daily metrics so an account-free user's logging still gets effects
         // (recovery/hrv/rhr have daily columns; sleep_performance stays import-only).
+        let loadedOutcomes: [String: [(day: String, value: Double)]] = [
+            "recovery": await recoveryLoad,
+            "hrv": await hrvLoad,
+            "sleep_performance": await sleepLoad,
+            "rhr": await rhrLoad,
+        ]
         var byKey: [String: [String: Double]] = [:]
         var seriesMap: [String: [(day: String, value: Double)]] = [:]
         for key in outcomeKeys {
-            let s = await repo.series(key: key, source: "my-whoop")
+            let s = loadedOutcomes[key] ?? []
             var dict: [String: Double] = [:]
             for row in s { dict[row.day] = row.value }
             for d in mergedDays where dict[d.day] == nil {
@@ -412,7 +425,10 @@ struct InsightsView: View {
         // displaySport, keeping manual/imported labels, keyed by the LOCAL calendar day the session
         // STARTED (the same local-day calendar DailyMetric.day uses, so the engine's D+1 alignment is
         // honest). The recovery side is [localDayKey: Charge] off the merged DailyMetric.recovery.
-        let costs = Self.computeActivityCosts(workouts: await repo.workoutRows(), days: mergedDays)
+        let workouts = await workoutsLoad
+        let costs = await Task { @concurrent in
+            Self.computeActivityCosts(workouts: workouts, days: mergedDays)
+        }.value
 
         await MainActor.run {
             self.behaviours = byBehaviour
@@ -488,7 +504,7 @@ struct InsightsView: View {
 
     // `internal` (not private) so the Workouts post-log note (#439) reuses the exact same input
     // shaping rather than duplicating it, one source of truth for [sport: days] / [day: Charge].
-    static func computeActivityCosts(workouts: [WorkoutRow], days: [DailyMetric]) -> [ActivityCost] {
+    nonisolated static func computeActivityCosts(workouts: [WorkoutRow], days: [DailyMetric]) -> [ActivityCost] {
         // Local-day offset so the activity day key lands on the SAME calendar as DailyMetric.day
         // (which IntelligenceEngine/WhoopImporter both bucket by local midnight, #277).
         let tzOffset = TimeZone.current.secondsFromGMT()

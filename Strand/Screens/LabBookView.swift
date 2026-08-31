@@ -519,12 +519,20 @@ struct LabBookView: View {
 
     private func load() async {
         guard let store = await repo.storeHandle() else { return }
-        // Read by category so we cover them all; markers are stored under the strap device id.
-        var all: [LabMarkerRow] = []
-        for category in LabMarkerCategory.allCases {
-            let rows = (try? await store.labMarkers(deviceId: repo.deviceId, category: category.rawValue)) ?? []
-            all.append(contentsOf: rows)
+        let loadSeq = repo.refreshSeq
+        let deviceID = repo.deviceId
+        let categories = LabMarkerCategory.allCases.map(\.rawValue)
+        let all = await withTaskGroup(of: [LabMarkerRow].self, returning: [LabMarkerRow].self) { group in
+            for category in categories {
+                group.addTask {
+                    (try? await store.labMarkers(deviceId: deviceID, category: category)) ?? []
+                }
+            }
+            var result: [LabMarkerRow] = []
+            for await rows in group { result.append(contentsOf: rows) }
+            return result
         }
+        guard !Task.isCancelled, loadSeq == repo.refreshSeq else { return }
         markers = all.sorted { $0.takenAt < $1.takenAt }
         loaded = true
     }
@@ -938,10 +946,14 @@ private struct MarkerDetailView: View {
         guard let signal else { pairs = []; correlation = nil; return }
         computing = true
         defer { computing = false }
+        let loadSeq = repo.refreshSeq
         // The marker series, read from the projected `lab-book` daily series (numeric only).
-        let markerSeries = await repo.series(key: markerKey, source: WhoopStore.labBookSourceId)
+        async let markerLoad = repo.series(key: markerKey, source: WhoopStore.labBookSourceId)
         // The wearable series, freshest-wins through the Explore read path.
-        let wearable = await repo.exploreSeries(key: signal.key, source: signal.source)
+        async let wearableLoad = repo.exploreSeries(key: signal.key, source: signal.source)
+        let markerSeries = await markerLoad
+        let wearable = await wearableLoad
+        guard !Task.isCancelled, loadSeq == repo.refreshSeq else { return }
         let built = LabBookProjection.pairMarkerToWearable(marker: markerSeries,
                                                            wearable: wearable,
                                                            windowDays: window.days)

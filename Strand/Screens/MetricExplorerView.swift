@@ -446,6 +446,7 @@ struct MetricDetailView: View {
     /// Every OTHER catalog series, loaded once for the correlation scan.
     @State private var others: [(metric: MetricDescriptor, series: [(day: String, value: Double)])] = []
     @State private var loaded = false
+    @State private var correlationsLoaded = false
 
     /// Cached correlation scan, keyed by its inputs (selected range + the metric id),
     /// so the full cross-catalog Pearson sweep runs ONLY when those change — not on
@@ -696,13 +697,26 @@ struct MetricDetailView: View {
     }
 
     private func load() async {
-        series = metric.key == "strain"
+        let loadSeq = repo.refreshSeq
+        let primary = metric.key == "strain"
             ? repo.canonicalDays.compactMap { day in
                 repo.canonicalStrain(for: day.day).map { (day: day.day, value: $0.storedValue) }
             }
             : await repo.exploreSeries(key: metric.key, source: metric.source)
+        guard !Task.isCancelled, loadSeq == repo.refreshSeq else { return }
+
+        // First useful commit. The selected metric owns the hero, chart, stats, and range controls.
+        // Correlations are secondary and should never hold the whole detail page behind their catalog scan.
+        series = primary
+        loaded = true
+        correlationsLoaded = false
+        others = []
+        correlationCache = []
+        correlationKey = nil
+
         var loadedOthers: [(metric: MetricDescriptor, series: [(day: String, value: Double)])] = []
         for other in MetricCatalog.all where other.id != metric.id {
+            guard !Task.isCancelled, loadSeq == repo.refreshSeq else { return }
             let s = other.key == "strain"
                 ? repo.canonicalDays.compactMap { day in
                     repo.canonicalStrain(for: day.day).map { (day: day.day, value: $0.storedValue) }
@@ -710,8 +724,9 @@ struct MetricDetailView: View {
                 : await repo.exploreSeries(key: other.key, source: other.source)
             if !s.isEmpty { loadedOthers.append((other, s)) }
         }
+        guard !Task.isCancelled, loadSeq == repo.refreshSeq else { return }
         others = loadedOthers
-        loaded = true
+        correlationsLoaded = true
         // #943 selection seam: a locked default (.month with under a week of history) no longer
         // OVERWRITES @State range - it renders through `coercedSelection` instead (non-destructive,
         // recomputed every body eval), so a shrinking history re-coerces and a growing one un-coerces
@@ -1032,6 +1047,7 @@ struct MetricDetailView: View {
     /// when its key (metric id + selected range) actually changed — so re-evals that
     /// don't alter the inputs (hover / HR ticks) are no-ops.
     private func recomputeCorrelations() {
+        guard correlationsLoaded else { return }
         let key = "\(metric.id)|\(range.rawValue)"
         guard correlationKey != key else { return }
         correlationKey = key
@@ -1048,7 +1064,15 @@ struct MetricDetailView: View {
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textTertiary)
                 }
-                if rows.isEmpty {
+                if !correlationsLoaded {
+                    HStack(spacing: 10) {
+                        ProgressView().controlSize(.small)
+                        Text("Reading related metrics…")
+                            .font(StrandFont.subhead)
+                            .foregroundStyle(StrandPalette.textTertiary)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+                } else if rows.isEmpty {
                     Text("Nothing in the catalog moves clearly with \(metric.title.lowercased()) over this window. Widen the range to surface relationships.")
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textTertiary)

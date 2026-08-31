@@ -33,6 +33,7 @@ struct FitnessAgeDetailView: View {
         #if os(iOS)
         .toolbar(.hidden, for: .navigationBar)
         #endif
+        .environment(\.screenScaffoldNavigationRole, .detail)
     }
 
     @ViewBuilder private var content: some View {
@@ -184,8 +185,18 @@ struct FitnessAgeDetailView: View {
     }
 
     private func load() async {
-        series = await repo.exploreSeries(key: "fitness_age", source: "my-whoop")
-        vo2max = (await repo.exploreSeries(key: "vo2max_est", source: "my-whoop")).last?.value
+        let loadSeq = repo.refreshSeq
+        async let vo2Load = repo.exploreSeries(key: "vo2max_est", source: "my-whoop")
+        let fitnessAge = await repo.exploreSeries(key: "fitness_age", source: "my-whoop")
+        guard !Task.isCancelled, loadSeq == repo.refreshSeq else { return }
+
+        // Fitness Age owns the hero and trend. Publish it as soon as it is ready; VO₂max is secondary
+        // context and must not hold the entire detail screen behind another history read.
+        series = fitnessAge
         loaded = true
+
+        let nextVO2 = await vo2Load.last?.value
+        guard !Task.isCancelled, loadSeq == repo.refreshSeq else { return }
+        vo2max = nextVO2
     }
 }

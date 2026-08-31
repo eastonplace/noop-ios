@@ -183,6 +183,42 @@ struct TrendsView: View {
         let timeZoneIdentifier = civilContext.timeZoneIdentifier
         let rangeDays = boundedRangeDays
         let offset = boundedOffset
+
+        // First paint from the repository's already-published coherent snapshot. The exact sparse range
+        // query below is still authoritative and replaces this provisional data when it completes, but a
+        // tab visit/range tap no longer waits on disk before the user sees the data already in memory.
+        let publishedDays = repo.canonicalDays
+        if !publishedDays.isEmpty {
+            let health = repo.canonicalHealth
+            let provisional = TrendsLoadedData(
+                loadIdentity: nil,
+                revision: revision,
+                anchorDay: anchorDay,
+                timeZoneIdentifier: timeZoneIdentifier,
+                canonicalDays: publishedDays,
+                sleepPerfByDay: Dictionary(uniqueKeysWithValues: health.sleepScoreByDay.values.map {
+                    ($0.day, $0.value)
+                }),
+                stressByDay: Dictionary(uniqueKeysWithValues: health.stressByDay.values.map {
+                    ($0.day, $0.value)
+                }),
+                appleDays: health.appleDailyByDay.values.map {
+                    AppleDaily(
+                        day: $0.day,
+                        steps: $0.steps,
+                        activeKcal: $0.activeKcal,
+                        basalKcal: $0.basalKcal,
+                        vo2max: $0.vo2max,
+                        avgHr: $0.avgHr,
+                        maxHr: $0.maxHr,
+                        walkingHr: $0.walkingHr,
+                        weightKg: $0.weightKg
+                    )
+                }.sorted { $0.day < $1.day }
+            )
+            if provisional != loadedData { loadedData = provisional }
+        }
+
         guard let next = await repo.loadCanonicalTrendsData(
             anchorDay: anchorDay,
             timeZoneIdentifier: timeZoneIdentifier,
@@ -237,11 +273,17 @@ struct TrendsView: View {
         let metric = selectedMetric
         let range = selectedRange
         let offset = TrendsBounds.clampWeekOffset(weekOffset)
-        guard let identity = data.loadIdentity,
-              identity.rangeDays == range.days,
-              identity.weekOffset == offset,
-              identity.anchorDay == civilContext.localDay,
-              identity.timeZoneIdentifier == civilContext.timeZoneIdentifier else { return }
+        if let identity = data.loadIdentity {
+            guard identity.rangeDays == range.days,
+                  identity.weekOffset == offset,
+                  identity.anchorDay == civilContext.localDay,
+                  identity.timeZoneIdentifier == civilContext.timeZoneIdentifier else { return }
+        } else {
+            // A provisional first-paint snapshot has no completed disk-load identity. Its revision/civil
+            // context still must match the live screen; the key carries the current range + week offset.
+            guard data.anchorDay == civilContext.localDay,
+                  data.timeZoneIdentifier == civilContext.timeZoneIdentifier else { return }
+        }
         let effortDisplayFactor = UnitPrefs.currentEffortDisplayFactor()
 
         let worker = Task { @concurrent in

@@ -27,7 +27,7 @@ import WhoopStore
 // Everything is computed live from `repo.days` (+ the stored series), so the math
 // is fully inspectable — see the "How this is computed" card at the bottom.
 
-private struct StressDaytimeLoad {
+private struct StressDaytimeLoad: Sendable {
     let daytime: DaytimeStress.Result
     let stressIndex: StressIndex.Components?
     let frequencyDomain: HRVFreqDomain.Bands?
@@ -126,8 +126,10 @@ struct StressView: View {
             return
         }
 
-        let nextStoredSeries = await repo.series(key: "stress", source: "my-whoop")
-        let nextDaytime = await readDaytime(deviceID: sourceDeviceID)
+        async let storedSeriesLoad = repo.series(key: "stress", source: "my-whoop")
+        async let daytimeLoad = readDaytime(deviceID: sourceDeviceID)
+        let nextStoredSeries = await storedSeriesLoad
+        let nextDaytime = await daytimeLoad
         guard !Task.isCancelled else {
             _ = loadState.finish(.cancelled, requestID: requestID)
             return
@@ -168,10 +170,14 @@ struct StressView: View {
         }
         let rr = (try? await repo.storeHandle()?.rrIntervals(
             deviceId: deviceID, from: from, to: to, limit: 200_000)) ?? []
-        return StressDaytimeLoad(
-            daytime: DaytimeStress.analyze(hr: hr, rr: rr, tzOffsetSeconds: tz),
-            stressIndex: StressIndex.components(rr: rr),
-            frequencyDomain: HRVFreqDomain.freqDomain(rr: rr))
+        // These analytics walk large in-memory arrays. Keep the Repository/store reads actor-safe, then
+        // move the pure CPU work off the main actor so a dense day cannot stall navigation or scrolling.
+        return await Task { @concurrent in
+            StressDaytimeLoad(
+                daytime: DaytimeStress.analyze(hr: hr, rr: rr, tzOffsetSeconds: tz),
+                stressIndex: StressIndex.components(rr: rr),
+                frequencyDomain: HRVFreqDomain.freqDomain(rr: rr))
+        }.value
     }
 
     /// Recompute the cached `StressModel` only when (repo.days, storedSeries)
