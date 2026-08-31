@@ -3036,10 +3036,6 @@ final class AppModel: ObservableObject {
                                                                     trace: importTraceSink())
                 try? await store.checkpointWAL()   // reclaim the WAL a bulk import grew (#590)
                 _ = await repo.refresh(.postImport)
-                // Mi Band metricSeries/sleep rows can change even when the merged dashboard projection does
-                // not bump refreshSeq. Never let a same-seq per-source page restore the pre-import snapshot.
-                repo.xiaomiCache = nil
-                repo.xiaomiLoadedSeq = -1
                 let span: String
                 if let a = summary.earliest, let b = summary.latest {
                     let f = DateFormatter(); f.dateFormat = "MMM yyyy"

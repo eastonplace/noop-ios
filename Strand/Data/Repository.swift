@@ -2034,13 +2034,6 @@ final class Repository: ObservableObject {
     /// in-memory (no store queries) instead of re-running the heavy load. Not @Published.
     var appleHealthCache: AppleHealthLoadCache?
 
-    /// Mi Band equivalent of the Apple Health same-state re-mount cache. The imported source is immutable
-    /// between imports, so rebuilding 15 full-history series plus sleep sessions on every navigation visit
-    /// is pure waste. Import completion explicitly invalidates this cache.
-    var xiaomiLoadedSeq = -1
-    var xiaomiLoadedDayKey = ""
-    var xiaomiCache: XiaomiBandLoadCache?
-
     /// #849/#932 (Today day-scoped freeze): macOS cold-mounts the NavigationSplitView detail on every sidebar
     /// switch, so `TodayView.loadDayScoped()` re-ran its full-day heavy read (the selected day's 5-minute
     /// `hrBuckets` plus, on today, the raw per-sample `hrSamples` pass for the live Effort; 170k+ HR rows/day
@@ -4467,50 +4460,6 @@ final class Repository: ObservableObject {
         appleHealthCache = snapshot
         appleHealthLoadedSeq = refreshSeq
         appleHealthLoadedDayKey = Repository.localDayKey(Date())
-        return snapshot
-    }
-
-    /// Shared heavy-load seam for XiaomiBandView. Independent metric-series reads and the sleep-session
-    /// read start together; a same-state re-mount restores the completed snapshot from memory.
-    func performXiaomiBandLoad(
-        seriesKeys: [String],
-        source: String,
-        allowCache: Bool
-    ) async -> XiaomiBandLoadCache {
-        let dayKey = Repository.localDayKey(Date())
-        if allowCache,
-           xiaomiLoadedSeq == refreshSeq,
-           xiaomiLoadedDayKey == dayKey,
-           let cached = xiaomiCache {
-            return cached
-        }
-
-        #if DEBUG
-        loadFireCounts["xiaomi", default: 0] += 1
-        #endif
-
-        guard let store = await ensureStore() else {
-            return XiaomiBandLoadCache(series: [:], sleeps: [])
-        }
-        let far = Int(Date.distantFuture.timeIntervalSince1970)
-        async let seriesLoad = exactSourceSeriesBatch(
-            keys: seriesKeys,
-            source: source,
-            fullHistory: true
-        )
-        async let sleepLoad = store.sleepSessions(
-            deviceId: source,
-            from: 0,
-            to: far,
-            limit: 4000
-        )
-
-        let fetched = await seriesLoad
-        let sleeps = (try? await sleepLoad) ?? []
-        let snapshot = XiaomiBandLoadCache(series: fetched, sleeps: sleeps)
-        xiaomiCache = snapshot
-        xiaomiLoadedSeq = refreshSeq
-        xiaomiLoadedDayKey = dayKey
         return snapshot
     }
 

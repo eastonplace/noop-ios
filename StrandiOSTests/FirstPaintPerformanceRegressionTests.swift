@@ -42,44 +42,6 @@ final class FirstPaintPerformanceRegressionTests: XCTestCase {
         }
     }
 
-    func testXiaomiSameStateLoadUsesCacheAndExplicitInvalidationReReads() async throws {
-        let (repo, store) = try await makeRepo()
-        let source = XiaomiImporter.deviceId
-        let keys = ["steps", "rhr"]
-        _ = try await store.upsertMetricSeries([
-            MetricPoint(day: "2026-08-28", key: "steps", value: 9_500),
-            MetricPoint(day: "2026-08-28", key: "rhr", value: 50),
-        ], deviceId: source)
-
-        let first = await repo.performXiaomiBandLoad(
-            seriesKeys: keys,
-            source: source,
-            allowCache: true
-        )
-        XCTAssertEqual(repo.loadFireCounts["xiaomi"], 1)
-        XCTAssertEqual(first.series["steps"]?.last?.value, 9_500)
-
-        let second = await repo.performXiaomiBandLoad(
-            seriesKeys: keys,
-            source: source,
-            allowCache: true
-        )
-        XCTAssertEqual(repo.loadFireCounts["xiaomi"], 1,
-                       "same-state navigation must restore the completed Mi Band snapshot")
-        XCTAssertEqual(second.series["steps"]?.last?.value, first.series["steps"]?.last?.value)
-
-        repo.xiaomiCache = nil
-        repo.xiaomiLoadedSeq = -1
-
-        _ = await repo.performXiaomiBandLoad(
-            seriesKeys: keys,
-            source: source,
-            allowCache: true
-        )
-        XCTAssertEqual(repo.loadFireCounts["xiaomi"], 2,
-                       "import invalidation must force the next Mi Band load back to the store")
-    }
-
     func testExactWorkoutWindowMatchesBroadReadWithinTheSameWindow() async throws {
         let (repo, store) = try await makeRepo()
         let now = Int(Date().timeIntervalSince1970)

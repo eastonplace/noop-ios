@@ -33,6 +33,7 @@ struct FitnessAgeDetailView: View {
         #if os(iOS)
         .toolbar(.hidden, for: .navigationBar)
         #endif
+        .environment(\.screenScaffoldNavigationRole, .detail)
     }
 
     @ViewBuilder private var content: some View {
