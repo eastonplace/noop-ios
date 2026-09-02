@@ -749,6 +749,53 @@ struct ContinuousHrvSchedule {
     }
 }
 
+/// Per-link diagnostic state for the disconnect epitaph. It is separate from BLE control state so a
+/// failed connection attempt cannot emit stale counters from a previous link, and a duplicate teardown
+/// callback cannot emit twice. All timestamps are monotonic uptime nanoseconds.
+struct BLELinkEpitaphState {
+    private(set) var inboundFrames = 0
+    private(set) var inboundBytes = 0
+    private(set) var cmdChannelFrames = 0
+    private(set) var linkUpSinceUptimeNanoseconds: UInt64?
+
+    mutating func connected(nowUptimeNanoseconds: UInt64) {
+        inboundFrames = 0
+        inboundBytes = 0
+        cmdChannelFrames = 0
+        linkUpSinceUptimeNanoseconds = nowUptimeNanoseconds
+    }
+
+    mutating func received(byteCount: Int, commandChannel: Bool) {
+        guard linkUpSinceUptimeNanoseconds != nil else { return }
+        inboundFrames += 1
+        inboundBytes += max(0, byteCount)
+        if commandChannel { cmdChannelFrames += 1 }
+    }
+
+    mutating func disconnected(
+        nowUptimeNanoseconds: UInt64,
+        realtimeArmed: Bool,
+        ended: String
+    ) -> String? {
+        guard let since = linkUpSinceUptimeNanoseconds else { return nil }
+        let elapsedNanoseconds = nowUptimeNanoseconds >= since ? nowUptimeNanoseconds - since : 0
+        let elapsedMilliseconds = elapsedNanoseconds / 1_000_000
+        let upMillis = elapsedMilliseconds > UInt64(Int.max) ? Int.max : Int(elapsedMilliseconds)
+        let line = ConnectionReadout.linkEpitaph(
+            upMillis: upMillis,
+            inboundFrames: inboundFrames,
+            inboundBytes: inboundBytes,
+            cmdChannelFrames: cmdChannelFrames,
+            realtimeArmed: realtimeArmed,
+            ended: ended)
+        inboundFrames = 0
+        inboundBytes = 0
+        cmdChannelFrames = 0
+        linkUpSinceUptimeNanoseconds = nil
+        return line
+    }
+}
+
 /// CoreBluetooth engine for the WHOOP 4.0: scan-by-service → connect → discover →
 /// BOND (one confirmed write) → subscribe → reassemble char-05 frames → FrameRouter.
 /// Cannot run in the simulator; verified manually on-device (Task C6).
@@ -1004,6 +1051,9 @@ public final class BLEManager: NSObject, ObservableObject {
     /// Count of INVOLUNTARY reconnects this run (a drop or failed-connect that was not user-initiated),
     /// surfaced as the reconnect-churn count. Reset by an intentional disconnect.
     private var connReconnectCount = 0
+    /// Per-connected-link inbound accounting. It is armed only by `didConnect`, so failed attempts emit
+    /// no epitaph and cannot inherit the preceding link's counters.
+    private var linkEpitaphState = BLELinkEpitaphState()
     /// #126 false-alarm guard: tracks CONSECUTIVE console-only completed syncs so the "clock has lost
     /// sync" banner only fires on sustained emptiness, not a single transient empty cycle on a healthy strap.
     private var emptySyncTracker = EmptySyncTracker()
@@ -5018,6 +5068,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
     public func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         cancelScanFallback()
         failedConnectAttempts = 0   // a successful connect clears the reconnect backoff (#414)
+        linkEpitaphState.connected(nowUptimeNanoseconds: DispatchTime.now().uptimeNanoseconds)
         restoredPeripheral = nil
         preparePeripheral(peripheral)
         // This is the one accepted-generation seam. It clears every old handshake/session/progress owner
@@ -5093,6 +5144,23 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         ) else {
             log("Ignored stale disconnect callback for \(peripheral.identifier)")
             return
+        }
+        let endedReason: String
+        if intentionalDisconnect {
+            endedReason = "intentional"
+        } else if let cb = error as? CBError {
+            endedReason = "CBError.\(cb.code)(\(cb.code.rawValue))"
+        } else if let error {
+            endedReason = "\(error)"
+        } else {
+            endedReason = "no error reported"
+        }
+        if let epitaph = linkEpitaphState.disconnected(
+            nowUptimeNanoseconds: DispatchTime.now().uptimeNanoseconds,
+            realtimeArmed: realtimeArmedAt != nil,
+            ended: endedReason
+        ) {
+            log(epitaph)
         }
         let disconnectedSecureSessionID = currentWhoop5SecureSessionID
         let disconnectedSecureState = whoop5SecureSession.state
@@ -6330,6 +6398,9 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
         }
         guard let data = characteristic.value else { return }
         let bytes = [UInt8](data)
+        linkEpitaphState.received(
+            byteCount: bytes.count,
+            commandChannel: characteristic.uuid == BLEManager.cmdNotifyChar)
         let isWhoop5ProtectedNotification = BLEManager.whoop5NotifyChars.contains(characteristic.uuid)
         if !isWhoop5ProtectedNotification {
             lastDataAt = Date()

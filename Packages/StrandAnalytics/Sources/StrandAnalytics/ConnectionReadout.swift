@@ -192,9 +192,10 @@ public enum ConnectionReadout {
 
     /// #987/#261: the "clock latched" readout value. "yes" once EITHER signal lands with a plausible
     /// (post-1972) timestamp: a GET_CLOCK correlation (`deviceClockUnix`, the WHOOP4 path), or a
-    /// GET_DATA_RANGE reply's newest banked record (`strapNewestUnix`, the fallback). "no (RTC reads
-    /// 1970/71)" when whichever signal landed reads epoch-era; "no (waiting for the strap clock)" before
-    /// either replies.
+    /// GET_DATA_RANGE reply's newest banked record (`strapNewestUnix`, the fallback). The wording keeps
+    /// those two evidence classes distinct: only a correlated clock can claim the RTC reads 1970/71;
+    /// a bad data-range timestamp says only that records are dated 1970/71. Before either signal lands,
+    /// the readout stays in the waiting state.
     ///
     /// A WHOOP 5/MG's GET_CLOCK reply rides the puffin notify channel and never reaches the WHOOP4-only
     /// correlation path that sets `deviceClockUnix` (see `BLEManager`'s connect-handshake comment) — its
@@ -208,22 +209,45 @@ public enum ConnectionReadout {
             return d < ConnectionTrace.rtcEpochCeilingUnix ? "no (RTC reads 1970/71)" : "yes"
         }
         if let n = strapNewestUnix {
-            return n < ConnectionTrace.rtcEpochCeilingUnix ? "no (RTC reads 1970/71)" : "yes"
+            return n < ConnectionTrace.rtcEpochCeilingUnix ? "no (records dated 1970/71)" : "yes"
         }
         return "no (waiting for the strap clock)"
     }
 
-    /// #987: a plain-words warning when the strap RTC reads epoch-era (~1970/71), from EITHER signal we
-    /// hold: the correlated device clock or the strap's newest banked-record timestamp. nil when both
-    /// look sane (or neither was seen yet - we never fabricate a fault). One string, shown verbatim on
-    /// the Devices / Test Centre connection readout, naming the consequence and the fix.
+    /// #987: a plain-words warning for an epoch-era (~1970/71) clock signal or banked-record timestamp.
+    /// Keep the evidence honest: the direct correlated clock can name the strap clock; a data-range-only
+    /// fault can only say that records are dated 1970/71. nil when both look sane or neither was seen yet.
     public static func rtcWarning(deviceClockUnix: Int?, strapNewestUnix: Int?) -> String? {
         let ceiling = ConnectionTrace.rtcEpochCeilingUnix
         let clockBad = deviceClockUnix.map { $0 > 0 && $0 < ceiling } ?? false
         let newestBad = strapNewestUnix.map { $0 > 0 && $0 < ceiling } ?? false
         guard clockBad || newestBad else { return nil }
-        return "Strap clock reads 1970/71 (never set since its last reset), so it is not banking history. "
+        if clockBad {
+            return "Strap clock reads 1970/71 (never set since its last reset), so it is not banking history. "
+                + "Charge the strap to 100% and reconnect so the clock latches."
+        }
+        return "Strap records are dated 1970/71, so recent history cannot be placed on the correct day. "
             + "Charge the strap to 100% and reconnect so the clock latches."
+    }
+
+    /// One-line account of a finished BLE link. The formatter is pure so the two important cases are
+    /// pinned in tests: a silent link says so explicitly, while a link that carried traffic never does.
+    public static func linkEpitaph(
+        upMillis: Int,
+        inboundFrames: Int,
+        inboundBytes: Int,
+        cmdChannelFrames: Int,
+        realtimeArmed: Bool,
+        ended: String
+    ) -> String {
+        let armed = realtimeArmed ? "yes" : "no"
+        var line = "Link epitaph: up \(max(0, upMillis))ms, inbound \(max(0, inboundFrames)) frames / "
+            + "\(max(0, inboundBytes)) bytes (cmd-channel \(max(0, cmdChannelFrames))), "
+            + "realtime armed=\(armed), ended=\(ended)"
+        if inboundFrames <= 0 {
+            line += " - the strap sent NOTHING on this link"
+        }
+        return line
     }
 
     /// #987: freshness label for the "last frame" readout row: how long ago the most recent strap frame
