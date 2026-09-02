@@ -5,6 +5,10 @@ import XCTest
 /// EffectRankerTest; keep the two in lockstep (same fixtures, same numbers).
 final class EffectRankerTests: XCTestCase {
 
+    private func explicitControls(_ outcome: [String: Double], excluding behaviorDays: Set<String>) -> Set<String> {
+        Set(outcome.keys).subtracting(behaviorDays)
+    }
+
     private func ymd(_ y: Int, _ m: Int, _ d: Int) -> String { String(format: "%04d-%02d-%02d", y, m, d) }
 
     private func row(_ rows: [RankedEffect], _ behavior: String) -> RankedEffect? {
@@ -38,6 +42,7 @@ final class EffectRankerTests: XCTestCase {
         }
 
         let out = EffectRanker.rank(behaviors: ["Alcohol": behaviorDays],
+                                    controls: ["Alcohol": explicitControls(outcome, excluding: behaviorDays)],
                                     outcomeByDay: outcome, outcome: "Charge")
         let r = row(out, "Alcohol")
         XCTAssertNotNil(r)
@@ -62,7 +67,9 @@ final class EffectRankerTests: XCTestCase {
     private func effectAtLag(_ behaviorDays: Set<String>, _ outcome: [String: Double],
                              _ lag: Int) -> BehaviorEffect? {
         let shifted = EffectRanker.shiftedOutcome(outcome, byLag: lag)
-        return BehaviorInsights.effect(behaviorDays: behaviorDays, outcomeByDay: shifted,
+        return BehaviorInsights.effect(behaviorDays: behaviorDays,
+                                       controlDays: explicitControls(shifted, excluding: behaviorDays),
+                                       outcomeByDay: shifted,
                                        behavior: "Alcohol", outcome: "Charge")
     }
 
@@ -82,6 +89,7 @@ final class EffectRankerTests: XCTestCase {
         for d in 1...8 { outcome[ymd(2026, 7, d)] = 70 + jitter(d) }   // plenty of "without"
 
         let out = EffectRanker.rank(behaviors: ["Sparse": thin],
+                                    controls: ["Sparse": explicitControls(outcome, excluding: thin)],
                                     outcomeByDay: outcome, outcome: "Charge")
         XCTAssertTrue(out.isEmpty)
     }
@@ -110,6 +118,10 @@ final class EffectRankerTests: XCTestCase {
         for d in 10...20 { outcome[ymd(2026, 5, d)] = 70 + jitter(d) }
 
         let out = EffectRanker.rank(behaviors: ["Big": big, "Small": small],
+                                    controls: [
+                                        "Big": explicitControls(outcome, excluding: big),
+                                        "Small": explicitControls(outcome, excluding: small),
+                                    ],
                                     outcomeByDay: outcome, outcome: "Charge")
         XCTAssertEqual(out.map { $0.behavior }, ["Big", "Small"])   // |d| Big > Small
         XCTAssertEqual(row(out, "Big")!.lag, 0)                     // both are same-day effects

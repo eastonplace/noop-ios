@@ -77,13 +77,15 @@ public enum BehaviorInsights {
 
     // MARK: - Single behavior effect
 
-    /// Compute the effect of `behavior` on `outcome`. Days are partitioned into
-    /// "with" (day ∈ behaviorDays) and "without" (day ∉ behaviorDays), restricted
-    /// to days that have an outcome value in `outcomeByDay`.
+    /// Compute the effect of `behavior` on `outcome`.
+    ///
+    /// "With" is a day in `behaviorDays`. "Without" is a day in `controlDays`.
+    /// A day in neither set has no answer and takes no part in the comparison.
     ///
     /// Returns nil unless BOTH groups are non-empty AND the total is large enough
     /// to form a variance estimate (at least 1 value per side and ≥ 3 total).
     public static func effect(behaviorDays: Set<String>,
+                              controlDays: Set<String>,
                               outcomeByDay: [String: Double],
                               behavior: String,
                               outcome: String) -> BehaviorEffect? {
@@ -91,7 +93,8 @@ public enum BehaviorInsights {
         var withoutVals: [Double] = []
         for (day, value) in outcomeByDay {
             if behaviorDays.contains(day) { withVals.append(value) }
-            else { withoutVals.append(value) }
+            else if controlDays.contains(day) { withoutVals.append(value) }
+            // A day in neither set was not answered. It is not a control.
         }
 
         let n1 = withVals.count
@@ -125,11 +128,14 @@ public enum BehaviorInsights {
     /// return them sorted by |cohensD| descending, with significant effects first.
     /// Behaviors that don't yield a computable effect are dropped.
     public static func rank(behaviors: [String: Set<String>],
+                            controls: [String: Set<String>],
                             outcomeByDay: [String: Double],
                             outcome: String) -> [BehaviorEffect] {
         var effects: [BehaviorEffect] = []
         for (name, days) in behaviors {
-            if let e = effect(behaviorDays: days, outcomeByDay: outcomeByDay,
+            if let e = effect(behaviorDays: days,
+                              controlDays: controls[name] ?? [],
+                              outcomeByDay: outcomeByDay,
                               behavior: name, outcome: outcome) {
                 effects.append(e)
             }

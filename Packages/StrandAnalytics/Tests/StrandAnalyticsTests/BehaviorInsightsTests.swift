@@ -3,6 +3,14 @@ import XCTest
 
 final class BehaviorInsightsTests: XCTestCase {
 
+    private func explicitControls(_ outcome: [String: Double], excluding behaviorDays: Set<String>) -> Set<String> {
+        Set(outcome.keys).subtracting(behaviorDays)
+    }
+
+    private func controlMap(_ outcome: [String: Double], behaviors: [String: Set<String>]) -> [String: Set<String>] {
+        behaviors.mapValues { explicitControls(outcome, excluding: $0) }
+    }
+
     // MARK: - effect core computation
 
     func testEffectMeansDeltaAndSign() {
@@ -14,7 +22,9 @@ final class BehaviorInsightsTests: XCTestCase {
             "d13": 70, "d14": 68,
         ]
         let behaviorDays: Set<String> = ["d01", "d02", "d03", "d04", "d05", "d06"]
-        let e = BehaviorInsights.effect(behaviorDays: behaviorDays, outcomeByDay: outcome,
+        let e = BehaviorInsights.effect(behaviorDays: behaviorDays,
+                                        controlDays: explicitControls(outcome, excluding: behaviorDays),
+                                        outcomeByDay: outcome,
                                         behavior: "Alcohol", outcome: "Recovery")!
         XCTAssertEqual(e.nWith, 6)
         XCTAssertEqual(e.nWithout, 8)
@@ -33,7 +43,9 @@ final class BehaviorInsightsTests: XCTestCase {
             "a": 80, "b": 82, "c": 78, "d": 81, "e": 79,   // with (mean 80)
             "f": 70, "g": 72, "h": 68, "i": 71, "j": 69,   // without (mean 70)
         ]
-        let e = BehaviorInsights.effect(behaviorDays: ["a", "b", "c", "d", "e"],
+        let behaviorDays: Set<String> = ["a", "b", "c", "d", "e"]
+        let e = BehaviorInsights.effect(behaviorDays: behaviorDays,
+                                        controlDays: explicitControls(outcome, excluding: behaviorDays),
                                         outcomeByDay: outcome,
                                         behavior: "Meditation", outcome: "Recovery")!
         XCTAssertEqual(e.delta, 10.0, accuracy: 1e-9)
@@ -46,10 +58,12 @@ final class BehaviorInsightsTests: XCTestCase {
         // Behavior logged every day → no "without" group.
         let outcome: [String: Double] = ["a": 60, "b": 61, "c": 62]
         XCTAssertNil(BehaviorInsights.effect(behaviorDays: ["a", "b", "c"],
+                                             controlDays: [],
                                              outcomeByDay: outcome,
                                              behavior: "X", outcome: "Recovery"))
         // Behavior never logged → no "with" group.
         XCTAssertNil(BehaviorInsights.effect(behaviorDays: [],
+                                             controlDays: Set(outcome.keys),
                                              outcomeByDay: outcome,
                                              behavior: "X", outcome: "Recovery"))
     }
@@ -57,7 +71,9 @@ final class BehaviorInsightsTests: XCTestCase {
     func testEffectIgnoresBehaviorDaysWithNoOutcome() {
         // "z" is in behaviorDays but has no outcome value → not counted in nWith.
         let outcome: [String: Double] = ["a": 60, "b": 62, "c": 70, "d": 72]
-        let e = BehaviorInsights.effect(behaviorDays: ["a", "b", "z"],
+        let behaviorDays: Set<String> = ["a", "b", "z"]
+        let e = BehaviorInsights.effect(behaviorDays: behaviorDays,
+                                        controlDays: explicitControls(outcome, excluding: behaviorDays),
                                         outcomeByDay: outcome,
                                         behavior: "X", outcome: "Recovery")!
         XCTAssertEqual(e.nWith, 2)        // a, b only
@@ -73,7 +89,9 @@ final class BehaviorInsightsTests: XCTestCase {
             "w1": 60, "w2": 61, "w3": 59, "w4": 60,
             "o1": 70, "o2": 71, "o3": 69, "o4": 70,
         ]
-        let small = BehaviorInsights.effect(behaviorDays: ["w1", "w2", "w3", "w4"],
+        let smallDays: Set<String> = ["w1", "w2", "w3", "w4"]
+        let small = BehaviorInsights.effect(behaviorDays: smallDays,
+                                            controlDays: explicitControls(smallOutcome, excluding: smallDays),
                                             outcomeByDay: smallOutcome,
                                             behavior: "X", outcome: "Recovery")!
         XCTAssertLessThan(small.pApprox, 0.05)       // strong evidence numerically…
@@ -85,7 +103,9 @@ final class BehaviorInsightsTests: XCTestCase {
             "w1": 60, "w2": 61, "w3": 59, "w4": 60, "w5": 60,
             "o1": 70, "o2": 71, "o3": 69, "o4": 70, "o5": 70,
         ]
-        let big = BehaviorInsights.effect(behaviorDays: ["w1", "w2", "w3", "w4", "w5"],
+        let bigDays: Set<String> = ["w1", "w2", "w3", "w4", "w5"]
+        let big = BehaviorInsights.effect(behaviorDays: bigDays,
+                                          controlDays: explicitControls(bigOutcome, excluding: bigDays),
                                           outcomeByDay: bigOutcome,
                                           behavior: "X", outcome: "Recovery")!
         XCTAssertEqual(Swift.min(big.nWith, big.nWithout), 5)
@@ -98,7 +118,9 @@ final class BehaviorInsightsTests: XCTestCase {
             "w1": 65, "w2": 71, "w3": 60, "w4": 75, "w5": 66, "w6": 70,
             "o1": 64, "o2": 72, "o3": 61, "o4": 74, "o5": 67, "o6": 69,
         ]
-        let e = BehaviorInsights.effect(behaviorDays: ["w1", "w2", "w3", "w4", "w5", "w6"],
+        let behaviorDays: Set<String> = ["w1", "w2", "w3", "w4", "w5", "w6"]
+        let e = BehaviorInsights.effect(behaviorDays: behaviorDays,
+                                        controlDays: explicitControls(outcome, excluding: behaviorDays),
                                         outcomeByDay: outcome,
                                         behavior: "X", outcome: "Recovery")!
         XCTAssertGreaterThan(e.pApprox, 0.05)    // no separation → weak evidence
@@ -120,7 +142,9 @@ final class BehaviorInsightsTests: XCTestCase {
         // Tiny-but-significant-impossible: 2 days only.
         let tiny: Set<String> = ["d3", "d9"]
 
-        let ranked = BehaviorInsights.rank(behaviors: ["Strong": strong, "Weak": weak, "Tiny": tiny],
+        let behaviors = ["Strong": strong, "Weak": weak, "Tiny": tiny]
+        let ranked = BehaviorInsights.rank(behaviors: behaviors,
+                                           controls: controlMap(outcome, behaviors: behaviors),
                                            outcomeByDay: outcome, outcome: "Recovery")
         XCTAssertEqual(ranked.count, 3)
         XCTAssertEqual(ranked.first?.behavior, "Strong")   // significant + largest |d|
@@ -135,10 +159,16 @@ final class BehaviorInsightsTests: XCTestCase {
     func testRankDropsUncomputableBehaviors() {
         let outcome: [String: Double] = ["a": 60, "b": 62, "c": 70, "d": 72]
         // "AllDays" covers every day → no without group → dropped.
-        let ranked = BehaviorInsights.rank(behaviors: [
+        let behaviors: [String: Set<String>] = [
             "AllDays": ["a", "b", "c", "d"],
             "Half": ["a", "b"],
-        ], outcomeByDay: outcome, outcome: "Recovery")
+        ]
+        let ranked = BehaviorInsights.rank(
+            behaviors: behaviors,
+            controls: controlMap(outcome, behaviors: behaviors),
+            outcomeByDay: outcome,
+            outcome: "Recovery"
+        )
         XCTAssertEqual(ranked.count, 1)
         XCTAssertEqual(ranked.first?.behavior, "Half")
     }
@@ -152,7 +182,9 @@ final class BehaviorInsightsTests: XCTestCase {
             "w1": 58, "w2": 62, "w3": 60, "w4": 59, "w5": 61,   // mean 60
             "o1": 78, "o2": 82, "o3": 80, "o4": 79, "o5": 81,   // mean 80
         ]
-        let e = BehaviorInsights.effect(behaviorDays: ["w1", "w2", "w3", "w4", "w5"],
+        let behaviorDays: Set<String> = ["w1", "w2", "w3", "w4", "w5"]
+        let e = BehaviorInsights.effect(behaviorDays: behaviorDays,
+                                        controlDays: explicitControls(outcome, excluding: behaviorDays),
                                         outcomeByDay: outcome,
                                         behavior: "Alcohol", outcome: "Recovery")!
         let s = BehaviorInsights.sentence(e)
@@ -164,7 +196,9 @@ final class BehaviorInsightsTests: XCTestCase {
             "w1": 79, "w2": 81, "w3": 80,    // mean 80
             "o1": 49, "o2": 51, "o3": 50,    // mean 50
         ]
-        let e = BehaviorInsights.effect(behaviorDays: ["w1", "w2", "w3"],
+        let behaviorDays: Set<String> = ["w1", "w2", "w3"]
+        let e = BehaviorInsights.effect(behaviorDays: behaviorDays,
+                                        controlDays: explicitControls(outcome, excluding: behaviorDays),
                                         outcomeByDay: outcome,
                                         behavior: "Meditation", outcome: "Recovery")!
         let s = BehaviorInsights.sentence(e)
@@ -178,7 +212,9 @@ final class BehaviorInsightsTests: XCTestCase {
             "w1": 5, "w2": 5, "w3": 5,
             "o1": 0, "o2": 0, "o3": 0,
         ]
-        let e = BehaviorInsights.effect(behaviorDays: ["w1", "w2", "w3"],
+        let behaviorDays: Set<String> = ["w1", "w2", "w3"]
+        let e = BehaviorInsights.effect(behaviorDays: behaviorDays,
+                                        controlDays: explicitControls(outcome, excluding: behaviorDays),
                                         outcomeByDay: outcome,
                                         behavior: "X", outcome: "HRV")!
         XCTAssertNil(e.pctChange)
