@@ -2032,10 +2032,10 @@ struct SettingsDetailHost: View {
     }
 
     /// Export the last 24h of decoded sensor streams for the connected strap to a CSV, then save (macOS
-    /// NSSavePanel) or share (iOS share sheet) — the same pattern as exportPuffinCaptures(). The store
-    /// handle and the strap deviceId both come from the app's single "my-whoop" id.
+    /// NSSavePanel) or share (iOS share sheet) — the same pattern as exportPuffinCaptures().
     private func exportRawSensorCSV() {
         rawCsvBusy = true
+        let strapId = model.repo.deviceId
         Task {
             let since = Date().timeIntervalSince1970 - 24 * 60 * 60
             guard let store = await model.repo.storeHandle() else {
@@ -2048,7 +2048,7 @@ struct SettingsDetailHost: View {
                 return
             }
             do {
-                let url = try await store.exportRawCSV(deviceId: model.deviceId, since: since)
+                let url = try await store.exportRawCSV(deviceId: strapId, since: since)
                 await MainActor.run {
                     rawCsvBusy = false
                     lastRawCsvURL = url
