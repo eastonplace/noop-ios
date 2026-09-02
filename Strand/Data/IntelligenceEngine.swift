@@ -168,6 +168,96 @@ final class IntelligenceEngine: ObservableObject {
         let skippedLine: String?
     }
 
+    /// Small, in-memory pass-1 result. Raw sensor rows are never retained here.
+    private struct CachedDayScan: Sendable {
+        let key: String
+        let scan: DayScan
+    }
+
+    /// Candidate cache state produced by the detached scan. It is committed only after the complete
+    /// analysis + persistence path succeeds, so cancellation or a failed receipt can never advance it.
+    private struct DayScanPass: Sendable {
+        let scans: [DayScan]
+        let nextCache: [String: CachedDayScan]
+        let reused: Int
+        let eligible: Int
+    }
+
+    /// Test-only loader seams. Production leaves this nil and calls `WhoopStore` directly.
+    struct AnalyzeRecentCacheTestingSeams: Sendable {
+        let fingerprintLoader: @Sendable (WhoopStore, String, Int, Int) async throws -> (count: Int, maxTs: Int)
+        let bundleLoader: @Sendable (WhoopStore, String, Int, Int, Int) async throws -> AnalysisDayBundle
+
+        init(
+            fingerprintLoader: @escaping @Sendable (WhoopStore, String, Int, Int) async throws -> (count: Int, maxTs: Int),
+            bundleLoader: @escaping @Sendable (WhoopStore, String, Int, Int, Int) async throws -> AnalysisDayBundle
+        ) {
+            self.fingerprintLoader = fingerprintLoader
+            self.bundleLoader = bundleLoader
+        }
+    }
+
+    private var dayScanCache: [String: CachedDayScan] = [:]
+    private var dayScanCacheConfigSignature = ""
+    private var analyzeRecentCacheTestingSeams: AnalyzeRecentCacheTestingSeams?
+
+    func setAnalyzeRecentCacheTestingSeamsForTesting(_ seams: AnalyzeRecentCacheTestingSeams?) {
+        analyzeRecentCacheTestingSeams = seams
+    }
+
+    /// Pass-wide inputs that can change a `DayScan` without changing a day's raw-HR fingerprint.
+    /// Use exact Double bit patterns so equality is deterministic and locale-free.
+    nonisolated static func analyzeRecentCacheConfigSignature(
+        profile: UserProfile,
+        baselines: AnalyticsEngine.ProfileBaselines,
+        maxHROverride: Double?,
+        timeZoneIdentifier: String,
+        timeZoneOffsetSeconds: Int,
+        sleepNeedHours: Double,
+        sleepConsistency: Double?,
+        habitualMidsleepSec: Int?,
+        useSleepStagerV2: Bool,
+        useMotionAwareWake: Bool,
+        deepHrvWindow: Bool,
+        sleepTraceActive: Bool,
+        hrvTraceActive: Bool,
+        stepsTraceActive: Bool
+    ) -> String {
+        func bits(_ value: Double?) -> String { value.map { String($0.bitPattern) } ?? "nil" }
+        func baseline(_ value: BaselineState?) -> String {
+            guard let value else { return "nil" }
+            return [bits(value.baseline), bits(value.spread), String(value.nValid),
+                    String(value.nightsSinceUpdate), value.status.rawValue].joined(separator: ",")
+        }
+        return [
+            "cache-v1",
+            "analytics=\(StrandAnalytics.version)",
+            "strain=\(StrainScorerV2.version)",
+            "weight=\(bits(profile.weightKg))",
+            "height=\(bits(profile.heightCm))",
+            "age=\(bits(profile.age))",
+            "sex=\(profile.sex)",
+            "stepScale=\(bits(profile.stepTicksPerStep))",
+            "maxHR=\(bits(maxHROverride))",
+            "hrv=\(baseline(baselines.hrv))",
+            "rhr=\(baseline(baselines.restingHR))",
+            "tz=\(timeZoneIdentifier)",
+            "offset=\(timeZoneOffsetSeconds)",
+            "sleepNeed=\(bits(sleepNeedHours))",
+            "sleepConsistency=\(bits(sleepConsistency))",
+            "habitual=\(habitualMidsleepSec.map(String.init) ?? "nil")",
+            "sleepV2=\(useSleepStagerV2)",
+            "motionWake=\(useMotionAwareWake)",
+            "deepHRV=\(deepHrvWindow)",
+            "sleepTrace=\(sleepTraceActive)",
+            "hrvTrace=\(hrvTraceActive)",
+            "stepsTrace=\(stepsTraceActive)",
+            // The pass always banks the decoded raw SpO2 candidate; there is no scoring/display toggle
+            // in this engine. Keep the state explicit so a future toggle must update this signature.
+            "spo2Candidate=raw-banked-v1",
+        ].joined(separator: "|")
+    }
+
     /// A real workout plus the store namespace that owns its natural key. `WorkoutRow` intentionally
     /// carries provenance, not a storage device id; retaining the latter at the collision seam prevents
     /// an Apple Health row from being accidentally re-written under the canonical WHOOP namespace.
@@ -740,10 +830,39 @@ final class IntelligenceEngine: ObservableObject {
         // the 5/MG cumulative @57 series + wrap-aware deltas + dropped deltas, replayed below tagged `.steps`.
         // The trace recomputes the SAME wrap-aware sum analyzeDay already did, so the steps total is unchanged.
         let stepsTraceActive = TestCentre.active(.steps)
-        let scanned: [DayScan]
+        // Read every pass-wide scoring switch once. Besides making one run internally consistent, these
+        // values form the cache signature so a preference/profile/baseline change invalidates all reuse.
+        let useSleepStagerV2 = PuffinExperiment.experimentalSleepV2Enabled
+        let useMotionAwareWake = PuffinExperiment.motionAwareWakeEnabled
+        let sleepNeedHours = AnalyticsEngine.Rest.defaultNeedHours
+        let sleepConsistency: Double? = nil
+        let cacheConfigSignature = Self.analyzeRecentCacheConfigSignature(
+            profile: up,
+            baselines: baselines1,
+            maxHROverride: maxHR,
+            timeZoneIdentifier: analysisCalendar.timeZone.identifier,
+            timeZoneOffsetSeconds: tzOffset,
+            sleepNeedHours: sleepNeedHours,
+            sleepConsistency: sleepConsistency,
+            habitualMidsleepSec: habitualMidsleepSec,
+            useSleepStagerV2: useSleepStagerV2,
+            useMotionAwareWake: useMotionAwareWake,
+            deepHrvWindow: deepHrvWindow,
+            sleepTraceActive: sleepTraceActive,
+            hrvTraceActive: hrvTraceActive,
+            stepsTraceActive: stepsTraceActive)
+        // Exact-source maintenance stays cache-free in v1. Normal analysis can reuse only a cache built
+        // under the identical pass-wide signature; a mismatch behaves exactly like a cold cache.
+        let cacheSnapshot: [String: CachedDayScan] = sourceContext == nil
+            && dayScanCacheConfigSignature == cacheConfigSignature ? dayScanCache : [:]
+        let cacheTestingSeams = analyzeRecentCacheTestingSeams
+        let scanPass: DayScanPass
         do {
-            scanned = try await CooperativeAnalysisCancellation.runDetached {
+            scanPass = try await CooperativeAnalysisCancellation.runDetached {
             var out: [DayScan] = []
+            var nextCache: [String: CachedDayScan] = [:]
+            var cacheReused = 0
+            var cacheEligible = 0
             // #938: the WHOOP 4.0 ADC offset is per-device, not per-night. Learn one anchor per owner
             // from the whole scan window and reuse it for every night so cross-night deviations survive.
             let skinAnchorScanFrom = oldestCivilDay.start - 30 * 3_600
@@ -781,52 +900,9 @@ final class IntelligenceEngine: ObservableObject {
                                                        registry: registry, fallbackDeviceId: ownerFallbackId)
                 }
 
-                try CooperativeAnalysisCancellation.checkpoint()
-                let bundle = try await store.analysisDayBundle(
-                    deviceId: owner, from: from, to: to, limit: 200_000)
-                try CooperativeAnalysisCancellation.checkpoint()
-                let hr = bundle.hr
-                guard hr.count >= 200 else {
-                    // Keep this lightweight diagnostic in the detached result. `diagnosticSink` is
-                    // MainActor-bound, so calling it here would violate the engine's actor boundary.
-                    out.append(DayScan(
-                        result: nil,
-                        rhrLine: nil,
-                        readOwner: owner,
-                        hrRows: hr.count,
-                        sleepTrace: [],
-                        stepsTrace: [],
-                        hrvTrace: [],
-                        hrvDiag: nil,
-                        skinTempTrace: nil,
-                        skippedLine: "sleep day=\(day) SKIPPED hrSamples=\(hr.count) (need ≥200)"
-                    ))
-                    continue
-                }   // need real raw data, not a stray sample
-                let rr = bundle.rr
-                let resp = bundle.resp
-                let grav = bundle.gravity
-                let steps = bundle.steps
-                let skin = bundle.skinTemp
-                // #93: WHOOP 4.0 raw SpO2 PPG samples for the night; analyzeDay banks the nightly red/IR ADC
-                // means on the DailyMetric. Empty on a 5/MG (no v24 spo2 channels) → the raw means stay nil.
-                let spo2 = bundle.spo2
-                // #938: the strap family that WROTE this owner's skin-temp rows, so analyzeDay converts the raw
-                // register on the right scale (5/MG banks centidegrees, a WHOOP 4.0 v24 banks a raw ADC). The
-                // registry knows each device's model; unknown/non-WHOOP owners fall back to `.whoop5` (the prior
-                // /100 behaviour), so this only changes the mapping for a device positively identified as a 4.0.
+                // Resolve the WHOOP 4.0 window-wide skin anchor before the bundle read. The anchor is part of
+                // the reuse identity because another night's new skin rows can shift this device-wide value.
                 let skinFamily = Self.skinTempFamily(forOwner: owner, devices: regDevices)
-                // #938 (second capture): learn THIS device's worn skin-temp anchor raw ONCE, WINDOW-WIDE (the
-                // whole scan window's skin samples), not per-night. The @72 skin-temp ADC's register offset is
-                // per-device — a second real 4.0 strap shares the no-contact floor (~509) + 11-bit saturation
-                // (2047) but a worn band ~1100–1600 (nightly mean raw ~1290), which the global 826 anchor maps
-                // to 47–72 °C, so 100% of its worn samples fail the 28–42 °C gate (kept=0, no baseline, no
-                // signal). WINDOW-WIDE, not per-night: a per-night re-centre would subtract each night's own
-                // mean and ERASE the cross-night deviation the skinTempDevC signal exists to carry.
-                // Deterministic per run; SAFE because the skin baseline is re-folded from the SAME window's
-                // nightly means every run, so this constant offset cancels in the deviation. nil for a non-4.0
-                // owner (`.whoop5` ignores the anchor) or when <100 in-band samples exist → the conversion
-                // falls back to the global anchor (byte-identical to today).
                 let skinAnchorRaw: Double?
                 if skinFamily == .whoop4 {
                     if !skinAnchorResolvedOwners.contains(owner) {
@@ -843,6 +919,79 @@ final class IntelligenceEngine: ObservableObject {
                 } else {
                     skinAnchorRaw = nil
                 }
+
+                // Conservative v1 eligibility: only a positively identified WHOOP 4.0 from normal analysis.
+                // 5/MG, Oura/import providers, and exact-source maintenance always take the full path.
+                let ownerDevice = regDevices.first(where: { $0.id == owner })
+                let isWhoop4 = skinFamily == .whoop4
+                    && ownerDevice?.brand.caseInsensitiveCompare("WHOOP") == .orderedSame
+                var dayCacheKey: String?
+                if sourceContext == nil, isWhoop4 {
+                    cacheEligible += 1
+                    try CooperativeAnalysisCancellation.checkpoint()
+                    let fingerprint: (count: Int, maxTs: Int)
+                    if let loader = cacheTestingSeams?.fingerprintLoader {
+                        fingerprint = try await loader(store, owner, from, to)
+                    } else {
+                        fingerprint = try await store.hrFingerprint(deviceId: owner, from: from, to: to)
+                    }
+                    try CooperativeAnalysisCancellation.checkpoint()
+                    let key = AnalyzeRecentDayCache.cacheKey(
+                        owner: owner,
+                        hrCount: fingerprint.count,
+                        hrMaxTs: fingerprint.maxTs,
+                        skinAnchorRaw: skinAnchorRaw,
+                        hrvWindowDetail: dayStart == currentCivilDayStart)
+                    dayCacheKey = key
+                    if let cached = cacheSnapshot[day], cached.key == key {
+                        // A hit replaces pass 1 only. The cached scan still enters the normal main-actor fold
+                        // and all pass-2/persistence/reconciliation work below.
+                        try CooperativeAnalysisCancellation.checkpoint()
+                        out.append(cached.scan)
+                        nextCache[day] = cached
+                        cacheReused += 1
+                        continue
+                    }
+                }
+
+                try CooperativeAnalysisCancellation.checkpoint()
+                let bundle: AnalysisDayBundle
+                if let loader = cacheTestingSeams?.bundleLoader {
+                    bundle = try await loader(store, owner, from, to, 200_000)
+                } else {
+                    bundle = try await store.analysisDayBundle(
+                        deviceId: owner, from: from, to: to, limit: 200_000)
+                }
+                try CooperativeAnalysisCancellation.checkpoint()
+                let hr = bundle.hr
+                guard hr.count >= 200 else {
+                    // Keep this lightweight diagnostic in the detached result. `diagnosticSink` is
+                    // MainActor-bound, so calling it here would violate the engine's actor boundary.
+                    let scan = DayScan(
+                        result: nil,
+                        rhrLine: nil,
+                        readOwner: owner,
+                        hrRows: hr.count,
+                        sleepTrace: [],
+                        stepsTrace: [],
+                        hrvTrace: [],
+                        hrvDiag: nil,
+                        skinTempTrace: nil,
+                        skippedLine: "sleep day=\(day) SKIPPED hrSamples=\(hr.count) (need ≥200)"
+                    )
+                    try CooperativeAnalysisCancellation.checkpoint()
+                    out.append(scan)
+                    if let dayCacheKey { nextCache[day] = CachedDayScan(key: dayCacheKey, scan: scan) }
+                    continue
+                }   // need real raw data, not a stray sample
+                let rr = bundle.rr
+                let resp = bundle.resp
+                let grav = bundle.gravity
+                let steps = bundle.steps
+                let skin = bundle.skinTemp
+                // #93: WHOOP 4.0 raw SpO2 PPG samples for the night; analyzeDay banks the nightly red/IR ADC
+                // means on the DailyMetric. Empty on a 5/MG (no v24 spo2 channels) → the raw means stay nil.
+                let spo2 = bundle.spo2
                 // Wrist-wear events in the night window, paired into off-wrist [start, end) intervals for the
                 // off-wrist sleep backstop (#500). The HR-gap proxy in the stager is the always-on guard;
                 // these explicit intervals sharpen it under the FRACTIONAL rule (#504) , a session is dropped
@@ -915,21 +1064,6 @@ final class IntelligenceEngine: ObservableObject {
                                                                      from: from, to: to, store: store)
                 }
 
-                // #690: read the experimental-V2 toggle ONCE here (off the detached executor, matching the
-                // Repository self-heal call site) and capture the Bool, so the Settings toggle now drives the
-                // NORMAL detected-night staging path , not only the userEdited self-heal restage.
-                // V2 is the default staging engine for EVERY strap (the toggle defaults on); turn it off to
-                // fall back to V1. WHOOP 4.0 is unvalidated either way — V2 can over-stage on sparse motion
-                // (#319) and V1 can badly UNDER-stage deep/REM (kavemang, #347), so neither is proven; the
-                // toggle is the honest escape until real 4.0 ground truth settles it (#271/#319). Matches the
-                // self-heal restage below, which reads the same toggle.
-                let useSleepStagerV2 = PuffinExperiment.experimentalSleepV2Enabled
-                // #364 follow-up: read the motion-aware wake refinement toggle the same way (once, off the
-                // detached executor). Default OFF — see `PuffinExperiment.motionAwareWakeEnabled`. It only
-                // ever runs AFTER whichever stager above just ran, and self-gates on the night's observed
-                // gravity + step density, so flipping it on is a no-op for any night too sparse to trust.
-                let useMotionAwareWake = PuffinExperiment.motionAwareWakeEnabled
-
                 // Already OFF the main actor , score directly (the prior nested `Task.detached` here only
                 // existed to hop off the main actor; the whole loop now runs off it, so the score is computed
                 // inline with the identical inputs and identical result).
@@ -949,6 +1083,8 @@ final class IntelligenceEngine: ObservableObject {
                                                      spo2: spo2,                   // #93
                                                      profile: up, baselines: baselines1, maxHROverride: maxHR,
                                                      tzOffsetSeconds: tzOffset, wristOff: wristOff,
+                                                     sleepNeedHours: sleepNeedHours,
+                                                     sleepConsistency: sleepConsistency,
                                                      habitualMidsleepSec: habitualMidsleepSec,
                                                      bandSleepState: bandSleepState,
                                                      // #690: thread the V2 toggle into the NORMAL staging path so
@@ -1041,12 +1177,16 @@ final class IntelligenceEngine: ObservableObject {
                     }.map { $0.bpm }
                     rhrLine = Self.rhrFloorMeanLogLine(day: res.daily.day, floor: floor, inBedBpms: inBedBpms)
                 }
-                out.append(DayScan(result: res, rhrLine: rhrLine,
+                let scan = DayScan(result: res, rhrLine: rhrLine,
                                    readOwner: owner, hrRows: hr.count,
                                    sleepTrace: sleepTrace, stepsTrace: stepsTrace, hrvTrace: hrvTrace,
-                                   hrvDiag: hrvDiag, skinTempTrace: skinTempTrace, skippedLine: nil))
+                                   hrvDiag: hrvDiag, skinTempTrace: skinTempTrace, skippedLine: nil)
+                try CooperativeAnalysisCancellation.checkpoint()
+                out.append(scan)
+                if let dayCacheKey { nextCache[day] = CachedDayScan(key: dayCacheKey, scan: scan) }
             }
-                return out
+                return DayScanPass(scans: out, nextCache: nextCache,
+                                   reused: cacheReused, eligible: cacheEligible)
             }
         } catch is CancellationError {
             performanceChangedRows = 0
@@ -1056,6 +1196,8 @@ final class IntelligenceEngine: ObservableObject {
             NSLog("IntelligenceEngine: required day-source read failed: \(error)")
             return false
         }
+
+        let scanned = scanPass.scans
 
         guard !Task.isCancelled else {
             performanceChangedRows = 0
@@ -1890,6 +2032,14 @@ final class IntelligenceEngine: ObservableObject {
         // short-circuit while it's unchanged. Written ONLY here at the end of a completed run (never on an
         // early guard-return), so an interrupted/failed run can't advance the watermark past unscored data.
         guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
+        if sourceContext == nil {
+            // Pruning happens only here, after the complete pass: `nextCache` contains exactly the eligible
+            // days in this active civil-day window. A failed/cancelled pass leaves the prior cache untouched.
+            dayScanCache = scanPass.nextCache
+            dayScanCacheConfigSignature = cacheConfigSignature
+        }
+        diagnosticSink?("analyzeRecent dayCache reused=\(scanPass.reused)/\(scanPass.eligible) "
+            + "size=\(sourceContext == nil ? dayScanCache.count : 0)", nil)
         if !wmKey.isEmpty { UserDefaults.standard.set(wmKey, forKey: Self.analyzeWatermarkKey) }
         analysisCompletionSerial += 1
         return true
