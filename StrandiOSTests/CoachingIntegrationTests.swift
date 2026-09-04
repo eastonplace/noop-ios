@@ -95,7 +95,13 @@ final class CoachingIntegrationTests: XCTestCase {
         for day in 1...6 { outcome[String(format: "2026-06-%02d", day)] = 50 + Double(day % 3) }
         for day in 10...20 { outcome[String(format: "2026-06-%02d", day)] = 70 + Double(day % 3) }
         let inputs = ["Alcohol": behaviorDays]
-        let before = EffectRanker.rank(behaviors: inputs, outcomeByDay: outcome, outcome: "Charge")
+        let controls = ["Alcohol": Set(outcome.keys).subtracting(behaviorDays)]
+        let before = EffectRanker.rank(
+            behaviors: inputs,
+            controls: controls,
+            outcomeByDay: outcome,
+            outcome: "Charge"
+        )
 
         let store = try await WhoopStore.inMemory()
         _ = try await store.ensureDefaultCoachingSet(name: "Oracle", memberships: [
@@ -103,7 +109,12 @@ final class CoachingIntegrationTests: XCTestCase {
                                        coachingGroup: "Fuel", sortIndex: 0,
                                        isActive: true, isQuickAdd: true),
         ])
-        let after = EffectRanker.rank(behaviors: inputs, outcomeByDay: outcome, outcome: "Charge")
+        let after = EffectRanker.rank(
+            behaviors: inputs,
+            controls: controls,
+            outcomeByDay: outcome,
+            outcome: "Charge"
+        )
 
         XCTAssertFalse(before.isEmpty)
         XCTAssertEqual(after, before, "effects, lags, means, samples, confidence, and ordering must match")

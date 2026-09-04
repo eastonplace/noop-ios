@@ -41,6 +41,9 @@ packages:
   ZIPFoundation:
     url: https://github.com/weichsel/ZIPFoundation.git
     exactVersion: 0.9.20
+  GRDB:
+    url: https://github.com/groue/GRDB.swift.git
+    exactVersion: 6.29.3
 
 targets:
   NOOPiOS:
@@ -170,6 +173,7 @@ targets:
       - package: NoopPhase34Core
       - package: OuraProtocol
       - package: ZIPFoundation
+      - package: GRDB
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES

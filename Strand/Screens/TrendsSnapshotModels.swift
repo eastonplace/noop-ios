@@ -258,6 +258,9 @@ struct TrendsScreenSnapshot: Sendable {
     let typical: ClosedRange<Double>
     let weeklyDigest: WeeklyDigest
     let minimumWeekOffset: Int
+    /// Nil for the repository-backed first paint. Numeric load is published only after the fixed-history
+    /// sparse read that owns this snapshot has completed.
+    let trainingLoad: TrainingLoadSnapshot?
 
     nonisolated static func build(
         key: TrendsScreenSnapshotKey,
@@ -366,6 +369,22 @@ struct TrendsScreenSnapshot: Sendable {
             sleepByDay: data.sleepPerfByDay.filter { $0.value.isFinite },
             effortDisplayFactor: effortDisplayFactor.isFinite ? effortDisplayFactor : 1
         )
+        let trainingLoad: TrainingLoadSnapshot?
+        if let loadIdentity = data.loadIdentity,
+           loadIdentity == key.completedLoadIdentity {
+            let trainingHistory = Array(data.canonicalDays
+                .filter { $0.day <= data.anchorDay }
+                .suffix(TrainingLoadTrendsWindow.days))
+            let trainingResult = TrainingLoadEngine.evaluate(
+                days: trainingHistory.map {
+                    TrainingLoadEngine.DailyLoad(day: $0.day, load: $0.strain)
+                },
+                through: data.anchorDay
+            )
+            trainingLoad = TrainingLoadSnapshot(result: trainingResult)
+        } else {
+            trainingLoad = nil
+        }
 
         let minimumWeekOffset: Int = {
             guard let earliest = data.canonicalDays.first?.day,
@@ -390,7 +409,8 @@ struct TrendsScreenSnapshot: Sendable {
             baseline: baseline,
             typical: finiteTypical(center: baseline, spread: spread),
             weeklyDigest: digest,
-            minimumWeekOffset: minimumWeekOffset
+            minimumWeekOffset: minimumWeekOffset,
+            trainingLoad: trainingLoad
         )
     }
 
@@ -468,6 +488,29 @@ struct TrendsScreenSnapshot: Sendable {
 
     private static func finite(_ value: Double?) -> Double? {
         value.flatMap { $0.isFinite ? $0 : nil }
+    }
+}
+
+struct TrainingLoadSnapshot: Sendable {
+    let state: TrainingLoadEngine.State
+    let unavailableReason: TrainingLoadEngine.UnavailableReason?
+    let contiguousDays: Int
+    let chronic: Double?
+    let acute: Double?
+    let balance: Double?
+    let chronicSpark: [Double]
+    let acuteSpark: [Double]
+
+    init(result: TrainingLoadEngine.Result) {
+        state = result.state
+        unavailableReason = result.unavailableReason
+        contiguousDays = result.contiguousDays
+        chronic = result.chronicLoad.map(StrainScale.displayValue(fromStored:))
+        acute = result.acuteLoad.map(StrainScale.displayValue(fromStored:))
+        balance = result.balance.map(StrainScale.displayDelta(fromStored:))
+        let recent = result.points.suffix(42)
+        chronicSpark = recent.map { StrainScale.displayValue(fromStored: $0.chronicLoad) }
+        acuteSpark = recent.map { StrainScale.displayValue(fromStored: $0.acuteLoad) }
     }
 }
 

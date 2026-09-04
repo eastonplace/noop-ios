@@ -511,13 +511,25 @@ final class TodayHealthSnapshotHydrationTests: XCTestCase {
         try await repository.quiesceStoreForRestore()
         let restoredStore = try await WhoopStore.inMemory()
         repository.setStoreForTesting(restoredStore)
-        await repository.hydrateTodayHealthSnapshot()
+        try await repository.reopenStoreAfterRestore()
 
         let restoredContext = try await context(for: restoredStore)
         let restoredScope = "dashboard:\(Repository.whoopSource)|\(restoredContext.identifier)"
         let restoredSnapshot = try await restoredStore.todayHealthSnapshot(scopeId: restoredScope)
-        XCTAssertNil(repository.todayHealthSnapshot)
-        XCTAssertNil(restoredSnapshot)
+        XCTAssertEqual(repository.todayHealthSnapshot?.context, restoredContext)
+        XCTAssertEqual(restoredSnapshot?.context, restoredContext)
+        XCTAssertNotEqual(repository.todayHealthSnapshot?.context, oldContext)
+        XCTAssertNil(repository.todayHealthSnapshot?.recovery)
+        XCTAssertNil(repository.todayHealthSnapshot?.strain)
+        XCTAssertNil(repository.todayHealthSnapshot?.sleepScore)
+        XCTAssertNil(repository.todayHealthSnapshot?.sleepDurationMinutes)
+        XCTAssertNil(restoredSnapshot?.recovery)
+        XCTAssertNil(restoredSnapshot?.strain)
+        XCTAssertNil(restoredSnapshot?.sleepScore)
+        XCTAssertNil(restoredSnapshot?.sleepDurationMinutes)
+        let oldScope = "dashboard:\(Repository.whoopSource)|\(oldContext.identifier)"
+        let staleSnapshot = try await restoredStore.todayHealthSnapshot(scopeId: oldScope)
+        XCTAssertNil(staleSnapshot)
     }
 
     func testLogicalDayUsesCivilTimeAtSpringForwardBoundary() {

@@ -263,6 +263,43 @@ extension Repository {
             sleepConsistency: sleepConsistency,
             updatedAt: now)
 
+        // Replacing a recovered row can move its wake day, while a standalone recovery can remove one or
+        // more overlapping automatic rows. Snapshot every affected old wake day immediately before the
+        // atomic session write, then clear the derived pre-sleep observation globally. The repeated cleanup
+        // after a successful write closes the ordering where an older analysis publishes between these two
+        // operations; IntelligenceEngine performs the complementary post-persistence identity check.
+        var affectedWakeTimestamps = [safeEnd]
+        var affectedWakeDays: [String] = []
+        do {
+            let overlapping = try await store.sleepSessions(
+                deviceId: computedId,
+                from: safeStart,
+                to: safeEnd,
+                limit: 10_000
+            )
+            affectedWakeTimestamps.append(contentsOf: overlapping.map(\.endTs))
+            if let replacingStartTs,
+               let previousOverride = try await store.sleepRecoveryDailyOverride(
+                   deviceId: computedId,
+                   sessionStartTs: replacingStartTs
+               ) {
+                affectedWakeDays.append(previousOverride.day)
+            }
+            _ = try await invalidatePreSleepHeartRateFeedback(
+                store: store,
+                wakeTimestamps: affectedWakeTimestamps,
+                additionalWakeDays: affectedWakeDays
+            )
+        } catch {
+            return MissedSleepRecoverySaveResult(
+                status: .failed,
+                title: "Could not save the sleep",
+                message: "The local write failed, so no partial correction was left behind.",
+                confidence: analysis.confidence,
+                sessionStart: nil,
+                sessionEnd: nil)
+        }
+
         do {
             let write = try await store.replaceWithManualSleepRecovery(
                 session,
@@ -281,6 +318,11 @@ extension Repository {
                     sessionStart: nil,
                     sessionEnd: nil)
             case .inserted, .updated:
+                _ = try? await invalidatePreSleepHeartRateFeedback(
+                    store: store,
+                    wakeTimestamps: affectedWakeTimestamps,
+                    additionalWakeDays: affectedWakeDays
+                )
                 _ = await refresh(.currentDay)
                 if analysis.outcome == .partial {
                     let charge = scored.daily.recovery == nil

@@ -376,6 +376,8 @@ struct StrandiOSApp: App {
                 #if DEBUG
                 if let component41Shot = Component41QAShot.requestedKind {
                     Component41QAShot(kind: component41Shot)
+                } else if AppleDemoSeeder.devicesQARequested {
+                    NavigationStack { DevicesView() }
                 } else if CommandLine.arguments.contains("--storage-recovery-qa") {
                     StorageView()
                 } else {

@@ -16,6 +16,23 @@ import WhoopProtocol
 /// app's `endWorkout` exactly (same canonical `StrainScorerV2` + calorie model).
 public enum ManualWorkoutRescore {
 
+    /// One exact civil-day window and its measured resting HR. The caller supplies real calendar
+    /// boundaries so workout rescoring remains correct across DST changes, plus the source that owns
+    /// the measurement so a re-pair cannot mix RHR and workout HR from different devices.
+    public struct DailyRestingHR: Equatable, Sendable {
+        public let sourceId: String
+        public let startTs: Int
+        public let endTs: Int
+        public let restingHR: Double
+
+        public init(sourceId: String, startTs: Int, endTs: Int, restingHR: Double) {
+            self.sourceId = sourceId
+            self.startTs = startTs
+            self.endTs = endTs
+            self.restingHR = restingHR
+        }
+    }
+
     public struct Scored: Equatable {
         public let avgHr: Int
         public let maxHr: Int
@@ -39,18 +56,58 @@ public enum ManualWorkoutRescore {
         (currentKcal ?? 0) <= underScoredKcalThreshold
     }
 
+    /// Accept only a finite, physiologically plausible measured resting HR below the user's max HR.
+    /// Returning nil preserves the pre-measured-RHR scoring defaults.
+    public static func plausibleRestingHR(_ candidate: Double?, hrMax: Double) -> Double? {
+        guard let candidate,
+              candidate.isFinite,
+              hrMax.isFinite,
+              baselineRange.contains(candidate),
+              candidate < hrMax else { return nil }
+        return candidate
+    }
+
+    /// Select the measured RHR from the same exact civil day as the workout. Invalid or overlapping
+    /// windows fail closed to nil instead of silently choosing an arbitrary value.
+    public static func restingHR(
+        forWorkoutStartingAt timestamp: Int,
+        sourceId: String,
+        daily: [DailyRestingHR],
+        hrMax: Double
+    ) -> Double? {
+        let matches = daily.filter {
+            $0.sourceId == sourceId
+                && $0.startTs < $0.endTs
+                && timestamp >= $0.startTs
+                && timestamp < $0.endTs
+        }
+        guard matches.count == 1 else { return nil }
+        return plausibleRestingHR(matches[0].restingHR, hrMax: hrMax)
+    }
+
     /// Recompute avg/peak HR, strain and calories from `windowSamples` (the HR now stored for the
     /// workout's [start, end]). Returns nil when there are too few samples to score meaningfully — i.e.
     /// nothing better than what we already had.
-    public static func scored(windowSamples: [HRSample], profile: UserProfile, hrMax: Double) -> Scored? {
+    public static func scored(windowSamples: [HRSample], profile: UserProfile, hrMax: Double,
+                              restingHR: Double? = nil) -> Scored? {
         guard windowSamples.count >= 2 else { return nil }
         let bpms = windowSamples.map(\.bpm)
         let avg = Int((Double(bpms.reduce(0, +)) / Double(bpms.count)).rounded())
         let peak = bpms.max() ?? 0
-        let strain = StrainScorerV2.strain(windowSamples, maxHR: hrMax, mode: .activity)
+        let measuredRestingHR = plausibleRestingHR(restingHR, hrMax: hrMax)
+        let strain = StrainScorerV2.strain(
+            windowSamples,
+            maxHR: hrMax,
+            restingHR: measuredRestingHR ?? StrainScorerV2.defaultRestingHR,
+            mode: .activity
+        )
         let kcalRaw = Calories.estimateBoutCalories(windowSamples, profile: profile,
-                                                    hrmax: hrMax, restingHR: nil).0
+                                                    hrmax: hrMax, restingHR: measuredRestingHR).0
         return Scored(avgHr: avg, maxHr: peak, strain: strain, kcal: kcalRaw > 0 ? kcalRaw : nil)
+    }
+
+    private static var baselineRange: ClosedRange<Double> {
+        Baselines.restingHRCfg.minVal...Baselines.restingHRCfg.maxVal
     }
 
     /// Is `scored` a worthwhile improvement over the stored row? Two ways to qualify:

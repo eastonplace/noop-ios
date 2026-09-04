@@ -188,7 +188,7 @@ final class ConnectionReadoutTests: XCTestCase {
             "yes")
         XCTAssertEqual(
             ConnectionReadout.clockLatchedLabel(deviceClockUnix: nil, strapNewestUnix: 40_000_000),
-            "no (RTC reads 1970/71)")
+            "no (records dated 1970/71)")
         XCTAssertEqual(
             ConnectionReadout.clockLatchedLabel(deviceClockUnix: nil, strapNewestUnix: nil),
             "no (waiting for the strap clock)")
@@ -199,11 +199,55 @@ final class ConnectionReadoutTests: XCTestCase {
     }
 
     func testRtcWarningFiresOnEpochEraClockOrNewest() {
-        XCTAssertNotNil(ConnectionReadout.rtcWarning(deviceClockUnix: 40_000_000, strapNewestUnix: nil))
-        XCTAssertNotNil(ConnectionReadout.rtcWarning(deviceClockUnix: nil, strapNewestUnix: 30_000_000))
+        XCTAssertEqual(
+            ConnectionReadout.rtcWarning(deviceClockUnix: 40_000_000, strapNewestUnix: nil),
+            "Strap clock reads 1970/71 (never set since its last reset), so it is not banking history. "
+                + "Charge the strap to 100% and reconnect so the clock latches.")
+        XCTAssertEqual(
+            ConnectionReadout.rtcWarning(deviceClockUnix: nil, strapNewestUnix: 30_000_000),
+            "Strap records are dated 1970/71, so recent history cannot be placed on the correct day. "
+                + "Charge the strap to 100% and reconnect so the clock latches.")
         XCTAssertNil(ConnectionReadout.rtcWarning(deviceClockUnix: 1_782_475_600, strapNewestUnix: 1_782_475_000))
         XCTAssertNil(ConnectionReadout.rtcWarning(deviceClockUnix: nil, strapNewestUnix: nil),
                      "no signal seen yet must not fabricate a fault")
+    }
+
+    func testLinkEpitaph() {
+        let silent = ConnectionReadout.linkEpitaph(
+            upMillis: 4_123,
+            inboundFrames: 0,
+            inboundBytes: 0,
+            cmdChannelFrames: 0,
+            realtimeArmed: false,
+            ended: "CBError.connectionTimeout(6)")
+        XCTAssertEqual(
+            silent,
+            "Link epitaph: up 4123ms, inbound 0 frames / 0 bytes (cmd-channel 0), "
+                + "realtime armed=no, ended=CBError.connectionTimeout(6)"
+                + " - the strap sent NOTHING on this link")
+
+        let alive = ConnectionReadout.linkEpitaph(
+            upMillis: 61_000,
+            inboundFrames: 812,
+            inboundBytes: 40_990,
+            cmdChannelFrames: 9,
+            realtimeArmed: true,
+            ended: "intentional")
+        XCTAssertEqual(
+            alive,
+            "Link epitaph: up 61000ms, inbound 812 frames / 40990 bytes (cmd-channel 9), "
+                + "realtime armed=yes, ended=intentional")
+        XCTAssertFalse(alive.contains("NOTHING"))
+
+        XCTAssertTrue(
+            ConnectionReadout.linkEpitaph(
+                upMillis: -3,
+                inboundFrames: -1,
+                inboundBytes: -9,
+                cmdChannelFrames: -2,
+                realtimeArmed: false,
+                ended: "x")
+                .hasPrefix("Link epitaph: up 0ms, inbound 0 frames / 0 bytes (cmd-channel 0)"))
     }
 
     func testLastFrameLabel() {

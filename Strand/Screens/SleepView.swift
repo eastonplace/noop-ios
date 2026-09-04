@@ -133,6 +133,9 @@ struct SleepView: View {
     /// merges each day into one Night, so a split day reads as one correctly-totalled night with the
     /// gaps preserved. Oldest→newest. Falls back to `repo.sleeps` until loaded. (#170)
     @State private var allSessions: [CachedSleepSession] = []
+    /// Advances after the complete un-deduplicated session set and habitual midpoint finish loading.
+    /// Async leaf views use it to refresh calculations whose visible night's bounds may stay unchanged.
+    @State private var sleepHistoryRevision = 0
     /// Legacy malformed sessions are excluded from all score/display selection but remain repairable here.
     @State private var invalidSessions: [CachedSleepSession] = []
 
@@ -247,26 +250,45 @@ struct SleepView: View {
                             hasStageData: displayedNight.hasStageData
                         )
                         .staggeredAppear(index: 3)
-                        sleepRhythmEntry.staggeredAppear(index: 4)
+                        SectionHeader("Heart rate", overline: "Sleep context")
+                            .staggeredAppear(index: 4)
+                        SleepHeartRateContrastSection(
+                            sleepStart: displayedNight.night.session.effectiveStartTs,
+                            sleepEnd: displayedNight.night.session.endTs,
+                            sessions: navSessions,
+                            habitualMidsleepSec: habitualMidsleepSec,
+                            sessionsRevision: sleepHistoryRevision
+                        )
+                        .staggeredAppear(index: 4)
+                        PreSleepHeartRateFeedbackSection(
+                            wakeDay: SleepView.wakeDayKey(for: displayedNight.night),
+                            sleepStart: displayedNight.night.session.effectiveStartTs,
+                            sleepEnd: displayedNight.night.session.endTs,
+                            sessions: navSessions,
+                            habitualMidsleepSec: habitualMidsleepSec,
+                            sessionsRevision: sleepHistoryRevision
+                        )
+                        .staggeredAppear(index: 5)
+                        sleepRhythmEntry.staggeredAppear(index: 6)
                         napSection(
                             displayedNight.night,
                             hasStageData: displayedNight.hasStageData
                         )
-                        .staggeredAppear(index: 4)
-                        metricGrid(resolved).staggeredAppear(index: 5)
-                        sleepDebtLedger(resolved).staggeredAppear(index: 6)
+                        .staggeredAppear(index: 6)
+                        metricGrid(resolved).staggeredAppear(index: 7)
+                        sleepDebtLedger(resolved).staggeredAppear(index: 8)
                         // T702 / plan doc G2: the real V2 need breakdown for the DISPLAYED wake day.
                         // Its own leaf (own EnvironmentObject + async fetch) so it never blocks this
                         // screen's memoized model on a store round trip; shows nothing extra when V2
                         // is off, an honest Building/Calibrating card when V2 hasn't scored this
                         // exact night yet.
                         SleepNeedBreakdownSection(wakeDay: SleepView.wakeDayKey(for: displayedNight.night))
-                            .staggeredAppear(index: 7)
+                            .staggeredAppear(index: 9)
                         if displayedNight.hasStageData {
                             stagesVsTypical(resolved, night: displayedNight.night)
-                                .staggeredAppear(index: 8)
+                                .staggeredAppear(index: 10)
                         }
-                        durationTrend(resolved).staggeredAppear(index: 9)
+                        durationTrend(resolved).staggeredAppear(index: 11)
                     }
                 } else {
                     LazyVStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
@@ -309,6 +331,7 @@ struct SleepView: View {
                 // Load the learned habitual midsleep the engine used, so the main-night pick aligns to it
                 // (a shift/late sleeper) instead of only the cold-start band. nil under threshold. (#547)
                 habitualMidsleepSec = await repo.habitualMidsleepSec(days: 30)
+                sleepHistoryRevision &+= 1
                 // Per-epoch motion for every block (#407), keyed by detected start. mergeDay reads only the
                 // already-resolved group's entries — this just pre-fetches them all so the model build is sync.
                 motionByStart = await repo.sessionMotions(starts: allSessions.map { $0.startTs })

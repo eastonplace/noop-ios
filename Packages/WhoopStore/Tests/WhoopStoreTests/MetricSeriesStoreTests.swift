@@ -109,6 +109,148 @@ final class MetricSeriesStoreTests: XCTestCase {
         XCTAssertEqual(keys, ["steps"])
     }
 
+    func testReconcileRemovesStaleRowsAndPreservesUnrelatedData() async throws {
+        let store = try await WhoopStore.inMemory()
+        try await store.upsertMetricSeries([
+            .init(day: "2026-05-01", key: "shadow_mean", value: 55),
+            .init(day: "2026-05-02", key: "shadow_mean", value: 56),
+            .init(day: "2026-05-02", key: "shadow_count", value: 30),
+            .init(day: "2026-05-02", key: "sleep_performance", value: 80),
+        ], deviceId: "devA")
+        try await store.upsertMetricSeries([
+            .init(day: "2026-05-02", key: "shadow_mean", value: 99),
+        ], deviceId: "devB")
+
+        let changed = try await store.reconcileMetricSeries([
+            .init(day: "2026-05-01", key: "shadow_mean", value: 54),
+        ], deviceId: "devA", keys: ["shadow_mean", "shadow_count"],
+           from: "2026-05-01", to: "2026-05-02")
+        let reconciledMeans = try await store.metricSeries(
+            deviceId: "devA", key: "shadow_mean", from: "2026-05-01", to: "2026-05-02"
+        )
+        let reconciledCounts = try await store.metricSeries(
+            deviceId: "devA", key: "shadow_count", from: "2026-05-01", to: "2026-05-02"
+        )
+        let preservedPerformance = try await store.metricSeries(
+            deviceId: "devA", key: "sleep_performance", from: "2026-05-01", to: "2026-05-02"
+        )
+        let otherDeviceMeans = try await store.metricSeries(
+            deviceId: "devB", key: "shadow_mean", from: "2026-05-01", to: "2026-05-02"
+        )
+        XCTAssertEqual(changed, 3) // update one and delete two stale rows
+        XCTAssertEqual(reconciledMeans, [.init(day: "2026-05-01", key: "shadow_mean", value: 54)])
+        XCTAssertEqual(reconciledCounts, [])
+        XCTAssertEqual(preservedPerformance.map(\.value), [80])
+        XCTAssertEqual(otherDeviceMeans.map(\.value), [99])
+    }
+
+    func testReconcileRejectsRowsOutsideDeclaredScope() async throws {
+        let store = try await WhoopStore.inMemory()
+        do {
+            _ = try await store.reconcileMetricSeries([
+                .init(day: "2026-06-01", key: "other", value: 1),
+            ], deviceId: "devA", keys: ["shadow"], from: "2026-05-01", to: "2026-05-31")
+            XCTFail("expected out-of-scope row to fail")
+        } catch { }
+    }
+
+    func testReconcileRejectsMalformedCivilDaysWithoutMutation() async throws {
+        let store = try await WhoopStore.inMemory()
+        let original = MetricPoint(day: "2026-05-01", key: "shadow", value: 55)
+        _ = try await store.upsertMetricSeries([original], deviceId: "devA")
+
+        for scope in [("2026-02-31", "2026-03-01"), ("2026-5-01", "2026-05-31")] {
+            do {
+                _ = try await store.reconcileMetricSeries(
+                    [], deviceId: "devA", keys: ["shadow"], from: scope.0, to: scope.1
+                )
+                XCTFail("expected malformed scope to fail")
+            } catch { }
+        }
+        do {
+            _ = try await store.reconcileMetricSeries(
+                [.init(day: "2026-02-31", key: "shadow", value: 1)],
+                deviceId: "devA", keys: ["shadow"],
+                from: "2026-02-01", to: "2026-03-01"
+            )
+            XCTFail("expected malformed row day to fail")
+        } catch { }
+
+        let remaining = try await store.metricSeries(
+            deviceId: "devA", key: "shadow", from: "2026-01-01", to: "2026-12-31"
+        )
+        XCTAssertEqual(remaining, [original])
+    }
+
+    func testEmptyReconcileDeletesLargeRangeAndPreservesOtherKeysAndDevices() async throws {
+        let store = try await WhoopStore.inMemory()
+        // Keep the fixture within canonical years/months while still exercising hundreds of rows.
+        var canonicalRows: [MetricPoint] = []
+        canonicalRows.reserveCapacity(500)
+        for index in 0..<500 {
+            let year = 2020 + index / 336
+            let month = (index % 336) / 28 + 1
+            let dayOfMonth = index % 28 + 1
+            let day = String(format: "%04d-%02d-%02d", year, month, dayOfMonth)
+            canonicalRows.append(MetricPoint(
+                day: day, key: "shadow", value: Double(index + 1)
+            ))
+        }
+        _ = try await store.upsertMetricSeries(canonicalRows, deviceId: "devA")
+        _ = try await store.upsertMetricSeries([
+            .init(day: "2020-01-01", key: "other", value: 1)
+        ], deviceId: "devA")
+        _ = try await store.upsertMetricSeries([
+            .init(day: "2020-01-01", key: "shadow", value: 2)
+        ], deviceId: "devB")
+
+        let changed = try await store.reconcileMetricSeries(
+            [], deviceId: "devA", keys: ["shadow"],
+            from: "2020-01-01", to: "2021-12-31"
+        )
+        XCTAssertEqual(changed, canonicalRows.count)
+        let removed = try await store.metricSeries(
+            deviceId: "devA", key: "shadow", from: "2020-01-01", to: "2021-12-31"
+        )
+        let preservedKey = try await store.metricSeries(
+            deviceId: "devA", key: "other", from: "2020-01-01", to: "2021-12-31"
+        )
+        let preservedDevice = try await store.metricSeries(
+            deviceId: "devB", key: "shadow", from: "2020-01-01", to: "2021-12-31"
+        )
+        XCTAssertTrue(removed.isEmpty)
+        XCTAssertEqual(preservedKey.count, 1)
+        XCTAssertEqual(preservedDevice.count, 1)
+    }
+
+    func testGlobalDeleteRemovesOnlyRequestedKeysAcrossEveryNamespace() async throws {
+        let store = try await WhoopStore.inMemory()
+        let sensitiveKeys = ["pre_sleep_mean", "pre_sleep_valid"]
+        for source in ["my-whoop-noop", "whoop-archived-noop", "orphan-noop"] {
+            _ = try await store.upsertMetricSeries([
+                .init(day: "2026-09-03", key: sensitiveKeys[0], value: 64),
+                .init(day: "2026-09-03", key: sensitiveKeys[1], value: 30),
+                .init(day: "2026-09-03", key: "unrelated", value: 80),
+            ], deviceId: source)
+        }
+
+        let changed = try await store.deleteMetricSeriesGlobally(keys: sensitiveKeys)
+
+        XCTAssertEqual(changed, 6)
+        for source in ["my-whoop-noop", "whoop-archived-noop", "orphan-noop"] {
+            for key in sensitiveKeys {
+                let rows = try await store.metricSeries(
+                    deviceId: source, key: key, from: "2026-01-01", to: "2026-12-31"
+                )
+                XCTAssertTrue(rows.isEmpty, "sensitive key survived under \(source)")
+            }
+            let unrelated = try await store.metricSeries(
+                deviceId: source, key: "unrelated", from: "2026-01-01", to: "2026-12-31"
+            )
+            XCTAssertEqual(unrelated.map(\.value), [80])
+        }
+    }
+
     // MARK: - distinct metricKeys (sorted)
 
     func testMetricKeysDistinctAndSorted() async throws {

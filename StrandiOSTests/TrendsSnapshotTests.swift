@@ -252,6 +252,147 @@ final class TrendsSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.minimumWeekOffset, -520)
     }
 
+    func testTrainingLoadIsIndependentOfSelectedChartRangeAndOlderLoadedHistory() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(
+            year: 2026, month: 7, day: 22
+        )))
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+
+        let allDays = try (0..<300).map { offset -> DailyMetric in
+            let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset - 299, to: anchor))
+            let load = offset < 120 ? 20.0 : 80.0
+            return DailyMetric(
+                day: formatter.string(from: date), totalSleepMin: 420, efficiency: 0.9,
+                deepMin: 90, remMin: 110, lightMin: 200, disturbances: 6,
+                restingHr: 52, avgHrv: 64, recovery: 75, strain: load, exerciseCount: 1
+            )
+        }
+        let recentOnly = Array(allDays.suffix(TrainingLoadTrendsWindow.days))
+        let weekIdentity = TrendsLoadIdentity(
+            revision: 12, anchorDay: "2026-07-22", timeZoneIdentifier: "UTC",
+            rangeDays: TrendRange.week.days, weekOffset: 0
+        )
+        let halfIdentity = TrendsLoadIdentity(
+            revision: 12, anchorDay: "2026-07-22", timeZoneIdentifier: "UTC",
+            rangeDays: TrendRange.half.days, weekOffset: 0
+        )
+        let shortData = TrendsLoadedData(
+            loadIdentity: weekIdentity,
+            revision: 12, anchorDay: "2026-07-22", timeZoneIdentifier: "UTC",
+            canonicalDays: recentOnly, sleepPerfByDay: [:], stressByDay: [:], appleDays: []
+        )
+        let longData = TrendsLoadedData(
+            loadIdentity: halfIdentity,
+            revision: 12, anchorDay: "2026-07-22", timeZoneIdentifier: "UTC",
+            canonicalDays: allDays, sleepPerfByDay: [:], stressByDay: [:], appleDays: []
+        )
+        let weekKey = TrendsScreenSnapshotKey(
+            revision: 12, anchorDay: "2026-07-22", timeZoneIdentifier: "UTC",
+            metric: ProductionTrendMetric.strain.rawValue, range: TrendRange.week.rawValue,
+            weekOffset: 0, completedLoadIdentity: weekIdentity
+        )
+        let halfKey = TrendsScreenSnapshotKey(
+            revision: 12, anchorDay: "2026-07-22", timeZoneIdentifier: "UTC",
+            metric: ProductionTrendMetric.strain.rawValue, range: TrendRange.half.rawValue,
+            weekOffset: 0, completedLoadIdentity: halfIdentity
+        )
+        let week = try XCTUnwrap(TrendsScreenSnapshot.build(
+            key: weekKey, data: shortData,
+            metric: .strain, range: .week, weekOffset: 0,
+            referenceDate: anchor, calendar: calendar, effortDisplayFactor: 1
+        ))
+        let half = try XCTUnwrap(TrendsScreenSnapshot.build(
+            key: halfKey, data: longData,
+            metric: .strain, range: .half, weekOffset: 0,
+            referenceDate: anchor, calendar: calendar, effortDisplayFactor: 1
+        ))
+        let weekLoad = try XCTUnwrap(week.trainingLoad)
+        let halfLoad = try XCTUnwrap(half.trainingLoad)
+
+        XCTAssertEqual(
+            try XCTUnwrap(weekLoad.chronic),
+            try XCTUnwrap(halfLoad.chronic),
+            accuracy: 0.000_001
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(weekLoad.acute),
+            try XCTUnwrap(halfLoad.acute),
+            accuracy: 0.000_001
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(weekLoad.balance),
+            try XCTUnwrap(halfLoad.balance),
+            accuracy: 0.000_001
+        )
+        XCTAssertEqual(weekLoad.chronicSpark, halfLoad.chronicSpark)
+        XCTAssertEqual(weekLoad.acuteSpark, halfLoad.acuteSpark)
+    }
+
+    func testProvisionalSnapshotHidesTrainingLoadUntilFixedHistoryReadCompletes() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(
+            year: 2026, month: 7, day: 22
+        )))
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        let days = try (0..<60).map { offset -> DailyMetric in
+            let date = try XCTUnwrap(calendar.date(byAdding: .day, value: offset - 59, to: anchor))
+            return DailyMetric(
+                day: formatter.string(from: date), totalSleepMin: 420, efficiency: 0.9,
+                deepMin: 90, remMin: 110, lightMin: 200, disturbances: 6,
+                restingHr: 52, avgHrv: 64, recovery: 75, strain: 12, exerciseCount: 1
+            )
+        }
+        let provisionalData = TrendsLoadedData(
+            revision: 21, anchorDay: "2026-07-22", timeZoneIdentifier: "UTC",
+            canonicalDays: days, sleepPerfByDay: [:], stressByDay: [:], appleDays: []
+        )
+        let provisionalKey = TrendsScreenSnapshotKey(
+            revision: 21, anchorDay: "2026-07-22", timeZoneIdentifier: "UTC",
+            metric: ProductionTrendMetric.strain.rawValue, range: TrendRange.month.rawValue,
+            weekOffset: 0
+        )
+        let provisional = try XCTUnwrap(TrendsScreenSnapshot.build(
+            key: provisionalKey, data: provisionalData, metric: .strain, range: .month,
+            weekOffset: 0, referenceDate: anchor, calendar: calendar, effortDisplayFactor: 1
+        ))
+
+        XCTAssertNil(provisional.trainingLoad)
+
+        let completedIdentity = TrendsLoadIdentity(
+            revision: 21, anchorDay: "2026-07-22", timeZoneIdentifier: "UTC",
+            rangeDays: TrendRange.month.days, weekOffset: 0
+        )
+        let completedData = TrendsLoadedData(
+            loadIdentity: completedIdentity,
+            revision: 21, anchorDay: "2026-07-22", timeZoneIdentifier: "UTC",
+            canonicalDays: days, sleepPerfByDay: [:], stressByDay: [:], appleDays: []
+        )
+        let completedKey = TrendsScreenSnapshotKey(
+            revision: 21, anchorDay: "2026-07-22", timeZoneIdentifier: "UTC",
+            metric: ProductionTrendMetric.strain.rawValue, range: TrendRange.month.rawValue,
+            weekOffset: 0, completedLoadIdentity: completedIdentity
+        )
+        let completed = try XCTUnwrap(TrendsScreenSnapshot.build(
+            key: completedKey, data: completedData, metric: .strain, range: .month,
+            weekOffset: 0, referenceDate: anchor, calendar: calendar, effortDisplayFactor: 1
+        ))
+        let load = try XCTUnwrap(completed.trainingLoad)
+
+        XCTAssertNotNil(load.chronic)
+        XCTAssertNotNil(load.acute)
+    }
+
     func testTrendSummaryDropsNonFiniteValuesAndSortsLatestChronologically() throws {
         let presentation = TrendSummaryPresentation(
             series: [

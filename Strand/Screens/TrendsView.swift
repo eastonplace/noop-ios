@@ -136,6 +136,7 @@ struct TrendsView: View {
             } else {
                 VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
                     paperScoresOverTime
+                    trainingLoadCard
                     paperWeekReview
                 }
             }

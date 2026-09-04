@@ -307,10 +307,10 @@ final class MigrationTests: XCTestCase {
                      createdAt, updatedAt, completedAt, evictedAt)
                 SELECT 'v56-valid-receipt', databaseInstanceId, 'v56-valid-batch', deviceId,
                        lineage, cursorEpoch, trimScope, selectionMode, 'pending',
-                       originalFrameIndexesJSON, 8_888, NULL, NULL, 0, NULL, NULL, NULL,
+                       originalFrameIndexesJSON, ?, NULL, NULL, 0, NULL, NULL, NULL,
                        NULL, NULL, createdAt + 1, updatedAt + 1, NULL, NULL
                 FROM historicalMaterializationJob WHERE receiptId = ?
-                """, arguments: [Self.v55ReceiptId])
+                """, arguments: [8_888, Self.v55ReceiptId])
             try db.execute(sql: """
                 UPDATE rawBatch SET framesBlob = ?
                 WHERE batchId = ? AND deviceId = ? AND lineage = ? AND cursorEpoch = 0
@@ -320,9 +320,9 @@ final class MigrationTests: XCTestCase {
                 ])
             try db.execute(sql: """
                 UPDATE historicalMaterializationJob
-                SET protectedByteCount = 9_999, mappedRawMinTs = ?, mappedRawMaxTs = ?
+                SET protectedByteCount = ?, mappedRawMinTs = ?, mappedRawMaxTs = ?
                 WHERE receiptId = ?
-                """, arguments: [1_781_600_950, 1_781_600_950, Self.v55ReceiptId])
+                """, arguments: [9_999, 1_781_600_950, 1_781_600_950, Self.v55ReceiptId])
         }
 
         XCTAssertNoThrow(try migrator.migrate(dbQueue))

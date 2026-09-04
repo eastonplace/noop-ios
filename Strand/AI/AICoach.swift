@@ -150,6 +150,8 @@ final class AICoachEngine: ObservableObject {
 
     // Published state the UI binds to.
     @Published var messages: [ChatMessage] = []
+    /// Local calendar day of the last sent user turn. Moving forward to a new day starts a fresh chat.
+    private var conversationDay: Int?
     @Published var sending = false
     @Published var errorText: String?
     @Published var provider: AIProvider {
@@ -448,6 +450,17 @@ final class AICoachEngine: ObservableObject {
 
     // MARK: Sending
 
+    /// Bound the in-memory transcript and SwiftUI list. The wire payload has its own smaller window.
+    static let maxStoredMessages = 40
+
+    /// Internal for focused app-target regression tests via `@testable import NOOP`.
+    func appendMessage(_ message: ChatMessage) {
+        messages.append(message)
+        if messages.count > Self.maxStoredMessages {
+            messages.removeFirst(messages.count - Self.maxStoredMessages)
+        }
+    }
+
     /// Send a question: append it, build the metrics context, call the chosen provider with the
     /// system prompt + context + running history, parse the reply, append it. Never throws/crashes;
     /// failures land in `errorText`.
@@ -456,8 +469,14 @@ final class AICoachEngine: ObservableObject {
         guard !trimmed.isEmpty else { errorText = AICoachError.emptyQuestion.errorDescription; return }
         guard let key = resolvedKey else { errorText = AICoachError.noKey.errorDescription; return }
 
+        let today = Self.localEpochDay()
+        if Self.isStaleConversation(lastEpochDay: conversationDay, todayEpochDay: today) {
+            messages = []
+        }
+        conversationDay = today
+
         errorText = nil
-        messages.append(ChatMessage(role: .user, text: trimmed))
+        appendMessage(ChatMessage(role: .user, text: trimmed))
         sending = true
         defer { sending = false }
 
@@ -471,7 +490,7 @@ final class AICoachEngine: ObservableObject {
         do {
             let reply = try await callProvider(key: key, messages: wire)
             let clean = reply.trimmingCharacters(in: .whitespacesAndNewlines)
-            messages.append(ChatMessage(role: .assistant, text: clean.isEmpty ? "(no reply)" : clean))
+            appendMessage(ChatMessage(role: .assistant, text: clean.isEmpty ? "(no reply)" : clean))
         } catch let e as AICoachError {
             errorText = e.errorDescription
         } catch {
@@ -500,7 +519,7 @@ final class AICoachEngine: ObservableObject {
             let reply = try await callProvider(key: key, messages: wire)
             let clean = reply.trimmingCharacters(in: .whitespacesAndNewlines)
             if !clean.isEmpty {
-                messages.append(ChatMessage(role: .assistant, text: "Today's brief\n\n" + clean))
+                appendMessage(ChatMessage(role: .assistant, text: "Today's brief\n\n" + clean))
             }
         } catch let e as AICoachError {
             errorText = e.errorDescription
@@ -558,12 +577,24 @@ final class AICoachEngine: ObservableObject {
         // 1. Strongest behaviour→outcome associations (EffectRanker over the journal × Charge).
         let entries = await repo.journalEntries()
         var byBehaviour: [String: Set<String>] = [:]
-        for e in entries where e.answeredYes { byBehaviour[e.question, default: []].insert(e.day) }
+        var controls: [String: Set<String>] = [:]
+        for e in entries {
+            if e.answeredYes {
+                byBehaviour[e.question, default: []].insert(e.day)
+            } else {
+                controls[e.question, default: []].insert(e.day)
+            }
+        }
         if !byBehaviour.isEmpty {
             let outcomeByDay = Dictionary(
-                repo.days.compactMap { d in d.recovery.map { (d.day, $0) } },
+                repo.canonicalDays.compactMap { d in d.recovery.map { (d.day, $0) } },
                 uniquingKeysWith: { _, last in last })
-            let ranked = EffectRanker.rank(behaviors: byBehaviour, outcomeByDay: outcomeByDay, outcome: "Charge")
+            let ranked = EffectRanker.rank(
+                behaviors: byBehaviour,
+                controls: controls,
+                outcomeByDay: outcomeByDay,
+                outcome: "Charge"
+            )
                 .filter { $0.effect.significant }
                 .prefix(3)
             if !ranked.isEmpty {
@@ -605,6 +636,26 @@ final class AICoachEngine: ObservableObject {
             messages: messages,
             session: session
         )
+    }
+
+    /// True only when local calendar time moved forward to a later day.
+    /// Backward clock or timezone movement keeps the active transcript.
+    nonisolated static func isStaleConversation(
+        lastEpochDay: Int?,
+        todayEpochDay: Int
+    ) -> Bool {
+        guard let lastEpochDay else { return false }
+        return todayEpochDay > lastEpochDay
+    }
+
+    /// Local-day ordinal. Calendar arithmetic handles DST day lengths.
+    nonisolated static func localEpochDay(
+        _ date: Date = Date(),
+        calendar: Calendar = .current
+    ) -> Int {
+        let start = calendar.startOfDay(for: date)
+        let epoch = Date(timeIntervalSince1970: 0)
+        return calendar.dateComponents([.day], from: epoch, to: start).day ?? 0
     }
 
     /// Sliding window over the chat: the FIRST user turn (it carries the metrics context) plus the most
@@ -656,7 +707,10 @@ final class AICoachEngine: ObservableObject {
         // Last ~14 days, newest first for readability.
         let recent = Array(days.suffix(14)).reversed()
         lines.append("")
-        lines.append("Recent days (newest first) — recovery(0-100), effort(0-100), rest/sleep(h), HRV(ms), RHR(bpm):")
+        lines.append(
+            "Recent days (newest first) — recovery(0-100), effort(0-100), rest/sleep(h), "
+            + "deep/REM/light(h), eff(%), HRV(ms), RHR(bpm). A dash means NOT MEASURED, not zero:"
+        )
         for d in recent {
             lines.append("  " + dayLine(d))
         }
@@ -703,14 +757,31 @@ final class AICoachEngine: ObservableObject {
 
     // MARK: Formatting helpers
 
-    private func dayLine(_ d: DailyMetric) -> String {
+    /// Internal so focused app tests can verify the complete coach line.
+    func dayLine(_ d: DailyMetric) -> String {
         var parts: [String] = [d.day + ":"]
         parts.append("recovery " + (d.recovery.map { "\(Int($0.rounded()))" } ?? "—"))
         parts.append("effort " + (d.strain.map { String(format: "%.1f", $0) } ?? "—"))
         parts.append("rest " + (d.totalSleepMin.map { String(format: "%.1fh", $0 / 60) } ?? "—"))
+        parts.append("deep " + hoursOrDash(d.deepMin))
+        parts.append("REM " + hoursOrDash(d.remMin))
+        parts.append("light " + hoursOrDash(d.lightMin))
+        parts.append("eff " + efficiencyPercentOrDash(d.efficiency))
         parts.append("HRV " + (d.avgHrv.map { "\(Int($0.rounded()))ms" } ?? "—"))
         parts.append("RHR " + (d.restingHr.map { "\($0)bpm" } ?? "—"))
         return parts.joined(separator: ", ")
+    }
+
+    private func hoursOrDash(_ minutes: Double?) -> String {
+        minutes.map { String(format: "%.1fh", $0 / 60) } ?? "—"
+    }
+
+    /// Some import paths store 0...1 while others store 0...100.
+    func efficiencyPercentOrDash(_ raw: Double?) -> String {
+        guard var value = raw, value > 0 else { return "—" }
+        if value > 1.5 { value /= 100 }
+        guard value > 0, value <= 1 else { return "—" }
+        return "\(Int((value * 100).rounded()))%"
     }
 
     private func avgOne(_ xs: [Double]) -> String {

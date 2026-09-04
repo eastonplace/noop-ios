@@ -16,6 +16,43 @@ import UniformTypeIdentifiers
 ///   to Files, AirDrop it, or send it on — the idiomatic iOS way to get a file out of the sandbox.
 enum FileExport {
 
+    /// Read a private raw capture and return the exact text that is safe to leave the app. The local raw
+    /// file remains unchanged for protocol research; every user-facing export calls this boundary first.
+    static func sanitizedCaptureData(at source: URL) throws -> Data {
+        let data = try Data(contentsOf: source)
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw CocoaError(.fileReadInapplicableStringEncoding, userInfo: [
+                NSFilePathErrorKey: source.path,
+            ])
+        }
+        return Data(LiveState.redactPii(text).utf8)
+    }
+
+    static func stagedSanitizedCapture(at source: URL, suggestedName: String) throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("noop-sanitized-captures", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let destination = directory.appendingPathComponent(suggestedName)
+        try sanitizedCaptureData(at: source).write(to: destination, options: .atomic)
+        return destination
+    }
+
+    @MainActor
+    static func exportSanitizedCapture(at source: URL, suggestedName: String) throws {
+        let staged = try stagedSanitizedCapture(at: source, suggestedName: suggestedName)
+        #if os(macOS)
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = suggestedName
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let destination = panel.url else { return }
+        let data = try Data(contentsOf: staged)
+        try data.write(to: destination, options: .atomic)
+        #else
+        present(activityItems: [staged], cleanup: [staged])
+        #endif
+    }
+
     /// A short `yyMMdd-HHmm` wall-clock stamp for export filenames (#510 — maddognik's protocol RE),
     /// so a reporter who saves several strap logs / raw captures in a row gets sortable, non-colliding
     /// files (e.g. `noop-strap-log-260617-1042.txt`) instead of repeatedly overwriting one name.
@@ -91,13 +128,14 @@ enum FileExport {
     /// strap log that produced it). Now a 2-entry case of `exportBundle`: both ride in one `.zip` so a
     /// reporter saves them in a single gesture on every platform (the old macOS path opened two save
     /// panels back-to-back; the bundle is one panel). The caller's text is already redacted by its sink;
-    /// the file's bytes are passed through unchanged here. If the source file is absent, falls back to a
+    /// the raw capture is redacted again at this egress boundary. If the source file is absent, falls back to a
     /// single-entry bundle (just the text) so the tap is never a dead end.
     @MainActor
     static func exportPair(file src: URL, fileSuggestedName: String,
                            text: String, textSuggestedName: String) {
         var entries: [BundleEntry] = [BundleEntry(name: textSuggestedName, data: Data(text.utf8))]
-        if FileManager.default.fileExists(atPath: src.path), let fileData = try? Data(contentsOf: src) {
+        if FileManager.default.fileExists(atPath: src.path),
+           let fileData = try? sanitizedCaptureData(at: src) {
             entries.insert(BundleEntry(name: fileSuggestedName, data: fileData), at: 0)
         }
         let zipName = timestampedName("noop-export", ext: "zip")
