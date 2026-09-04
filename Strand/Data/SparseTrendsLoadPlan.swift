@@ -2,6 +2,12 @@ import Foundation
 import NoopPhase34Core
 import WhoopStore
 
+/// Training Load is a current state, not a chart-range aggregate. Every Trends request reads this same
+/// bounded trailing window, and snapshot construction applies the identical suffix before the EWMA.
+enum TrainingLoadTrendsWindow {
+    static let days = 180
+}
+
 public enum SparseTrendsLoadPlan {
     public static func windows(
         anchorDay: CivilDay,
@@ -37,6 +43,15 @@ public enum SparseTrendsLoadPlan {
             to: anchorDay
         )
         dayRanges.append((heatmapFirst, anchorDay))
+
+        // Training Load must not change when the user switches W/M/3M/6M. Keep its history independent
+        // from the chart and weekly-review windows; 180 days is bounded and covers more than four chronic
+        // 42-day time constants while leaving the underlying model's continuity gates unchanged.
+        let trainingFirst = try healthCalendar.adding(
+            days: -(TrainingLoadTrendsWindow.days - 1),
+            to: anchorDay
+        )
+        dayRanges.append((trainingFirst, anchorDay))
 
         // Weekly review is a separate sparse window. The digest consumes the
         // requested baseline weeks plus the immediately-prior comparison week,

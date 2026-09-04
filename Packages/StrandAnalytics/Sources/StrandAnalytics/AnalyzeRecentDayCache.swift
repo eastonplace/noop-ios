@@ -31,11 +31,19 @@ public enum AnalyzeRecentDayCache {
     ///   both a 4.0 and a 5/MG): when a day's resolved owner flips between straps, keying on the owner makes
     ///   the reuse invalidate **explicitly**, rather than relying on two different devices never producing an
     ///   identical `count`+`maxTs` for the same window.
+    /// - `sleepEditFingerprint`: the stable bounds of user-edited or manually added sleep blocks assigned
+    ///   to this day. The new descriptive primary-session and pre-sleep shadows use those effective bounds,
+    ///   so an edit must invalidate a cached observation even when no raw HR row changed.
+    /// - `persistedSleepFingerprint`: the stable bounds of imported sleep blocks assigned to this day.
+    ///   Imported sleep is an authoritative descriptive fallback when the local raw stream cannot detect a
+    ///   night again, so a changed imported bound must also invalidate reuse without relying on an HR change.
     ///
     /// Inputs that feed `analyzeDay` but are pass-global rather than per-day (profile, baselines1, sleep
     /// need / consistency, habitual midsleep, tz, stager toggles) are NOT in this key — the engine drops the
     /// whole cache when its pass config signature changes, which covers them.
     public static func cacheKey(owner: String, hrCount: Int, hrMaxTs: Int, skinAnchorRaw: Double?,
+                                sleepEditFingerprint: String = "",
+                                persistedSleepFingerprint: String = "",
                                 // #1575: whether this day is the one that emits the PER-WINDOW HRV detail
                                 // (`dayStart == nowLocalMidnight`). Now that an active trace no longer
                                 // disables reuse, this has to invalidate: the night cached as "today" with
@@ -47,6 +55,6 @@ public enum AnalyzeRecentDayCache {
                                 // a trace mode is on.
                                 hrvWindowDetail: Bool) -> String {
         let anchor = skinAnchorRaw.map { String($0.bitPattern) } ?? "nil"
-        return "\(owner)|\(hrCount):\(hrMaxTs):\(anchor):\(hrvWindowDetail ? "d" : "s")"
+        return "\(owner)|\(hrCount):\(hrMaxTs):\(anchor):\(sleepEditFingerprint):\(persistedSleepFingerprint):\(hrvWindowDetail ? "d" : "s")"
     }
 }

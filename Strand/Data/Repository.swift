@@ -149,6 +149,13 @@ struct SleepDeletionSnapshot: Equatable {
     var sleepState: [Int]?
 }
 
+/// One stored sleep block with the raw/imported namespace that owns it. Health comparisons must not
+/// discard this identity and then apply one source's boundary to another source's heart-rate samples.
+struct SourcedCachedSleepSession: Equatable, Sendable {
+    let sourceId: String
+    let session: CachedSleepSession
+}
+
 /// Read model over the on-device WhoopStore. Opens its own handle (WAL + busy-timeout makes the
 /// two-handle BLEManager+Repository pattern safe) and publishes the dashboard caches the screens bind to.
 @MainActor
@@ -206,6 +213,9 @@ final class Repository: ObservableObject {
         Set(importedReadIds + computedReadIds + [Self.appleHealthSource, Self.activityFileSource])
     }
     private var store: WhoopStore?
+    /// Blocks ordinary readers from reopening the database between restore quiesce and the verified
+    /// replacement reopen. MainActor isolation makes admission changes atomic with every `ensureStore` call.
+    private var restoreStoreAdmissionBlocked = false
 
     /// Daily metrics (recovery/strain/sleep/HRV/RHR…) over the recent window, oldest→newest.
     @Published var days: [DailyMetric] = []
@@ -426,7 +436,12 @@ final class Repository: ObservableObject {
     var todayHealthSnapshotSleepReadOverride: TodayHealthSnapshotSleepReadOverride = .database
     var todayHealthSnapshotSleepReadHook: (@MainActor () async -> Void)?
     var todayHealthSnapshotHydrationReadHook: (@MainActor () async -> Void)?
+    var todayHealthSnapshotDatabaseIdentityReadHook: (@MainActor () async -> Void)?
     var todayHealthSnapshotDatabaseIdentityUnavailableForTesting = false
+
+    func todayHealthSnapshotDatabaseIdentityForTesting() -> String? {
+        todayHealthSnapshotDatabaseInstanceId
+    }
 
     func setTodayHealthSnapshotTestNow(_ now: Date?) {
         todayHealthSnapshotTestNow = now
@@ -556,6 +571,60 @@ final class Repository: ObservableObject {
             blocks += try await store.sleepSessions(deviceId: id, from: from, to: to, limit: limit)
         }
         return Self.dedupBlocks(blocks.filter(Self.hasValidSleepWindow))
+    }
+
+    /// Publication-sensitive imported-sleep read. Descriptive shadow reconciliation must distinguish an
+    /// honestly empty source from a failed database read; otherwise a transient read error can look like
+    /// "no sleep" and erase previously valid primary-session / pre-sleep observations.
+    func requiredImportedSleepSessionsBySource(
+        store: WhoopStore, from: Int, to: Int, limit: Int = 4_000
+    ) async throws -> [SourcedCachedSleepSession] {
+        var rows: [SourcedCachedSleepSession] = []
+        for sourceId in importedReadIds {
+            let sessions = try await store.sleepSessions(
+                deviceId: sourceId, from: from, to: to, limit: limit
+            )
+            rows += Self.dedupBlocks(sessions.filter(Self.hasValidSleepWindow)).map {
+                SourcedCachedSleepSession(sourceId: sourceId, session: $0)
+            }
+        }
+        return rows.sorted {
+            if $0.session.effectiveStartTs != $1.session.effectiveStartTs {
+                return $0.session.effectiveStartTs < $1.session.effectiveStartTs
+            }
+            if $0.session.endTs != $1.session.endTs {
+                return $0.session.endTs < $1.session.endTs
+            }
+            return $0.sourceId < $1.sourceId
+        }
+    }
+
+    /// Remove optional pre-sleep feedback from every namespace in one atomic key-based delete. A restored
+    /// database can contain stale or unregistered device ids, and privacy revocation must scrub those too.
+    @discardableResult
+    func removeAllPreSleepHeartRateFeedback(store: WhoopStore) async throws -> Int {
+        try await store.deleteMetricSeriesGlobally(keys: PreSleepHeartRateFeedback.metricKeys)
+    }
+
+    /// A sleep boundary owns the optional pre-sleep observation stored under its local wake day. Any
+    /// session-set mutation must clear that derived observation across every namespace before changing the
+    /// session rows. Repeating the same invalidation after the write closes the complementary ordering where
+    /// an already-running analysis finishes between the first deletion and the boundary mutation.
+    @discardableResult
+    func invalidatePreSleepHeartRateFeedback(
+        store: WhoopStore,
+        wakeTimestamps: [Int],
+        additionalWakeDays: [String] = []
+    ) async throws -> Int {
+        var wakeDays = Set(additionalWakeDays)
+        for timestamp in wakeTimestamps {
+            wakeDays.insert(Self.localDayKey(Date(timeIntervalSince1970: TimeInterval(timestamp))))
+        }
+        guard !wakeDays.isEmpty else { return 0 }
+        return try await store.deleteMetricSeriesGlobally(
+            keys: PreSleepHeartRateFeedback.metricKeys,
+            onDays: wakeDays.sorted()
+        )
     }
 
     /// metricSeries points across the imported union for a key + day range, DEDUPED per day with the active
@@ -1015,10 +1084,20 @@ final class Repository: ObservableObject {
 
     /// In-flight open, so concurrent first-callers share ONE open instead of each opening their own.
     private var storeOpenTask: Task<WhoopStore?, Never>?
+    /// Invalidates an open that began before restore quiesce. The task itself cannot be cancelled safely while
+    /// SQLite is opening/migrating, so its caller checks this generation before publishing the returned handle.
+    private var storeOpenGeneration = 0
 
-    private func ensureStore() async -> WhoopStore? {
+    private func ensureStore(allowDuringRestore: Bool = false) async -> WhoopStore? {
+        guard allowDuringRestore || !restoreStoreAdmissionBlocked else { return nil }
         if let store {
-            await cacheTodayHealthSnapshotDatabaseIdentity(from: store)
+            let generation = storeOpenGeneration
+            await cacheTodayHealthSnapshotDatabaseIdentity(
+                from: store,
+                expectedGeneration: generation
+            )
+            guard generation == storeOpenGeneration,
+                  allowDuringRestore || !restoreStoreAdmissionBlocked else { return nil }
             return store
         }
         // SINGLE-FLIGHT (measured 2026-07-01 on a 5M-row DB): several screens ask for the store at once
@@ -1027,7 +1106,14 @@ final class Repository: ObservableObject {
         // races past the `if let store` check while the others are awaiting the open, and they ALL open a
         // fresh connection and re-run quarantineIncompatibleDatabase (a thundering herd of DB opens on a
         // large library at the worst moment). Cache the in-flight open Task so concurrent callers join it.
-        if let storeOpenTask { return await storeOpenTask.value }
+        if let storeOpenTask {
+            let generation = storeOpenGeneration
+            let opened = await storeOpenTask.value
+            guard generation == storeOpenGeneration,
+                  allowDuringRestore || !restoreStoreAdmissionBlocked else { return nil }
+            return opened
+        }
+        let generation = storeOpenGeneration
         let task = Task { [deviceId] () -> WhoopStore? in
             // Don't swallow the open failure with `try?` (#222): an import-time open failure (e.g. the iOS
             // data-protected store while the device is locked) was previously invisible, surfacing only as
@@ -1052,21 +1138,34 @@ final class Repository: ObservableObject {
         }
         storeOpenTask = task
         let opened = await task.value
+        guard generation == storeOpenGeneration,
+              allowDuringRestore || !restoreStoreAdmissionBlocked else { return nil }
         if let opened {
             store = opened
-            await cacheTodayHealthSnapshotDatabaseIdentity(from: opened)
+            await cacheTodayHealthSnapshotDatabaseIdentity(
+                from: opened,
+                expectedGeneration: generation
+            )
+            guard generation == storeOpenGeneration,
+                  allowDuringRestore || !restoreStoreAdmissionBlocked else { return nil }
         }
         storeOpenTask = nil
         return opened
     }
 
-    private func cacheTodayHealthSnapshotDatabaseIdentity(from store: WhoopStore) async {
+    private func cacheTodayHealthSnapshotDatabaseIdentity(
+        from store: WhoopStore,
+        expectedGeneration: Int
+    ) async {
 #if DEBUG
         guard !todayHealthSnapshotDatabaseIdentityUnavailableForTesting else { return }
 #endif
-        guard todayHealthSnapshotDatabaseInstanceId == nil,
-              let id = try? await store.todayHealthSnapshotDatabaseInstanceId()
-        else { return }
+        guard todayHealthSnapshotDatabaseInstanceId == nil else { return }
+        guard let id = try? await store.todayHealthSnapshotDatabaseInstanceId() else { return }
+#if DEBUG
+        if let hook = todayHealthSnapshotDatabaseIdentityReadHook { await hook() }
+#endif
+        guard expectedGeneration == storeOpenGeneration else { return }
         todayHealthSnapshotDatabaseInstanceId = id
     }
 
@@ -1886,6 +1985,10 @@ final class Repository: ObservableObject {
     }
 
     func quiesceStoreForRestore() async throws {
+        // Close admission before the first suspension. An analysis/UI task that arrives while the file swap
+        // is in progress must see no handle instead of reopening the database generation being replaced.
+        restoreStoreAdmissionBlocked = true
+        storeOpenGeneration &+= 1
         _ = invalidateTodayHealthSnapshotInMemory()
         // The old dashboard rows are a different database generation. Clear them before replacement so no
         // screen can render an old Recovery/Sleep/Strain value while the restored store is opening.
@@ -1901,18 +2004,37 @@ final class Repository: ObservableObject {
         liveDayStrain = nil
         loaded = false
         refreshSeq &+= 1
-        if let storeOpenTask { _ = await storeOpenTask.value }
-        if let store { try await store.close() }
+        let openingStore: WhoopStore? = if let storeOpenTask { await storeOpenTask.value } else { nil }
+        do {
+            if let storeToClose = store ?? openingStore { try await storeToClose.close() }
+        } catch {
+            // Replacement never starts when quiesce throws. Drop the uncertain handle and reopen admission so
+            // the existing database can recover through the next ordinary access instead of staying wedged.
+            store = nil
+            storeOpenTask = nil
+            todayHealthSnapshotDatabaseInstanceId = nil
+            restoreStoreAdmissionBlocked = false
+            throw error
+        }
         store = nil
         storeOpenTask = nil
         todayHealthSnapshotDatabaseInstanceId = nil
     }
 
     func reopenStoreAfterRestore() async throws {
-        guard await ensureStore() != nil else {
+        guard let store = await ensureStore(allowDuringRestore: true) else {
             throw NSError(domain: "NOOP.Restore", code: 1,
                           userInfo: [NSLocalizedDescriptionKey: "The repository database could not be reopened."])
         }
+        // Backup settings deliberately do not transfer this health-feedback opt-in. If the local user has
+        // not opted in, scrub restored observations before hydrating or refreshing any user-visible state.
+        // Throwing here makes DataBackup roll the replacement back instead of publishing a partial scrub.
+        if !UserDefaults.standard.bool(forKey: PreSleepHeartRateFeedback.enabledKey) {
+            try await removeAllPreSleepHeartRateFeedback(store: store)
+        }
+        // The replacement is migrated and privacy-scrubbed. Ordinary readers may now join this generation;
+        // hydration and refresh below use the same admitted handle.
+        restoreStoreAdmissionBlocked = false
         // Read the restored database's one-row snapshot before the broad refresh. The generation/context
         // gates above make it impossible to blend this with the pre-restore snapshot.
         await hydrateTodayHealthSnapshot()
@@ -2679,6 +2801,36 @@ final class Repository: ObservableObject {
         return byStart.values.sorted { $0.ts < $1.ts }
     }
 
+    /// A descriptive sleep-versus-awake comparison is honest only when its complete history maps to one
+    /// raw namespace. A re-paired install has active and canonical sources, so the UI fails closed until
+    /// source provenance is carried through the sleep navigation model.
+    var sleepHeartRateComparisonSourceId: String? {
+        Self.onlyDistinctSource(importedReadIds)
+    }
+
+    nonisolated static func onlyDistinctSource(_ sourceIds: [String]) -> String? {
+        var distinct: [String] = []
+        for sourceId in sourceIds where !distinct.contains(sourceId) {
+            distinct.append(sourceId)
+            if distinct.count > 1 { return nil }
+        }
+        return distinct.first
+    }
+
+    /// Source-pinned variant used only by the sleep/wake comparison. The source must still belong to the
+    /// current imported-read set when the asynchronous read begins; a source transition returns no rows.
+    func hrBuckets(
+        sourceId: String,
+        from: Int,
+        to: Int,
+        bucketSeconds: Int = 300
+    ) async -> [HRBucket] {
+        guard importedReadIds.contains(sourceId), let store = await ensureStore() else { return [] }
+        return (try? await store.hrBuckets(
+            deviceId: sourceId, from: from, to: to, bucketSeconds: bucketSeconds
+        )) ?? []
+    }
+
     /// The latest (greatest-ts) non-nil @63 activity class over `[from, to]`, read across the active strap +
     /// canonical UNION (`importedReadIds`), for the Steps tile icon (#316 / @63). A re-added strap banks its
     /// LIVE step samples (which carry `activityClass`) under its OWN fresh id via the Collector, exactly like
@@ -2874,6 +3026,19 @@ final class Repository: ObservableObject {
             start: newStartTs, end: newEndTs, now: Int(Date().timeIntervalSince1970)) else { return }
         let (safeStartTs, safeEndTs) = window
 
+        // Pre-sleep feedback is keyed by the local wake day and its historical baseline can outlive the
+        // 21-day rescore window. Remove both the old and new wake-day observations BEFORE changing the
+        // boundary, across every namespace that a restore/re-pair may have left behind. If invalidation
+        // fails, keep the old sleep row too: an edited boundary must never coexist with a stale observation.
+        do {
+            _ = try await invalidatePreSleepHeartRateFeedback(
+                store: store,
+                wakeTimestamps: [oldEndTs, safeEndTs]
+            )
+        } catch {
+            return
+        }
+
         // A user-bounded recovery owns a protected daily Rest/Charge overlay. Its
         // bounds must be re-analysed and re-keyed in the recovery writer’s single
         // transaction; the generic stage-only edit would fire the invalidation trigger
@@ -2888,6 +3053,10 @@ final class Repository: ObservableObject {
                     startTs: safeStartTs,
                     endTs: safeEndTs,
                     replacingStartTs: detectedStartTs)
+                _ = try? await invalidatePreSleepHeartRateFeedback(
+                    store: store,
+                    wakeTimestamps: [oldEndTs, safeEndTs]
+                )
                 return
             }
         } catch {
@@ -2913,6 +3082,10 @@ final class Repository: ObservableObject {
                 deviceId: deviceId, detectedStartTs: detectedStartTs,
                 newStartTs: safeStartTs, newEndTs: safeEndTs, stagesJSON: stagesJSON)
         }
+        _ = try? await invalidatePreSleepHeartRateFeedback(
+            store: store,
+            wakeTimestamps: [oldEndTs, safeEndTs]
+        )
         await invalidateTodayHealthSnapshot()
         await refresh()
     }
@@ -2944,6 +3117,15 @@ final class Repository: ObservableObject {
         // computed source first, imported deviceId as the fallback. A one-second-wide window around the
         // immutable detected key uniquely identifies the row (the key never moves).
         let snapshot = await ownedSleepRowSnapshot(store: store, detectedStartTs: detectedStartTs)
+        let affectedWakeTimestamps = [snapshot?.session.endTs ?? endTs]
+        do {
+            _ = try await invalidatePreSleepHeartRateFeedback(
+                store: store,
+                wakeTimestamps: affectedWakeTimestamps
+            )
+        } catch {
+            return nil
+        }
         // Record the durable tombstone ONLY for a DETECTED night. A `userEdited` row (a hand-corrected
         // night or a manually-added nap) is never re-detected, so suppressing its window would needlessly
         // block a real future night that happens to overlap it.
@@ -2957,6 +3139,10 @@ final class Repository: ObservableObject {
         if computedDeleted == 0 {
             _ = try? await store.deleteSleepSession(deviceId: deviceId, startTs: detectedStartTs)
         }
+        _ = try? await invalidatePreSleepHeartRateFeedback(
+            store: store,
+            wakeTimestamps: affectedWakeTimestamps
+        )
         await invalidateTodayHealthSnapshot()
         await refresh()
         return snapshot
@@ -2969,6 +3155,14 @@ final class Repository: ObservableObject {
     /// (a `userEdited` delete) still restores the row.
     func undoDeleteSleepSession(_ snapshot: SleepDeletionSnapshot) async {
         guard let store = await ensureStore() else { return }
+        do {
+            _ = try await invalidatePreSleepHeartRateFeedback(
+                store: store,
+                wakeTimestamps: [snapshot.session.endTs]
+            )
+        } catch {
+            return
+        }
         // Lift the tombstone so the restored night is not immediately re-suppressed on the next pass.
         dismissedSleepSpans = DismissedSleepSpans.removing(startTs: snapshot.session.startTs,
                                                            endTs: snapshot.endTs, from: dismissedSleepSpans)
@@ -2984,6 +3178,10 @@ final class Repository: ObservableObject {
         _ = try? await store.persistSessionSleepState(deviceId: snapshot.ownerDeviceId,
                                                      sessionStart: snapshot.session.startTs,
                                                      states: snapshot.sleepState ?? [])
+        _ = try? await invalidatePreSleepHeartRateFeedback(
+            store: store,
+            wakeTimestamps: [snapshot.session.endTs]
+        )
         await invalidateTodayHealthSnapshot()
         await refresh()
     }
@@ -3074,9 +3272,21 @@ final class Repository: ObservableObject {
         let stagesJSON = await restageFromRaw(start: safeStartTs, end: safeEndTs)
             ?? AnalyticsEngine.encodeStages([StageSegment(start: safeStartTs, end: safeEndTs, stage: "wake")])
         let efficiency = sleepEfficiency(fromStagesJSON: stagesJSON)
+        do {
+            _ = try await invalidatePreSleepHeartRateFeedback(
+                store: store,
+                wakeTimestamps: [safeEndTs]
+            )
+        } catch {
+            return
+        }
         _ = try? await store.insertManualSleepSession(
             deviceId: computedDeviceId, startTs: safeStartTs, endTs: safeEndTs,
             efficiency: efficiency, stagesJSON: stagesJSON)
+        _ = try? await invalidatePreSleepHeartRateFeedback(
+            store: store,
+            wakeTimestamps: [safeEndTs]
+        )
         await invalidateTodayHealthSnapshot()
         await refresh()
     }
@@ -3108,7 +3318,8 @@ final class Repository: ObservableObject {
     /// Extracted from `editSleepTimes` so the post-sync self-heal reuses the exact density gate +
     /// staging. Stages OFF the main actor , Repository is `@MainActor` and a multi-hour window is tens of
     /// thousands of samples, which would otherwise freeze the UI.
-    private func restageFromRaw(start: Int, end: Int) async -> String? {
+    private func restageFromRaw(start: Int, end: Int, sourceId: String? = nil) async -> String? {
+        let rawSourceId = sourceId ?? deviceId
         guard let store = await ensureStore() else { return nil }
         let (lo, lowerPaddingOverflow) = start.subtractingReportingOverflow(3_600)
         let (hi, upperPaddingOverflow) = end.addingReportingOverflow(3_600)
@@ -3118,17 +3329,27 @@ final class Repository: ObservableObject {
               !durationOverflow,
               windowSeconds > 0
         else { return nil }
-        let grav = (try? await store.gravitySamples(deviceId: deviceId, from: lo, to: hi, limit: 200_000)) ?? []
+        let grav = (try? await store.gravitySamples(
+            deviceId: rawSourceId, from: lo, to: hi, limit: 200_000
+        )) ?? []
         let inWindowGravity = grav.lazy.filter { $0.ts >= start && $0.ts <= end }.count
         guard inWindowGravity >= max(20, windowSeconds / 120) else { return nil }
-        let hr = (try? await store.hrSamples(deviceId: deviceId, from: lo, to: hi, limit: 200_000)) ?? []
-        let rr = (try? await store.rrIntervals(deviceId: deviceId, from: lo, to: hi, limit: 200_000)) ?? []
-        let resp = (try? await store.respSamples(deviceId: deviceId, from: lo, to: hi, limit: 200_000)) ?? []
+        let hr = (try? await store.hrSamples(
+            deviceId: rawSourceId, from: lo, to: hi, limit: 200_000
+        )) ?? []
+        let rr = (try? await store.rrIntervals(
+            deviceId: rawSourceId, from: lo, to: hi, limit: 200_000
+        )) ?? []
+        let resp = (try? await store.respSamples(
+            deviceId: rawSourceId, from: lo, to: hi, limit: 200_000
+        )) ?? []
         // Read only when the refinement below might actually use it (see `useMotionAwareWake`) — a plain
         // read cost, but no point paying it on the (default) off path.
         let useMotionAwareWake = PuffinExperiment.motionAwareWakeEnabled
         let steps = useMotionAwareWake
-            ? ((try? await store.stepSamples(deviceId: deviceId, from: lo, to: hi, limit: 200_000)) ?? [])
+            ? ((try? await store.stepSamples(
+                deviceId: rawSourceId, from: lo, to: hi, limit: 200_000
+            )) ?? [])
             : []
         // Opt-in experimental staging (Settings → Experimental · Sleep staging): when the user has flipped
         // the V2 flag on, re-stage with the cardiorespiratory recipe `SleepStagerV2`; otherwise the default
@@ -3156,10 +3377,15 @@ final class Repository: ObservableObject {
     /// imported night (raw never dense) is left untouched (`restageFromRaw` returns nil). Reads/writes the
     /// COMPUTED source , the same one `analyzeRecent` reads edited rows from. Returns the (possibly
     /// refreshed) edited rows so the caller recomputes daily aggregates from the corrected stages.
-    func selfHealEditedStages(from windowStart: Int, to windowEnd: Int) async -> [CachedSleepSession] {
+    func selfHealEditedStages(
+        sourceId: String,
+        from windowStart: Int,
+        to windowEnd: Int
+    ) async -> [CachedSleepSession] {
+        let computedSourceId = sourceId + "-noop"
         guard let store = await ensureStore() else { return [] }
         func editedRows() async -> [CachedSleepSession] {
-            ((try? await store.sleepSessions(deviceId: computedDeviceId, from: windowStart,
+            ((try? await store.sleepSessions(deviceId: computedSourceId, from: windowStart,
                                              to: windowEnd, limit: 100_000)) ?? [])
                 .filter { $0.userEdited }
         }
@@ -3169,9 +3395,13 @@ final class Repository: ObservableObject {
         for row in edited {
             // Re-derive over the LOCKED corrected window (effective onset → wake). Skip when the raw
             // isn't dense yet, or when the result already matches what's stored (steady state , no write).
-            guard let newJSON = await restageFromRaw(start: row.effectiveStartTs, end: row.endTs),
+            guard let newJSON = await restageFromRaw(
+                start: row.effectiveStartTs,
+                end: row.endTs,
+                sourceId: sourceId
+            ),
                   newJSON != row.stagesJSON else { continue }
-            let n = (try? await store.updateSleepStages(deviceId: computedDeviceId,
+            let n = (try? await store.updateSleepStages(deviceId: computedSourceId,
                                                         detectedStartTs: row.startTs,
                                                         stagesJSON: newJSON)) ?? 0
             if n > 0 { healed = true }

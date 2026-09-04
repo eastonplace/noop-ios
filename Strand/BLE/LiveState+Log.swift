@@ -27,7 +27,8 @@ extension LiveState {
     nonisolated static let tailLimit = 2_000
 
     nonisolated static func persistTail(_ lines: [String]) {
-        let tail = lines.count > tailLimit ? Array(lines.suffix(tailLimit)) : lines
+        let redacted = lines.map(Self.redactPii)
+        let tail = redacted.count > tailLimit ? Array(redacted.suffix(tailLimit)) : redacted
         UserDefaults.standard.set(tail, forKey: tailKey)
     }
 
@@ -41,7 +42,12 @@ extension LiveState {
     }
 
     nonisolated public static func persistedLogTail() -> [String] {
-        (UserDefaults.standard.array(forKey: tailKey) as? [String]) ?? []
+        let stored = (UserDefaults.standard.array(forKey: tailKey) as? [String]) ?? []
+        let redacted = stored.map(Self.redactPii)
+        if redacted != stored {
+            UserDefaults.standard.set(redacted, forKey: tailKey)
+        }
+        return redacted
     }
 
     nonisolated public static func scheduledExportText(extraHeaderLines: [String] = []) -> String {
@@ -53,8 +59,87 @@ extension LiveState {
         return header + persistedLogTail().joined(separator: "\n")
     }
 
+    /// Mask serial-shaped ASCII runs embedded inside a hexadecimal frame dump. Event 109 on WHOOP 5/MG
+    /// can carry the strap serial this way, where the ordinary text rules below cannot see it. Preserve all
+    /// other bytes so the diagnostic remains useful. Process an even prefix of odd-length runs and leave a
+    /// trailing half-byte unchanged.
+    nonisolated static func redactHexDump(_ hex: String) -> String {
+        let characters = Array(hex)
+        guard characters.count >= 16 else { return hex }
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(characters.count / 2)
+        var characterIndex = 0
+        while characterIndex + 1 < characters.count {
+            guard let byte = UInt8(String(characters[characterIndex...(characterIndex + 1)]), radix: 16) else {
+                return hex
+            }
+            bytes.append(byte)
+            characterIndex += 2
+        }
+
+        var output = characters
+        var runStart = -1
+        func closeRun(at end: Int) {
+            defer { runStart = -1 }
+            guard runStart >= 0, end - runStart >= 9 else { return }
+            var containsLetter = false
+            for index in runStart..<end {
+                let byte = bytes[index]
+                if (byte >= 65 && byte <= 90) || (byte >= 97 && byte <= 122) {
+                    containsLetter = true
+                    break
+                }
+            }
+            guard containsLetter else { return }
+            // Mask the complete serial-shaped run. Looking only at bytes after the first letter leaked
+            // valid serials with a long numeric prefix and letters near the end (for example 123456789ABC).
+            for maskedIndex in runStart..<end {
+                output[maskedIndex * 2] = "•"
+                output[maskedIndex * 2 + 1] = "•"
+            }
+        }
+
+        for (index, byte) in bytes.enumerated() {
+            let isAlphanumeric = (byte >= 48 && byte <= 57)
+                || (byte >= 65 && byte <= 90)
+                || (byte >= 97 && byte <= 122)
+            if isAlphanumeric {
+                if runStart < 0 { runStart = index }
+            } else {
+                closeRun(at: index)
+            }
+        }
+        closeRun(at: bytes.count)
+        return String(output)
+    }
+
+    nonisolated private static let hexRunRegex = try? NSRegularExpression(
+        pattern: "[0-9a-fA-F]{16,}"
+    )
+
     nonisolated static func redactPii(_ value: String) -> String {
         var output = value
+        if let regex = Self.hexRunRegex {
+            let source = output as NSString
+            let matches = regex.matches(
+                in: output,
+                range: NSRange(location: 0, length: source.length)
+            )
+            if !matches.isEmpty {
+                var rebuilt = ""
+                var lastLocation = 0
+                for match in matches {
+                    rebuilt += source.substring(with: NSRange(
+                        location: lastLocation,
+                        length: match.range.location - lastLocation
+                    ))
+                    rebuilt += Self.redactHexDump(source.substring(with: match.range))
+                    lastLocation = match.range.location + match.range.length
+                }
+                rebuilt += source.substring(from: lastLocation)
+                output = rebuilt
+            }
+        }
         output = output.replacingOccurrences(
             of: "([0-9A-Fa-f]{2}):[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:([0-9A-Fa-f]{2})",
             with: "$1:••:••:••:••:$2",

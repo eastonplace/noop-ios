@@ -199,10 +199,10 @@ public final class FrameRouter {
                 // observation: u8 bit0, ~every 8 min on captured links). Flag only — battery %
                 // keeps its family-specific source (#77). No freshness gate needed here: this
                 // path never sees historical replay (backfill skips handle(frame:), see below).
-                if ev.hasPrefix("BATTERY_LEVEL"),
-                   let ch = parsed.parsed["battery_charging"]?.intValue {
-                    state.charging = (ch != 0)
-                }
+                applyLiveChargingState(
+                    event: ev,
+                    batteryCharging: parsed.parsed["battery_charging"]?.intValue
+                )
                 // Physical inputs the strap exposes — live only (this path never sees historical
                 // replay, which goes through the Backfiller). Event strings are "NAME(rawValue)".
                 if ev.hasPrefix("DOUBLE_TAP") {
@@ -229,6 +229,28 @@ public final class FrameRouter {
 
         default:
             break
+        }
+    }
+
+    /// Charging state carried by live EVENT packets. WHOOP 5/MG pack attach/remove edges arrive before
+    /// the periodic BATTERY_LEVEL event, so using them updates the existing charging and low-battery policy
+    /// without adding Bluetooth traffic. This router never receives historical replay frames.
+    nonisolated static func liveChargingState(event: String, batteryCharging: Int?) -> Bool? {
+        if event.hasPrefix("BATTERY_LEVEL"), let batteryCharging {
+            return batteryCharging != 0
+        }
+        if event.hasPrefix("CHARGING_ON") { return true }
+        if event.hasPrefix("CHARGING_OFF") { return false }
+        if event.hasPrefix("BATTERY_PACK_CONNECTED") { return true }
+        if event.hasPrefix("BATTERY_PACK_REMOVED") { return false }
+        return nil
+    }
+
+    func applyLiveChargingState(event: String, batteryCharging: Int?) {
+        if let charging = Self.liveChargingState(
+            event: event, batteryCharging: batteryCharging
+        ) {
+            state.charging = charging
         }
     }
 

@@ -107,6 +107,8 @@ private struct DevicesContent: View {
             addButton
                 .staggeredAppear(index: activeDevices.count)
 
+            StrapComparisonCard(devices: activeDevices, repository: model.repo)
+
             sectionHead("COMMAND CENTRE", trailing: String(localized: "Live controls"))
             if let device = activeDevice {
                 DeviceCommandCenterSnapshotObservation(live: live) { snapshot in

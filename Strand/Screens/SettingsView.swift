@@ -33,6 +33,8 @@ struct SettingsDetailHost: View {
     @State private var backupAlertTitle = ""
     @State private var backupAlertMessage = ""
     @State private var showBackupAlert = false
+    @State private var showOversizeRestoreConfirm = false
+    @State private var oversizeRestoreMessage = ""
 
     /// Opt-in WHOOP 5/MG protocol experiments (off by default). See [PuffinExperiment].
     @AppStorage(PuffinExperiment.defaultsKey) private var puffinExperiments = false
@@ -169,6 +171,12 @@ struct SettingsDetailHost: View {
             Button("OK", role: .cancel) { }
         } message: {
             Text(backupAlertMessage)
+        }
+        .alert("Backup problem", isPresented: $showOversizeRestoreConfirm) {
+            Button("Restore") { runImport(allowOversize: true) }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text(oversizeRestoreMessage)
         }
         .confirmationDialog("Recalibrate your Recovery baseline?",
                             isPresented: $showRecalibrateConfirm, titleVisibility: .visible) {
@@ -2090,24 +2098,13 @@ struct SettingsDetailHost: View {
         // Suggest a friendly, timestamped name so a reporter saving several captures gets sortable,
         // non-colliding files (#510) — e.g. noop-raw-capture-260617-1042.json.
         let suggested = FileExport.timestampedName("noop-raw-capture", ext: "json")
-        #if os(macOS)
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.json]
-        panel.nameFieldStringValue = suggested
-        panel.canCreateDirectories = true
-        guard panel.runModal() == .OK, let dest = panel.url else { return }
-        let fm = FileManager.default
         do {
-            if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
-            try fm.copyItem(at: src, to: dest)
+            try FileExport.exportSanitizedCapture(at: src, suggestedName: suggested)
         } catch {
             backupAlertTitle = String(localized: "Export failed")
             backupAlertMessage = error.localizedDescription
             showBackupAlert = true
         }
-        #else
-        FileExport.exportFile(at: src, suggestedName: suggested)
-        #endif
     }
 
     /// One-tap matched-pair export (#510): export the raw puffin capture AND the strap log together,
@@ -2132,8 +2129,18 @@ struct SettingsDetailHost: View {
     /// Flush, then reveal the capture file in Finder so the user can grab it directly.
     private func revealPuffinCaptures() {
         model.ble.flushPuffinCaptures()
-        guard let url = live.puffinCaptureURL else { return }
-        NSWorkspace.shared.activateFileViewerSelecting([url])
+        guard let source = live.puffinCaptureURL else { return }
+        do {
+            let suggested = FileExport.timestampedName("noop-raw-capture", ext: "json")
+            let redacted = try FileExport.stagedSanitizedCapture(
+                at: source, suggestedName: suggested
+            )
+            NSWorkspace.shared.activateFileViewerSelecting([redacted])
+        } catch {
+            backupAlertTitle = String(localized: "Export failed")
+            backupAlertMessage = error.localizedDescription
+            showBackupAlert = true
+        }
     }
     #endif
 
@@ -2243,10 +2250,13 @@ struct SettingsDetailHost: View {
         }
     }
 
-    private func runImport() {
+    private func runImport(allowOversize: Bool = false) {
         backupBusy = true
         Task {
-            let result = await DataBackup.runImport(lifecycle: model.backupRestoreLifecycle)
+            let result = await DataBackup.runImport(
+                lifecycle: model.backupRestoreLifecycle,
+                allowOversize: allowOversize
+            )
             handleBackup(result)
         }
     }
@@ -2281,10 +2291,20 @@ struct SettingsDetailHost: View {
             backupAlertTitle = String(localized: "Backup exported")
             backupAlertMessage = String(localized: "Saved to \(url.lastPathComponent). Copy this file to your other \(Platform.deviceNoun) and use Import there to restore everything.")
             showBackupAlert = true
+        case .exportedOversize(let url, let bytes, let limit):
+            let size = ByteCountFormatter.string(fromByteCount: Int64(clamping: bytes), countStyle: .file)
+            let cap = ByteCountFormatter.string(fromByteCount: Int64(clamping: limit), countStyle: .file)
+            backupAlertTitle = String(localized: "Backup exported")
+            backupAlertMessage = String(localized: "Saved to \(url.lastPathComponent). Your database is \(size), above the normal \(cap) restore limit. The backup is complete. Import will ask before restoring a database this large.")
+            showBackupAlert = true
         case .imported:
             backupAlertTitle = String(localized: "Backup imported")
             backupAlertMessage = String(localized: "Your data has been restored and is ready to use.")
             showBackupAlert = true
+        case .restoreTooLarge(let name, let limit):
+            let cap = ByteCountFormatter.string(fromByteCount: Int64(clamping: limit), countStyle: .file)
+            oversizeRestoreMessage = String(localized: "\(name) is larger than the normal \(cap) database limit. Restore it only if you trust this backup and have enough free storage. All other archive and database checks will still run. You will choose the file again.")
+            showOversizeRestoreConfirm = true
         case .failure(let message):
             backupAlertTitle = String(localized: "Backup problem")
             backupAlertMessage = message

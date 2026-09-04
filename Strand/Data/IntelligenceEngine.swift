@@ -134,6 +134,9 @@ final class IntelligenceEngine: ObservableObject {
     /// MainActor-bound `diagnosticSink` in the SAME per-day order. The immutable value graph is explicitly
     /// `Sendable` because it crosses from the detached scan back to the main-actor fold.
     private struct DayScan: Sendable {
+        /// Civil day this scan represents. It remains available even when scoring is skipped, so
+        /// descriptive shadows can still be reconciled from their lower sample thresholds.
+        let day: String
         /// Nil when the upstream raw-HR gate rejected this day. Keeping that decision in the detached
         /// result lets the main actor replay its diagnostic without ever touching the sink off actor.
         let result: AnalyticsEngine.DayResult?
@@ -166,6 +169,10 @@ final class IntelligenceEngine: ObservableObject {
         /// One privacy-safe reason an upstream day was not scored. A sparse raw stream is materially
         /// different from a stager that found no sleep, so it must survive into the shareable strap log.
         let skippedLine: String?
+        /// Shadow-only primary-session mean RHR and raw coverage. Persisted for validation, never scored.
+        let primarySessionRHR: PrimarySessionRestingHR.Measurement?
+        /// Opt-in descriptive pre-sleep observation. Persisted for display only; never scored.
+        let preSleepObservation: PreSleepHeartRateFeedback.Observation?
     }
 
     /// Small, in-memory pass-1 result. Raw sensor rows are never retained here.
@@ -221,7 +228,8 @@ final class IntelligenceEngine: ObservableObject {
         deepHrvWindow: Bool,
         sleepTraceActive: Bool,
         hrvTraceActive: Bool,
-        stepsTraceActive: Bool
+        stepsTraceActive: Bool,
+        preSleepFeedbackEnabled: Bool = false
     ) -> String {
         func bits(_ value: Double?) -> String { value.map { String($0.bitPattern) } ?? "nil" }
         func baseline(_ value: BaselineState?) -> String {
@@ -252,6 +260,7 @@ final class IntelligenceEngine: ObservableObject {
             "sleepTrace=\(sleepTraceActive)",
             "hrvTrace=\(hrvTraceActive)",
             "stepsTrace=\(stepsTraceActive)",
+            "preSleepFeedback=\(preSleepFeedbackEnabled)",
             // The pass always banks the decoded raw SpO2 candidate; there is no scoring/display toggle
             // in this engine. Keep the state explicit so a future toggle must update this signature.
             "spo2Candidate=raw-banked-v1",
@@ -306,6 +315,36 @@ final class IntelligenceEngine: ObservableObject {
 
     init(repo: Repository, profile: ProfileStore, deviceId: String) {
         self.repo = repo; self.profile = profile; self.deviceId = deviceId
+    }
+
+    /// Apply the user's pre-sleep-feedback consent boundary. Enabling forces a fresh normal scan.
+    /// Disabling removes every persisted pre-sleep point in the canonical computed namespace before
+    /// changing the preference, so a failed cleanup cannot claim the feature is fully off.
+    @discardableResult
+    func setPreSleepHeartRateFeedbackEnabled(_ enabled: Bool) async -> Bool {
+        guard !computing else { return false }
+        let defaults = UserDefaults.standard
+        if enabled {
+            defaults.set(true, forKey: PreSleepHeartRateFeedback.enabledKey)
+            return await analyzeRecent(force: true)
+        }
+
+        // Claim the same admission flag as analysis before the first suspension. MainActor isolation makes
+        // this check-and-set atomic: a successful cleanup cannot overlap a pass that captured consent=true
+        // and later reinsert the rows, and a pass already running makes opt-out fail closed for retry.
+        computing = true
+        defer { computing = false }
+        guard let store = await repo.storeHandle() else { return false }
+        do {
+            _ = try await repo.removeAllPreSleepHeartRateFeedback(store: store)
+        } catch {
+            NSLog("IntelligenceEngine: pre-sleep opt-out cleanup failed: \(error)")
+            return false
+        }
+        defaults.set(false, forKey: PreSleepHeartRateFeedback.enabledKey)
+        dayScanCacheConfigSignature = ""
+        _ = await repo.refresh(.currentDay)
+        return true
     }
 
     // NOTE (#814 union-model follow-up): the engine intentionally has NO `adoptActiveDeviceId`. Its write
@@ -655,6 +694,11 @@ final class IntelligenceEngine: ObservableObject {
         // collides must report non-completion; the coordinator preserves and retries the exact request.
         // Never spawn an unstructured replay here: it loses the request's publication/postcondition contract.
         guard !computing else { return false }
+        // Claim admission before `storeHandle` or the watermark read can suspend. The pre-sleep consent
+        // cleanup uses this same flag, closing the MainActor reentrancy window between the old guard and the
+        // former late assignment below.
+        computing = true
+        defer { computing = false }
         guard let store = await repo.storeHandle() else {
             note = String(localized: "No on-device store yet.")
             return false
@@ -681,9 +725,6 @@ final class IntelligenceEngine: ObservableObject {
             performanceChangedRows = 0
             return false
         }
-
-        computing = true
-        defer { computing = false }
 
         let up = UserProfile(weightKg: profile.weightKg, heightCm: profile.heightCm,
                              age: Double(profile.age), sex: profile.sex,
@@ -782,6 +823,38 @@ final class IntelligenceEngine: ObservableObject {
             return false
         }
 
+        let computedId = deviceId + "-noop"
+        let windowStart = oldestCivilDay.start - 30 * 3_600
+        let windowEnd = startOffset == 0 ? now : newestCivilDay.nextStart
+        // Resolve the complete effective sleep-boundary input before pass 1. Shadow RHR and opt-in
+        // pre-sleep observations must follow a user's corrected bedtime/wake time in this same pass, and
+        // the per-day edit fingerprint below prevents a warm raw-HR cache from replaying old bounds.
+        let editedRowsSourceId = repo.deviceId
+        let editedRows = await repo.selfHealEditedStages(
+            sourceId: editedRowsSourceId,
+            from: windowStart,
+            to: windowEnd
+        )
+        // Imported sleep is already an authoritative, user-visible boundary even when the local raw stream
+        // cannot detect it again (for example, an import has minute HR but no gravity). Read the bounded
+        // window once, outside the per-day loop, and let the descriptive RHR/pre-sleep shadows use it as a
+        // fallback. Exact-source maintenance stays isolated to its requested raw source and therefore does
+        // not fold the normal presentation union into that lane.
+        let persistedShadowSessions: [SourcedCachedSleepSession]
+        if sourceContext == nil {
+            do {
+                persistedShadowSessions = try await repo.requiredImportedSleepSessionsBySource(
+                    store: store, from: windowStart, to: windowEnd, limit: 4_000
+                )
+            } catch {
+                note = String(localized: "Sleep history could not be read safely. NOOP will retry.")
+                NSLog("IntelligenceEngine: imported sleep shadow read failed: \(error)")
+                return false
+            }
+        } else {
+            persistedShadowSessions = []
+        }
+
         // ── Learned habitual midsleep (#547) ──────────────────────────────────
         // Compute the user's habitual midsleep ONCE per run from the trailing sleep history so the
         // main-night scored pick aligns to their REAL bedtime (a late/shift sleeper), not a fixed clock
@@ -792,9 +865,9 @@ final class IntelligenceEngine: ObservableObject {
         // call below stays on the overnight-band bonus. The same value threads into both seams so analytics
         // and the Sleep tab resolve to the identical block. (#547)
         let habitualMidsleepSec = await Self.computeHabitualMidsleep(
-            store: store, importedId: deviceId, computedId: deviceId + "-noop",
-            windowStart: oldestCivilDay.start - 30 * 3_600,
-            windowEnd: startOffset == 0 ? now : newestCivilDay.nextStart,
+            store: store, importedId: deviceId, computedId: computedId,
+            windowStart: windowStart,
+            windowEnd: windowEnd,
             offsetSec: tzOffset)
 
         // ── FIX 1 (main-actor jank): run the ENTIRE per-day enumeration OFF the main actor ───────────
@@ -809,7 +882,6 @@ final class IntelligenceEngine: ObservableObject {
         // The per-day SCORING ORDER, the `hr.count >= 200` skip, and the maxDays semantics are unchanged;
         // only the executor the reads resume on changes. Diagnostic (#691) lines are computed inside (pure
         // inputs) and returned so they can be replayed through `diagnosticSink` here, in the SAME order.
-        let computedId = deviceId + "-noop"
         // Bind `deviceId` (a MainActor instance `let`) to a local Sendable `String` so the @Sendable
         // detached closure captures the VALUE, never `self` (which would be an isolation violation).
         let ownerFallbackId = deviceId
@@ -830,6 +902,23 @@ final class IntelligenceEngine: ObservableObject {
         // the 5/MG cumulative @57 series + wrap-aware deltas + dropped deltas, replayed below tagged `.steps`.
         // The trace recomputes the SAME wrap-aware sum analyzeDay already did, so the steps total is unchanged.
         let stepsTraceActive = TestCentre.active(.steps)
+        // Read the opt-in once per pass. It participates in the cache signature, so toggling it cannot
+        // replay a cached scan that omitted (or retained) a pre-sleep observation.
+        let storedPreSleepFeedbackEnabled = UserDefaults.standard.bool(
+            forKey: PreSleepHeartRateFeedback.enabledKey
+        )
+        #if DEBUG
+        let effectivePreSleepFeedbackEnabled = AppleDemoSeeder.effectivePreSleepFeedbackEnabled(
+            userOptIn: storedPreSleepFeedbackEnabled,
+            demoRequested: AppleDemoSeeder.requested
+        )
+        #else
+        let effectivePreSleepFeedbackEnabled = storedPreSleepFeedbackEnabled
+        #endif
+        let preSleepFeedbackEnabled = Self.preSleepFeedbackEnabled(
+            optedIn: effectivePreSleepFeedbackEnabled,
+            isExactSourceWork: sourceContext != nil
+        )
         // Read every pass-wide scoring switch once. Besides making one run internally consistent, these
         // values form the cache signature so a preference/profile/baseline change invalidates all reuse.
         let useSleepStagerV2 = PuffinExperiment.experimentalSleepV2Enabled
@@ -850,7 +939,8 @@ final class IntelligenceEngine: ObservableObject {
             deepHrvWindow: deepHrvWindow,
             sleepTraceActive: sleepTraceActive,
             hrvTraceActive: hrvTraceActive,
-            stepsTraceActive: stepsTraceActive)
+            stepsTraceActive: stepsTraceActive,
+            preSleepFeedbackEnabled: preSleepFeedbackEnabled)
         // Exact-source maintenance stays cache-free in v1. Normal analysis can reuse only a cache built
         // under the identical pass-wide signature; a mismatch behaves exactly like a cold cache.
         let cacheSnapshot: [String: CachedDayScan] = sourceContext == nil
@@ -899,6 +989,23 @@ final class IntelligenceEngine: ObservableObject {
                                                        devices: regDevices, activeId: regActiveId,
                                                        registry: registry, fallbackDeviceId: ownerFallbackId)
                 }
+                let dayEditedRows = Self.editedRowsForOwnerDay(
+                    editedRows,
+                    rowsSourceId: editedRowsSourceId,
+                    owner: owner,
+                    day: day,
+                    tzOffsetSeconds: tzOffset
+                )
+                let sleepEditFingerprint = Self.sleepEditFingerprint(dayEditedRows)
+                let dayPersistedShadowSessions = persistedShadowSessions.compactMap {
+                    $0.sourceId == owner
+                        && $0.session.endTs >= civilDay.start
+                        && $0.session.endTs < civilDay.nextStart
+                        ? $0.session : nil
+                }
+                let persistedSleepFingerprint = Self.persistedSleepFingerprint(
+                    dayPersistedShadowSessions
+                )
 
                 // Resolve the WHOOP 4.0 window-wide skin anchor before the bundle read. The anchor is part of
                 // the reuse identity because another night's new skin rows can shift this device-wide value.
@@ -941,6 +1048,8 @@ final class IntelligenceEngine: ObservableObject {
                         hrCount: fingerprint.count,
                         hrMaxTs: fingerprint.maxTs,
                         skinAnchorRaw: skinAnchorRaw,
+                        sleepEditFingerprint: sleepEditFingerprint,
+                        persistedSleepFingerprint: persistedSleepFingerprint,
                         hrvWindowDetail: dayStart == currentCivilDayStart)
                     dayCacheKey = key
                     if let cached = cacheSnapshot[day], cached.key == key {
@@ -964,10 +1073,38 @@ final class IntelligenceEngine: ObservableObject {
                 }
                 try CooperativeAnalysisCancellation.checkpoint()
                 let hr = bundle.hr
+                // Descriptive shadows have their own evidence thresholds (30 in-sleep samples for the
+                // primary-session mean, 10 pre-sleep samples for optional feedback). Evaluate persisted or
+                // user-corrected sleep bounds before the legacy 200-row scoring gate so sparse but sufficient
+                // observations are not silently discarded. Fresh detector output is unavailable until the
+                // scoring pass below, so this early path intentionally uses authoritative stored bounds only.
+                let storedShadowSessions = Self.authoritativeShadowSleepSessions(
+                    detected: [],
+                    persisted: dayPersistedShadowSessions,
+                    edits: dayEditedRows
+                )
+                let storedPrimarySessionRHR = AnalyticsEngine.primarySessionRestingHRWithCoverage(
+                    sessions: storedShadowSessions,
+                    hr: hr
+                )
+                let storedPreSleepObservation = preSleepFeedbackEnabled
+                    ? PreSleepHeartRateFeedback.evaluate(
+                        enabled: true,
+                        sessions: storedShadowSessions,
+                        hr: hr,
+                        history: [],
+                        journalEntries: [],
+                        day: day,
+                        dayWindow: civilDay.start..<civilDay.nextStart,
+                        habitualMidsleepSec: habitualMidsleepSec,
+                        timeZoneOffsetSeconds: tzOffset
+                    ).observation
+                    : nil
                 guard hr.count >= 200 else {
                     // Keep this lightweight diagnostic in the detached result. `diagnosticSink` is
                     // MainActor-bound, so calling it here would violate the engine's actor boundary.
                     let scan = DayScan(
+                        day: day,
                         result: nil,
                         rhrLine: nil,
                         readOwner: owner,
@@ -977,7 +1114,9 @@ final class IntelligenceEngine: ObservableObject {
                         hrvTrace: [],
                         hrvDiag: nil,
                         skinTempTrace: nil,
-                        skippedLine: "sleep day=\(day) SKIPPED hrSamples=\(hr.count) (need ≥200)"
+                        skippedLine: "sleep day=\(day) SKIPPED hrSamples=\(hr.count) (need ≥200)",
+                        primarySessionRHR: storedPrimarySessionRHR,
+                        preSleepObservation: storedPreSleepObservation
                     )
                     try CooperativeAnalysisCancellation.checkpoint()
                     out.append(scan)
@@ -1177,10 +1316,37 @@ final class IntelligenceEngine: ObservableObject {
                     }.map { $0.bpm }
                     rhrLine = Self.rhrFloorMeanLogLine(day: res.daily.day, floor: floor, inBedBpms: inBedBpms)
                 }
-                let scan = DayScan(result: res, rhrLine: rhrLine,
+                // Stored/imported bounds are authoritative for a covered wake day, matching the Sleep UI.
+                // Detector output fills only days that have no persisted sleep instead of creating a second,
+                // slightly shifted copy of the same night.
+                let effectiveShadowSessions = Self.authoritativeShadowSleepSessions(
+                    detected: res.cachedSleep,
+                    persisted: dayPersistedShadowSessions,
+                    edits: dayEditedRows
+                )
+                let primarySessionRHR = AnalyticsEngine.primarySessionRestingHRWithCoverage(
+                    sessions: effectiveShadowSessions,
+                    hr: hr
+                )
+                let preSleepObservation = preSleepFeedbackEnabled
+                    ? PreSleepHeartRateFeedback.evaluate(
+                        enabled: true,
+                        sessions: effectiveShadowSessions,
+                        hr: hr,
+                        history: [],
+                        journalEntries: [],
+                        day: day,
+                        dayWindow: civilDay.start..<civilDay.nextStart,
+                        habitualMidsleepSec: habitualMidsleepSec,
+                        timeZoneOffsetSeconds: tzOffset
+                    ).observation
+                    : nil
+                let scan = DayScan(day: day, result: res, rhrLine: rhrLine,
                                    readOwner: owner, hrRows: hr.count,
                                    sleepTrace: sleepTrace, stepsTrace: stepsTrace, hrvTrace: hrvTrace,
-                                   hrvDiag: hrvDiag, skinTempTrace: skinTempTrace, skippedLine: nil)
+                                   hrvDiag: hrvDiag, skinTempTrace: skinTempTrace, skippedLine: nil,
+                                   primarySessionRHR: primarySessionRHR,
+                                   preSleepObservation: preSleepObservation)
                 try CooperativeAnalysisCancellation.checkpoint()
                 out.append(scan)
                 if let dayCacheKey { nextCache[day] = CachedDayScan(key: dayCacheKey, scan: scan) }
@@ -1210,17 +1376,25 @@ final class IntelligenceEngine: ObservableObject {
         // side uses; when they DIVERGE on a day that has data, that's the #814 read/write split made
         // visible in every export.
         var readOwnerByDay: [String: (owner: String, hrRows: Int)] = [:]
+        var primarySessionRHRByDay: [String: PrimarySessionRestingHR.Measurement] = [:]
+        var preSleepObservationByDay: [String: PreSleepHeartRateFeedback.Observation] = [:]
 
         // Back on the main actor: fold the off-actor results into the pass-2 state in the SAME order the
         // loop produced them. Pure assignment / appends , no further store reads , so this is cheap and the
         // main actor was free during the heavy enumeration above.
         for scan in scanned {
+            readOwnerByDay[scan.day] = (scan.readOwner, scan.hrRows)
+            if let shadow = scan.primarySessionRHR {
+                primarySessionRHRByDay[scan.day] = shadow
+            }
+            if let observation = scan.preSleepObservation {
+                preSleepObservationByDay[scan.day] = observation
+            }
             if let line = scan.skippedLine {
                 diagnosticSink?(line, nil)
                 continue
             }
             guard let res = scan.result else { continue }
-            readOwnerByDay[res.daily.day] = (scan.readOwner, scan.hrRows)
             nightlyHrvByDay[res.daily.day] = res.daily.avgHrv
             nightlyRhrByDay[res.daily.day] = res.daily.restingHr.map(Double.init)
             nightlyRespByDay[res.daily.day] = res.daily.respRateBpm
@@ -1298,8 +1472,6 @@ final class IntelligenceEngine: ObservableObject {
         // re-labelled rows (both written under `deviceId`), and apple-health carries Health imports ,
         // a detected bout overlapping ANY of them is skipped below. Port of the Android dedup block.
         // (`computedId` is bound once above, before the off-actor scan loop.)
-        let windowStart = oldestCivilDay.start - 30 * 3_600
-        let windowEnd = startOffset == 0 ? now : newestCivilDay.nextStart
         let realWorkoutDeviceIds = deviceId == "apple-health" ? [deviceId] : [deviceId, "apple-health"]
         var realWorkouts: [OwnedWorkout] = []
         for realWorkoutDeviceId in realWorkoutDeviceIds {
@@ -1318,6 +1490,55 @@ final class IntelligenceEngine: ObservableObject {
         // Rest composite (0–100) per computed night, persisted as the `sleep_performance` metric
         // series so the dashboard's Rest score reflects the new composite, not raw efficiency.
         var restPoints: [MetricPoint] = []
+        // Validation/display-only derived values have complete-set reconciliation below. Keeping them
+        // separate from Rest prevents a missing raw window from leaving a stale shadow row behind.
+        var shadowPoints: [MetricPoint] = []
+        for day in primarySessionRHRByDay.keys.sorted() {
+            guard let shadow = primarySessionRHRByDay[day] else { continue }
+            shadowPoints.append(MetricPoint(
+                day: day,
+                key: PrimarySessionRestingHR.meanMetricKey,
+                value: shadow.meanHR
+            ))
+            shadowPoints.append(MetricPoint(
+                day: day,
+                key: PrimarySessionRestingHR.validSamplesMetricKey,
+                value: Double(shadow.coverage.validSamples)
+            ))
+            shadowPoints.append(MetricPoint(
+                day: day,
+                key: PrimarySessionRestingHR.durationMetricKey,
+                value: shadow.coverage.durationSec
+            ))
+        }
+        for day in preSleepObservationByDay.keys.sorted() {
+            guard let observation = preSleepObservationByDay[day] else { continue }
+            shadowPoints.append(MetricPoint(
+                day: day,
+                key: PreSleepHeartRateFeedback.meanMetricKey,
+                value: observation.meanBpm
+            ))
+            shadowPoints.append(MetricPoint(
+                day: day,
+                key: PreSleepHeartRateFeedback.validSamplesMetricKey,
+                value: Double(observation.validSamples)
+            ))
+            shadowPoints.append(MetricPoint(
+                day: day,
+                key: PreSleepHeartRateFeedback.totalSamplesMetricKey,
+                value: Double(observation.totalTimestampSamples)
+            ))
+            shadowPoints.append(MetricPoint(
+                day: day,
+                key: PreSleepHeartRateFeedback.primarySleepStartMetricKey,
+                value: Double(observation.primarySleepStartTs)
+            ))
+            shadowPoints.append(MetricPoint(
+                day: day,
+                key: PreSleepHeartRateFeedback.primarySleepEndMetricKey,
+                value: Double(observation.primarySleepEndTs)
+            ))
+        }
         // User-corrected sleep windows override the detected sleep when scoring a day's sleep aggregates,
         // so Rest + recovery honor the edit , not just the Sleep tab's session view. An edited block
         // substitutes its detected twin (matched by the stable detected startTs) before totals recompute.
@@ -1330,7 +1551,6 @@ final class IntelligenceEngine: ObservableObject {
         // refreshed rows so the daily aggregate below scores the corrected breakdown. A no-op for nights
         // already staged from raw (idempotent) and for imported nights (raw never dense). This MUST run
         // before the scoring loop so the healed stages flow into Rest/recovery this same pass.
-        let editedRows = await repo.selfHealEditedStages(from: windowStart, to: windowEnd)
         // #299: `editsByStart` is now built PER DAY inside the scoring loop (scoped to the day each edit
         // belongs to), NOT window-wide here. sleepEditedDaily folds any edited row that isn't a twin of THIS
         // day's detected sessions in as a "manual" block, so a window-wide edit set let ONE user edit /
@@ -1379,8 +1599,13 @@ final class IntelligenceEngine: ObservableObject {
         var summaries: [SleepNightSummary] = []
         if sleepV2Mode != .off {
             for night in scoredNights {
-                let rows = Self.editedRowsForDay(editedRows, day: night.daily.day,
-                                                 tzOffsetSeconds: tzOffset)
+                let rows = Self.editedRowsForOwnerDay(
+                    editedRows,
+                    rowsSourceId: editedRowsSourceId,
+                    owner: readOwnerByDay[night.daily.day]?.owner,
+                    day: night.daily.day,
+                    tzOffsetSeconds: tzOffset
+                )
                 let edits = Dictionary(rows.map { ($0.startTs, $0) }, uniquingKeysWith: { a, _ in a })
                 let final = sleepEditedDaily(night.daily, detected: night.cachedSleep, editsByStart: edits,
                                              habitualMidsleepSec: habitualMidsleepSec,
@@ -1407,7 +1632,13 @@ final class IntelligenceEngine: ObservableObject {
             // is stable under a bedtime edit (only the onset/`startTsAdjusted` moves), so end-day is the
             // right key. Filtering here keeps a single-night edit overriding only its OWN night instead of
             // every night. `effectiveStartTs` (the #318 user-corrected onset) is preserved on the row.
-            let dayEditedRows = Self.editedRowsForDay(editedRows, day: night.daily.day, tzOffsetSeconds: tzOffset)
+            let dayEditedRows = Self.editedRowsForOwnerDay(
+                editedRows,
+                rowsSourceId: editedRowsSourceId,
+                owner: readOwnerByDay[night.daily.day]?.owner,
+                day: night.daily.day,
+                tzOffsetSeconds: tzOffset
+            )
             let editsByStart = Dictionary(dayEditedRows.map { ($0.startTs, $0) }, uniquingKeysWith: { a, _ in a })
             let daily = finalDailyByDay[night.daily.day] ?? sleepEditedDaily(
                 night.daily, detected: night.cachedSleep, editsByStart: editsByStart,
@@ -1684,6 +1915,26 @@ final class IntelligenceEngine: ObservableObject {
             NSLog("IntelligenceEngine: computed daily reconciliation failed: \(error)")
             return false
         }
+        do {
+            guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
+            // Exact committed work is source-maintenance, not a consent owner. It must still reconcile
+            // validation-only primary-session RHR for the exact raw source, but it cannot interpret the
+            // deliberately absent pre-sleep observations as deletion. Those five rows belong exclusively
+            // to normal opt-in analysis and the explicit global opt-out cleanup path.
+            let reconciledShadowKeys = sourceContext == nil
+                ? PrimarySessionRestingHR.metricKeys + PreSleepHeartRateFeedback.metricKeys
+                : PrimarySessionRestingHR.metricKeys
+            persistedMutationCount += try await store.reconcileMetricSeries(
+                shadowPoints,
+                deviceId: computedId,
+                keys: reconciledShadowKeys,
+                from: oldestDay,
+                to: newestDay
+            )
+        } catch {
+            NSLog("IntelligenceEngine: shadow metric reconciliation failed: \(error)")
+            return false
+        }
         if !restPoints.isEmpty {
             do {
                 guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
@@ -1906,6 +2157,28 @@ final class IntelligenceEngine: ObservableObject {
         // because a re-detected onset drifts as more raw data arrives. (Android twin: dismissedWindows.)
         let dismissedWindows = repo.dismissedSleepWindows()
         let skipWindows = editedWindows + dismissedWindows
+        let preSleepOwnerByDay = readOwnerByDay.mapValues { $0.owner }
+        let exactPreSleepIdentityBefore: [String: PreSleepBoundaryIdentity]?
+        if sourceContext != nil {
+            do {
+                exactPreSleepIdentityBefore = try await currentPreSleepBoundaryIdentities(
+                    store: store,
+                    civilDays: civilDays,
+                    ownerByDay: preSleepOwnerByDay,
+                    computedId: computedId,
+                    editedRowsSourceId: editedRowsSourceId,
+                    windowStart: windowStart,
+                    windowEnd: windowEnd,
+                    habitualMidsleepSec: habitualMidsleepSec,
+                    timeZoneOffsetSeconds: tzOffset
+                )
+            } catch {
+                NSLog("IntelligenceEngine: exact pre-sleep boundary snapshot failed: \(error)")
+                return false
+            }
+        } else {
+            exactPreSleepIdentityBefore = nil
+        }
         let cachedSleepKept = cachedSleep.filter { s in
             !skipWindows.contains { s.startTs < $0.end && $0.start < s.endTs }   // time-overlap test
         }
@@ -1919,6 +2192,27 @@ final class IntelligenceEngine: ObservableObject {
                 return false
             }
         }
+        // Sleep persistence is the last possible writer of the boundary used by the optional observation.
+        // Re-read it after the write: exact-source work scrubs days whose authority changed, while normal
+        // work rejects an observation produced from a boundary that a concurrent edit has already replaced.
+        // Do not honor cancellation between the session write and this fail-closed integrity boundary.
+        guard let preSleepPostUpsertChanges = await enforcePreSleepBoundaryPostconditionFailClosed(
+            store: store,
+            civilDays: civilDays,
+            ownerByDay: preSleepOwnerByDay,
+            computedId: computedId,
+            editedRowsSourceId: editedRowsSourceId,
+            windowStart: windowStart,
+            windowEnd: windowEnd,
+            habitualMidsleepSec: habitualMidsleepSec,
+            timeZoneOffsetSeconds: tzOffset,
+            exactIdentityBefore: exactPreSleepIdentityBefore,
+            generatedObservations: preSleepObservationByDay
+        ) else {
+            performanceChangedRows = persistedMutationCount
+            return false
+        }
+        persistedMutationCount += preSleepPostUpsertChanges
         // ── Persist per-epoch motion (H8) beside each kept session's stagesJSON ──────────────────────────
         // The sleepSession rows exist now (just upserted), so the targeted motion UPDATE lands. Persist ONLY
         // for the sessions actually kept (not edited/dismissed), keyed by the detected start `analyzeDay`
@@ -1977,6 +2271,26 @@ final class IntelligenceEngine: ObservableObject {
             return false
         }
         if !healDropped.isEmpty {
+            // The auxiliary transaction can delete an overlapping stored session after the first check.
+            // Verify again so a changed main-night survivor cannot retain either canonical or orphaned
+            // pre-sleep rows, including on the bounded heal-rearm return below.
+            guard let preSleepPostHealChanges = await enforcePreSleepBoundaryPostconditionFailClosed(
+                store: store,
+                civilDays: civilDays,
+                ownerByDay: preSleepOwnerByDay,
+                computedId: computedId,
+                editedRowsSourceId: editedRowsSourceId,
+                windowStart: windowStart,
+                windowEnd: windowEnd,
+                habitualMidsleepSec: habitualMidsleepSec,
+                timeZoneOffsetSeconds: tzOffset,
+                exactIdentityBefore: exactPreSleepIdentityBefore,
+                generatedObservations: preSleepObservationByDay
+            ) else {
+                performanceChangedRows = persistedMutationCount
+                return false
+            }
+            persistedMutationCount += preSleepPostHealChanges
             diagnosticSink?("Dedup(#899): removed \(healDropped.count) overlapping duplicate sleep "
                 + "session(s) re-banked under a shifted strap timebase; re-scoring the affected days.", nil)
             // Re-score against the cleaned store via the existing #899-A re-arm: the days scored THIS
@@ -2012,7 +2326,21 @@ final class IntelligenceEngine: ObservableObject {
         // calories/strain on a 5/MG. Now that offloaded HR may cover the window, re-score the
         // under-sampled ones from that denser data.
         guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
-        persistedMutationCount += await rescoreManualWorkouts(store: store, profile: up)
+        let measuredRestingHRByDay: [ManualWorkoutRescore.DailyRestingHR] = civilDays.compactMap { window in
+            guard let restingHR = out.first(where: { $0.day == window.day })?.rhr,
+                  let owner = readOwnerByDay[window.day]?.owner else { return nil }
+            return .init(
+                sourceId: owner,
+                startTs: window.start,
+                endTs: window.nextStart,
+                restingHR: Double(restingHR)
+            )
+        }
+        persistedMutationCount += await rescoreManualWorkouts(
+            store: store,
+            profile: up,
+            dailyRestingHR: measuredRestingHRByDay
+        )
 
         results = out
         note = out.isEmpty
@@ -2147,36 +2475,58 @@ final class IntelligenceEngine: ObservableObject {
     /// window, recompute from it. Conservative + idempotent: only `manual` rows that look under-scored
     /// (negligible calories), and only when the recompute is a genuine improvement , so a well-scored
     /// 4.0 workout is never touched and a still-sparse window is a no-op.
-    private func rescoreManualWorkouts(store: WhoopStore, profile up: UserProfile) async -> Int {
+    private func rescoreManualWorkouts(store: WhoopStore, profile up: UserProfile,
+                                       dailyRestingHR: [ManualWorkoutRescore.DailyRestingHR] = []) async -> Int {
         let now = Int(Date().timeIntervalSince1970)
         let since = now - 14 * 24 * 60 * 60
-        guard let rows = try? await store.workouts(deviceId: deviceId, from: since, to: now, limit: 200)
-        else { return 0 }
         let hrMax = Double(profile.hrMax)
-        var updated: [WorkoutRow] = []
-        // A manual row is eligible when it looks under-scored (negligible kcal, #137) OR it's missing
-        // strain (the merged-workout case, where kcal is the SUM of inputs so it never looks under-scored
-        // yet Effort stays blank forever). `improves` then accepts a strain-only gain for the latter.
-        for row in rows where row.source == "manual"
-            && (ManualWorkoutRescore.looksUnderScored(currentKcal: row.energyKcal) || row.strain == nil) {
-            guard let samples = try? await store.hrSamples(deviceId: deviceId, from: row.startTs,
-                                                           to: row.endTs, limit: 20_000),
-                  let s = ManualWorkoutRescore.scored(windowSamples: samples, profile: up, hrMax: hrMax),
-                  ManualWorkoutRescore.improves(s, over: row.energyKcal, currentStrain: row.strain,
-                                                allowStrainOnlyFill: true)
-            else { continue }
-            // Never lower a summed kcal: only take the recomputed kcal when it genuinely beats the stored
-            // value; a strain-only fill (merged row) keeps the existing summed energyKcal.
-            let kcalBeatsStored = (s.kcal ?? 0) > (row.energyKcal ?? 0) + ManualWorkoutRescore.improvementMarginKcal
-            let energyKcal = kcalBeatsStored ? s.kcal : row.energyKcal
-            updated.append(WorkoutRow(
-                startTs: row.startTs, endTs: row.endTs, sport: row.sport, source: row.source,
-                durationS: row.durationS, energyKcal: energyKcal, avgHr: s.avgHr, maxHr: s.maxHr,
-                strain: s.strain, distanceM: row.distanceM, zonesJSON: row.zonesJSON, notes: row.notes,
-                strainVersion: s.strain == nil ? row.strainVersion : 2))
+        // Preserve the original canonical rescore even when a day has no measured RHR. Also include any
+        // pass-one owner that supplied a measured RHR. Every workout row, HR sample, RHR, and upsert stays
+        // inside one source namespace; a re-pair can therefore never mix an active strap's RHR into the
+        // canonical strap's workout.
+        let sourceIds = Set([deviceId] + dailyRestingHR.map(\.sourceId)).sorted()
+        var totalChanged = 0
+        for sourceId in sourceIds {
+            guard let rows = try? await store.workouts(
+                deviceId: sourceId, from: since, to: now, limit: 200
+            ) else { continue }
+            var updated: [WorkoutRow] = []
+            // A manual row is eligible when it looks under-scored (negligible kcal, #137) OR it's missing
+            // strain (the merged-workout case, where kcal is the SUM of inputs so it never looks under-scored
+            // yet Effort stays blank forever). `improves` then accepts a strain-only gain for the latter.
+            for row in rows where row.source == "manual"
+                && (ManualWorkoutRescore.looksUnderScored(currentKcal: row.energyKcal) || row.strain == nil) {
+                let restingHR = ManualWorkoutRescore.restingHR(
+                    forWorkoutStartingAt: row.startTs,
+                    sourceId: sourceId,
+                    daily: dailyRestingHR,
+                    hrMax: hrMax
+                )
+                guard let samples = try? await store.hrSamples(
+                    deviceId: sourceId, from: row.startTs, to: row.endTs, limit: 20_000
+                ),
+                      let s = ManualWorkoutRescore.scored(
+                        windowSamples: samples, profile: up, hrMax: hrMax, restingHR: restingHR
+                      ),
+                      ManualWorkoutRescore.improves(
+                        s, over: row.energyKcal, currentStrain: row.strain, allowStrainOnlyFill: true
+                      )
+                else { continue }
+                // Never lower a summed kcal: only take the recomputed kcal when it genuinely beats the stored
+                // value; a strain-only fill (merged row) keeps the existing summed energyKcal.
+                let kcalBeatsStored = (s.kcal ?? 0) > (row.energyKcal ?? 0)
+                    + ManualWorkoutRescore.improvementMarginKcal
+                let energyKcal = kcalBeatsStored ? s.kcal : row.energyKcal
+                updated.append(WorkoutRow(
+                    startTs: row.startTs, endTs: row.endTs, sport: row.sport, source: row.source,
+                    durationS: row.durationS, energyKcal: energyKcal, avgHr: s.avgHr, maxHr: s.maxHr,
+                    strain: s.strain, distanceM: row.distanceM, zonesJSON: row.zonesJSON, notes: row.notes,
+                    strainVersion: s.strain == nil ? row.strainVersion : 2))
+            }
+            guard !updated.isEmpty else { continue }
+            totalChanged += (try? await store.upsertWorkouts(updated, deviceId: sourceId)) ?? 0
         }
-        guard !updated.isEmpty else { return 0 }
-        return (try? await store.upsertWorkouts(updated, deviceId: deviceId)) ?? 0
+        return totalChanged
     }
 
     /// Re-score ONLY the recovery composite for a day against a (re-seeded) baseline. Every other field
@@ -2291,9 +2641,276 @@ final class IntelligenceEngine: ObservableObject {
     /// `sleepEditedDaily` folds any row that isn't a twin of a day's detected sessions in as a "manual"
     /// block, so one edit / nap leaked its total onto EVERY night. Byte-identical twin of Android
     /// `IntelligenceEngine.editedRowsForDay`.
-    static func editedRowsForDay(_ editedRows: [CachedSleepSession], day: String,
-                                 tzOffsetSeconds: Int) -> [CachedSleepSession] {
+    nonisolated static func editedRowsForDay(_ editedRows: [CachedSleepSession], day: String,
+                                             tzOffsetSeconds: Int) -> [CachedSleepSession] {
         editedRows.filter { AnalyticsEngine.dayString($0.endTs, offsetSec: tzOffsetSeconds) == day }
+    }
+
+    /// User-edited computed sleep belongs to one raw source. Apply it only when that source owns the
+    /// scored day; a locked canonical day must not inherit bounds edited under a newly paired strap.
+    nonisolated static func editedRowsForOwnerDay(
+        _ editedRows: [CachedSleepSession],
+        rowsSourceId: String,
+        owner: String?,
+        day: String,
+        tzOffsetSeconds: Int
+    ) -> [CachedSleepSession] {
+        guard owner == rowsSourceId else { return [] }
+        return editedRowsForDay(editedRows, day: day, tzOffsetSeconds: tzOffsetSeconds)
+    }
+
+    /// Stable, locale-free cache witness for the only stored sleep fields used by the new descriptive
+    /// shadows. Sort first so a database row-order change cannot invalidate an otherwise identical day.
+    nonisolated static func sleepEditFingerprint(_ rows: [CachedSleepSession]) -> String {
+        rows.sorted {
+            if $0.startTs != $1.startTs { return $0.startTs < $1.startTs }
+            if $0.effectiveStartTs != $1.effectiveStartTs {
+                return $0.effectiveStartTs < $1.effectiveStartTs
+            }
+            return $0.endTs < $1.endTs
+        }.map {
+            "\($0.startTs):\($0.effectiveStartTs):\($0.endTs)"
+        }.joined(separator: ",")
+    }
+
+    /// Stable cache witness for imported sleep bounds used as the descriptive shadow fallback.
+    nonisolated static func persistedSleepFingerprint(_ rows: [CachedSleepSession]) -> String {
+        rows.sorted {
+            if $0.effectiveStartTs != $1.effectiveStartTs {
+                return $0.effectiveStartTs < $1.effectiveStartTs
+            }
+            if $0.endTs != $1.endTs { return $0.endTs < $1.endTs }
+            return $0.startTs < $1.startTs
+        }.map {
+            "\($0.effectiveStartTs):\($0.endTs)"
+        }.joined(separator: ",")
+    }
+
+    /// Exact-source maintenance can run through a separate engine instance. Keep the user-facing optional
+    /// feedback on the shared normal-analysis lane so opt-out and publication have one admission gate.
+    nonisolated static func preSleepFeedbackEnabled(optedIn: Bool, isExactSourceWork: Bool) -> Bool {
+        optedIn && !isExactSourceWork
+    }
+
+    /// The only sleep identity persisted with optional pre-sleep feedback. A bridged main night owns the
+    /// earliest onset and latest wake across its selected fragments, exactly as
+    /// `PreSleepHeartRateFeedback.evaluate` records them.
+    private struct PreSleepBoundaryIdentity: Equatable, Sendable {
+        let startTs: Int
+        let endTs: Int
+    }
+
+    private nonisolated static func preSleepBoundaryIdentity(
+        sessions: [SleepSession],
+        dayStart: Int,
+        nextDayStart: Int,
+        habitualMidsleepSec: Int?,
+        timeZoneOffsetSeconds: Int
+    ) -> PreSleepBoundaryIdentity? {
+        let matched = sessions.filter {
+            $0.end >= dayStart && $0.end < nextDayStart && $0.start < $0.end
+        }
+        let indices = SleepStageTotals.mainNightGroupIndices(
+            matched.map { SleepStageTotals.NightBlock(start: $0.start, end: $0.end) },
+            offsetSec: timeZoneOffsetSeconds,
+            habitualMidsleepSec: habitualMidsleepSec
+        ) ?? []
+        guard let start = indices.map({ matched[$0].start }).min(),
+              let end = indices.map({ matched[$0].end }).max(),
+              start < end else { return nil }
+        return PreSleepBoundaryIdentity(startTs: start, endTs: end)
+    }
+
+    /// Re-read the sleep authority normal feedback would use after this pass's session writes. Imported/raw
+    /// bounds win for a covered owner-day; the current computed source fills an empty imported day; and a
+    /// user edit from the owning computed sibling substitutes its detected twin. Keeping this reconstruction
+    /// beside `authoritativeShadowSleepSessions` prevents the final integrity check from inventing a second
+    /// source-precedence rule.
+    private func currentPreSleepBoundaryIdentities(
+        store: WhoopStore,
+        civilDays: [CivilDayWindow],
+        ownerByDay: [String: String],
+        computedId: String,
+        editedRowsSourceId: String,
+        windowStart: Int,
+        windowEnd: Int,
+        habitualMidsleepSec: Int?,
+        timeZoneOffsetSeconds: Int
+    ) async throws -> [String: PreSleepBoundaryIdentity] {
+        let editedComputedId = editedRowsSourceId + "-noop"
+        let computed = try await store.sleepSessions(
+            deviceId: computedId, from: windowStart, to: windowEnd, limit: 4_000
+        ).filter {
+            SleepSessionWindow.isValid(start: $0.effectiveStartTs, end: $0.endTs)
+        }
+        let editedComputed: [CachedSleepSession]
+        if editedComputedId == computedId {
+            editedComputed = computed.filter(\.userEdited)
+        } else {
+            editedComputed = try await store.sleepSessions(
+                deviceId: editedComputedId, from: windowStart, to: windowEnd, limit: 4_000
+            ).filter {
+                $0.userEdited
+                    && SleepSessionWindow.isValid(start: $0.effectiveStartTs, end: $0.endTs)
+            }
+        }
+
+        let fallbackOwner = deviceId
+        let rawSourceIds = Set(civilDays.map { ownerByDay[$0.day] ?? fallbackOwner })
+        var rawBySource: [String: [CachedSleepSession]] = [:]
+        for sourceId in rawSourceIds.sorted() {
+            rawBySource[sourceId] = try await store.sleepSessions(
+                deviceId: sourceId, from: windowStart, to: windowEnd, limit: 4_000
+            ).filter {
+                SleepSessionWindow.isValid(start: $0.effectiveStartTs, end: $0.endTs)
+            }
+        }
+
+        func rows(_ sessions: [CachedSleepSession], in day: CivilDayWindow) -> [CachedSleepSession] {
+            sessions.filter { $0.endTs >= day.start && $0.endTs < day.nextStart }
+        }
+
+        var identities: [String: PreSleepBoundaryIdentity] = [:]
+        for day in civilDays {
+            let owner = ownerByDay[day.day] ?? fallbackOwner
+            let imported = rows(rawBySource[owner] ?? [], in: day)
+            let detected = imported.isEmpty ? rows(computed, in: day) : []
+            let edits = owner == editedRowsSourceId ? rows(editedComputed, in: day) : []
+            let authority = Self.authoritativeShadowSleepSessions(
+                detected: detected,
+                persisted: imported,
+                edits: edits
+            )
+            if let identity = Self.preSleepBoundaryIdentity(
+                sessions: authority,
+                dayStart: day.start,
+                nextDayStart: day.nextStart,
+                habitualMidsleepSec: habitualMidsleepSec,
+                timeZoneOffsetSeconds: timeZoneOffsetSeconds
+            ) {
+                identities[day.day] = identity
+            }
+        }
+        return identities
+    }
+
+    /// Final consent-data integrity postcondition. Exact-source work never creates optional feedback, but it
+    /// can bank or de-duplicate sleep sessions. Normal work can race a user edit after it captured its scan.
+    /// In both cases, keep a persisted five-key observation only when its stored bounds still equal the
+    /// re-read authoritative main-night identity. An exact pass also compares the pre-write authority so a
+    /// changed day is scrubbed globally even when its only old observation lives in an orphan namespace.
+    private func enforcePreSleepBoundaryPostcondition(
+        store: WhoopStore,
+        civilDays: [CivilDayWindow],
+        ownerByDay: [String: String],
+        computedId: String,
+        editedRowsSourceId: String,
+        windowStart: Int,
+        windowEnd: Int,
+        habitualMidsleepSec: Int?,
+        timeZoneOffsetSeconds: Int,
+        exactIdentityBefore: [String: PreSleepBoundaryIdentity]?,
+        generatedObservations: [String: PreSleepHeartRateFeedback.Observation]
+    ) async throws -> Int {
+        let current = try await currentPreSleepBoundaryIdentities(
+            store: store,
+            civilDays: civilDays,
+            ownerByDay: ownerByDay,
+            computedId: computedId,
+            editedRowsSourceId: editedRowsSourceId,
+            windowStart: windowStart,
+            windowEnd: windowEnd,
+            habitualMidsleepSec: habitualMidsleepSec,
+            timeZoneOffsetSeconds: timeZoneOffsetSeconds
+        )
+        let scopedDays = Set(civilDays.map(\.day))
+        guard let firstDay = scopedDays.min(), let lastDay = scopedDays.max() else { return 0 }
+
+        var keysByDay: [String: Set<String>] = [:]
+        var valuesByDay: [String: [String: Double]] = [:]
+        for key in PreSleepHeartRateFeedback.metricKeys {
+            for point in try await store.metricSeries(
+                deviceId: computedId, key: key, from: firstDay, to: lastDay
+            ) where scopedDays.contains(point.day) {
+                keysByDay[point.day, default: []].insert(key)
+                valuesByDay[point.day, default: [:]][key] = point.value
+            }
+        }
+
+        let completeKeySet = Set(PreSleepHeartRateFeedback.metricKeys)
+        var invalidDays = Set<String>()
+        if let exactIdentityBefore {
+            for day in scopedDays where exactIdentityBefore[day] != current[day] {
+                invalidDays.insert(day)
+            }
+        }
+        for (day, observation) in generatedObservations where scopedDays.contains(day) {
+            let generated = PreSleepBoundaryIdentity(
+                startTs: observation.primarySleepStartTs,
+                endTs: observation.primarySleepEndTs
+            )
+            if current[day] != generated { invalidDays.insert(day) }
+        }
+        for day in scopedDays {
+            guard let storedKeys = keysByDay[day], !storedKeys.isEmpty else { continue }
+            guard storedKeys == completeKeySet,
+                  let startValue = valuesByDay[day]?[PreSleepHeartRateFeedback.primarySleepStartMetricKey],
+                  let endValue = valuesByDay[day]?[PreSleepHeartRateFeedback.primarySleepEndMetricKey],
+                  let start = Int(exactly: startValue),
+                  let end = Int(exactly: endValue),
+                  current[day] == PreSleepBoundaryIdentity(startTs: start, endTs: end) else {
+                invalidDays.insert(day)
+                continue
+            }
+        }
+        guard !invalidDays.isEmpty else { return 0 }
+        return try await store.deleteMetricSeriesGlobally(
+            keys: PreSleepHeartRateFeedback.metricKeys,
+            onDays: invalidDays.sorted()
+        )
+    }
+
+    /// A failed verification is not permission to retain possibly mismatched consent data. Fall back to a
+    /// narrow global scrub of this pass's civil days; return nil only when that fail-closed delete also fails.
+    private func enforcePreSleepBoundaryPostconditionFailClosed(
+        store: WhoopStore,
+        civilDays: [CivilDayWindow],
+        ownerByDay: [String: String],
+        computedId: String,
+        editedRowsSourceId: String,
+        windowStart: Int,
+        windowEnd: Int,
+        habitualMidsleepSec: Int?,
+        timeZoneOffsetSeconds: Int,
+        exactIdentityBefore: [String: PreSleepBoundaryIdentity]?,
+        generatedObservations: [String: PreSleepHeartRateFeedback.Observation]
+    ) async -> Int? {
+        do {
+            return try await enforcePreSleepBoundaryPostcondition(
+                store: store,
+                civilDays: civilDays,
+                ownerByDay: ownerByDay,
+                computedId: computedId,
+                editedRowsSourceId: editedRowsSourceId,
+                windowStart: windowStart,
+                windowEnd: windowEnd,
+                habitualMidsleepSec: habitualMidsleepSec,
+                timeZoneOffsetSeconds: timeZoneOffsetSeconds,
+                exactIdentityBefore: exactIdentityBefore,
+                generatedObservations: generatedObservations
+            )
+        } catch {
+            NSLog("IntelligenceEngine: pre-sleep boundary verification failed; scrubbing affected days: \(error)")
+            do {
+                return try await store.deleteMetricSeriesGlobally(
+                    keys: PreSleepHeartRateFeedback.metricKeys,
+                    onDays: Array(Set(civilDays.map(\.day))).sorted()
+                )
+            } catch {
+                NSLog("IntelligenceEngine: pre-sleep boundary fail-closed cleanup failed: \(error)")
+                return nil
+            }
+        }
     }
 
     private func sleepEditedDaily(_ daily: DailyMetric, detected: [CachedSleepSession],
@@ -2344,6 +2961,44 @@ final class IntelligenceEngine: ObservableObject {
         let detectedStarts = Set(detected.map(\.startTs))
         return detected.map { editsByStart[$0.startTs] ?? $0 }
             + edits.filter { !detectedStarts.contains($0.startTs) }
+    }
+
+    /// Resolve one bounds authority for a single wake day before mapping to descriptive shadows.
+    /// Imported/persisted sessions match the Sleep UI's precedence and replace detector output for a
+    /// covered day, including slightly shifted representations of the same night. Detector output fills
+    /// only days with no persisted session. User edits are then applied to the chosen authority.
+    nonisolated static func authoritativeShadowSleepSessions(
+        detected: [CachedSleepSession],
+        persisted: [CachedSleepSession],
+        edits: [CachedSleepSession]
+    ) -> [SleepSession] {
+        shadowSleepSessions(
+            detected: persisted.isEmpty ? detected : persisted,
+            edits: edits
+        )
+    }
+
+    /// Bounds-only analytics representation for descriptive RHR shadows. User edits replace their
+    /// detected twin, and a manually added block joins the candidate set exactly as it does for Rest.
+    private nonisolated static func shadowSleepSessions(
+        detected: [CachedSleepSession], edits: [CachedSleepSession]
+    ) -> [SleepSession] {
+        var seen = Set<String>()
+        return effectiveSleepSessions(detected: detected, edits: edits).compactMap { session in
+            guard session.effectiveStartTs < session.endTs else { return nil }
+            // The same physical sleep can exist under both the freshly detected and imported namespace.
+            // Keep its first (fresh-detected) copy so duplicate storage never becomes a fake split night.
+            let identity = "\(session.effectiveStartTs)-\(session.endTs)"
+            guard seen.insert(identity).inserted else { return nil }
+            return SleepSession(
+                start: session.effectiveStartTs,
+                end: session.endTs,
+                efficiency: session.efficiency ?? 0,
+                stages: [],
+                restingHR: session.restingHr,
+                avgHRV: session.avgHrv
+            )
+        }
     }
 
     private nonisolated static func sleepV2MetricPoints(_ scored: ScoredSleepDay) -> [MetricPoint] {

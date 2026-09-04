@@ -50,6 +50,34 @@ final class AnalyzeRecentDayCacheTests: XCTestCase {
         XCTAssertNotEqual(whoop4, whoop5)
     }
 
+    func testSleepEditInvalidatesWithUnchangedRawHeartRate() {
+        let base = AnalyzeRecentDayCache.cacheKey(
+            owner: "dev1", hrCount: 178_000, hrMaxTs: 1_700_000_000,
+            skinAnchorRaw: 1290, sleepEditFingerprint: "", hrvWindowDetail: false
+        )
+        let edited = AnalyzeRecentDayCache.cacheKey(
+            owner: "dev1", hrCount: 178_000, hrMaxTs: 1_700_000_000,
+            skinAnchorRaw: 1290,
+            sleepEditFingerprint: "1699960000:1699960900:1699990000",
+            hrvWindowDetail: false
+        )
+        XCTAssertNotEqual(base, edited)
+    }
+
+    func testPersistedSleepBoundsInvalidateWithUnchangedRawHeartRate() {
+        let base = AnalyzeRecentDayCache.cacheKey(
+            owner: "dev1", hrCount: 178_000, hrMaxTs: 1_700_000_000,
+            skinAnchorRaw: 1290, persistedSleepFingerprint: "1699960000:1699990000",
+            hrvWindowDetail: false
+        )
+        let changed = AnalyzeRecentDayCache.cacheKey(
+            owner: "dev1", hrCount: 178_000, hrMaxTs: 1_700_000_000,
+            skinAnchorRaw: 1290, persistedSleepFingerprint: "1699960000:1699990600",
+            hrvWindowDetail: false
+        )
+        XCTAssertNotEqual(base, changed)
+    }
+
     /// #1575: the day that emits the per-window HRV DETAIL must not be reused as an ordinary night.
     ///
     /// An active trace no longer disables reuse, so the cached "today" carries a detailed HRV trace. After

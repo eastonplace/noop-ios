@@ -45,10 +45,15 @@ enum DataBackup {
 
     enum BackupResult: Sendable {
         case exported(URL)
+        /// Export succeeded, but the live SQLite file is above the normal database-entry restore ceiling.
+        case exportedOversize(URL, bytes: UInt64, limit: UInt64)
         /// The optional safety copy exists only when a previous database was present. Restored settings
         /// stay staged until the lifecycle has reopened and migrated the replacement successfully.
         case imported(safetyCopy: URL?, stagedSettings: Data?)
         case cancelled
+        /// Restore stopped only at the normal database-entry size ceiling. The caller can ask for an
+        /// explicit override; every other archive and restore guard remains active.
+        case restoreTooLarge(name: String, limit: UInt64)
         case failure(String)
     }
 
@@ -80,7 +85,7 @@ enum DataBackup {
             try await Task.detached(priority: .utility) {
                 try writeVerifiedBackupZip(dbURL: dbURL, to: dest, settingsJSON: currentSettingsJSON())
             }.value
-            return .exported(dest)
+            return exportOutcome(dest, archiveAt: dest)
         } catch {
             return .failure(String(localized: "Export failed: \(error.localizedDescription)"))
         }
@@ -99,8 +104,49 @@ enum DataBackup {
             return .failure(String(localized: "Export failed: \(error.localizedDescription)"))
         }
         guard let dest = await DocumentPicker.export(staged) else { return .cancelled }
-        return .exported(dest)
+        return exportOutcome(dest, archiveAt: staged)
         #endif
+    }
+
+    private static func exportOutcome(
+        _ destination: URL,
+        archiveAt archiveURL: URL,
+        limits: ArchiveRestoreLimits = ArchiveRestoreLimits()
+    ) -> BackupResult {
+        do {
+            // Classify the bytes that were actually written, through the same static archive guards
+            // import uses. A live database can change after checkpoint and is not proof of this file.
+            let validated = try validateBackupArchive(
+                at: archiveURL,
+                limits: limits,
+                allowOversizeDatabase: true
+            )
+            guard validated.databaseBytes > limits.maxDatabaseBytes else {
+                return .exported(destination)
+            }
+            return .exportedOversize(
+                destination,
+                bytes: validated.databaseBytes,
+                limit: limits.maxDatabaseBytes
+            )
+        } catch {
+            return .failure(String(localized: "Backup was saved, but NOOP cannot import it: \(error.localizedDescription)"))
+        }
+    }
+
+    static func exportOutcomeForTesting(
+        destination: URL,
+        archiveAt archiveURL: URL,
+        limits: ArchiveRestoreLimits
+    ) -> BackupResult {
+        exportOutcome(destination, archiveAt: archiveURL, limits: limits)
+    }
+
+    static func isSuccessfulExport(_ result: BackupResult) -> Bool {
+        switch result {
+        case .exported, .exportedOversize: return true
+        default: return false
+        }
     }
 
     private struct ExportIntegrityFailure: LocalizedError {
@@ -167,7 +213,7 @@ enum DataBackup {
         }
         do {
             try writeVerifiedBackupZip(dbURL: dbURL, to: dest, settingsJSON: currentSettingsJSON())
-            return .exported(dest)
+            return exportOutcome(dest, archiveAt: dest)
         } catch {
             return .failure(String(localized: "Backup failed: \(error.localizedDescription)"))
         }
@@ -188,7 +234,7 @@ enum DataBackup {
     }
 
     @MainActor
-    static func runImport(lifecycle: RestoreLifecycle) async -> BackupResult {
+    static func runImport(lifecycle: RestoreLifecycle, allowOversize: Bool = false) async -> BackupResult {
         let dbPath: String
         do { dbPath = try StorePaths.defaultDatabasePath() }
         catch { return .failure(String(localized: "Couldn't locate the NOOP database. \(error.localizedDescription)")) }
@@ -209,28 +255,33 @@ enum DataBackup {
         do { try await lifecycle.quiesce() }
         catch { return .failure(String(localized: "Couldn't pause the local database safely. Nothing was replaced. \(error.localizedDescription)")) }
         let result = await Task.detached(priority: .utility) {
-            restore(from: pickedSource, toDatabaseAt: dbPath)
+            restore(from: pickedSource, toDatabaseAt: dbPath, allowOversize: allowOversize)
         }.value
         return await finishRestore(result, databasePath: dbPath, lifecycle: lifecycle)
     }
 
     @MainActor
-    static func restore(from pickedSource: URL, lifecycle: RestoreLifecycle) async -> BackupResult {
+    static func restore(from pickedSource: URL, lifecycle: RestoreLifecycle,
+                        allowOversize: Bool = false) async -> BackupResult {
         let dbPath: String
         do { dbPath = try StorePaths.defaultDatabasePath() }
         catch { return .failure(String(localized: "Couldn't locate the NOOP database. \(error.localizedDescription)")) }
-        return await restore(from: pickedSource, toDatabaseAt: dbPath, lifecycle: lifecycle)
+        return await restore(from: pickedSource, toDatabaseAt: dbPath, lifecycle: lifecycle,
+                             allowOversize: allowOversize)
     }
 
     @MainActor
     static func restore(from pickedSource: URL, toDatabaseAt dbPath: String,
                         lifecycle: RestoreLifecycle,
                         settingsDefaults: UserDefaults = .standard,
-                        fault: RestoreFault? = nil) async -> BackupResult {
+                        fault: RestoreFault? = nil,
+                        allowOversize: Bool = false,
+                        limits: ArchiveRestoreLimits = ArchiveRestoreLimits()) async -> BackupResult {
         do { try await lifecycle.quiesce() }
         catch { return .failure(String(localized: "Couldn't pause the local database safely. Nothing was replaced. \(error.localizedDescription)")) }
         let result = await Task.detached(priority: .utility) {
-            restore(from: pickedSource, toDatabaseAt: dbPath, fault: fault)
+            restore(from: pickedSource, toDatabaseAt: dbPath, fault: fault,
+                    allowOversize: allowOversize, limits: limits)
         }.value
         return await finishRestore(result, databasePath: dbPath, lifecycle: lifecycle,
                                    settingsDefaults: settingsDefaults, fault: fault)
@@ -274,7 +325,7 @@ enum DataBackup {
                     return .failure(String(localized: "The replacement failed and NOOP could not reopen an empty store. \(error.localizedDescription)"))
                 }
             }
-        case .failure, .cancelled, .exported:
+        case .failure, .cancelled, .exported, .exportedOversize, .restoreTooLarge:
             do {
                 try await lifecycle.reopenAndMigrate()
                 return result
@@ -292,7 +343,9 @@ enum DataBackup {
     }
 
     static func restore(from pickedSource: URL, toDatabaseAt dbPath: String,
-                        fault: RestoreFault? = nil) -> BackupResult {
+                        fault: RestoreFault? = nil,
+                        allowOversize: Bool = false,
+                        limits: ArchiveRestoreLimits = ArchiveRestoreLimits()) -> BackupResult {
         let fm = FileManager.default
         let source: URL
         let extractedDir: URL?
@@ -303,7 +356,14 @@ enum DataBackup {
             do {
                 if fm.fileExists(atPath: tmpExtract.path) { try fm.removeItem(at: tmpExtract) }
                 try fm.createDirectory(at: tmpExtract, withIntermediateDirectories: true)
-                try extractBackupZip(at: pickedSource, into: tmpExtract)
+                try extractBackupZip(at: pickedSource, into: tmpExtract,
+                                     limits: limits, allowOversizeDatabase: allowOversize)
+            } catch let archiveError as BackupArchiveError {
+                try? fm.removeItem(at: tmpExtract)
+                if case .entryTooLarge(let path) = archiveError, path == backupEntryName {
+                    return .restoreTooLarge(name: path, limit: limits.maxDatabaseBytes)
+                }
+                return .failure(String(localized: "Couldn't open the backup archive: \(archiveError.localizedDescription)"))
             } catch {
                 try? fm.removeItem(at: tmpExtract)
                 return .failure(String(localized: "Couldn't open the backup archive: \(error.localizedDescription)"))
@@ -316,6 +376,20 @@ enum DataBackup {
             source = sqliteEntry
             extractedDir = tmpExtract
         } else {
+            do {
+                let databaseBytes = try fileSize(pickedSource, fileManager: fm)
+                guard databaseBytes <= limits.maxTotalUncompressedBytes else {
+                    return .failure(BackupArchiveError.totalTooLarge.localizedDescription)
+                }
+                if databaseBytes > limits.maxDatabaseBytes, !allowOversize {
+                    return .restoreTooLarge(
+                        name: pickedSource.lastPathComponent,
+                        limit: limits.maxDatabaseBytes
+                    )
+                }
+            } catch {
+                return .failure(String(localized: "Couldn't inspect the selected backup: \(error.localizedDescription)"))
+            }
             source = pickedSource
             extractedDir = nil
         }
@@ -491,11 +565,18 @@ enum DataBackup {
     private static let backupEntryName = "noop-backup.sqlite"
 
     struct ArchiveRestoreLimits: Sendable {
+        static let defaultMaxDatabaseBytes: UInt64 = 4_294_967_296
+        static let defaultMaxSettingsBytes: UInt64 = 1_048_576
+        /// Absolute streamed-extraction ceiling after the user explicitly approves a large restore.
+        /// Capacity preflight still requires enough room for extraction, validation, swap, and rollback.
+        static let defaultMaxApprovedDatabaseBytes: UInt64 = 17_179_869_184
         var maxArchiveCompressedBytes: UInt64 = 1_073_741_824
         var maxEntryCount = 2
-        var maxTotalUncompressedBytes: UInt64 = 4_294_967_296
-        var maxDatabaseBytes: UInt64 = 4_294_967_296
-        var maxSettingsBytes: UInt64 = 1_048_576
+        // The normal 4 GiB database limit produces the explicit warning. Approval bypasses only that
+        // threshold; this separate 16 GiB hard ceiling plus the settings allowance always remains active.
+        var maxTotalUncompressedBytes: UInt64 = defaultMaxApprovedDatabaseBytes + defaultMaxSettingsBytes
+        var maxDatabaseBytes: UInt64 = defaultMaxDatabaseBytes
+        var maxSettingsBytes: UInt64 = defaultMaxSettingsBytes
         var maxExpansionRatio: UInt64 = 200
     }
 
@@ -508,6 +589,7 @@ enum DataBackup {
         case totalTooLarge
         case suspiciousExpansion(String)
         case extractedSizeMismatch(String)
+        case missingDatabase
 
         var errorDescription: String? {
             switch self {
@@ -527,6 +609,8 @@ enum DataBackup {
                 return "The archive entry \(path) has a suspicious compression ratio."
             case .extractedSizeMismatch(let path):
                 return "The archive entry \(path) expanded beyond its declared size."
+            case .missingDatabase:
+                return "The archive does not contain noop-backup.sqlite."
             }
         }
     }
@@ -591,19 +675,33 @@ enum DataBackup {
         return head[0] == 0x50 && head[1] == 0x4B && head[2] == 0x03 && head[3] == 0x04
     }
 
-    static func extractBackupZip(at zipURL: URL, into destDir: URL,
-                                 limits: ArchiveRestoreLimits = ArchiveRestoreLimits()) throws {
+    private struct ValidatedBackupArchive {
+        let archive: Archive
+        let entries: [Entry]
+        let declaredTotal: UInt64
+        let databaseBytes: UInt64
+    }
+
+    private static func validateBackupArchive(
+        at zipURL: URL,
+        limits: ArchiveRestoreLimits,
+        allowOversizeDatabase: Bool
+    ) throws -> ValidatedBackupArchive {
         let attributes = try FileManager.default.attributesOfItem(atPath: zipURL.path)
-        let archiveBytes = (attributes[.size] as? NSNumber)?.uint64Value ?? 0
+        guard let archiveSize = attributes[.size] as? NSNumber else {
+            throw CocoaError(.fileReadUnknown, userInfo: [NSFilePathErrorKey: zipURL.path])
+        }
+        let archiveBytes = archiveSize.uint64Value
         guard archiveBytes <= limits.maxArchiveCompressedBytes else {
             throw BackupArchiveError.compressedInputTooLarge
         }
 
         let archive = try Archive(url: zipURL, accessMode: .read)
+        guard limits.maxEntryCount > 0 else { throw BackupArchiveError.tooManyEntries }
         var entries: [Entry] = []
-        entries.reserveCapacity(limits.maxEntryCount)
         var flattenedNames = Set<String>()
-        var declaredTotal: UInt64 = 0
+        var declaredActualTotal: UInt64 = 0
+        var databaseBytes: UInt64?
 
         for entry in archive {
             guard entries.count < limits.maxEntryCount else {
@@ -619,15 +717,18 @@ enum DataBackup {
             }
             let perEntryLimit = entry.path == backupEntryName
                 ? limits.maxDatabaseBytes : limits.maxSettingsBytes
-            guard entry.uncompressedSize <= perEntryLimit else {
-                throw BackupArchiveError.entryTooLarge(entry.path)
+            if entry.uncompressedSize > perEntryLimit {
+                guard entry.path == backupEntryName, allowOversizeDatabase else {
+                    throw BackupArchiveError.entryTooLarge(entry.path)
+                }
             }
-            guard declaredTotal <= limits.maxTotalUncompressedBytes - min(
-                entry.uncompressedSize, limits.maxTotalUncompressedBytes
-            ), declaredTotal + entry.uncompressedSize <= limits.maxTotalUncompressedBytes else {
+            if entry.path == backupEntryName { databaseBytes = entry.uncompressedSize }
+            let actualAdd = declaredActualTotal.addingReportingOverflow(entry.uncompressedSize)
+            guard !actualAdd.overflow,
+                  actualAdd.partialValue <= limits.maxTotalUncompressedBytes else {
                 throw BackupArchiveError.totalTooLarge
             }
-            declaredTotal += entry.uncompressedSize
+            declaredActualTotal = actualAdd.partialValue
             if entry.uncompressedSize > 0 {
                 guard entry.compressedSize > 0 else {
                     throw BackupArchiveError.suspiciousExpansion(entry.path)
@@ -642,15 +743,33 @@ enum DataBackup {
             entries.append(entry)
         }
 
+        guard let databaseBytes else { throw BackupArchiveError.missingDatabase }
+        return ValidatedBackupArchive(
+            archive: archive,
+            entries: entries,
+            declaredTotal: declaredActualTotal,
+            databaseBytes: databaseBytes
+        )
+    }
+
+    static func extractBackupZip(at zipURL: URL, into destDir: URL,
+                                 limits: ArchiveRestoreLimits = ArchiveRestoreLimits(),
+                                 allowOversizeDatabase: Bool = false) throws {
+        let validated = try validateBackupArchive(
+            at: zipURL,
+            limits: limits,
+            allowOversizeDatabase: allowOversizeDatabase
+        )
+
         let available = try availableCapacity(at: destDir)
-        guard available >= declaredTotal else {
-            throw RestoreFailure.insufficientCapacity(required: declaredTotal, available: available)
+        guard available >= validated.declaredTotal else {
+            throw RestoreFailure.insufficientCapacity(required: validated.declaredTotal, available: available)
         }
 
         var extractedTotal: UInt64 = 0
         var extractedURLs: [URL] = []
         do {
-            for entry in entries {
+            for entry in validated.entries {
                 let out = destDir.appendingPathComponent(entry.path)
                 guard FileManager.default.createFile(atPath: out.path, contents: nil) else {
                     throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: out.path])
@@ -659,24 +778,26 @@ enum DataBackup {
                 let handle = try FileHandle(forWritingTo: out)
                 defer { try? handle.close() }
                 var entryBytes: UInt64 = 0
-                _ = try archive.extract(entry) { chunk in
+                _ = try validated.archive.extract(entry) { chunk in
                     let chunkBytes = UInt64(chunk.count)
-                    guard entryBytes <= entry.uncompressedSize - min(chunkBytes, entry.uncompressedSize),
-                          entryBytes + chunkBytes <= entry.uncompressedSize else {
+                    let entryAdd = entryBytes.addingReportingOverflow(chunkBytes)
+                    guard !entryAdd.overflow, entryAdd.partialValue <= entry.uncompressedSize else {
                         throw BackupArchiveError.extractedSizeMismatch(entry.path)
                     }
-                    guard extractedTotal <= limits.maxTotalUncompressedBytes - min(
-                        chunkBytes, limits.maxTotalUncompressedBytes
-                    ), extractedTotal + chunkBytes <= limits.maxTotalUncompressedBytes else {
+                    let totalAdd = extractedTotal.addingReportingOverflow(chunkBytes)
+                    guard !totalAdd.overflow, totalAdd.partialValue <= validated.declaredTotal else {
                         throw BackupArchiveError.totalTooLarge
                     }
                     try handle.write(contentsOf: chunk)
-                    entryBytes += chunkBytes
-                    extractedTotal += chunkBytes
+                    entryBytes = entryAdd.partialValue
+                    extractedTotal = totalAdd.partialValue
                 }
                 guard entryBytes == entry.uncompressedSize else {
                     throw BackupArchiveError.extractedSizeMismatch(entry.path)
                 }
+            }
+            guard extractedTotal == validated.declaredTotal else {
+                throw BackupArchiveError.totalTooLarge
             }
         } catch {
             for url in extractedURLs { try? FileManager.default.removeItem(at: url) }

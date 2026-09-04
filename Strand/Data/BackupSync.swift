@@ -251,7 +251,10 @@ enum FolderBackup {
 
         let nowMs = Int(Date().timeIntervalSince1970 * 1000.0)
         let dest = folder.appendingPathComponent(BackupSync.snapshotName(nowMs))
-        guard case .exported = await DataBackup.writeBackup(checkpoint: checkpoint, to: dest) else { return false }
+        let result = await DataBackup.writeBackup(checkpoint: checkpoint, to: dest)
+        guard DataBackup.isSuccessfulExport(result) else {
+            return false
+        }
 
         UserDefaults.standard.set(nowMs, forKey: lastKey)
         prune(in: folder)

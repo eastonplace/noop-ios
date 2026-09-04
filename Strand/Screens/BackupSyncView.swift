@@ -358,7 +358,18 @@ struct BackupSyncView: View {
                         message: m,
                         retry: .restore(snap)
                     )
-                case .cancelled, .exported:
+                case .restoreTooLarge(_, let limit):
+                    let cap = ByteCountFormatter.string(
+                        fromByteCount: Int64(clamping: limit),
+                        countStyle: .file
+                    )
+                    operationFailure = BackupOperationFailure(
+                        title: String(localized: "Large backup"),
+                        message: String(localized: "This backup is above the normal \(cap) database limit. Use Settings → Data → Import Backup to review the explicit large-restore warning."),
+                        retry: .restore(snap),
+                        actionTitle: "Try again"
+                    )
+                case .cancelled, .exported, .exportedOversize:
                     operationFailure = BackupOperationFailure(
                         title: String(localized: "Restore problem"),
                         message: String(localized: "Couldn't restore that backup."),

@@ -1,5 +1,6 @@
 #if DEBUG
 import Foundation
+import StrandAnalytics
 import WhoopStore
 import WhoopProtocol
 
@@ -20,7 +21,7 @@ enum AppleDemoSeeder {
     /// Bump when the fixture shape changes. The simulator demo uses this in its
     /// database filename, so a newer fixture never gets trapped behind an older,
     /// partially-seeded database.
-    static let fixtureVersion = 2
+    static let fixtureVersion = 4
     static var databaseFilename: String { "whoop-demo-v\(fixtureVersion).sqlite" }
 
     private enum Scenario: String {
@@ -29,6 +30,7 @@ enum AppleDemoSeeder {
 
     static let whoop = "my-whoop"
     static let apple = "apple-health"
+    static let comparisonOura = "oura-ring-4-demo"
     private static let DAYS = 120
     /// Effort rescale factor: the old 0–21 strain scale → the new 0–100 Effort scale.
     private static let STRAIN_SCALE = 100.0 / 21.0
@@ -42,11 +44,31 @@ enum AppleDemoSeeder {
     /// launch … --demo-seed`).
     static var requested: Bool {
         #if targetEnvironment(simulator)
-        CommandLine.arguments.contains("--demo-seed")
+        isSeedRequested(arguments: CommandLine.arguments, isSimulator: true)
         #else
         // Even a DEBUG-signed build on a real phone must never enter demo mode.
+        isSeedRequested(arguments: CommandLine.arguments, isSimulator: false)
+        #endif
+    }
+
+    /// Narrow launch route for deterministic visual proof of the real Devices screen. It is accepted
+    /// only together with the simulator-only demo seed, so neither ordinary Debug use nor a real phone
+    /// can bypass the production navigation shell.
+    static var devicesQARequested: Bool {
+        #if targetEnvironment(simulator)
+        isDevicesQARequested(arguments: CommandLine.arguments, isSimulator: true)
+        #else
         false
         #endif
+    }
+
+    static func isSeedRequested(arguments: [String], isSimulator: Bool) -> Bool {
+        isSimulator && arguments.contains("--demo-seed")
+    }
+
+    static func isDevicesQARequested(arguments: [String], isSimulator: Bool) -> Bool {
+        isSeedRequested(arguments: arguments, isSimulator: isSimulator)
+            && arguments.contains("--demo-devices-qa")
     }
 
     /// F7: evidence launches default to a healthy populated day. The prior illness
@@ -63,7 +85,7 @@ enum AppleDemoSeeder {
     static func seedIfRequested(into store: WhoopStore) async {
         guard requested else { return }
         seedDemoPreferences()
-        seedDemoDeviceIfNeeded(into: store)
+        seedDemoDevicesIfNeeded(into: store)
         let auditFormatter = DateFormatter()
         auditFormatter.locale = Locale(identifier: "en_US_POSIX")
         auditFormatter.timeZone = .current
@@ -75,32 +97,45 @@ enum AppleDemoSeeder {
         catch { NSLog("AppleDemoSeeder: seed failed — \(error)") }
     }
 
-    /// Audit-only preferences that unlock conditional surfaces. This entire type is DEBUG-only and
-    /// `requested` is true only for `--demo-seed`, so ordinary debug use and every Release build keep
-    /// the production defaults.
-    private static func seedDemoPreferences() {
-        UserDefaults.standard.set(true, forKey: HydrationStore.enabledKey)
-        UserDefaults.standard.set(true, forKey: "behavior.illnessWatch")
-        UserDefaults.standard.set(
+    /// Audit-only preferences that unlock low-risk conditional surfaces. Pre-sleep HR is deliberately
+    /// absent: consent is a production preference, and demo launches must not persist an opt-in that a
+    /// later ordinary launch could apply to the normal database.
+    static func seedDemoPreferences(defaults: UserDefaults = .standard) {
+        defaults.set(true, forKey: HydrationStore.enabledKey)
+        defaults.set(true, forKey: "behavior.illnessWatch")
+        defaults.set(
             DashboardCardPrefs.encode(DashboardCard.defaultSelection + [.hydration]),
             forKey: DashboardCardPrefs.selectionKey)
     }
 
-    /// DEBUG/demo-only: so the Devices screen renders with content under `--demo-seed`, pair a second
-    /// (non-WHOOP) strap alongside the seeded WHOOP. If the registry only holds the WHOOP, add a
-    /// `.paired` "Polar H10" — the screenshot then shows the WHOOP (Active) plus a paired strap. Status
-    /// `.paired` (not `.active`) keeps the WHOOP active, so the SourceCoordinator stays dormant and the
-    /// existing WHOOP path is untouched. No-op once a second device already exists.
-    private static func seedDemoDeviceIfNeeded(into store: WhoopStore) {
+    /// Demo screenshots may render the pre-sleep card without mutating consent. Callers pass the stored
+    /// production choice separately, so a demo-to-normal relaunch immediately falls back to that choice.
+    static func effectivePreSleepFeedbackEnabled(userOptIn: Bool, demoRequested: Bool) -> Bool {
+        userOptIn || demoRequested
+    }
+
+    /// DEBUG/demo-only device inventory. Polar keeps the existing generic-strap coverage. The Oura row
+    /// is a second independently-keyed, comparison-capable source with real daily rows seeded below.
+    /// Both remain `.paired`, so the canonical WHOOP stays active and no source transition can start.
+    private static func seedDemoDevicesIfNeeded(into store: WhoopStore) {
         let registry = DeviceRegistryStore(dbQueue: store.registryWriter)
         guard let devices = try? registry.all() else { return }
-        guard devices.allSatisfy({ $0.id == whoop }) else { return }  // only the seeded WHOOP present
+        let ids = Set(devices.map(\.id))
         let now = Int(Date().timeIntervalSince1970)
-        let polar = PairedDevice(
-            id: "polar-h10-demo", brand: "Polar", model: "H10", nickname: nil,
-            sourceKind: .liveBLE, capabilities: [.hr, .hrv], status: .paired,
-            addedAt: now - 24 * 60 * 60, lastSeenAt: now - 3_600)
-        try? registry.add(polar)
+        if !ids.contains("polar-h10-demo") {
+            let polar = PairedDevice(
+                id: "polar-h10-demo", brand: "Polar", model: "H10", nickname: nil,
+                sourceKind: .liveBLE, capabilities: [.hr, .hrv], status: .paired,
+                addedAt: now - 2 * 24 * 60 * 60, lastSeenAt: now - 3_600)
+            try? registry.add(polar)
+        }
+        if !ids.contains(comparisonOura) {
+            let oura = PairedDevice(
+                id: comparisonOura, brand: "Oura", model: "Oura Ring 4", nickname: nil,
+                sourceKind: .oura, capabilities: [.hr, .hrv, .spo2, .skinTemp, .sleep],
+                status: .paired, addedAt: now - 24 * 60 * 60, lastSeenAt: now - 900)
+            try? registry.add(oura)
+        }
     }
 
     private static func seed(into store: WhoopStore) async throws {
@@ -293,6 +328,31 @@ enum AppleDemoSeeder {
             bodyAgeDemo -= 0.6
         }
 
+        // Ryan reconciliation QA: bank continuous minute-level HR across the latest 15 nights and
+        // every waking interval between them. The latest prior-main → current-main window therefore
+        // has complete SQL buckets for the Sleep contrast card, while the earlier nights provide enough
+        // genuine raw pre-sleep windows for the opt-in analysis baseline to rebuild deterministically.
+        let physiologicalHR = physiologicalHeartRateFixture(sleeps: sleeps)
+        if !physiologicalHR.isEmpty {
+            _ = try await store.insert(Streams(hr: physiologicalHR), deviceId: whoop)
+        }
+
+        // Seed the same display-only pre-sleep history up front under the canonical computed namespace.
+        // IntelligenceEngine later derives these points again from the raw fixture above, using the same
+        // complete-set reconciliation as production. These rows never enter Recovery, Rest, or Effort.
+        let preSleepPoints = preSleepMetricFixture(days: daily, sleeps: sleeps)
+        if !preSleepPoints.isEmpty {
+            _ = try await store.upsertMetricSeries(preSleepPoints, deviceId: "\(whoop)-noop")
+        }
+
+        // The comparison card reads exact physical device ids. Give the paired Oura its own bounded
+        // daily history with small, plausible differences; no ownership or score is copied across ids.
+        let comparisonDays = comparisonDailyFixture(days: daily)
+        try? await store.upsertDevice(id: comparisonOura, mac: nil, name: "Oura Ring 4 (demo)")
+        if !comparisonDays.isEmpty {
+            _ = try await store.upsertDailyMetrics(comparisonDays, deviceId: comparisonOura)
+        }
+
         // 004 T80: bank TODAY's intraday HR + R-R so the stress ribbon and Live-HR module
         // render populated states in simulator screenshots. DaytimeStress needs >= 300 HR
         // samples per hour to score an hour, so we seed one sample every 10 s from 06:00
@@ -332,6 +392,120 @@ enum AppleDemoSeeder {
         if !workouts.isEmpty { _ = try await store.upsertWorkouts(workouts, deviceId: whoop) }
         if !journal.isEmpty { _ = try await store.upsertJournal(journal, deviceId: whoop) }
         NSLog("AppleDemoSeeder: seeded \(daily.count) days, \(workouts.count) workouts.")
+    }
+
+    /// One sample per complete minute from 30 minutes before the oldest selected night through the
+    /// latest selected wake. Values follow a stable lower-asleep / higher-awake pattern, with a gentle
+    /// pre-sleep taper and a slightly elevated final pre-sleep window for visible baseline feedback.
+    static func physiologicalHeartRateFixture(
+        sleeps: [CachedSleepSession],
+        maximumNights: Int = 15
+    ) -> [HRSample] {
+        guard maximumNights > 0 else { return [] }
+        let valid = sleeps
+            .filter { $0.effectiveStartTs < $0.endTs }
+            .sorted { $0.effectiveStartTs < $1.effectiveStartTs }
+        let selected = Array(valid.suffix(maximumNights))
+        guard let first = selected.first, let last = selected.last else { return [] }
+
+        let rawStart = first.effectiveStartTs - PreSleepHeartRateFeedback.defaultPreSleepWindowSeconds
+        let start = rawStart - positiveRemainder(rawStart, divisor: 60)
+        let lastRemainder = positiveRemainder(last.endTs, divisor: 60)
+        let end = lastRemainder == 0 ? last.endTs : last.endTs + (60 - lastRemainder)
+        guard start < end else { return [] }
+
+        var result: [HRSample] = []
+        result.reserveCapacity((end - start) / 60)
+        var sessionIndex = 0
+        var timestamp = start
+        while timestamp < end {
+            while sessionIndex < selected.count && timestamp >= selected[sessionIndex].endTs {
+                sessionIndex += 1
+            }
+            let current = sessionIndex < selected.count ? selected[sessionIndex] : nil
+            let asleep = current.map {
+                timestamp >= $0.effectiveStartTs && timestamp < $0.endTs
+            } ?? false
+            let minute = Double(timestamp / 60)
+            let bpm: Double
+            if asleep, let current {
+                let duration = max(1, current.endTs - current.effectiveStartTs)
+                let progress = Double(timestamp - current.effectiveStartTs) / Double(duration)
+                bpm = 53.0 + 2.4 * sin(progress * 4.0 * .pi) + 1.1 * sin(minute * 0.37)
+            } else if let upcoming = current,
+                      timestamp < upcoming.effectiveStartTs,
+                      upcoming.effectiveStartTs - timestamp
+                        <= PreSleepHeartRateFeedback.defaultPreSleepWindowSeconds {
+                let isLatest = sessionIndex == selected.count - 1
+                let target = preSleepTarget(index: sessionIndex, isLatest: isLatest)
+                bpm = target + 1.0 * sin(minute * 0.53)
+            } else {
+                let seconds = positiveRemainder(timestamp, divisor: 86_400)
+                let hour = Double(seconds) / 3_600.0
+                bpm = 70.0 + 7.0 * sin((hour - 8.0) / 24.0 * 2.0 * .pi)
+                    + 1.6 * sin(minute * 0.41)
+            }
+            result.append(HRSample(ts: timestamp, bpm: Int(bpm.clamped(42, 180).rounded())))
+            timestamp += 60
+        }
+        return result
+    }
+
+    /// Five display-only points per recent night. Keys come from the production analytics contract,
+    /// so a rename cannot leave the demo silently writing an obsolete series.
+    static func preSleepMetricFixture(
+        days: [DailyMetric],
+        sleeps: [CachedSleepSession],
+        maximumNights: Int = 14
+    ) -> [MetricPoint] {
+        guard maximumNights > 0, days.count == sleeps.count else { return [] }
+        let selected = Array(zip(days, sleeps).suffix(maximumNights))
+        return selected.enumerated().flatMap { index, pair in
+            let (day, sleep) = pair
+            let mean = preSleepTarget(index: index + 1, isLatest: index == selected.count - 1)
+            return [
+                MetricPoint(day: day.day, key: PreSleepHeartRateFeedback.meanMetricKey, value: round1(mean)),
+                MetricPoint(day: day.day, key: PreSleepHeartRateFeedback.validSamplesMetricKey, value: 30),
+                MetricPoint(day: day.day, key: PreSleepHeartRateFeedback.totalSamplesMetricKey, value: 30),
+                MetricPoint(day: day.day, key: PreSleepHeartRateFeedback.primarySleepStartMetricKey,
+                            value: Double(sleep.effectiveStartTs)),
+                MetricPoint(day: day.day, key: PreSleepHeartRateFeedback.primarySleepEndMetricKey,
+                            value: Double(sleep.endTs)),
+            ]
+        }
+    }
+
+    /// Read-only peer rows for the last 14 days. Only signals the Oura fixture claims to capture are
+    /// present; activity totals and NOOP scores remain nil rather than being invented for that source.
+    static func comparisonDailyFixture(days: [DailyMetric], maximumDays: Int = 14) -> [DailyMetric] {
+        guard maximumDays > 0 else { return [] }
+        return Array(days.suffix(maximumDays)).enumerated().map { index, row in
+            DailyMetric(
+                day: row.day,
+                totalSleepMin: row.totalSleepMin.map { max(0, $0 - Double(5 + index % 4)) },
+                efficiency: row.efficiency.map { max(0, $0 - 0.7) },
+                deepMin: row.deepMin.map { max(0, $0 - 3) },
+                remMin: row.remMin.map { max(0, $0 + 2) },
+                lightMin: row.lightMin.map { max(0, $0 - 4) },
+                disturbances: row.disturbances.map { max(0, $0 + (index % 2)) },
+                restingHr: row.restingHr.map { $0 + (index.isMultiple(of: 3) ? 2 : 1) },
+                avgHrv: row.avgHrv.map { round1($0 * 0.97) },
+                recovery: nil,
+                strain: nil,
+                exerciseCount: nil,
+                spo2Pct: row.spo2Pct.map { round1(max(0, $0 - 0.3)) },
+                skinTempDevC: row.skinTempDevC.map { round2($0 + 0.1) }
+            )
+        }
+    }
+
+    private static func preSleepTarget(index: Int, isLatest: Bool) -> Double {
+        60.0 + 1.8 * sin(Double(index) * 0.71) + (isLatest ? 5.0 : 0.0)
+    }
+
+    private static func positiveRemainder(_ value: Int, divisor: Int) -> Int {
+        let remainder = value % divisor
+        return remainder >= 0 ? remainder : remainder + divisor
     }
 
     /// Real store rows for the surfaces that were blocked in the first cleanup sweep.

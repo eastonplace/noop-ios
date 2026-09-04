@@ -174,7 +174,9 @@ enum ScheduledDebugExport {
         // session), so it writes just the log — honest about what's available with no session open.
         if let capture = captureURL, FileManager.default.fileExists(atPath: capture.path) {
             let dest = docs.appendingPathComponent("noop-raw-capture-\(stamp).json")
-            try? FileManager.default.copyItem(at: capture, to: dest)
+            if let safeData = try? FileExport.sanitizedCaptureData(at: capture) {
+                try? safeData.write(to: dest, options: .atomic)
+            }
         }
         if markDay {
             UserDefaults.standard.set(dayKey(Date()), forKey: K.lastRun)
