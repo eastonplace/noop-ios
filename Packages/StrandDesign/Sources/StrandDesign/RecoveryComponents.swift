@@ -87,73 +87,96 @@ public struct RecoveryArcCard: View {
             let side = min(proxy.size.width, proxy.size.height * 1.35)
             let lineWidth: CGFloat = 11
             let radius = side / 2 - lineWidth / 2
-            ZStack {
-                // Track.
-                Circle()
-                    .trim(from: 0, to: Self.sweep)
-                    .stroke(StrandPalette.surfaceInset, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-                    .rotationEffect(.degrees(150))
-                // Fine instrument ticks inside the track — quiet scale texture.
-                ForEach(0..<25, id: \.self) { index in
-                    let angle = Angle.degrees(150 + 240 * Double(index) / 24)
-                    Capsule(style: .continuous)
-                        .fill(StrandPalette.hairline)
-                        .frame(width: 1, height: 4)
-                        .rotationEffect(angle + .degrees(90))
-                        .offset(
-                            x: cos(angle.radians) * (radius - lineWidth / 2 - 7),
-                            y: sin(angle.radians) * (radius - lineWidth / 2 - 7)
-                        )
-                }
-                // Band boundary ticks at 34 and 67 — the scale earns its colour honestly.
-                ForEach([34.0, 67.0], id: \.self) { bound in
-                    let angle = Angle.degrees(150 + 240 * bound / 100)
-                    Capsule(style: .continuous)
-                        .fill(StrandPalette.hairlineStrong)
-                        .frame(width: 2, height: lineWidth + 6)
-                        .rotationEffect(angle + .degrees(90))
-                        .offset(
-                            x: cos(angle.radians) * radius,
-                            y: sin(angle.radians) * radius
-                        )
-                }
-                // Scale end labels.
-                scaleLabel("0", at: .degrees(150), radius: radius + 16)
-                scaleLabel("100", at: .degrees(30), radius: radius + 16)
-                // Value arc, trim-revealed in the band colour.
-                Circle()
-                    .trim(from: 0, to: Self.sweep * (revealed ? fraction : 0))
-                    .stroke(accent, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-                    .rotationEffect(.degrees(150))
-                // Tip bead — the arc's leading edge, ringed like every peak marker in the system.
-                if score != nil, revealed {
-                    let angle = Angle.degrees(150 + 240 * fraction)
-                    Circle()
-                        .fill(accent)
-                        .frame(width: 9, height: 9)
-                        .overlay(Circle().stroke(StrandPalette.surfaceRaised, lineWidth: 1.5))
-                        .offset(x: cos(angle.radians) * radius, y: sin(angle.radians) * radius)
-                        .transition(.opacity)
-                }
-                VStack(spacing: 4) {
-                    Text(score.map { "\(Int($0.rounded()))" } ?? "—")
-                        .font(StrandFont.number(40, weight: .bold))
-                        .monospacedDigit()
-                        .foregroundStyle(StrandPalette.textPrimary)
-                        .contentTransition(.numericText())
-                    if let deltaText {
-                        Text(deltaText)
-                            .font(StrandFont.micro.weight(.semibold))
-                            .monospacedDigit()
-                            .foregroundStyle(deltaColor)
-                    }
-                }
-                .offset(y: 8)
-            }
-            .frame(width: side, height: side)
-            .frame(maxWidth: .infinity)
+            arcFace(side: side, lineWidth: lineWidth, radius: radius)
         }
         .frame(height: 172)
+    }
+
+    private func arcFace(side: CGFloat, lineWidth: CGFloat, radius: CGFloat) -> some View {
+        ZStack {
+            arcTrack(lineWidth: lineWidth)
+            arcScaleTicks(radius: radius, lineWidth: lineWidth)
+            arcBandTicks(radius: radius, lineWidth: lineWidth)
+            scaleLabel("0", at: .degrees(150), radius: radius + 16)
+            scaleLabel("100", at: .degrees(30), radius: radius + 16)
+            arcValue(lineWidth: lineWidth)
+            arcTip(radius: radius)
+            arcCenterValue
+        }
+        .frame(width: side, height: side)
+        .frame(maxWidth: .infinity)
+    }
+
+    private func arcTrack(lineWidth: CGFloat) -> some View {
+        Circle()
+            .trim(from: 0, to: Self.sweep)
+            .stroke(StrandPalette.surfaceInset, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+            .rotationEffect(.degrees(150))
+    }
+
+    private func arcScaleTicks(radius: CGFloat, lineWidth: CGFloat) -> some View {
+        ForEach(0..<25, id: \.self) { index in
+            let angle = Angle.degrees(150 + 240 * Double(index) / 24)
+            Capsule(style: .continuous)
+                .fill(StrandPalette.hairline)
+                .frame(width: 1, height: 4)
+                .rotationEffect(angle + .degrees(90))
+                .offset(
+                    x: cos(angle.radians) * (radius - lineWidth / 2 - 7),
+                    y: sin(angle.radians) * (radius - lineWidth / 2 - 7)
+                )
+        }
+    }
+
+    private func arcBandTicks(radius: CGFloat, lineWidth: CGFloat) -> some View {
+        ForEach([34.0, 67.0], id: \.self) { bound in
+            let angle = Angle.degrees(150 + 240 * bound / 100)
+            Capsule(style: .continuous)
+                .fill(StrandPalette.hairlineStrong)
+                .frame(width: 2, height: lineWidth + 6)
+                .rotationEffect(angle + .degrees(90))
+                .offset(
+                    x: cos(angle.radians) * radius,
+                    y: sin(angle.radians) * radius
+                )
+        }
+    }
+
+    private func arcValue(lineWidth: CGFloat) -> some View {
+        Circle()
+            .trim(from: 0, to: Self.sweep * (revealed ? fraction : 0))
+            .stroke(accent, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+            .rotationEffect(.degrees(150))
+    }
+
+    @ViewBuilder
+    private func arcTip(radius: CGFloat) -> some View {
+        if score != nil, revealed {
+            let angle = Angle.degrees(150 + 240 * fraction)
+            Circle()
+                .fill(accent)
+                .frame(width: 9, height: 9)
+                .overlay(Circle().stroke(StrandPalette.surfaceRaised, lineWidth: 1.5))
+                .offset(x: cos(angle.radians) * radius, y: sin(angle.radians) * radius)
+                .transition(.opacity)
+        }
+    }
+
+    private var arcCenterValue: some View {
+        VStack(spacing: 4) {
+            Text(score.map { "\(Int($0.rounded()))" } ?? "—")
+                .font(StrandFont.number(40, weight: .bold))
+                .monospacedDigit()
+                .foregroundStyle(StrandPalette.textPrimary)
+                .contentTransition(.numericText())
+            if let deltaText {
+                Text(deltaText)
+                    .font(StrandFont.micro.weight(.semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(deltaColor)
+            }
+        }
+        .offset(y: 8)
     }
 
     private func scaleLabel(_ text: String, at angle: Angle, radius: CGFloat) -> some View {

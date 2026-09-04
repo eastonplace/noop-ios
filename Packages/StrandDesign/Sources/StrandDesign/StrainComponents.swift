@@ -80,68 +80,110 @@ public struct StrainGaugeCard: View {
             let radius = side / 2 - lineWidth / 2
             let bandLo = Self.sweep * min(max(target.lowerBound / Self.scale, 0), 1)
             let bandHi = Self.sweep * min(max(target.upperBound / Self.scale, 0), 1)
-            ZStack {
-                Circle()
-                    .trim(from: 0, to: Self.sweep)
-                    .stroke(StrandPalette.surfaceInset, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-                    .rotationEffect(.degrees(150))
-                // Fine instrument ticks inside the track — one per strain point.
-                ForEach(0..<22, id: \.self) { index in
-                    let angle = Angle.degrees(150 + 240 * Double(index) / 21)
-                    Capsule(style: .continuous)
-                        .fill(StrandPalette.hairline)
-                        .frame(width: 1, height: 4)
-                        .rotationEffect(angle + .degrees(90))
-                        .offset(
-                            x: cos(angle.radians) * (radius - lineWidth / 2 - 7),
-                            y: sin(angle.radians) * (radius - lineWidth / 2 - 7)
-                        )
-                }
-                // The optimal band, resting quietly on the track under the value arc,
-                // tick-marked at both bounds so the zone reads even mid-fill.
-                Circle()
-                    .trim(from: bandLo, to: bandHi)
-                    .stroke(StrandPalette.statusPositive.opacity(0.3), style: StrokeStyle(lineWidth: lineWidth))
-                    .rotationEffect(.degrees(150))
-                ForEach([target.lowerBound, target.upperBound], id: \.self) { bound in
-                    let angle = Angle.degrees(150 + 240 * bound / Self.scale)
-                    Capsule(style: .continuous)
-                        .fill(StrandPalette.statusPositive.opacity(0.85))
-                        .frame(width: 2, height: lineWidth + 6)
-                        .rotationEffect(angle + .degrees(90))
-                        .offset(x: cos(angle.radians) * radius, y: sin(angle.radians) * radius)
-                }
-                scaleLabel("0", at: .degrees(150), radius: radius + 16)
-                scaleLabel("21", at: .degrees(30), radius: radius + 16)
-                Circle()
-                    .trim(from: 0, to: Self.sweep * (revealed ? fraction : 0))
-                    .stroke(StrandPalette.strainAccent, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-                    .rotationEffect(.degrees(150))
-                if revealed {
-                    let angle = Angle.degrees(150 + 240 * fraction)
-                    Circle()
-                        .fill(StrandPalette.strainAccent)
-                        .frame(width: 9, height: 9)
-                        .overlay(Circle().stroke(StrandPalette.surfaceRaised, lineWidth: 1.5))
-                        .offset(x: cos(angle.radians) * radius, y: sin(angle.radians) * radius)
-                        .transition(.opacity)
-                }
-                VStack(spacing: 3) {
-                    Text(String(format: "%.1f", strain))
-                        .font(StrandFont.number(40, weight: .bold))
-                        .monospacedDigit()
-                        .foregroundStyle(StrandPalette.textPrimary)
-                        .contentTransition(.numericText())
-                    Text("of 21")
-                        .font(StrandFont.micro)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                }
-                .offset(y: 6)
-            }
-            .frame(width: side, height: side)
-            .frame(maxWidth: .infinity)
+            gaugeFace(
+                side: side,
+                lineWidth: lineWidth,
+                radius: radius,
+                bandLo: bandLo,
+                bandHi: bandHi
+            )
         }
         .frame(height: 172)
+    }
+
+    private func gaugeFace(
+        side: CGFloat,
+        lineWidth: CGFloat,
+        radius: CGFloat,
+        bandLo: Double,
+        bandHi: Double
+    ) -> some View {
+        ZStack {
+            gaugeTrack(lineWidth: lineWidth)
+            gaugeScaleTicks(radius: radius, lineWidth: lineWidth)
+            gaugeBand(lineWidth: lineWidth, bandLo: bandLo, bandHi: bandHi)
+            gaugeBandTicks(radius: radius, lineWidth: lineWidth)
+            scaleLabel("0", at: .degrees(150), radius: radius + 16)
+            scaleLabel("21", at: .degrees(30), radius: radius + 16)
+            gaugeValueArc(lineWidth: lineWidth)
+            gaugeTip(radius: radius)
+            gaugeCenterValue
+        }
+        .frame(width: side, height: side)
+        .frame(maxWidth: .infinity)
+    }
+
+    private func gaugeTrack(lineWidth: CGFloat) -> some View {
+        Circle()
+            .trim(from: 0, to: Self.sweep)
+            .stroke(StrandPalette.surfaceInset, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+            .rotationEffect(.degrees(150))
+    }
+
+    private func gaugeScaleTicks(radius: CGFloat, lineWidth: CGFloat) -> some View {
+        ForEach(0..<22, id: \.self) { index in
+            let angle = Angle.degrees(150 + 240 * Double(index) / 21)
+            Capsule(style: .continuous)
+                .fill(StrandPalette.hairline)
+                .frame(width: 1, height: 4)
+                .rotationEffect(angle + .degrees(90))
+                .offset(
+                    x: cos(angle.radians) * (radius - lineWidth / 2 - 7),
+                    y: sin(angle.radians) * (radius - lineWidth / 2 - 7)
+                )
+        }
+    }
+
+    private func gaugeBand(lineWidth: CGFloat, bandLo: Double, bandHi: Double) -> some View {
+        Circle()
+            .trim(from: bandLo, to: bandHi)
+            .stroke(StrandPalette.statusPositive.opacity(0.3), style: StrokeStyle(lineWidth: lineWidth))
+            .rotationEffect(.degrees(150))
+    }
+
+    private func gaugeBandTicks(radius: CGFloat, lineWidth: CGFloat) -> some View {
+        ForEach([target.lowerBound, target.upperBound], id: \.self) { bound in
+            let angle = Angle.degrees(150 + 240 * bound / Self.scale)
+            Capsule(style: .continuous)
+                .fill(StrandPalette.statusPositive.opacity(0.85))
+                .frame(width: 2, height: lineWidth + 6)
+                .rotationEffect(angle + .degrees(90))
+                .offset(x: cos(angle.radians) * radius, y: sin(angle.radians) * radius)
+        }
+    }
+
+    private func gaugeValueArc(lineWidth: CGFloat) -> some View {
+        Circle()
+            .trim(from: 0, to: Self.sweep * (revealed ? fraction : 0))
+            .stroke(StrandPalette.strainAccent, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+            .rotationEffect(.degrees(150))
+    }
+
+    @ViewBuilder
+    private func gaugeTip(radius: CGFloat) -> some View {
+        if revealed {
+            let angle = Angle.degrees(150 + 240 * fraction)
+            Circle()
+                .fill(StrandPalette.strainAccent)
+                .frame(width: 9, height: 9)
+                .overlay(Circle().stroke(StrandPalette.surfaceRaised, lineWidth: 1.5))
+                .offset(x: cos(angle.radians) * radius, y: sin(angle.radians) * radius)
+                .transition(.opacity)
+        }
+    }
+
+    private var gaugeCenterValue: some View {
+        VStack(spacing: 3) {
+            Text(String(format: "%.1f", strain))
+                .font(StrandFont.number(40, weight: .bold))
+                .monospacedDigit()
+                .foregroundStyle(StrandPalette.textPrimary)
+                .contentTransition(.numericText())
+            Text("of 21")
+                .font(StrandFont.micro)
+                .foregroundStyle(StrandPalette.textTertiary)
+        }
+        .offset(y: 6)
     }
 
     private func scaleLabel(_ text: String, at angle: Angle, radius: CGFloat) -> some View {
