@@ -23,6 +23,31 @@ public struct StrainGaugeCard: View {
 
     private static let sweep: Double = 240 / 360
     private static let scale: Double = 21
+    private static let gaugeScaleTickDegrees: [Double] = (0..<22).map { index in
+        150 + 240 * Double(index) / 21
+    }
+
+    private struct GaugeTick: Identifiable {
+        let id: Int
+        let rotation: Angle
+        let xOffset: CGFloat
+        let yOffset: CGFloat
+        let width: CGFloat
+        let height: CGFloat
+        let color: Color
+    }
+
+    private struct GaugeTickView: View {
+        let tick: GaugeTick
+
+        var body: some View {
+            Capsule(style: .continuous)
+                .fill(tick.color)
+                .frame(width: tick.width, height: tick.height)
+                .rotationEffect(tick.rotation)
+                .offset(x: tick.xOffset, y: tick.yOffset)
+        }
+    }
 
     public var body: some View {
         VStack(spacing: 12) {
@@ -121,16 +146,9 @@ public struct StrainGaugeCard: View {
     }
 
     private func gaugeScaleTicks(radius: CGFloat, lineWidth: CGFloat) -> some View {
-        ForEach(0..<22, id: \.self) { index in
-            let angle = Angle.degrees(150 + 240 * Double(index) / 21)
-            Capsule(style: .continuous)
-                .fill(StrandPalette.hairline)
-                .frame(width: 1, height: 4)
-                .rotationEffect(angle + .degrees(90))
-                .offset(
-                    x: cos(angle.radians) * (radius - lineWidth / 2 - 7),
-                    y: sin(angle.radians) * (radius - lineWidth / 2 - 7)
-                )
+        let ticks = gaugeScaleTickData(radius: radius, lineWidth: lineWidth)
+        return ForEach(ticks) { tick in
+            GaugeTickView(tick: tick)
         }
     }
 
@@ -142,13 +160,40 @@ public struct StrainGaugeCard: View {
     }
 
     private func gaugeBandTicks(radius: CGFloat, lineWidth: CGFloat) -> some View {
-        ForEach([target.lowerBound, target.upperBound], id: \.self) { bound in
+        let ticks = gaugeBandTickData(radius: radius, lineWidth: lineWidth)
+        return ForEach(ticks) { tick in
+            GaugeTickView(tick: tick)
+        }
+    }
+
+    private func gaugeScaleTickData(radius: CGFloat, lineWidth: CGFloat) -> [GaugeTick] {
+        let tickRadius = radius - lineWidth / 2 - 7
+        return Self.gaugeScaleTickDegrees.enumerated().map { index, degrees in
+            let angle = Angle.degrees(degrees)
+            return GaugeTick(
+                id: index,
+                rotation: angle + .degrees(90),
+                xOffset: cos(angle.radians) * tickRadius,
+                yOffset: sin(angle.radians) * tickRadius,
+                width: 1,
+                height: 4,
+                color: StrandPalette.hairline
+            )
+        }
+    }
+
+    private func gaugeBandTickData(radius: CGFloat, lineWidth: CGFloat) -> [GaugeTick] {
+        [target.lowerBound, target.upperBound].enumerated().map { index, bound in
             let angle = Angle.degrees(150 + 240 * bound / Self.scale)
-            Capsule(style: .continuous)
-                .fill(StrandPalette.statusPositive.opacity(0.85))
-                .frame(width: 2, height: lineWidth + 6)
-                .rotationEffect(angle + .degrees(90))
-                .offset(x: cos(angle.radians) * radius, y: sin(angle.radians) * radius)
+            return GaugeTick(
+                id: index,
+                rotation: angle + .degrees(90),
+                xOffset: cos(angle.radians) * radius,
+                yOffset: sin(angle.radians) * radius,
+                width: 2,
+                height: lineWidth + 6,
+                color: StrandPalette.statusPositive.opacity(0.85)
+            )
         }
     }
 

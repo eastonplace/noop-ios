@@ -24,6 +24,31 @@ public struct RecoveryArcCard: View {
 
     /// The arc sweeps 240°, opening downward (gap centred at the bottom).
     private static let sweep: Double = 240 / 360
+    private static let arcScaleTickDegrees: [Double] = (0..<25).map { index in
+        150 + 240 * Double(index) / 24
+    }
+
+    private struct ArcTick: Identifiable {
+        let id: Int
+        let rotation: Angle
+        let xOffset: CGFloat
+        let yOffset: CGFloat
+        let width: CGFloat
+        let height: CGFloat
+        let color: Color
+    }
+
+    private struct ArcTickView: View {
+        let tick: ArcTick
+
+        var body: some View {
+            Capsule(style: .continuous)
+                .fill(tick.color)
+                .frame(width: tick.width, height: tick.height)
+                .rotationEffect(tick.rotation)
+                .offset(x: tick.xOffset, y: tick.yOffset)
+        }
+    }
 
     public var body: some View {
         VStack(spacing: 14) {
@@ -115,30 +140,47 @@ public struct RecoveryArcCard: View {
     }
 
     private func arcScaleTicks(radius: CGFloat, lineWidth: CGFloat) -> some View {
-        ForEach(0..<25, id: \.self) { index in
-            let angle = Angle.degrees(150 + 240 * Double(index) / 24)
-            Capsule(style: .continuous)
-                .fill(StrandPalette.hairline)
-                .frame(width: 1, height: 4)
-                .rotationEffect(angle + .degrees(90))
-                .offset(
-                    x: cos(angle.radians) * (radius - lineWidth / 2 - 7),
-                    y: sin(angle.radians) * (radius - lineWidth / 2 - 7)
-                )
+        let ticks = arcScaleTickData(radius: radius, lineWidth: lineWidth)
+        return ForEach(ticks) { tick in
+            ArcTickView(tick: tick)
         }
     }
 
     private func arcBandTicks(radius: CGFloat, lineWidth: CGFloat) -> some View {
-        ForEach([34.0, 67.0], id: \.self) { bound in
+        let ticks = arcBandTickData(radius: radius, lineWidth: lineWidth)
+        return ForEach(ticks) { tick in
+            ArcTickView(tick: tick)
+        }
+    }
+
+    private func arcScaleTickData(radius: CGFloat, lineWidth: CGFloat) -> [ArcTick] {
+        let tickRadius = radius - lineWidth / 2 - 7
+        return Self.arcScaleTickDegrees.enumerated().map { index, degrees in
+            let angle = Angle.degrees(degrees)
+            return ArcTick(
+                id: index,
+                rotation: angle + .degrees(90),
+                xOffset: cos(angle.radians) * tickRadius,
+                yOffset: sin(angle.radians) * tickRadius,
+                width: 1,
+                height: 4,
+                color: StrandPalette.hairline
+            )
+        }
+    }
+
+    private func arcBandTickData(radius: CGFloat, lineWidth: CGFloat) -> [ArcTick] {
+        [34.0, 67.0].enumerated().map { index, bound in
             let angle = Angle.degrees(150 + 240 * bound / 100)
-            Capsule(style: .continuous)
-                .fill(StrandPalette.hairlineStrong)
-                .frame(width: 2, height: lineWidth + 6)
-                .rotationEffect(angle + .degrees(90))
-                .offset(
-                    x: cos(angle.radians) * radius,
-                    y: sin(angle.radians) * radius
-                )
+            return ArcTick(
+                id: index,
+                rotation: angle + .degrees(90),
+                xOffset: cos(angle.radians) * radius,
+                yOffset: sin(angle.radians) * radius,
+                width: 2,
+                height: lineWidth + 6,
+                color: StrandPalette.hairlineStrong
+            )
         }
     }
 
