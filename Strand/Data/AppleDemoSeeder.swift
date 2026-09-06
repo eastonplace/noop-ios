@@ -92,6 +92,16 @@ enum AppleDemoSeeder {
         auditFormatter.dateFormat = "yyyy-MM-dd"
         try? await seedCleanupAuditFixtures(into: store, calendar: .current, formatter: auditFormatter)
         let existing = (try? await store.dailyMetrics(deviceId: whoop, from: "0000-00-00", to: "9999-99-99")) ?? []
+        if CommandLine.arguments.contains("--demo-sleep-need"), !existing.isEmpty {
+            let points = existing.flatMap { day in
+                [MetricPoint(day: day.day, key: "noop_sleep_need_v2_min", value: 500),
+                 MetricPoint(day: day.day, key: "noop_sleep_baseline_need_v2_min", value: 450),
+                 MetricPoint(day: day.day, key: "noop_sleep_strain_need_v2_min", value: 20),
+                 MetricPoint(day: day.day, key: "noop_sleep_debt_need_v2_min", value: 30),
+                 MetricPoint(day: day.day, key: "noop_sleep_nap_credit_v2_min", value: 0)]
+            }
+            _ = try? await store.upsertMetricSeries(points, deviceId: "\(whoop)-noop")
+        }
         guard existing.isEmpty else { return }
         do { try await seed(into: store) }
         catch { NSLog("AppleDemoSeeder: seed failed — \(error)") }

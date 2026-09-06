@@ -5653,3 +5653,32 @@ private extension DailyMetric {
         )
     }
 }
+
+
+struct SleepPresentationNeed: Sendable {
+    let totalMinutes: Double
+    /// Excludes repayment, which is already represented in the running balance.
+    let ledgerMinutes: Double?
+}
+
+extension Repository {
+    func sleepPresentationNeeds(from: String, to: String) async throws -> [String: SleepPresentationNeed] {
+        guard let store = await ensureStore() else {
+            throw CocoaError(.fileReadUnknown)
+        }
+        var result: [String: SleepPresentationNeed] = [:]
+        for id in computedReadIds {
+            let totals = try await store.metricSeries(deviceId: id, key: Self.sleepNeedV2Key, from: from, to: to)
+            let repayments = try await store.metricSeries(deviceId: id, key: "noop_sleep_debt_need_v2_min", from: from, to: to)
+            let repaymentByDay = Dictionary(repayments.map { ($0.day, $0.value) }, uniquingKeysWith: { first, _ in first })
+            for point in totals where result[point.day] == nil && point.value.isFinite && point.value > 0 {
+                let target = repaymentByDay[point.day].flatMap { repayment -> Double? in
+                    guard repayment.isFinite, repayment >= 0, repayment < point.value else { return nil }
+                    return point.value - repayment
+                }
+                result[point.day] = SleepPresentationNeed(totalMinutes: point.value, ledgerMinutes: target)
+            }
+        }
+        return result
+    }
+}

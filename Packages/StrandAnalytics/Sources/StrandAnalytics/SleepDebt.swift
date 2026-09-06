@@ -63,6 +63,21 @@ public struct SleepDebtLedger: Equatable, Sendable {
 
 public enum SleepDebt {
 
+    /// Exact-night targets. Missing targets remain unknown; repayment must be excluded by the caller.
+    public static func ledger(nightlyNeeds: [(day: String, totalSleepMin: Double?, needMin: Double?)],
+                              window: Int = defaultWindowNights) -> SleepDebtLedger {
+        let usable = nightlyNeeds.filter {
+            guard let slept = $0.totalSleepMin, let need = $0.needMin else { return false }
+            return slept.isFinite && slept > 0 && need.isFinite && need > 0
+        }.sorted { $0.day < $1.day }.suffix(max(1, window))
+        let nights = usable.map {
+            SleepDebtNight(day: $0.day, sleptMin: $0.totalSleepMin!, deltaMin: $0.totalSleepMin! - $0.needMin!)
+        }
+        let averageNeed = usable.isEmpty ? 0 : usable.reduce(0) { $0 + $1.needMin! } / Double(usable.count)
+        return SleepDebtLedger(balanceMin: round1(nights.reduce(0) { $0 + $1.deltaMin }),
+                               nights: nights, needMin: averageNeed)
+    }
+
     /// Cap the ledger at the trailing two weeks — recent enough to be actionable,
     /// short enough that one rough patch doesn't read as months of compounding debt.
     public static let defaultWindowNights: Int = 14

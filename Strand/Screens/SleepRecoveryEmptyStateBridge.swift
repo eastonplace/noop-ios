@@ -21,7 +21,7 @@ enum MissedSleepRecoveryRouting {
     }
 }
 
-private struct MissedSleepRecoveryBridge: View {
+struct MissedSleepRecoveryBridge: View {
     @EnvironmentObject private var repo: Repository
     @EnvironmentObject private var intelligence: IntelligenceEngine
 

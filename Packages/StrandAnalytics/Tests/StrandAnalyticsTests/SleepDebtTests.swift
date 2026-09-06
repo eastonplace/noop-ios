@@ -100,3 +100,27 @@ final class SleepDebtTests: XCTestCase {
         XCTAssertEqual(SleepDebt.round1(-0.25), -0.3, accuracy: 1e-9)
     }
 }
+
+extension SleepDebtTests {
+    func testExactNightTargetsSkipUnknownAndUseEachDaysNeed() {
+        let ledger = SleepDebt.ledger(nightlyNeeds: [
+            ("2026-09-01", 420, 480),
+            ("2026-09-02", 540, 500),
+            ("2026-09-03", 400, nil),
+            ("2026-09-04", nil, 480),
+            ("2026-09-05", Double.nan, 480)
+        ])
+        XCTAssertEqual(ledger.nightCount, 2)
+        XCTAssertEqual(ledger.balanceMin, -20)
+        XCTAssertEqual(ledger.needMin, 490)
+    }
+
+    func testExactTargetsSortBeforeTakingWindow() {
+        let ledger = SleepDebt.ledger(nightlyNeeds: [
+            ("2026-09-03", 500, 480), ("2026-09-01", 400, 480),
+            ("2026-09-02", 480, 480)
+        ], window: 2)
+        XCTAssertEqual(ledger.nights.map(\.day), ["2026-09-02", "2026-09-03"])
+        XCTAssertEqual(ledger.balanceMin, 20)
+    }
+}
