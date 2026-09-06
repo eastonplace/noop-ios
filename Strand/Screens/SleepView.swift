@@ -136,6 +136,9 @@ struct SleepView: View {
     /// Advances after the complete un-deduplicated session set and habitual midpoint finish loading.
     /// Async leaf views use it to refresh calculations whose visible night's bounds may stay unchanged.
     @State private var sleepHistoryRevision = 0
+    @State private var presentationNeeds: [String: SleepPresentationNeed] = [:]
+    @State private var needsLoading = true
+    @State private var needsFailed = false
     /// Legacy malformed sessions are excluded from all score/display selection but remain repairable here.
     @State private var invalidSessions: [CachedSleepSession] = []
 
@@ -222,6 +225,15 @@ struct SleepView: View {
                     // reached it. LazyVStack preserves the exact alignment/spacing while making first-
                     // appearance motion genuinely viewport-triggered.
                     LazyVStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+                        if nightOffset == 0, repo.loaded, sleepHistoryRevision > 0 {
+                            TimelineView(.periodic(from: .now, by: 60)) { context in
+                                if SleepPresentationPolicy.isMissingCurrentNight(
+                                    wakeDates: navSessions.map { Date(timeIntervalSince1970: Double($0.endTs)) },
+                                    now: context.date) {
+                                    MissedSleepRecoveryBridge()
+                                }
+                            }
+                        }
                         nightNavHeader(trailing: displayedNight.night.spanLabel)
                         if !invalidSessions.isEmpty {
                             invalidSleepWindowNotice
@@ -233,12 +245,8 @@ struct SleepView: View {
                             hasStageData: displayedNight.hasStageData
                         )
                         .staggeredAppear(index: 0)
-                        SleepMarkCard().staggeredAppear(index: 1)
                         // Full editor, bound to the same BehaviorStore and actuation lane as Alarms.
                         SleepAlarmEditorSection()
-                            // Let the primary sleep read finish before the secondary alarm editor enters
-                            // the first viewport. This keeps its header from colliding with the custom tab bar.
-                            .padding(.top, NoopMetrics.space6)
                             .staggeredAppear(index: 2)
                         paperSleepStages(
                             night: displayedNight.night,
@@ -275,7 +283,7 @@ struct SleepView: View {
                             hasStageData: displayedNight.hasStageData
                         )
                         .staggeredAppear(index: 6)
-                        metricGrid(resolved).staggeredAppear(index: 7)
+                        metricGrid(resolved, night: displayedNight.night).staggeredAppear(index: 7)
                         sleepDebtLedger(resolved).staggeredAppear(index: 8)
                         // T702 / plan doc G2: the real V2 need breakdown for the DISPLAYED wake day.
                         // Its own leaf (own EnvironmentObject + async fetch) so it never blocks this
@@ -293,7 +301,6 @@ struct SleepView: View {
                 } else {
                     LazyVStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
                         SleepAlarmEditorSection()
-                            .padding(.top, NoopMetrics.space6)
                         emptyState
                         sleepRhythmEntry
                     }
@@ -325,8 +332,22 @@ struct SleepView: View {
             // whose blocks live under the computed source. Re-runs whenever a sync/import bumps
             // refreshSeq; snaps back to the newest day and rebuilds the model so offset 0 reflects
             // the freshly-loaded blocks. (#170)
-            .task(id: repo.refreshSeq) {
-                allSessions = await repo.sleepHistoryPage(limit: 200)
+            .task(id: "\(repo.refreshSeq)-\(repo.canonicalHealth.presentationRevision)") {
+                needsLoading = true
+                needsFailed = false
+                do {
+                    let needs = try await repo.sleepPresentationNeeds(from: repo.days.first?.day ?? Repository.localDayKey(Date()), to: Repository.localDayKey(Date()))
+                    guard !Task.isCancelled else { return }
+                    presentationNeeds = needs
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    presentationNeeds = [:]
+                    needsFailed = true
+                }
+                needsLoading = false
+                let sessions = await repo.sleepHistoryPage(limit: 200)
+                guard !Task.isCancelled else { return }
+                allSessions = sessions
                 invalidSessions = await repo.invalidSleepSessions(days: 30)
                 // Load the learned habitual midsleep the engine used, so the main-night pick aligns to it
                 // (a shift/late sleeper) instead of only the cold-start band. nil under threshold. (#547)
@@ -1762,80 +1783,34 @@ struct SleepView: View {
     // MARK: - 2. Metric grid (UNIFORM fixed-height StatTiles, each with sparkline)
 
     @ViewBuilder
-    private func metricGrid(_ model: SleepModel) -> some View {
-        // Per-tile latest value + history series (for the sparkline) + typical mean.
-        // All seven series are computed ONCE in the model build (each is a full pass over
-        // repo.days/repo.sleeps) — here we only read the memoized results.
-        let perf  = model.performance
-        let eff   = model.efficiency
-        let cons  = model.consistency
-        let need  = model.hoursVsNeeded
-        let rest  = model.restorative
-        let resp  = model.respiratory
-        let debt  = model.sleepDebt
-        let detailTitle: LocalizedStringKey = nightOffset == 0 ? "Night detail" : "Latest night detail"
-        let detailOverline: LocalizedStringKey = nightOffset == 0 ? "Metrics" : "Latest metrics"
-
+    private func metricGrid(_ model: SleepModel, night: Night) -> some View {
+        let day = Self.wakeDayKey(for: night)
+        let daily = repo.days.first { $0.day == day }
+        let asleep = night.stages.asleep
+        let need = presentationNeeds[day]?.totalMinutes ?? repo.importedSleep[day]?.needMin
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            SectionHeader(detailTitle, overline: detailOverline,
-                          trailing: String(localized: "vs typical"))
-            LazyVGrid(columns: tileColumns, alignment: .leading, spacing: NoopMetrics.gap) {
-
-                StatTile(
-                    label: "Sleep",
-                    value: pctValue(perf.latest),
-                    caption: vsTypical(perf.latest, perf.typical, suffix: "%"),
-                    accent: perf.latest.map { StrandPalette.recoveryColor($0) } ?? StrandPalette.textPrimary,
-                    sparkline: spark(perf.series),
-                    sparkColor: StrandPalette.restColor)
-
-                StatTile(
-                    label: "Efficiency",
-                    value: pctValue(eff.latest),
-                    caption: vsTypical(eff.latest, eff.typical, suffix: "%"),
-                    accent: StrandPalette.statusPositive,
-                    sparkline: spark(eff.series),
-                    sparkColor: StrandPalette.statusPositive)
-
-                StatTile(
-                    label: "Consistency",
-                    value: pctValue(cons.latest),
-                    caption: vsTypical(cons.latest, cons.typical, suffix: "%"),
-                    accent: cons.latest.map { StrandPalette.recoveryColor($0) } ?? StrandPalette.textPrimary,
-                    sparkline: spark(cons.series),
-                    sparkColor: StrandPalette.metricCyan)
-
-                StatTile(
-                    label: "Hours vs Needed",
-                    value: pctValue(need.latest),
-                    caption: vsTypical(need.latest, need.typical, suffix: "%"),
-                    accent: need.latest.map { StrandPalette.recoveryColor(min(100, $0)) } ?? StrandPalette.textPrimary,
-                    sparkline: spark(need.series),
-                    sparkColor: StrandPalette.restColor)
-
-                StatTile(
-                    label: "Restorative",
-                    value: pctValue(rest.latest),
-                    caption: vsTypical(rest.latest, rest.typical, suffix: "%"),
-                    accent: StrandPalette.sleepREM,
-                    sparkline: spark(rest.series),
-                    sparkColor: StrandPalette.sleepREM)
-
-                StatTile(
-                    label: "Respiratory",
-                    value: rrValue(resp.latest),
-                    caption: vsTypical(resp.latest, resp.typical, suffix: " rpm", decimals: 1),
-                    accent: StrandPalette.metricPurple,
-                    sparkline: spark(resp.series),
-                    sparkColor: StrandPalette.metricPurple)
-
-                StatTile(
-                    label: "Sleep Debt",
-                    value: debt.latest.map { durationText($0) } ?? "—",
-                    caption: debtCaption(debt.latest),
-                    accent: debtColor(debt.latest),
-                    sparkline: spark(debt.series),
-                    sparkColor: StrandPalette.metricRose)
+            SectionHeader("Night detail", overline: "Metrics", trailing: day)
+            PaperCard {
+                VStack(spacing: 12) {
+                    LabeledContent("Asleep", value: asleep > 0 ? durationText(asleep) : "—")
+                    LabeledContent(presentationNeeds[day] == nil && need != nil ? "Sleep need · WHOOP" : "Sleep need", value: need.map(durationText) ?? (needsLoading ? "Loading…" : "Unavailable"))
+                    LabeledContent("Efficiency", value: pctValue(efficiencyPct(night)))
+                    DisclosureGroup("More metrics") {
+                        VStack(spacing: 12) {
+                            LabeledContent("Sleep", value: pctValue(model.performanceByDay[day]))
+                            LabeledContent("Consistency", value: pctValue(repo.importedSleep[day]?.consistencyPct ?? (day == repo.days.last?.day ? model.consistency.latest : nil)))
+                            LabeledContent("Night balance", value: presentationNeeds[day]?.ledgerMinutes.flatMap { target in
+                                daily?.totalSleepMin.map { debtSigned($0 - target) }
+                            } ?? "—")
+                            LabeledContent("Restorative", value: asleep > 0 ? pctValue((night.stages.deep + night.stages.rem) / asleep * 100) : "—")
+                            LabeledContent("Respiratory", value: rrValue(daily?.respRateBpm))
+                            LabeledContent("Hours vs Needed", value: need.flatMap { $0 > 0 && asleep > 0 ? pctValue(asleep / $0 * 100) : nil } ?? "—")
+                        }
+                        .padding(.top, 12)
+                    }
+                }
+                .font(StrandFont.subhead)
+                .foregroundStyle(StrandPalette.textPrimary)
             }
         }
     }
@@ -1854,8 +1829,12 @@ struct SleepView: View {
             SectionHeader("Sleep-debt ledger", overline: "Last 14 nights",
                           trailing: String(localized: "running balance"))
             NoopCard(tint: StrandPalette.restColor) {
-                if ledger.nightCount == 0 {
-                    Text("No nights with sleep data yet. Your ledger fills in as you wear the strap to bed.")
+                if needsLoading {
+                    ProgressView("Loading sleep balance…")
+                } else if needsFailed {
+                    Text("Sleep balance could not load. Pull to refresh and try again.")
+                } else if ledger.nightCount == 0 {
+                    Text("Sleep balance needs recorded sleep and a computed nightly target. Missing nights are not counted as debt.")
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textTertiary)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1882,12 +1861,15 @@ struct SleepView: View {
                             .font(StrandFont.subhead)
                             .foregroundStyle(StrandPalette.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
+                        Text("Counts nights with a computed target. Repayment is excluded from the target so existing debt is not counted twice.")
+                            .font(StrandFont.footnote)
+                            .foregroundStyle(StrandPalette.textSecondary)
                         // Per-night diverging delta bars (surplus up, deficit down).
                         debtDeltaBars(ledger)
                         Divider().overlay(StrandPalette.hairline)
                         ChartFooter([
                             ("Balance", debtSigned(ledger.balanceMin)),
-                            ("Per-night need", durationText(ledger.needMin)),
+                            ("Avg target", durationText(ledger.needMin)),
                             ("Nights", "\(ledger.nightCount)"),
                         ])
                     }
@@ -1983,7 +1965,7 @@ struct SleepView: View {
         // Trailing-30 trend points and the typical total are precomputed in the model build
         // (full passes over repo.days) — read here, not recomputed per render.
         let pts = model.trendPoints
-        let avg = model.typicalTotalMin.map { $0 / 60.0 }
+        let avg = pts.isEmpty ? nil : pts.map(\.value).reduce(0, +) / Double(pts.count)
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
             SectionHeader("Asleep duration", overline: "Trend", trailing: String(localized: "Last 30 days"))
             ChartCard(
@@ -1993,7 +1975,7 @@ struct SleepView: View {
                 height: NoopMetrics.chartHeight,
                 tint: StrandPalette.restColor,
                 chart: {
-                    if pts.count >= 2 {
+                    if !pts.isEmpty {
                         TrendChart(points: pts,
                                    gradient: StrandPalette.restGradient,
                                    valueRange: trendRange(pts),
@@ -2088,14 +2070,13 @@ struct SleepView: View {
             sleepDebtLedger: debtLedger)
     }
 
-    /// The rolling 14-night sleep-debt ledger from the cached daily metrics. Uses the
-    /// SAME personal sleep need the tiles use (`sleepNeedMin`, ≥ 7.5 h, the per-user
-    /// override over the 8 h default), measured against each night's `totalSleepMin`.
-    /// Skips nights with no sleep (the analytics function does the skip). (#242)
+    /// The last 14 nights with both recorded duration and an exact-day canonical target.
+    /// Excludes repayment from the target and skips unknown nights without zero-filling.
     private var debtLedger: SleepDebtLedger {
-        SleepDebt.ledger(
-            series: repo.days.map { (day: $0.day, totalSleepMin: $0.totalSleepMin) },
-            needHours: sleepNeedMin / 60.0)
+        SleepDebt.ledger(nightlyNeeds: repo.days.map { day in
+            (day: day.day, totalSleepMin: day.totalSleepMin,
+             needMin: presentationNeeds[day.day]?.ledgerMinutes)
+        })
     }
 
     // MARK: - Derived model
@@ -2406,7 +2387,7 @@ struct SleepView: View {
     @ViewBuilder
     private func nightNavHeader(trailing: String) -> some View {
         let lastIndex = max(navDays.count - 1, 0)
-        let title: LocalizedStringKey = nightOffset == 0 ? "Last night"
+        let title: LocalizedStringKey = nightOffset == 0 ? "Latest recorded night"
             : (nightOffset == 1 ? "1 night ago" : "\(nightOffset) nights ago")
         VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
             HStack(spacing: NoopMetrics.cardInnerSpacing) {
@@ -2596,9 +2577,9 @@ struct SleepView: View {
                 return TrendPoint(date: date, value: mins / 60.0)
             }
         }
-        let recent = build(repo.days.suffix(30))
-        if recent.count >= 2 { return recent }
-        return build(repo.days[...])
+        return build(repo.days[...]).filter {
+            SleepPresentationPolicy.containsInRecentWindow($0.date, now: Date())
+        }
     }
 
     private func trendRange(_ pts: [TrendPoint]) -> ClosedRange<Double> {
@@ -3014,9 +2995,12 @@ private struct SleepNeedBreakdownSection: View {
                 calibratingCard
             }
         }
-        .task(id: wakeDay) {
+        .task(id: "\(wakeDay)-\(repo.refreshSeq)-\(repo.canonicalHealth.presentationRevision)") {
             loaded = false
-            breakdown = await repo.noopSleepNeedBreakdownV2(day: wakeDay)
+            breakdown = nil
+            let value = await repo.noopSleepNeedBreakdownV2(day: wakeDay)
+            guard !Task.isCancelled else { return }
+            breakdown = value
             loaded = true
         }
     }

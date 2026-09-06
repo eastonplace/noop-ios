@@ -100,3 +100,9 @@
   - [ ] Remaining external gates: restore hosted CI after the account billing/spend restriction; add a
     valid Xcode account and provisioning profiles for team 479HYY24G2; then complete the physical-iPhone
     Release/background/restoration/radio/energy/memory/thermal trace. Keep the PR draft and unmerged.
+
+## Sleep repair, 2026-09-06
+
+- [x] Approved Sleep state, data refresh, alarm, and night-detail changes in isolated checkout.
+- [x] Verified simulator build, 19 iOS tests, 11 analytics tests, three source audits, and rendered Sleep/alarm surfaces.
+- [ ] Review and physical-device validation. Push, merge, and physical install remain separate gates.

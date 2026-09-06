@@ -49,9 +49,10 @@ struct SmartAlarmView: View {
                         honestyCard
                     }
                 }
+                .toolbar(.hidden, for: .navigationBar)
             }
         }
-        .task {
+        .task(id: repo.refreshSeq) {
             await resolveCanonicalNeed()
             alarmRuntime.refreshStatus()
         }
@@ -69,7 +70,7 @@ struct SmartAlarmView: View {
                     .font(.caption)
                 Picker("Wake mode", selection: SleepAlarmEditorSupport.modeBinding(alarmMode)) {
                     ForEach(wakeModes) { mode in
-                        Text(mode.title).tag(mode.id)
+                        Text(mode.title).tag(mode.id).disabled(!mode.isAvailable)
                     }
                 }
                 .font(.caption)
@@ -188,54 +189,27 @@ struct SmartAlarmView: View {
 
     /// The promoted module plus last-evaluation evidence and tonight's real plan timeline.
     private var alarmHeroSection: some View {
-        TimelineView(.periodic(from: .now, by: 60)) { context in
-            let components = Calendar.current.dateComponents([.hour, .minute], from: context.date)
-            let wallClockNowMinutes = (components.hour ?? 0) * 60 + (components.minute ?? 0)
-            let modes = wakeModes
-            let selected = modes.first { $0.id == alarmMode.mode.rawValue }
-            let windowMinutes = selected?.windowMinutes ?? 0
-            let schedule = SleepAlarmEditorSupport.schedule(at: context.date, behavior: behavior)
-            let wake = schedule?.wakeAxisMinutes ?? SleepAlarmTime.nextOccurrence(
-                now: wallClockNowMinutes, timeOfDay: behavior.smartAlarmMinutes)
-            let now = schedule?.nowAxisMinutes ?? wallClockNowMinutes
-            let windowStart = wake - windowMinutes
-            let asleepBy = SleepAlarmTime.asleepByMinutes(wakeMinutes: wake, windowMinutes: windowMinutes,
-                                                           needMinutes: needMinutes)
-            let clockLabel: (Int) -> String = { minute in
-                schedule?.clockLabel(for: minute) ?? SleepAlarmTime.clock(minute)
-            }
-
-            VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
-                SleepAlarmModuleCard(
-                    armed: $behavior.smartAlarmEnabled,
-                    modes: modes,
-                    selectedModeId: SleepAlarmEditorSupport.modeBinding(alarmMode),
-                    wakeMinutes: SleepAlarmEditorSupport.wakeBinding(behavior, now: context.date),
-                    nowMinutes: now,
-                    needMinutes: needMinutes,
-                    wakeDayLabel: schedule?.dayLabel ?? String(localized: "No enabled day"),
-                    deliveryStatus: alarmRuntime.deliveryStatus,
-                    showsBedtimePlan: schedule?.isUpcomingSleepPeriod == true,
-                    clockLabel: clockLabel
-                )
-                if needIsStartingEstimate {
-                    Text("Starting estimate — NOOP hasn't computed your personal Sleep Need yet.")
-                        .font(StrandFont.micro)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                        .padding(.horizontal, 4)
+        PaperCard {
+            VStack(alignment: .leading, spacing: 16) {
+                Toggle("Wake alarm", isOn: $behavior.smartAlarmEnabled)
+                    .font(StrandFont.headline)
+                DatePicker("Wake time", selection: alarmTimeBinding, displayedComponents: .hourAndMinute)
+                    .font(StrandFont.subhead)
+                Divider()
+                Picker("Wake mode", selection: SleepAlarmEditorSupport.modeBinding(alarmMode)) {
+                    ForEach(wakeModes) { mode in
+                        Text(mode.title).tag(mode.id).disabled(!mode.isAvailable)
+                    }
                 }
-                if let evidence = alarmRuntime.evidence {
-                    evaluationEvidenceRow(evidence)
+                .font(StrandFont.subhead)
+                if let mode = wakeModes.first(where: { $0.id == alarmMode.mode.rawValue }) {
+                    Text(mode.explanation)
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textSecondary)
                 }
-                if behavior.smartAlarmEnabled, schedule?.isUpcomingSleepPeriod == true {
-                    SleepPlanTimeline(
-                        now: now,
-                        asleepBy: asleepBy,
-                        windowStart: windowStart,
-                        alarm: wake,
-                        clockLabel: clockLabel
-                    )
-                }
+                Text(alarmRuntime.deliveryStatus)
+                    .font(StrandFont.caption)
+                    .foregroundStyle(StrandPalette.textSecondary)
             }
         }
     }
