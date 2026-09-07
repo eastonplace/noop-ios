@@ -14,6 +14,7 @@ struct WorkoutLiveActivityState {
     let calories: Int?
     let hrTrace: [Int]
     let zoneSeconds: [Int]
+    var maxHR: Double? = nil
 }
 
 enum LiveActivityPublicationError: Error {
@@ -138,15 +139,18 @@ final class LiveActivityController {
             lastPush = .distantPast
         }
 
-        guard UnitPrefs.liveActivityEnabled(), input.connected else {
+        guard WorkoutLiveActivityVisibility.shouldRemainVisible(
+            enabled: UnitPrefs.liveActivityEnabled(), connected: input.connected,
+            workoutIsActive: input.workoutIsActive) else {
             await performEnd()
             return .notApplicable
         }
-        guard input.bpm != nil else { return .notApplicable }
+        guard input.bpm != nil || input.workoutIsActive else { return .notApplicable }
 
         let desiredModeIsWorkout = input.workoutIsActive
         var now = Date()
-        guard LiveActivityPushPolicy.shouldPush(
+        let connectionChanged = lastContentState.map { $0.bonded != input.connected } ?? false
+        guard connectionChanged || LiveActivityPushPolicy.shouldPush(
             activityExists: activity != nil,
             currentModeIsWorkout: lastModeWasWorkout,
             desiredModeIsWorkout: desiredModeIsWorkout,
@@ -194,7 +198,8 @@ final class LiveActivityController {
             strainBuilding: workoutState?.strainBuilding,
             calories: workoutState?.calories,
             hrTrace: workoutState?.hrTrace,
-            zoneSeconds: workoutState?.zoneSeconds
+            zoneSeconds: workoutState?.zoneSeconds,
+            maxHR: workoutState?.maxHR
         )
         let staleDate = now.addingTimeInterval(Self.staleAfter)
 

@@ -1,5 +1,16 @@
 # Active work
 
+- [x] Polish approved workout screens: red heart-rate charts, clearer zone selection, and simplified controls and summary chrome.
+  - Debug build, rendered views, zone selection/reset, scrolling, and large-text checks passed. Screenshots saved with the review.
+  - Local review only. Normal HealthKit startup and physical/background checks remain open; no push, merge, or phone installation.
+
+
+- [x] Refine workout reliability and UI from main 1051ccb5 on feat/main-refinement-20260907.
+  - Unify session heart rate, hide inactive GPS metrics, share a continuous zone rail, and link summary zone selection to recorded heart-rate intervals.
+  - Debug and arm64 Release builds passed; iOS 588 passed, affected rerun 32 passed, StrandDesign 108 passed. Visual scrolling and relaunch checked.
+  - Ready for review. Physical phone/WHOOP background, reconnect, and energy checks remain. No merge or phone installation.
+
+
 - [~] Start a brand-new draft PR for the correctness, simplification, Settings, and WHOOP-only audit.
   - Base: `b72ff860660915f5e709d106649820b8a4d284f3`.
   - Branch: `codex/noop-audit-p0-settings-whoop-20260816`.

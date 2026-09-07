@@ -19,13 +19,15 @@ public struct NOOPActivityAttributes: ActivityAttributes, Sendable {
         public var calories: Int?
         public var hrTrace: [Int]?
         public var zoneSeconds: [Int]?
+        public var maxHR: Double?
 
         public var isWorkout: Bool { sport != nil && workoutStartedAt != nil }
 
         public init(bpm: Int?, recovery: Int?, bonded: Bool, effort: Double? = nil,
                     sport: String? = nil, workoutStartedAt: Date? = nil,
                     strainBuilding: Bool? = nil, calories: Int? = nil,
-                    hrTrace: [Int]? = nil, zoneSeconds: [Int]? = nil) {
+                    hrTrace: [Int]? = nil, zoneSeconds: [Int]? = nil, maxHR: Double? = nil) {
+            self.maxHR = maxHR
             self.bpm = bpm
             self.recovery = recovery
             self.bonded = bonded

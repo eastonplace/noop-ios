@@ -269,10 +269,17 @@ struct StrandiOSApp: App {
         return workoutProjection.state(workout: workout, profile: model.profile)
     }
 
-    private func driveLiveActivity(connected: Bool? = nil) {
+    private var workoutBPMUpdates: AnyPublisher<Int?, Never> {
+        model.$activeWorkout.map { workout -> AnyPublisher<Int?, Never> in
+            guard let workout else { return Just<Int?>(nil).eraseToAnyPublisher() }
+            return workout.$currentBPM.eraseToAnyPublisher()
+        }.switchToLatest().eraseToAnyPublisher()
+    }
+
+    private func driveLiveActivity(connected: Bool? = nil, workoutReading: Int? = nil) {
         let isConnected = connected ?? model.live.connected
         liveActivity.update(
-            bpm: isConnected ? (model.bpm ?? model.live.heartRate) : nil,
+            bpm: isConnected ? (model.activeWorkout.map { workoutReading ?? $0.currentBPM } ?? (model.bpm ?? model.live.heartRate)) : nil,
             recovery: externalSurface?.recovery,
             connected: isConnected,
             effort: externalSurface?.effort,
@@ -370,11 +377,28 @@ struct StrandiOSApp: App {
             })
     }
 
+    #if DEBUG
+    private var workoutRefinementQARequested: Bool {
+        #if targetEnvironment(simulator)
+        CommandLine.arguments.contains("--demo-seed") && CommandLine.arguments.contains(where: { $0.hasPrefix("--workout-review=") })
+        #else
+        false
+        #endif
+    }
+    @ViewBuilder private var workoutRefinementQARoute: some View {
+        #if targetEnvironment(simulator)
+        WorkoutRefinementQA()
+        #endif
+    }
+    #endif
+
     var body: some Scene {
         WindowGroup {
             Group {
                 #if DEBUG
-                if let component41Shot = Component41QAShot.requestedKind {
+                if workoutRefinementQARequested {
+                    workoutRefinementQARoute
+                } else if let component41Shot = Component41QAShot.requestedKind {
                     Component41QAShot(kind: component41Shot)
                 } else if AppleDemoSeeder.devicesQARequested {
                     NavigationStack { DevicesView() }
@@ -405,7 +429,12 @@ struct StrandiOSApp: App {
                 .environment(\.stressNudgeCenter, model.stressNudgeCenter)
                 .preferredColorScheme(AppearanceMode.resolve(appearanceRaw).colorScheme)
                 .chartStyle(chartStyleRaw)
-                .onReceive(model.live.$heartRate) { _ in driveLiveActivity() }
+                .onReceive(model.live.$heartRate) { _ in
+                    if model.activeWorkout == nil { driveLiveActivity() }
+                }
+                .onReceive(workoutBPMUpdates) { reading in
+                    driveLiveActivity(workoutReading: reading)
+                }
                 .onReceive(model.live.$connected) { driveLiveActivity(connected: $0) }
                 .onReceive(model.live.$connectSettled.removeDuplicates().dropFirst()) { settled in
                     guard settled != 0 else { return }
@@ -476,6 +505,10 @@ struct StrandiOSApp: App {
                     if url.host == "import-health" { model.handleHealthImportURL(url) }
                 }
                 .task {
+                    #if DEBUG
+                    // The synthetic screenshot route does not use HealthKit or background publication.
+                    guard !workoutRefinementQARequested else { return }
+                    #endif
                     // SwiftUI does not guarantee an initial scenePhase onChange edge. Arm the clock owner on
                     // first mount so a continuously-foregrounded fresh launch still invalidates at midnight
                     // and 04:00. Scene changes continue to re-arm it through the lifecycle bridge below.
@@ -503,6 +536,9 @@ struct StrandiOSApp: App {
                         for: UIApplication.protectedDataDidBecomeAvailableNotification
                     )
                 ) { _ in
+                    #if DEBUG
+                    guard !workoutRefinementQARequested else { return }
+                    #endif
                     Task { @MainActor in
                         await health.refreshAuthIfPreviouslyGranted(
                             requestNewTypes: scenePhase == .active
@@ -516,6 +552,9 @@ struct StrandiOSApp: App {
                 }
         }
         .onChange(of: scenePhase) { _, phase in
+            #if DEBUG
+            guard !workoutRefinementQARequested else { return }
+            #endif
             model.setApplicationActiveOptimized(phase == .active)
             if phase == .active {
                 model.drainPendingIntents()

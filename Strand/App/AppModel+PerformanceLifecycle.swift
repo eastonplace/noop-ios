@@ -24,3 +24,10 @@ extension AppModel {
         }
     }
 }
+
+/// Unbalanced view dismissals must never release the recording session's realtime lease.
+enum WorkoutRealtimeLeasePolicy {
+    static func remaining(afterRelease count: Int, workoutOwnsLease: Bool) -> Int {
+        max(workoutOwnsLease ? 1 : 0, count - 1)
+    }
+}

@@ -2357,9 +2357,10 @@ final class AppModel: ObservableObject {
     }
     /// A live-HR surface went away. Stops the realtime stream only when the last one leaves (1→0 edge);
     /// the lightweight 0x2A37 HR keeps recording regardless. Clamped at 0 so an unbalanced extra stop
-    /// can't drive the count negative and wedge the stream off.
+    /// cannot release the workout-owned lease or drive the count negative.
     func stopRealtimeHR() {
-        realtimeWanters = max(0, realtimeWanters - 1)
+        realtimeWanters = WorkoutRealtimeLeasePolicy.remaining(afterRelease: realtimeWanters,
+                                                            workoutOwnsLease: workoutOwnsRealtimeHR)
         if realtimeWanters == 0 { ble.stopRealtime() }
     }
 

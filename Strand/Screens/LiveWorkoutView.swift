@@ -11,7 +11,7 @@ struct LiveWorkoutView: View {
     let onClose: () -> Void
 
     var body: some View {
-        StableLiveWorkoutContent(model: model)
+        StableLiveWorkoutContent(model: model, workout: model.activeWorkout)
             .equatable()
             .overlay {
                 WorkoutGoneObserver(model: model, onClose: onClose)
@@ -21,10 +21,11 @@ struct LiveWorkoutView: View {
 
 private struct StableLiveWorkoutContent: View, @preconcurrency Equatable {
     let model: AppModel
+    let workout: AppModel.ActiveWorkout?
     @AppStorage("workoutKeepScreenOn") private var keepScreenOn = false
 
     static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.model === rhs.model
+        lhs.model === rhs.model && lhs.workout === rhs.workout
     }
 
     var body: some View {
@@ -32,10 +33,13 @@ private struct StableLiveWorkoutContent: View, @preconcurrency Equatable {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
                 header.staggeredAppear(index: 0)
                 timerBlock.staggeredAppear(index: 1)
-                PaperLiveWorkoutStatsGrid(recorder: model.gpsRecorder)
-                    .staggeredAppear(index: 2)
-                PaperWorkoutMapCard(recorder: model.gpsRecorder)
-                    .staggeredAppear(index: 3)
+                if let workout {
+                    PaperLiveWorkoutStatsGrid(workout: workout, recorder: model.gpsRecorder)
+                        .staggeredAppear(index: 2)
+                    LiveWorkoutZoneCard(workout: workout, profile: model.profile)
+                    LiveWorkoutSignalStatus(workout: workout)
+                    PaperWorkoutMapCard(recorder: model.gpsRecorder)
+                }
                 if let workout = model.activeWorkout {
                     LiveWorkoutHeartCard(workout: workout)
                         .staggeredAppear(index: 4)
@@ -129,7 +133,7 @@ private struct LiveWorkoutHeartCard: View {
         PaperCard {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text("HEART RATE (LAST 3 HOURS)")
+                    Text("HEART RATE")
                         .font(StrandFont.sectionOverline)
                         .tracking(StrandFont.sectionOverlineTracking)
                         .foregroundStyle(StrandPalette.textSecondary)
@@ -142,8 +146,8 @@ private struct LiveWorkoutHeartCard: View {
                     Sparkline(
                         values: projection.values,
                         gradient: Gradient(colors: [
-                            StrandPalette.chargeAccent,
-                            StrandPalette.chargeAccent,
+                            StrandPalette.liveRed.opacity(0.75),
+                            StrandPalette.liveRed,
                         ]),
                         range: projection.range,
                         lineWidth: 2,
@@ -151,10 +155,17 @@ private struct LiveWorkoutHeartCard: View {
                         showsHead: false,
                         showsHover: false
                     )
-                    .frame(height: 90)
+                    .frame(height: 96)
                     .accessibilityLabel(
                         "Workout heart rate, \(projection.values.count) plotted points over \(projection.observedSeconds) seconds"
                     )
+                    HStack {
+                        Text("\(Int(projection.values.min() ?? 0))–\(Int(projection.values.max() ?? 0)) bpm")
+                        Spacer()
+                        Text("\(max(1, Int(ceil(Double(projection.observedSeconds) / 60)))) min window")
+                    }
+                    .font(StrandFont.footnote).monospacedDigit()
+                    .foregroundStyle(StrandPalette.textTertiary)
                 } else {
                     Text("Heart-rate history will draw as the workout records.")
                         .font(StrandFont.caption)
@@ -171,15 +182,8 @@ private struct LiveWorkoutControlRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "lock.open.fill")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(StrandPalette.textPrimary)
-                .frame(width: 44, height: 44)
-                .background(StrandPalette.card, in: Circle())
-                .overlay(Circle().strokeBorder(StrandPalette.cardBorder, lineWidth: 1))
-                .accessibilityLabel("Screen controls unlocked")
             HStack(spacing: 7) {
-                Image(systemName: "record.circle")
+                Circle().fill(StrandPalette.liveRed).frame(width: 6, height: 6)
                 Text("Recording")
             }
             .font(StrandFont.caption.weight(.semibold))
@@ -242,7 +246,6 @@ private struct LiveWorkoutEffortAndZone: View {
 
     var body: some View {
         effortGauge
-        zoneRail
     }
 
     private var effortGauge: some View {
@@ -287,48 +290,13 @@ private struct LiveWorkoutEffortAndZone: View {
         }
     }
 
-    private var zoneRail: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("HR ZONE")
-                .font(StrandFont.overline)
-                .tracking(StrandFont.overlineTracking)
-                .foregroundStyle(StrandPalette.textSecondary)
-            HStack(spacing: 6) {
-                ForEach(1...5, id: \.self) { value in
-                    let active = value == zone
-                    let color = StrandPalette.hrZoneColor(value)
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(active ? color : color.opacity(0.18))
-                        .frame(height: active ? 44 : 34)
-                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .strokeBorder(active ? color : StrandPalette.hairline, lineWidth: 1))
-                        .overlay(Text("Z\(value)")
-                            .font(StrandFont.captionNumber)
-                            .foregroundStyle(active
-                                ? StrandPalette.surfaceBase
-                                : StrandPalette.textTertiary))
-                }
-            }
-            if let band = zoneSet.zones.first(where: { $0.number == zone }) {
-                Text("Zone \(zone): \(Int(band.lower))-\(Int(band.upper)) bpm (\(Int(band.lowerPct * 100))-\(Int(band.upperPct * 100))% max HR)")
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textTertiary)
-            } else {
-                Text("Warming up. Keep moving to climb into Zone 1.")
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textTertiary)
-            }
-        }
-    }
-
     private static func elapsedCoverage(_ seconds: Int) -> String {
         String(format: "%d:%02d", max(0, seconds) / 60, max(0, seconds) % 60)
     }
 }
 
 private struct PaperLiveWorkoutStatsGrid: View {
-    @EnvironmentObject private var model: AppModel
-    @EnvironmentObject private var live: LiveState
+    @ObservedObject var workout: AppModel.ActiveWorkout
     @ObservedObject var recorder: GpsWorkoutRecorder
     @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
 
@@ -337,12 +305,15 @@ private struct PaperLiveWorkoutStatsGrid: View {
     var body: some View {
         PaperCard(padding: 0) {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: 3), spacing: 0) {
-                metric("DISTANCE", distanceText, nil)
-                metric("PACE", paceText, unitSystem == .imperial ? "/mi" : "/km")
-                metric("HEART RATE", model.bpm.map(String.init) ?? "—", "bpm", tint: StrandPalette.liveRed)
-                metric("CALORIES", "—", "kcal")
-                metric("CADENCE", live.sensorCadence.map { "\(Int($0.rounded()))" } ?? "—", "spm")
-                metric("ELEVATION", "—", unitSystem == .imperial ? "ft" : "m")
+                if recorder.isRecording && recorder.canRecordRoute {
+                    metric("DISTANCE", distanceText, unitSystem == .imperial ? "mi" : "km")
+                    metric("PACE", paceText, unitSystem == .imperial ? "/mi" : "/km")
+                }
+                metric("HEART RATE", workout.currentBPM.map(String.init) ?? "—", "bpm", tint: StrandPalette.liveRed)
+                if !recorder.isRecording || !recorder.canRecordRoute {
+                    metric("AVG HR", workout.avgHr > 0 ? String(workout.avgHr) : "—", "bpm")
+                    metric("PEAK HR", workout.peakHr > 0 ? String(workout.peakHr) : "—", "bpm")
+                }
             }
         }
     }
@@ -401,6 +372,7 @@ private struct PaperWorkoutMapCard: View {
     @ObservedObject var recorder: GpsWorkoutRecorder
 
     var body: some View {
+        if recorder.isRecording && recorder.canRecordRoute {
         PaperCard(padding: 0) {
             ZStack(alignment: .bottomLeading) {
                 Group {
@@ -436,6 +408,32 @@ private struct PaperWorkoutMapCard: View {
                 .frame(height: 30)
                 .background(StrandPalette.card, in: Capsule())
                 .padding(12)
+            }
+        }
+    }
+    }
+}
+
+private struct LiveWorkoutZoneCard: View {
+    @ObservedObject var workout: AppModel.ActiveWorkout
+    @ObservedObject var profile: ProfileStore
+
+    var body: some View {
+        PaperCard {
+            NOOPHeartRateZoneRail(bpm: workout.currentBPM, maxHR: Double(profile.hrMax))
+        }
+    }
+}
+
+private struct LiveWorkoutSignalStatus: View {
+    @ObservedObject var workout: AppModel.ActiveWorkout
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 5)) { context in
+            if let last = workout.samples.last,
+               context.date.timeIntervalSince1970 - Double(last.ts) > 15 {
+                Label("Waiting for fresh heart rate. Showing the last recorded reading.", systemImage: "antenna.radiowaves.left.and.right.slash")
+                    .font(StrandFont.footnote).foregroundStyle(StrandPalette.statusWarning)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }

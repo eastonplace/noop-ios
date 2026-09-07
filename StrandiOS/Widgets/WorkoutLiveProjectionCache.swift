@@ -90,7 +90,8 @@ final class WorkoutLiveProjectionCache {
             calories: projection.sampleCount >= 2 && projection.caloriesKcal > 0
                 ? Int(projection.caloriesKcal.rounded()) : nil,
             hrTrace: projection.hrTrace,
-            zoneSeconds: projection.zoneSeconds.map { Int($0.rounded()) }
+            zoneSeconds: projection.zoneSeconds.map { Int($0.rounded()) },
+            maxHR: Double(profile.hrMax)
         )
     }
 
