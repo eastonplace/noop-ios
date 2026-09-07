@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+from workout_navigation_contract import errors as workout_navigation_errors
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -362,12 +363,9 @@ def main() -> int:
 
     ios_root = ROOT / "StrandiOS/App/RootTabView.swift"
     ios_root_text = ios_root.read_text(encoding="utf-8")
-    for contract in (
-        "withAnimation(Self.sheetEase) { quickAction = .activeWorkout }",
-        "case .activeWorkout:\n            quickScreen(LiveWorkoutView",
-    ):
-        if contract not in ios_root_text:
-            errors.append(f"{relative(ios_root)} is missing direct active-workout route {contract!r}.")
+    live_workout_text = (ROOT / "Strand/Screens/LiveWorkoutView.swift").read_text(encoding="utf-8")
+    # The live screen now owns its stack. Guard the direct route and reject a nested wrapper.
+    errors.extend(workout_navigation_errors(ios_root_text, live_workout_text))
 
     intents = ROOT / "StrandiOS/System/NOOPAppIntents.swift"
     if not intents.exists():
