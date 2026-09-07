@@ -196,7 +196,8 @@ struct JournalDayEditor: View {
         Binding(get: { draft.answers[key] }, set: { draft.set($0, for: key) })
     }
     private var saveBar: some View {
-        VStack(spacing: 8) {
+        let title: LocalizedStringKey = saving ? "Saving check-in…" : "Save check-in"
+        return VStack(spacing: 8) {
             if failure != nil, loaded {
                 Text("Save failed. Your edits remain on screen.")
                     .font(StrandFont.caption).foregroundStyle(StrandPalette.statusWarning)
@@ -205,7 +206,7 @@ struct JournalDayEditor: View {
                 Text("Correct \(invalidKeys.count) numeric field(s) before saving.")
                     .font(StrandFont.caption).foregroundStyle(StrandPalette.statusWarning)
             }
-            NoopButton(saving ? "Saving check-in…" : "Save check-in", systemImage: saving ? "hourglass" : "checkmark",
+            NoopButton(title, systemImage: saving ? "hourglass" : "checkmark",
                        kind: .primary, fullWidth: true) { Task { await save() } }
                 .disabled(!loaded || saving || copying || !invalidKeys.isEmpty || draft.changedKeys.isEmpty)
         }

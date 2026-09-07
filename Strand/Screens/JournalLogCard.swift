@@ -41,11 +41,12 @@ struct JournalLogCard: View {
     private var count: Int { items.filter { answers[$0.canonical] != nil || numericAnswers[$0.canonical] != nil }.count }
 
     var body: some View {
-        PaperCard {
+        let morningLabel = "Morning of \(date.formatted(date: .abbreviated, time: .omitted))"
+        return PaperCard {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(spacing: 16) {
                     ExperienceProgress(completed: count, total: items.count)
-                    ExperienceSectionHeading(title: "Journal", detail: "Morning of \(date.formatted(date: .abbreviated, time: .omitted))")
+                    ExperienceSectionHeading(title: "Journal", detail: morningLabel)
                 }
                 Picker("Morning", selection: $dayOffset) {
                     Text("Yesterday").tag(1)
@@ -101,7 +102,8 @@ struct CoachingStackDetailView: View {
     @State private var lastUse: CoachingStackUse?
 
     var body: some View {
-        ExperienceScroll {
+        let saveTitle: LocalizedStringKey = didSave ? "Routine saved" : saving ? "Saving…" : "Log selected items"
+        return ExperienceScroll {
             ExperienceSectionHeading(title: stack.name, detail: "Morning of \(day)")
             if let description = stack.description {
                 Text(description).font(StrandFont.body).foregroundStyle(StrandPalette.textSecondary)
@@ -167,7 +169,7 @@ struct CoachingStackDetailView: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 8) {
-                NoopButton(didSave ? "Routine saved" : saving ? "Saving…" : "Log selected items", systemImage: "checkmark",
+                NoopButton(saveTitle, systemImage: "checkmark",
                            kind: .primary, fullWidth: true) { confirming = true }
                     .disabled(!loaded || saving || didSave || selected.isEmpty)
                 Button("Skip this routine") { Task { await save(skipped: true) } }
