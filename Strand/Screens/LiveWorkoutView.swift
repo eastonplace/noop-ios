@@ -3,440 +3,301 @@ import StrandDesign
 import StrandAnalytics
 import WhoopStore
 
-/// Live workout mode. The environment wrapper receives AppModel's high-frequency notifications, but its
-/// expensive/static content is Equatable and identity-stable. Only the dedicated heart/zone/strain leaves
-/// observe AppModel and continue updating for every available HR sample.
+/// The recorder stays in AppModel. Closing this screen never ends an active workout.
 struct LiveWorkoutView: View {
     @EnvironmentObject private var model: AppModel
     let onClose: () -> Void
+    @State private var completed: WorkoutRow?
 
     var body: some View {
-        StableLiveWorkoutContent(model: model)
-            .equatable()
-            .overlay {
-                WorkoutGoneObserver(model: model, onClose: onClose)
+        NavigationStack {
+            Group {
+                if let completed {
+                    WorkoutDetailView(row: completed, onClose: onClose)
+                } else if let workout = model.activeWorkout {
+                    StableWorkoutSession(model: model, workout: workout)
+                        .equatable()
+                        .navigationTitle(workout.sport)
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Minimize", action: onClose)
+                                    .accessibilityHint("Keeps this workout recording")
+                                    .disabled(model.workoutFinishState == .saving)
+                            }
+                        }
+                } else {
+                    ExperienceMessage(title: "No workout is recording",
+                                      message: "Close this view to start a new session.", symbol: "figure.run")
+                        .padding(16)
+                        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", action: onClose) } }
+                }
             }
+            .noopFocusedTask()
+            .tint(StrandPalette.accent)
+        }
+        .interactiveDismissDisabled(model.workoutFinishState == .saving)
+        .onChange(of: model.workoutFinishState) { _, state in
+            if case .saved(let row) = state { completed = row }
+        }
     }
 }
 
-private struct StableLiveWorkoutContent: View, @preconcurrency Equatable {
+/// Stable shell: per-second time and streaming heart rate only invalidate their own leaves.
+private struct StableWorkoutSession: View, @preconcurrency Equatable {
     let model: AppModel
+    let workout: AppModel.ActiveWorkout
     @AppStorage("workoutKeepScreenOn") private var keepScreenOn = false
 
     static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.model === rhs.model
+        lhs.model === rhs.model && lhs.workout === rhs.workout
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
-                header.staggeredAppear(index: 0)
-                timerBlock.staggeredAppear(index: 1)
-                PaperLiveWorkoutStatsGrid(recorder: model.gpsRecorder)
-                    .staggeredAppear(index: 2)
-                PaperWorkoutMapCard(recorder: model.gpsRecorder)
-                    .staggeredAppear(index: 3)
-                if let workout = model.activeWorkout {
-                    LiveWorkoutHeartCard(workout: workout)
-                        .staggeredAppear(index: 4)
-                }
-                LiveWorkoutControlRow(model: model)
-                LiveWorkoutDurabilityWarning(model: model)
-                LiveWorkoutFailureMessage(model: model)
-                if let workout = model.activeWorkout {
-                    LiveWorkoutEffortAndZone(workout: workout, profile: model.profile)
-                }
+        ExperienceScroll {
+            LiveWorkoutTimeHero(workout: workout)
+            LiveWorkoutHeartPanel(workout: workout, profile: model.profile)
+            if WorkoutExperiencePolicy.kind(for: workout.sport).supportsRoute {
+                LiveWorkoutRoutePanel(recorder: model.gpsRecorder, workout: workout)
             }
-            .screenPadding()
-            .padding(.vertical, 16)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            LiveWorkoutEffortPanel(workout: workout)
+            LiveWorkoutSaveStatus(model: model)
+            Toggle("Keep screen awake", isOn: $keepScreenOn)
+                .font(StrandFont.footnote).tint(StrandPalette.accent)
+            Text("Minimize keeps recording. Finish workout saves this session.")
+                .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
         }
-        .background(StrandPalette.surfaceBase.ignoresSafeArea())
+        .safeAreaInset(edge: .bottom, spacing: 0) { LiveWorkoutFinishBar(model: model) }
         .onAppear {
             model.startRealtimeHR()
-            if keepScreenOn { ScreenIdle.keepAwake(true) }
+            ScreenIdle.keepAwake(keepScreenOn)
         }
+        .onChange(of: keepScreenOn) { _, value in ScreenIdle.keepAwake(value) }
         .onDisappear {
             model.stopRealtimeHR()
             ScreenIdle.keepAwake(false)
         }
     }
-
-    private var header: some View {
-        ZStack {
-            Text("N O O P")
-                .font(StrandFont.wordmark)
-                .tracking(StrandFont.wordmarkTracking)
-                .foregroundStyle(StrandPalette.textPrimary)
-            HStack {
-                Text(model.activeWorkout?.sport ?? String(localized: "Workout"))
-                    .font(StrandFont.caption.weight(.semibold))
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .lineLimit(1)
-                Spacer()
-                StatusBadge("Live", style: .live)
-            }
-        }
-        .frame(minHeight: 32)
-    }
-
-    @ViewBuilder
-    private var timerBlock: some View {
-        if let start = model.activeWorkout?.start {
-            TimelineView(.periodic(from: .now, by: 1)) { _ in
-                VStack(spacing: 3) {
-                    Text(Self.elapsed(since: start))
-                        .font(StrandFont.timer)
-                        .tracking(StrandFont.timerTracking)
-                        .monospacedDigit()
-                        .foregroundStyle(StrandPalette.textPrimary)
-                    Text("Elapsed Time")
-                        .font(StrandFont.micro)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                }
-                .frame(maxWidth: .infinity)
-            }
-        }
-    }
-
-    private static func elapsed(since start: Date) -> String {
-        let seconds = max(0, Int(Date().timeIntervalSince(start)))
-        return String(format: "%d:%02d", seconds / 60, seconds % 60)
-    }
 }
 
-private struct WorkoutGoneObserver: View {
-    @ObservedObject var model: AppModel
-    let onClose: () -> Void
-
-    var body: some View {
-        Color.clear
-            .frame(width: 0, height: 0)
-            .accessibilityHidden(true)
-            .onChangeCompat(of: model.activeWorkout == nil) { gone in
-                if gone { onClose() }
-            }
-    }
-}
-
-/// Per-sample heart history leaf. `ActiveWorkout` publishes an already-bounded incremental projection, so
-/// this view never observes broad AppModel invalidations or scans the complete retained workout.
-private struct LiveWorkoutHeartCard: View {
-    @ObservedObject var workout: AppModel.ActiveWorkout
-
-    var body: some View {
-        let projection = workout.chartProjection
-        PaperCard {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("HEART RATE (LAST 3 HOURS)")
-                        .font(StrandFont.sectionOverline)
-                        .tracking(StrandFont.sectionOverlineTracking)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                    Spacer()
-                    Text(workout.currentBPM.map { "\($0) bpm" } ?? "—")
-                        .font(StrandFont.captionNumber)
-                        .foregroundStyle(StrandPalette.liveRed)
-                }
-                if projection.values.count > 1 {
-                    Sparkline(
-                        values: projection.values,
-                        gradient: Gradient(colors: [
-                            StrandPalette.chargeAccent,
-                            StrandPalette.chargeAccent,
-                        ]),
-                        range: projection.range,
-                        lineWidth: 2,
-                        showsArea: true,
-                        showsHead: false,
-                        showsHover: false
-                    )
-                    .frame(height: 90)
-                    .accessibilityLabel(
-                        "Workout heart rate, \(projection.values.count) plotted points over \(projection.observedSeconds) seconds"
-                    )
-                } else {
-                    Text("Heart-rate history will draw as the workout records.")
-                        .font(StrandFont.caption)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                        .frame(maxWidth: .infinity, minHeight: 90, alignment: .center)
-                }
-            }
+private struct LiveWorkoutTimeHero: View {
+    let workout: AppModel.ActiveWorkout
+    private var context: String {
+        switch WorkoutExperiencePolicy.kind(for: workout.sport) {
+        case .indoorCardio: "Indoor session · GPS off"
+        case .strength: "Strength session · Heart-rate tracking"
+        case .mobility: "Mindful movement · Heart-rate tracking"
+        case .timed: "Timed session · Heart-rate tracking"
+        default: "Outdoor session"
         }
     }
-}
-
-private struct LiveWorkoutControlRow: View {
-    @ObservedObject var model: AppModel
-
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "lock.open.fill")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(StrandPalette.textPrimary)
-                .frame(width: 44, height: 44)
-                .background(StrandPalette.card, in: Circle())
-                .overlay(Circle().strokeBorder(StrandPalette.cardBorder, lineWidth: 1))
-                .accessibilityLabel("Screen controls unlocked")
-            HStack(spacing: 7) {
-                Image(systemName: "record.circle")
-                Text("Recording")
-            }
-            .font(StrandFont.caption.weight(.semibold))
-            .foregroundStyle(StrandPalette.textSecondary)
-            .frame(maxWidth: .infinity, minHeight: 44)
-            .background(StrandPalette.card,
-                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(StrandPalette.cardBorder, lineWidth: 1))
-
-            let saving = model.workoutFinishState == .saving
-            let title: LocalizedStringKey = saving ? "Saving…" : "Finish"
-            NoopButton(
-                title,
-                systemImage: saving ? "hourglass" : "flag.checkered",
-                kind: .destructive
-            ) {
-                Task { _ = await model.endWorkout() }
-            }
-            .disabled(saving)
-        }
-    }
-}
-
-private struct LiveWorkoutFailureMessage: View {
-    @ObservedObject var model: AppModel
-
-    var body: some View {
-        if case .failed(let message) = model.workoutFinishState {
-            Text(message)
-                .font(StrandFont.footnote)
-                .foregroundStyle(StrandPalette.statusWarning)
-                .accessibilityLabel("Workout save failed. \(message)")
-        }
-    }
-}
-
-private struct LiveWorkoutDurabilityWarning: View {
-    @ObservedObject var model: AppModel
-
-    var body: some View {
-        if let warning = model.workoutDurabilityWarning {
-            Label(warning, systemImage: "externaldrive.badge.exclamationmark")
-                .font(StrandFont.footnote)
-                .foregroundStyle(StrandPalette.statusWarning)
+        VStack(alignment: .leading, spacing: 12) {
+            Label(LocalizedStringKey(context), systemImage: WorkoutExperiencePolicy.symbol(for: workout.sport))
+                .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
-                .accessibilityLabel("Workout recovery warning. \(warning)")
+            TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                Text(WorkoutExperiencePolicy.elapsed(timeline.date.timeIntervalSince(workout.start)))
+                    .font(StrandFont.timer).monospacedDigit().foregroundStyle(StrandPalette.textPrimary)
+                    .lineLimit(1).minimumScaleFactor(0.55)
+                    .accessibilityLabel("Elapsed time")
+                    .accessibilityValue(WorkoutExperiencePolicy.elapsed(timeline.date.timeIntervalSince(workout.start)))
+            }
+            Label("Recording", systemImage: "record.circle")
+                .font(StrandFont.caption).foregroundStyle(StrandPalette.accent)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 12)
     }
 }
 
-private struct LiveWorkoutEffortAndZone: View {
+private struct LiveWorkoutHeartPanel: View {
     @ObservedObject var workout: AppModel.ActiveWorkout
     @ObservedObject var profile: ProfileStore
-    @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.whoop.rawValue
-
-    private var effortScale: EffortScale { UnitPrefs.resolveEffortScale(effortScaleRaw) }
-    private var zoneSet: HRZoneSet { HRZones.zones(maxHR: Double(profile.hrMax)) }
-    private var zone: Int { workout.currentBPM.map { zoneSet.zoneNumber(forBPM: Double($0)) } ?? 0 }
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        effortGauge
-        zoneRail
-    }
-
-    private var effortGauge: some View {
-        NoopCard(padding: NoopMetrics.cardInnerPadding, tint: StrandPalette.effortColor) {
-            VStack(spacing: NoopMetrics.rowSpacing) {
-                switch workout.liveStrainState {
-                case .building(let readings, let coverageSeconds):
-                    Text("STRAIN BUILDING")
-                        .font(StrandFont.overline)
-                        .tracking(StrandFont.overlineTracking)
-                        .foregroundStyle(StrandPalette.effortColor)
-                    Text("Building")
-                        .font(StrandFont.metricValue)
-                        .foregroundStyle(StrandPalette.textPrimary)
-                    ProgressView(value: min(
-                        1,
-                        Double(coverageSeconds) / Double(StrainScorerV2.minCoverageSeconds)
-                    ))
-                    .tint(StrandPalette.effortColor)
-                    Text("\(Self.elapsedCoverage(coverageSeconds)) of 10:00 coverage · \(readings) readings")
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                case .scored(let strain):
-                    Text("LIVE STRAIN")
-                        .font(StrandFont.overline)
-                        .tracking(StrandFont.overlineTracking)
-                        .foregroundStyle(StrandPalette.effortColor)
-                    StrainGauge(
-                        strain: UnitFormatter.effortValue(strain, scale: effortScale),
-                        outOf: 21,
-                        diameter: 150,
-                        lineWidth: 14,
-                        showsHover: false,
-                        valueFormat: { _ in
-                            UnitFormatter.effortDisplay(strain, scale: effortScale)
-                        }
-                    )
-                    .frame(maxWidth: .infinity)
-                }
-            }
-            .frame(maxWidth: .infinity)
-        }
-    }
-
-    private var zoneRail: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("HR ZONE")
-                .font(StrandFont.overline)
-                .tracking(StrandFont.overlineTracking)
-                .foregroundStyle(StrandPalette.textSecondary)
-            HStack(spacing: 6) {
-                ForEach(1...5, id: \.self) { value in
-                    let active = value == zone
-                    let color = StrandPalette.hrZoneColor(value)
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(active ? color : color.opacity(0.18))
-                        .frame(height: active ? 44 : 34)
-                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .strokeBorder(active ? color : StrandPalette.hairline, lineWidth: 1))
-                        .overlay(Text("Z\(value)")
-                            .font(StrandFont.captionNumber)
-                            .foregroundStyle(active
-                                ? StrandPalette.surfaceBase
-                                : StrandPalette.textTertiary))
-                }
-            }
-            if let band = zoneSet.zones.first(where: { $0.number == zone }) {
-                Text("Zone \(zone): \(Int(band.lower))-\(Int(band.upper)) bpm (\(Int(band.lowerPct * 100))-\(Int(band.upperPct * 100))% max HR)")
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textTertiary)
-            } else {
-                Text("Warming up. Keep moving to climb into Zone 1.")
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textTertiary)
-            }
-        }
-    }
-
-    private static func elapsedCoverage(_ seconds: Int) -> String {
-        String(format: "%d:%02d", max(0, seconds) / 60, max(0, seconds) % 60)
-    }
-}
-
-private struct PaperLiveWorkoutStatsGrid: View {
-    @EnvironmentObject private var model: AppModel
-    @EnvironmentObject private var live: LiveState
-    @ObservedObject var recorder: GpsWorkoutRecorder
-    @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
-
-    private var unitSystem: UnitSystem { UnitSystem(rawValue: unitSystemRaw) ?? .metric }
-
-    var body: some View {
-        PaperCard(padding: 0) {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: 3), spacing: 0) {
-                metric("DISTANCE", distanceText, nil)
-                metric("PACE", paceText, unitSystem == .imperial ? "/mi" : "/km")
-                metric("HEART RATE", model.bpm.map(String.init) ?? "—", "bpm", tint: StrandPalette.liveRed)
-                metric("CALORIES", "—", "kcal")
-                metric("CADENCE", live.sensorCadence.map { "\(Int($0.rounded()))" } ?? "—", "spm")
-                metric("ELEVATION", "—", unitSystem == .imperial ? "ft" : "m")
-            }
-        }
-    }
-
-    private func metric(
-        _ label: String,
-        _ value: String,
-        _ unit: String?,
-        tint: Color = StrandPalette.textPrimary
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(label)
-                .font(StrandFont.micro.weight(.semibold))
-                .foregroundStyle(StrandPalette.textTertiary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-            HStack(alignment: .firstTextBaseline, spacing: 3) {
-                Text(value)
-                    .font(StrandFont.metricValue)
-                    .foregroundStyle(tint)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.65)
-                if let unit {
-                    Text(unit)
-                        .font(StrandFont.micro)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, minHeight: 76, alignment: .leading)
-        .padding(.horizontal, 11)
-        .overlay(alignment: .trailing) {
-            Rectangle().fill(StrandPalette.hairline).frame(width: 1)
-        }
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(StrandPalette.hairline).frame(height: 1)
-        }
-    }
-
-    private var distanceText: String {
-        guard recorder.distanceM > 0 else { return "—" }
-        let amount = unitSystem == .imperial
-            ? recorder.distanceM / 1609.344
-            : recorder.distanceM / 1000
-        return String(format: "%.2f", amount)
-    }
-
-    private var paceText: String {
-        guard let secPerKm = recorder.paceSecPerKm else { return "—" }
-        let seconds = Int((unitSystem == .imperial ? secPerKm * 1.609344 : secPerKm).rounded())
-        return String(format: "%d:%02d", seconds / 60, seconds % 60)
-    }
-}
-
-private struct PaperWorkoutMapCard: View {
-    @ObservedObject var recorder: GpsWorkoutRecorder
-
-    var body: some View {
-        PaperCard(padding: 0) {
-            ZStack(alignment: .bottomLeading) {
-                Group {
-                    if recorder.routeSegments.contains(where: { $0.count >= 2 }) {
-                        WorkoutRouteMap(segments: recorder.routeSegments, showsEndpoints: false)
-                            .allowsHitTesting(false)
-                            .accessibilityLabel("Live GPS route")
-                    } else {
-                        VStack(spacing: 6) {
-                            Image(systemName: recorder.pointCount > 0 ? "location.fill" : "location.slash")
-                                .font(.system(size: 22, weight: .semibold))
-                                .foregroundStyle(recorder.pointCount > 0
-                                    ? StrandPalette.link
-                                    : StrandPalette.textTertiary)
-                            Text(recorder.pointCount > 0
-                                ? "\(recorder.pointCount) GPS points recorded"
-                                : "Waiting for GPS route")
-                                .font(StrandFont.caption)
-                                .foregroundStyle(StrandPalette.textSecondary)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(StrandPalette.inset)
+        PaperCard {
+            VStack(alignment: .leading, spacing: 18) {
+                TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                    let last = workout.samples.last
+                    let age = last.map { timeline.date.timeIntervalSince(Date(timeIntervalSince1970: Double($0.ts))) }
+                    let fresh = age.map { (-5...20).contains($0) } ?? false
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(fresh ? workout.currentBPM.map(String.init) ?? "—" : "—")
+                            .font(StrandFont.timer).monospacedDigit().foregroundStyle(StrandPalette.liveRed)
+                            .lineLimit(1).minimumScaleFactor(0.7)
+                        Text("bpm").font(StrandFont.body).foregroundStyle(StrandPalette.textSecondary)
+                    }
+                    .accessibilityElement(children: .combine)
+                    Text(fresh ? "Current heart rate" : "Waiting for a fresh heart-rate reading")
+                        .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                    if fresh, let bpm = workout.currentBPM {
+                        let zones = HRZones.zones(maxHR: Double(profile.hrMax))
+                        let zone = zones.zoneNumber(forBPM: Double(bpm))
+                        Label(zone > 0 ? "Zone \(zone)" : "Below Zone 1", systemImage: "heart.fill")
+                            .font(StrandFont.headline)
+                            .foregroundStyle(zone > 0 ? StrandPalette.hrZoneColor(zone) : StrandPalette.textSecondary)
                     }
                 }
-                .frame(height: 150)
-                HStack(spacing: 6) {
-                    Image(systemName: "map.fill")
-                    Text("Route saving · Local only")
+                if workout.avgHr > 0 {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 24) { averages }
+                        VStack(alignment: .leading, spacing: 8) { averages }
+                    }
                 }
-                .font(StrandFont.micro.weight(.semibold))
-                .foregroundStyle(StrandPalette.textPrimary)
-                .padding(.horizontal, 10)
-                .frame(height: 30)
-                .background(StrandPalette.card, in: Capsule())
-                .padding(12)
+                let projection = workout.chartProjection
+                if projection.values.count > 1 {
+                    Sparkline(values: projection.values,
+                              gradient: Gradient(colors: [StrandPalette.liveRed, StrandPalette.liveRed]),
+                              range: projection.range, lineWidth: 2,
+                              showsArea: false, showsHead: false, showsHover: false)
+                        .frame(height: typeSize.isAccessibilitySize ? 120 : 80)
+                        .accessibilityLabel("Recent recorded heart-rate samples")
+                    Text("HEART RATE (LAST 3 HOURS)")
+                        .font(StrandFont.micro).foregroundStyle(StrandPalette.textSecondary)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    @ViewBuilder private var averages: some View {
+        Label("Average \(workout.avgHr) bpm", systemImage: "heart")
+        Label("Peak \(workout.peakHr) bpm", systemImage: "arrow.up")
+    }
+}
+
+private struct LiveWorkoutRoutePanel: View {
+    @ObservedObject var recorder: GpsWorkoutRecorder
+    let workout: AppModel.ActiveWorkout
+    @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
+    @Environment(\.dynamicTypeSize) private var typeSize
+    private var imperial: Bool { unitSystemRaw == UnitSystem.imperial.rawValue }
+    private var ownsRoute: Bool {
+        WorkoutExperiencePolicy.hasLiveRoute(sport: workout.sport, isRecording: recorder.isRecording,
+                                              recordedSession: recorder.persistenceCheckpoint()?.sessionID,
+                                              activeSession: workout.sessionID)
+    }
+    var body: some View {
+        if ownsRoute {
+            if let distance = WorkoutExperiencePolicy.distance(recorder.distanceM, imperial: imperial) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: typeSize.isAccessibilitySize ? 240 : 140))], spacing: 12) {
+                    ExperienceMetricTile(label: distance.label, value: distance.value, unit: distance.unit, symbol: "location")
+                    if let pace = recorder.paceSecPerKm,
+                       let rate = WorkoutExperiencePolicy.rate(sport: workout.sport, meters: 1000,
+                                                                seconds: pace, imperial: imperial) {
+                        ExperienceMetricTile(label: rate.label, value: rate.value, unit: rate.unit, symbol: "speedometer")
+                    }
+                }
+                LiveWorkoutRoutePreview(recorder: recorder, sessionID: workout.sessionID).equatable()
+            } else {
+                ExperienceMessage(title: recorder.canRecordRoute ? "Finding your route" : "Location is unavailable",
+                                  message: recorder.canRecordRoute
+                                    ? "Distance appears after enough GPS points arrive. Heart-rate tracking continues."
+                                    : "Heart-rate tracking continues. Enable location in Settings to record a route.",
+                                  symbol: "location")
+            }
+        }
+    }
+}
+
+/// Refresh only while visible, at most every five seconds. The preview retains at most 800 real points.
+private struct LiveWorkoutRoutePreview: View, @preconcurrency Equatable {
+    let recorder: GpsWorkoutRecorder
+    let sessionID: UUID
+    @State private var segments: [[RouteMath.LatLng]] = []
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.recorder === rhs.recorder && lhs.sessionID == rhs.sessionID }
+    var body: some View {
+        PaperCard {
+            VStack(alignment: .leading, spacing: 12) {
+                ExperienceSectionHeading(title: "Recent route", detail: "GPS preview · Full distance shown above")
+                if segments.contains(where: { $0.count >= 2 }) {
+                    WorkoutRouteMap(segments: segments, showsEndpoints: false)
+                        .frame(height: 160).clipShape(RoundedRectangle(cornerRadius: 12))
+                        .allowsHitTesting(false)
+                        .accessibilityLabel("Recent recorded route preview")
+                }
+            }
+        }
+        .task(id: sessionID) {
+            while !Task.isCancelled {
+                guard recorder.isRecording, recorder.persistenceCheckpoint()?.sessionID == sessionID else { return }
+                var remaining = 800
+                var recent: [[RouteMath.LatLng]] = []
+                for segment in recorder.routeSegments.reversed() where remaining > 0 {
+                    let part = Array(segment.suffix(remaining))
+                    recent.append(part)
+                    remaining -= part.count
+                }
+                segments = recent.reversed()
+                do { try await Task.sleep(for: .seconds(5)) } catch { return }
+            }
+        }
+    }
+}
+
+private struct LiveWorkoutEffortPanel: View {
+    @ObservedObject var workout: AppModel.ActiveWorkout
+    @AppStorage(UnitPrefs.effortScaleKey) private var scaleRaw = EffortScale.whoop.rawValue
+    var body: some View {
+        PaperCard {
+            VStack(alignment: .leading, spacing: 12) {
+                ExperienceSectionHeading(title: "Session strain")
+                switch workout.liveStrainState {
+                case .building(let readings, let seconds):
+                    ProgressView(value: min(1, Double(seconds) / Double(StrainScorerV2.minCoverageSeconds)))
+                        .tint(StrandPalette.strainAccent)
+                    Text("Building from \(readings) readings")
+                        .font(StrandFont.headline).foregroundStyle(StrandPalette.textPrimary)
+                    Text("\(WorkoutExperiencePolicy.elapsed(Double(seconds))) of \(WorkoutExperiencePolicy.elapsed(Double(StrainScorerV2.minCoverageSeconds))) heart-rate coverage")
+                        .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                case .scored(let strain):
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(UnitFormatter.effortDisplay(strain, scale: UnitPrefs.resolveEffortScale(scaleRaw)))
+                            .font(StrandFont.metricValue).monospacedDigit().foregroundStyle(StrandPalette.strainAccent)
+                        Text("Strain").font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                    }
+                    Text("Calculated from this session’s recorded heart rate.")
+                        .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+private struct LiveWorkoutSaveStatus: View {
+    @ObservedObject var model: AppModel
+    var body: some View {
+        if let warning = model.workoutDurabilityWarning {
+            ExperienceMessage(title: "Recording recovery needs attention", message: warning,
+                              symbol: "externaldrive.badge.exclamationmark", tint: StrandPalette.statusWarning)
+        }
+        if case .failed(let message) = model.workoutFinishState {
+            ExperienceMessage(title: "Workout has not saved", message: message,
+                              symbol: "exclamationmark.triangle", tint: StrandPalette.statusWarning)
+        }
+    }
+}
+
+private struct LiveWorkoutFinishBar: View {
+    @ObservedObject var model: AppModel
+    @State private var confirming = false
+    private var saving: Bool { model.workoutFinishState == .saving }
+    var body: some View {
+        VStack(spacing: 8) {
+            NoopButton(saving ? "Saving workout…" : "Finish workout", systemImage: saving ? "hourglass" : "flag.checkered",
+                       kind: .primary, fullWidth: true) { confirming = true }
+                .disabled(saving)
+        }
+        .padding(16)
+        .background(StrandPalette.appCanvas)
+        .overlay(alignment: .top) { Rectangle().fill(StrandPalette.hairline).frame(height: 1) }
+        .confirmationDialog("Finish and save this workout?", isPresented: $confirming, titleVisibility: .visible) {
+            Button("Finish and save") { Task { _ = await model.endWorkout() } }
+            Button("Keep recording", role: .cancel) {}
+        } message: {
+            Text("The summary opens after the saved workout is verified.")
         }
     }
 }
