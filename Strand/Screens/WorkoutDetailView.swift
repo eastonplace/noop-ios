@@ -41,62 +41,111 @@ struct WorkoutDetailView: View {
     }
 
     var body: some View {
+        summaryContent
+            .navigationTitle(sport)
+            .noopFocusedTask()
+            .toolbar { summaryToolbar }
+            .task(id: loadIdentity) { await load() }
+            .refreshable { await load() }
+    }
+
+    private var loadIdentity: String { "\(row.startTs)|\(row.sport)|\(repo.deviceId)" }
+
+    /// Give the compiler small, independently typed sections without erasing view identity.
+    private var summaryContent: some View {
         ExperienceScroll {
             sessionHero
-            if availableTabs.count > 1 {
-                Picker("Session section", selection: $tab) {
-                    ForEach(availableTabs) { Text(LocalizedStringKey($0.rawValue)).tag($0) }
+            sectionPicker
+            selectedSection
+        }
+    }
+
+    @ViewBuilder private var sectionPicker: some View {
+        if availableTabs.count > 1 {
+            Picker("Session section", selection: $tab) {
+                ForEach(availableTabs) { section in
+                    Text(LocalizedStringKey(section.rawValue)).tag(section)
                 }
-                .pickerStyle(.segmented)
             }
-            switch tab {
-            case .overview:
-                metrics
-                if let chart, !chart.points.isEmpty {
-                    WorkoutHeartChart(projection: chart, sourceLabel: "Strap heart rate · Time-bucket averages")
-                } else if loaded {
-                    ExperienceMessage(title: "Heart-rate trace unavailable",
-                                      message: "The stored summary remains available. No trace was returned for this session.",
-                                      symbol: "waveform.path.ecg")
-                } else {
-                    ProgressView("Loading session detail…").frame(maxWidth: .infinity).padding(20)
+            .pickerStyle(.segmented)
+        }
+    }
+
+    @ViewBuilder private var selectedSection: some View {
+        switch tab {
+        case .overview:
+            overviewSection
+        case .heartRate:
+            heartRateSection
+            zoneSection
+        case .route:
+            routeSection
+        }
+    }
+
+    @ViewBuilder private var overviewSection: some View {
+        metrics
+        heartRateSection
+        averageDisclosure
+        zoneSection
+        WorkoutHeartRateRecoveryCard(workout: record, maxHR: Double(profile.hrMax))
+        routeSection
+        notesSection
+    }
+
+    @ViewBuilder private var heartRateSection: some View {
+        if let chart, !chart.points.isEmpty {
+            WorkoutHeartChart(projection: chart, sourceLabel: "Strap heart rate · Time-bucket averages")
+        } else if loaded {
+            ExperienceMessage(title: "Heart-rate trace unavailable",
+                              message: "The stored summary remains available. No trace was returned for this session.",
+                              symbol: "waveform.path.ecg")
+        } else {
+            ProgressView("Loading session detail…")
+                .frame(maxWidth: .infinity)
+                .padding(20)
+        }
+    }
+
+    private var averageDiffersFromTrace: Bool {
+        guard let average = record.avgHr, let readings = chart?.readings, !readings.isEmpty else { return false }
+        let sum: Double = readings.reduce(0.0) { total, sample in total + sample.bpm }
+        let traceAverage = sum / Double(readings.count)
+        return abs(Double(average) - traceAverage) > 3
+    }
+
+    @ViewBuilder private var averageDisclosure: some View {
+        if averageDiffersFromTrace {
+            Text("The summary average and trace differ. The chart uses strap time-bucket averages; the summary keeps its saved value.")
+                .font(StrandFont.caption)
+                .foregroundStyle(StrandPalette.textSecondary)
+        }
+    }
+
+    @ViewBuilder private var notesSection: some View {
+        if let notes = record.notes, !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            PaperCard {
+                VStack(alignment: .leading, spacing: 10) {
+                    ExperienceSectionHeading(title: "Session notes")
+                    Text(notes)
+                        .font(StrandFont.body)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .textSelection(.enabled)
                 }
-                if let average = record.avgHr, let readings = chart?.readings, !readings.isEmpty,
-                   abs(Double(average) - readings.reduce(0, { $0 + $1.bpm }) / Double(readings.count)) > 3 {
-                    Text("The summary average and trace differ. The chart uses strap time-bucket averages; the summary keeps its saved value.")
-                        .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
-                }
-                zoneSection
-                WorkoutHeartRateRecoveryCard(workout: record, maxHR: Double(profile.hrMax))
-                if !route.isEmpty { routeSection }
-                if let notes = record.notes, !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    PaperCard {
-                        VStack(alignment: .leading, spacing: 10) {
-                            ExperienceSectionHeading(title: "Session notes")
-                            Text(notes).font(StrandFont.body).foregroundStyle(StrandPalette.textSecondary)
-                                .textSelection(.enabled)
-                        }.frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-            case .heartRate:
-                if let chart { WorkoutHeartChart(projection: chart, sourceLabel: "Strap heart rate · Time-bucket averages") }
-                zoneSection
-            case .route:
-                routeSection
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .navigationTitle(sport)
-        .noopFocusedTask()
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) { Button("Done") { close() } }
-            ToolbarItem(placement: .confirmationAction) {
-                ShareLink(item: shareText) { Image(systemName: "square.and.arrow.up") }
-                    .accessibilityLabel("Share workout summary")
-                    .accessibilityHint("Shares text only. Route coordinates are excluded.")
-            }
+    }
+
+    @ToolbarContentBuilder private var summaryToolbar: some ToolbarContent {
+        ToolbarItem(placement: .cancellationAction) {
+            Button("Done") { close() }
         }
-        .task(id: "\(row.startTs)|\(row.sport)|\(repo.deviceId)") { await load() }
-        .refreshable { await load() }
+        ToolbarItem(placement: .confirmationAction) {
+            ShareLink(item: shareText) { Image(systemName: "square.and.arrow.up") }
+                .accessibilityLabel("Share workout summary")
+                .accessibilityHint("Shares text only. Route coordinates are excluded.")
+        }
     }
 
     private var sessionHero: some View {
