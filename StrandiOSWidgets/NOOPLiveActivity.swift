@@ -17,7 +17,7 @@ struct NOOPLiveActivity: Widget {
                         strain: context.state.effort,
                         strainBuilding: context.state.strainBuilding == true,
                         calories: context.state.calories,
-                        hrSpark: context.state.hrTrace)
+                        hrSpark: context.state.hrTrace, maxHR: context.state.maxHR)
                 } else {
                     liveHRBanner(context: context)
                 }
@@ -47,8 +47,12 @@ struct NOOPLiveActivity: Widget {
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     if context.state.isWorkout {
-                        NOOPZoneSplitView(seconds: context.state.zoneSeconds)
-                            .padding(.top, 6)
+                        if let maxHR = context.state.maxHR {
+                            NOOPHeartRateZoneRail(bpm: context.state.bpm, maxHR: maxHR)
+                                .foregroundStyle(.white).padding(.top, 6)
+                        } else {
+                            NOOPZoneSplitView(seconds: context.state.zoneSeconds).padding(.top, 6)
+                        }
                     } else {
                         Text(context.attributes.title)
                             .font(.caption).foregroundStyle(.white.opacity(0.6))

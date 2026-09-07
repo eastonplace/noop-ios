@@ -250,20 +250,18 @@ private struct QuickWorkoutFlow: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var live: LiveState
     let onClose: () -> Void
-    @State private var showLiveWorkout = false
-
     var body: some View {
-        StartWorkoutSheet(dismissAfterStart: false) { sport in
-            model.startWorkout(sport: sport)
-            showLiveWorkout = true
+        Group {
+            if model.activeWorkout != nil {
+                LiveWorkoutView(onClose: onClose)
+            } else {
+                StartWorkoutSheet(dismissAfterStart: false) { sport in
+                    model.startWorkout(sport: sport)
+                }
+            }
         }
-        .sheet(isPresented: $showLiveWorkout, onDismiss: onClose) {
-            LiveWorkoutView(onClose: onClose)
-                .environmentObject(model)
-                .environmentObject(live)
-        }
-        .onAppear {
-            if model.activeWorkout != nil { showLiveWorkout = true }
+        .onChange(of: model.activeWorkout == nil) { _, gone in
+            if gone { onClose() }
         }
     }
 }

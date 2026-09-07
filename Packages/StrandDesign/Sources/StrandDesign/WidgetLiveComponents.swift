@@ -506,12 +506,13 @@ public struct NOOPWorkoutLiveActivityView: View {
     public let strainBuilding: Bool
     public let calories: Int?
     public let hrSpark: [Int]?
+    public let maxHR: Double?
 
     @State private var pulsing = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     public init(title: String, startedAt: Date?, bpm: Int?, strain: Double?, strainBuilding: Bool,
-                calories: Int?, hrSpark: [Int]?) {
+                calories: Int?, hrSpark: [Int]?, maxHR: Double? = nil) {
         self.title = title
         self.startedAt = startedAt
         self.bpm = bpm
@@ -519,6 +520,7 @@ public struct NOOPWorkoutLiveActivityView: View {
         self.strainBuilding = strainBuilding
         self.calories = calories
         self.hrSpark = hrSpark
+        self.maxHR = maxHR
     }
 
     public var body: some View {
@@ -549,7 +551,8 @@ public struct NOOPWorkoutLiveActivityView: View {
                     ZStack {
                         Circle().fill(hrTint).frame(width: 8, height: 8)
                         if bpm != nil && !reduceMotion {
-                            Circle().stroke(hrTint.opacity(0.4), lineWidth: 3)
+                            Circle().stroke(hrTint.opacity(0.4), lineWidth: 2)
+                                .frame(width: 8, height: 8)
                                 .scaleEffect(pulsing ? 2.2 : 1).opacity(pulsing ? 0 : 0.9)
                         }
                     }
@@ -573,6 +576,12 @@ public struct NOOPWorkoutLiveActivityView: View {
                 }
             }
         }
+        .safeAreaInset(edge: .bottom, spacing: 8) {
+            if let maxHR {
+                NOOPHeartRateZoneRail(bpm: bpm, maxHR: maxHR)
+                    .foregroundStyle(.white).padding(.horizontal, 14)
+            }
+        }
         .padding(14)
         .background(Color.black)
         .onAppear {
@@ -583,7 +592,7 @@ public struct NOOPWorkoutLiveActivityView: View {
         .accessibilityLabel("\(title) live, heart rate \(bpm.map(String.init) ?? "unavailable"), strain \(strainLabel)")
     }
 
-    private var hrTint: Color { bpm.map { HRZoneStyle.color(for: Double($0)) } ?? Color.white.opacity(0.35) }
+    private var hrTint: Color { bpm == nil ? Color.white.opacity(0.35) : StrandPalette.liveRed }
     private var strainLabel: String {
         if strainBuilding { return "Building" }
         return strain.map { "+\(String(format: "%.1f", $0))" } ?? "—"

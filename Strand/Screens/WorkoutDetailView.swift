@@ -47,6 +47,7 @@ struct WorkoutDetailView: View {
     /// True when the zones bar came from imported WHOOP percentages (vs derived from raw strap HR).
     @State private var zonesFromImport = false
     @State private var loaded = false
+    @State private var zoneTimeline: WorkoutZoneTimeline?
 
     /// The GPS route captured for this session on-device (#524), if any. Decoded from `RouteStore` by the
     /// row's natural key. nil = no route was recorded (honest — the map only shows when points exist).
@@ -76,23 +77,22 @@ struct WorkoutDetailView: View {
     var body: some View {
         ScreenScaffold(title: "\(WorkoutSource.displaySport(displayRow.sport)) Summary",
                        subtitle: "\(dateLabel(displayRow.startTs))",
-                       // PERF: chart/map-heavy column (a MapKit route map, the session HR curve, the
-                       // zone-split chart and the effort card). The LazyVStack path builds the off-screen
-                       // ones on demand — byte-identical layout — so a tall detail doesn't materialise the
-                       // map + both charts before the header is even on screen.
-                       lazy: true,
+                       // This bounded summary uses eager layout. Nested lazy chart/grid measurement
+                       // repeatedly invalidates placement while scrolling on iOS 26.5.
+                       lazy: false,
                        // The day-of-sky liquid backdrop, matching the Workouts list this detail opens from
                        // and every other liquid screen. Fixed and full-bleed; it does not scroll. This
                        // screen is presented in a sheet wrapped in a NavigationStack by WorkoutsView, so it
                        // needs no extra macOS NavigationStack of its own.
                        topBackground: nil,
                        trailing: {
-                           Image(systemName: "square.and.arrow.up")
-                               .font(.system(size: 15, weight: .medium))
+                           Button("Done") { dismiss() }
+                               .font(StrandFont.caption.weight(.semibold))
                                .foregroundStyle(StrandPalette.textPrimary)
+                               .frame(minWidth: 44, minHeight: 44)
                        }) {
             paperEffortHero
-            SegmentedPillControl(DetailTab.allCases, selection: $detailTab) { $0.label }
+            SegmentedPillControl(hasDrawableRoute ? DetailTab.allCases : [.overview, .heartRate], selection: $detailTab) { $0.label }
             switch detailTab {
             case .overview:
                 paperStatsGrid
@@ -107,15 +107,20 @@ struct WorkoutDetailView: View {
                 paperRouteCard
                 paperElevationCard
             }
-            NoopButton("Save workout", systemImage: "checkmark", kind: .primary,
+            NoopButton("Close summary", systemImage: "checkmark", kind: .primary,
                        fullWidth: true) { dismiss() }
         }
+        .environment(\.appHeaderChromeVisibility, .hidden)
+        #if os(iOS)
+        .toolbar(.hidden, for: .navigationBar)
+        #else
         .toolbar {
             // A Done affordance for the sheet on both platforms (iOS gets the grabber too).
             ToolbarItem(placement: .cancellationAction) {
                 Button("Done") { dismiss() }
             }
         }
+        #endif
         .task { await load() }
     }
 
@@ -156,14 +161,20 @@ struct WorkoutDetailView: View {
                 fromImport = true
             }
         }
-        if minutes == nil {
-            minutes = await repo.workoutZoneMinutes(from: target.startTs, to: target.endTs, age: profile.age)
-        }
+        let samples = await repo.hrSamples(from: target.startTs, to: target.endTs,
+                                           limit: min(172_800, max(8_000, target.endTs - target.startTs + 1)))
+        let maxHR = Double(profile.hrMax)
+        let timeline = await Task.detached(priority: .userInitiated) {
+            WorkoutZoneTimeline.make(samples: samples, start: target.startTs, end: target.endTs, maxHR: maxHR)
+        }.value
+        guard !Task.isCancelled else { return }
+        if minutes == nil, timeline.minutes.contains(where: { $0 > 0 }) { minutes = timeline.minutes }
 
         await MainActor.run {
             self.routeSegments = loadedRouteSegments
             self.refreshedRow = target
             self.hrPoints = points
+            self.zoneTimeline = timeline
             self.zoneMinutes = minutes
             self.zonesFromImport = fromImport
             self.loaded = true
@@ -188,7 +199,7 @@ struct WorkoutDetailView: View {
         let maximum: Double = 21
         return PaperCard {
             VStack(alignment: .leading, spacing: 10) {
-                Text("RUN STRAIN")
+                Text("WORKOUT STRAIN")
                     .font(StrandFont.sectionOverline)
                     .tracking(StrandFont.sectionOverlineTracking)
                     .foregroundStyle(StrandPalette.textSecondary)
@@ -214,7 +225,7 @@ struct WorkoutDetailView: View {
                         Text("Good Work")
                             .font(StrandFont.cardTitle)
                             .foregroundStyle(StrandPalette.textPrimary)
-                        Text("This run maintained moderate effort.")
+                        Text("\(durationLabel(displayRow.durationS)) of recorded activity.")
                             .font(StrandFont.body)
                             .foregroundStyle(StrandPalette.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -249,10 +260,14 @@ struct WorkoutDetailView: View {
 
     private var paperStatsGrid: some View {
         PaperCard(padding: 0) {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: 3), spacing: 0) {
-                paperStat("DISTANCE", distanceLabel(displayRow.distanceM), nil)
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: (displayRow.distanceM ?? 0) > 0 ? 3 : 2), spacing: 0) {
+                if let distance = displayRow.distanceM, distance > 0 {
+                    paperStat("DISTANCE", distanceLabel(distance), nil)
+                }
                 paperStat("TIME", durationLabel(displayRow.durationS), nil)
-                paperStat("AVG PACE", paceLabel, nil)
+                if let distance = displayRow.distanceM, distance > 0 {
+                    paperStat("AVG PACE", paceLabel, nil)
+                }
                 paperStat("AVG HR", displayRow.avgHr.map(String.init) ?? "—", "bpm")
                 paperStat("MAX HR", displayRow.maxHr.map(String.init) ?? "—", "bpm")
                 paperStat("CALORIES", displayRow.energyKcal.map { grouped($0) } ?? "—", "kcal")
@@ -273,30 +288,8 @@ struct WorkoutDetailView: View {
 
     @ViewBuilder private var paperZonesCard: some View {
         if let zones = zoneMinutes, zones.reduce(0, +) > 0 {
-            let total = zones.reduce(0, +)
-            let zoneSet = profile.hrMax > 0
-                ? HRZones.zones(maxHR: Double(profile.hrMax), source: "profile") : nil
-            PaperCard {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Text("HEART RATE ZONES")
-                            .font(StrandFont.sectionOverline)
-                            .tracking(StrandFont.sectionOverlineTracking)
-                        Spacer()
-                        Text("View Details")
-                            .font(StrandFont.caption.weight(.semibold))
-                            .foregroundStyle(StrandPalette.link)
-                    }
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    ZoneBars((1...5).map { zone in
-                        let minutes = zones[zone - 1]
-                        return ZoneBarItem(zone: zone,
-                                           fraction: minutes / total,
-                                           duration: shortZoneDuration(minutes),
-                                           bpmRange: zoneSet?.bpmRangeLabel(forZone: zone))
-                    })
-                }
-            }
+            WorkoutZoneSummary(minutes: zones, timeline: zoneTimeline, imported: zonesFromImport,
+                               start: displayRow.startTs, end: displayRow.endTs)
         }
     }
 
@@ -483,11 +476,11 @@ struct WorkoutDetailView: View {
                     title: "HEART RATE",
                     subtitle: String(localized: "Beats per minute across the session"),
                     trailing: displayRow.avgHr.map { String(localized: "avg \($0)") },
-                    tint: StrandPalette.effortColor
+                    tint: StrandPalette.liveRed
                 ) {
                     TrendChart(
                         points: hrPoints,
-                        gradient: StrandPalette.effortGradient,
+                        gradient: Gradient(colors: [StrandPalette.liveRed.opacity(0.7), StrandPalette.liveRed]),
                         valueRange: lo...hi,
                         showsArea: true,
                         valueFormat: { String(localized: "\(Int($0.rounded())) bpm") },

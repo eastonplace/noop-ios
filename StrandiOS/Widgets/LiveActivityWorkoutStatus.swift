@@ -10,3 +10,10 @@ enum LiveActivityWorkoutStatus {
     static var isActive: Bool { AppModel.shared?.activeWorkout != nil }
 }
 #endif
+
+/// A radio interruption is not the end of a workout. Keep its timer and expose missing HR.
+enum WorkoutLiveActivityVisibility {
+    static func shouldRemainVisible(enabled: Bool, connected: Bool, workoutIsActive: Bool) -> Bool {
+        enabled && (connected || workoutIsActive)
+    }
+}

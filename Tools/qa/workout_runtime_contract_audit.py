@@ -51,7 +51,10 @@ try:
         "Strand/Screens/LiveWorkoutView.swift",
         "workout.chartProjection",
         "range: projection.range",
-        'Text("HEART RATE (LAST 3 HOURS)")',
+        'Text("HEART RATE")',
+        'projection.observedSeconds',
+        'min window',
+        'workout.currentBPM.map',
     )
     forbid(
         "Strand/Screens/LiveWorkoutView.swift",
