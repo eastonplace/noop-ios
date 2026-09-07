@@ -106,21 +106,21 @@ struct WorkoutHeartChart: View {
                     .interpolationMethod(.linear)
                     .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
                     .foregroundStyle(StrandPalette.liveRed)
+                    .symbol(.circle)
+                    .symbolSize(projection.points.count == 1 ? 42 : 7)
                     .accessibilityLabel(point.sample.time.formatted(date: .omitted, time: .standard))
                     .accessibilityValue("\(Int(point.sample.bpm.rounded())) beats per minute")
-                PointMark(x: .value("Time", point.sample.time), y: .value("Heart rate", point.sample.bpm))
-                    .symbolSize(projection.points.count == 1 ? 42 : 7)
-                    .foregroundStyle(StrandPalette.liveRed)
-                    .accessibilityHidden(true)
             }
             if let selected {
                 RuleMark(x: .value("Selected time", selected.time))
                     .foregroundStyle(StrandPalette.textSecondary)
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
-                    .accessibilityHidden(true)
+                    .accessibilityLabel("Selected time")
+                    .accessibilityValue(selected.time.formatted(date: .omitted, time: .standard))
                 PointMark(x: .value("Selected time", selected.time), y: .value("Selected heart rate", selected.bpm))
                     .symbolSize(65).foregroundStyle(StrandPalette.textPrimary)
-                    .accessibilityHidden(true)
+                    .accessibilityLabel("Selected heart-rate reading")
+                    .accessibilityValue("\(Int(selected.bpm.rounded())) beats per minute")
             }
         }
         .chartXScale(domain: projection.timeRange)

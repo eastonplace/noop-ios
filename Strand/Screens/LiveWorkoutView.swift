@@ -285,8 +285,9 @@ private struct LiveWorkoutFinishBar: View {
     @State private var confirming = false
     private var saving: Bool { model.workoutFinishState == .saving }
     var body: some View {
+        let title: LocalizedStringKey = saving ? "Saving workout…" : "Finish workout"
         VStack(spacing: 8) {
-            NoopButton(saving ? "Saving workout…" : "Finish workout", systemImage: saving ? "hourglass" : "flag.checkered",
+            NoopButton(title, systemImage: saving ? "hourglass" : "flag.checkered",
                        kind: .primary, fullWidth: true) { confirming = true }
                 .disabled(saving)
         }
