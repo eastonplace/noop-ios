@@ -465,3 +465,21 @@ private struct HRLivePulseBead: View {
             }
     }
 }
+
+// Keep stateful public initializers in the declaring file for Swift 6.4 code generation.
+public extension HRLiveModuleCard {
+    init(
+        _publicAPI: Void = (),
+        samples: [HRTrackPoint],
+        restingHR: Double? = nil,
+        surfaceStyle: ComponentSurfaceStyle = .flat,
+        timeLabel: @escaping (TimeInterval) -> String,
+        onOpen: @escaping () -> Void = {}
+    ) {
+        self.samples = samples
+        self.restingHR = restingHR
+        self.surfaceStyle = surfaceStyle
+        self.timeLabel = timeLabel
+        self.onOpen = onOpen
+    }
+}

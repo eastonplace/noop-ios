@@ -713,7 +713,7 @@ struct DataSourcesView: View {
                 let result = try await WearableImporter.importExport(
                     url: url, into: store,
                     trace: importTracing
-                        ? { @Sendable [weak live] lines in
+                        ? { @Sendable [weak live = live] lines in
                             Task { @MainActor [weak live] in
                                 lines.forEach { live?.append(log: $0, domain: .dataImport) }
                             }

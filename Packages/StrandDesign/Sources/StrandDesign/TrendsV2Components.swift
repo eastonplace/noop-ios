@@ -1103,3 +1103,67 @@ public struct TrendWeekdayBars: View {
         return "\(Self.fullLabels[index]), \(values[index].map(valueFormat) ?? String(localized: "No data", bundle: .module))"
     }
 }
+
+// Keep stateful public initializers in the declaring file for Swift 6.4 code generation.
+public extension TrendMonthHeat {
+    init(_publicAPI: Void = (), days: [TrendCalendarDay], tint: Color,
+         referenceDate: Date = Date(), calendar: Calendar = .autoupdatingCurrent,
+         valueFormat: @escaping (Double) -> String = { value in
+             value.isFinite ? value.formatted(.number.precision(.fractionLength(0))) : "—"
+         },
+         colorScale: TrendHeatColorScale = .intensity) {
+        self.days = days
+        self.tint = tint
+        self.referenceDate = referenceDate
+        self.calendar = calendar
+        self.valueFormat = valueFormat
+        self.colorScale = colorScale
+    }
+}
+
+// Keep stateful public initializers in the declaring file for Swift 6.4 code generation.
+public extension TrendPanelChart {
+    init(
+        _publicAPI: Void = (),
+        days: [CalendarMetricDay],
+        dateDomain: ClosedRange<Date>,
+        referenceDate: Date,
+        calendar: Calendar = .autoupdatingCurrent,
+        baseline: Double,
+        typical: ClosedRange<Double>,
+        tint: Color,
+        unit: String,
+        valueFormat: @escaping (Double) -> String = { value in
+            value.isFinite ? value.formatted(.number.precision(.fractionLength(0))) : "—"
+        },
+        range: TrendRange,
+        direction: TrendPanelChart.Direction = .contextual
+    ) {
+        self.days = days.sorted { $0.date < $1.date }
+        self.dateDomain = dateDomain
+        self.referenceDate = referenceDate
+        self.calendar = calendar
+        self.baseline = baseline
+        self.typical = typical
+        self.tint = tint
+        self.unit = unit
+        self.valueFormat = valueFormat
+        self.range = range
+        self.direction = direction
+    }
+}
+
+// Keep stateful public initializers in the declaring file for Swift 6.4 code generation.
+public extension TrendWeekdayBars {
+    init(_publicAPI: Void = (), values: [Double?], tint: Color,
+         referenceDate: Date = Date(), calendar: Calendar = .autoupdatingCurrent,
+         valueFormat: @escaping (Double) -> String = { value in
+             value.isFinite ? value.formatted(.number.precision(.fractionLength(0))) : "—"
+         }) {
+        self.values = Array(values.prefix(7)) + Array(repeating: nil, count: max(0, 7 - values.count))
+        self.tint = tint
+        self.referenceDate = referenceDate
+        self.calendar = calendar
+        self.valueFormat = valueFormat
+    }
+}

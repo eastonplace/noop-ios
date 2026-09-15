@@ -11,7 +11,7 @@ import StrandDesign
 /// not shout inside a 560pt bubble), and tables get hairline borders.
 extension Theme {
     @MainActor
-    static let strand = Theme()
+    public static let strand = Theme()
         // Paper prose stays one step quieter than headings and numerals.
         .text {
             ForegroundColor(StrandPalette.textSecondary)

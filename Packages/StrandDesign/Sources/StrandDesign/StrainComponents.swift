@@ -736,3 +736,40 @@ public struct StrainWeekStrip: View {
         return "Monday through Sunday strain, selected day \(anchorRead), \(inBand) days inside the optimal band, \(missing) days missing."
     }
 }
+
+// Keep stateful public initializers in the declaring file for Swift 6.4 code generation.
+public extension StrainBuildupChart {
+    init(
+        _publicAPI: Void = (),
+        points: [StrainBuildupPoint],
+        target: ClosedRange<Double>,
+        earns: [StrainEarnMark] = [],
+        timeLabel: @escaping (TimeInterval) -> String
+    ) {
+        self.points = points
+        self.target = target
+        self.earns = earns
+        self.timeLabel = timeLabel
+    }
+}
+
+// Keep stateful public initializers in the declaring file for Swift 6.4 code generation.
+public extension StrainGaugeCard {
+    init(_publicAPI: Void = (), strain: Double, target: ClosedRange<Double>, sevenDayAverage: Double) {
+        self.strain = strain
+        self.target = target
+        self.sevenDayAverage = sevenDayAverage
+    }
+}
+
+// Keep stateful public initializers in the declaring file for Swift 6.4 code generation.
+public extension StrainWeekStrip {
+    init(_publicAPI: Void = (), days: [CalendarMetricDay], target: ClosedRange<Double>,
+         anchorDate: Date, referenceDate: Date = Date(), calendar: Calendar = .autoupdatingCurrent) {
+        self.days = days
+        self.target = target
+        self.anchorDate = anchorDate
+        self.referenceDate = referenceDate
+        self.calendar = calendar
+    }
+}

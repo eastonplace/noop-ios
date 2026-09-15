@@ -774,3 +774,39 @@ public struct HRZoneLegend: View {
         }
     }
 }
+
+// Keep stateful public initializers in the declaring file for Swift 6.4 code generation.
+public extension HRTimelineChart {
+    init(
+        _publicAPI: Void = (),
+        points: [HRTrackPoint],
+        day: ClosedRange<TimeInterval>,
+        sleep: HRSleepBand? = nil,
+        workouts: [HRWorkoutMark] = [],
+        timeLabel: @escaping (TimeInterval) -> String,
+        title: String = "Heart rate",
+        tint: Color? = nil,
+        unit: String = "bpm",
+        valueFormat: @escaping (Double) -> String = { value in
+            value.isFinite ? value.formatted(.number.precision(.fractionLength(0))) : "—"
+        },
+        showsZoneLegend: Bool = true,
+        zoomDomain: Binding<ClosedRange<TimeInterval>?>? = nil,
+        zoomBounds: ClosedRange<TimeInterval>? = nil,
+        onSettledWindow: @escaping (ClosedRange<TimeInterval>?) -> Void = { _ in }
+    ) {
+        self.points = points
+        self.day = day
+        self.sleep = sleep
+        self.workouts = workouts
+        self.timeLabel = timeLabel
+        self.title = title
+        self.tint = tint
+        self.unit = unit
+        self.valueFormat = valueFormat
+        self.showsZoneLegend = showsZoneLegend
+        self.zoomDomainBinding = zoomDomain
+        self.zoomBounds = zoomBounds
+        self.onSettledWindow = onSettledWindow
+    }
+}

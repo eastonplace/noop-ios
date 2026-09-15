@@ -579,3 +579,33 @@ private struct Triangle: Shape {
         return path
     }
 }
+
+// Keep stateful public initializers in the declaring file for Swift 6.4 code generation.
+public extension StressModuleCard {
+    init(
+        _publicAPI: Void = (),
+        hours: [Double?],
+        value: Double?,
+        nowHour: Int = 17,
+        surfaceStyle: ComponentSurfaceStyle = .flat,
+        presentationMode: StressPresentationMode? = nil,
+        baselineBuilding: Bool = false,
+        onOpen: @escaping () -> Void = {}
+    ) {
+        self.hours = hours
+        self.value = value
+        let hasScoredHours = hours.contains { $0 != nil }
+        self.presentationMode = presentationMode ?? {
+            switch (value != nil, hasScoredHours) {
+            case (true, true): return .combined
+            case (true, false): return .dailyOnly
+            case (false, true): return .intradayOnly
+            case (false, false): return .empty
+            }
+        }()
+        self.baselineBuilding = baselineBuilding
+        self.nowHour = nowHour
+        self.surfaceStyle = surfaceStyle
+        self.onOpen = onOpen
+    }
+}

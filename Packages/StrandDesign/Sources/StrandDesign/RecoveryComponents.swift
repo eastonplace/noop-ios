@@ -580,3 +580,24 @@ public struct RecoveryHistoryStrip: View {
         return formatter
     }()
 }
+
+// Keep stateful public initializers in the declaring file for Swift 6.4 code generation.
+public extension RecoveryArcCard {
+    init(_publicAPI: Void = (), score: Double?, yesterday: Double?, baseline: String, yesterdayLabel: String, sevenDay: String) {
+        self.score = score
+        self.yesterday = yesterday
+        self.baseline = baseline
+        self.yesterdayLabel = yesterdayLabel
+        self.sevenDay = sevenDay
+    }
+}
+
+// Keep stateful public initializers in the declaring file for Swift 6.4 code generation.
+public extension RecoveryHistoryStrip {
+    init(_publicAPI: Void = (), days: [CalendarMetricDay], anchorDate: Date,
+         calendar: Calendar = .autoupdatingCurrent) {
+        self.days = days
+        self.anchorDate = anchorDate
+        self.calendar = calendar
+    }
+}

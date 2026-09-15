@@ -80,7 +80,7 @@ try:
         "testStatDropsAllNonFiniteInputsWithoutIndexingAnEmptyMedian",
     )
     require(
-        "Packages/StrandDesign/Sources/StrandDesign/ComponentLibraryAPI.swift",
+        "Packages/StrandDesign/Sources/StrandDesign/HeartRateComponents.swift",
         'value.isFinite ? value.formatted(.number.precision(.fractionLength(0))) : "—"',
     )
     forbid(

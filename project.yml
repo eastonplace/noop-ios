@@ -21,6 +21,8 @@ settings:
       ONLY_ACTIVE_ARCH: NO
 
 packages:
+  CoachPresentation:
+    path: Packages/CoachPresentation
   MarkdownUI:
     url: https://github.com/gonzalezreal/swift-markdown-ui
     exactVersion: 2.4.1
@@ -119,6 +121,7 @@ targets:
       - package: StrandAnalytics
       - package: StrandImport
       - package: StrandDesign
+      - package: CoachPresentation
       - package: MarkdownUI
       - package: ZIPFoundation
       - target: NOOPiOSWidgets

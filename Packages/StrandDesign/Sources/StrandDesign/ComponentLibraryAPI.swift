@@ -52,57 +52,7 @@ public extension HRWorkoutMark {
     }
 }
 
-public extension HRLiveModuleCard {
-    init(
-        _publicAPI: Void = (),
-        samples: [HRTrackPoint],
-        restingHR: Double? = nil,
-        surfaceStyle: ComponentSurfaceStyle = .flat,
-        timeLabel: @escaping (TimeInterval) -> String,
-        onOpen: @escaping () -> Void = {}
-    ) {
-        self.samples = samples
-        self.restingHR = restingHR
-        self.surfaceStyle = surfaceStyle
-        self.timeLabel = timeLabel
-        self.onOpen = onOpen
-    }
-}
 
-public extension HRTimelineChart {
-    init(
-        _publicAPI: Void = (),
-        points: [HRTrackPoint],
-        day: ClosedRange<TimeInterval>,
-        sleep: HRSleepBand? = nil,
-        workouts: [HRWorkoutMark] = [],
-        timeLabel: @escaping (TimeInterval) -> String,
-        title: String = "Heart rate",
-        tint: Color? = nil,
-        unit: String = "bpm",
-        valueFormat: @escaping (Double) -> String = { value in
-            value.isFinite ? value.formatted(.number.precision(.fractionLength(0))) : "—"
-        },
-        showsZoneLegend: Bool = true,
-        zoomDomain: Binding<ClosedRange<TimeInterval>?>? = nil,
-        zoomBounds: ClosedRange<TimeInterval>? = nil,
-        onSettledWindow: @escaping (ClosedRange<TimeInterval>?) -> Void = { _ in }
-    ) {
-        self.points = points
-        self.day = day
-        self.sleep = sleep
-        self.workouts = workouts
-        self.timeLabel = timeLabel
-        self.title = title
-        self.tint = tint
-        self.unit = unit
-        self.valueFormat = valueFormat
-        self.showsZoneLegend = showsZoneLegend
-        self.zoomDomainBinding = zoomDomain
-        self.zoomBounds = zoomBounds
-        self.onSettledWindow = onSettledWindow
-    }
-}
 
 public extension HRRangeStrip {
     init(_publicAPI: Void = (), low: String, lowDetail: String, average: String, averageDetail: String, peak: String, peakDetail: String) {
@@ -133,44 +83,6 @@ public extension HRZoneLegend {
     init(_publicAPI: Void = ()) {}
 }
 
-public extension StressModuleCard {
-    init(
-        _publicAPI: Void = (),
-        hours: [Double?],
-        value: Double?,
-        nowHour: Int = 17,
-        surfaceStyle: ComponentSurfaceStyle = .flat,
-        presentationMode: StressPresentationMode? = nil,
-        baselineBuilding: Bool = false,
-        onOpen: @escaping () -> Void = {}
-    ) {
-        self.hours = hours
-        self.value = value
-        let hasScoredHours = hours.contains { $0 != nil }
-        self.presentationMode = presentationMode ?? {
-            switch (value != nil, hasScoredHours) {
-            case (true, true): return .combined
-            case (true, false): return .dailyOnly
-            case (false, true): return .intradayOnly
-            case (false, false): return .empty
-            }
-        }()
-        self.baselineBuilding = baselineBuilding
-        self.nowHour = nowHour
-        self.surfaceStyle = surfaceStyle
-        self.onOpen = onOpen
-    }
-}
-
-public extension RecoveryArcCard {
-    init(_publicAPI: Void = (), score: Double?, yesterday: Double?, baseline: String, yesterdayLabel: String, sevenDay: String) {
-        self.score = score
-        self.yesterday = yesterday
-        self.baseline = baseline
-        self.yesterdayLabel = yesterdayLabel
-        self.sevenDay = sevenDay
-    }
-}
 
 public extension RecoveryStandingRow {
     init(_publicAPI: Void = (), percentile: Double, highDays: Int, mediumDays: Int, lowDays: Int) {
@@ -219,22 +131,7 @@ public extension RecoveryFactorRow {
     }
 }
 
-public extension RecoveryHistoryStrip {
-    init(_publicAPI: Void = (), days: [CalendarMetricDay], anchorDate: Date,
-         calendar: Calendar = .autoupdatingCurrent) {
-        self.days = days
-        self.anchorDate = anchorDate
-        self.calendar = calendar
-    }
-}
 
-public extension StrainGaugeCard {
-    init(_publicAPI: Void = (), strain: Double, target: ClosedRange<Double>, sevenDayAverage: Double) {
-        self.strain = strain
-        self.target = target
-        self.sevenDayAverage = sevenDayAverage
-    }
-}
 
 public extension StrainBuildupPoint {
     init(_publicAPI: Void = (), id: Int, t: TimeInterval, strain: Double) {
@@ -254,20 +151,6 @@ public extension StrainEarnMark {
     }
 }
 
-public extension StrainBuildupChart {
-    init(
-        _publicAPI: Void = (),
-        points: [StrainBuildupPoint],
-        target: ClosedRange<Double>,
-        earns: [StrainEarnMark] = [],
-        timeLabel: @escaping (TimeInterval) -> String
-    ) {
-        self.points = points
-        self.target = target
-        self.earns = earns
-        self.timeLabel = timeLabel
-    }
-}
 
 public extension StrainSummaryStrip {
     init(_publicAPI: Void = (), total: Double, active: Double, passive: Double) {
@@ -301,63 +184,7 @@ public extension StrainZoneBar {
     init(_publicAPI: Void = (), slices: [StrainZoneSlice]) { self.slices = slices }
 }
 
-public extension StrainWeekStrip {
-    init(_publicAPI: Void = (), days: [CalendarMetricDay], target: ClosedRange<Double>,
-         anchorDate: Date, referenceDate: Date = Date(), calendar: Calendar = .autoupdatingCurrent) {
-        self.days = days
-        self.target = target
-        self.anchorDate = anchorDate
-        self.referenceDate = referenceDate
-        self.calendar = calendar
-    }
-}
 
-public extension TrendPanelChart {
-    init(
-        _publicAPI: Void = (),
-        days: [CalendarMetricDay],
-        dateDomain: ClosedRange<Date>,
-        referenceDate: Date,
-        calendar: Calendar = .autoupdatingCurrent,
-        baseline: Double,
-        typical: ClosedRange<Double>,
-        tint: Color,
-        unit: String,
-        valueFormat: @escaping (Double) -> String = { value in
-            value.isFinite ? value.formatted(.number.precision(.fractionLength(0))) : "—"
-        },
-        range: TrendRange,
-        direction: TrendPanelChart.Direction = .contextual
-    ) {
-        self.days = days.sorted { $0.date < $1.date }
-        self.dateDomain = dateDomain
-        self.referenceDate = referenceDate
-        self.calendar = calendar
-        self.baseline = baseline
-        self.typical = typical
-        self.tint = tint
-        self.unit = unit
-        self.valueFormat = valueFormat
-        self.range = range
-        self.direction = direction
-    }
-}
-
-public extension TrendMonthHeat {
-    init(_publicAPI: Void = (), days: [TrendCalendarDay], tint: Color,
-         referenceDate: Date = Date(), calendar: Calendar = .autoupdatingCurrent,
-         valueFormat: @escaping (Double) -> String = { value in
-             value.isFinite ? value.formatted(.number.precision(.fractionLength(0))) : "—"
-         },
-         colorScale: TrendHeatColorScale = .intensity) {
-        self.days = days
-        self.tint = tint
-        self.referenceDate = referenceDate
-        self.calendar = calendar
-        self.valueFormat = valueFormat
-        self.colorScale = colorScale
-    }
-}
 
 public extension TrendDeltaRow {
     init(_publicAPI: Void = (), label: String, subtitle: String, values: [Double], latest: String, delta: String, positive: Bool, tint: Color) {
@@ -378,19 +205,5 @@ public extension TrendDeltaRow {
         self.delta = delta
         self.tone = tone
         self.tint = tint
-    }
-}
-
-public extension TrendWeekdayBars {
-    init(_publicAPI: Void = (), values: [Double?], tint: Color,
-         referenceDate: Date = Date(), calendar: Calendar = .autoupdatingCurrent,
-         valueFormat: @escaping (Double) -> String = { value in
-             value.isFinite ? value.formatted(.number.precision(.fractionLength(0))) : "—"
-         }) {
-        self.values = Array(values.prefix(7)) + Array(repeating: nil, count: max(0, 7 - values.count))
-        self.tint = tint
-        self.referenceDate = referenceDate
-        self.calendar = calendar
-        self.valueFormat = valueFormat
     }
 }
