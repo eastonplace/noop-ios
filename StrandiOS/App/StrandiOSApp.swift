@@ -1,5 +1,6 @@
 #if os(iOS)
 import SwiftUI
+import ReceiptLiftFeature
 import Combine
 import NoopPhase34Core
 import StrandDesign
@@ -17,7 +18,7 @@ enum WorkoutLifecycleProjection {
 
 @main
 struct StrandiOSApp: App {
-    @StateObject private var liftSession: LiftSessionController
+    @StateObject private var receiptLift: NoopReceiptLiftIntegration
     @StateObject private var model: AppModel
     @StateObject private var health: HealthKitBridge
     @StateObject private var alarmMode: SmartAlarmAdaptiveModeStore
@@ -47,14 +48,10 @@ struct StrandiOSApp: App {
         _ = HealthKitScoringCoordinator.shared
 
         let model = AppModel()
-        let liftSession = LiftSessionController(
-            buzz: { [weak model] count in model?.buzz(loops: count) },
-            setStrapHandler: { [weak model] handler in model?.liftDoubleTapHandler = handler })
-        if let saved = LiftSessionPersistence.load() { liftSession.resume(from: saved) }
-        model.discardLiftForDeletedSource = { [weak liftSession] owner in
-            if liftSession?.deviceId == owner { liftSession?.discard() }
-        }
-        _liftSession = StateObject(wrappedValue: liftSession)
+        let receiptLift = NoopReceiptLiftIntegration(model: model)
+        model.discardLiftForDeletedSource = { [weak receiptLift] owner in receiptLift?.discardSource(owner) }
+        model.hasActiveReceiptLift = { [weak receiptLift] in receiptLift?.coordinator?.hasActiveSession == true }
+        _receiptLift = StateObject(wrappedValue: receiptLift)
         let alarmMode = SmartAlarmAdaptiveModeStore(legacy: model.behavior)
         let alarmRuntime = SmartAlarmRuntimeController(model: model, modeStore: alarmMode)
         SmartAlarmBackgroundTaskRegistrar.install(alarmRuntime)
@@ -405,7 +402,10 @@ struct StrandiOSApp: App {
         WindowGroup {
             Group {
                 #if DEBUG
-                if workoutRefinementQARequested {
+                if let previewIndex = CommandLine.arguments.firstIndex(of: "--noop-lift-preview"),
+                   CommandLine.arguments.indices.contains(previewIndex + 1) {
+                    ReceiptLiftPreviewView(screen: CommandLine.arguments[previewIndex + 1])
+                } else if workoutRefinementQARequested {
                     workoutRefinementQARoute
                 } else if let component41Shot = Component41QAShot.requestedKind {
                     Component41QAShot(kind: component41Shot)
@@ -434,7 +434,8 @@ struct StrandiOSApp: App {
                 .environmentObject(model.coach)
                 .environmentObject(health)
                 .environmentObject(router)
-                .environmentObject(liftSession)
+                .environmentObject(receiptLift)
+                .task(id: model.repo.deviceId) { await receiptLift.selectCurrentSource() }
                 .environmentObject(UpdateStore.shared)
                 .environment(\.stressNudgeCenter, model.stressNudgeCenter)
                 .preferredColorScheme(AppearanceMode.resolve(appearanceRaw).colorScheme)

@@ -1750,7 +1750,7 @@ final class AppModel: ObservableObject {
     /// `startWorkout(sport:)`). The active card on Live then shows elapsed time, live HR and strain
     /// building; End scores + saves it under this sport. Confirms with a single buzz. (#519)
     func startWorkout(sport: String = WorkoutCatalog.defaultSportName) {
-        guard activeWorkout == nil, liftDoubleTapHandler == nil else { return }
+        guard activeWorkout == nil, liftDoubleTapHandler == nil, hasActiveReceiptLift?() != true else { return }
         lastWorkout = nil
         let name = sport.trimmingCharacters(in: .whitespaces)
         let resolved = name.isEmpty ? WorkoutCatalog.defaultSportName : name
@@ -2491,6 +2491,7 @@ final class AppModel: ObservableObject {
 
     var liftDoubleTapHandler: (() -> Void)?
     var discardLiftForDeletedSource: ((String) -> Void)?
+    var hasActiveReceiptLift: (() -> Bool)?
 
     private func handleDoubleTap() {
         let now = Date()

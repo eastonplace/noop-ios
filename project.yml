@@ -21,6 +21,10 @@ settings:
       ONLY_ACTIVE_ARCH: NO
 
 packages:
+  ReceiptLiftFeature:
+    path: Packages/ReceiptLiftFeature
+  ReceiptLiftActivity:
+    path: Packages/ReceiptLiftActivity
   CoachPresentation:
     path: Packages/CoachPresentation
   MarkdownUI:
@@ -125,6 +129,7 @@ targets:
       - package: StrandAnalytics
       - package: StrandImport
       - package: StrandDesign
+      - package: ReceiptLiftFeature
       - package: CoachPresentation
       - package: MarkdownUI
       - package: ZIPFoundation
@@ -163,6 +168,7 @@ targets:
         SWIFT_VERSION: "6.0"
         SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
     dependencies:
+      - package: ReceiptLiftActivity
       - package: StrandDesign
 
   NOOPiOSTests:
@@ -172,6 +178,7 @@ targets:
     sources:
       - StrandiOSTests
     dependencies:
+      - package: ReceiptLiftFeature
       - target: NOOPiOS
       - package: StrandDesign
       - package: StrandAnalytics
@@ -190,6 +197,23 @@ targets:
         BUNDLE_LOADER: "$(TEST_HOST)"
         SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
 
+  NOOPLiftPreview:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - tools/LiftPreviewApp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.eastonplace.noop.liftpreview
+        GENERATE_INFOPLIST_FILE: YES
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_NSSupportsLiveActivities: YES
+    dependencies:
+      - package: ReceiptLiftFeature
+
 schemes:
   NOOPiOS:
     build:
@@ -206,5 +230,12 @@ schemes:
     build:
       targets:
         NOOPiOSWidgets: all
+    run:
+      config: Debug
+
+  NOOPLiftPreview:
+    build:
+      targets:
+        NOOPLiftPreview: all
     run:
       config: Debug

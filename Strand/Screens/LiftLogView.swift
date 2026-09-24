@@ -4,7 +4,7 @@ import StrandAnalytics
 import WhoopStore
 
 /// Reads only on source changes or completed saves. The ticking session is observed by a small child.
-struct LiftLogView: View {
+struct LegacyLiftLogView: View {
     @EnvironmentObject private var repo: Repository
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var session: LiftSessionController
@@ -22,7 +22,7 @@ struct LiftLogView: View {
     var body: some View {
         ScreenScaffold(title: "Lift", subtitle: "A plan for today. Progress you can see.",
                        onRefresh: { await load() }, lazy: true, backAction: { dismiss() }) {
-            LiftResumeCard()
+            LegacyLiftResumeCard()
             if !history.isEmpty {
                 let week = Calendar.current.dateInterval(of: .weekOfYear, for: Date())
                 let recent = history.filter { row in week?.contains(Date(timeIntervalSince1970: Double(row.startTs))) == true }
@@ -157,7 +157,7 @@ private struct LiftHistoryTarget: Identifiable {
 }
 
 /// This leaf alone observes the live timer; the log's database reads remain task-driven.
-struct LiftResumeCard: View {
+struct LegacyLiftResumeCard: View {
     @State private var showSession = false
     @EnvironmentObject private var session: LiftSessionController
     var body: some View {
