@@ -17,6 +17,7 @@ enum WorkoutLifecycleProjection {
 
 @main
 struct StrandiOSApp: App {
+    @StateObject private var liftSession: LiftSessionController
     @StateObject private var model: AppModel
     @StateObject private var health: HealthKitBridge
     @StateObject private var alarmMode: SmartAlarmAdaptiveModeStore
@@ -46,6 +47,14 @@ struct StrandiOSApp: App {
         _ = HealthKitScoringCoordinator.shared
 
         let model = AppModel()
+        let liftSession = LiftSessionController(
+            buzz: { [weak model] count in model?.buzz(loops: count) },
+            setStrapHandler: { [weak model] handler in model?.liftDoubleTapHandler = handler })
+        if let saved = LiftSessionPersistence.load() { liftSession.resume(from: saved) }
+        model.discardLiftForDeletedSource = { [weak liftSession] owner in
+            if liftSession?.deviceId == owner { liftSession?.discard() }
+        }
+        _liftSession = StateObject(wrappedValue: liftSession)
         let alarmMode = SmartAlarmAdaptiveModeStore(legacy: model.behavior)
         let alarmRuntime = SmartAlarmRuntimeController(model: model, modeStore: alarmMode)
         SmartAlarmBackgroundTaskRegistrar.install(alarmRuntime)
@@ -425,6 +434,7 @@ struct StrandiOSApp: App {
                 .environmentObject(model.coach)
                 .environmentObject(health)
                 .environmentObject(router)
+                .environmentObject(liftSession)
                 .environmentObject(UpdateStore.shared)
                 .environment(\.stressNudgeCenter, model.stressNudgeCenter)
                 .preferredColorScheme(AppearanceMode.resolve(appearanceRaw).colorScheme)

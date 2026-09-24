@@ -1415,9 +1415,7 @@ struct SleepView: View {
     // MARK: - WHOOP stage-timeline rows (the sleep-details reference design, ryanAtriumAi #988)
 
     /// Clock labels for the timeline axis; "jmm" respects the device 12/24-hour setting.
-    private static let stageAxisFormatter: DateFormatter = {
-        let f = DateFormatter(); f.locale = .current; f.setLocalizedDateFormatFromTemplate("jmm"); return f
-    }()
+    private static var stageAxisFormatter: DateFormatter { AppClock.hourMinuteFormatter() }
 
     /// The WHOOP sleep-stages chart: a stack of four per-stage timeline rows (AWAKE · LIGHT ·
     /// DEEP · REM, WHOOP's order) over a shared onset→wake time axis. Each row is independently
@@ -3245,12 +3243,7 @@ private struct Night {
     // Clock for the Asleep/Woke row — the times people read at a glance. The "jmm" skeleton
     // follows the device's 12-/24-hour setting ("11:42 PM" or "23:42") instead of forcing one
     // on everyone, matching the HR-tooltip / workout times (#337).
-    private static let timeFmt: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale.current
-        f.setLocalizedDateFormatFromTemplate("jmm")
-        return f
-    }()
+    private static var timeFmt: DateFormatter { AppClock.hourMinuteFormatter() }
     private static let dateFmt: DateFormatter = {
         let f = DateFormatter(); f.dateFormat = "EEE d MMM"; return f
     }()

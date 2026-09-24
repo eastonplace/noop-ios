@@ -12,6 +12,12 @@ extension AppModel {
             // The one-shot routine sends the confirmed pattern + RUN_ALARM sequence, acked, so a
             // busy just-foregrounded BLE link can't silently drop it.
             case .buzz:       buzzStrapOnce()
+            case .syncStrap:
+                if live.connected && live.bonded {
+                    syncActiveDevice()
+                } else {
+                    live.lastSyncError = "Connect your strap, then run Sync Strap again."
+                }
             }
         }
     }

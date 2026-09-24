@@ -36,6 +36,8 @@ struct WorkoutsView: View {
     }
     @State private var showLiveWorkout = false
     @State private var showStartSport = false
+    @State private var historyScope: WorkoutHistoryScope = .current
+    @State private var showLiftLog = false
 
     // Imperial/Metric display preference (D#103). Workout distances are stored in metres; the toggle
     // re-labels them to miles/yards. Display-only — nothing on disk changes.
@@ -159,6 +161,20 @@ struct WorkoutsView: View {
                        // full-bleed time-of-day sky behind the scroll content (it does not scroll).
                        topBackground: nil,
                        backAction: { dismiss() }) {
+            Button { showLiftLog = true } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "dumbbell.fill").font(.title2)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Lift").font(StrandFont.title2)
+                        Text("Your plan. Every set. Your progress.").font(.subheadline)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                }
+                .foregroundStyle(StrandPalette.ink)
+                .padding(20)
+                .background(StrandPalette.inset, in: RoundedRectangle(cornerRadius: 16))
+            }.buttonStyle(.plain)
             if allRows.isEmpty {
                 VStack(alignment: .leading, spacing: NoopMetrics.space4) {
                     ComingSoon(what: loaded
@@ -183,7 +199,13 @@ struct WorkoutsView: View {
                 paperWorkoutScore(rows: windowRows)
                 paperRecentWorkouts(rows: windowRows)
                 paperWorkoutBreakdown(rows: windowRows, zones: zonesSummary)
-                paperWorkoutHistory(rows: windowRows, effectiveRange: resolved)
+                Picker("Workout history", selection: $historyScope) {
+                    Text("Current").tag(WorkoutHistoryScope.current)
+                    Text("Archived").tag(WorkoutHistoryScope.archived)
+                }.pickerStyle(.segmented)
+                Text("Current contains the last 90 days. Archived sessions stay saved.")
+                    .font(.caption).foregroundStyle(StrandPalette.textSecondary)
+                paperWorkoutHistory(rows: WorkoutHistoryScope.filter(windowRows, scope: historyScope), effectiveRange: resolved)
             }
         }
         #if os(iOS)
@@ -222,6 +244,10 @@ struct WorkoutsView: View {
         // full read is needed to show the older sessions.
         .onChange(of: range) { _, newRange in
             Task { await expandWindowIfNeeded(for: newRange == .all ? .all : effectiveRange) }
+        }
+        .sheet(isPresented: $showLiftLog) { NavigationStack { LiftLogView() } }
+        .onChange(of: historyScope) { _, scope in
+            if scope == .archived { range = .all; Task { await expandWindowIfNeeded(for: .all) } }
         }
         .sheet(item: $sheet) { target in
             ManualWorkoutSheet(editing: target.editing) { row, replacing in
@@ -1718,12 +1744,7 @@ struct WorkoutsView: View {
 
     // The "jmm" skeleton respects the device's 12-/24-hour setting (#337): "4:34 PM" where 12-hour is
     // preferred, "16:34" where 24-hour is — instead of forcing 24-hour on everyone (matches TodayView).
-    private static let timeFmt: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale.current
-        f.setLocalizedDateFormatFromTemplate("jmm")
-        return f
-    }()
+    private static var timeFmt: DateFormatter { AppClock.hourMinuteFormatter() }
 
     private func dateLabel(_ ts: Int) -> String {
         Self.dateFmt.string(from: Date(timeIntervalSince1970: TimeInterval(ts)))

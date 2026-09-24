@@ -1,6 +1,7 @@
 #if os(iOS)
 import SwiftUI
 import StrandDesign
+import StrandAnalytics
 
 /// iOS navigation shell. On iPhone the natural structure is a `TabView` with the most-used screens as
 /// first-class tabs and contextual tools reached from their owning surfaces.
@@ -18,6 +19,7 @@ struct RootTabView: View {
     /// when a hub row deep-links to it via NavRouter. nil = closed.
     @State private var routedPillar: NavRouter.Destination?
     /// Selected tab — bound so tab switches can crossfade. Defaults to Today.
+    @AppStorage(ClockFormatPreference.defaultsKey) private var clockPreference = ClockFormatPreference.system.rawValue
     @State private var selectedTab: Int
     /// Paper is the sole Today surface.
     private var todayTabRoot: some View { TodayView() }
@@ -59,9 +61,12 @@ struct RootTabView: View {
             tab(SleepView(), "Sleep", "moon").tag(2)
             settingsTab.tag(3)
         }
+        .environment(\.locale, clockPreference.isEmpty ? Locale.autoupdatingCurrent : AppClock.formattingLocale)
         .toolbar(.hidden, for: .tabBar)
         .animation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24), value: selectedTab)
         .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(spacing: 0) {
+            LiftResumeCard().padding(.horizontal, 16)
             PaperTabBar(selection: $selectedTab, onReselect: { tab in
                 // Only Today owns a current-day data refresh. Reselecting Settings, Trends, or Sleep
                 // must not wake the store or rebuild unrelated health state.
@@ -70,6 +75,7 @@ struct RootTabView: View {
             }, onQuickActions: {
                 withAnimation(Self.sheetEase) { quickAction = .menu }
             })
+            }
         }
         .background {
             SmartAlarmCommandReconciler()

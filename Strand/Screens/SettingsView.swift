@@ -14,12 +14,15 @@ import WhoopStore
 /// Settings — profile (powers zones / calories / recovery), strap connection, and about.
 /// Grouped cards on surface.raised with a two-column form feel.
 struct SettingsView: View {
+
     var body: some View {
         SettingsRootHost()
     }
 }
 
 struct SettingsDetailHost: View {
+    @AppStorage(ClockFormatPreference.defaultsKey) private var clockPreference = ClockFormatPreference.system.rawValue
+
     let destination: SettingsRouteID
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var live: LiveState
@@ -470,6 +473,12 @@ struct SettingsDetailHost: View {
                     Text("US").tag(UnitSystem.imperial.rawValue)
                 }
                 .font(.caption)
+                Picker("Clock format", selection: $clockPreference) {
+                    Text("System").tag(ClockFormatPreference.system.rawValue)
+                    Text("12-hour").tag(ClockFormatPreference.twelveHour.rawValue)
+                    Text("24-hour").tag(ClockFormatPreference.twentyFourHour.rawValue)
+                }
+                .onChange(of: clockPreference) { _, _ in AppClock.invalidate() }
                 Picker("Temperature", selection: $temperatureRaw) {
                     Text("Match measurement system").tag("")
                     Text("Celsius").tag(TemperatureUnit.celsius.rawValue)

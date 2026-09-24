@@ -1615,6 +1615,9 @@ final class AppModel: ObservableObject {
     /// Delete one source's durable rows behind the existing destructive UI gate. The operation also clears
     /// external publication state and advances the source lineage before the dashboard refreshes.
     func deleteDeviceData(_ id: String) {
+        // The destructive source action includes its unsaved Lift snapshot, so it cannot be
+        // resumed later and reinsert data after the durable source purge.
+        discardLiftForDeletedSource?(id)
         Task { @MainActor [weak self] in
             guard let self, let registry = self.deviceRegistry else { return }
             do {
@@ -1747,7 +1750,7 @@ final class AppModel: ObservableObject {
     /// `startWorkout(sport:)`). The active card on Live then shows elapsed time, live HR and strain
     /// building; End scores + saves it under this sport. Confirms with a single buzz. (#519)
     func startWorkout(sport: String = WorkoutCatalog.defaultSportName) {
-        guard activeWorkout == nil else { return }
+        guard activeWorkout == nil, liftDoubleTapHandler == nil else { return }
         lastWorkout = nil
         let name = sport.trimmingCharacters(in: .whitespaces)
         let resolved = name.isEmpty ? WorkoutCatalog.defaultSportName : name
@@ -2486,10 +2489,14 @@ final class AppModel: ObservableObject {
 
     // MARK: - Physical inputs / wear automation
 
+    var liftDoubleTapHandler: (() -> Void)?
+    var discardLiftForDeletedSource: ((String) -> Void)?
+
     private func handleDoubleTap() {
         let now = Date()
         guard now.timeIntervalSince(lastDoubleTapAt) > 1.2 else { return }   // debounce repeats
         lastDoubleTapAt = now
+        if let liftDoubleTapHandler { liftDoubleTapHandler(); return }
         live.append(log: "Double-tap → \(behavior.doubleTapAction.label)")
         runMacAction(behavior.doubleTapAction, shortcut: behavior.doubleTapShortcut)
     }

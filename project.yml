@@ -54,6 +54,10 @@ targets:
     deploymentTarget: "17.0"
     sources:
       - path: Strand
+        excludes:
+          - "Resources/LiftCatalog"
+      - path: Strand/Resources/LiftCatalog
+        type: folder
       - path: StrandiOS
         excludes:
           - "Resources/Info.plist"

@@ -1943,12 +1943,7 @@ struct TodayView: View {
         return paperClockFormatter.string(from: date)
     }
 
-    private static let paperClockFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = .current
-        formatter.setLocalizedDateFormatFromTemplate("jmm")
-        return formatter
-    }()
+    private static var paperClockFormatter: DateFormatter { AppClock.hourMinuteFormatter() }
 
     private func paperStressState(_ value: Double?) -> LocalizedStringKey {
         guard let value else { return "Calibrating" }
@@ -5178,12 +5173,7 @@ struct TodayView: View {
     /// show times, not the day-granularity default ("EEE d MMM"). Also formats the workout-tile caption's
     /// time range (#157). The "jmm" skeleton respects the device's 12-/24-hour setting (#337): "7:10 AM"
     /// where 12-hour is preferred, "19:10" where 24-hour is, instead of forcing one on everyone.
-    static let hrTimeFmt: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale.current
-        f.setLocalizedDateFormatFromTemplate("jmm")
-        return f
-    }()
+    static var hrTimeFmt: DateFormatter { AppClock.hourMinuteFormatter() }
 }
 
 /// Compact top-bar connection read. Isolated from `TodayView` so the high-frequency LiveState

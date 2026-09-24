@@ -7,7 +7,7 @@ import AppIntents
 /// and the app drains the queue when it next becomes active.
 @MainActor
 enum PendingIntents {
-    enum Action: String, Sendable { case markMoment, buzz }
+    enum Action: String, Sendable { case markMoment, buzz, syncStrap }
 
     private static let key = "noop.pendingIntents"
     private static var defaults: UserDefaults? { UserDefaults(suiteName: WidgetSnapshot.suiteName) }
@@ -63,9 +63,25 @@ struct BuzzStrapIntent: AppIntent {
     }
 }
 
+/// Opens NOOP and routes through its existing active-device sync coordinator.
+struct SyncStrapIntent: AppIntent {
+    static let title: LocalizedStringResource = "Sync Strap"
+    static let description = IntentDescription("Open NOOP and sync your active strap.")
+    static let openAppWhenRun = true
+
+    func perform() async throws -> some IntentResult {
+        await PendingIntents.append(.syncStrap)
+        return .result()
+    }
+}
+
 /// Surfaces NOOP's intents to Siri, Spotlight, and the Shortcuts gallery without any user setup.
 struct NOOPShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
+        AppShortcut(intent: SyncStrapIntent(),
+                    phrases: ["Sync my \(.applicationName) strap"],
+                    shortTitle: "Sync Strap",
+                    systemImageName: "arrow.triangle.2.circlepath")
         AppShortcut(intent: MarkMomentIntent(),
                     phrases: ["Mark a moment in \(.applicationName)"],
                     shortTitle: "Mark a Moment",
