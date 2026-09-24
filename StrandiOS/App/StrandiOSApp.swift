@@ -405,6 +405,8 @@ struct StrandiOSApp: App {
                 if let previewIndex = CommandLine.arguments.firstIndex(of: "--noop-lift-preview"),
                    CommandLine.arguments.indices.contains(previewIndex + 1) {
                     ReceiptLiftPreviewView(screen: CommandLine.arguments[previewIndex + 1])
+                } else if AppleDemoSeeder.requested && CommandLine.arguments.contains("--noop-lift-integration-qa") {
+                    LiftLogView()
                 } else if workoutRefinementQARequested {
                     workoutRefinementQARoute
                 } else if let component41Shot = Component41QAShot.requestedKind {
@@ -589,6 +591,7 @@ struct StrandiOSApp: App {
                     _ = await WidgetSnapshot.publish(from: model)
                 }
             } else if phase == .background {
+                receiptLift.coordinator?.applicationDidEnterBackground()
                 Task {
                     await schedulePrivacyCleanupIfPending()
                     await externalPublicationWorker.signal()

@@ -263,10 +263,12 @@ private struct ExerciseDetailReceipt: View {
         ReceiptMetric(title: "Best", value: liftMeasuredWeight(sets.map(\.estimatedOneRepMax).max() ?? 0), tint: LiftTheme.ink)
       }
 
-      Text(exercise.instructions.uppercased())
-        .font(.receipt(10, weight: .bold))
-        .foregroundStyle(LiftTheme.inkSecondary)
-        .fixedSize(horizontal: false, vertical: true)
+      ExerciseInformationView(exercise: exercise)
+      NavigationLink("View progress charts") {
+        ExerciseProgressView(exerciseID: exercise.id)
+      }
+      .frame(minHeight: 44)
+
     }
     .padding(.vertical, 4)
   }

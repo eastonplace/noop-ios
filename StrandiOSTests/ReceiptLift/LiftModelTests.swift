@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import ReceiptLiftActivity
 @testable import ReceiptLiftFeature
 
 struct LiftModelTests {

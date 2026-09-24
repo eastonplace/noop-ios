@@ -129,10 +129,10 @@ enum BackfillFailure: Equatable, Sendable {
 /// confirmed. Never waits on the server.
 @MainActor
 final class Backfiller {
-    /// (parsed frames, deviceClockRef, wallClockRef, sessionOldestUnix?, sessionNewestUnix?) → Streams.
+    /// (parsed frames, device family, deviceClockRef, wallClockRef, sessionOldestUnix?, sessionNewestUnix?) → Streams.
     /// The trailing session-range markers are the strap's GET_DATA_RANGE oldest/newest for THIS sync
     /// (#547 session-relative gate); nil when the range isn't known yet (the absolute-only floor applies).
-    typealias Extractor = @Sendable ([ParsedFrame], Int, Int, Int?, Int?) -> Streams
+    typealias Extractor = @Sendable ([ParsedFrame], DeviceFamily, Int, Int, Int?, Int?) -> Streams
     typealias Parser = @Sendable ([UInt8], DeviceFamily) -> ParsedFrame
 
     private let store: BackfillStoreWriting
@@ -343,8 +343,9 @@ final class Backfiller {
          // The default (prod) Extractor reads the opt-in HR-from-PPG sub-lag interpolation flag (Test Centre →
          // Experimental algorithms) at decode time and threads it into the pure decoder, so the pure package
          // never reaches for UserDefaults. Default OFF = byte-identical to today. Tests inject their own seam.
-         extract: @escaping Extractor = { extractHistoricalStreams($0, deviceClockRef: $1, wallClockRef: $2,
-                                                                    sessionOldestUnix: $3, sessionNewestUnix: $4,
+         extract: @escaping Extractor = { extractHistoricalStreams($0, family: $1,
+                                                                    deviceClockRef: $2, wallClockRef: $3,
+                                                                    sessionOldestUnix: $4, sessionNewestUnix: $5,
                                                                     subLagInterp: PuffinExperiment.ppgHrSubLagInterpEnabled) },
          parse: @escaping Parser = { parseFrame($0, family: $1) }) {
         self.store = store
@@ -777,7 +778,7 @@ final class Backfiller {
             do {
                 d = try await Task.detached(priority: .utility) { () throws -> DecodedChunk in
                     let parsed = frames.map { parseFn($0, fam) }
-                    let decoded = extractFn(parsed, dev, wall, oldest, newest)
+                    let decoded = extractFn(parsed, fam, dev, wall, oldest, newest)
                     let dispositions = zip(parsed, frames).map {
                         historicalRecordDisposition(parsed: $0.0, rawFrame: $0.1, family: fam)
                     }

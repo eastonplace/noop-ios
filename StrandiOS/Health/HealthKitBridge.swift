@@ -573,11 +573,23 @@ final class HealthKitBridge: ObservableObject {
     /// status, so no system permission sheet is shown.
     func refreshAuthIfPreviouslyGranted(requestNewTypes: Bool = true) async {
         guard HKHealthStore.isHealthDataAvailable() else { return }
-        if auth == .unknown {
-            let granted = legacyCoreWriteTypes.allSatisfy {
-                store.authorizationStatus(for: $0) == .sharingAuthorized
+        // HealthKit synchronously contacts healthd for these status reads. Keep that
+        // IPC off the main actor so a slow or restarting service cannot freeze launch.
+        let healthStore = store
+        let legacyTypes = legacyCoreWriteTypes
+        let expandedTypes = writeTypes
+        let status = await Task.detached(priority: .userInitiated) {
+            let legacyGranted = legacyTypes.allSatisfy {
+                healthStore.authorizationStatus(for: $0) == .sharingAuthorized
             }
-            guard granted else { return }
+            let hasUndeterminedTypes = expandedTypes.contains {
+                healthStore.authorizationStatus(for: $0) == .notDetermined
+            }
+            return (legacyGranted, hasUndeterminedTypes)
+        }.value
+        guard !Task.isCancelled else { return }
+        if auth == .unknown {
+            guard status.0 else { return }
             auth = .authorized
             // A returning user who already granted access should get the live stream re-armed for this
             // process. enableLiveDelivery is idempotent (HealthKit dedups observers + background
@@ -596,9 +608,7 @@ final class HealthKitBridge: ObservableObject {
         guard auth == .authorized,
               requestNewTypes,
               !requestedExpandedWriteAuthorization,
-              writeTypes.contains(where: {
-                  store.authorizationStatus(for: $0) == .notDetermined
-              }) else { return }
+              status.1 else { return }
         requestedExpandedWriteAuthorization = true
         do {
             try await store.requestAuthorization(toShare: writeTypes, read: readTypes)

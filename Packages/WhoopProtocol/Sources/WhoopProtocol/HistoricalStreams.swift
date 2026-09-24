@@ -142,6 +142,7 @@ public func rejectedHistoricalRecords(_ rawFrames: [[UInt8]], family: DeviceFami
 /// EVENT and COMMAND_RESPONSE handling is identical to extractStreams.
 /// CRC-failed and non-ok frames are skipped.
 public func extractHistoricalStreams(_ parsed: [ParsedFrame],
+                                     family: DeviceFamily = .whoop4,
                                      deviceClockRef: Int, wallClockRef: Int,
                                      // SESSION-RELATIVE bounds (#547): the strap's own GET_DATA_RANGE
                                      // oldest/newest markers for THIS sync. nil on the replay/import/no-range
@@ -228,7 +229,8 @@ public func extractHistoricalStreams(_ parsed: [ParsedFrame],
     func appendRR(_ values: [Int], at ts: Int) {
         var ordinal = nextRrOrdinalByTs[ts, default: 0]
         for value in values {
-            out.rr.append(RRInterval(ts: ts, rrMs: value, sourceOrdinal: ordinal))
+            out.rr.append(RRInterval(ts: ts, rrMs: value, sourceOrdinal: ordinal,
+                                     source: .historical(for: family)))
             ordinal += 1
         }
         nextRrOrdinalByTs[ts] = ordinal

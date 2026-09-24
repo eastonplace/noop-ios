@@ -11,12 +11,17 @@ import Foundation
 // nil upstream, so these structs only ever hold real decoded values.
 
 /// One decoded inter-beat interval (and optional amplitude), in milliseconds.
+public enum OuraIBIChannel: Int, Equatable, Sendable, Codable {
+    case greenQuality = 1, spo2Ibi = 2, ibiAmplitude = 3, ibiBare = 4
+}
+
 public struct OuraIBI: Equatable, Sendable, Codable {
     public let ringTimestamp: UInt32
     public let ibiMs: Int
     public let amplitude: Int?
-    public init(ringTimestamp: UInt32, ibiMs: Int, amplitude: Int? = nil) {
-        self.ringTimestamp = ringTimestamp; self.ibiMs = ibiMs; self.amplitude = amplitude
+    public let channel: OuraIBIChannel?
+    public init(ringTimestamp: UInt32, ibiMs: Int, amplitude: Int? = nil, channel: OuraIBIChannel? = nil) {
+        self.ringTimestamp = ringTimestamp; self.ibiMs = ibiMs; self.amplitude = amplitude; self.channel = channel
     }
 }
 

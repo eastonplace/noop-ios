@@ -161,7 +161,8 @@ final class Collector {
 
         let frames = batch.map(\.frame)         // still needed for the raw-capture outbox
         let parsed = batch.map(\.parsed)        // #47: the seam already decoded these — don't re-parse
-        let streams = extractStreams(parsed, deviceClockRef: ref.device, wallClockRef: ref.wall)
+        let streams = extractStreams(parsed, family: family,
+                                     deviceClockRef: ref.device, wallClockRef: ref.wall)
         do {
             try await store.insert(streams, deviceId: deviceId)   // DECODED FIRST (durable)
         } catch {
@@ -189,9 +190,12 @@ final class Collector {
 
     /// Buffer one standard Heart-Rate-Measurement reading. No clock correlation needed —
     /// these carry a wall-clock `ts` directly. Auto-flushes ~every 30 readings (~30s).
-    func ingestStandardHR(hr: Int, rr: [Int], at ts: Int) {
+    func ingestStandardHR(hr: Int, rr: [Int], at ts: Int,
+                          source: RRSource = .standardBLE) {
         if hr >= 30, hr <= 220 { stdHR.append(HRSample(ts: ts, bpm: hr)) }
-        for r in rr where r >= 250 && r <= 3000 { stdRR.append(RRInterval(ts: ts, rrMs: r)) }
+        for (ordinal, r) in rr.enumerated() where r >= 250 && r <= 3000 {
+            stdRR.append(RRInterval(ts: ts, rrMs: r, sourceOrdinal: ordinal, source: source))
+        }
         if stdHR.count + stdRR.count >= 30 {
             Task { @MainActor in await self.flushStandardHR() }
         }

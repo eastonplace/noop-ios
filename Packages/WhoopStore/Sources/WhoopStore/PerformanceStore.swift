@@ -50,11 +50,7 @@ extension WhoopStore {
                 ) ORDER BY ts ASC LIMIT ?
                 """, arguments: [deviceId, from, to, deviceId, from, to, limit])
                 .map { HRSample(ts: $0["ts"], bpm: $0["bpm"]) }
-            let rr = try Row.fetchAll(db, sql: """
-                SELECT ts, rrMs FROM rrInterval WHERE deviceId = ? AND ts >= ? AND ts <= ?
-                ORDER BY ts, seq LIMIT ?
-                """, arguments: [deviceId, from, to, limit])
-                .map { RRInterval(ts: $0["ts"], rrMs: $0["rrMs"]) }
+            let rr = try RRReadPolicy.read(db: db, deviceId: deviceId, from: from, to: to, limit: limit)
             let resp = try Row.fetchAll(db, sql: """
                 SELECT ts, raw FROM respSample WHERE deviceId = ? AND ts >= ? AND ts <= ?
                 ORDER BY ts LIMIT ?

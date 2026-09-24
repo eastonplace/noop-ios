@@ -3,6 +3,7 @@ import SwiftUI
 enum LiftTab: String, CaseIterable, Identifiable {
   case today
   case history
+  case progress
   case schedule
 
   var id: String { rawValue }
@@ -11,6 +12,7 @@ enum LiftTab: String, CaseIterable, Identifiable {
     switch self {
     case .today: "Today"
     case .history: "History"
+    case .progress: "Progress"
     case .schedule: "Schedule"
     }
   }
@@ -19,6 +21,7 @@ enum LiftTab: String, CaseIterable, Identifiable {
     switch self {
     case .today: "house.fill"
     case .history: "list.bullet.rectangle"
+    case .progress: "chart.xyaxis.line"
     case .schedule: "calendar"
     }
   }
@@ -45,6 +48,8 @@ struct LiftRootView: View {
             )
           case .history:
             HistoryView(selectedSegment: $selectedHistorySegment)
+          case .progress:
+            HistoryView(selectedSegment: .constant(.progress), progressOnly: true)
           case .schedule:
             ScheduleView(onStartRoutine: presentPreview)
           }
@@ -56,7 +61,6 @@ struct LiftRootView: View {
           removal: .move(edge: .leading).combined(with: .opacity)
         ))
 
-        TopSafeAreaScrim()
         ReceiptTabBar(selectedTab: $selectedTab)
           .ignoresSafeArea(.container, edges: .bottom)
       }
@@ -142,27 +146,5 @@ struct LiftRootView: View {
         }
       }
     )
-  }
-}
-
-private struct TopSafeAreaScrim: View {
-  var body: some View {
-    GeometryReader { proxy in
-      VStack(spacing: 0) {
-        LiftTheme.paper
-          .frame(height: proxy.safeAreaInsets.top + 10)
-          .overlay(alignment: .bottom) {
-            LinearGradient(
-              colors: [LiftTheme.paper.opacity(0), LiftTheme.paper],
-              startPoint: .bottom,
-              endPoint: .top
-            )
-            .frame(height: 16)
-          }
-          .ignoresSafeArea(edges: .top)
-        Spacer()
-      }
-      .allowsHitTesting(false)
-    }
   }
 }

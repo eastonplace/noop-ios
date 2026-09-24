@@ -166,6 +166,9 @@ public struct DeviceRegistryStore: Sendable {
         "latestStateDeliveryCheckpoint",
         "healthKitMutationWatermark", "healthKitSleepKeyLedger", "healthKitSleepDayLedger",
         "historicalReceiptScopeLifecycle", "historicalMaintenanceWork",
+        // Lift Log rows are device-owned and must be removed with the rest of a device's data.
+        "liftExercise", "liftProgramItem", "liftProgram", "liftSet", "liftSession",
+        "liftReceiptState",
     ]
 
     /// Permanently delete every recorded sample/derived row belonging to one device, across all

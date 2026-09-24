@@ -99,19 +99,41 @@ extension WhoopStore {
             }
             if !streams.rr.isEmpty {
                 let stmt = try db.cachedStatement(sql: """
-                    INSERT INTO rrInterval (deviceId, ts, rrMs, seq) VALUES (?, ?, ?, ?)
+                    INSERT INTO rrInterval (deviceId, ts, rrMs, seq, source, sourceOrdinal)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     ON CONFLICT(deviceId, ts, rrMs, seq) DO NOTHING
                     """)
                 // v24 (#163): number EQUAL (ts, rrMs) beats 0, 1, … within this batch so both survive;
                 // distinct beats keep seq 0 and their own (ts, rrMs, 0) key, so a distinct beat is never
                 // dropped even across batches (rrMs stays in the key). Re-syncing identical rows reproduces
                 // the same (ts, rrMs, seq) → still idempotent. Nested dict = (ts, rrMs) occurrence counter.
-                var seqByTsRr: [Int: [Int: Int]] = [:]
+                var seqBySource: [RRSource: [Int: [Int: Int]]] = [:]
                 for r in streams.rr {
-                    let seq = seqByTsRr[r.ts]?[r.rrMs] ?? 0
-                    seqByTsRr[r.ts, default: [:]][r.rrMs] = seq + 1
-                    try stmt.execute(arguments: [deviceId, r.ts, r.rrMs, seq])
+                    let seq = seqBySource[r.source]?[r.ts]?[r.rrMs] ?? 0
+                    seqBySource[r.source, default: [:]][r.ts, default: [:]][r.rrMs] = seq + 1
+                    try stmt.execute(arguments: [deviceId, r.ts, r.rrMs, seq,
+                                                 r.source.rawValue, r.sourceOrdinal ?? seq])
                     rr += db.changesCount
+                    if db.changesCount == 0 {
+                        // The existing custom key intentionally remains the conflict boundary. When a
+                        // standard WHOOP 5 beat arrives after a proprietary duplicate, or vice versa,
+                        // retain the higher-priority provenance without rewriting the row or changing
+                        // the established equal-beat sequence semantics.
+                        if let existing = try Row.fetchOne(db, sql: """
+                            SELECT source, sourceOrdinal FROM rrInterval
+                            WHERE deviceId = ? AND ts = ? AND rrMs = ? AND seq = ?
+                            """, arguments: [deviceId, r.ts, r.rrMs, seq]) {
+                            let current = RRReadPolicy.source(from: existing["source"] as String?)
+                            if RRReadPolicy.priority(for: r.source) > RRReadPolicy.priority(for: current) {
+                                try db.execute(sql: """
+                                    UPDATE rrInterval
+                                    SET source = ?, sourceOrdinal = ?
+                                    WHERE deviceId = ? AND ts = ? AND rrMs = ? AND seq = ?
+                                    """, arguments: [r.source.rawValue, r.sourceOrdinal ?? seq,
+                                                       deviceId, r.ts, r.rrMs, seq])
+                            }
+                        }
+                    }
                 }
             }
             if !streams.events.isEmpty {

@@ -8,6 +8,14 @@ struct ExerciseProgressView: View {
   let exerciseID: UUID
   @State private var selectedMode: LiftExerciseProgressMode = .strength
   @State private var referenceNow = Date()
+  @State private var selectedRange: LiftProgressRange = .twelveWeeks
+  @State private var selectedDate: Date?
+  @State private var showsInformation = false
+
+  init(exerciseID: UUID, showsInformation: Bool = false) {
+    self.exerciseID = exerciseID
+    _showsInformation = State(initialValue: showsInformation)
+  }
 
   private var exercise: LiftExercise? {
     store.exercise(for: exerciseID)
@@ -24,6 +32,14 @@ struct ExerciseProgressView: View {
       LazyVStack(alignment: .leading, spacing: 16) {
         if let exercise {
           exerciseHeader(exercise, snapshot: snapshot)
+          DisclosureGroup("Exercise photo, muscles & instructions", isExpanded: $showsInformation) {
+            ExerciseInformationView(exercise: exercise).padding(.vertical, 12)
+          }
+          .tint(LiftTheme.accent)
+          Picker("Date range", selection: $selectedRange) {
+            ForEach(LiftProgressRange.allCases) { range in Text(range.title).tag(range) }
+          }
+          .pickerStyle(.segmented)
           modeBar
           progressChart(points: snapshot.points)
           ReceiptSectionLabel(title: "Recent Sets")
@@ -51,7 +67,11 @@ struct ExerciseProgressView: View {
     .scrollIndicators(.hidden)
     .background(LiftTheme.paper.ignoresSafeArea())
     .navigationBarTitleDisplayMode(.inline)
+    .toolbar(.visible, for: .navigationBar)
+    .navigationTitle("Exercise details")
     .onAppear { referenceNow = Date() }
+    .onChange(of: selectedRange) { selectedDate = nil }
+    .onChange(of: selectedMode) { selectedDate = nil }
   }
 
   private func exerciseHeader(
@@ -60,11 +80,14 @@ struct ExerciseProgressView: View {
   ) -> some View {
     VStack(alignment: .leading, spacing: 14) {
       HStack(alignment: .top, spacing: 14) {
-        LiftExerciseThumb(exercise: exercise, size: 84)
-          .accessibilityHidden(true)
+        Button { showsInformation.toggle() } label: {
+          LiftExerciseThumb(exercise: exercise, size: 84)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Show \(exercise.name) photo and muscles")
         VStack(alignment: .leading, spacing: 4) {
-          Text(exercise.name.uppercased())
-            .font(.receiptCondensed(32, weight: .black))
+          Text(exercise.name.capitalized)
+            .font(.title2.weight(.bold))
             .foregroundStyle(LiftTheme.ink)
             .fixedSize(horizontal: false, vertical: true)
           Text("\(exercise.muscleGroup) / \(exercise.equipment)".uppercased())
@@ -72,8 +95,6 @@ struct ExerciseProgressView: View {
             .foregroundStyle(LiftTheme.inkSecondary)
         }
       }
-      .accessibilityElement(children: .combine)
-
       ReceiptDashedRule()
 
       VStack(alignment: .leading, spacing: 7) {
@@ -127,14 +148,33 @@ struct ExerciseProgressView: View {
     let visiblePoints = visiblePoints(in: points)
     return VStack(alignment: .leading, spacing: 10) {
       ReceiptSectionLabel(title: chartTitle)
+      Text("Completed workouts only. Volume includes warm-ups; strength and reps use working sets. Estimated 1RM uses weight × (1 + reps / 30).")
+        .font(.system(size: 12)).foregroundStyle(LiftTheme.inkSecondary)
       if visiblePoints.isEmpty {
         Text("NO \(selectedMode.title) DATA YET.")
           .font(.receipt(10, weight: .bold))
           .foregroundStyle(LiftTheme.inkSecondary)
           .frame(maxWidth: .infinity, minHeight: 180)
       } else {
-        ScrollView(.horizontal) {
-          Chart(visiblePoints) { point in
+        VStack(alignment: .leading, spacing: 12) {
+          let selectedPoint = selectedDate.flatMap { date in
+            visiblePoints.min { abs($0.date.timeIntervalSince(date)) < abs($1.date.timeIntervalSince(date)) }
+          } ?? visiblePoints.last
+          if let point = selectedPoint {
+            VStack(alignment: .leading, spacing: 6) {
+              Text(point.date.formatted(date: .abbreviated, time: .omitted))
+                .font(.system(size: 13, weight: .semibold))
+              Text(formattedChartValue(point))
+                .font(.system(size: 26, weight: .bold)).monospacedDigit()
+              Text("Estimated 1RM: \(liftMeasuredWeight(point.bestEstimatedOneRepMax)) · Volume: \(liftVolume(point.volume)) · Best reps: \(point.bestReps)")
+                .font(.system(size: 12)).foregroundStyle(LiftTheme.inkSecondary)
+            }
+            .accessibilityElement(children: .combine)
+          }
+          Text("Touch the chart to inspect a training day.")
+            .font(.system(size: 12)).foregroundStyle(LiftTheme.inkSecondary)
+          Chart {
+            ForEach(visiblePoints) { point in
             if selectedMode == .volume {
               BarMark(
                 x: .value("Date", point.date, unit: .day),
@@ -159,6 +199,13 @@ struct ExerciseProgressView: View {
               .accessibilityValue(formattedChartValue(point))
             }
           }
+            if let point = selectedPoint {
+              RuleMark(x: .value("Selected day", point.date, unit: .day))
+                .foregroundStyle(LiftTheme.accent)
+                .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
+            }
+          }
+          .chartXSelection(value: $selectedDate)
           .chartXScale(domain: chartDomain(for: visiblePoints))
           .chartXAxis {
             AxisMarks(values: .automatic(desiredCount: 5)) {
@@ -176,7 +223,7 @@ struct ExerciseProgressView: View {
                 .font(.receipt(8, weight: .bold))
             }
           }
-          .frame(width: max(380, CGFloat(visiblePoints.count) * 44), height: 230)
+          .frame(height: 260)
           .id(selectedMode)
           .transition(.opacity)
           .accessibilityLabel(chartTitle.capitalized)
@@ -223,6 +270,13 @@ struct ExerciseProgressView: View {
         "\(row.set.completedAt.formatted(date: .abbreviated, time: .omitted)), \(liftLoad(row.set.weight, for: exercise)) by \(row.set.reps) reps\(personalRecord == nil ? "" : ", personal record")"
       )
       .accessibilityHint("Opens the parent workout receipt")
+      Text("Set \(row.set.setNumber) · RPE \(row.set.rpe, specifier: "%.1f") · Volume \(liftVolume(row.set.volume)) · Est. 1RM \(liftMeasuredWeight(row.set.estimatedOneRepMax))")
+        .font(.system(size: 12)).foregroundStyle(LiftTheme.inkSecondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.bottom, 8)
+      if !row.set.notes.isEmpty {
+        Text(row.set.notes).font(.system(size: 13)).padding(.bottom, 8)
+      }
       ReceiptDashedRule()
     }
   }
@@ -238,8 +292,10 @@ struct ExerciseProgressView: View {
   }
 
   private func visiblePoints(in points: [VolumePoint]) -> [VolumePoint] {
-    points.filter { point in
-      switch selectedMode {
+    let window = LiftProgressMath.window(for: selectedRange, sessions: store.sessions, now: referenceNow, calendar: .current)
+    return points.filter { point in
+      guard point.date >= window.startInclusive, point.date <= window.endInclusive else { return false }
+      return switch selectedMode {
       case .strength: point.bestEstimatedOneRepMax > 0
       case .volume: point.volume > 0
       case .reps: point.bestReps > 0

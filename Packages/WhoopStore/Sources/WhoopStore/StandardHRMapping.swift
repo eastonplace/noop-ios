@@ -13,10 +13,13 @@ import WhoopProtocol
 public enum StandardHRMapping {
     /// Build a `Streams` carrying one HR sample and zero-or-more R-R intervals, all stamped at the
     /// same wall-clock `ts` (unix seconds). Pure → unit-testable.
-    public static func samples(fromHR hr: Int, rr: [Int], at ts: Int) -> Streams {
+    public static func samples(fromHR hr: Int, rr: [Int], at ts: Int,
+                               source: RRSource = .standardBLE) -> Streams {
         Streams(
             hr: [HRSample(ts: ts, bpm: hr)],
-            rr: rr.map { RRInterval(ts: ts, rrMs: $0) }
+            rr: rr.enumerated().map { ordinal, value in
+                RRInterval(ts: ts, rrMs: value, sourceOrdinal: ordinal, source: source)
+            }
         )
     }
 }

@@ -1,10 +1,12 @@
 import Foundation
 import Combine
+import UIKit
 
 public struct ReceiptLiftSet: Codable, Equatable, Sendable {
     public let id: String
     public let exercise: String
     public let muscleGroup: String
+    public var secondaryMuscles: [String] = []
     public let setIndex: Int
     public let weightKg: Double
     public let reps: Int
@@ -37,7 +39,9 @@ actor ReceiptLiftDatabase {
 
     func load() async throws -> LiftDataEnvelope? {
         guard !invalidated else { throw CancellationError() }
-        guard let data = try await loadData() else { return nil }
+        let data = try await loadData()
+        guard !invalidated else { throw CancellationError() }
+        guard let data else { return nil }
         let envelope = try await Task.detached(priority: .userInitiated) {
             let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
             let value = try decoder.decode(LiftDataEnvelope.self, from: data)
@@ -46,6 +50,7 @@ actor ReceiptLiftDatabase {
             }
             return value
         }.value
+        guard !invalidated else { throw CancellationError() }
         delivered = Dictionary(Self.workouts(envelope).map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
         return envelope
     }
@@ -90,8 +95,10 @@ actor ReceiptLiftDatabase {
                 startedAt: session.startedAt, endedAt: end,
                 sets: session.sets.map { set in
                     let exercise = exercises[set.exerciseID]
+                    let metadata = exercise.flatMap { LiftExerciseCatalog.metadata(for: $0) }
                     return ReceiptLiftSet(id: set.id.uuidString, exercise: exercise?.name ?? "Exercise",
-                        muscleGroup: exercise?.muscleGroup ?? "", setIndex: set.setNumber,
+                        muscleGroup: metadata?.target ?? exercise?.muscleGroup ?? "",
+                        secondaryMuscles: metadata?.secondaryMuscles ?? [], setIndex: set.setNumber,
                         weightKg: set.weight * 0.45359237, reps: set.reps, rpe: set.rpe,
                         isWarmup: set.isWarmup, completedAt: set.completedAt,
                         note: set.notes.isEmpty ? nil : set.notes)
@@ -105,6 +112,8 @@ public final class ReceiptLiftCoordinator: ObservableObject {
     let store: LiftStore
     private let database: ReceiptLiftDatabase
     private var observation: AnyCancellable?
+    private var backgroundSaveTask: Task<Void, Never>?
+    private var backgroundLease: UIBackgroundTaskIdentifier = .invalid
     public var hasActiveSession: Bool { store.activeSession != nil }
     public var saveError: String? { store.databaseSaveError }
 
@@ -118,6 +127,26 @@ public final class ReceiptLiftCoordinator: ObservableObject {
     }
 
     public func load() async { await store.loadAndWait() }
+
+    public func applicationDidEnterBackground() {
+        guard backgroundSaveTask == nil else { return }
+        backgroundLease = UIApplication.shared.beginBackgroundTask(withName: "Save Lift workout") { [weak self] in
+            Task { @MainActor in self?.endBackgroundLease() }
+        }
+        store.applicationDidEnterBackground()
+        backgroundSaveTask = Task { [weak self] in
+            guard let self else { return }
+            await store.waitForPendingSave()
+            endBackgroundLease()
+            backgroundSaveTask = nil
+        }
+    }
+
+    private func endBackgroundLease() {
+        guard backgroundLease != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(backgroundLease)
+        backgroundLease = .invalid
+    }
 
     public func discard() {
         store.cancelDatabasePersistence()

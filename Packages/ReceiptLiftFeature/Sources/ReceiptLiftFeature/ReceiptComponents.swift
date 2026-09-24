@@ -26,22 +26,21 @@ struct ReceiptHeader: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 5) {
       HStack(alignment: .firstTextBaseline, spacing: 12) {
-        Text(title.uppercased())
-          .font(.system(.largeTitle, design: .rounded).weight(.bold))
+        Text(title)
+          .font(.system(.title2, design: .default).weight(.bold))
           .foregroundStyle(LiftTheme.ink)
           .fixedSize(horizontal: false, vertical: true)
         Spacer(minLength: 8)
         if let trailing {
           Text(trailing.uppercased())
-            .font(.receipt(10, weight: .bold))
+            .font(.subheadline)
             .foregroundStyle(LiftTheme.inkSecondary)
             .multilineTextAlignment(.trailing)
         }
       }
       if let subtitle {
-        Text(subtitle.uppercased())
-          .font(.receipt(10, weight: .bold))
-          .tracking(0.8)
+        Text(subtitle)
+          .font(.subheadline)
           .foregroundStyle(LiftTheme.inkSecondary)
       }
     }
@@ -307,9 +306,8 @@ struct ReceiptPrimaryButton: View {
           Image(systemName: systemImage)
             .font(.receipt(14, weight: .black))
         }
-        Text(title.uppercased())
-          .font(.receipt(13, weight: .black))
-          .tracking(1.1)
+        Text(title)
+          .font(.headline)
           .lineLimit(1)
           .minimumScaleFactor(0.68)
           .allowsTightening(true)
@@ -338,17 +336,17 @@ struct ReceiptSecondaryButton: View {
         if let systemImage {
           Image(systemName: systemImage)
         }
-        Text(title.uppercased())
+        Text(title)
           .lineLimit(1)
           .minimumScaleFactor(0.62)
           .allowsTightening(true)
       }
-      .font(.receipt(11, weight: .black))
+      .font(.subheadline.weight(.semibold))
       .foregroundStyle(tint)
       .frame(maxWidth: fillsWidth ? .infinity : nil, minHeight: 44)
       .padding(.horizontal, fillsWidth ? 8 : 10)
       .overlay(
-        RoundedRectangle(cornerRadius: 4, style: .continuous)
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
           .stroke(tint.opacity(0.42), lineWidth: 1)
       )
     }
@@ -418,7 +416,7 @@ struct ReceiptStepper: View {
       }
 
       VStack(spacing: 2) {
-        Text(title.uppercased())
+        Text(title)
           .font(.receipt(9, weight: .bold))
           .foregroundStyle(LiftTheme.inkSecondary)
         Text(value)
@@ -457,7 +455,7 @@ private struct ReceiptPressControl: View {
 
   var body: some View {
     Image(systemName: systemImage)
-      .font(.receipt(13, weight: .black))
+      .font(.headline)
       .foregroundStyle(LiftTheme.ink)
       .frame(width: 44, height: 44)
       .background(
@@ -516,8 +514,8 @@ struct ReceiptTabBar: View {
           VStack(spacing: 2) {
             Image(systemName: tab.systemImage)
               .font(.system(size: 15, weight: .black))
-            Text(tab.title.uppercased())
-              .font(.receipt(7, weight: .black))
+            Text(tab.title)
+              .font(.caption2.weight(.semibold))
               .tracking(0.3)
           }
           .foregroundStyle(selectedTab == tab ? LiftTheme.paper : LiftTheme.ink.opacity(0.58))

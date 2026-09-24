@@ -179,6 +179,7 @@ targets:
       - StrandiOSTests
     dependencies:
       - package: ReceiptLiftFeature
+      - package: ReceiptLiftActivity
       - target: NOOPiOS
       - package: StrandDesign
       - package: StrandAnalytics

@@ -47,6 +47,7 @@ public enum OuraStreamMapping {
     /// invariant and the per-source day-owner rules.
     public static func streams(from events: [OuraEvent], at ts: Int) -> Streams {
         var out = Streams()
+        var rrOrdinals: [RRSource: Int] = [:]
         for e in events {
             switch e {
             case .hr(let v):
@@ -56,7 +57,10 @@ public enum OuraStreamMapping {
                 out.hr.append(HRSample(ts: ts, bpm: v.bpm))
 
             case .ibi(let v):
-                out.rr.append(RRInterval(ts: ts, rrMs: v.ibiMs))
+                let source = RRSource.legacyChannel(v.channel?.rawValue)
+                let ordinal = rrOrdinals[source, default: 0]
+                rrOrdinals[source] = ordinal + 1
+                out.rr.append(RRInterval(ts: ts, rrMs: v.ibiMs, sourceOrdinal: ordinal, source: source))
 
             case .hrv(let v):
                 // The ring's own 0x5D tag, carried RAW for diagnostics/parity. The two int8 fields

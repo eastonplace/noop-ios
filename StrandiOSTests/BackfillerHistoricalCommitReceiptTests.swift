@@ -448,7 +448,7 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
             ackTrim: { _, _, _ in true },
             enableRawCapture: enableRawCapture,
             sourceIdentity: source,
-            extract: { _, _, _, _, _ in Streams() })
+            extract: { _, _, _, _, _, _ in Streams() })
         backfiller.begin(
             family: .whoop4,
             sourceIdentity: source,
@@ -556,7 +556,7 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
             deviceId: source.deviceId,
             ackTrim: { _, _, _ in true },
             sourceIdentity: source,
-            extract: { _, _, _, _, _ in Streams() })
+            extract: { _, _, _, _, _, _ in Streams() })
         backfiller.begin(
             family: .whoop4,
             sourceIdentity: source,
@@ -902,8 +902,9 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
             ackTrim: { _, _, _ in ackCount += 1; return true },
             onHistoricalCommit: { publishedReceipts.append($0.receiptId) },
             onHistoricalAcknowledged: { _, outcome in acknowledgedOutcomes.append(outcome) },
-            extract: { _, _, _, _, _ in
-                Streams(hr: [HRSample(ts: 1_781_557_000, bpm: 60)])
+            extract: { _, family, _, _, _, _ in
+                XCTAssertEqual(family, .whoop4)
+                return Streams(hr: [HRSample(ts: 1_781_557_000, bpm: 60)])
             })
         let record = whoop4V24Frame
         let end = historyEndFrame(trim: 321, unix: 1_781_557_001)
@@ -981,7 +982,7 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
             deviceId: "strap-a",
             ackTrim: { _, _, _ in ackCount += 1; return true },
             sourceIdentity: displaySource,
-            extract: { _, _, _, _, _ in Streams() })
+            extract: { _, _, _, _, _, _ in Streams() })
         backfiller.begin(
             family: .whoop4,
             sourceIdentity: displaySource,
@@ -1051,7 +1052,7 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
             onHistoricalCommitContext: { contexts.append($0) },
             beforeHistoricalCommit: { await gate.wait() },
             sourceIdentity: sourceA,
-            extract: { _, _, _, _, _ in Streams() })
+            extract: { _, _, _, _, _, _ in Streams() })
         let scopeA = HistoricalCursorScope(
             deviceId: "strap-a", lineage: "registry-A", cursorEpoch: 11)
         backfiller.begin(
@@ -1099,7 +1100,7 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
                 return true
             },
             beforeHistoricalCommit: { await gate.wait() },
-            extract: { _, _, _, _, _ in Streams() })
+            extract: { _, _, _, _, _, _ in Streams() })
         backfiller.begin(family: .whoop4, historicalCursorScope: scopeA)
 
         let suspendedChunk = Task { @MainActor in
@@ -1146,8 +1147,9 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
                 ackedAdmissions.append(admission)
                 return true
             },
-            extract: { _, _, _, _, _ in
-                Streams(hr: [HRSample(ts: 1_781_557_000, bpm: 60)])
+            extract: { _, family, _, _, _, _ in
+                XCTAssertEqual(family, .whoop5)
+                return Streams(hr: [HRSample(ts: 1_781_557_000, bpm: 60)])
             })
         let record = whoop5V18Frame(unix: 1_781_557_000)
         let end = whoop5HistoryEndFrame
@@ -1218,7 +1220,7 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
             ackTrim: { _, _, _ in false },
             isWhoop5AdmissionCurrent: { $0 == liveAdmission },
             ackTrimForWhoop5Admission: { _, _, _, _ in ackCount += 1; return true },
-            extract: { _, _, _, _, _ in Streams() })
+            extract: { _, _, _, _, _, _ in Streams() })
 
         XCTAssertFalse(backfiller.begin(
             family: .whoop5,

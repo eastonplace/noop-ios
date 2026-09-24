@@ -42,6 +42,19 @@ struct LiftMediaResolutionTests {
     #expect(UIImage(named: expectedAsset, in: LiftMedia.resourceBundle, compatibleWith: nil) != nil)
   }
 
+  @Test("Bench press retains original catalog metadata")
+  func benchMetadata() throws {
+    let source = try #require(LiftExerciseCatalog.records.first { $0.id == "0025" })
+    let exercise = source.liftExercise
+    #expect(exercise.name == "barbell bench press")
+    #expect(LiftMedia.imageName(for: exercise) == source.imageAssetName)
+    let record = try #require(LiftExerciseCatalog.metadata(for: exercise))
+    #expect(record.target == "pectorals")
+    #expect(record.bodyPart == "chest")
+    #expect(record.secondaryMuscles == ["triceps", "shoulders"])
+    #expect(record.instructionSteps?["en"]?.count == 7)
+  }
+
   @Test("Every seeded-routine exercise resolves to bundled artwork", arguments: [
     "Machine Chest Press",
     "Pull-Up",

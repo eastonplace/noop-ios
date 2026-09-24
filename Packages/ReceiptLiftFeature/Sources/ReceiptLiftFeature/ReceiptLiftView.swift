@@ -32,7 +32,7 @@ public struct ReceiptLiftView: View {
             }
             .task { await coordinator.load() }
             .onChange(of: scenePhase) { _, phase in
-                if phase == .background { coordinator.store.applicationDidEnterBackground() }
+                if phase == .background { coordinator.applicationDidEnterBackground() }
             }
     }
 }

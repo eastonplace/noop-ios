@@ -12,9 +12,11 @@ struct HistoryView: View {
   @State private var referenceNow = Date()
   @State private var showingExercisePicker = false
   @State private var selectedExerciseID: UUID?
+  private let progressOnly: Bool
 
-  init(selectedSegment: Binding<LiftHistorySegment>? = nil) {
+  init(selectedSegment: Binding<LiftHistorySegment>? = nil, progressOnly: Bool = false) {
     self.selectedSegment = selectedSegment
+    self.progressOnly = progressOnly
   }
 
   private var activeSegment: LiftHistorySegment {
@@ -40,13 +42,15 @@ struct HistoryView: View {
   var body: some View {
     ScrollView {
       LazyVStack(alignment: .leading, spacing: 0) {
-        ReceiptHeader(title: "History", subtitle: "Receipts and training progress")
+        ReceiptHeader(title: progressOnly ? "Progress" : "History", subtitle: "Receipts and training progress")
           .padding(.horizontal, 16)
           .padding(.top, 12)
 
-        historySegmentBar
-          .padding(.horizontal, 16)
-          .padding(.vertical, 12)
+        if !progressOnly {
+          historySegmentBar
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+        }
 
         ReceiptRule()
           .padding(.horizontal, 16)

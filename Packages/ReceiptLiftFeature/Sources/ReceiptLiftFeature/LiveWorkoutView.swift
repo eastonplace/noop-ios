@@ -417,7 +417,7 @@ struct LiveWorkoutView: View {
       case .history(let exerciseID):
         if store.exercise(for: exerciseID) != nil {
           NavigationStack {
-            ExerciseProgressView(exerciseID: exerciseID)
+            ExerciseProgressView(exerciseID: exerciseID, showsInformation: true)
             .environmentObject(store)
           }
           .presentationDetents([.large])
@@ -1019,6 +1019,7 @@ private struct ExerciseLogRow: View {
       HStack(alignment: .top, spacing: 12) {
         VStack(alignment: .leading, spacing: LiftDesignMetrics.Composer.restInlineSpacing) {
           composerIdentityAndTools
+          composerQuickActions
           composerInlineRest
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1026,6 +1027,7 @@ private struct ExerciseLogRow: View {
       }
       VStack(alignment: .leading, spacing: 10) {
         composerIdentityAndTools
+        composerQuickActions
         HStack(alignment: .top, spacing: 8) {
           composerInlineRest
           Spacer(minLength: 8)
@@ -1045,7 +1047,9 @@ private struct ExerciseLogRow: View {
 
   private var composerIdentityAndTools: some View {
     HStack(alignment: .top, spacing: 8) {
-      composerIdentity
+      Button { onPresentHistory(exercise) } label: { composerIdentity }
+        .buttonStyle(.plain)
+        .accessibilityHint("Opens exercise details and progress")
       Spacer(minLength: 4)
       composerToolsMenu
     }
@@ -1067,6 +1071,13 @@ private struct ExerciseLogRow: View {
 
   @ViewBuilder
   private var composerArtwork: some View {
+    Button { onPresentHistory(exercise) } label: { composerArtworkImage }
+      .buttonStyle(.plain)
+      .accessibilityLabel("View \(exercise.name) photo and muscles")
+  }
+
+  @ViewBuilder
+  private var composerArtworkImage: some View {
     if reduceMotion {
       LiftExerciseThumb(
         exercise: exercise,
@@ -1084,9 +1095,19 @@ private struct ExerciseLogRow: View {
     }
   }
 
+  private var composerQuickActions: some View {
+    HStack(spacing: 16) {
+      Button("Swap", systemImage: "arrow.triangle.2.circlepath") { onPresentSwap(exercise) }
+      Button("Superset", systemImage: "link") { onPresentSuperset(exercise) }
+    }
+    .font(.system(size: 13, weight: .semibold))
+    .tint(LiftTheme.accent)
+    .frame(minHeight: 44)
+  }
+
   private var composerToolsMenu: some View {
     Menu {
-      Button("Recent History", systemImage: "clock.arrow.circlepath") {
+      Button("Details & Progress", systemImage: "clock.arrow.circlepath") {
         onPresentHistory(exercise)
       }
       Button("Swap Exercise", systemImage: "arrow.triangle.2.circlepath") {

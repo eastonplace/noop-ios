@@ -34,7 +34,7 @@ final class DecoderGoldenTests: XCTestCase {
         // body 200b (ibi800, qualA1, qualB0 -> pass) ee42 (ibi750, qualB1 -> reject)
         let rec = record("800802000100200bee42")
         let ibis = OuraDecoders.decodeGreenIBIQuality(rec)
-        XCTAssertEqual(ibis, [OuraIBI(ringTimestamp: rt, ibiMs: 800)])
+        XCTAssertEqual(ibis, [OuraIBI(ringTimestamp: rt, ibiMs: 800, channel: .greenQuality)])
     }
 
     // MARK: - 0x60 IBI + amplitude (MSB-first bit-packed; n=7 -> shift 0)
@@ -44,7 +44,7 @@ final class DecoderGoldenTests: XCTestCase {
         let rec = record("6012020001007d10000000000000000000000007")
         let ibis = OuraDecoders.decodeIBIAmplitude(rec)
         XCTAssertNotNil(ibis)
-        XCTAssertEqual(ibis?.first, OuraIBI(ringTimestamp: rt, ibiMs: 1000, amplitude: 64))
+        XCTAssertEqual(ibis?.first, OuraIBI(ringTimestamp: rt, ibiMs: 1000, amplitude: 64, channel: .ibiAmplitude))
     }
 
     // MARK: - 0x6E SpO2 IBI (REVERSE byte order x8)
@@ -54,11 +54,11 @@ final class DecoderGoldenTests: XCTestCase {
         let rec = record("6e0a02000100000a141e2832")
         let ibis = OuraDecoders.decodeSpO2IBI(rec)
         XCTAssertEqual(ibis, [
-            OuraIBI(ringTimestamp: rt, ibiMs: 400),
-            OuraIBI(ringTimestamp: rt, ibiMs: 320),
-            OuraIBI(ringTimestamp: rt, ibiMs: 240),
-            OuraIBI(ringTimestamp: rt, ibiMs: 160),
-            OuraIBI(ringTimestamp: rt, ibiMs: 80),
+            OuraIBI(ringTimestamp: rt, ibiMs: 400, channel: .spo2Ibi),
+            OuraIBI(ringTimestamp: rt, ibiMs: 320, channel: .spo2Ibi),
+            OuraIBI(ringTimestamp: rt, ibiMs: 240, channel: .spo2Ibi),
+            OuraIBI(ringTimestamp: rt, ibiMs: 160, channel: .spo2Ibi),
+            OuraIBI(ringTimestamp: rt, ibiMs: 80, channel: .spo2Ibi),
         ])
     }
 

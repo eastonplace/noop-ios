@@ -4819,7 +4819,7 @@ public final class BLEManager: NSObject, ObservableObject {
 
     /// Parse a standard BLE Heart Rate Measurement (0x2A37) via the pure StandardHeartRate parser.
     private func parseStandardHR(_ data: [UInt8]) {
-        guard let m = StandardHeartRate.parse(data) else {
+        guard let m = StandardHeartRate.parse(data, family: selectedModel.deviceFamily) else {
             log("HR notify parse failed: \(hex(data))")
             return
         }
@@ -4842,7 +4842,11 @@ public final class BLEManager: NSObject, ObservableObject {
             if state.heartRate != m.hr { state.heartRate = m.hr }
         }
         // Record it continuously — independent of the realtime stream or the open screen.
-        collector?.ingestStandardHR(hr: m.hr, rr: m.rr, at: Int(Date().timeIntervalSince1970))
+        collector?.ingestStandardHR(
+            hr: m.hr,
+            rr: m.rr,
+            at: Int(Date().timeIntervalSince1970),
+            source: .standard(for: selectedModel.deviceFamily))
     }
 }
 

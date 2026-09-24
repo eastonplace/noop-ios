@@ -138,12 +138,7 @@ extension WhoopStore {
 
     public func rrIntervals(deviceId: String, from: Int, to: Int, limit: Int) async throws -> [RRInterval] {
         try syncRead { db in
-            try Row.fetchAll(db, sql: """
-                SELECT ts, rrMs FROM rrInterval
-                WHERE deviceId = ? AND ts >= ? AND ts <= ?
-                ORDER BY ts ASC, seq ASC LIMIT ?
-                """, arguments: [deviceId, from, to, limit])
-                .map { RRInterval(ts: $0["ts"], rrMs: $0["rrMs"]) }
+            try RRReadPolicy.read(db: db, deviceId: deviceId, from: from, to: to, limit: limit)
         }
     }
 

@@ -22,7 +22,12 @@ final class NoopReceiptLiftIntegration: ObservableObject {
         // A source switch must never reattribute an in-progress workout.
         guard coordinator?.hasActiveSession != true else { return }
         selecting = true
-        defer { selecting = false }
+        defer {
+            selecting = false
+            if model.repo.deviceId != source {
+                Task { [weak self] in await self?.selectCurrentSource() }
+            }
+        }
         guard let store = await model.repo.storeHandle() else {
             error = "Your workout log is unavailable. Try again when NOOP finishes opening its database."
             return
@@ -32,24 +37,24 @@ final class NoopReceiptLiftIntegration: ObservableObject {
         catch { self.error = "Couldn’t open this source’s workout log: \(error.localizedDescription)"; return }
         let feature = ReceiptLiftCoordinator(
             load: { try await store.loadReceiptLiftState(sourceOwner: sourceOwner) },
-            save: { data, workouts in
+            save: { [weak model] data, workouts in
                 let payload = NoopReceiptLiftPayload.make(owner: source, workouts: workouts)
                 try await store.saveReceiptLiftStateAndWorkout(sourceOwner: sourceOwner, data: data,
                     sessions: payload.sessions, sets: payload.sets, workouts: payload.workouts)
                 if !workouts.isEmpty {
-                    await MainActor.run {
-                        Task { @MainActor [weak model] in
+                    Task { @MainActor [weak model] in
                             guard let model, model.repo.deviceId == source else { return }
                             await model.intelligence.analyzeRecent(maxDays: 1, startOffset: 0, refreshRepository: true)
                             _ = await model.repo.refresh(.currentDay)
-                        }
                     }
                 }
             }, canStart: { [weak model] in model?.activeWorkout == nil })
+        guard model.repo.deviceId == source else { return }
         owner = source
         coordinator = feature
         error = nil
         await feature.load()
+        guard coordinator === feature else { return }
         observation = feature.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
     }
 
@@ -62,12 +67,27 @@ final class NoopReceiptLiftIntegration: ObservableObject {
     }
 }
 
-private enum NoopReceiptLiftPayload {
+enum NoopReceiptLiftPayload {
     struct Rows {
         var sessions: [LiftSessionRow] = []
         var sets: [LiftSetRow] = []
         var workouts: [WorkoutRow] = []
     }
+    // Only map catalog labels that have an exact counterpart. Broad labels such as
+    // shoulders and legs must not invent a more specific muscle attribution.
+    static func muscle(_ label: String) -> LiftMuscle? {
+        if let exact = LiftMuscle(rawValue: label) { return exact }
+        switch label.lowercased() {
+        case "pectorals": return .chest
+        case "upper back": return .upperBack
+        case "lower back", "spine": return .lowerBack
+        case "quadriceps": return .quads
+        case "abdominals": return .abs
+        case "levator scapulae": return .neck
+        default: return nil
+        }
+    }
+
     static func make(owner: String, workouts: [ReceiptLiftWorkout]) -> Rows {
         var result = Rows()
         for workout in workouts {
@@ -81,7 +101,8 @@ private enum NoopReceiptLiftPayload {
                 avgHr: nil, maxHr: nil, strain: nil, distanceM: nil, zonesJSON: nil, notes: workout.title))
             result.sets += workout.sets.enumerated().map { index, set in
                 LiftSetRow(id: set.id, deviceId: owner, sessionId: workout.id, ord: index,
-                    exercise: set.exercise, primaryMuscle: nil, secondaryMuscles: [], setIndex: set.setIndex,
+                    exercise: set.exercise, primaryMuscle: muscle(set.muscleGroup),
+                    secondaryMuscles: set.secondaryMuscles.compactMap(muscle), setIndex: set.setIndex,
                     weightKg: set.weightKg, reps: set.reps, rpe: set.rpe, isWarmup: set.isWarmup,
                     startTs: Int(set.completedAt.timeIntervalSince1970), endTs: Int(set.completedAt.timeIntervalSince1970), restSec: nil, note: set.note)
             }

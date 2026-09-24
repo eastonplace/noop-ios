@@ -1025,6 +1025,9 @@ extension WhoopStore {
         PR37V54Migrations.register(on: &migrator)
         PR37V55Migrations.register(on: &migrator)
         PR37V56Migrations.register(on: &migrator)
+        RRSourceMigration.register(on: &migrator)
+        LiftLogMigration.register(on: &migrator)
+        LiftReceiptStateMigration.register(on: &migrator)
         return migrator
     }
 }

@@ -8,18 +8,7 @@ struct LiftLogView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        Group {
-            if let coordinator = lift.coordinator {
-                ReceiptLiftView(coordinator: coordinator)
-            } else if let error = lift.error {
-                ContentUnavailableView {
-                    Label("Lift is unavailable", systemImage: "dumbbell")
-                } description: { Text(error) } actions: {
-                    Button("Try again") { Task { await lift.selectCurrentSource() } }
-                }
-            } else { ProgressView("Opening your workout log…") }
-        }
-        .safeAreaInset(edge: .top, spacing: 0) {
+        VStack(spacing: 0) {
             HStack {
                 Text("NOOP / LIFT").font(.caption.weight(.semibold)).tracking(1)
                 Spacer()
@@ -28,6 +17,7 @@ struct LiftLogView: View {
             }
             .foregroundStyle(StrandPalette.textSecondary)
             .padding(.horizontal, 20).background(StrandPalette.appCanvas)
+            content
         }
         .overlay(alignment: .bottom) {
             if lift.owner != repo.deviceId, lift.coordinator?.hasActiveSession == true {
@@ -37,6 +27,18 @@ struct LiftLogView: View {
             }
         }
         .task { await lift.selectCurrentSource() }
+    }
+
+    @ViewBuilder private var content: some View {
+        if let coordinator = lift.coordinator {
+            ReceiptLiftView(coordinator: coordinator)
+        } else if let error = lift.error {
+            ContentUnavailableView {
+                Label("Lift is unavailable", systemImage: "dumbbell")
+            } description: { Text(error) } actions: {
+                Button("Try again") { Task { await lift.selectCurrentSource() } }
+            }
+        } else { ProgressView("Opening your workout log…").frame(maxHeight: .infinity) }
     }
 }
 

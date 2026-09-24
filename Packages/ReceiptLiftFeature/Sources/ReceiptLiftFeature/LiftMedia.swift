@@ -36,7 +36,7 @@ enum LiftMedia {
   ]
 
   static func imageName(for exercise: LiftExercise) -> String? {
-    imageName(forName: exercise.name)
+    LiftExerciseCatalog.record(forID: exercise.id)?.imageAssetName ?? imageName(forName: exercise.name)
   }
 
   static func imageName(forName name: String) -> String? {

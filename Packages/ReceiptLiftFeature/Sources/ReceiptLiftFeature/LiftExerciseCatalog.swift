@@ -9,6 +9,9 @@ enum LiftExerciseCatalog {
     var instructions: [String: String]
     var target: String
     var image: String?
+    var secondaryMuscles: [String]?
+    var instructionSteps: [String: [String]]?
+    var category: String?
 
     enum CodingKeys: String, CodingKey {
       case id
@@ -18,6 +21,9 @@ enum LiftExerciseCatalog {
       case instructions
       case target
       case image
+      case secondaryMuscles = "secondary_muscles"
+      case instructionSteps = "instruction_steps"
+      case category
     }
 
     var imageAssetName: String? {
@@ -60,6 +66,23 @@ enum LiftExerciseCatalog {
       result[normalizedName(exercise.name)] = asset
     }
   }()
+
+  private static let recordsByID: [UUID: SourceExercise] = Dictionary(
+    uniqueKeysWithValues: records.map { ($0.liftExercise.id, $0) }
+  )
+
+  private static let recordsByAsset: [String: SourceExercise] = records.reduce(into: [:]) { result, record in
+    if let asset = record.imageAssetName { result[asset] = record }
+  }
+
+  static func record(forID id: UUID) -> SourceExercise? { recordsByID[id] }
+
+  static func metadata(for exercise: LiftExercise) -> SourceExercise? {
+    if let record = record(forID: exercise.id) { return record }
+    // Preserve Lift Receipt's existing starter-routine mappings and saved custom exercises.
+    guard let asset = LiftMedia.imageName(forName: exercise.name) else { return nil }
+    return recordsByAsset[asset]
+  }
 
   static func catalogExercises() -> [LiftExercise] {
     cachedExercises

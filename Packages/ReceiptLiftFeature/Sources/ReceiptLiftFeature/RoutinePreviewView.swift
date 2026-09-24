@@ -1,4 +1,5 @@
 import SwiftUI
+import StrandDesign
 
 struct RoutinePreviewView: View {
   @EnvironmentObject private var store: LiftStore
@@ -19,10 +20,6 @@ struct RoutinePreviewView: View {
     self.onCancel = onCancel
   }
 
-  private var receiptNumber: String {
-    String(format: "#%05d", store.sessions.count + 1)
-  }
-
   private var rows: [RoutinePreviewRow] {
     RoutinePreviewRow.rows(for: routine, exercises: store.exercises)
   }
@@ -30,7 +27,6 @@ struct RoutinePreviewView: View {
   var body: some View {
     RoutinePreviewContent(
       routine: routine,
-      receiptNumber: receiptNumber,
       rows: rows,
       estimatedMinutes: store.estimatedMinutes(for: routine),
       onBegin: {
@@ -44,10 +40,7 @@ struct RoutinePreviewView: View {
 }
 
 private struct RoutinePreviewContent: View {
-  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-
   let routine: LiftRoutine
-  let receiptNumber: String
   let rows: [RoutinePreviewRow]
   let estimatedMinutes: Int
   let onBegin: () -> Void
@@ -55,86 +48,122 @@ private struct RoutinePreviewContent: View {
 
   var body: some View {
     ScrollView {
-      ReceiptSheet {
-        ReceiptHeader(
-          title: routine.name,
-          subtitle: "Routine preview",
-          trailing: receiptNumber
-        )
-
-        ReceiptDashedRule()
-        ReceiptSectionLabel(title: "Workout Plan")
-
-        if rows.isEmpty {
-          ReceiptLine(
-            index: nil,
-            title: "No exercises planned",
-            detail: "This routine will begin with an empty receipt.",
-            value: "—"
-          )
-        } else {
-          ForEach(rows) { row in
-            ReceiptLine(
-              index: row.index,
-              title: row.title,
-              detail: row.detail,
-              value: row.prescription,
-              thumb: row.exercise
-            )
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(row.accessibilityLabel)
-
-            if !row.isLast {
-              ReceiptDashedRule()
-            }
+      VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
+        VStack(alignment: .leading, spacing: 8) {
+          Label("Strength training", systemImage: "dumbbell.fill")
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(StrandPalette.accent)
+          Text(routine.name)
+            .font(.largeTitle.weight(.bold))
+            .foregroundStyle(StrandPalette.textPrimary)
+          if !routine.notes.isEmpty {
+            Text(routine.notes)
+              .font(.subheadline)
+              .foregroundStyle(StrandPalette.textSecondary)
           }
         }
 
-        ReceiptTotals(rows: [
-          ("Estimated", estimatedMinutes > 0 ? "~\(estimatedMinutes) min" : "—")
-        ])
+        NoopCard {
+          HStack(spacing: 24) {
+            summaryMetric("Exercises", value: "\(rows.count)", symbol: "square.stack.3d.up")
+            Divider().overlay(StrandPalette.cardBorder)
+            summaryMetric("Estimated time", value: estimatedMinutes > 0 ? "\(estimatedMinutes) min" : "—", symbol: "clock")
+          }
+          .fixedSize(horizontal: false, vertical: true)
+        }
 
-        actions
+        VStack(alignment: .leading, spacing: 12) {
+          HStack {
+            Text("Workout plan").font(.headline)
+            Spacer()
+            Text("\(rows.count) exercises").font(.subheadline).foregroundStyle(StrandPalette.textSecondary)
+          }
+          if rows.isEmpty {
+            NoopCard {
+              Text("Add exercises during your workout.")
+                .font(.body).foregroundStyle(StrandPalette.textSecondary)
+            }
+          } else {
+            ForEach(rows) { row in
+              NavigationLink {
+                if let exercise = row.exercise {
+                  ExerciseProgressView(exerciseID: exercise.id, showsInformation: true)
+                }
+              } label: {
+                NoopCard {
+                  HStack(alignment: .top, spacing: 14) {
+                    if let exercise = row.exercise {
+                      LiftExerciseThumb(exercise: exercise, size: 64, showsBorder: false)
+                        .clipShape(.rect(cornerRadius: 10))
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                      Text(row.title.capitalized)
+                        .font(.headline)
+                        .foregroundStyle(StrandPalette.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                      if let exercise = row.exercise {
+                        Text("\(exercise.muscleGroup.capitalized) · \(exercise.equipment.capitalized)")
+                          .font(.subheadline).foregroundStyle(StrandPalette.textSecondary)
+                      }
+                      if let plan = row.plan {
+                        Text("\(plan.sets) sets × \(plan.reps) reps")
+                          .font(.subheadline.weight(.semibold)).foregroundStyle(StrandPalette.accent)
+                        Text(row.detail)
+                          .font(.caption).foregroundStyle(StrandPalette.textSecondary)
+                      }
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                      .font(.caption.weight(.semibold)).foregroundStyle(StrandPalette.textSecondary)
+                      .padding(.top, 4)
+                  }
+                }
+              }
+              .buttonStyle(.plain)
+              .disabled(row.exercise == nil)
+              .accessibilityLabel(row.accessibilityLabel)
+              .accessibilityHint("Opens exercise photo, muscles, instructions, and progress")
+            }
+          }
+        }
       }
-      .padding(.bottom, 24)
+      .padding(NoopMetrics.screenPadding)
     }
     .scrollIndicators(.hidden)
     .navigationBarBackButtonHidden(true)
-    .liftScreenBackground()
-  }
-
-  @ViewBuilder
-  private var actions: some View {
-    if dynamicTypeSize.isAccessibilitySize {
-      VStack(spacing: 10) {
-        beginButton
-        cancelButton
-      }
-    } else {
-      HStack(spacing: 10) {
-        cancelButton
-        beginButton
+    .toolbar(.visible, for: .navigationBar)
+    .toolbar {
+      ToolbarItem(placement: .topBarLeading) {
+        Button(action: onCancel) { Label("Back", systemImage: "chevron.left") }
+          .tint(StrandPalette.textSecondary)
       }
     }
+    .safeAreaInset(edge: .bottom) {
+      Button(action: onBegin) {
+        Label("Start workout", systemImage: "play.fill")
+          .font(.headline)
+          .frame(maxWidth: .infinity, minHeight: 52)
+          .foregroundStyle(LiftTheme.onAccent)
+          .background(StrandPalette.accent, in: .rect(cornerRadius: NoopMetrics.cardRadius))
+      }
+      .buttonStyle(.plain)
+      .padding(.horizontal, NoopMetrics.screenPadding)
+      .padding(.vertical, 12)
+      .background(StrandPalette.appCanvas)
+    }
+    .background(StrandPalette.appCanvas.ignoresSafeArea())
   }
 
-  private var cancelButton: some View {
-    ReceiptSecondaryButton(
-      title: "Cancel",
-      systemImage: "xmark",
-      tint: LiftTheme.ink,
-      fillsWidth: true,
-      action: onCancel
-    )
+  private func summaryMetric(_ label: String, value: String, symbol: String) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Label(label, systemImage: symbol)
+        .font(.caption).foregroundStyle(StrandPalette.textSecondary)
+      Text(value).font(.title2.weight(.semibold)).monospacedDigit()
+        .foregroundStyle(StrandPalette.textPrimary)
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
   }
 
-  private var beginButton: some View {
-    ReceiptPrimaryButton(
-      title: "Begin Workout",
-      systemImage: "play.fill",
-      action: onBegin
-    )
-  }
 }
 
 private struct RoutinePreviewRow: Identifiable {
@@ -278,7 +307,6 @@ private enum RoutinePreviewFixtures {
   ) -> some View {
     RoutinePreviewContent(
       routine: routine,
-      receiptNumber: "#00042",
       rows: RoutinePreviewRow.rows(for: routine, exercises: exercises),
       estimatedMinutes: LiftStore.estimatedMinutes(
         plans: routine.exercisePlans ?? [],

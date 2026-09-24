@@ -10,14 +10,86 @@ public struct HRSample: Equatable, Codable, Sendable {
     public init(ts: Int, bpm: Int) { self.ts = ts; self.bpm = bpm }
 }
 
+/// Provenance for a persisted R-R interval. The label is metadata only: the physiological value remains
+/// `rrMs`, while the store/read policy uses provenance to collapse duplicate beats from the WHOOP 5
+/// standard profile and proprietary realtime/history paths without discarding legacy rows.
+public enum RRSource: String, Codable, Sendable, CaseIterable {
+    /// Rows written before source labeling was introduced, including imported/legacy HRV data.
+    case legacy = "legacy"
+    /// WHOOP 4.0 proprietary realtime stream (REALTIME_DATA, type 40).
+    case whoop4Realtime = "whoop4_realtime"
+    /// WHOOP 4.0 historical stream (REALTIME_RAW_DATA, type 43).
+    case whoop4Historical = "whoop4_historical"
+    /// WHOOP 5.0/MG proprietary realtime stream (REALTIME_DATA, type 40).
+    case whoop5Realtime = "whoop5_realtime"
+    /// WHOOP 5.0/MG historical stream (HISTORICAL_DATA, type 47).
+    case whoop5Historical = "whoop5_historical"
+    /// WHOOP 4.0 standard Heart Rate Measurement characteristic (0x2A37).
+    case whoop4Standard = "whoop4_standard_2a37"
+    /// WHOOP 5.0/MG standard Heart Rate Measurement characteristic (0x2A37).
+    case whoop5Standard = "whoop5_standard_2a37"
+    /// A non-WHOOP standard BLE heart-rate source.
+    case standardBLE = "standard_ble"
+    case ouraGreenQuality = "oura_green_quality"
+    case ouraSpO2 = "oura_spo2"
+    case ouraAmplitude = "oura_amplitude"
+    case ouraBare = "oura_bare"
+
+    public static func legacyChannel(_ channel: Int?) -> RRSource {
+        switch channel {
+        case 1: return .ouraGreenQuality
+        case 2: return .ouraSpO2
+        case 3: return .ouraAmplitude
+        case 4: return .ouraBare
+        case 5: return .whoop5Historical
+        case 6: return .whoop5Realtime
+        case 7: return .whoop5Standard
+        default: return .legacy
+        }
+    }
+
+    public static func realtime(for family: DeviceFamily) -> RRSource {
+        family == .whoop5 ? .whoop5Realtime : .whoop4Realtime
+    }
+
+    public static func historical(for family: DeviceFamily) -> RRSource {
+        family == .whoop5 ? .whoop5Historical : .whoop4Historical
+    }
+
+    public static func standard(for family: DeviceFamily) -> RRSource {
+        family == .whoop5 ? .whoop5Standard : .whoop4Standard
+    }
+}
+
 public struct RRInterval: Equatable, Codable, Sendable {
     public let ts: Int          // wall-clock unix seconds
     public let rrMs: Int
+    /// Which transport produced this interval. Missing legacy payloads decode as `.legacy`.
+    public let source: RRSource
     /// Stable order within all intervals sharing `ts`. Parsers set this from source-array order;
     /// callers that omit it retain source order through the store's deterministic batch fallback.
     public let sourceOrdinal: Int?
-    public init(ts: Int, rrMs: Int, sourceOrdinal: Int? = nil) {
-        self.ts = ts; self.rrMs = rrMs; self.sourceOrdinal = sourceOrdinal
+    public init(ts: Int, rrMs: Int, sourceOrdinal: Int? = nil, source: RRSource = .legacy) {
+        self.ts = ts; self.rrMs = rrMs; self.source = source; self.sourceOrdinal = sourceOrdinal
+    }
+
+    private enum CodingKeys: String, CodingKey { case ts, rrMs, source, sourceOrdinal }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        ts = try c.decode(Int.self, forKey: .ts)
+        rrMs = try c.decode(Int.self, forKey: .rrMs)
+        sourceOrdinal = try c.decodeIfPresent(Int.self, forKey: .sourceOrdinal)
+        let rawSource = try c.decodeIfPresent(String.self, forKey: .source)
+        source = RRSource(rawValue: rawSource ?? "") ?? .legacy
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(ts, forKey: .ts)
+        try c.encode(rrMs, forKey: .rrMs)
+        try c.encode(source, forKey: .source)
+        try c.encodeIfPresent(sourceOrdinal, forKey: .sourceOrdinal)
     }
 
     /// Storage ordering metadata is deliberately excluded from value equality. Existing decode
@@ -344,13 +416,15 @@ private func toWall(_ deviceTs: Int?, _ deviceClockRef: Int, _ wallClockRef: Int
 /// carries an HR byte but streams alongside type-40 during raw collection, so routing both
 /// would double-count HR for the same instants. CRC-failed and non-ok frames are skipped.
 public func extractStreams(_ parsed: [ParsedFrame],
+                           family: DeviceFamily = .whoop4,
                            deviceClockRef: Int, wallClockRef: Int) -> Streams {
     var out = Streams()
     var nextRrOrdinalByTs: [Int: Int] = [:]
     func appendRR(_ values: [Int], at ts: Int) {
         var ordinal = nextRrOrdinalByTs[ts, default: 0]
         for value in values {
-            out.rr.append(RRInterval(ts: ts, rrMs: value, sourceOrdinal: ordinal))
+            out.rr.append(RRInterval(ts: ts, rrMs: value, sourceOrdinal: ordinal,
+                                     source: .realtime(for: family)))
             ordinal += 1
         }
         nextRrOrdinalByTs[ts] = ordinal
