@@ -5,6 +5,26 @@ import Foundation
 /// the parsing/clamping logic is covered by `swift test` — HealthKit itself can't be unit-tested.
 public enum HealthWriteback {
 
+    /// The source statistic must be explicit before it can be written to HealthKit.
+    ///
+    /// `WhoopStore.DailyMetric.avgHrv` is RMSSD in the custom fork. RMSSD and SDNN are
+    /// different HRV measures, so the bridge must never relabel one as the other. A future
+    /// importer that has a genuine SDNN value can pass `.sdnn` explicitly.
+    public enum HrvExportValue: Equatable, Sendable {
+        case rmssd(Double)
+        case sdnn(Double)
+    }
+
+    /// Return a value only when the source is explicitly SDNN.
+    ///
+    /// The result is in milliseconds, ready for `HKUnit.secondUnit(with: .milli)`.
+    public static func sdnnMilliseconds(from value: HrvExportValue) -> Double? {
+        guard case let .sdnn(milliseconds) = value,
+              milliseconds.isFinite,
+              milliseconds >= 0 else { return nil }
+        return milliseconds
+    }
+
     /// A HealthKit-agnostic sleep stage. The bridge maps these onto `HKCategoryValueSleepAnalysis`
     /// (`awake → .awake`, `light → .asleepCore`, `deep → .asleepDeep`, `rem → .asleepREM`,
     /// `unspecified → .asleepUnspecified` — the honest block for a fragment whose `stagesJSON`

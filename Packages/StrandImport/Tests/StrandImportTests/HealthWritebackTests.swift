@@ -183,4 +183,20 @@ final class HealthWritebackTests: XCTestCase {
         XCTAssertEqual(plan[0].allKeyStartTs, [t, t + 600])
         XCTAssertEqual(plan[0].intervals, [.init(start: t + 600, end: t + 7_200, kind: .unspecified)])
     }
+
+    // MARK: - HRV export policy
+
+    func testRMSSDIsNeverReturnedAsSDNN() {
+        XCTAssertNil(HealthWriteback.sdnnMilliseconds(from: .rmssd(64)))
+    }
+
+    func testOnlyExplicitSDNNCanBeExported() {
+        XCTAssertEqual(HealthWriteback.sdnnMilliseconds(from: .sdnn(88.4)), 88.4)
+    }
+
+    func testInvalidSDNNValuesAreRejected() {
+        XCTAssertNil(HealthWriteback.sdnnMilliseconds(from: .sdnn(.nan)))
+        XCTAssertNil(HealthWriteback.sdnnMilliseconds(from: .sdnn(.infinity)))
+        XCTAssertNil(HealthWriteback.sdnnMilliseconds(from: .sdnn(-0.1)))
+    }
 }

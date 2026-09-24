@@ -1037,7 +1037,7 @@ final class HealthKitBridge: ObservableObject {
             let scan = try await anchorPager.scan(
                 type: type,
                 predicate: Self.notNoopAuthored,
-                priorAnchor: priorAnchor,
+                anchor: priorAnchor,
                 handlePage: { [appleDeviceId] page in
                     let sampleIDs = page.samples.map { $0.uuid.uuidString }
                     let historical = try await cache.healthKitObjectIdentities(
@@ -1939,6 +1939,7 @@ final class HealthKitBridge: ObservableObject {
             let sample: HKQuantitySample
         }
         var candidates: [Candidate] = []
+        var staleKeysByType: [HKQuantityType: Set<String>] = [:]
         func add(_ id: HKQuantityTypeIdentifier, _ unit: HKUnit, _ value: Double, _ day: String, _ at: Date) {
             guard let type = HKQuantityType.quantityType(forIdentifier: id),
                   store.authorizationStatus(for: type) == .sharingAuthorized else { return }
@@ -1960,8 +1961,19 @@ final class HealthKitBridge: ObservableObject {
             if let rhr = row.restingHr {
                 add(.restingHeartRate, HKUnit.count().unitDivided(by: .minute()), Double(rhr), row.day, at)
             }
+            // `avgHrv` is RMSSD. Keep the old exact key in the delete set so a previous incorrect
+            // export is retracted, including when today's source row no longer has HRV, but never
+            // publish RMSSD under SDNN.
+            if let sdnnType = HKQuantityType.quantityType(forIdentifier: .heartRateVariabilitySDNN),
+               store.authorizationStatus(for: sdnnType) == .sharingAuthorized {
+                staleKeysByType[sdnnType, default: []].insert(
+                    "noop:\(noopDeviceId):\(HKQuantityTypeIdentifier.heartRateVariabilitySDNN.rawValue):\(row.day)"
+                )
+            }
             if let hrv = row.avgHrv {
-                add(.heartRateVariabilitySDNN, .secondUnit(with: .milli), hrv, row.day, at)
+                if let sdnn = HealthWriteback.sdnnMilliseconds(from: .rmssd(hrv)) {
+                    add(.heartRateVariabilitySDNN, .secondUnit(with: .milli), sdnn, row.day, at)
+                }
             }
             if let spo2 = row.spo2Pct {
                 add(.oxygenSaturation, .percent(), spo2 / 100, row.day, at)
@@ -1970,11 +1982,14 @@ final class HealthKitBridge: ObservableObject {
                 add(.respiratoryRate, HKUnit.count().unitDivided(by: .minute()), rr, row.day, at)
             }
         }
-        guard !candidates.isEmpty else { return }
+        guard !candidates.isEmpty || !staleKeysByType.isEmpty else { return }
+        let fingerprintFields = candidates.map {
+            "\($0.key)|\($0.value)|\(Int($0.at.timeIntervalSince1970))"
+        } + staleKeysByType.values.flatMap { keys in
+            keys.sorted().map { "delete|\($0)" }
+        }
         let fingerprint = HealthKitWritebackFingerprint.fingerprint(
-            candidates.sorted { $0.key < $1.key }.map {
-                "\($0.key)|\($0.value)|\(Int($0.at.timeIntervalSince1970))"
-            })
+            fingerprintFields.sorted())
         guard HealthKitWritebackFingerprint.shouldWrite(.vitals, fingerprint: fingerprint) else { return }
 
         // Delete any of OUR prior samples that carry the same metadata keys, then write the fresh
@@ -1983,10 +1998,13 @@ final class HealthKitBridge: ObservableObject {
         // to delete on first run) — only the save throws.
         let bySource = HKQuery.predicateForObjects(from: HKSource.default())
         let grouped = Dictionary(grouping: candidates, by: { $0.type })
+        var keysByType = staleKeysByType
         for (type, items) in grouped {
-            let keys = Array(Set(items.map { $0.key }))
+            keysByType[type, default: []].formUnion(items.map { $0.key })
+        }
+        for (type, keys) in keysByType {
             let byKey = HKQuery.predicateForObjects(withMetadataKey: HKMetadataKeyExternalUUID,
-                                                    allowedValues: keys)
+                                                    allowedValues: Array(keys))
             let pred = NSCompoundPredicate(andPredicateWithSubpredicates: [bySource, byKey])
             _ = try await self.store.deleteObjects(of: type, predicate: pred)
             try Task.checkCancellation()

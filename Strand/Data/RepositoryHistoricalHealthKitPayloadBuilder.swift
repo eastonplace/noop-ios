@@ -3,6 +3,7 @@
 import Foundation
 import NoopPhase34Core
 import WhoopStore
+import StrandImport
 
 enum RepositoryHistoricalHealthKitPayloadBuilder {
     struct Input: Sendable {
@@ -46,7 +47,13 @@ enum RepositoryHistoricalHealthKitPayloadBuilder {
             let importedRow = imported[day.key]?.metric
             let computedRow = computed[day.key]?.metric
             let rhr = importedRow?.restingHr ?? computedRow?.restingHr
-            let hrv = importedRow?.avgHrv ?? computedRow?.avgHrv
+            // `avgHrv` is RMSSD in the custom schema. There is no persisted SDNN source here,
+            // so the immutable historical payload must leave HRV empty rather than relabel RMSSD
+            // as SDNN. The exact writer still deletes the old NOOP-owned SDNN key for this day.
+            let sourceHrv = importedRow?.avgHrv ?? computedRow?.avgHrv
+            let sdnn = sourceHrv.flatMap {
+                HealthWriteback.sdnnMilliseconds(from: .rmssd($0))
+            }
             let spo2 = importedRow?.spo2Pct ?? computedRow?.spo2Pct
             let respiration = importedRow?.respRateBpm ?? computedRow?.respRateBpm
             // Every changed day is an authoritative replacement scope.  Keep a
@@ -55,7 +62,7 @@ enum RepositoryHistoricalHealthKitPayloadBuilder {
                 day: day,
                 wakeTimestamp: wakeByDay[day.key],
                 restingHR: rhr,
-                hrvMilliseconds: hrv,
+                hrvMilliseconds: sdnn,
                 oxygenSaturationPercent: spo2,
                 respiratoryRate: respiration
             )
