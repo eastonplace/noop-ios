@@ -28,7 +28,7 @@ struct ScheduleView: View {
           }
         }
       }
-      .padding(.bottom, 72)
+      .padding(.bottom, 24)
     }
     .scrollIndicators(.hidden)
     .background(LiftTheme.paper.ignoresSafeArea())

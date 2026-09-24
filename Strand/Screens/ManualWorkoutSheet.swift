@@ -359,11 +359,16 @@ struct StartWorkoutSheet: View {
 
     var body: some View {
         Group {
-            if isWorkoutStart { paperWorkoutStart }
+            if isWorkoutStart && showsStrengthFlow {
+                LiftLogView(onBack: { showsStrengthFlow = false })
+            }
+            else if isWorkoutStart { paperWorkoutStart }
             else { compactSportPicker }
         }
         .task(id: repo.refreshSeq) { recentRows = await repo.workoutRows(days: 365) }
     }
+
+    @State private var showsStrengthFlow = false
 
     private var paperWorkoutStart: some View {
         ScrollView {
@@ -396,6 +401,12 @@ struct StartWorkoutSheet: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("Choose workout type")
                 }
+
+                NoopButton("Lift weights", systemImage: "dumbbell.fill", kind: .primary) {
+                    showsStrengthFlow = true
+                }
+                Text("Choose a routine and track sets, reps and weight.")
+                    .font(.subheadline).foregroundStyle(StrandPalette.textSecondary)
 
                 HStack(alignment: .top, spacing: 10) {
                     VStack(alignment: .leading, spacing: 3) {

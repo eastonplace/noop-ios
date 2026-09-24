@@ -11,7 +11,7 @@ struct SettingsView: View {
       ScrollView {
         ReceiptSheet {
           HStack(alignment: .top) {
-            ReceiptHeader(title: "Settings", subtitle: "Lift Receipt")
+            ReceiptHeader(title: "Lift settings", subtitle: "Rest, feedback and workout exports")
             Spacer()
             Button("DONE") { dismiss() }
               .font(.receipt(10, weight: .black))

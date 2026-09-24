@@ -5,13 +5,16 @@ public struct ReceiptLiftView: View {
     @ObservedObject private var coordinator: ReceiptLiftCoordinator
     @Environment(\.scenePhase) private var scenePhase
 
-    public init(coordinator: ReceiptLiftCoordinator) {
+    private let destination: LiftDestination
+
+    public init(coordinator: ReceiptLiftCoordinator, destination: LiftDestination = .start) {
+        self.destination = destination
         self.coordinator = coordinator
     }
 
     public var body: some View {
         Group {
-            if coordinator.store.isLoaded { LiftRootView() }
+            if coordinator.store.isLoaded { LiftRootView(destination: destination) }
             else if let error = coordinator.saveError {
                 ContentUnavailableView {
                     Label("Couldn’t open Lift", systemImage: "dumbbell")

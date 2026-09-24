@@ -406,7 +406,7 @@ struct StrandiOSApp: App {
                    CommandLine.arguments.indices.contains(previewIndex + 1) {
                     ReceiptLiftPreviewView(screen: CommandLine.arguments[previewIndex + 1])
                 } else if AppleDemoSeeder.requested && CommandLine.arguments.contains("--noop-lift-integration-qa") {
-                    LiftLogView()
+                    NavigationStack { WorkoutsView() }
                 } else if workoutRefinementQARequested {
                     workoutRefinementQARoute
                 } else if let component41Shot = Component41QAShot.requestedKind {

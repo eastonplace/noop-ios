@@ -1,4 +1,5 @@
 import SwiftUI
+import StrandDesign
 
 enum LiftTab: String, CaseIterable, Identifiable {
   case today
@@ -27,9 +28,17 @@ enum LiftTab: String, CaseIterable, Identifiable {
   }
 }
 
+public enum LiftDestination: String, Identifiable {
+  case start, history, progress, routines
+  public var id: String { rawValue }
+}
+
 struct LiftRootView: View {
+  let destination: LiftDestination
+  init(destination: LiftDestination = .start) { self.destination = destination }
   @EnvironmentObject private var store: LiftStore
-  @State private var selectedTab: LiftTab = .today
+  @State private var showsCompletedHistory = false
+  @State private var showsSettings = false
   @State private var previewRoutine: LiftRoutine?
   @State private var isWorkoutPresented = false
   @State private var printedSession: LiftSession?
@@ -37,32 +46,21 @@ struct LiftRootView: View {
 
   var body: some View {
     NavigationStack {
-      ZStack(alignment: .bottom) {
-        Group {
-          switch selectedTab {
-          case .today:
-            TodayView(
-              onStartRoutine: presentPreview,
-              onOpenLift: startOpenLift,
-              onResumeWorkout: { isWorkoutPresented = true }
-            )
+      Group {
+        if showsCompletedHistory {
+          HistoryView(selectedSegment: $selectedHistorySegment)
+        } else {
+          switch destination {
+          case .start:
+            workoutPicker
           case .history:
             HistoryView(selectedSegment: $selectedHistorySegment)
           case .progress:
             HistoryView(selectedSegment: .constant(.progress), progressOnly: true)
-          case .schedule:
+          case .routines:
             ScheduleView(onStartRoutine: presentPreview)
           }
         }
-        .safeAreaPadding(.top, 8)
-        .id(selectedTab)
-        .transition(.asymmetric(
-          insertion: .move(edge: .trailing).combined(with: .opacity),
-          removal: .move(edge: .leading).combined(with: .opacity)
-        ))
-
-        ReceiptTabBar(selectedTab: $selectedTab)
-          .ignoresSafeArea(.container, edges: .bottom)
       }
       .navigationBarTitleDisplayMode(.inline)
       .toolbar(.hidden, for: .navigationBar)
@@ -78,13 +76,14 @@ struct LiftRootView: View {
         }
       }
     }
+    .sheet(isPresented: $showsSettings) { SettingsView().environmentObject(store) }
     .tint(LiftTheme.accent)
     .fullScreenCover(isPresented: workoutPresentation) {
       LiveWorkoutView(
         onDismiss: { isWorkoutPresented = false },
         onSessionSaved: { session in
           isWorkoutPresented = false
-          selectedTab = .history
+          showsCompletedHistory = true
           printedSession = session
         }
       )
@@ -97,11 +96,54 @@ struct LiftRootView: View {
         onClose: { printedSession = nil },
         onViewReceipts: {
           printedSession = nil
-          selectedTab = .history
+          showsCompletedHistory = true
         }
       )
       .environmentObject(store)
     }
+  }
+
+  private var workoutPicker: some View {
+    ScrollView {
+      VStack(alignment: .leading, spacing: 20) {
+        HStack {
+          Text("Start a lift").font(.largeTitle.bold())
+          Spacer()
+          Button { showsSettings = true } label: {
+            Image(systemName: "gearshape").frame(width: 44, height: 44)
+          }.accessibilityLabel("Lift settings")
+        }
+        Text("Choose a routine or build your workout as you go.")
+          .font(.subheadline).foregroundStyle(.secondary)
+        if store.activeSession != nil {
+          Button { isWorkoutPresented = true } label: {
+            Label("Resume active lift", systemImage: "play.fill")
+              .frame(maxWidth: .infinity, alignment: .leading).padding(18)
+          }.buttonStyle(.borderedProminent).foregroundStyle(StrandPalette.onInk)
+        } else {
+          Button(action: startOpenLift) {
+            Label("Open workout", systemImage: "plus")
+              .frame(maxWidth: .infinity, alignment: .leading).padding(18)
+          }.buttonStyle(.borderedProminent).foregroundStyle(StrandPalette.onInk)
+          Text("YOUR ROUTINES").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+          ForEach(store.routines) { routine in
+            Button { presentPreview(routine) } label: {
+              HStack(spacing: 12) {
+                Image(systemName: "dumbbell").foregroundStyle(LiftTheme.accent)
+                VStack(alignment: .leading, spacing: 6) {
+                  Text(routine.name).font(.headline)
+                  Text("\(routine.exerciseIDs.count) exercises · \(store.estimatedMinutes(for: routine)) min")
+                    .font(.subheadline).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right").foregroundStyle(.secondary)
+              }.padding(18).frame(maxWidth: .infinity, alignment: .leading)
+                .background(StrandPalette.card, in: RoundedRectangle(cornerRadius: 16))
+            }.buttonStyle(.plain)
+          }
+        }
+      }.padding(20)
+    }.background(LiftTheme.paper)
   }
 
   private func presentPreview(_ routine: LiftRoutine) {

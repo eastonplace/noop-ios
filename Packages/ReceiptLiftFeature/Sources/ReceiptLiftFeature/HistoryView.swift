@@ -61,7 +61,7 @@ struct HistoryView: View {
           progressOverview
         }
       }
-      .padding(.bottom, 72)
+      .padding(.bottom, 24)
     }
     .scrollIndicators(.hidden)
     .background(LiftTheme.paper.ignoresSafeArea())

@@ -410,7 +410,7 @@ private struct CompletedReceiptActionBar: View {
         action: onClose
       )
       ReceiptSecondaryButton(
-        title: "Receipts",
+        title: "Workout history",
         systemImage: "ticket",
         fillsWidth: true,
         action: onViewReceipts

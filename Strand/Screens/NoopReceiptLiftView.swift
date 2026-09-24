@@ -3,6 +3,8 @@ import StrandDesign
 import ReceiptLiftFeature
 
 struct LiftLogView: View {
+    var destination: LiftDestination = .start
+    var onBack: (() -> Void)? = nil
     @EnvironmentObject private var lift: NoopReceiptLiftIntegration
     @EnvironmentObject private var repo: Repository
     @Environment(\.dismiss) private var dismiss
@@ -10,7 +12,12 @@ struct LiftLogView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("NOOP / LIFT").font(.caption.weight(.semibold)).tracking(1)
+                if let onBack {
+                    Button("Back", systemImage: "chevron.left", action: onBack)
+                        .font(.subheadline)
+                } else {
+                    Text("NOOP / WORKOUTS").font(.caption.weight(.semibold)).tracking(1)
+                }
                 Spacer()
                 Button("Close", systemImage: "xmark") { dismiss() }
                     .labelStyle(.iconOnly).frame(width: 44, height: 44)
@@ -23,7 +30,7 @@ struct LiftLogView: View {
             if lift.owner != repo.deviceId, lift.coordinator?.hasActiveSession == true {
                 Text("This workout stays with its original source.")
                     .font(.caption).padding(12).background(StrandPalette.card, in: Capsule())
-                    .padding(.bottom, 76)
+                    .padding(.bottom, 16)
             }
         }
         .task { await lift.selectCurrentSource() }
@@ -31,7 +38,7 @@ struct LiftLogView: View {
 
     @ViewBuilder private var content: some View {
         if let coordinator = lift.coordinator {
-            ReceiptLiftView(coordinator: coordinator)
+            ReceiptLiftView(coordinator: coordinator, destination: destination)
         } else if let error = lift.error {
             ContentUnavailableView {
                 Label("Lift is unavailable", systemImage: "dumbbell")

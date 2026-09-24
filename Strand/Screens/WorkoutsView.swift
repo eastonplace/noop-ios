@@ -1,4 +1,5 @@
 import SwiftUI
+import ReceiptLiftFeature
 import StrandDesign
 import StrandAnalytics
 import WhoopStore
@@ -37,7 +38,7 @@ struct WorkoutsView: View {
     @State private var showLiveWorkout = false
     @State private var showStartSport = false
     @State private var historyScope: WorkoutHistoryScope = .current
-    @State private var showLiftLog = false
+    @State private var liftDestination: LiftDestination?
 
     // Imperial/Metric display preference (D#103). Workout distances are stored in metres; the toggle
     // re-labels them to miles/yards. Display-only — nothing on disk changes.
@@ -161,20 +162,18 @@ struct WorkoutsView: View {
                        // full-bleed time-of-day sky behind the scroll content (it does not scroll).
                        topBackground: nil,
                        backAction: { dismiss() }) {
-            Button { showLiftLog = true } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: "dumbbell.fill").font(.title2)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Lift").font(StrandFont.title2)
-                        Text("Your plan. Every set. Your progress.").font(.subheadline)
-                    }
-                    Spacer()
-                    Image(systemName: "chevron.right")
+            HStack(spacing: 16) {
+                Button { liftDestination = .history } label: {
+                    Label("Lift history", systemImage: "list.bullet.rectangle")
                 }
-                .foregroundStyle(StrandPalette.ink)
-                .padding(20)
-                .background(StrandPalette.inset, in: RoundedRectangle(cornerRadius: 16))
-            }.buttonStyle(.plain)
+                Spacer()
+                Button { liftDestination = .progress } label: {
+                    Label("Lift progress", systemImage: "chart.xyaxis.line")
+                }
+            }.font(.subheadline.weight(.semibold)).tint(StrandPalette.accent)
+            Button { liftDestination = .routines } label: {
+                Label("Manage routines", systemImage: "calendar")
+            }.font(.subheadline).tint(StrandPalette.textSecondary)
             if allRows.isEmpty {
                 VStack(alignment: .leading, spacing: NoopMetrics.space4) {
                     ComingSoon(what: loaded
@@ -245,7 +244,7 @@ struct WorkoutsView: View {
         .onChange(of: range) { _, newRange in
             Task { await expandWindowIfNeeded(for: newRange == .all ? .all : effectiveRange) }
         }
-        .sheet(isPresented: $showLiftLog) { NavigationStack { LiftLogView() } }
+        .sheet(item: $liftDestination) { destination in LiftLogView(destination: destination) }
         .onChange(of: historyScope) { _, scope in
             if scope == .archived { range = .all; Task { await expandWindowIfNeeded(for: .all) } }
         }
