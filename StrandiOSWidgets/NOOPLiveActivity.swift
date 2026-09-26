@@ -59,7 +59,16 @@ struct NOOPLiveActivity: Widget {
                     }
                 }
             } compactLeading: {
-                NOOPDynamicIslandHeartRateView(bpm: context.state.bpm)
+                if context.state.isWorkout {
+                    NOOPDynamicIslandHeartRateView(bpm: context.state.bpm)
+                } else {
+                    // Passive HR is shown in compactTrailing. Repeating it here
+                    // crowds the compact island and clips the duplicate digits.
+                    Image(systemName: "heart.fill")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(context.state.bpm.map { HRZoneStyle.color(for: Double($0)) }
+                                         ?? Color.white.opacity(0.5))
+                }
             } compactTrailing: {
                 if context.state.isWorkout {
                     NOOPDynamicIslandStrainView(
