@@ -22,11 +22,11 @@ STYLE_ROOTS: tuple[tuple[str, str, bool], ...] = (
     # (label, directory, gated)
     ("Strand/Screens", "Strand/Screens", True),
     ("StrandiOS/App", "StrandiOS/App", True),
-    # Lift (phase 2b): gated at 0 on every check.
+    # Coach (phase 2a) and Lift (phase 2b): gated at 0 on every check.
+    ("StrandiOS/Coach", "StrandiOS/Coach", True),
     ("Strand/Screens (Lift, Live workout)", "Strand/Screens", True),
     ("Packages/ReceiptLiftFeature", "Packages/ReceiptLiftFeature", True),
-    # Report-only for now: owned by in-flight work or intentionally fixed-size (widget text).
-    ("StrandiOS/Coach", "StrandiOS/Coach", False),
+    # Report-only: intentionally fixed-size (widget text).
     ("StrandiOSWidgets", "StrandiOSWidgets", False),
 )
 
@@ -56,7 +56,9 @@ STYLE_CHECKS: tuple[tuple[str, str], ...] = (
     ("text-size", "text .font(.system(size:)) - use a StrandFont role (icon glyph sizing is allowed)"),
 )
 
-# Ceilings for gated directories as of the UI consistency pass (phase 1). Missing key = 0.
+# Ceilings for gated directories as of the UI consistency pass (phase 1; Coach joined in phase 2a). Missing
+# key = 0. StrandiOS/Coach is fully migrated: its only fixed-size `.font(.system(size:))` sites are SF Symbol
+# glyphs, so every Coach ceiling is 0.
 #   bordered:  TestCentreView.swift "Copy report.txt" (content shared with the Settings tab; left as-is)
 #   color-red: TodayView.swift RecordingStatusLight (Today top bar; structure frozen in phase 1)
 STYLE_CEILINGS: dict[tuple[str, str], int] = {

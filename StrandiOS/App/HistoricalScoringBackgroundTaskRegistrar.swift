@@ -79,6 +79,11 @@ enum HistoricalScoringBackgroundTaskRegistrar {
                 processingTask.setTaskCompleted(success: success)
             }
             let worker = Task { @MainActor in
+                if ActiveSessionGate.isActive() {
+                    Self.schedule(after: ActiveSessionGate.retryDelay)
+                    completion.complete(success: false)
+                    return
+                }
                 guard let drainHealthImport = Self.drainHealthImport,
                       let drainHealthScoring = Self.drainHealthScoring,
                       let healthImportPending = Self.healthImportPending,
@@ -194,12 +199,13 @@ enum HistoricalScoringBackgroundTaskRegistrar {
     }
 
     /// Keep one best-effort request armed. The durable pipeline remains authoritative if iOS discards it.
-    static func schedule() {
-        submitRequest(identifier: identifier)
+    static func schedule(after delay: TimeInterval = 0) {
+        submitRequest(identifier: identifier, after: delay)
     }
 
-    nonisolated private static func submitRequest(identifier: String) {
+    nonisolated private static func submitRequest(identifier: String, after delay: TimeInterval = 0) {
         let request = BGProcessingTaskRequest(identifier: identifier)
+        if delay > 0 { request.earliestBeginDate = Date(timeIntervalSinceNow: delay) }
         request.requiresNetworkConnectivity = false
         request.requiresExternalPower = false
         BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: identifier)

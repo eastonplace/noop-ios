@@ -15,13 +15,13 @@ struct LocalCoachDiagnosticsView: View {
     @State private var report: String?
 
     var body: some View {
-        Form {
+        NativeSettingsList {
             Section {
                 if coach.isPreview { LocalCoachFixtureLabel() }
                 Label("Coach lab", systemImage: "wrench.and.screwdriver")
-                    .font(.system(size: 27, weight: .medium, design: .rounded))
+                    .font(StrandFont.title2)
                 Text("Check the app, describe a bug and share a report you have reviewed.")
-                    .font(.subheadline).foregroundStyle(.secondary)
+                    .font(StrandFont.subhead).foregroundStyle(.secondary)
             }
             Section {
                 Button {
@@ -57,12 +57,12 @@ struct LocalCoachDiagnosticsView: View {
                 ForEach(checks) { check in
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
-                            Text(check.title).font(.subheadline.weight(.medium))
+                            Text(check.title).font(StrandFont.subhead)
                             Spacer()
-                            Text(check.status.rawValue).font(.caption.weight(.semibold))
+                            Text(check.status.rawValue).font(StrandFont.caption.weight(.semibold))
                                 .foregroundStyle(check.status == .passed ? StrandPalette.accent : StrandPalette.warning)
                         }
-                        Text(check.detail).font(.caption).foregroundStyle(.secondary)
+                        Text(check.detail).font(StrandFont.caption).foregroundStyle(.secondary)
                     }.padding(.vertical, 4)
                 }
             } header: { Text("Test on this device") } footer: {
@@ -95,7 +95,8 @@ struct LocalCoachDiagnosticsView: View {
         .navigationTitle("Testing & reports").navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: Binding(get: { report != nil }, set: { if !$0 { report = nil } })) {
             NavigationStack {
-                ScrollView { Text(report ?? "").font(.system(.footnote, design: .monospaced)).textSelection(.enabled).padding() }
+                ScrollView { Text(report ?? "").font(StrandFont.mono).textSelection(.enabled).padding(NoopMetrics.space4) }
+                    .background(StrandPalette.appCanvas)
                     .navigationTitle("Review report").navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) { Button("Close") { report = nil } }
@@ -103,7 +104,9 @@ struct LocalCoachDiagnosticsView: View {
                             ShareLink(item: report ?? "") { Label("Share report", systemImage: "square.and.arrow.up") }
                         }
                     }
-            }.preferredColorScheme(.dark)
+            }
+            .tint(StrandPalette.accent)
+            .noopSheetPresentation(largeFirst: true)
         }
         .onDisappear { cancelProbe() }
         .onChange(of: coach.preferences.enabled) { _, _ in cancelProbe() }
@@ -124,16 +127,16 @@ struct LocalCoachDeviceCheckView: View {
     @State private var receiptError: String?
 
     var body: some View {
-        Form {
+        NativeSettingsList {
             Section {
                 Text("Checks use synthetic data. No health records or conversations enter the model.")
-                    .font(.subheadline)
+                    .font(StrandFont.subhead)
                 if !complete { ProgressView("Checking this device…") }
             }
             ForEach(checks) { check in
                 Section(check.title) {
                     Text(check.status.rawValue).foregroundStyle(check.status == .passed ? StrandPalette.accent : StrandPalette.warning)
-                    Text(check.detail).font(.footnote)
+                    Text(check.detail).font(StrandFont.footnote)
                 }
             }
             if let receiptError { Text(receiptError).foregroundStyle(StrandPalette.warning) }

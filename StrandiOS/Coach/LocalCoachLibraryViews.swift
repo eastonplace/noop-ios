@@ -16,7 +16,7 @@ struct LocalCoachLibraryView: View {
 
     var body: some View {
         NavigationStack {
-            List {
+            NativeSettingsList {
                 Section {
                     Button {
                         coach.newConversation()
@@ -32,11 +32,11 @@ struct LocalCoachLibraryView: View {
                             dismiss()
                         } label: {
                             VStack(alignment: .leading, spacing: 6) {
-                                Text(conversation.title).font(.headline).foregroundStyle(StrandPalette.textPrimary).lineLimit(2)
+                                Text(conversation.title).font(StrandFont.headline).foregroundStyle(StrandPalette.textPrimary).lineLimit(2)
                                 Text(conversation.messages.last?.text ?? "No messages yet")
-                                    .font(.subheadline).foregroundStyle(StrandPalette.textSecondary).lineLimit(2)
+                                    .font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary).lineLimit(2)
                                 Text(conversation.updatedAt, format: .dateTime.month(.abbreviated).day().hour().minute())
-                                    .font(.caption).foregroundStyle(StrandPalette.textTertiary)
+                                    .font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
                             }.padding(.vertical, 5)
                         }
                         .swipeActions {
@@ -66,7 +66,8 @@ struct LocalCoachLibraryView: View {
                 Button("Save") { if let item = renaming { coach.renameConversation(item.id, title: newTitle) }; renaming = nil }
                 Button("Cancel", role: .cancel) { renaming = nil }
             }
-        }.tint(StrandPalette.accent).preferredColorScheme(.dark)
+        }
+        .coachSettingsSheetEnvironment()
     }
 }
 
@@ -77,38 +78,39 @@ struct LocalCoachMemoryView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: NoopMetrics.space4) {
                 if coach.isPreview { LocalCoachFixtureLabel() }
-                VStack(alignment: .leading, spacing: 15) {
-                    Image(systemName: "person.crop.circle.badge.checkmark")
-                        .font(.system(size: 34, weight: .ultraLight)).foregroundStyle(StrandPalette.accent)
-                    Text("A coach that\nknows your context.")
-                        .font(.system(size: 29, weight: .medium, design: .rounded))
-                    Text("Your goals, routines and preferences. You decide what is remembered, and you can edit or remove it at any time.")
-                        .font(.subheadline).foregroundStyle(StrandPalette.textSecondary).lineSpacing(3)
+                ContentSection {
+                    VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+                        Image(systemName: "person.crop.circle.badge.checkmark")
+                            .font(.system(size: 34, weight: .ultraLight)).foregroundStyle(StrandPalette.accent)
+                        Text("A coach that\nknows your context.")
+                            .font(StrandFont.title2)
+                        Text("Your goals, routines and preferences. You decide what is remembered, and you can edit or remove it at any time.")
+                            .font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary).lineSpacing(3)
+                    }
                 }
                 Toggle("Use my memory", isOn: $coach.preferences.memoryEnabled)
-                    .font(.subheadline).tint(StrandPalette.accent)
+                    .font(StrandFont.subhead).noopToggle()
+                    .contentRowSurface()
                 if !coach.preferences.usePersonalData {
-                    Text("Allow local records in Coach settings to add and use personal memory.")
-                        .font(.footnote).foregroundStyle(StrandPalette.warning)
+                    NoteCard("Allow local records in Coach settings to add and use personal memory.", style: .warning)
                 }
                 ForEach(LocalCoachMemory.Category.allCases) { category in
                     let entries = coach.memories.filter { $0.category == category }
                     if !entries.isEmpty {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text(category.title.uppercased()).font(.system(size: 10, weight: .medium, design: .monospaced))
-                                .tracking(1.2).foregroundStyle(StrandPalette.textTertiary)
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(category.title).strandOverline().padding(.bottom, NoopMetrics.space1)
                             ForEach(entries) { memory in
                                 Button { editing = memory } label: {
-                                    HStack(alignment: .top, spacing: 14) {
+                                    HStack(alignment: .top, spacing: NoopMetrics.space3) {
                                         Circle().fill(memory.enabled ? StrandPalette.accent : StrandPalette.textTertiary)
                                             .frame(width: 6, height: 6).padding(.top, 6)
-                                        Text(memory.text).font(.system(size: 14)).lineSpacing(3)
+                                        Text(memory.text).font(StrandFont.subhead).lineSpacing(3)
                                             .foregroundStyle(StrandPalette.textSecondary).multilineTextAlignment(.leading)
                                         Spacer(minLength: 0)
-                                        Image(systemName: "pencil").font(.footnote).foregroundStyle(StrandPalette.textTertiary)
-                                    }.modifier(LocalCoachPanel())
+                                        Image(systemName: "pencil").font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
+                                    }.contentRowSurface()
                                 }.buttonStyle(.plain)
                             }
                         }
@@ -116,15 +118,18 @@ struct LocalCoachMemoryView: View {
                 }
                 Button { adding = true } label: {
                     Label("Add something about you", systemImage: "plus")
-                }.buttonStyle(LocalCoachPrimaryButtonStyle())
+                }.buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
                     .disabled(!coach.preferences.usePersonalData || !coach.preferences.memoryEnabled)
                     .accessibilityIdentifier("coach.addMemory")
                 Label("Saved locally. Never added automatically.", systemImage: "lock")
-                    .font(.caption).foregroundStyle(StrandPalette.textTertiary)
-            }.padding(22)
+                    .font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
+            }
+            .padding(.horizontal, NoopMetrics.space4)
+            .padding(.top, NoopMetrics.space2)
+            .padding(.bottom, NoopMetrics.space6)
         }
-        .sheet(isPresented: $adding) { LocalCoachMemoryEditor(memory: nil) }
-        .sheet(item: $editing) { LocalCoachMemoryEditor(memory: $0) }
+        .sheet(isPresented: $adding) { LocalCoachMemoryEditor(memory: nil).noopSheetPresentation(largeFirst: true) }
+        .sheet(item: $editing) { LocalCoachMemoryEditor(memory: $0).noopSheetPresentation(largeFirst: true) }
         .accessibilityIdentifier("coach.memory")
     }
 }
@@ -147,7 +152,7 @@ private struct LocalCoachMemoryEditor: View {
 
     var body: some View {
         NavigationStack {
-            Form {
+            NativeSettingsList {
                 Section("What should Coach know?") {
                     TextField("A goal, routine or preference", text: $text, axis: .vertical).lineLimit(4...10)
                     Picker("Category", selection: $category) {
@@ -158,7 +163,7 @@ private struct LocalCoachMemoryEditor: View {
                 if memory != nil {
                     Section { Button("Delete memory", role: .destructive) { confirmDelete = true } }
                 }
-                if let error = coach.errorText { Text(error).foregroundStyle(StrandPalette.warning) }
+                if let error = coach.errorText { Text(error).font(StrandFont.footnote).foregroundStyle(StrandPalette.warning) }
             }
             .navigationTitle(memory == nil ? "Add memory" : "Edit memory")
             .navigationBarTitleDisplayMode(.inline)
@@ -184,7 +189,8 @@ private struct LocalCoachMemoryEditor: View {
                     dismiss()
                 }
             }
-        }.tint(StrandPalette.accent).preferredColorScheme(.dark)
+        }
+        .coachSettingsSheetEnvironment()
     }
 }
 
@@ -194,7 +200,7 @@ struct LocalCoachSettingsView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
+            NativeSettingsList {
                 Section {
                     Label(coach.availability.title, systemImage: "apple.intelligence")
                     Toggle("Enable on-device Coach", isOn: $coach.preferences.enabled)
@@ -236,12 +242,13 @@ struct LocalCoachSettingsView: View {
                     }
                     Button("Check availability again") { Task { await coach.refresh() } }
                     Text("Coach can make mistakes. Check source records and review workout changes before saving. It is not a diagnostic service.")
-                        .font(.footnote).foregroundStyle(.secondary)
+                        .font(StrandFont.footnote).foregroundStyle(.secondary)
                 }
             }
             .navigationTitle("Coach settings").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-        }.tint(StrandPalette.accent).preferredColorScheme(.dark)
+        }
+        .coachSettingsSheetEnvironment()
     }
 }
 
@@ -251,18 +258,18 @@ struct LocalCoachSourcesView: View {
     let title: String
     var body: some View {
         NavigationStack {
-            List {
+            NativeSettingsList {
                 Section {
                     Text("These are the records supplied to Coach. Record dates can differ from today when your strap has not synced.")
-                        .font(.subheadline).foregroundStyle(.secondary)
+                        .font(StrandFont.subhead).foregroundStyle(.secondary)
                 }
                 ForEach(evidence) { item in
                     Section {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text(item.title).font(.headline)
-                            Text(item.detail).font(.subheadline).textSelection(.enabled)
-                            Text(item.source).font(.caption).foregroundStyle(.secondary)
-                            if let date = item.date { Text(date, format: .dateTime.year().month().day()).font(.caption).foregroundStyle(.secondary) }
+                            Text(item.title).font(StrandFont.headline)
+                            Text(item.detail).font(StrandFont.subhead).textSelection(.enabled)
+                            Text(item.source).font(StrandFont.caption).foregroundStyle(.secondary)
+                            if let date = item.date { Text(date, format: .dateTime.year().month().day()).font(StrandFont.caption).foregroundStyle(.secondary) }
                         }.padding(.vertical, 4)
                     }
                 }
@@ -272,7 +279,8 @@ struct LocalCoachSourcesView: View {
             }
             .navigationTitle(title).navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-        }.tint(StrandPalette.accent).preferredColorScheme(.dark)
+        }
+        .coachSettingsSheetEnvironment()
     }
 }
 #endif

@@ -11,4 +11,16 @@ import Foundation
 enum BackgroundTaskLaunchPolicy {
     static let launchQueue: DispatchQueue = .main
 }
+
+/// Heavy BGProcessingTask work (rescoring, privacy cleanup, a history offload) must not run while a run or lift
+/// is active: iOS kills a background app that holds 80% CPU for 60 s, and a history offload also suspends the
+/// realtime-HR keep-alive. When one fires mid-session the registrar re-arms its request for later and completes
+/// the task unsuccessfully instead of running. The app wires `isActive` at launch (before any handler can fire,
+/// including on a background relaunch that rehydrates an in-flight run).
+@MainActor
+enum ActiveSessionGate {
+    static var isActive: () -> Bool = { false }
+    /// How long a deferred request waits before iOS may offer it again.
+    static let retryDelay: TimeInterval = 15 * 60
+}
 #endif

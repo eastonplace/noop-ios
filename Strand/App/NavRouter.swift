@@ -65,6 +65,12 @@ final class NavRouter: ObservableObject {
     /// whether to auto-present, and publishing it would re-render the shell on every appear/disappear.
     private(set) var workoutSurfaces = WorkoutSurfaceVisibility()
 
+    /// True while a launch-time modal ("What's New", the onboarding or terms gate) is up. Published, unlike
+    /// `workoutSurfaces`, because the shell must notice the moment it clears to present what it was holding
+    /// back; it only changes when the aggregate flips.
+    @Published private(set) var isAutoPresentBlocked = false
+    private var autoPresentBlockers = AutoPresentBlockers()
+
     /// Ask the shell to open the quick-action sheet (Live HR · workout · journal · breathe).
     func requestQuickActions() { quickActionsRequested = true }
 
@@ -90,6 +96,13 @@ final class NavRouter: ObservableObject {
     func workoutSurfaceDidAppear(_ id: UUID) { workoutSurfaces.appeared(id) }
     func workoutSurfaceDidDisappear(_ id: UUID) { workoutSurfaces.disappeared(id) }
 
+    func setAutoPresentBlocked(_ blocked: Bool, id: UUID) {
+        autoPresentBlockers.set(blocked, id: id)
+        if isAutoPresentBlocked != autoPresentBlockers.isBlocked {
+            isAutoPresentBlocked = autoPresentBlockers.isBlocked
+        }
+    }
+
     /// Open a Live Session (silent guardian, beta). The Liquid Today entry presents the session screen
     /// directly today; this route exists for deep-link parity so a future shell/inbox item can raise it
     /// the same way as every other destination.
@@ -111,7 +124,29 @@ private struct WorkoutSurfaceTracker: ViewModifier {
     }
 }
 
+private struct AutoPresentBlockerModifier: ViewModifier {
+    @EnvironmentObject private var router: NavRouter
+    @State private var id = UUID()
+    let isActive: Bool
+
+    func body(content: Content) -> some View {
+        content
+            // `initial: true` registers a modal that is already requested when this view first appears, and
+            // the flag flips before the modal's own appearance, so a decision made mid-animation sees it.
+            .onChange(of: isActive, initial: true) { _, active in
+                router.setAutoPresentBlocked(active, id: id)
+            }
+            .onDisappear { router.setAutoPresentBlocked(false, id: id) }
+    }
+}
+
 extension View {
+    /// While `active`, the shell will not auto-present an in-flight workout over this modal. It presents
+    /// once the modal is gone instead.
+    func blocksAutoPresent(while active: Bool) -> some View {
+        modifier(AutoPresentBlockerModifier(isActive: active))
+    }
+
     /// Report this view's time on screen to the router, so the shell never stacks an auto-presented workout
     /// on top of a workout screen some other view already presented.
     func tracksWorkoutSurface() -> some View { modifier(WorkoutSurfaceTracker()) }
