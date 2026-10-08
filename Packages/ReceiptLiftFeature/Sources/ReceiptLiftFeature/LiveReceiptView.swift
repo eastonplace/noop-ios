@@ -109,7 +109,7 @@ struct LiveReceiptView: View {
       .padding(.vertical, 18)
     }
     .scrollIndicators(.hidden)
-    .liftScreenBackground()
+    .background(LiftTheme.Receipt.paper.ignoresSafeArea())
     .animation(
       reduceMotion ? LiftMotion.reducedCrossfade : LiftMotion.printLine,
       value: snapshot.lines.map(\.id)
@@ -150,8 +150,8 @@ private struct LiveReceiptRows: View {
   var body: some View {
     if snapshot.lines.isEmpty {
       Text("SETS PRINT HERE AS YOU LOG THEM.")
-        .font(.receipt(11, weight: .bold))
-        .foregroundStyle(LiftTheme.inkSecondary)
+        .font(.receiptArtifact(11, weight: .bold))
+        .foregroundStyle(LiftTheme.Receipt.inkSecondary)
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.vertical, 24)
         .accessibilityLabel("No sets logged yet")

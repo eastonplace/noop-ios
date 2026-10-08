@@ -1,3 +1,4 @@
+import StrandDesign
 import SwiftUI
 import UIKit
 
@@ -69,6 +70,7 @@ struct CompletedReceiptView: View {
   @EnvironmentObject private var store: LiftStore
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(\.displayScale) private var displayScale
+  @Environment(\.dismiss) private var dismiss
 
   let session: LiftSession
   let presentation: LiftReceiptPresentation
@@ -102,8 +104,18 @@ struct CompletedReceiptView: View {
   }
 
   var body: some View {
-    ZStack(alignment: .bottom) {
-      ScrollView {
+    ScrollView {
+      VStack(alignment: .leading, spacing: LiftChromeMetrics.blockSpacing) {
+        NoopScreenHeader(
+          title: LocalizedStringKey(session.title),
+          subtitle: LocalizedStringKey(liftReceiptDate(session.startedAt)),
+          backAction: presentation == .settled ? { dismiss() } : nil
+        ) {
+          if presentation == .freshlyCompleted {
+            NoopIconButton("xmark", accessibilityLabel: "Close", action: onClose)
+          }
+        }
+
         CompletedReceiptDocument(
           session: session,
           snapshot: snapshot,
@@ -117,18 +129,21 @@ struct CompletedReceiptView: View {
             .scaleEffect(y: revealMaskScale, anchor: .top)
         }
         .opacity(contentOpacity)
-        .padding(.horizontal, 16)
-        .padding(.top, 18)
-        .padding(.bottom, 112)
       }
-      .scrollIndicators(.hidden)
-
+      .padding(.horizontal, LiftChromeMetrics.gutter)
+      .padding(.bottom, 24)
+      .frame(maxWidth: LiftChromeMetrics.maxColumnWidth, alignment: .leading)
+      .frame(maxWidth: .infinity)
+    }
+    .scrollIndicators(.hidden)
+    .safeAreaInset(edge: .bottom, spacing: 0) {
       CompletedReceiptActionBar(
-        onClose: onClose,
+        showsHistory: presentation == .freshlyCompleted,
         onViewReceipts: onViewReceipts,
         onShare: exportReceipt
       )
     }
+    .toolbar(.hidden, for: .navigationBar)
     .liftScreenBackground()
     .onAppear {
       if cachedPersonalRecordsBySetID == nil {
@@ -285,8 +300,8 @@ private struct CompletedReceiptDocument: View {
           trailing: receiptNumber
         )
         Text(session.title.uppercased())
-          .font(.receipt(18, weight: .black))
-          .foregroundStyle(LiftTheme.ink)
+          .font(.receiptArtifact(18, weight: .black))
+          .foregroundStyle(LiftTheme.Receipt.ink)
           .fixedSize(horizontal: false, vertical: true)
         ReceiptDashedRule()
         ReceiptColumns([
@@ -303,20 +318,20 @@ private struct CompletedReceiptDocument: View {
         AnimatedReceiptTotals(snapshot: snapshot, isRevealed: totalsRevealed)
         ReceiptDashedRule()
         Text("THANK YOU FOR SHOWING UP.")
-          .font(.receipt(11, weight: .black))
+          .font(.receiptArtifact(11, weight: .black))
           .tracking(1.1)
-          .foregroundStyle(LiftTheme.ink)
+          .foregroundStyle(LiftTheme.Receipt.ink)
           .frame(maxWidth: .infinity, alignment: .center)
           .multilineTextAlignment(.center)
         BarcodeView(seed: session.id.uuidString)
         Text(receiptNumber)
-          .font(.receipt(9, weight: .bold))
-          .foregroundStyle(LiftTheme.inkSecondary)
+          .font(.receiptArtifact(9, weight: .bold))
+          .foregroundStyle(LiftTheme.Receipt.inkSecondary)
           .frame(maxWidth: .infinity, alignment: .center)
       }
-      .colorMultiply(paperColor)
+      .colorMultiply(inkTint)
       ReceiptEdge()
-        .colorMultiply(paperColor)
+        .colorMultiply(inkTint)
     }
     .background(paperColor)
     .overlay {
@@ -330,8 +345,14 @@ private struct CompletedReceiptDocument: View {
     .accessibilityLabel("Lift receipt \(receiptNumber)")
   }
 
+  /// Cream stock tints the printed ink toward the paper. White stock (and the dark in-app artifact) leaves
+  /// the ink untouched; multiplying by the dark in-app paper would blank the receipt out.
+  private var inkTint: Color {
+    paperStyle == .cream ? LiftTheme.Receipt.cream : .white
+  }
+
   private var paperColor: Color {
-    paperStyle == .cream ? LiftTheme.exportCream : LiftTheme.paper
+    paperStyle == .cream ? LiftTheme.Receipt.cream : LiftTheme.Receipt.paper
   }
 }
 
@@ -342,8 +363,8 @@ private struct CompletedReceiptRows: View {
   var body: some View {
     if snapshot.lines.isEmpty {
       Text("NO SETS WERE LOGGED ON THIS RECEIPT.")
-        .font(.receipt(11, weight: .bold))
-        .foregroundStyle(LiftTheme.inkSecondary)
+        .font(.receiptArtifact(11, weight: .bold))
+        .foregroundStyle(LiftTheme.Receipt.inkSecondary)
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.vertical, 22)
     } else {
@@ -358,7 +379,7 @@ private struct CompletedReceiptRows: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(line.accessibilityLabel)
         if let record {
-          LiftPRPayoffView(record: record)
+          LiftPRPayoffView(record: record, artifact: true)
             .padding(.leading, 33)
         }
       }
@@ -384,11 +405,11 @@ private struct AnimatedReceiptTotals: View {
   private func totalRow(title: String, value: String) -> some View {
     HStack(alignment: .firstTextBaseline, spacing: 12) {
       Text(title.uppercased())
-        .font(.receipt(10, weight: .bold))
-        .foregroundStyle(LiftTheme.inkSecondary)
+        .font(.receiptArtifact(10, weight: .bold))
+        .foregroundStyle(LiftTheme.Receipt.inkSecondary)
       Spacer(minLength: 8)
       Text(value.uppercased())
-        .font(.receipt(13, weight: .black))
+        .font(.receiptArtifact(13, weight: .black))
         .monospacedDigit()
         .contentTransition(.numericText())
         .fixedSize(horizontal: true, vertical: false)
@@ -397,34 +418,18 @@ private struct AnimatedReceiptTotals: View {
 }
 
 private struct CompletedReceiptActionBar: View {
-  let onClose: () -> Void
+  let showsHistory: Bool
   let onViewReceipts: () -> Void
   let onShare: () -> Void
 
   var body: some View {
     HStack(spacing: 8) {
-      ReceiptSecondaryButton(
-        title: "Close",
-        systemImage: "xmark",
-        fillsWidth: true,
-        action: onClose
-      )
-      ReceiptSecondaryButton(
-        title: "Workout history",
-        systemImage: "ticket",
-        fillsWidth: true,
-        action: onViewReceipts
-      )
-      ReceiptPrimaryButton(
-        title: "Share",
-        systemImage: "square.and.arrow.up",
-        action: onShare
-      )
+      if showsHistory {
+        NoopButton("Workout history", kind: .secondary, fullWidth: true, action: onViewReceipts)
+      }
+      NoopButton("Share", systemImage: "square.and.arrow.up", kind: .primary, fullWidth: true, action: onShare)
     }
-    .padding(.horizontal, 12)
-    .padding(.top, 10)
-    .padding(.bottom, 10)
-    .background(.ultraThinMaterial)
+    .liftFooterBar()
   }
 }
 
@@ -435,7 +440,7 @@ private struct ReceiptCreamTexture: View {
         var path = Path()
         path.move(to: CGPoint(x: 0, y: offset))
         path.addLine(to: CGPoint(x: size.width, y: offset + 1))
-        context.stroke(path, with: .color(LiftTheme.ink.opacity(0.025)), lineWidth: 0.5)
+        context.stroke(path, with: .color(LiftTheme.Receipt.ink.opacity(0.025)), lineWidth: 0.5)
       }
     }
   }

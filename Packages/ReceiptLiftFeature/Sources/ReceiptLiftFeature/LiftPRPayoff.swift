@@ -1,3 +1,4 @@
+import StrandDesign
 import SwiftUI
 
 enum LiftPRPresentation {
@@ -38,42 +39,66 @@ enum LiftPRPresentation {
   }
 }
 
+/// The tonal "PR" tag beside a record set in chrome lists.
 struct LiftPRBadge: View {
   let record: LiftPersonalRecord
 
   var body: some View {
-    Text(LiftPRPresentation.label(for: record))
-      .font(.receipt(9, weight: .black))
-      .tracking(0.5)
-      .foregroundStyle(LiftTheme.paper)
-      .padding(.horizontal, 7)
-      .frame(minHeight: 24)
-      .background(LiftTheme.ink)
+    LiftBadge(text: LiftPRPresentation.label(for: record))
       .accessibilityLabel(LiftPRPresentation.label(for: record))
   }
 }
 
+/// A personal-record line. Chrome screens show it in the canonical tonal style; the receipt artifact
+/// passes `artifact: true` to keep its monospaced ink-on-paper rule.
 struct LiftPRPayoffView: View {
   let record: LiftPersonalRecord
+  var artifact = false
 
   var body: some View {
+    if artifact {
+      artifactBody
+    } else {
+      chromeBody
+    }
+  }
+
+  private var chromeBody: some View {
+    HStack(alignment: .firstTextBaseline, spacing: 8) {
+      Image(systemName: "trophy.fill")
+        .font(.system(size: 12, weight: .semibold))
+        .foregroundStyle(StrandPalette.accent)
+        .accessibilityHidden(true)
+      Text(LiftPRPresentation.label(for: record))
+        .font(StrandFont.caption.weight(.semibold))
+        .foregroundStyle(StrandPalette.textPrimary)
+      Spacer(minLength: 8)
+      Text(LiftPRPresentation.valueText(for: record).lowercased())
+        .font(StrandFont.number(14))
+        .foregroundStyle(StrandPalette.textPrimary)
+    }
+    .padding(.vertical, 8)
+    .accessibilityElement(children: .combine)
+  }
+
+  private var artifactBody: some View {
     HStack(alignment: .firstTextBaseline, spacing: 8) {
       Image(systemName: "trophy.fill")
         .font(.system(size: 11, weight: .black))
         .accessibilityHidden(true)
       Text(LiftPRPresentation.label(for: record))
-        .font(.receipt(10, weight: .black))
+        .font(.receiptArtifact(10, weight: .black))
         .tracking(0.4)
       Spacer(minLength: 8)
       Text(LiftPRPresentation.valueText(for: record))
-        .font(.receipt(12, weight: .black))
+        .font(.receiptArtifact(12, weight: .black))
         .monospacedDigit()
     }
-    .foregroundStyle(LiftTheme.ink)
+    .foregroundStyle(LiftTheme.Receipt.ink)
     .padding(.vertical, 8)
     .overlay(alignment: .bottom) {
       Rectangle()
-        .fill(LiftTheme.ink)
+        .fill(LiftTheme.Receipt.ink)
         .frame(height: 1)
     }
     .accessibilityElement(children: .combine)

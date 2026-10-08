@@ -16,8 +16,6 @@ enum LiftTheme {
   static let rule = StrandPalette.hairline
   static let accent = StrandPalette.accent
   static let onAccent = StrandPalette.onInk
-  /// Transitional alias: the receipt artifact moves onto `Receipt` in a follow-up commit.
-  static let exportCream = Receipt.cream
 
   enum Receipt {
     static let paper = adaptive(light: .white, dark: UIColor(StrandPalette.appCanvas))
