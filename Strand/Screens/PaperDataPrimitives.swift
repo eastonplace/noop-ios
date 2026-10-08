@@ -51,7 +51,7 @@ struct PaperProgressBar: View {
 /// Crisp, single-stroke Paper sparkline for live samples.
 struct PaperSparkline: View {
     let bpm: [Double]
-    var tint: Color = Color(.sRGB, red: 1, green: 107 / 255, blue: 129 / 255, opacity: 1)
+    var tint: Color = StrandPalette.liveRed
     var height: CGFloat = 96
     var animated: Bool = true
 
