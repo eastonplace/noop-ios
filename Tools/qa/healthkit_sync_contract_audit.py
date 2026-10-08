@@ -94,6 +94,7 @@ try:
         "maximumPageCount",
         "deletedObjectUUIDs",
         "handlePage: PageHandler? = nil",
+        "let unknownDeletion = !Set(externalDeleted).isSubset(of: known)",
     )
     # The Repository fence and scoring dependency must exist before the importer awaits HealthKit/store work.
     require_order(
@@ -101,7 +102,7 @@ try:
         "await scoringCoordinator.withImportLease",
         "try await scoringCoordinator.offer(snapshot)",
         "guard await operation(snapshot)",
-        "try persistence.save(nil)",
+        "try persistence.save(followUp)",
     )
 
     admission = "Strand/Data/IntelligenceAnalysisCoordinator.swift"
@@ -153,8 +154,9 @@ try:
     bridge = "StrandiOS/Health/HealthKitBridge.swift"
     require(
         bridge,
-        "try syncCoordinator.offer(window)",
-        "try Self.saveAnchor(scan.finalAnchor, forKey: key)",
+        "try self.syncCoordinator.offer(window)",
+        "try syncCoordinator.offer(HealthKitSyncWindow(start: start, end: now))",
+        "try Self.saveAnchor(anchor, forKey: key)",
         "syncCoordinator.start()",
         "await syncCoordinator.runAndWait()",
         "await acquireObserverScanLease()",
@@ -162,7 +164,6 @@ try:
         "healthKitObjectIdentities",
         "upsertHealthKitObjectIdentities",
         "replaceAppleHealthRange",
-        "var hasUnknownHistoricalDeletion = false",
         "historyQueryChunkDays = 1",
         "streamWorkouts",
         "Inbound Health data is already durably committed",
@@ -246,7 +247,7 @@ try:
         "testRevisionAdvanceDuringAnalysisSkipsTheOlderPublication",
         "testImportLeaseExcludesWritesUntilPublicationFinishes",
         "testFailedImportStillLeavesDurableScoringWorkAndFence",
-        "testWidenedImportCompletesBeforeAnyScoringPublication",
+        "testWidenedImportYieldsBetweenBatchesAndFollowUpRemainsDurableForNextScoringDrain",
     )
     require(
         "StrandiOSTests/RepositoryRefreshIntentTests.swift",

@@ -146,6 +146,92 @@ struct ReceiptLiftDatabaseTests {
     }
   }
 
+  @Test func reviewedRoutineChangeSurvivesTheNextOrdinarySave() async throws {
+    let adapter = ReceiptLiftDatabaseAdapterHarness()
+    let coordinator = makeCoordinator(adapter: adapter)
+    await coordinator.load()
+    await coordinator.store.waitForPendingSave()
+    let id = UUID()
+    try await coordinator.applyReviewedRoutineChange { bytes in
+      var value = try decodeEnvelope(bytes)
+      var routine = try #require(value.routines.first)
+      routine.id = id
+      routine.name = "Reviewed Coach workout"
+      value.routines.append(routine)
+      let encoder = JSONEncoder()
+      encoder.dateEncodingStrategy = .iso8601
+      return try encoder.encode(value)
+    }
+    #expect(coordinator.store.routines.contains { $0.id == id })
+    coordinator.store.setDefaultRestSeconds(120)
+    coordinator.store.flushPendingSave()
+    await coordinator.store.waitForPendingSave()
+    let snapshot = await adapter.snapshot()
+    let persisted = try decodeEnvelope(#require(snapshot.data))
+    #expect(persisted.routines.contains { $0.id == id })
+    #expect(snapshot.workouts.isEmpty)
+  }
+
+  @Test func reviewedNoopDoesNotWriteAndActiveWorkoutRejectsMutation() async throws {
+    let adapter = ReceiptLiftDatabaseAdapterHarness()
+    let coordinator = makeCoordinator(adapter: adapter)
+    await coordinator.load()
+    await coordinator.store.waitForPendingSave()
+    let initial = await adapter.snapshot()
+    try await coordinator.applyReviewedRoutineChange { _ in nil }
+    let unchanged = await adapter.snapshot()
+    #expect(unchanged.saveAttempts == initial.saveAttempts)
+    coordinator.store.startRoutine(nil)
+    var called = false
+    await #expect(throws: (any Error).self) {
+      try await coordinator.applyReviewedRoutineChange { _ in called = true; return nil }
+    }
+    #expect(!called)
+    #expect(coordinator.store.activeSession != nil)
+  }
+
+  @Test func reviewedPlanPreservesRuntimeHistoryAfterACompletedWorkout() async throws {
+    let adapter = ReceiptLiftDatabaseAdapterHarness()
+    let coordinator = makeCoordinator(adapter: adapter)
+    await coordinator.load()
+    await coordinator.store.waitForPendingSave()
+    let exercise = try #require(coordinator.store.exercises.first)
+    coordinator.store.startRoutine(nil)
+    #expect(coordinator.store.logSet(exercise: exercise, weight: 50, reps: 8, rpe: 7, isWarmup: false) != nil)
+    let completed = await coordinator.store.finishActiveSessionDurably()
+    #expect(completed != nil)
+    let originalSessions = coordinator.store.sessions
+    try await coordinator.applyReviewedRoutineChange { bytes in
+      var envelope = try decodeEnvelope(bytes)
+      envelope.routines[0].name = "Reviewed after training"
+      let encoder = JSONEncoder()
+      encoder.dateEncodingStrategy = .iso8601
+      return try encoder.encode(envelope)
+    }
+    #expect(coordinator.store.sessions == originalSessions)
+    #expect(coordinator.store.routines.first?.name == "Reviewed after training")
+  }
+
+  @Test func reviewedChangeRejectsAlteredSettingsBeforeWriting() async throws {
+    let adapter = ReceiptLiftDatabaseAdapterHarness()
+    let coordinator = makeCoordinator(adapter: adapter)
+    await coordinator.load()
+    await coordinator.store.waitForPendingSave()
+    let initial = await adapter.snapshot()
+    await #expect(throws: (any Error).self) {
+      try await coordinator.applyReviewedRoutineChange { bytes in
+        var value = try decodeEnvelope(bytes)
+        value.settings.defaultRestSeconds = 299
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return try encoder.encode(value)
+      }
+    }
+    let unchanged = await adapter.snapshot()
+    #expect(unchanged.data == initial.data)
+    #expect(unchanged.saveAttempts == initial.saveAttempts)
+  }
+
   private func makeCoordinator(adapter: ReceiptLiftDatabaseAdapterHarness) -> ReceiptLiftCoordinator {
     ReceiptLiftCoordinator(
       load: { await adapter.load() },

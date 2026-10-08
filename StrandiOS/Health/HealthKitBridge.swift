@@ -445,7 +445,10 @@ final class HealthKitBridge: ObservableObject {
         loader: HealthKitAnchoredPageLoader(store: store)
     )
     private lazy var syncCoordinator = HealthKitSyncCoordinator(
-        persistence: HealthKitPendingWindowDefaultsStore()
+        persistence: HealthKitPendingWindowDefaultsStore(),
+        scheduleRetry: {
+            HistoricalScoringBackgroundTaskRegistrar.schedule()
+        }
     ) { [weak self] window in
         guard let self else { return false }
         return await self.performSync(window: window)
@@ -681,6 +684,17 @@ final class HealthKitBridge: ObservableObject {
         await sync(days: 7)
     }
 
+    /// The exact import window is already durable. This drain never widens it, requests new permissions,
+    /// or clears it on failure. It is used by the shared recovery task and the protected-data unlock edge.
+    var hasPendingDurableSync: Bool { syncCoordinator.pending != nil }
+
+    func drainPendingDurableSync() async -> Bool {
+        guard syncCoordinator.pending != nil else { return true }
+        guard auth == .authorized else { return false }
+        await syncCoordinator.runAndWait()
+        return syncCoordinator.pending == nil
+    }
+
     /// Clears only NOOP's write-plan success gates. The next sync repairs every authorized HealthKit
     /// component without deleting local history or changing Health authorization.
     func resetWritebackFingerprints() {
@@ -697,17 +711,20 @@ final class HealthKitBridge: ObservableObject {
               let timeZone = TimeZone(identifier: payload.recordedTimeZoneIdentifier) else {
             throw ExactPublicationError.invalidTimeZone
         }
+        guard let durableStore = await repo.storeHandle() else {
+            throw ExactPublicationError.storeUnavailable
+        }
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
 
         var firstError: Error?
         do {
-            try await writeExactVitals(payload, calendar: calendar)
+            try await writeExactVitals(payload, calendar: calendar, durableStore: durableStore)
         } catch {
             firstError = error
         }
         do {
-            try await writeExactSleep(payload, calendar: calendar)
+            try await writeExactSleep(payload, calendar: calendar, durableStore: durableStore)
         } catch {
             if firstError == nil { firstError = error }
         }
@@ -716,7 +733,8 @@ final class HealthKitBridge: ObservableObject {
 
     private func writeExactVitals(
         _ payload: HistoricalHealthKitMutationPayload,
-        calendar: Calendar
+        calendar: Calendar,
+        durableStore: WhoopStore
     ) async throws {
         struct Candidate {
             let type: HKQuantityType
@@ -811,9 +829,10 @@ final class HealthKitBridge: ObservableObject {
                 withMetadataKey: HKMetadataKeyExternalUUID,
                 allowedValues: Array(Set(keys))
             )
-            _ = try await store.deleteObjects(
+            try await deleteNoopAuthoredSamples(
                 of: type,
-                predicate: NSCompoundPredicate(andPredicateWithSubpredicates: [bySource, byKey])
+                predicate: NSCompoundPredicate(andPredicateWithSubpredicates: [bySource, byKey]),
+                durableStore: durableStore
             )
         }
         if !candidates.isEmpty {
@@ -824,7 +843,8 @@ final class HealthKitBridge: ObservableObject {
 
     private func writeExactSleep(
         _ payload: HistoricalHealthKitMutationPayload,
-        calendar: Calendar
+        calendar: Calendar,
+        durableStore: WhoopStore
     ) async throws {
         guard let type = HKObjectType.categoryType(forIdentifier: .sleepAnalysis),
               store.authorizationStatus(for: type) == .sharingAuthorized else { return }
@@ -859,9 +879,6 @@ final class HealthKitBridge: ObservableObject {
         }
 
         let plan = HealthWriteback.mergedSleepPlan(groups: groups)
-        guard let durableStore = await repo.storeHandle() else {
-            throw ExactPublicationError.storeUnavailable
-        }
         let ledger = try await durableStore.healthKitSleepLedger(
             contextId: payload.contextId,
             deviceId: payload.deviceId,
@@ -880,7 +897,8 @@ final class HealthKitBridge: ObservableObject {
             type: type,
             analysisGeneration: payload.analysisGeneration,
             existingKeys: ledger.keys.union(repairedKeys),
-            forceWrite: !repairDays.isEmpty
+            forceWrite: !repairDays.isEmpty,
+            durableStore: durableStore
         )
 
         let ledgerEntries = try plan.flatMap { entry in
@@ -963,7 +981,8 @@ final class HealthKitBridge: ObservableObject {
         type: HKCategoryType,
         analysisGeneration: Int64,
         existingKeys: Set<String>,
-        forceWrite: Bool
+        forceWrite: Bool,
+        durableStore: WhoopStore
     ) async throws {
         let fingerprint = HealthKitWritebackFingerprint.fingerprint(
             ["owner|\(ownerDeviceId)", "analysis|\(analysisGeneration)"] + plan.flatMap { entry in
@@ -1014,12 +1033,65 @@ final class HealthKitBridge: ObservableObject {
             ),
         ])
         if !keys.isEmpty {
-            _ = try await store.deleteObjects(of: type, predicate: predicate)
+            try await deleteNoopAuthoredSamples(
+                of: type,
+                predicate: predicate,
+                durableStore: durableStore
+            )
         }
         if !samples.isEmpty {
             try await store.save(samples)
         }
         HealthKitWritebackFingerprint.markSuccess(.sleep, fingerprint: fingerprint)
+    }
+
+    private func loadHealthKitSamples(
+        of type: HKSampleType,
+        predicate: NSPredicate
+    ) async throws -> [HKSample] {
+        try await withCheckedThrowingContinuation {
+            (continuation: CheckedContinuation<[HKSample], any Error>) in
+            let query = HKSampleQuery(
+                sampleType: type,
+                predicate: predicate,
+                limit: HKObjectQueryNoLimit,
+                sortDescriptors: nil
+            ) { _, samples, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: samples ?? [])
+                }
+            }
+            store.execute(query)
+        }
+    }
+
+    /// HealthKit deletion callbacks contain only object UUIDs. Persist the UUID and original bounds
+    /// before removing any NOOP-authored object so the observer can distinguish our outbound rewrite
+    /// from a genuine external deletion. The identity journal is retired only after the observer saves
+    /// the matching anchored-query page.
+    private func deleteNoopAuthoredSamples(
+        of type: HKSampleType,
+        predicate: NSPredicate,
+        durableStore: WhoopStore
+    ) async throws {
+        _ = try await HealthKitExportDeletionCommit.commit(
+            sampleType: type,
+            loadSamples: {
+                try await self.loadHealthKitSamples(of: type, predicate: predicate)
+            },
+            recordIdentities: { identities in
+                _ = try await durableStore.upsertHealthKitObjectIdentities(
+                    identities,
+                    deviceId: HealthKitObserverPageCommit.exportIdentityNamespace
+                )
+            },
+            delete: {
+                _ = try await self.store.deleteObjects(of: type, predicate: predicate)
+                return 0
+            }
+        )
     }
 
     /// Drive an incremental sync off an observer wake. We use an `HKAnchoredObjectQuery` per type to
@@ -1041,26 +1113,32 @@ final class HealthKitBridge: ObservableObject {
         let priorAnchor = Self.loadAnchor(forKey: key)
 
         do {
-            // Keep this aggregate bit, not the deletion UUIDs. An anchored first-run can contain years
-            // of tombstones; each page resolves its own identities below and is then released.
-            var hasUnknownHistoricalDeletion = false
+            var offeredInboundWindow = false
             let scan = try await anchorPager.scan(
                 type: type,
                 predicate: Self.notNoopAuthored,
                 anchor: priorAnchor,
                 handlePage: { [appleDeviceId] page in
                     let sampleIDs = page.samples.map { $0.uuid.uuidString }
-                    let historical = try await cache.healthKitObjectIdentities(
+                    let importedIdentities = try await cache.healthKitObjectIdentities(
                         sampleType: type.identifier,
                         objectUUIDs: sampleIDs + page.deletedObjectUUIDs,
                         deviceId: appleDeviceId
                     )
-                    let deletedIDs = Set(page.deletedObjectUUIDs)
-                    let knownDeleted = historical.lazy.filter {
-                        deletedIDs.contains($0.objectUUID)
-                    }.count
-                    hasUnknownHistoricalDeletion = hasUnknownHistoricalDeletion
-                        || knownDeleted < page.deletedObjectUUIDs.count
+                    let exportedIdentities = try await cache.healthKitObjectIdentities(
+                        sampleType: type.identifier,
+                        objectUUIDs: page.deletedObjectUUIDs,
+                        deviceId: HealthKitObserverPageCommit.exportIdentityNamespace
+                    )
+                    let exportedObjectUUIDs = Set(exportedIdentities.map(\.objectUUID))
+                    #if DEBUG
+                    if !page.deletedObjectUUIDs.isEmpty {
+                        NSLog("Health observer %@: samples=%d deleted=%d ownedDeleted=%d sources=%@",
+                              type.identifier, page.samples.count, page.deletedObjectUUIDs.count,
+                              exportedObjectUUIDs.count,
+                              Set(page.samples.map { $0.sourceRevision.source.bundleIdentifier }).sorted().description)
+                    }
+                    #endif
                     let current = page.samples.map {
                         HealthKitObjectIdentity(
                             sampleType: type.identifier,
@@ -1070,54 +1148,44 @@ final class HealthKitBridge: ObservableObject {
                         )
                     }
                     try await cache.upsertHealthKitObjectIdentities(current, deviceId: appleDeviceId)
-                    let dates = page.samples.flatMap { [$0.startDate, $0.endDate] }
-                        + historical.flatMap {
-                            [Date(timeIntervalSince1970: TimeInterval($0.startTs)),
-                             Date(timeIntervalSince1970: TimeInterval($0.endTs))]
+                    let window = try await HealthKitObserverPageCommit.commit(
+                        page: page,
+                        exportedObjectUUIDs: exportedObjectUUIDs,
+                        importedIdentities: importedIdentities,
+                        initialScan: priorAnchor == nil,
+                        now: Date(),
+                        earliestLocalDate: {
+                            try await cache.earliestAppleHealthTimestamp(deviceId: appleDeviceId)
+                                .map { Date(timeIntervalSince1970: TimeInterval($0)) }
+                        },
+                        offer: { window in
+                            try self.syncCoordinator.offer(window)
+                        },
+                        saveAnchor: { anchor in
+                            try Self.saveAnchor(anchor, forKey: key)
+                        },
+                        retireExports: { objectUUIDs in
+                            _ = try await cache.removeHealthKitObjectIdentities(
+                                sampleType: type.identifier,
+                                objectUUIDs: objectUUIDs,
+                                deviceId: HealthKitObserverPageCommit.exportIdentityNamespace
+                            )
                         }
-                    guard let first = dates.min(), let last = dates.max() else { return nil }
-                    return HealthKitSyncWindow(start: first, end: last)
+                    )
+                    if window != nil { offeredInboundWindow = true }
+                    return window
                 }
             )
-
-            let changedObjects = scan.sampleCount + scan.deletedCount
-            guard changedObjects > 0 else {
-                try Self.saveAnchor(scan.finalAnchor, forKey: key)
-                return
-            }
-
-            let now = Date()
-            let fallbackStart = Calendar.current.date(byAdding: .day, value: -31, to: now) ?? now
-            var start = scan.oldestSampleDate ?? fallbackStart
-            // A database created before v31 has no UUID mapping for historic objects. Do the expensive
-            // but correct thing once: widen to the oldest locally projected Apple Health row rather than
-            // pretending a deletion-only delta happened in the last month.
-            if hasUnknownHistoricalDeletion,
-               let earliest = try await cache.earliestAppleHealthTimestamp(deviceId: appleDeviceId) {
-                start = min(start, Date(timeIntervalSince1970: TimeInterval(earliest)))
-            }
-            // Establishing the first cursor may page through years of history. Foreground/manual sync
-            // already owns deep import; the initial live-delivery catch-up intentionally covers only
-            // the latest month. Later deltas retain their exact old dates, so an edited historical
-            // sample is never silently clamped away after the cursor exists.
-            if scan.wasInitialScan && !hasUnknownHistoricalDeletion { start = max(start, fallbackStart) }
-            let window = HealthKitSyncWindow(
-                start: Calendar.current.startOfDay(for: start),
-                end: max(now, scan.newestSampleDate ?? now)
-            )
-
-            // Crash-safety ordering is deliberate: persist/widen pending work, flush it, then advance
-            // the HealthKit cursor. A kill after the cursor write still leaves the aggregation window
-            // recoverable; a kill before it merely replays an idempotent page scan.
-            try syncCoordinator.offer(window)
-            do {
-                try Self.saveAnchor(scan.finalAnchor, forKey: key)
-            } catch {
-                syncCoordinator.start()
-                throw error
-            }
-            syncCoordinator.start()
+            #if DEBUG
+            NSLog("Health observer %@: initial=%d samples=%d deleted=%d pages=%d inboundWindow=%d",
+                  type.identifier, scan.wasInitialScan ? 1 : 0, scan.sampleCount, scan.deletedCount,
+                  scan.pageCount, offeredInboundWindow ? 1 : 0)
+            #endif
+            if offeredInboundWindow { syncCoordinator.start() }
         } catch {
+            // A page may have committed a durable inbound window before a later page failed. Drain that
+            // work now; the persisted per-page anchor replays only the uncommitted tail on the next wake.
+            syncCoordinator.start()
             lastError = String(localized: "Apple Health observer sync failed: \(error.localizedDescription)")
         }
     }
@@ -1558,7 +1626,11 @@ final class HealthKitBridge: ObservableObject {
             }
             try Task.checkCancellation()
             HealthKitWritebackFingerprint.reset()
-            try await writeSleep(sessions: rows, calendar: calendar)
+            try await writeSleep(
+                sessions: rows,
+                calendar: calendar,
+                durableStore: whoopStore
+            )
             try Task.checkCancellation()
             if rawRows.count == limit, let last = rawRows.last {
                 return SourceRebuildPage(
@@ -1593,7 +1665,7 @@ final class HealthKitBridge: ObservableObject {
             }
             try Task.checkCancellation()
             HealthKitWritebackFingerprint.reset()
-            try await writeWorkoutRows(rows)
+            try await writeWorkoutRows(rows, durableStore: whoopStore)
             try Task.checkCancellation()
             if rawRows.count == limit, let last = rawRows.last {
                 return SourceRebuildPage(
@@ -1625,7 +1697,11 @@ final class HealthKitBridge: ObservableObject {
                 )
             }
             try Task.checkCancellation()
-            try await writeHeartRateBuckets(rows, through: bounds.endTimestamp - 1)
+            try await writeHeartRateBuckets(
+                rows,
+                through: bounds.endTimestamp - 1,
+                durableStore: whoopStore
+            )
             try Task.checkCancellation()
             if rawRows.count == limit, let last = rawRows.last {
                 return SourceRebuildPage(
@@ -1890,7 +1966,9 @@ final class HealthKitBridge: ObservableObject {
             try await writeVitals(whoopStore: whoopStore, days: days, sessions: sessions,
                                   importedIds: importedIds, computedIds: computedIds)
         }
-        await attempt { try await writeSleep(sessions: sessions) }
+        await attempt {
+            try await writeSleep(sessions: sessions, durableStore: whoopStore)
+        }
         await attempt {
             try await writeHeartRate(whoopStore: whoopStore, importedIds: importedIds,
                                      fromTs: fromTs, nowTs: nowTs)
@@ -2016,7 +2094,11 @@ final class HealthKitBridge: ObservableObject {
             let byKey = HKQuery.predicateForObjects(withMetadataKey: HKMetadataKeyExternalUUID,
                                                     allowedValues: Array(keys))
             let pred = NSCompoundPredicate(andPredicateWithSubpredicates: [bySource, byKey])
-            _ = try await self.store.deleteObjects(of: type, predicate: pred)
+            try await deleteNoopAuthoredSamples(
+                of: type,
+                predicate: pred,
+                durableStore: whoopStore
+            )
             try Task.checkCancellation()
         }
         try await self.store.save(candidates.map { $0.sample })
@@ -2040,7 +2122,8 @@ final class HealthKitBridge: ObservableObject {
     /// one; delete-then-write scoped to our own `HKSource`, like the vitals.
     private func writeSleep(
         sessions: [CachedSleepSession],
-        calendar: Calendar = .current
+        calendar: Calendar = .current,
+        durableStore: WhoopStore
     ) async throws {
         guard let type = HKObjectType.categoryType(forIdentifier: .sleepAnalysis),
               store.authorizationStatus(for: type) == .sharingAuthorized else { return }
@@ -2096,7 +2179,11 @@ final class HealthKitBridge: ObservableObject {
             HKQuery.predicateForObjects(from: HKSource.default()),
             HKQuery.predicateForObjects(withMetadataKey: HKMetadataKeyExternalUUID, allowedValues: keys),
         ])
-        _ = try await store.deleteObjects(of: type, predicate: pred)
+        try await deleteNoopAuthoredSamples(
+            of: type,
+            predicate: pred,
+            durableStore: durableStore
+        )
         try Task.checkCancellation()
         try await store.save(samples)
         try Task.checkCancellation()
@@ -2139,13 +2226,27 @@ final class HealthKitBridge: ObservableObject {
         guard HealthKitWritebackFingerprint.shouldWrite(.heartRate, fingerprint: fingerprint) else { return }
         let windowStart = fromById.values.min() ?? fromTs
 
-        let pred = NSCompoundPredicate(andPredicateWithSubpredicates: [
-            HKQuery.predicateForObjects(from: HKSource.default()),
-            HKQuery.predicateForSamples(withStart: Date(timeIntervalSince1970: TimeInterval(windowStart)),
-                                        end: Date(timeIntervalSince1970: TimeInterval(nowTs) + 60),
-                                        options: []),
-        ])
-        _ = try await store.deleteObjects(of: type, predicate: pred)
+        let deletionStart = Date(timeIntervalSince1970: TimeInterval(windowStart))
+        let deletionEnd = Date(timeIntervalSince1970: TimeInterval(nowTs) + 60)
+        // Bound ownership discovery to one civil day at a time. A first-run 14-day backfill can contain
+        // about 20,000 minute samples; retaining that entire object graph would create an avoidable CPU
+        // and memory spike before the HealthKit delete even starts.
+        for window in queryWindows(start: deletionStart, end: deletionEnd) {
+            let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
+                HKQuery.predicateForObjects(from: HKSource.default()),
+                HKQuery.predicateForSamples(
+                    withStart: window.start,
+                    end: window.end,
+                    options: []
+                ),
+            ])
+            try await deleteNoopAuthoredSamples(
+                of: type,
+                predicate: predicate,
+                durableStore: whoopStore
+            )
+            try Task.checkCancellation()
+        }
 
         let unit = HKUnit.count().unitDivided(by: .minute())
         var samples: [HKQuantitySample] = []
@@ -2185,7 +2286,8 @@ final class HealthKitBridge: ObservableObject {
     /// date-range samples. Page retries then replace only stable external UUIDs.
     private func writeHeartRateBuckets(
         _ sourced: [HealthKitWritebackPlanner.SourcedHRBucket],
-        through: Int
+        through: Int,
+        durableStore: WhoopStore
     ) async throws {
         guard !sourced.isEmpty,
               let type = HKQuantityType.quantityType(forIdentifier: .heartRate),
@@ -2201,7 +2303,11 @@ final class HealthKitBridge: ObservableObject {
                 allowedValues: keys
             ),
         ])
-        _ = try await store.deleteObjects(of: type, predicate: predicate)
+        try await deleteNoopAuthoredSamples(
+            of: type,
+            predicate: predicate,
+            durableStore: durableStore
+        )
         try Task.checkCancellation()
 
         let unit = HKUnit.count().unitDivided(by: .minute())
@@ -2242,11 +2348,14 @@ final class HealthKitBridge: ObservableObject {
         })
         guard HealthKitWritebackFingerprint.shouldWrite(.workouts, fingerprint: fingerprint) else { return }
 
-        try await writeWorkoutRows(rows)
+        try await writeWorkoutRows(rows, durableStore: whoopStore)
         HealthKitWritebackFingerprint.markSuccess(.workouts, fingerprint: fingerprint)
     }
 
-    private func writeWorkoutRows(_ rows: [WorkoutRow]) async throws {
+    private func writeWorkoutRows(
+        _ rows: [WorkoutRow],
+        durableStore: WhoopStore
+    ) async throws {
         guard !rows.isEmpty,
               store.authorizationStatus(for: .workoutType()) == .sharingAuthorized else { return }
         precondition(rows.count <= HealthKitSourceDeletionChunkPlanner.maximumObjectsPerQuery)
@@ -2254,7 +2363,7 @@ final class HealthKitBridge: ObservableObject {
             noopDeviceId: noopDeviceId,
             startTimestamps: rows.map(\.startTs)
         )
-        try await deleteWorkoutReplayArtifacts(replayPlan)
+        try await deleteWorkoutReplayArtifacts(replayPlan, durableStore: durableStore)
 
         for row in rows {
             try Task.checkCancellation()
@@ -2313,7 +2422,8 @@ final class HealthKitBridge: ObservableObject {
     }
 
     private func deleteWorkoutReplayArtifacts(
-        _ plan: HealthKitWorkoutReplayPlan
+        _ plan: HealthKitWorkoutReplayPlan,
+        durableStore: WhoopStore
     ) async throws {
         let targets: [(HealthKitWorkoutReplayComponent, HKSampleType?)] = [
             (.workout, .workoutType()),
@@ -2344,7 +2454,11 @@ final class HealthKitBridge: ObservableObject {
                     allowedValues: externalUUIDs
                 ),
             ])
-            _ = try await store.deleteObjects(of: type, predicate: predicate)
+            try await deleteNoopAuthoredSamples(
+                of: type,
+                predicate: predicate,
+                durableStore: durableStore
+            )
             try Task.checkCancellation()
         }
     }

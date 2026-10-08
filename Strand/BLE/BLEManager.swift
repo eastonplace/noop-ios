@@ -305,12 +305,22 @@ struct HistoricalEmptyBackoffTracker {
 }
 
 /// One monotonic deadline for the complete connected radio burst. Each session receives only the time
-/// remaining before that deadline, so repeated watchdog re-arms cannot extend the 180-second ceiling.
+/// remaining before that deadline, so repeated watchdog re-arms cannot reset either selected ceiling.
 struct HistoricalRadioDeadline: Equatable {
+    let startedAt: TimeInterval
+    let budgetSeconds: TimeInterval
     let uptimeDeadline: TimeInterval
 
     init(startedAt: TimeInterval, budgetSeconds: TimeInterval) {
+        self.startedAt = startedAt
+        self.budgetSeconds = max(0, budgetSeconds)
         uptimeDeadline = startedAt + max(0, budgetSeconds)
+    }
+
+    func expandingBudget(to requestedBudgetSeconds: TimeInterval) -> Self {
+        let expanded = max(budgetSeconds, requestedBudgetSeconds)
+        guard expanded > budgetSeconds else { return self }
+        return Self(startedAt: startedAt, budgetSeconds: expanded)
     }
 
     func remaining(at uptime: TimeInterval) -> TimeInterval {
@@ -533,9 +543,16 @@ struct HistoricalPassSignature: Equatable {
 struct HistoricalMaterializationWakeState: Equatable {
     private(set) var isRunning = false
     private(set) var wakePending = false
+    private(set) var deferredUntilBurstEnd = false
 
-    /// Returns true when the caller owns starting a worker pass.
-    mutating func request() -> Bool {
+    /// Returns true when the caller owns starting a worker pass. Active radio ingestion records one
+    /// deferred wake instead, so repeated ACKs cannot start database work until the burst ends.
+    mutating func request(deferWhileBackfilling: Bool = false) -> Bool {
+        if deferWhileBackfilling {
+            deferredUntilBurstEnd = true
+            return false
+        }
+        deferredUntilBurstEnd = false
         wakePending = true
         guard !isRunning else { return false }
         isRunning = true
@@ -543,9 +560,20 @@ struct HistoricalMaterializationWakeState: Equatable {
         return true
     }
 
+    /// Releases the one wake retained for the completed radio burst.
+    mutating func releaseDeferred() -> Bool {
+        guard deferredUntilBurstEnd else { return false }
+        return request()
+    }
+
     /// Completes the active pass. Returns true when a coalesced wake owns one immediate follow-up pass.
-    mutating func finish() -> Bool {
+    mutating func finish(deferWhileBackfilling: Bool = false) -> Bool {
         isRunning = false
+        if deferWhileBackfilling {
+            deferredUntilBurstEnd = deferredUntilBurstEnd || wakePending
+            wakePending = false
+            return false
+        }
         guard wakePending else { return false }
         isRunning = true
         wakePending = false
@@ -555,6 +583,7 @@ struct HistoricalMaterializationWakeState: Equatable {
     mutating func cancel() {
         isRunning = false
         wakePending = false
+        deferredUntilBurstEnd = false
     }
 
     /// The store is authoritative about due work left after the claim. Continue only when this pass
@@ -581,7 +610,14 @@ struct HistoricalMaterializationWakeState: Equatable {
         outcome: HistoricalCommitOutcome,
         due: Bool
     ) -> Bool {
-        guard due, case .materializationRequired = receipt.rawStatus else { return false }
+        due && acknowledgmentCanRequireMaterialization(receipt: receipt, outcome: outcome)
+    }
+
+    static func acknowledgmentCanRequireMaterialization(
+        receipt: HistoricalDataCommitReceipt,
+        outcome: HistoricalCommitOutcome
+    ) -> Bool {
+        guard case .materializationRequired = receipt.rawStatus else { return false }
         switch outcome {
         case .inserted, .replayed: return true
         }
@@ -1073,6 +1109,19 @@ public final class BLEManager: NSObject, ObservableObject {
     /// Last-offload-attempt time (unix seconds), persisted so the rate limiter survives relaunch
     /// (matches WHOOP's DATA_SYNC_WORKER_LAST_WORK_TIME watermark).
     static let backfillLastAtKey = "backfillLastAt"
+    /// Durable evidence that the strap still has history ahead of the receipt-backed local frontier.
+    /// This is intentionally only a scheduling hint; every actual attempt still enters through requestSync.
+    static let historicalBacklogRemainsKey = "historicalBacklogRemains"
+    private var historicalSyncBackgroundStateDidChange: (() -> Void)?
+    private var historicalBacklogRemains: Bool {
+        get { UserDefaults.standard.bool(forKey: Self.historicalBacklogRemainsKey) }
+        set {
+            let defaults = UserDefaults.standard
+            guard defaults.bool(forKey: Self.historicalBacklogRemainsKey) != newValue else { return }
+            defaults.set(newValue, forKey: Self.historicalBacklogRemainsKey)
+            historicalSyncBackgroundStateDidChange?()
+        }
+    }
     /// Prevents a second backfill from starting on a same-process reconnect to the same strap.
     private var backfillStarted = false
     /// #364 auto-continue: how many times we've immediately re-kicked a backfill after a 60s idle-cap OR
@@ -1334,6 +1383,7 @@ public final class BLEManager: NSObject, ObservableObject {
         state.lastSyncedAt = UserDefaults.standard.object(forKey: "lastSyncedAt") as? Double
         // Restore identifier + background-capable central (foundation for M3 state restoration).
         #if os(iOS)
+        UIDevice.current.isBatteryMonitoringEnabled = true
         // iOS background state preservation/restoration: the restore identifier is what makes
         // CoreBluetooth relaunch the app into the background and deliver willRestoreState after
         // a suspend-then-jettison. Without it, willRestoreState is never called.
@@ -1501,6 +1551,7 @@ public final class BLEManager: NSObject, ObservableObject {
         // Restore identifier + background-capable central (mirrors the production initializer
         // so a restored manager matches by identifier; only exercised by tests/previews).
         #if os(iOS)
+        UIDevice.current.isBatteryMonitoringEnabled = true
         central = CBCentralManager(delegate: self, queue: .main,
                                    options: [CBCentralManagerOptionRestoreIdentifierKey: BLEManager.restoreID])
         #else
@@ -1512,6 +1563,74 @@ public final class BLEManager: NSObject, ObservableObject {
         installPowerStateScheduling()
         // #78 hole-4: a paused-for-bond-loop strap gets one bounded salvage attempt per app-foreground.
         installForegroundSalvageProbe()
+    }
+
+    func setHistoricalSyncBackgroundStateDidChange(_ handler: (() -> Void)?) {
+        historicalSyncBackgroundStateDidChange = handler
+        handler?()
+    }
+
+    func historicalSyncBackgroundSnapshot(
+        now: TimeInterval = Date().timeIntervalSince1970
+    ) -> HistoricalSyncBackgroundSnapshot {
+        let secureTransportReady = selectedModel.deviceFamily != .whoop5 || whoop5SecureReady
+        return HistoricalSyncBackgroundSnapshot(
+            backlogRemains: historicalBacklogRemains,
+            syncActive: backfilling || historicalRadioDeadline != nil,
+            connectionReady: state.connected
+                && state.bonded
+                && connectHandshakeDone
+                && secureTransportReady
+                && !restoreInProgress,
+            now: now,
+            lastBackfillAt: UserDefaults.standard.object(forKey: Self.backfillLastAtKey) as? Double,
+            powerSaving: periodicPowerSavingActive(),
+            emptyStreak: historicalEmptyBackoff.consecutiveEmpty
+        )
+    }
+
+    private var phoneExternallyPowered: Bool {
+        #if os(iOS)
+        switch UIDevice.current.batteryState {
+        case .charging, .full:
+            return true
+        case .unknown, .unplugged:
+            return false
+        @unknown default:
+            return false
+        }
+        #else
+        return false
+        #endif
+    }
+
+    private func selectedHistoricalRadioBudgetSeconds() -> TimeInterval {
+        HistoricalRadioBudgetPolicy.budgetSeconds(
+            backlogRemains: historicalBacklogRemains,
+            phoneExternallyPowered: phoneExternallyPowered,
+            phoneLowPowerMode: ProcessInfo.processInfo.isLowPowerModeEnabled,
+            strapBatteryPct: state.batteryPct.map { Int($0.rounded()) },
+            strapCharging: state.charging == true,
+            strapPowerSaving: periodicPowerSavingActive()
+        )
+    }
+
+    private func promoteHistoricalRadioDeadlineIfEligible() {
+        guard let deadline = historicalRadioDeadline else { return }
+        let expanded = deadline.expandingBudget(to: selectedHistoricalRadioBudgetSeconds())
+        guard expanded != deadline else { return }
+        historicalRadioDeadline = expanded
+        log("Backfill: powered catch-up extended this burst from \(Int(deadline.budgetSeconds))s to \(Int(expanded.budgetSeconds))s without resetting its original start time.")
+    }
+
+    private func setHistoricalBacklogRemains(_ remains: Bool, reason: String) {
+        guard historicalBacklogRemains != remains else { return }
+        historicalBacklogRemains = remains
+        log("Backfill: durable background debt \(remains ? "armed" : "cleared") — \(reason)")
+    }
+
+    private func notifyHistoricalSyncBackgroundStateDidChange() {
+        historicalSyncBackgroundStateDidChange?()
     }
 
     // MARK: Public API
@@ -2607,6 +2726,9 @@ public final class BLEManager: NSObject, ObservableObject {
         activeWhoop5ConfirmedWriteID = next.owner.id
         queuedWhoop5ConfirmedWrites.removeFirst()
         confirmedCommandWrites.append(next.owner)
+        if next.owner.purpose == .historicalAck {
+            HistoricalTransportTrace.ackIssued()
+        }
         next.peripheral.writeValue(next.data, for: next.characteristic, type: .withResponse)
         let operationID = next.owner.id
         let timeout = DispatchWorkItem { [weak self] in
@@ -2861,15 +2983,23 @@ public final class BLEManager: NSObject, ObservableObject {
             return false
         }
         if historicalRadioDeadline == nil {
+            let selectedBudget = selectedHistoricalRadioBudgetSeconds()
             historicalRadioDeadline = HistoricalRadioDeadline(
                 startedAt: ProcessInfo.processInfo.systemUptime,
-                budgetSeconds: BackfillContinuation.defaultMaxContinuousRadioSeconds
+                budgetSeconds: selectedBudget
             )
+            if selectedBudget > HistoricalRadioBudgetPolicy.standardBudgetSeconds {
+                log("Backfill: powered catch-up selected a bounded \(Int(selectedBudget))s radio budget for durable history debt.")
+            }
         }
         historicalBurstPasses.startPass()
         historicalSessionInsertedSensorReceipt = false
         backfilling = true
+        if selectedModel.deviceFamily == .whoop5 {
+            HistoricalTransportTrace.beginSession()
+        }
         state.backfilling = true
+        notifyHistoricalSyncBackgroundStateDidChange()
         state.historicalSyncSessionState = .syncing
         historicalProgress.begin()
         state.syncChunksThisSession = 0
@@ -2961,6 +3091,7 @@ public final class BLEManager: NSObject, ObservableObject {
         historicalEmptyBackoff.record(freshProgress: false)
         historicalRadioDeadline = nil
         historicalBurstPasses.reset()
+        releaseDeferredHistoricalMaterializationIfNeeded()
         startBackfillTimer()
         switch failure {
         case .acknowledgment:
@@ -3119,6 +3250,16 @@ public final class BLEManager: NSObject, ObservableObject {
         if futureClockBanner != nil {
             let aheadH = ((strapNewestTs ?? 0) - wallNowForBanner) / 3600
             log("Backfill: the strap's newest banked record is \(aheadH)h AHEAD of the wall clock (#324/#928) - clock set in the future; showing the future-clock banner and importing nothing from this range.")
+            setHistoricalBacklogRemains(false, reason: "the strap range is future-dated and automatic catch-up must stop")
+        } else if freshProgressThisSession {
+            // Fresh receipt-backed rows prove that useful durable work remains possible. Keep one
+            // discretionary background request armed until the exact source frontier catches up or an
+            // empty HISTORY_COMPLETE confirms the tail. If both devices are powered, this same evidence
+            // may expand the current burst to the bounded ten-minute ceiling without resetting its start.
+            setHistoricalBacklogRemains(true, reason: "this session committed fresh historical sensor data")
+            promoteHistoricalRadioDeadlineIfEligible()
+        } else if reason == "HISTORY_COMPLETE" {
+            setHistoricalBacklogRemains(false, reason: "an empty completed tail confirmed the durable backlog is drained")
         }
         // Honest sync outcome for a cloud-free user (mirrors Android exitBackfilling, ed6a31d):
         // HISTORY_COMPLETE stamps lastSyncedAt + clears any error; the idle-watchdog timeout surfaces
@@ -3250,6 +3391,7 @@ public final class BLEManager: NSObject, ObservableObject {
             maybeAutoContinueBackfill(
                 trimAdvanced: trimAdvanced,
                 freshSourceProgress: freshProgressThisSession,
+                endedWithHistoryComplete: reason == "HISTORY_COMPLETE",
                 acknowledgedTrim: currentTrim,
                 acknowledgedFingerprint: backfiller?.sessionLastAckedFingerprint,
                 cursorScope: backfiller?.historicalCursorScope
@@ -3306,6 +3448,14 @@ public final class BLEManager: NSObject, ObservableObject {
     ) async {
         let ownership = currentHistoricalMaterializationOwnership
         guard ownsHistoricalMaterialization(store: store, ownership: ownership) else { return }
+        guard HistoricalMaterializationWakeState.acknowledgmentCanRequireMaterialization(
+            receipt: receipt,
+            outcome: outcome
+        ) else { return }
+        if backfilling {
+            _ = historicalMaterializationWake.request(deferWhileBackfilling: true)
+            return
+        }
         let dueCheck = historicalMaterializationDueCheck
         let due = await dueCheck(store, receipt.receiptId)
         guard ownsHistoricalMaterialization(store: store, ownership: ownership),
@@ -3335,7 +3485,9 @@ public final class BLEManager: NSObject, ObservableObject {
         guard ownsHistoricalMaterialization(store: store, ownership: admittedOwnership) else { return }
         historicalMaterializationRetryTask?.cancel()
         historicalMaterializationRetryTask = nil
-        guard historicalMaterializationWake.request() else { return }
+        guard historicalMaterializationWake.request(
+            deferWhileBackfilling: backfilling
+        ) else { return }
         startHistoricalMaterializationPass(
             on: store,
             storeGeneration: admittedOwnership.storeGeneration
@@ -3382,9 +3534,13 @@ public final class BLEManager: NSObject, ObservableObject {
                     self.historicalMaterializationTask = nil
                     self.historicalMaterializationTaskOwnership = nil
                     if requestDrainFollowUp {
-                        _ = self.historicalMaterializationWake.request()
+                        _ = self.historicalMaterializationWake.request(
+                            deferWhileBackfilling: self.backfilling
+                        )
                     }
-                    if self.historicalMaterializationWake.finish() {
+                    if self.historicalMaterializationWake.finish(
+                        deferWhileBackfilling: self.backfilling
+                    ) {
                         self.startHistoricalMaterializationPass(
                             on: store,
                             storeGeneration: ownership.storeGeneration
@@ -3453,19 +3609,32 @@ public final class BLEManager: NSObject, ObservableObject {
         }
     }
 
+    private func releaseDeferredHistoricalMaterializationIfNeeded() {
+        guard let store = dataStore else { return }
+        let ownership = currentHistoricalMaterializationOwnership
+        guard ownsHistoricalMaterialization(store: store, ownership: ownership),
+              historicalMaterializationWake.releaseDeferred() else { return }
+        startHistoricalMaterializationPass(
+            on: store,
+            storeGeneration: ownership.storeGeneration
+        )
+    }
+
     private func publishBackfillBurstIfNeeded() {
-        guard let finalization = backfillBurstPublication.consumeFinalization() else { return }
-        state.finalizeHistoricalSyncBurst(
-            at: Date().timeIntervalSince1970,
-            watermark: finalization.watermark)
-        if let watermark = finalization.watermark {
-            let scopes = watermark.coordinates.map {
-                "\($0.databaseInstanceId)/\($0.sourceIdentity.deviceId)#\($0.sourceIdentity.lineage)#\($0.sourceIdentity.epoch)/\($0.sourceIdentity.trimScope) through \($0.throughGeneration)"
-            }.joined(separator: ", ")
-            log("Backfill: durable history is ready for source scopes [\(scopes)]; scheduling one dashboard refresh.")
-        } else {
-            log("Backfill: durable history is ready after the sync burst; scheduling one dashboard refresh.")
+        if let finalization = backfillBurstPublication.consumeFinalization() {
+            state.finalizeHistoricalSyncBurst(
+                at: Date().timeIntervalSince1970,
+                watermark: finalization.watermark)
+            if let watermark = finalization.watermark {
+                let scopes = watermark.coordinates.map {
+                    "\($0.databaseInstanceId)/\($0.sourceIdentity.deviceId)#\($0.sourceIdentity.lineage)#\($0.sourceIdentity.epoch)/\($0.sourceIdentity.trimScope) through \($0.throughGeneration)"
+                }.joined(separator: ", ")
+                log("Backfill: durable history is ready for source scopes [\(scopes)]; scheduling one dashboard refresh.")
+            } else {
+                log("Backfill: durable history is ready after the sync burst; scheduling one dashboard refresh.")
+            }
         }
+        releaseDeferredHistoricalMaterializationIfNeeded()
     }
 
     /// #364 / #25: evaluate (and, if warranted, fire) an immediate back-to-back backfill after a 60s
@@ -3483,6 +3652,7 @@ public final class BLEManager: NSObject, ObservableObject {
     private func maybeAutoContinueBackfill(
         trimAdvanced: Bool,
         freshSourceProgress: Bool,
+        endedWithHistoryComplete: Bool,
         acknowledgedTrim: UInt32?,
         acknowledgedFingerprint: String?,
         cursorScope: HistoricalCursorScope?
@@ -3493,6 +3663,7 @@ public final class BLEManager: NSObject, ObservableObject {
             historicalRadioDeadline = nil
             historicalBurstPasses.reset()
             publishBackfillBurstIfNeeded()
+            notifyHistoricalSyncBackgroundStateDidChange()
             return
         }
         let newest = strapNewestTs
@@ -3553,6 +3724,8 @@ public final class BLEManager: NSObject, ObservableObject {
             let remainingRadioSeconds = historicalRadioDeadline?.remaining(
                 at: ProcessInfo.processInfo.systemUptime
             ) ?? 0
+            let selectedRadioBudget = historicalRadioDeadline?.budgetSeconds
+                ?? HistoricalRadioBudgetPolicy.standardBudgetSeconds
             let wallNow = Int(Date().timeIntervalSince1970)   // #928: real wall clock, at decision time
             let stillConnected = state.connected && state.bonded
             guard BackfillContinuation.shouldAutoContinue(
@@ -3563,9 +3736,9 @@ public final class BLEManager: NSObject, ObservableObject {
                 rowsPersistedThisSession: freshSourceProgress ? 1 : 0,
                 lastTrimAdvanced: trimAdvanced,
                 passSignatureRepeated: signatureRepeated,
-                continuousRadioSeconds: BackfillContinuation.defaultMaxContinuousRadioSeconds
-                    - remainingRadioSeconds,
-                totalPasses: totalPasses) else {
+                continuousRadioSeconds: max(0, selectedRadioBudget - remainingRadioSeconds),
+                totalPasses: totalPasses,
+                maxContinuousRadioSeconds: selectedRadioBudget) else {
                 // #1012: name the stop honestly when the future-clock gate is what ended the chain —
                 // without this line the log just goes quiet after one pass and a strap-log export can't
                 // tell "caught up" from "future-dated range refused". Fires ONLY when 2b would otherwise
@@ -3587,8 +3760,25 @@ public final class BLEManager: NSObject, ObservableObject {
                 if totalPasses < BackfillContinuation.defaultMaxTotalPasses {
                     historicalBurstPasses.reset()
                 }
+                let futureDated = BackfillContinuation.isFutureDatedNewest(
+                    newest,
+                    wallNowUnix: wallNow
+                )
+                let caughtUpByFrontier = !futureDated
+                    && newest != nil
+                    && frontier != nil
+                    && (newest! - frontier!) <= BackfillContinuation.defaultBehindGapSeconds
+                if caughtUpByFrontier || (endedWithHistoryComplete && !freshSourceProgress) {
+                    setHistoricalBacklogRemains(
+                        false,
+                        reason: caughtUpByFrontier
+                            ? "the source-scoped durable frontier reached the strap's newest banked record"
+                            : "the completed tail contained no fresh sensor receipts"
+                    )
+                }
                 historicalRadioDeadline = nil
                 self.publishBackfillBurstIfNeeded()
+                self.notifyHistoricalSyncBackgroundStateDidChange()
                 return
             }
             // Guard against a race: a real backfill may already have re-started (periodic/connect) in the
@@ -3604,6 +3794,7 @@ public final class BLEManager: NSObject, ObservableObject {
                 historicalRadioDeadline = nil
                 historicalBurstPasses.reset()
                 publishBackfillBurstIfNeeded()
+                notifyHistoricalSyncBackgroundStateDidChange()
                 return
             }
             log("Backfill: auto-continuing (#364/#451) — the trim advanced and the strap is still handing over real records (frontier \(frontier.map(String.init) ?? "?"), strap-reported newest \(newest.map(String.init) ?? "?")); starting pass \(totalPasses + 1)/\(BackfillContinuation.defaultMaxTotalPasses) without waiting the 15-min floor.")
@@ -3618,6 +3809,7 @@ public final class BLEManager: NSObject, ObservableObject {
                 publishBackfillBurstIfNeeded()
                 historicalRadioDeadline = nil
                 historicalBurstPasses.reset()
+                notifyHistoricalSyncBackgroundStateDidChange()
             }
         }
     }
@@ -5280,6 +5472,10 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         realtimeArmed = false
         whoop5SessionStarted = false
         resetClockRecoveryForConnection()
+        let disconnectedRangeWasFutureDated = BackfillContinuation.isFutureDatedNewest(
+            strapNewestTs,
+            wallNowUnix: Int(Date().timeIntervalSince1970)
+        )
         strapNewestTs = nil
         connectHandshakeDone = false
         cmdNotifyConfirmedActive = false   // #34: a fresh connection needs its own notify-confirm + settle
@@ -5315,11 +5511,18 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
             inFlight: disconnectedDuringBackfill,
             freshProgress: disconnectMadeFreshProgress
         )
+        if disconnectMadeFreshProgress && !disconnectedRangeWasFutureDated {
+            setHistoricalBacklogRemains(
+                true,
+                reason: "the link dropped after committing fresh historical sensor data"
+            )
+        }
         // If earlier slices in this burst were durable, publish now rather than requiring a later clean
         // HISTORY_COMPLETE to score/show them.
         publishBackfillBurstIfNeeded()
         backfilling = false
         state.backfilling = false
+        notifyHistoricalSyncBackgroundStateDidChange()
         state.syncChunksThisSession = 0
         historicalProgress.begin()
         // A mid-sync disconnect bypasses exitBackfilling, so clear the reject counters here too —
@@ -5805,6 +6008,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                pending.trim == historicalAck.trim {
                 let stillCurrent = isCurrentHistoricalBackfill(pending.admission)
                 let acknowledged = error == nil && stillCurrent
+                HistoricalTransportTrace.ackCallback(succeeded: acknowledged)
                 completePendingHistoricalAck(
                     acknowledged,
                     reason: error.map { "CoreBluetooth write failed: \($0.localizedDescription)" }
@@ -6567,6 +6771,20 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                     }
                     lastDataAt = Date()
                     let isOffload = backfilling && BLEManager.isOffloadFrame(frame, family: .whoop5)
+                    let traceKind: HistoricalTransportTrace.FrameKind
+                    if isOffload {
+                        traceKind = .historical
+                    } else if frame.count > 8, frame[8] == 40 || frame[8] == 43 {
+                        traceKind = .realtime
+                    } else {
+                        traceKind = .other
+                    }
+                    HistoricalTransportTrace.protectedFrameReceived(
+                        kind: traceKind,
+                        characteristic: characteristic.uuid.uuidString.lowercased())
+                    if isOffload, case .end = classifyHistoricalMeta(parsed) {
+                        HistoricalTransportTrace.historyEndReceived()
+                    }
                     noteWhoop5R22Telemetry(frame, duringOffload: isOffload)   // #174 deep-data telemetry
                     // Durable EVENT-frame log for deep-data research (#103) — BEFORE the offload
                     // branch, so it sees both live events and their history replays (either path

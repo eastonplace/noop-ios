@@ -141,6 +141,31 @@ final class HealthKitPipelineSerializationTests: XCTestCase {
         XCTAssertFalse(barrier.blocksRefreshes)
     }
 
+    func testHistoricalRepositoryPublicationWaitsForHealthKitFence() async throws {
+        let barrier = RepositoryPublicationBarrier()
+        await barrier.acquireExclusive()
+
+        var attempted = false
+        var events = ["healthkit"]
+        let historicalTask = Task { @MainActor in
+            attempted = true
+            await HistoricalRepositoryPublicationGate.run(barrier: barrier) {
+                events.append("historical")
+            }
+        }
+        try await waitUntil { attempted }
+
+        XCTAssertEqual(events, ["healthkit"],
+                       "historical publication must not invalidate an in-flight HealthKit refresh")
+        XCTAssertTrue(barrier.blocksRefreshes)
+
+        barrier.releaseExclusive()
+        await historicalTask.value
+
+        XCTAssertEqual(events, ["healthkit", "historical"])
+        XCTAssertFalse(barrier.blocksRefreshes)
+    }
+
     func testFailedImportStillLeavesDurableScoringWorkAndFence() async throws {
         let importPersistence = PipelineWindowMemoryStore()
         let scoringPersistence = PipelineWindowMemoryStore()
@@ -186,7 +211,7 @@ final class HealthKitPipelineSerializationTests: XCTestCase {
                        "scoring success must not falsely acknowledge the failed import retry")
     }
 
-    func testWidenedImportCompletesBeforeAnyScoringPublication() async throws {
+    func testWidenedImportYieldsBetweenBatchesAndFollowUpRemainsDurableForNextScoringDrain() async throws {
         let importPersistence = PipelineWindowMemoryStore()
         let scoringPersistence = PipelineWindowMemoryStore()
         let barrier = RepositoryPublicationBarrier()
@@ -222,17 +247,28 @@ final class HealthKitPipelineSerializationTests: XCTestCase {
                 analyze: { analyzed.append($0); return true },
                 publish: { published.append($0); return true })
         }
+        try await waitUntil { scoring.isRunning }
         try importer.offer(second)
         gate.open()
         await importTask.value
         await scoringTask.value
 
-        let union = first.union(second)
-        XCTAssertEqual(imported, [first, union])
-        XCTAssertEqual(analyzed, [union],
-                       "the import lease keeps the first journal from scoring before the widened replay")
-        XCTAssertEqual(published, [union])
+        XCTAssertEqual(imported, [first, second],
+                       "a live observer delta must not restart the already committed import window")
+        XCTAssertEqual(analyzed, [first],
+                       "scoring gets a bounded lease between committed import batches")
+        XCTAssertEqual(published, [first])
         XCTAssertNil(importer.pending)
+        XCTAssertEqual(scoring.pending, second,
+                       "the follow-up import must leave a durable scoring edge for the next notification drain")
+        XCTAssertTrue(barrier.blocksRefreshes)
+
+        await scoring.runAndWait(
+            analyze: { analyzed.append($0); return true },
+            publish: { published.append($0); return true })
+
+        XCTAssertEqual(analyzed, [first, second])
+        XCTAssertEqual(published, [first, second])
         XCTAssertNil(scoring.pending)
         XCTAssertFalse(barrier.blocksRefreshes)
     }

@@ -959,8 +959,10 @@ final class IntelligenceEngine: ObservableObject {
             let skinAnchorScanTo = newestCivilDay.start + 18 * 3_600
             var skinAnchorByOwner: [String: Double] = [:]
             var skinAnchorResolvedOwners = Set<String>()
+            var backgroundPaceMark = DispatchTime.now().uptimeNanoseconds
             for civilDay in civilDays {
                 try CooperativeAnalysisCancellation.checkpoint()
+                try await RescoreBackgroundPolicy.paceIfBackgrounded(since: &backgroundPaceMark)
                 let dayStart = civilDay.start
                 let day = civilDay.day
                 // Read a generous window around the night that ends on `day`; the stager finds the span.
@@ -1072,6 +1074,7 @@ final class IntelligenceEngine: ObservableObject {
                         deviceId: owner, from: from, to: to, limit: 200_000)
                 }
                 try CooperativeAnalysisCancellation.checkpoint()
+                try await RescoreBackgroundPolicy.paceIfBackgrounded(since: &backgroundPaceMark)
                 let hr = bundle.hr
                 // Descriptive shadows have their own evidence thresholds (30 in-sleep samples for the
                 // primary-session mean, 10 pre-sleep samples for optional feedback). Evaluate persisted or
@@ -1213,6 +1216,7 @@ final class IntelligenceEngine: ObservableObject {
                 // HRV mode (#141): a per-day collector for the nightly per-window RMSSD + summary; nil = default.
                 var hrvTrace: [String] = []
                 let hrvTraceSink: ((String) -> Void)? = hrvTraceActive ? { hrvTrace.append($0) } : nil
+                try await RescoreBackgroundPolicy.paceIfBackgrounded(since: &backgroundPaceMark)
                 let res = AnalyticsEngine.analyzeDay(day: day, hr: hr, rr: rr, resp: resp, gravity: grav,
                                                      steps: steps, dayHr: dayHr, daySteps: daySteps,
                                                      dayGravity: dayGrav,
@@ -1239,6 +1243,7 @@ final class IntelligenceEngine: ObservableObject {
                                                      // ring buffer isn't flooded; every night keeps the summary.
                                                      hrvWindowDetail: dayStart == currentCivilDayStart,
                                                      deepHrvWindow: deepHrvWindow)
+                try await RescoreBackgroundPolicy.paceIfBackgrounded(since: &backgroundPaceMark)
                 // #195: whole-night HRV cleaning-pipeline summary for the always-on strap log, so a "reads ~2x
                 // too high" report is triageable without the HRV test mode: RMSSD vs SDNN (rmssd >> sdnn =
                 // beat-to-beat jitter surviving the ectopic filter, not real HRV), meanNN as an HR sanity-check,
@@ -1626,7 +1631,14 @@ final class IntelligenceEngine: ObservableObject {
                 SleepScoringContextBuilder.DailyEffort(day: n.daily.day, value: $0)
             }}).map { ($0.day, $0) })
         var sleepV2Points: [MetricPoint] = []
+        var recoveryPaceMark = DispatchTime.now().uptimeNanoseconds
         for night in scoredNights {
+            do {
+                try await RescoreBackgroundPolicy.paceIfBackgrounded(since: &recoveryPaceMark)
+            } catch {
+                performanceChangedRows = 0
+                return false
+            }
             // #299: scope the edits to THIS day before folding. A userEdited row / hand-logged nap belongs
             // to exactly ONE day — the day its night ENDS on, matching the daily's end-day bucket. `endTs`
             // is stable under a bedtime edit (only the onset/`startTsAdjusted` moves), so end-day is the
@@ -1903,13 +1915,121 @@ final class IntelligenceEngine: ObservableObject {
         // Fitness Age gate can't be undercut by this pass's own scoring/eviction. Windowed to the range.
         let faPriorDaily = await repo.dailyMetrics(fromDay: oldestDay, toDay: newestDay)
 
+        // Any pass for the still-open civil day can contain only post-sleep daytime samples. This includes
+        // exact receipt work and the ordinary dashboard refresh that follows a completed backfill. Such a pass
+        // may legitimately refresh Strain/activity while having no overnight replacements; a full row upsert
+        // would otherwise clear already-validated sleep, HRV, Recovery and Health Monitor values. Preserve only
+        // missing overnight fields from the persisted same-day row, and protect that row from stale eviction
+        // when the partial pass produces no daily row at all. Completed historical days keep full-replacement
+        // semantics, and every fresh current-day value remains authoritative.
+        var reconciledDailies = dailies
+        var protectedDailyDays: Set<String> = []
+        if let partialDay = civilDays.first(where: { $0.start <= now && now < $0.nextStart }) {
+            do {
+                let prior = try await store.dailyMetrics(
+                    deviceId: computedId,
+                    from: partialDay.day,
+                    to: partialDay.day
+                ).first
+                if let prior {
+                    if let index = reconciledDailies.firstIndex(where: { $0.day == partialDay.day }) {
+                        reconciledDailies[index] = Self.preservingPriorOvernightFields(
+                            in: reconciledDailies[index],
+                            from: prior
+                        )
+                        protectedDailyDays.insert(partialDay.day)
+                    }
+                }
+
+                // A prior buggy exact pass may have deleted the whole daily row or only its overnight
+                // vitals while leaving the validated sleep session intact. Once any prior values have been
+                // merged, rebuild only still-missing fields the persisted session proves. Fresh daytime
+                // activity and already-present overnight values remain authoritative; unsupported vitals
+                // stay nil.
+                let existingIndex = reconciledDailies.firstIndex { $0.day == partialDay.day }
+                let base = existingIndex.map { reconciledDailies[$0] } ?? prior ?? DailyMetric(
+                    day: partialDay.day,
+                    totalSleepMin: nil,
+                    efficiency: nil,
+                    deepMin: nil,
+                    remMin: nil,
+                    lightMin: nil,
+                    disturbances: nil,
+                    restingHr: nil,
+                    avgHrv: nil,
+                    recovery: nil,
+                    strain: nil,
+                    exerciseCount: nil
+                )
+                let needsPersistedSleepRepair = base.totalSleepMin == nil
+                    || base.efficiency == nil
+                    || base.deepMin == nil
+                    || base.remMin == nil
+                    || base.lightMin == nil
+                    || base.restingHr == nil
+                    || base.avgHrv == nil
+                if needsPersistedSleepRepair {
+                    let persistedSleep = try await store.sleepSessions(
+                        deviceId: computedId,
+                        from: windowStart,
+                        to: partialDay.nextStart,
+                        limit: 4_000
+                    )
+                    if var rebuilt = Self.rebuildingMissingOvernightFields(
+                        in: base,
+                        from: persistedSleep,
+                        dayStart: partialDay.start,
+                        nextDayStart: partialDay.nextStart,
+                        habitualMidsleepSec: habitualMidsleepSec,
+                        timeZoneOffsetSeconds: tzOffset
+                    ) {
+                        let rest = AnalyticsEngine.Rest.composite(daily: rebuilt)
+                        let sleepQuality = rest.map { $0 / 100.0 } ?? rebuilt.efficiency
+                        rebuilt = rebuilt.replacing(recovery: .some(
+                            rebuilt.recovery ?? recomputeRecovery(
+                                rebuilt,
+                                baselines2,
+                                sleepQuality: sleepQuality
+                            )
+                        ))
+                        if let existingIndex {
+                            reconciledDailies[existingIndex] = rebuilt
+                        } else {
+                            reconciledDailies.append(rebuilt)
+                        }
+                        protectedDailyDays.insert(partialDay.day)
+                        if let rest {
+                            restPoints.removeAll {
+                                $0.day == partialDay.day && $0.key == "sleep_performance"
+                            }
+                            restPoints.append(MetricPoint(
+                                day: partialDay.day,
+                                key: "sleep_performance",
+                                value: rest
+                            ))
+                        }
+                    }
+                }
+            } catch {
+                note = String(localized: "Current recovery data could not be preserved safely. NOOP will retry.")
+                NSLog("IntelligenceEngine: current-day exact reconciliation read failed: \(error)")
+                return false
+            }
+        }
+        dailies = reconciledDailies
+
         // Replace the full computed range in one SQLite transaction. Upsert-then-read-then-delete used three
         // separate transactions; any unrelated reader could observe the intermediate generation even when
         // Repository publication was fenced. Manual-Recovery triggers restore protected rows atomically.
         do {
             guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
             persistedMutationCount += try await store.reconcileDailyMetrics(
-                dailies, deviceId: computedId, from: oldestDay, to: newestDay)
+                reconciledDailies,
+                deviceId: computedId,
+                from: oldestDay,
+                to: newestDay,
+                protectedDays: protectedDailyDays
+            )
         } catch {
             note = String(localized: "Recovery history could not be reconciled. NOOP will retry.")
             NSLog("IntelligenceEngine: computed daily reconciliation failed: \(error)")
@@ -3209,6 +3329,91 @@ extension DailyMetric {
 }
 
 extension IntelligenceEngine {
+    /// A pass over today's incomplete source can refresh daytime fields without replaying the
+    /// already-finished sleep window. Keep fresh values whenever present and fill only missing overnight
+    /// columns from the persisted same-day row. The caller limits this helper to current-day work.
+    nonisolated static func preservingPriorOvernightFields(
+        in fresh: DailyMetric,
+        from prior: DailyMetric
+    ) -> DailyMetric {
+        guard fresh.day == prior.day else { return fresh }
+        return fresh.replacing(
+            totalSleepMin: .some(fresh.totalSleepMin ?? prior.totalSleepMin),
+            efficiency: .some(fresh.efficiency ?? prior.efficiency),
+            deepMin: .some(fresh.deepMin ?? prior.deepMin),
+            remMin: .some(fresh.remMin ?? prior.remMin),
+            lightMin: .some(fresh.lightMin ?? prior.lightMin),
+            disturbances: .some(fresh.disturbances ?? prior.disturbances),
+            restingHr: .some(fresh.restingHr ?? prior.restingHr),
+            avgHrv: .some(fresh.avgHrv ?? prior.avgHrv),
+            recovery: .some(fresh.recovery ?? prior.recovery),
+            skinTempDevC: .some(fresh.skinTempDevC ?? prior.skinTempDevC),
+            respRateBpm: .some(fresh.respRateBpm ?? prior.respRateBpm),
+            spo2Red: .some(fresh.spo2Red ?? prior.spo2Red),
+            spo2Ir: .some(fresh.spo2Ir ?? prior.spo2Ir)
+        )
+    }
+
+    /// Reconstruct the still-open day's missing overnight fields from durable computed sleep sessions.
+    /// The main-night selector and stage aggregate match normal analysis, while RHR/HRV retain normal
+    /// all-sessions-for-the-wake-day semantics. Unsupported fields remain untouched.
+    nonisolated static func rebuildingMissingOvernightFields(
+        in fresh: DailyMetric,
+        from persistedSessions: [CachedSleepSession],
+        dayStart: Int,
+        nextDayStart: Int,
+        habitualMidsleepSec: Int?,
+        timeZoneOffsetSeconds: Int
+    ) -> DailyMetric? {
+        let matched = persistedSessions.filter {
+            $0.endTs >= dayStart
+                && $0.endTs < nextDayStart
+                && $0.effectiveStartTs < $0.endTs
+        }
+        guard !matched.isEmpty else { return nil }
+
+        let mainIndices = SleepStageTotals.mainNightGroupIndices(
+            matched.map {
+                SleepStageTotals.NightBlock(start: $0.effectiveStartTs, end: $0.endTs)
+            },
+            offsetSec: timeZoneOffsetSeconds,
+            habitualMidsleepSec: habitualMidsleepSec
+        ) ?? []
+        let mainGroup = mainIndices.map { matched[$0] }
+        let interFragmentAwakeSeconds = SleepStageTotals.interFragmentAwakeSeconds(
+            mainGroup.map { (start: $0.effectiveStartTs, end: $0.endTs) }
+        )
+        let sleep = SleepStageTotals.dailyAggregate(
+            mainGroup.map(\.stagesJSON),
+            interFragmentAwakeSeconds: interFragmentAwakeSeconds
+        )
+
+        let restingHr = matched.compactMap(\.restingHr).min()
+        let hrvPairs = matched.compactMap { session -> (value: Double, weight: Double)? in
+            guard let value = session.avgHrv, value.isFinite else { return nil }
+            let (duration, overflow) = session.endTs.subtractingReportingOverflow(
+                session.effectiveStartTs
+            )
+            guard !overflow, duration > 0 else { return nil }
+            return (value, Double(duration))
+        }
+        let hrvWeight = hrvPairs.reduce(0.0) { $0 + $1.weight }
+        let avgHrv: Double? = hrvWeight > 0
+            ? hrvPairs.reduce(0.0) { $0 + $1.value * $1.weight } / hrvWeight
+            : nil
+
+        let rebuilt = fresh.replacing(
+            totalSleepMin: .some(fresh.totalSleepMin ?? sleep?.totalSleepMin),
+            efficiency: .some(fresh.efficiency ?? sleep?.efficiency),
+            deepMin: .some(fresh.deepMin ?? sleep?.deepMin),
+            remMin: .some(fresh.remMin ?? sleep?.remMin),
+            lightMin: .some(fresh.lightMin ?? sleep?.lightMin),
+            restingHr: .some(fresh.restingHr ?? restingHr),
+            avgHrv: .some(fresh.avgHrv ?? avgHrv)
+        )
+        return rebuilt == fresh ? nil : rebuilt
+    }
+
     /// Merge one metric's on-device pass-1 nightly values into the imported-history map.
     /// Imported (cloud) values WIN per day; the computed estimate only fills days the import
     /// does not cover at all (key absent). Twin of the Kotlin `mergeNightlyIntoHistory`.

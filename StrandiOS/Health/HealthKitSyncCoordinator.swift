@@ -1,6 +1,7 @@
 #if os(iOS)
 import Foundation
 import HealthKit
+import WhoopStore
 
 struct HealthKitSyncWindow: Codable, Equatable, Sendable {
     let start: Date
@@ -13,6 +14,90 @@ struct HealthKitSyncWindow: Codable, Equatable, Sendable {
 
     func union(_ other: HealthKitSyncWindow) -> HealthKitSyncWindow {
         HealthKitSyncWindow(start: min(start, other.start), end: max(end, other.end))
+    }
+}
+
+/// Makes NOOP-authored HealthKit deletions replay-safe. HealthKit reports only UUIDs for deleted
+/// objects, so their ownership and original time windows must be durable before the delete occurs.
+/// Journal writes stay below the store's SQLite parameter headroom and a journal failure prevents
+/// the destructive HealthKit operation.
+@MainActor
+enum HealthKitExportDeletionCommit {
+    static let maximumIdentityBatchSize = 400
+
+    static func commit(
+        sampleType: HKSampleType,
+        loadSamples: () async throws -> [HKSample],
+        recordIdentities: ([HealthKitObjectIdentity]) async throws -> Void,
+        delete: () async throws -> Int
+    ) async throws -> Int {
+        let samples = try await loadSamples()
+        let identities = samples.map {
+            HealthKitObjectIdentity(
+                sampleType: sampleType.identifier,
+                objectUUID: $0.uuid.uuidString,
+                startTs: Int($0.startDate.timeIntervalSince1970),
+                endTs: Int($0.endDate.timeIntervalSince1970)
+            )
+        }
+        for start in stride(from: 0, to: identities.count, by: maximumIdentityBatchSize) {
+            let end = min(start + maximumIdentityBatchSize, identities.count)
+            try await recordIdentities(Array(identities[start..<end]))
+        }
+        return try await delete()
+    }
+}
+
+/// Commit each bounded observer page before forgetting ownership of its deletion notifications.
+/// Exported Health samples never contribute to the inbound Apple Health projection.
+@MainActor
+enum HealthKitObserverPageCommit {
+    static let exportIdentityNamespace = "noop-healthkit-export"
+
+    static func commit(
+        page: HealthKitAnchorPage,
+        exportedObjectUUIDs: Set<String>,
+        importedIdentities: [HealthKitObjectIdentity],
+        initialScan: Bool,
+        now: Date,
+        earliestLocalDate: () async throws -> Date?,
+        offer: (HealthKitSyncWindow) throws -> Void,
+        saveAnchor: (HKQueryAnchor) throws -> Void,
+        retireExports: ([String]) async throws -> Void
+    ) async throws -> HealthKitSyncWindow? {
+        guard let anchor = page.newAnchor else { throw HealthKitAnchorPager.PagingError.missingAnchor }
+        let externalDeleted = page.deletedObjectUUIDs.filter { !exportedObjectUUIDs.contains($0) }
+        let inboundObjectUUIDs = Set(page.samples.map { $0.uuid.uuidString })
+            .union(externalDeleted)
+        let inboundIdentities = importedIdentities.filter {
+            inboundObjectUUIDs.contains($0.objectUUID)
+        }
+        var window: HealthKitSyncWindow?
+        if !page.samples.isEmpty || !externalDeleted.isEmpty {
+            let known = Set(inboundIdentities.map(\.objectUUID))
+            let unknownDeletion = !Set(externalDeleted).isSubset(of: known)
+            let dates = page.samples.flatMap { [$0.startDate, $0.endDate] }
+                + inboundIdentities.flatMap {
+                    [Date(timeIntervalSince1970: TimeInterval($0.startTs)),
+                     Date(timeIntervalSince1970: TimeInterval($0.endTs))]
+                }
+            let fallback = Calendar.current.date(byAdding: .day, value: -31, to: now) ?? now
+            var start = dates.min() ?? fallback
+            if unknownDeletion, let earliest = try await earliestLocalDate() {
+                start = min(start, earliest)
+            }
+            if initialScan && !unknownDeletion { start = max(start, fallback) }
+            let changed = HealthKitSyncWindow(
+                start: Calendar.current.startOfDay(for: start), end: max(now, dates.max() ?? now))
+            try offer(changed)
+            window = changed
+        }
+        // A failed journal write keeps the old anchor. A failed anchor write keeps the export identities
+        // for replay. Only this acknowledged page's identities are retired, so memory stays page-bounded.
+        try saveAnchor(anchor)
+        let consumedExports = page.deletedObjectUUIDs.filter { exportedObjectUUIDs.contains($0) }
+        if !consumedExports.isEmpty { try await retireExports(consumedExports) }
+        return window
     }
 }
 
@@ -144,6 +229,10 @@ final class HealthKitScoringCoordinator: NSObject {
     private var leaseWaiters: [LeaseWaiter] = []
     private var publicationBarrierHeld = false
 
+    #if DEBUG
+    private(set) var diagnosticPhase = "idle"
+    #endif
+
     init(
         persistence: any HealthKitPendingWindowPersisting,
         notificationCenter: NotificationCenter = .default,
@@ -195,7 +284,7 @@ final class HealthKitScoringCoordinator: NSObject {
 
     /// Run one importer while excluding scoring publication and every typed Repository refresh. A second
     /// import request can still widen the import coordinator's durable window while the operation awaits; it is
-    /// replayed before this lease transfers. The scoring notification may arrive immediately, but its drain
+    /// retained for the next import lease. The scoring notification may arrive immediately, but its drain
     /// waits on the same pipeline lease and inherits the still-closed Repository fence.
     func withImportLease<T>(_ operation: @MainActor () async -> T) async -> T {
         await acquireLease(.importing)
@@ -219,6 +308,9 @@ final class HealthKitScoringCoordinator: NSObject {
             return
         }
         isRunning = true
+        #if DEBUG
+        diagnosticPhase = "waiting_for_scoring_lease"
+        #endif
         await acquireLease(.scoring)
         await ensurePublicationBarrierHeld()
         defer {
@@ -231,11 +323,47 @@ final class HealthKitScoringCoordinator: NSObject {
         }
 
         while let snapshot = pending {
+            guard !Task.isCancelled else {
+                #if DEBUG
+                diagnosticPhase = "cancelled_before_analysis"
+                #endif
+                return
+            }
             let snapshotRevision = revision
-            guard await analyze(snapshot) else { return }
+            #if DEBUG
+            diagnosticPhase = "analyzing"
+            NSLog("Health scoring: analyze %@ to %@", snapshot.start.description, snapshot.end.description)
+            #endif
+            guard await analyze(snapshot) else {
+                #if DEBUG
+                diagnosticPhase = "analysis_or_receipt_failed"
+                NSLog("Health scoring: analysis or receipt did not complete")
+                #endif
+                return
+            }
+            guard !Task.isCancelled else {
+                #if DEBUG
+                diagnosticPhase = "cancelled_after_analysis"
+                #endif
+                return
+            }
             guard revision == snapshotRevision else { continue }
 
-            guard await publish(snapshot) else { return }
+            #if DEBUG
+            diagnosticPhase = "publishing"
+            #endif
+            guard await publish(snapshot) else {
+                #if DEBUG
+                diagnosticPhase = "publication_failed"
+                #endif
+                return
+            }
+            guard !Task.isCancelled else {
+                #if DEBUG
+                diagnosticPhase = "cancelled_after_publication"
+                #endif
+                return
+            }
             // Production offers cannot occur while the scoring lease is held. Keep the second check as a
             // defensive/test guard for any direct future caller that widens the journal during publication.
             guard revision == snapshotRevision else { continue }
@@ -243,6 +371,10 @@ final class HealthKitScoringCoordinator: NSObject {
             do {
                 try persistence.save(nil)
                 pending = nil
+                #if DEBUG
+                diagnosticPhase = "complete"
+                NSLog("Health scoring: published and cleared journal")
+                #endif
             } catch {
                 // Publication may already be correct, but retaining the journal AND Repository fence is
                 // conservative: the next mount repeats the idempotent analysis rather than losing the handoff.
@@ -292,29 +424,34 @@ final class HealthKitScoringCoordinator: NSObject {
 }
 
 /// Serializes every HealthKit aggregation and journals the widest outstanding civil-time window.
-/// A wake arriving while an aggregation is suspended widens the durable window; the worker then
-/// reruns that union before clearing the journal. A failed aggregation intentionally leaves the
+/// A wake arriving while an aggregation is suspended widens the durable window. After the snapshot
+/// commits, the worker imports only those follow-up wakes before clearing the journal. A failed aggregation intentionally leaves the
 /// journal in place for the next observer wake or foreground catch-up.
 @MainActor
 final class HealthKitSyncCoordinator {
     typealias Operation = @MainActor (HealthKitSyncWindow) async -> Bool
+    typealias ScheduleRetry = @MainActor () -> Void
 
     private let persistence: any HealthKitPendingWindowPersisting
     private let operation: Operation
     private let scoringCoordinator: HealthKitScoringCoordinator
+    private let scheduleRetry: ScheduleRetry
     private(set) var pending: HealthKitSyncWindow?
     private(set) var isRunning = false
-    private var revision: UInt64 = 0
+    private var importInFlight = false
+    private var followUp: HealthKitSyncWindow?
     private var waiters: [CheckedContinuation<Void, Never>] = []
     private var workerTask: Task<Void, Never>?
 
     init(
         persistence: any HealthKitPendingWindowPersisting,
         scoringCoordinator: HealthKitScoringCoordinator = .shared,
+        scheduleRetry: @escaping ScheduleRetry = {},
         operation: @escaping Operation
     ) {
         self.persistence = persistence
         self.scoringCoordinator = scoringCoordinator
+        self.scheduleRetry = scheduleRetry
         self.operation = operation
         pending = persistence.load()
     }
@@ -324,7 +461,9 @@ final class HealthKitSyncCoordinator {
         let widened = pending.map { $0.union(window) } ?? window
         try persistence.save(widened)
         pending = widened
-        revision &+= 1
+        if importInFlight {
+            followUp = followUp.map { $0.union(window) } ?? window
+        }
     }
 
     /// Starts recovery without making an observer acknowledgement wait for a potentially long import.
@@ -344,41 +483,56 @@ final class HealthKitSyncCoordinator {
         isRunning = true
         defer {
             isRunning = false
+            importInFlight = false
+            followUp = nil
             workerTask = nil
             let continuations = waiters
             waiters.removeAll()
             continuations.forEach { $0.resume() }
         }
 
-        await scoringCoordinator.withImportLease {
-            while let snapshot = pending {
-                let snapshotRevision = revision
+        while pending != nil {
+            // Release after each committed batch so continuous observers cannot starve scoring.
+            let committed = await scoringCoordinator.withImportLease { () async -> Bool in
+                // Offers can arrive while this worker waits for scoring to release the lease.
+                guard let snapshot = pending else { return true }
+                followUp = nil
+                importInFlight = true
                 do {
                     // Journal the scoring dependency BEFORE any import/write-back awaits. If local rows commit
                     // and a later outbound HealthKit write fails—or the process is suspended—the score request
                     // already survives. Scoring itself cannot begin until this import lease is released.
                     try await scoringCoordinator.offer(snapshot)
                 } catch {
-                    return
+                    return false
                 }
 
                 guard await operation(snapshot) else {
                     // Import work remains pending for retry, while the durable scoring journal may safely
                     // reconcile either unchanged rows or a partially committed transaction.
-                    return
+                    return false
                 }
 
-                // An overlapping wake widened/replaced the pending interval while the operation awaited. Keep
-                // the import lease and process the union before any scoring publication can begin.
-                guard revision == snapshotRevision else { continue }
+                // The snapshot committed. Keep only wakes received during that import; replaying the
+                // full durable union can restart a decade of history on every live observer wake.
+                // Until this save succeeds the original union remains durable for crash recovery.
                 do {
-                    try persistence.save(nil)
-                    pending = nil
+                    try persistence.save(followUp)
+                    pending = followUp
+                    importInFlight = false
                 } catch {
                     // Clearing failure is conservative: repeat the idempotent import on the next wake. The
                     // scoring dependency is already durable and will run after this lease is released.
-                    return
+                    return false
                 }
+                return true
+            }
+            guard committed else {
+                // The import journal is still durable, but an observer acknowledgement or app launch is
+                // not guaranteed after a locked-device HealthKit failure. Arm the shared recovery task so
+                // iOS can retry the exact same window after protected health data becomes available.
+                scheduleRetry()
+                return
             }
         }
     }

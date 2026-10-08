@@ -830,11 +830,13 @@ final class Backfiller {
                 }.value
             } catch {
                 PerformanceTrace.end(decodeTrace)
+                HistoricalTransportTrace.decodeEnded(succeeded: false)
                 log?("Backfill: failed to fingerprint historical chunk (trim=\(trim)): \(error) — holding ack so the strap re-sends this chunk.")
                 fail(.fingerprint(trim: trim))
                 return
             }
             PerformanceTrace.end(decodeTrace, changedRows: frames.count)
+            HistoricalTransportTrace.decodeEnded(succeeded: true)
             guard sessionGeneration == admittedSessionGeneration, ownsRoute(admission) else {
                 log?("Backfill: dropped decoded trim=\(trim) from a superseded session before commit.")
                 return
@@ -1136,6 +1138,7 @@ final class Backfiller {
             )
         } catch {
             PerformanceTrace.end(commitTrace)
+            HistoricalTransportTrace.commitEnded(succeeded: false)
             guard sessionGeneration == admittedSessionGeneration, ownsRoute(admission) else { return }
             log?("Backfill: failed to atomically commit historical chunk (trim=\(trim)): \(error) — holding ack so the strap re-sends this chunk; history won't advance until the local commit succeeds.")
             fail(.commit(trim: trim))
@@ -1144,6 +1147,7 @@ final class Backfiller {
         let receipt = commitResult.receipt
         let inserted = commitResult.outcome == .inserted
         PerformanceTrace.end(commitTrace, changedRows: inserted ? receipt.insertedRows.total : 0)
+        HistoricalTransportTrace.commitEnded(succeeded: true)
         guard sessionGeneration == admittedSessionGeneration, ownsRoute(admission) else {
             // The receipt is durable under its original scope, but a newer session now owns the strap.
             // Never publish its state or ACK it through the new session.

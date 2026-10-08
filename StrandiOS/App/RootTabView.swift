@@ -7,6 +7,8 @@ import StrandAnalytics
 /// first-class tabs and contextual tools reached from their owning surfaces.
 struct RootTabView: View {
     @EnvironmentObject private var repo: Repository
+    @EnvironmentObject private var localCoach: LocalCoachEngine
+    @Environment(\.scenePhase) private var scenePhase
     /// Cross-screen navigation requests (e.g. Live → "Manage devices"). Devices isn't a tab, so a request
     /// presents it as a sheet, matching the quick-action screens.
     @EnvironmentObject private var router: NavRouter
@@ -36,6 +38,7 @@ struct RootTabView: View {
             initialTab = switch requested {
             case "trends": 1
             case "sleep": 2
+            case "coach": 4
             case "more", "settings": 3
             default: 0
             }
@@ -55,16 +58,19 @@ struct RootTabView: View {
     }
 
     var body: some View {
+        VStack(spacing: 0) {
         TabView(selection: $selectedTab) {
             tab(todayTabRoot, "Today", "square.grid.2x2").tag(0)
             tab(TrendsView(), "Trends", "chart.bar").tag(1)
+            tab(LocalCoachView(), "Coach", "bubble.left.and.text.bubble.right").tag(4)
             tab(SleepView(), "Sleep", "moon").tag(2)
             settingsTab.tag(3)
         }
         .environment(\.locale, clockPreference.isEmpty ? Locale.autoupdatingCurrent : AppClock.formattingLocale)
         .toolbar(.hidden, for: .tabBar)
         .animation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24), value: selectedTab)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+        // Give the bar its own layout space. A TabView can forward an outer safe-area inset
+        // inconsistently to nested NavigationStacks, covering a bottom-aligned composer.
             VStack(spacing: 0) {
             LiftResumeCard().padding(.horizontal, 16)
             PaperTabBar(selection: $selectedTab, onReselect: { tab in
@@ -77,12 +83,14 @@ struct RootTabView: View {
             })
             }
         }
+        .background(StrandPalette.appCanvas.ignoresSafeArea(.container, edges: .bottom))
         .background {
             SmartAlarmCommandReconciler()
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         }
         .task {
+            routePendingCoachRequest()
             // AppModel owns the one initial full-history repository load. This shell only performs the
             // independent backup catch-up, avoiding two equivalent launch refreshes racing each other.
             let backupRepo = repo
@@ -132,6 +140,19 @@ struct RootTabView: View {
                 router.quickActionsRequested = false
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: LocalCoachIntentBridge.notification)) { _ in routePendingCoachRequest() }
+        .onChange(of: scenePhase) { _, phase in if phase == .active { routePendingCoachRequest() } }
+        .onChange(of: localCoach.preferences) { _, _ in routePendingCoachRequest() }
+        .onChange(of: repo.todayHealthSnapshotScopeId) { _, _ in routePendingCoachRequest() }
+        .onChange(of: repo.liveSourceState.lineageComponent) { _, _ in routePendingCoachRequest() }
+        .onChange(of: repo.verifiedExternalSurfaceFenced) { _, _ in routePendingCoachRequest() }
+    }
+
+    private func routePendingCoachRequest() {
+        let source = repo.todayHealthSnapshotScopeId + "|" + repo.liveSourceState.lineageComponent
+        guard LocalCoachIntentBridge.updateContext(sourceID: source, preferences: localCoach.preferences,
+                                                   isFenced: repo.verifiedExternalSurfaceFenced) else { return }
+        if LocalCoachIntentBridge.hasPendingRequest { selectedTab = 4 }
     }
 
     @ViewBuilder
@@ -291,6 +312,8 @@ private struct QuickActionSheet: View {
                         .background(StrandPalette.inset, in: Circle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Close Quick Actions")
+                .accessibilityIdentifier("quickActions.close")
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 16)
@@ -372,6 +395,7 @@ private struct PaperTabBar: View {
     private let nav = [
         Item(title: "Today", icon: "square.grid.2x2", tag: 0),
         Item(title: "Trends", icon: "chart.bar", tag: 1),
+        Item(title: "Coach", icon: "bubble.left.and.text.bubble.right", tag: 4),
         Item(title: "Sleep", icon: "moon", tag: 2),
         Item(title: "Settings", icon: "gearshape", tag: 3),
     ]
@@ -382,13 +406,15 @@ private struct PaperTabBar: View {
             HStack(spacing: 0) {
                 ForEach(nav.prefix(2)) { tabButton($0) }
                 quickActionsButton
-                ForEach(nav.suffix(2)) { tabButton($0) }
+                ForEach(nav.dropFirst(2)) { tabButton($0) }
             }
             // Larger accessibility categories need vertical room for the user's actual label size.
             // The old app-wide cap hid this fixed-height collision instead of fixing it.
             .frame(height: dynamicTypeSize.isAccessibilitySize ? 92 : NoopMetrics.navBarHeight)
         }
         .background(StrandPalette.card)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("app.bottomNavigation")
     }
 
     private var quickActionsButton: some View {
@@ -403,6 +429,7 @@ private struct PaperTabBar: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Quick Actions")
+        .accessibilityIdentifier("app.quickActions")
     }
 
     private func tabButton(_ item: Item) -> some View {
@@ -431,6 +458,7 @@ private struct PaperTabBar: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(item.title)
+        .accessibilityIdentifier("app.tab.\(item.tag)")
         .accessibilityAddTraits(active ? [.isButton, .isSelected] : .isButton)
     }
 }

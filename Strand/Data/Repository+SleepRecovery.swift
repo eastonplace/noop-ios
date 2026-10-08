@@ -42,7 +42,8 @@ extension Repository {
     func recoverMissedSleep(
         startTs: Int,
         endTs: Int,
-        replacingStartTs: Int? = nil
+        replacingStartTs: Int? = nil,
+        publishAfterSave: Bool = true
     ) async -> MissedSleepRecoverySaveResult {
         guard let safeWindow = SleepEditGuard.clampedEditWindow(
             start: startTs,
@@ -142,7 +143,36 @@ extension Repository {
             updatedAt: now)
 
         guard analysis.canPersistSession else {
-            _ = try? await store.recordSleepRecoveryAttempt(audit, deviceId: computedId)
+            let cleared: Bool
+            do {
+                if let replacingStartTs {
+                    // The store checks the current bounds inside the same transaction as invalidation.
+                    // A rejected attempt to move a window must leave its previous values intact.
+                    cleared = try await store.recordRejectedSleepRecovery(
+                        audit, deviceId: computedId, revalidatingSessionStartTs: replacingStartTs)
+                } else {
+                    _ = try await store.recordSleepRecoveryAttempt(audit, deviceId: computedId)
+                    cleared = false
+                }
+            } catch {
+                return MissedSleepRecoverySaveResult(
+                    status: .failed,
+                    title: "Could not update the sleep",
+                    message: "The local write failed. Your saved times and scores remain unchanged.",
+                    confidence: analysis.confidence,
+                    sessionStart: nil,
+                    sessionEnd: nil)
+            }
+            if cleared {
+                if publishAfterSave { _ = await refresh(.currentDay) }
+                return MissedSleepRecoverySaveResult(
+                    status: analysis.outcome == .noSleepEvidence ? .noSleepEvidence : .insufficientData,
+                    title: "Saved sleep needs more data",
+                    message: "Your saved times remain. NOOP cleared scores that the recorded data could not support.",
+                    confidence: analysis.confidence,
+                    sessionStart: nil,
+                    sessionEnd: nil)
+            }
             switch analysis.outcome {
             case .invalidWindow:
                 return MissedSleepRecoverySaveResult(
@@ -323,7 +353,7 @@ extension Repository {
                     wakeTimestamps: affectedWakeTimestamps,
                     additionalWakeDays: affectedWakeDays
                 )
-                _ = await refresh(.currentDay)
+                if publishAfterSave { _ = await refresh(.currentDay) }
                 if analysis.outcome == .partial {
                     let charge = scored.daily.recovery == nil
                         ? " Charge will remain in calibration until its personal HRV baseline is usable."
@@ -371,7 +401,7 @@ extension Repository {
         return try await Task.detached(priority: .utility) {
             var gravityByTs: [Int: GravitySample] = [:]
             var hrByTs: [Int: HRSample] = [:]
-            var rrByTs: [Int: RRInterval] = [:]
+            var rrByTs: [Int: [RRInterval]] = [:]
             var respByTs: [Int: RespSample] = [:]
 
             for id in ids {
@@ -391,14 +421,18 @@ extension Repository {
 
                 for row in gravity where gravityByTs[row.ts] == nil { gravityByTs[row.ts] = row }
                 for row in hr where hrByTs[row.ts] == nil { hrByTs[row.ts] = row }
-                for row in rr where rrByTs[row.ts] == nil { rrByTs[row.ts] = row }
+                // Timestamp precision is one second; several distinct beats can share it.
+                // Source precedence applies to the entire group, never to one arbitrary beat.
+                for (ts, beats) in Dictionary(grouping: rr, by: \.ts) where rrByTs[ts] == nil {
+                    rrByTs[ts] = beats
+                }
                 for row in resp where respByTs[row.ts] == nil { respByTs[row.ts] = row }
             }
 
             return SleepRecoveryRawWindow(
                 gravity: gravityByTs.values.sorted { $0.ts < $1.ts },
                 hr: hrByTs.values.sorted { $0.ts < $1.ts },
-                rr: rrByTs.values.sorted { $0.ts < $1.ts },
+                rr: rrByTs.keys.sorted().flatMap { rrByTs[$0] ?? [] },
                 resp: respByTs.values.sorted { $0.ts < $1.ts })
         }.value
     }

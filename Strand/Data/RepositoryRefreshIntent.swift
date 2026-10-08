@@ -226,6 +226,21 @@ final class RepositoryPublicationBarrier {
     }
 }
 
+/// Serializes historical exact-day publication with other source-owned Repository generations. Historical
+/// analysis may finish while HealthKit is publishing the same shared projection; waiting on the same fence
+/// prevents either publisher from invalidating the other's in-flight Repository refresh generation.
+@MainActor
+enum HistoricalRepositoryPublicationGate {
+    static func run<T>(
+        barrier: RepositoryPublicationBarrier = .shared,
+        operation: @MainActor () async throws -> T
+    ) async rethrows -> T {
+        await barrier.acquireExclusive()
+        defer { barrier.releaseExclusive() }
+        return try await operation()
+    }
+}
+
 /// Main-actor single-flight queue because `Repository` itself is MainActor-isolated. Requests that arrive
 /// before an operation starts merge into one pending batch. Requests arriving after a refresh starts queue a
 /// later pass because they may represent data committed after the running query took its SQLite snapshot.

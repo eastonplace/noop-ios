@@ -45,7 +45,11 @@ struct TrendsExploreHubView: View {
                         title: "Coach",
                         subtitle: "Ask questions grounded in your metrics"
                     ) {
+                        #if os(iOS)
+                        LocalCoachView()
+                        #else
                         CoachView()
+                        #endif
                     },
                 ]
             ),

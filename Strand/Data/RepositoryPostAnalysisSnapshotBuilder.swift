@@ -11,6 +11,7 @@ struct PostAnalysisTodaySnapshotInput: Sendable {
     /// Durable owner for the exact historical publication. The dashboard scope remains canonical.
     let ownerDeviceId: String
     let read: CanonicalHealthSurfaceStoreSnapshot
+    let readWindows: [CanonicalHealthSurfaceReadWindow]
     let importedSourceIds: [String]
     let computedSourceIds: [String]
     let appleSourceId: String
@@ -182,7 +183,9 @@ enum RepositoryPostAnalysisSnapshotBuilder {
         let metricStates: [TodayHealthSnapshot.Metric: TodayHealthMetricState] = [
             .recovery: state(
                 value: recovery,
-                prior: input.template.recoveryState,
+                prior: try refreshedCarry(.recovery, input: input, displayDay: displayDay,
+                                          imported: importedRows, computed: computedRows, apple: appleRows,
+                                          editedWakeDays: editedWakeDays, latestSleepEnd: latestSleepEnd),
                 carryPrior: true,
                 metric: .recovery,
                 displayDay: displayDay.key,
@@ -198,7 +201,9 @@ enum RepositoryPostAnalysisSnapshotBuilder {
             ),
             .sleepScore: state(
                 value: sleepScore,
-                prior: input.template.sleepScoreState,
+                prior: try refreshedCarry(.sleepScore, input: input, displayDay: displayDay,
+                                          imported: importedRows, computed: computedRows, apple: appleRows,
+                                          editedWakeDays: editedWakeDays, latestSleepEnd: latestSleepEnd),
                 carryPrior: true,
                 metric: .sleepScore,
                 displayDay: displayDay.key,
@@ -206,7 +211,9 @@ enum RepositoryPostAnalysisSnapshotBuilder {
             ),
             .sleepDurationMinutes: state(
                 value: sleepDuration,
-                prior: input.template.sleepDurationMinutesState,
+                prior: try refreshedCarry(.sleepDurationMinutes, input: input, displayDay: displayDay,
+                                          imported: importedRows, computed: computedRows, apple: appleRows,
+                                          editedWakeDays: editedWakeDays, latestSleepEnd: latestSleepEnd),
                 carryPrior: true,
                 metric: .sleepDurationMinutes,
                 displayDay: displayDay.key,
@@ -236,6 +243,69 @@ enum RepositoryPostAnalysisSnapshotBuilder {
             dailyMetric: daily,
             metricStates: metricStates
         )
+    }
+
+    /// A carried night can be recalculated after today's snapshot exists. Resolve its values from this
+    /// same completed read; copying the template would freeze the old score across every new generation.
+    /// Preserve an older carry only when this exact source/day read did not cover its evidence.
+    private static func refreshedCarry(
+        _ metric: TodayHealthSnapshot.Metric,
+        input: PostAnalysisTodaySnapshotInput,
+        displayDay: CivilDay,
+        imported: [String: StoredSourcedDailyMetric],
+        computed: [String: StoredSourcedDailyMetric],
+        apple: [String: StoredSourcedDailyMetric],
+        editedWakeDays: Set<String>,
+        latestSleepEnd: [String: Int]
+    ) throws -> TodayHealthMetricState {
+        let prior = input.template.state(for: metric)
+        let sourceIds = Set(input.importedSourceIds + input.computedSourceIds + [input.appleSourceId])
+        var days = Set(input.read.dailyRows.map { $0.metric.day })
+        days.formUnion(input.read.metricRows.map(\.day))
+        if let day = prior.value?.metricDay { days.insert(day) }
+        for key in days.filter({ $0 < displayDay.key }).sorted(by: >) {
+            let covered = input.readWindows.contains { $0.fromDay <= key && key <= $0.throughDay }
+            if let value = prior.value, value.metricDay == key,
+               !covered || !sourceIds.contains(value.sourceId) {
+                return prior
+            }
+            guard covered, let day = try? CivilDay(key: key) else { continue }
+            let value: Double?
+            let sourceId: String?
+            let algorithm: String
+            switch metric {
+            case .recovery:
+                let row = winningDailyRow(day: key, imported: imported, computed: computed,
+                                         apple: apple, field: { $0.recovery })
+                value = row?.metric.recovery
+                sourceId = row?.sourceId
+                algorithm = "daily-recovery-v1"
+            case .sleepDurationMinutes:
+                let row = winningSleepDurationRow(day: key, editedWakeDays: editedWakeDays,
+                                                 imported: imported, computed: computed, apple: apple)
+                value = row?.metric.totalSleepMin
+                sourceId = row?.sourceId
+                algorithm = "daily-sleep-duration-v1"
+            case .sleepScore:
+                let point = try canonicalSleepResolution(
+                    day: day, read: input.read, importedSourceIds: Set(input.importedSourceIds),
+                    computedSourceIds: Set(input.computedSourceIds), editedWakeDays: editedWakeDays,
+                    mode: input.sleepMode, analysisGeneration: input.analysisGeneration,
+                    latestSleepEnd: latestSleepEnd).production
+                value = point?.value
+                sourceId = point?.sourceId
+                algorithm = point?.modelVersion ?? point?.model.rawValue ?? "sleep-performance-v1"
+            case .strain:
+                return .unknown
+            }
+            if let value, let sourceId {
+                return .value(TodayHealthMetricValue(
+                    value: value, metricDay: key, sourceId: sourceId,
+                    observedAt: latestSleepEnd[key], rawFrontierTs: input.rawFrontierTs,
+                    algorithmVersion: algorithm, freshness: .aging))
+            }
+        }
+        return .unknown
     }
 
     private static func bestDailyRows(

@@ -48,6 +48,17 @@ struct StrandiOSApp: App {
         _ = HealthKitScoringCoordinator.shared
 
         let model = AppModel()
+        _ = HistoricalSyncBackgroundTaskRegistrar.install(
+            snapshot: { [weak model] in
+                model?.ble.historicalSyncBackgroundSnapshot()
+            },
+            requestSync: { [weak model] in
+                model?.ble.requestSync(.periodic) ?? false
+            }
+        )
+        model.ble.setHistoricalSyncBackgroundStateDidChange {
+            HistoricalSyncBackgroundTaskRegistrar.refresh()
+        }
         let receiptLift = NoopReceiptLiftIntegration(model: model)
         model.discardLiftForDeletedSource = { [weak receiptLift] owner in receiptLift?.discardSource(owner) }
         model.hasActiveReceiptLift = { [weak receiptLift] in receiptLift?.coordinator?.hasActiveSession == true }
@@ -268,6 +279,34 @@ struct StrandiOSApp: App {
         _liveActivity = State(initialValue: liveActivityController)
         _health = StateObject(wrappedValue: healthBridge)
         _externalPublicationWorker = State(initialValue: worker)
+        _ = HistoricalScoringBackgroundTaskRegistrar.install(
+            drainHealthImport: {
+                // A BG launch begins with a fresh `.unknown` bridge. Recover an existing grant without
+                // showing a permission sheet, then replay only the already-journaled import window.
+                await healthBridge.refreshAuthIfPreviouslyGranted(requestNewTypes: false)
+                return await healthBridge.drainPendingDurableSync()
+            },
+            drainHealthScoring: {
+                await Self.drainCommittedHealthScoring(
+                    model: model,
+                    liveActivity: liveActivityController,
+                    workoutProjection: workoutProjectionCache,
+                    externalPublicationWorker: worker
+                )
+            },
+            healthImportPending: {
+                healthBridge.hasPendingDurableSync
+            },
+            healthScoringPending: {
+                HealthKitScoringCoordinator.shared.pending != nil
+            },
+            runHistorical: {
+                await model.runHistoricalScoringBackgroundTask()
+            },
+            cancelWork: {
+                await model.cancelHistoricalScoringBackgroundTask()
+            }
+        )
     }
 
     private var workoutActivityState: WorkoutLiveActivityState? {
@@ -348,13 +387,15 @@ struct StrandiOSApp: App {
         await model.resumeEnvironmentalBlockedHistoricalWorkAndDrain()
     }
 
-    /// Drain the crash-safe HealthKit → Intelligence handoff. The scoring coordinator retains the widest
-    /// committed window until its exact analysis completes, every newly calculated Recovery is verified in
-    /// durable storage, and Repository/Home/widgets publish while the HealthKit import lease and Repository
-    /// fence exclude every newer writer or unrelated refresh.
     @MainActor
-    private func drainCommittedHealthScoring() async {
-        await HealthKitScoringCoordinator.shared.runAndWait(
+    private static func drainCommittedHealthScoring(
+        model: AppModel,
+        liveActivity: LiveActivityController,
+        workoutProjection: WorkoutLiveProjectionCache,
+        externalPublicationWorker: ExternalPublicationWorker
+    ) async -> Bool {
+        let scoring = HealthKitScoringCoordinator.shared
+        await scoring.runAndWait(
             analyze: { window in
                 let range = HealthKitAnalysisRange(window: window)
                 return await model.intelligence.analyzeRecentForPublication(
@@ -365,25 +406,84 @@ struct StrandiOSApp: App {
                         await IntelligenceRecoveryPersistenceReceipt.verify(
                             results: results,
                             reconciledDays: range.reconciledDays(),
-                            repository: model.repo).complete
-                    })
+                            repository: model.repo
+                        ).complete
+                    }
+                )
             },
-            publish: { window in
-                // The scoring coordinator is the exclusive publication owner here. Call the underlying coherent
-                // refresh directly: routing through the normal typed queue would correctly defer behind this
-                // same fence and deadlock its owner. Every non-owner publisher remains fenced and replayed.
-                // The exact HealthKit analysis above owns the historical changed-day set. This narrow refresh
-                // only hydrates the current-day snapshot; it never widens historical publication to 120 days.
-                guard await model.repo.refresh(days: 1) else { return false }
-                refreshExternalSurface()
-                driveLiveActivity()
-                _ = await WidgetSnapshot.publish(from: model)
-                await externalPublicationWorker.signal()
-                return true
-            })
+            publish: { _ in
+                await publishCommittedHealthScoring(
+                    model: model,
+                    liveActivity: liveActivity,
+                    workoutProjection: workoutProjection,
+                    externalPublicationWorker: externalPublicationWorker
+                )
+            }
+        )
+        return scoring.pending == nil
+    }
+
+    @MainActor
+    private static func publishCommittedHealthScoring(
+        model: AppModel,
+        liveActivity: LiveActivityController,
+        workoutProjection: WorkoutLiveProjectionCache,
+        externalPublicationWorker: ExternalPublicationWorker
+    ) async -> Bool {
+        guard await model.repo.refresh(days: 1) else { return false }
+        let surface = model.repo.verifiedHealthProjection.map(ExternalSurfaceProjection.init)
+        let connected = model.live.connected
+        let workoutState = model.activeWorkout.map {
+            workoutProjection.state(workout: $0, profile: model.profile)
+        }
+        let bpm = connected
+            ? (model.activeWorkout.map { $0.currentBPM } ?? (model.bpm ?? model.live.heartRate))
+            : nil
+        liveActivity.update(
+            bpm: bpm,
+            recovery: surface?.recovery,
+            connected: connected,
+            effort: surface?.effort,
+            verifiedContextId: surface?.contextId,
+            verifiedProjectionGeneration: surface?.generation,
+            workoutIsActive: model.activeWorkout != nil,
+            workout: workoutState
+        )
+        _ = await WidgetSnapshot.publish(from: model)
+        await externalPublicationWorker.signal()
+        return true
+    }
+
+    /// Drain the crash-safe HealthKit → Intelligence handoff. The scoring coordinator retains the widest
+    /// committed window until its exact analysis completes, every newly calculated Recovery is verified in
+    /// durable storage, and Repository/Home/widgets publish while the HealthKit import lease and Repository
+    /// fence exclude every newer writer or unrelated refresh.
+    @MainActor
+    private func drainCommittedHealthScoring() async {
+        let completed = await Self.drainCommittedHealthScoring(
+            model: model,
+            liveActivity: liveActivity,
+            workoutProjection: workoutProjection,
+            externalPublicationWorker: externalPublicationWorker
+        )
+        if completed { refreshExternalSurface() }
+        #if DEBUG
+        if CommandLine.arguments.contains("--noop-sleep-sync-probe") {
+            await DebugSleepSyncProbe.export(repo: model.repo, health: health,
+                                            intelligence: model.intelligence, sequence: 100)
+        }
+        #endif
     }
 
     #if DEBUG
+    private var coachShellQARequested: Bool {
+        #if targetEnvironment(simulator)
+        CommandLine.arguments.contains("--noop-coach-shell-qa")
+        #else
+        false
+        #endif
+    }
+
     private var workoutRefinementQARequested: Bool {
         #if targetEnvironment(simulator)
         CommandLine.arguments.contains("--demo-seed") && CommandLine.arguments.contains(where: { $0.hasPrefix("--workout-review=") })
@@ -402,7 +502,12 @@ struct StrandiOSApp: App {
         WindowGroup {
             Group {
                 #if DEBUG
-                if let previewIndex = CommandLine.arguments.firstIndex(of: "--noop-lift-preview"),
+                if coachShellQARequested {
+                    RootTabView()
+                } else if let coachIndex = CommandLine.arguments.firstIndex(of: "--noop-coach-preview"),
+                   CommandLine.arguments.indices.contains(coachIndex + 1) {
+                    LocalCoachPreviewHost(screen: CommandLine.arguments[coachIndex + 1])
+                } else if let previewIndex = CommandLine.arguments.firstIndex(of: "--noop-lift-preview"),
                    CommandLine.arguments.indices.contains(previewIndex + 1) {
                     ReceiptLiftPreviewView(screen: CommandLine.arguments[previewIndex + 1])
                 } else if AppleDemoSeeder.requested && CommandLine.arguments.contains("--noop-lift-integration-qa") {
@@ -413,6 +518,8 @@ struct StrandiOSApp: App {
                     Component41QAShot(kind: component41Shot)
                 } else if AppleDemoSeeder.devicesQARequested {
                     NavigationStack { DevicesView() }
+                } else if CommandLine.arguments.contains("--noop-health-monitor-qa") {
+                    NavigationStack { HealthView() }
                 } else if CommandLine.arguments.contains("--storage-recovery-qa") {
                     StorageView()
                 } else {
@@ -434,10 +541,21 @@ struct StrandiOSApp: App {
                 .environmentObject(alarmRuntime)
                 .environmentObject(model.intelligence)
                 .environmentObject(model.coach)
+                .environmentObject(model.localCoach)
                 .environmentObject(health)
                 .environmentObject(router)
                 .environmentObject(receiptLift)
                 .task(id: model.repo.deviceId) { await receiptLift.selectCurrentSource() }
+                .task {
+                    #if DEBUG
+                    guard CommandLine.arguments.contains("--noop-sleep-sync-probe") else { return }
+                    await DebugSleepSyncProbe.runInitialSeries(
+                        repo: model.repo,
+                        health: health,
+                        intelligence: model.intelligence
+                    )
+                    #endif
+                }
                 .environmentObject(UpdateStore.shared)
                 .environment(\.stressNudgeCenter, model.stressNudgeCenter)
                 .preferredColorScheme(AppearanceMode.resolve(appearanceRaw).colorScheme)
@@ -533,6 +651,7 @@ struct StrandiOSApp: App {
                     await health.refreshAuthIfPreviouslyGranted(
                         requestNewTypes: scenePhase == .active
                     )
+                    _ = await health.drainPendingDurableSync()
                     await model.recoverPendingSourceTransition()
                     await drainOldestSourcePrivacyCleanup()
                     await schedulePrivacyCleanupIfPending()
@@ -556,6 +675,8 @@ struct StrandiOSApp: App {
                         await health.refreshAuthIfPreviouslyGranted(
                             requestNewTypes: scenePhase == .active
                         )
+                        _ = await health.drainPendingDurableSync()
+                        await drainCommittedHealthScoring()
                         await model.recoverPendingSourceTransition()
                         await drainOldestSourcePrivacyCleanup()
                         await schedulePrivacyCleanupIfPending()
@@ -592,6 +713,7 @@ struct StrandiOSApp: App {
                 }
             } else if phase == .background {
                 receiptLift.coordinator?.applicationDidEnterBackground()
+                HistoricalSyncBackgroundTaskRegistrar.refresh()
                 Task {
                     await schedulePrivacyCleanupIfPending()
                     await externalPublicationWorker.signal()

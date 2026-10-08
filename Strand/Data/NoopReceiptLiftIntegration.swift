@@ -12,8 +12,38 @@ final class NoopReceiptLiftIntegration: ObservableObject {
     private weak var model: AppModel?
     private var observation: AnyCancellable?
     private var selecting = false
+    private var selectedSourceOwner: HistoricalCursorScope?
 
-    init(model: AppModel) { self.model = model }
+    init(model: AppModel) {
+        self.model = model
+        #if os(iOS)
+        LocalCoachPlanAdapter.registerReceiptWriter(repo: model.repo) { [weak self] sourceOwner, transform in
+            guard let self else { throw CancellationError() }
+            try await self.saveCoachPlan(sourceOwner: sourceOwner, transform: transform)
+        }
+        #endif
+    }
+
+    #if os(iOS)
+    private func saveCoachPlan(sourceOwner: HistoricalCursorScope,
+                               transform: @MainActor (Data) throws -> Data?) async throws {
+        guard let model else { throw CancellationError() }
+        await selectCurrentSource()
+        guard let feature = coordinator else {
+            throw LocalCoachDataError.unavailable("Open Lift once, then retry saving your plan.")
+        }
+        try await feature.applyReviewedRoutineChange(validate: { [weak self, weak model, weak feature] in
+            guard let self, let model, let feature,
+                  self.coordinator === feature, self.selectedSourceOwner == sourceOwner,
+                  model.repo.deviceId == sourceOwner.deviceId, !model.repo.verifiedExternalSurfaceFenced else {
+                throw LocalCoachDataError.sourceChanged
+            }
+            guard model.activeWorkout == nil, !feature.hasActiveSession else {
+                throw LocalCoachDataError.unavailable("Finish your active workout before saving a Coach plan.")
+            }
+        }, transform: transform)
+    }
+    #endif
 
     func selectCurrentSource() async {
         guard !selecting, let model else { return }
@@ -51,6 +81,7 @@ final class NoopReceiptLiftIntegration: ObservableObject {
             }, canStart: { [weak model] in model?.activeWorkout == nil })
         guard model.repo.deviceId == source else { return }
         owner = source
+        selectedSourceOwner = sourceOwner
         coordinator = feature
         error = nil
         await feature.load()
@@ -63,6 +94,7 @@ final class NoopReceiptLiftIntegration: ObservableObject {
         coordinator?.discard()
         coordinator = nil
         owner = nil
+        selectedSourceOwner = nil
         observation = nil
     }
 }

@@ -159,6 +159,9 @@ final class AppModel: ObservableObject {
 
     /// Opt-in AI coach (bring-your-own-key) , the one networked feature, off until the user enables it.
     let coach: AICoachEngine
+    #if os(iOS)
+    let localCoach: LocalCoachEngine
+    #endif
 
     /// Observable cache over the paired-device registry; `activeDeviceId` drives the source coordinator.
     /// Built lazily once the store opens (see `wireSourceCoordinator`). nil until then , with no generic
@@ -402,6 +405,9 @@ final class AppModel: ObservableObject {
         self.ble = BLEManager(state: live, deviceId: deviceId)
         self.repo = Repository(deviceId: deviceId)
         self.coach = AICoachEngine(repo: repo)
+        #if os(iOS)
+        self.localCoach = LocalCoachEngine(repo: repo)
+        #endif
         self.intelligence = IntelligenceEngine(repo: repo, profile: profile, deviceId: deviceId)
         // Route the engine's per-day scoring diagnostic into the SAME shareable strap log every other
         // subsystem writes to (PII-scrubbed by `live.append(log:)`), so a bug report ships proof of what
@@ -581,7 +587,18 @@ final class AppModel: ObservableObject {
                 // `force: false` skips the heavy 21-day rescore when the raw HR stream is unchanged since the
                 // last run, instead of re-reading ~21×54 h of HR every 15 min on a big-import library. A new
                 // sample (the heal above, or a sync) moves the fingerprint and the tick rescores as before.
+                #if os(iOS)
+                let cadenceDecision = RescoreBackgroundPolicy.decide(
+                    isBackground: RescoreBackgroundPolicy.isBackgrounded,
+                    trigger: .cadenceBackstop,
+                    hasBackgroundGrant: false
+                )
+                if cadenceDecision != .skip {
+                    await self.intelligence.analyzeRecent(force: false)
+                }
+                #else
                 await self.intelligence.analyzeRecent(force: false)
+                #endif
                 // v5: recompute the skin-temp suite snapshots (cycle phase + body clock) from the
                 // freshly-scored history so the Health hub cards read a ready result.
                 await self.refreshV5Signals()
@@ -752,14 +769,16 @@ final class AppModel: ObservableObject {
             },
             publishRepository: { [weak self] work, snapshot in
                 guard let self else { throw HistoricalPipelineRuntimeError.storeUnavailable }
-                let outcome = try await self.repo.publishVerifiedExactDays(
-                    snapshot.analyzedDays,
-                    recordedTimeZoneIdentifier: snapshot.recordedTimeZoneIdentifier,
-                    snapshot: snapshot,
-                    sourceDeviceId: work.scope.deviceId
-                )
-                guard outcome.authoritativeDataPublished else {
-                    throw HistoricalPipelineRuntimeError.snapshotUnavailable
+                try await HistoricalRepositoryPublicationGate.run {
+                    let outcome = try await self.repo.publishVerifiedExactDays(
+                        snapshot.analyzedDays,
+                        recordedTimeZoneIdentifier: snapshot.recordedTimeZoneIdentifier,
+                        snapshot: snapshot,
+                        sourceDeviceId: work.scope.deviceId
+                    )
+                    guard outcome.authoritativeDataPublished else {
+                        throw HistoricalPipelineRuntimeError.snapshotUnavailable
+                    }
                 }
             },
             commitOutbox: { [weak self] snapshot in
@@ -1665,19 +1684,70 @@ final class AppModel: ObservableObject {
     }
 
     /// Signal the durable pipeline. Counts are diagnostic only; durable work remains the source of truth.
-    private func signalHistoricalPipeline() async -> HistoricalPipelineRuntimeResult {
+    private func signalHistoricalPipeline(
+        hasBackgroundGrant: Bool = false,
+        includeBroadMaintenance: Bool = true
+    ) async -> HistoricalPipelineRuntimeResult {
+        #if os(iOS)
+        let admission = RescoreBackgroundPolicy.decide(
+            isBackground: RescoreBackgroundPolicy.isBackgrounded,
+            trigger: .durablePipeline,
+            hasBackgroundGrant: hasBackgroundGrant
+        )
+        if admission == .runWithBackgroundFallback {
+            HistoricalScoringBackgroundTaskRegistrar.schedule()
+            live.append(log: "Historical pipeline: paced background scoring started; recovery wake armed.")
+        }
+        #endif
+
         await intelligence.enqueuePendingTimestampHealMaintenance()
         let result = await historicalPipelineRuntime.signal()
         // Broad repair is intentionally separate from the exact receipt drain. It can only acquire work
         // after this call has had a chance to admit/finish current-day work, and its own idle gate enforces
         // Today-first-paint plus background/no-import/no-workout conditions.
-        await fullHistoryRepairMaintenance.signal()
+        if includeBroadMaintenance {
+            await fullHistoryRepairMaintenance.signal()
+        }
         if result.admittedReceipts > 0 || result.completedWork > 0 {
             let pending = result.pendingWork.map(String.init) ?? "unknown"
             live.append(log: "Historical pipeline: admitted \(result.admittedReceipts) receipt(s), completed \(result.completedWork) exact work item(s), pending \(pending).")
         }
+
+        #if os(iOS)
+        if !hasBackgroundGrant {
+            switch HistoricalScoringBackgroundTaskRegistrar.completionDisposition(for: result) {
+            case .complete:
+                HistoricalScoringBackgroundTaskRegistrar.cancelPendingRequest()
+            case .retry:
+                HistoricalScoringBackgroundTaskRegistrar.schedule()
+            }
+        }
+        #endif
         return result
     }
+
+    #if os(iOS)
+    /// Entry point used only by the registered BGProcessingTask. It drains the same source-scoped receipt
+    /// pipeline as foreground and Bluetooth-finalization signals, with no generic replay or duplicate debt.
+    func runHistoricalScoringBackgroundTask() async -> HistoricalPipelineRuntimeResult {
+        await signalHistoricalPipeline(
+            hasBackgroundGrant: true,
+            includeBroadMaintenance: false
+        )
+    }
+
+    /// BG task expiration must cancel the pipeline owner, not only the waiting caller. Quiescing propagates
+    /// cancellation into the detached scan and returns the owned durable lease to pending before reopening.
+    func cancelHistoricalScoringBackgroundTask() async {
+        do {
+            let epoch = try await historicalPipelineRuntime.quiesce()
+            try await historicalPipelineRuntime.resume(expectedEpoch: epoch)
+            live.append(log: "Historical pipeline: background scoring expired; durable work remains pending.")
+        } catch {
+            live.append(log: "Historical pipeline: background scoring cancellation failed closed: \(error)")
+        }
+    }
+    #endif
 
     /// Lifecycle re-arm for environmental failures. The runtime performs the
     /// whitelist re-arm and drains immediately; structural rows remain blocked.

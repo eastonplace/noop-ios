@@ -99,3 +99,89 @@ enum BackfillPolicy {
         }
     }
 }
+
+/// Selects the hard radio ceiling for one connected history burst. The normal path stays at three
+/// minutes. A larger catch-up window is available only while durable backlog remains and both devices
+/// have enough power to finish useful work without turning background sync into an energy drain.
+enum HistoricalRadioBudgetPolicy {
+    static let standardBudgetSeconds: TimeInterval = 3 * 60
+    static let poweredCatchUpBudgetSeconds: TimeInterval = 10 * 60
+    static let minimumHealthyStrapBatteryPct = 30
+
+    static func budgetSeconds(
+        backlogRemains: Bool,
+        phoneExternallyPowered: Bool,
+        phoneLowPowerMode: Bool,
+        strapBatteryPct: Int?,
+        strapCharging: Bool,
+        strapPowerSaving: Bool
+    ) -> TimeInterval {
+        guard backlogRemains,
+              phoneExternallyPowered,
+              !phoneLowPowerMode,
+              !strapPowerSaving else {
+            return standardBudgetSeconds
+        }
+        guard strapCharging
+                || (strapBatteryPct.map { $0 >= minimumHealthyStrapBatteryPct } ?? false) else {
+            return standardBudgetSeconds
+        }
+        return poweredCatchUpBudgetSeconds
+    }
+}
+
+/// Pure scheduling decision for the discretionary iOS background fallback. It never creates a tighter
+/// cadence than the existing 15/45/60-minute offload policy, including when a disconnected or protected
+/// store prevents the requested work from starting.
+enum HistoricalSyncBackgroundSchedulingPolicy {
+    enum Plan: Equatable, Sendable {
+        case cancel
+        case schedule(after: TimeInterval)
+    }
+
+    static let minimumRetrySeconds: TimeInterval = BackfillPolicy.periodicFloorSeconds
+
+    static func plan(
+        backlogRemains: Bool,
+        syncActive: Bool,
+        connectionReady: Bool,
+        now: TimeInterval,
+        lastBackfillAt: TimeInterval?,
+        powerSaving: Bool,
+        emptyStreak: Int
+    ) -> Plan {
+        guard backlogRemains, !syncActive else { return .cancel }
+        let policyDelay = BackfillPolicy.periodicDelaySeconds(
+            now: now,
+            lastBackfillAt: lastBackfillAt,
+            powerSaving: powerSaving,
+            emptyStreak: emptyStreak
+        )
+        if !connectionReady {
+            return .schedule(after: max(minimumRetrySeconds, policyDelay))
+        }
+        return .schedule(after: policyDelay)
+    }
+}
+
+struct HistoricalSyncBackgroundSnapshot: Equatable, Sendable {
+    let backlogRemains: Bool
+    let syncActive: Bool
+    let connectionReady: Bool
+    let now: TimeInterval
+    let lastBackfillAt: TimeInterval?
+    let powerSaving: Bool
+    let emptyStreak: Int
+
+    var plan: HistoricalSyncBackgroundSchedulingPolicy.Plan {
+        HistoricalSyncBackgroundSchedulingPolicy.plan(
+            backlogRemains: backlogRemains,
+            syncActive: syncActive,
+            connectionReady: connectionReady,
+            now: now,
+            lastBackfillAt: lastBackfillAt,
+            powerSaving: powerSaving,
+            emptyStreak: emptyStreak
+        )
+    }
+}

@@ -477,6 +477,142 @@ final class SleepRecoveryStoreTests: XCTestCase {
         XCTAssertTrue(rest.isEmpty)
     }
 
+    private func rejectedAudit(id: String, start: Int, end: Int) -> SleepRecoveryAuditRecord {
+        SleepRecoveryAuditRecord(
+            id: id, source: "manual_window", requestedStartTs: start, requestedEndTs: end,
+            outcome: "insufficient_data", confidence: 0, reason: "no_physiology",
+            resultStartTs: nil, resultEndTs: nil, stagesAvailable: false, restingHr: nil,
+            avgHrv: nil, algorithmVersion: "sleep-window-recovery-v1", createdAt: 20_000, updatedAt: 20_000)
+    }
+
+    func testRejectedRecoveryPreservesAdjustedBoundsRawAndOtherSources() async throws {
+        let store = try await WhoopStore.inMemory()
+        let device = "my-whoop-noop"
+        let original = CachedSleepSession(
+            startTs: 1_000, endTs: 5_000, efficiency: 0.86, restingHr: 52, avgHrv: 61,
+            stagesJSON: "[]", userEdited: true, startTsAdjusted: 1_100)
+        _ = try await store.replaceWithManualSleepRecovery(
+            original, deviceId: device, audit: audit(id: "adjusted", start: 1_100, end: 5_000),
+            dailyOverride: dailyOverride(recovery: 99, chargeWeightedSumWithoutSleep: 1,
+                chargeWeightWithoutSleep: 2, chargeBaselineUsable: true), daily: daily())
+        try await persistCompleteRecovery(store: store, device: "other-noop")
+        _ = try await store.insert(Streams(hr: [HRSample(ts: 2_000, bpm: 60)]), deviceId: "my-whoop")
+        let v2Keys = ["noop_sleep_performance_v2", "noop_sleep_performance_v2_model", "noop_sleep_performance_v2_source"]
+        let v2Points = v2Keys.map { MetricPoint(day: "2026-07-26", key: $0, value: 99) }
+        try await store.upsertMetricSeries(v2Points, deviceId: device)
+        try await store.upsertMetricSeries(v2Points, deviceId: "other-noop")
+        try await store.upsertMetricSeries(
+            v2Keys.map { MetricPoint(day: "2026-07-25", key: $0, value: 77) }
+                + [MetricPoint(day: "2026-07-26", key: "noop_sleep_need_v2_min", value: 480)],
+            deviceId: device)
+
+        let cleared = try await store.recordRejectedSleepRecovery(
+            rejectedAudit(id: "reject-adjusted", start: 1_100, end: 5_000),
+            deviceId: device, revalidatingSessionStartTs: 1_000)
+        XCTAssertTrue(cleared)
+        let sessions = try await store.sleepSessions(deviceId: device, from: 0, to: 10_000, limit: 10)
+        let saved = try XCTUnwrap(sessions.first)
+        XCTAssertEqual(saved.startTs, original.startTs)
+        XCTAssertEqual(saved.startTsAdjusted, original.startTsAdjusted)
+        XCTAssertEqual(saved.endTs, original.endTs)
+        XCTAssertTrue(saved.userEdited)
+        XCTAssertNil(saved.stagesJSON)
+        XCTAssertNil(saved.efficiency)
+        XCTAssertNil(saved.restingHr)
+        XCTAssertNil(saved.avgHrv)
+        let overlay = try await store.sleepRecoveryDailyOverride(deviceId: device, sessionStartTs: 1_000)
+        XCTAssertNotNil(overlay)
+        XCTAssertNil(overlay?.recovery)
+        XCTAssertNil(overlay?.chargeWeightedSumWithoutSleep)
+        XCTAssertNil(overlay?.chargeWeightWithoutSleep)
+        XCTAssertEqual(overlay?.chargeBaselineUsable, false)
+        _ = try await store.reconcileDailyMetrics([], deviceId: device, from: "2026-07-26", to: "2026-07-26")
+        let rows = try await store.dailyMetrics(deviceId: device, from: "2026-07-26", to: "2026-07-26")
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertNil(rows.first?.recovery)
+        XCTAssertNil(rows.first?.totalSleepMin)
+        XCTAssertEqual(rows.first?.strain, 21)
+        XCTAssertEqual(rows.first?.steps, 5_000)
+        let rest = try await store.metricSeries(deviceId: device, key: "sleep_performance", from: "2026-07-26", to: "2026-07-26")
+        XCTAssertTrue(rest.isEmpty)
+        for key in v2Keys {
+            let rejected = try await store.metricSeries(deviceId: device, key: key, from: "2026-07-26", to: "2026-07-26")
+            XCTAssertTrue(rejected.isEmpty, "Rejected recovery must remove \(key)")
+            let otherDay = try await store.metricSeries(deviceId: device, key: key, from: "2026-07-25", to: "2026-07-25")
+            XCTAssertEqual(otherDay.map(\.value), [77])
+            let otherSource = try await store.metricSeries(deviceId: "other-noop", key: key, from: "2026-07-26", to: "2026-07-26")
+            XCTAssertEqual(otherSource.map(\.value), [99])
+        }
+        let sleepNeed = try await store.metricSeries(deviceId: device, key: "noop_sleep_need_v2_min", from: "2026-07-26", to: "2026-07-26")
+        XCTAssertEqual(sleepNeed.map(\.value), [480])
+        let other = try await store.sleepRecoveryDailyOverride(deviceId: "other-noop", sessionStartTs: 1_000)
+        XCTAssertEqual(other?.recovery, 77)
+        let raw = try await store.hrSamples(deviceId: "my-whoop", from: 0, to: 10_000, limit: 10)
+        XCTAssertEqual(raw.count, 1)
+        XCTAssertEqual(raw.first?.bpm, 60)
+    }
+
+    func testRejectedRecoveryRequiresTheCurrentWindowAndOwningKey() async throws {
+        let store = try await WhoopStore.inMemory()
+        let device = "my-whoop-noop"
+        try await persistCompleteRecovery(store: store, device: device)
+        let before = try await store.sleepRecoveryDailyOverride(deviceId: device, sessionStartTs: 1_000)
+        let cases = [(1_100, 5_000, 1_000), (1_000, 4_900, 1_000), (1_000, 5_000, 2_000)]
+        for (index, window) in cases.enumerated() {
+            let cleared = try await store.recordRejectedSleepRecovery(
+                rejectedAudit(id: "moved-\(index)", start: window.0, end: window.1),
+                deviceId: device, revalidatingSessionStartTs: window.2)
+            XCTAssertFalse(cleared)
+        }
+        let accepted = try await store.recordRejectedSleepRecovery(
+            audit(id: "accepted", start: 1_000, end: 5_000),
+            deviceId: device, revalidatingSessionStartTs: 1_000)
+        XCTAssertFalse(accepted)
+        let after = try await store.sleepRecoveryDailyOverride(deviceId: device, sessionStartTs: 1_000)
+        XCTAssertEqual(after, before)
+        let sessions = try await store.sleepSessions(deviceId: device, from: 0, to: 10_000, limit: 10)
+        XCTAssertEqual(sessions, [session(start: 1_000, end: 5_000, edited: true)])
+    }
+
+    func testRejectedRecoveryRollsBackEveryChangeWhenSeriesCleanupFails() async throws {
+        let store = try await WhoopStore.inMemory()
+        let device = "my-whoop-noop"
+        try await persistCompleteRecovery(store: store, device: device)
+        let v2Keys = ["noop_sleep_performance_v2", "noop_sleep_performance_v2_model", "noop_sleep_performance_v2_source"]
+        try await store.upsertMetricSeries(
+            v2Keys.map { MetricPoint(day: "2026-07-26", key: $0, value: 99) }, deviceId: device)
+        let before = try await store.sleepRecoveryDailyOverride(deviceId: device, sessionStartTs: 1_000)
+        try await store.registryWriter.write { db in
+            try db.execute(sql: """
+                CREATE TRIGGER fail_rejected_recovery_cleanup BEFORE DELETE ON metricSeries
+                WHEN OLD.key = 'noop_sleep_performance_v2_source'
+                BEGIN SELECT RAISE(ABORT, 'forced-revalidation-failure'); END;
+                """)
+        }
+        do {
+            _ = try await store.recordRejectedSleepRecovery(
+                rejectedAudit(id: "rolled-back", start: 1_000, end: 5_000),
+                deviceId: device, revalidatingSessionStartTs: 1_000)
+            XCTFail("Expected the forced database failure")
+        } catch {
+            XCTAssertTrue(String(describing: error).contains("forced-revalidation-failure"))
+        }
+        let after = try await store.sleepRecoveryDailyOverride(deviceId: device, sessionStartTs: 1_000)
+        XCTAssertEqual(after, before)
+        let sessions = try await store.sleepSessions(deviceId: device, from: 0, to: 10_000, limit: 10)
+        XCTAssertEqual(sessions, [session(start: 1_000, end: 5_000, edited: true)])
+        let rows = try await store.dailyMetrics(deviceId: device, from: "2026-07-26", to: "2026-07-26")
+        XCTAssertEqual(rows.first?.recovery, 77)
+        let rest = try await store.metricSeries(deviceId: device, key: "sleep_performance", from: "2026-07-26", to: "2026-07-26")
+        XCTAssertEqual(rest.first?.value, 88)
+        for key in v2Keys {
+            let restored = try await store.metricSeries(deviceId: device, key: key, from: "2026-07-26", to: "2026-07-26")
+            XCTAssertEqual(restored.map(\.value), [99])
+        }
+        let attempts = try await store.sleepRecoveryAttempts(deviceId: device)
+        XCTAssertFalse(attempts.contains { $0.id == "rolled-back" })
+    }
+
     func testDailyAndOverrideMustBeSuppliedTogether() async throws {
         let store = try await WhoopStore.inMemory()
         let device = "my-whoop-noop"

@@ -128,6 +128,13 @@ public final class ReceiptLiftCoordinator: ObservableObject {
 
     public func load() async { await store.loadAndWait() }
 
+    public func applyReviewedRoutineChange(
+        validate: @MainActor () throws -> Void = {},
+        transform: @MainActor (Data) throws -> Data?
+    ) async throws {
+        try await store.applyReviewedRoutineChange(validate: validate, transform: transform)
+    }
+
     public func applicationDidEnterBackground() {
         guard backgroundSaveTask == nil else { return }
         backgroundLease = UIApplication.shared.beginBackgroundTask(withName: "Save Lift workout") { [weak self] in

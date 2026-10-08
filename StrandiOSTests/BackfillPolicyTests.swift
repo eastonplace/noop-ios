@@ -548,6 +548,170 @@ final class BackfillPolicyTests: XCTestCase {
         XCTAssertEqual(deadline.uptimeDeadline, 280)
     }
 
+    func testRadioDeadlineExpansionPreservesOriginalStartAndNeverShrinks() {
+        let deadline = HistoricalRadioDeadline(startedAt: 100, budgetSeconds: 180)
+        let expanded = deadline.expandingBudget(to: 600)
+
+        XCTAssertEqual(expanded.startedAt, 100)
+        XCTAssertEqual(expanded.budgetSeconds, 600)
+        XCTAssertEqual(expanded.uptimeDeadline, 700)
+        XCTAssertEqual(expanded.expandingBudget(to: 120), expanded)
+    }
+
+    func testPoweredCatchUpBudgetRequiresBacklogAndHealthyPower() {
+        XCTAssertEqual(HistoricalRadioBudgetPolicy.standardBudgetSeconds, 180)
+        XCTAssertEqual(HistoricalRadioBudgetPolicy.poweredCatchUpBudgetSeconds, 600)
+
+        XCTAssertEqual(
+            HistoricalRadioBudgetPolicy.budgetSeconds(
+                backlogRemains: true,
+                phoneExternallyPowered: true,
+                phoneLowPowerMode: false,
+                strapBatteryPct: 66,
+                strapCharging: false,
+                strapPowerSaving: false
+            ),
+            600
+        )
+        XCTAssertEqual(
+            HistoricalRadioBudgetPolicy.budgetSeconds(
+                backlogRemains: false,
+                phoneExternallyPowered: true,
+                phoneLowPowerMode: false,
+                strapBatteryPct: 66,
+                strapCharging: false,
+                strapPowerSaving: false
+            ),
+            180
+        )
+        XCTAssertEqual(
+            HistoricalRadioBudgetPolicy.budgetSeconds(
+                backlogRemains: true,
+                phoneExternallyPowered: true,
+                phoneLowPowerMode: true,
+                strapBatteryPct: 66,
+                strapCharging: false,
+                strapPowerSaving: false
+            ),
+            180
+        )
+        XCTAssertEqual(
+            HistoricalRadioBudgetPolicy.budgetSeconds(
+                backlogRemains: true,
+                phoneExternallyPowered: true,
+                phoneLowPowerMode: false,
+                strapBatteryPct: 20,
+                strapCharging: false,
+                strapPowerSaving: false
+            ),
+            180
+        )
+        XCTAssertEqual(
+            HistoricalRadioBudgetPolicy.budgetSeconds(
+                backlogRemains: true,
+                phoneExternallyPowered: true,
+                phoneLowPowerMode: false,
+                strapBatteryPct: 20,
+                strapCharging: true,
+                strapPowerSaving: false
+            ),
+            600
+        )
+        XCTAssertEqual(
+            HistoricalRadioBudgetPolicy.budgetSeconds(
+                backlogRemains: true,
+                phoneExternallyPowered: true,
+                phoneLowPowerMode: false,
+                strapBatteryPct: nil,
+                strapCharging: false,
+                strapPowerSaving: false
+            ),
+            180
+        )
+    }
+
+    func testBackgroundHistorySchedulingExistsOnlyForDurableDebt() {
+        XCTAssertEqual(
+            HistoricalSyncBackgroundSchedulingPolicy.plan(
+                backlogRemains: false,
+                syncActive: false,
+                connectionReady: true,
+                now: 10_000,
+                lastBackfillAt: 9_000,
+                powerSaving: false,
+                emptyStreak: 0
+            ),
+            .cancel
+        )
+        XCTAssertEqual(
+            HistoricalSyncBackgroundSchedulingPolicy.plan(
+                backlogRemains: true,
+                syncActive: true,
+                connectionReady: true,
+                now: 10_000,
+                lastBackfillAt: 9_000,
+                powerSaving: false,
+                emptyStreak: 0
+            ),
+            .cancel
+        )
+    }
+
+    func testBackgroundHistorySchedulingPreservesNormalAndLowPowerFloors() {
+        XCTAssertEqual(
+            HistoricalSyncBackgroundSchedulingPolicy.plan(
+                backlogRemains: true,
+                syncActive: false,
+                connectionReady: true,
+                now: 10_100,
+                lastBackfillAt: 10_000,
+                powerSaving: false,
+                emptyStreak: 0
+            ),
+            .schedule(after: 800)
+        )
+        XCTAssertEqual(
+            HistoricalSyncBackgroundSchedulingPolicy.plan(
+                backlogRemains: true,
+                syncActive: false,
+                connectionReady: true,
+                now: 10_100,
+                lastBackfillAt: 10_000,
+                powerSaving: true,
+                emptyStreak: 0
+            ),
+            .schedule(after: 2_600)
+        )
+        XCTAssertEqual(
+            HistoricalSyncBackgroundSchedulingPolicy.plan(
+                backlogRemains: true,
+                syncActive: false,
+                connectionReady: true,
+                now: 10_100,
+                lastBackfillAt: 10_000,
+                powerSaving: false,
+                emptyStreak: 2
+            ),
+            .schedule(after: 3_500)
+        )
+    }
+
+    func testBackgroundHistoryUnavailableRetryCannotBecomeHighFrequencyLoop() {
+        XCTAssertEqual(HistoricalSyncBackgroundSchedulingPolicy.minimumRetrySeconds, 900)
+        XCTAssertEqual(
+            HistoricalSyncBackgroundSchedulingPolicy.plan(
+                backlogRemains: true,
+                syncActive: false,
+                connectionReady: false,
+                now: 20_000,
+                lastBackfillAt: 10_000,
+                powerSaving: false,
+                emptyStreak: 0
+            ),
+            .schedule(after: 900)
+        )
+    }
+
     func testTotalPassesAndProductivePassesRemainSeparate() {
         var passes = HistoricalBurstPassTracker()
         passes.startPass()
@@ -743,6 +907,22 @@ final class BackfillPolicyTests: XCTestCase {
         XCTAssertFalse(wake.wakePending)
         XCTAssertFalse(wake.finish(), "the follow-up pass quiesces when no later ACK arrived")
         XCTAssertFalse(wake.isRunning)
+    }
+
+    func testMaterializationWakeDefersActiveBackfillAcknowledgmentsUntilBurstEnds() {
+        var wake = HistoricalMaterializationWakeState()
+
+        XCTAssertFalse(wake.request(deferWhileBackfilling: true))
+        XCTAssertFalse(wake.request(deferWhileBackfilling: true),
+                       "multiple historical ACKs must coalesce behind the active radio burst")
+        XCTAssertFalse(wake.isRunning)
+        XCTAssertTrue(wake.deferredUntilBurstEnd)
+
+        XCTAssertTrue(wake.releaseDeferred(),
+                      "the completed burst must release exactly one materialization pass")
+        XCTAssertTrue(wake.isRunning)
+        XCTAssertFalse(wake.deferredUntilBurstEnd)
+        XCTAssertFalse(wake.finish())
     }
 
     func testMaterializationWakeCancelClearsRestoreState() {

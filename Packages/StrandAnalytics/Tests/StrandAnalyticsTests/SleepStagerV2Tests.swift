@@ -1,3 +1,4 @@
+import Foundation
 import XCTest
 @testable import StrandAnalytics
 import WhoopProtocol
@@ -26,6 +27,59 @@ final class SleepStagerV2Tests: XCTestCase {
             let rsa = Int(40.0 * sin(2.0 * Double.pi * Double(i) / 4.0))  // ~0.25 Hz breathing
             return RRInterval(ts: start + i, rrMs: 1000 + rsa)
         }
+    }
+
+    /// Straightforward reference for the recipe's documented band-limited DFT. This intentionally keeps the
+    /// expensive per-sample sin/cos loop so the production implementation can prove parity and a meaningful
+    /// speedup without exposing test-only counters in the analytics module.
+    private func directRespRegularity(_ beats: [(Double, Double)]) -> Double? {
+        if beats.count < 12 { return nil }
+        let t0 = beats.first!.0, tN = beats.last!.0
+        if tN <= t0 { return nil }
+        let n = Int(ceil((tN - t0) / 0.25 - 1e-9))
+        if n < 16 { return nil }
+
+        var y = [Double](repeating: 0, count: n)
+        var segment = 0
+        for i in 0..<n {
+            let t = t0 + 0.25 * Double(i)
+            while segment < beats.count - 2 && beats[segment + 1].0 < t { segment += 1 }
+            let ta = beats[segment].0, tb = beats[segment + 1].0
+            let va = beats[segment].1, vb = beats[segment + 1].1
+            y[i] = tb <= ta ? va : va + min(max((t - ta) / (tb - ta), 0), 1) * (vb - va)
+        }
+        let mean = y.reduce(0, +) / Double(n)
+        for i in 0..<n { y[i] -= mean }
+
+        let kLo = Int(ceil(0.15 * 0.25 * Double(n)))
+        let kHi = Int(floor(0.40 * 0.25 * Double(n)))
+        if kHi < kLo || kLo < 0 { return nil }
+        var maxPower = 0.0, sumPower = 0.0
+        for k in kLo...kHi {
+            var real = 0.0, imaginary = 0.0
+            let omega = -2.0 * Double.pi * Double(k) / Double(n)
+            for j in 0..<n {
+                let angle = omega * Double(j)
+                real += y[j] * cos(angle)
+                imaginary += y[j] * sin(angle)
+            }
+            let power = real * real + imaginary * imaginary
+            sumPower += power
+            maxPower = max(maxPower, power)
+        }
+        return sumPower == 0 ? nil : maxPower / sumPower
+    }
+
+    private func bestElapsed(iterations: Int, operation: () -> Double?) -> Double {
+        var best = Double.greatestFiniteMagnitude
+        var sink = 0.0
+        for _ in 0..<3 {
+            let started = ProcessInfo.processInfo.systemUptime
+            for _ in 0..<iterations { sink += operation() ?? 0 }
+            best = min(best, ProcessInfo.processInfo.systemUptime - started)
+        }
+        XCTAssertGreaterThan(sink, 0)
+        return best
     }
 
     // MARK: - drop-in contract
@@ -115,6 +169,33 @@ final class SleepStagerV2Tests: XCTestCase {
     func testViterbiSingleEpochPicksMaxEmission() {
         let path = SleepStagerV2.viterbi([["deep": 0.1, "rem": 0.1, "light": 5.0, "awake": 0.1]])
         XCTAssertEqual(path, ["light"])
+    }
+
+    /// Regression for the iOS CPU watchdog seen while an eight-day Recovery catch-up repeatedly staged sleep.
+    /// The optimized spectral kernel must preserve the recipe while avoiding sin/cos for every sample and bin.
+    func testRespRegularityMatchesDirectDFTWithoutItsPerSampleTrigCost() {
+        let beats = (0..<210).map { second -> (Double, Double) in
+            let t = Double(second)
+            let respiratory = 42.0 * sin(2.0 * Double.pi * 0.25 * t)
+            let drift = 11.0 * cos(2.0 * Double.pi * 0.037 * t)
+            let deterministicNoise = Double((second * 17) % 13 - 6)
+            return (t, 960.0 + respiratory + drift + deterministicNoise)
+        }
+
+        let expected = directRespRegularity(beats)
+        let actual = SleepStagerV2.respRegularity(beats)
+        XCTAssertNotNil(expected)
+        XCTAssertNotNil(actual)
+        XCTAssertEqual(actual!, expected!, accuracy: 1e-10)
+
+        _ = directRespRegularity(beats)
+        _ = SleepStagerV2.respRegularity(beats)
+        let directElapsed = bestElapsed(iterations: 80) { directRespRegularity(beats) }
+        let productionElapsed = bestElapsed(iterations: 80) { SleepStagerV2.respRegularity(beats) }
+        XCTAssertLessThan(
+            productionElapsed,
+            directElapsed * 0.35,
+            "the production kernel must remove the direct DFT's per-sample trigonometry")
     }
 
     // MARK: - #690: the V2 flag drives the NORMAL detected-night staging path

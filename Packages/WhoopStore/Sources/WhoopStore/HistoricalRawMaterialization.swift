@@ -84,6 +84,7 @@ private struct HistoricalMaterializationClaim: Sendable {
 private struct HistoricalMaterializationClaimResult: Sendable {
     let claim: HistoricalMaterializationClaim?
     let quarantined: Int
+    let malformedRowsScanned: Int
 }
 
 private struct HistoricalMaterializationQueueStatus: Sendable {
@@ -257,9 +258,9 @@ extension WhoopStore {
         }
     }
 
-    /// Claim and materialize one restart-safe V20/V21 job. `limit` separately bounds malformed-row
-    /// quarantine scans, and the query reads one extra row so a healthy job immediately after that
-    /// malformed budget can still be leased. Claims are leased so process death remains recoverable.
+    /// Claim and materialize up to `limit` restart-safe V20/V21 jobs. The same limit separately bounds
+    /// malformed-row quarantine scans. Only one job is leased at a time so process death does not strand
+    /// the rest of the bounded batch until lease expiry.
     @discardableResult
     public func materializePendingHistoricalRaw(
         limit: Int = HistoricalRawMaterializationPolicy.defaultJobLimit,
@@ -278,9 +279,16 @@ extension WhoopStore {
         loseLeaseBeforeFailureForTest: Bool
     ) async throws -> HistoricalMaterializationRunSummary {
         guard limit > 0 else { return HistoricalMaterializationRunSummary() }
-        let leaseOwner = UUID().uuidString
-        let scanLimit = limit == Int.max ? Int.max : limit + 1
-        let claimResult: HistoricalMaterializationClaimResult = try syncWrite { db in
+        var claimed = 0
+        var completed = 0
+        var retryable = 0
+        var quarantined = 0
+        var malformedRowsRemaining = limit
+
+        while claimed < limit {
+            let leaseOwner = UUID().uuidString
+            let scanLimit = malformedRowsRemaining == Int.max ? Int.max : malformedRowsRemaining + 1
+            let claimResult: HistoricalMaterializationClaimResult = try syncWrite { db in
             let rows = try Row.fetchAll(db, sql: """
                 SELECT receiptId, databaseInstanceId, rawBatchId, deviceId, lineage, cursorEpoch,
                        trimScope, selectionMode, originalFrameIndexesJSON, attemptCount
@@ -303,7 +311,7 @@ extension WhoopStore {
                       Set(indexes).count == indexes.count,
                       indexes.allSatisfy({ $0 >= 0 }),
                       zip(indexes, indexes.dropFirst()).allSatisfy(<) else {
-                    guard malformedRowsScanned < limit else { break }
+                    guard malformedRowsScanned < malformedRowsRemaining else { break }
                     malformedRowsScanned += 1
                     try db.execute(sql: """
                         UPDATE historicalMaterializationJob
@@ -348,16 +356,21 @@ extension WhoopStore {
                         attemptCount: previousAttempt + 1,
                         leaseOwner: leaseOwner
                     ),
-                    quarantined: quarantined
+                    quarantined: quarantined,
+                    malformedRowsScanned: malformedRowsScanned
                 )
             }
-            return HistoricalMaterializationClaimResult(claim: nil, quarantined: quarantined)
+            return HistoricalMaterializationClaimResult(
+                claim: nil,
+                quarantined: quarantined,
+                malformedRowsScanned: malformedRowsScanned
+            )
         }
 
-        var completed = 0
-        var retryable = 0
-        var quarantined = claimResult.quarantined
-        if let claim = claimResult.claim {
+            quarantined += claimResult.quarantined
+            malformedRowsRemaining -= claimResult.malformedRowsScanned
+            guard let claim = claimResult.claim else { break }
+            claimed += 1
             do {
                 let rawFrames = try await rawFrames(
                     batchId: claim.rawBatchId,
@@ -467,7 +480,7 @@ extension WhoopStore {
         try pruneCompletedHistoricalRaw(now: now)
         let queueStatus = try historicalMaterializationQueueStatus(now: now)
         return HistoricalMaterializationRunSummary(
-            claimed: claimResult.claim == nil ? 0 : 1,
+            claimed: claimed,
             completed: completed,
             retryable: retryable,
             quarantined: quarantined,

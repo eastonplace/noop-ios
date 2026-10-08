@@ -660,6 +660,331 @@ final class IntelligenceAnalyzeRecentCacheTests: XCTestCase {
         XCTAssertEqual(warmBundleCalls, 0)
     }
 
+    func testExactCurrentDayPartialPassPreservesValidatedOvernightMetrics() async throws {
+        let harness = try await makeHarness()
+        let window = try XCTUnwrap(dayWindows(1).first)
+        let computedSource = Repository.whoopSource + "-noop"
+        let prior = DailyMetric(
+            day: window.day,
+            totalSleepMin: 255,
+            efficiency: 0.88,
+            deepMin: 62,
+            remMin: 71,
+            lightMin: 122,
+            disturbances: 9,
+            restingHr: 45,
+            avgHrv: 60,
+            recovery: 74,
+            strain: 10,
+            exerciseCount: 0,
+            spo2Pct: nil,
+            skinTempDevC: -0.2,
+            respRateBpm: 15,
+            steps: 158,
+            activeKcalEst: 620,
+            spo2Red: 94,
+            spo2Ir: -82,
+            strainVersion: 2
+        )
+        _ = try await harness.store.upsertDailyMetrics([prior], deviceId: computedSource)
+        let sleep = CachedSleepSession(
+            startTs: window.start - 2 * 60 * 60,
+            endTs: window.start + 3 * 60 * 60,
+            efficiency: 0.88,
+            restingHr: 45,
+            avgHrv: 60,
+            stagesJSON: nil
+        )
+        _ = try await harness.store.upsertSleepSessions([sleep], deviceId: computedSource)
+
+        // A daytime receipt can carry enough HR to refresh activity while providing no new overnight
+        // detection. It must not turn the already-validated current night back into a blank day.
+        let midday = window.start + 12 * 60 * 60
+        let heartRate = (0..<600).map { HRSample(ts: midday + $0, bpm: 72) }
+        _ = try await harness.store.insert(Streams(hr: heartRate), deviceId: Repository.whoopSource)
+
+        let scope = try HistoricalAnalysisScope(
+            databaseInstanceId: "exact-current-day-test-db",
+            sourceId: Repository.whoopSource,
+            deviceId: Repository.whoopSource,
+            deviceLineageId: "exact-current-day-test-lineage",
+            cursorEpoch: 0,
+            trimScope: "historical"
+        )
+        let work = try HistoricalAnalysisWork(
+            scope: scope,
+            firstReceiptGeneration: 1,
+            lastReceiptGeneration: 1,
+            affectedDays: [try CivilDay(key: window.day)],
+            recordedTimeZoneIdentifier: "GMT",
+            createdAt: reference
+        )
+
+        let completed = await run(
+            harness,
+            maxDays: 1,
+            sourceContext: ExactWorkSourceContext(work: work)
+        )
+
+        XCTAssertTrue(completed)
+        let storedRows = try await harness.store.dailyMetrics(
+            deviceId: computedSource,
+            from: window.day,
+            to: window.day
+        )
+        let stored = try XCTUnwrap(storedRows.first)
+        XCTAssertEqual(stored.totalSleepMin, prior.totalSleepMin)
+        XCTAssertEqual(stored.efficiency, prior.efficiency)
+        XCTAssertEqual(stored.deepMin, prior.deepMin)
+        XCTAssertEqual(stored.remMin, prior.remMin)
+        XCTAssertEqual(stored.lightMin, prior.lightMin)
+        XCTAssertEqual(stored.disturbances, prior.disturbances)
+        XCTAssertEqual(stored.restingHr, prior.restingHr)
+        XCTAssertEqual(stored.avgHrv, prior.avgHrv)
+        XCTAssertEqual(stored.recovery, prior.recovery)
+        XCTAssertEqual(stored.skinTempDevC, prior.skinTempDevC)
+        XCTAssertEqual(stored.respRateBpm, prior.respRateBpm)
+        XCTAssertEqual(stored.spo2Red, prior.spo2Red)
+        XCTAssertEqual(stored.spo2Ir, prior.spo2Ir)
+        let storedSleep = try await harness.store.sleepSessions(
+            deviceId: computedSource,
+            from: window.start - 24 * 60 * 60,
+            to: window.nextStart,
+            limit: 10
+        )
+        XCTAssertEqual(storedSleep, [sleep])
+    }
+
+    func testOrdinaryCurrentDayPartialPassPreservesValidatedOvernightMetrics() async throws {
+        let harness = try await makeHarness()
+        let window = try XCTUnwrap(dayWindows(1).first)
+        let computedSource = Repository.whoopSource + "-noop"
+        let prior = DailyMetric(
+            day: window.day,
+            totalSleepMin: 255,
+            efficiency: 0.88,
+            deepMin: 62,
+            remMin: 71,
+            lightMin: 122,
+            disturbances: 9,
+            restingHr: 45,
+            avgHrv: 60,
+            recovery: 74,
+            strain: 10,
+            exerciseCount: 0,
+            spo2Pct: nil,
+            skinTempDevC: -0.2,
+            respRateBpm: 15,
+            steps: 158,
+            activeKcalEst: 620,
+            spo2Red: 94,
+            spo2Ir: -82,
+            strainVersion: 2
+        )
+        _ = try await harness.store.upsertDailyMetrics([prior], deviceId: computedSource)
+
+        let midday = window.start + 12 * 60 * 60
+        let heartRate = (0..<600).map { HRSample(ts: midday + $0, bpm: 72) }
+        _ = try await harness.store.insert(Streams(hr: heartRate), deviceId: Repository.whoopSource)
+
+        let completed = await run(harness, maxDays: 1)
+
+        XCTAssertTrue(completed)
+        let storedRows = try await harness.store.dailyMetrics(
+            deviceId: computedSource,
+            from: window.day,
+            to: window.day
+        )
+        let stored = try XCTUnwrap(storedRows.first)
+        XCTAssertEqual(stored.totalSleepMin, prior.totalSleepMin)
+        XCTAssertEqual(stored.restingHr, prior.restingHr)
+        XCTAssertEqual(stored.avgHrv, prior.avgHrv)
+        XCTAssertEqual(stored.recovery, prior.recovery)
+        XCTAssertEqual(stored.skinTempDevC, prior.skinTempDevC)
+        XCTAssertEqual(stored.respRateBpm, prior.respRateBpm)
+        XCTAssertEqual(stored.spo2Red, prior.spo2Red)
+        XCTAssertEqual(stored.spo2Ir, prior.spo2Ir)
+    }
+
+    func testExactCurrentDayPartialRowBackfillsMissingVitalsFromPersistedSleepSession() async throws {
+        let harness = try await makeHarness()
+        let window = try XCTUnwrap(dayWindows(1).first)
+        let computedSource = Repository.whoopSource + "-noop"
+        let partial = DailyMetric(
+            day: window.day,
+            totalSleepMin: 285,
+            efficiency: 0.95,
+            deepMin: 60,
+            remMin: 60,
+            lightMin: 165,
+            disturbances: nil,
+            restingHr: nil,
+            avgHrv: nil,
+            recovery: nil,
+            strain: 7,
+            exerciseCount: 0,
+            spo2Pct: nil,
+            skinTempDevC: nil,
+            respRateBpm: nil,
+            steps: 246,
+            activeKcalEst: 1_131,
+            spo2Red: 94,
+            spo2Ir: -82,
+            strainVersion: 2
+        )
+        _ = try await harness.store.upsertDailyMetrics([partial], deviceId: computedSource)
+
+        let sleepStart = window.start - 2 * 60 * 60
+        let sleepEnd = window.start + 3 * 60 * 60
+        let stages = [
+            StageSegment(start: sleepStart, end: sleepStart + 15 * 60, stage: "wake"),
+            StageSegment(start: sleepStart + 15 * 60, end: sleepStart + 180 * 60, stage: "light"),
+            StageSegment(start: sleepStart + 180 * 60, end: sleepStart + 240 * 60, stage: "deep"),
+            StageSegment(start: sleepStart + 240 * 60, end: sleepEnd, stage: "rem"),
+        ]
+        let sleep = CachedSleepSession(
+            startTs: sleepStart,
+            endTs: sleepEnd,
+            efficiency: 0.95,
+            restingHr: 45,
+            avgHrv: 60,
+            stagesJSON: try XCTUnwrap(AnalyticsEngine.encodeStages(stages)),
+            userEdited: true
+        )
+        _ = try await harness.store.upsertSleepSessions([sleep], deviceId: computedSource)
+
+        // Reproduce the physical build-219 state: daytime analysis has already republished sleep totals,
+        // but the same daily row still lacks the HRV/RHR retained by its durable edited sleep session.
+        let midday = window.start + 12 * 60 * 60
+        let heartRate = (0..<600).map { HRSample(ts: midday + $0, bpm: 72) }
+        _ = try await harness.store.insert(Streams(hr: heartRate), deviceId: Repository.whoopSource)
+
+        let scope = try HistoricalAnalysisScope(
+            databaseInstanceId: "exact-current-day-partial-row-test-db",
+            sourceId: Repository.whoopSource,
+            deviceId: Repository.whoopSource,
+            deviceLineageId: "exact-current-day-partial-row-test-lineage",
+            cursorEpoch: 0,
+            trimScope: "historical"
+        )
+        let work = try HistoricalAnalysisWork(
+            scope: scope,
+            firstReceiptGeneration: 1,
+            lastReceiptGeneration: 1,
+            affectedDays: [try CivilDay(key: window.day)],
+            recordedTimeZoneIdentifier: "GMT",
+            createdAt: reference
+        )
+
+        let completed = await run(
+            harness,
+            maxDays: 1,
+            sourceContext: ExactWorkSourceContext(work: work)
+        )
+
+        XCTAssertTrue(completed)
+        let storedRows = try await harness.store.dailyMetrics(
+            deviceId: computedSource,
+            from: window.day,
+            to: window.day
+        )
+        let stored = try XCTUnwrap(storedRows.first)
+        XCTAssertEqual(stored.totalSleepMin, partial.totalSleepMin)
+        XCTAssertEqual(stored.efficiency, partial.efficiency)
+        XCTAssertEqual(stored.deepMin, partial.deepMin)
+        XCTAssertEqual(stored.remMin, partial.remMin)
+        XCTAssertEqual(stored.lightMin, partial.lightMin)
+        XCTAssertEqual(stored.restingHr, 45)
+        XCTAssertEqual(try XCTUnwrap(stored.avgHrv), 60, accuracy: 0.001)
+        XCTAssertNil(stored.recovery)
+        XCTAssertNil(stored.disturbances)
+        XCTAssertNil(stored.skinTempDevC)
+        XCTAssertNil(stored.respRateBpm)
+        XCTAssertEqual(stored.spo2Red, 94)
+        XCTAssertEqual(stored.spo2Ir, -82)
+        let storedSleep = try await harness.store.sleepSessions(
+            deviceId: computedSource,
+            from: window.start - 24 * 60 * 60,
+            to: window.nextStart,
+            limit: 10
+        )
+        XCTAssertEqual(storedSleep, [sleep])
+    }
+
+    func testExactCurrentDayPartialPassRebuildsMissingDailyFromPersistedSleepSession() async throws {
+        let harness = try await makeHarness()
+        let window = try XCTUnwrap(dayWindows(1).first)
+        let computedSource = Repository.whoopSource + "-noop"
+        let sleepStart = window.start - 2 * 60 * 60
+        let sleepEnd = window.start + 3 * 60 * 60
+        let stages = [
+            StageSegment(start: sleepStart, end: sleepStart + 15 * 60, stage: "wake"),
+            StageSegment(start: sleepStart + 15 * 60, end: sleepStart + 180 * 60, stage: "light"),
+            StageSegment(start: sleepStart + 180 * 60, end: sleepStart + 240 * 60, stage: "deep"),
+            StageSegment(start: sleepStart + 240 * 60, end: sleepEnd, stage: "rem"),
+        ]
+        let sleep = CachedSleepSession(
+            startTs: sleepStart,
+            endTs: sleepEnd,
+            efficiency: 0.95,
+            restingHr: 45,
+            avgHrv: 60,
+            stagesJSON: try XCTUnwrap(AnalyticsEngine.encodeStages(stages))
+        )
+        _ = try await harness.store.upsertSleepSessions([sleep], deviceId: computedSource)
+
+        // Reproduce an install that already suffered the destructive exact pass: the validated sleep
+        // session survived, but its daily row is gone. A later daytime receipt must self-heal that row.
+        let midday = window.start + 12 * 60 * 60
+        let heartRate = (0..<600).map { HRSample(ts: midday + $0, bpm: 72) }
+        _ = try await harness.store.insert(Streams(hr: heartRate), deviceId: Repository.whoopSource)
+
+        let scope = try HistoricalAnalysisScope(
+            databaseInstanceId: "exact-current-day-rebuild-test-db",
+            sourceId: Repository.whoopSource,
+            deviceId: Repository.whoopSource,
+            deviceLineageId: "exact-current-day-rebuild-test-lineage",
+            cursorEpoch: 0,
+            trimScope: "historical"
+        )
+        let work = try HistoricalAnalysisWork(
+            scope: scope,
+            firstReceiptGeneration: 1,
+            lastReceiptGeneration: 1,
+            affectedDays: [try CivilDay(key: window.day)],
+            recordedTimeZoneIdentifier: "GMT",
+            createdAt: reference
+        )
+
+        let completed = await run(
+            harness,
+            maxDays: 1,
+            sourceContext: ExactWorkSourceContext(work: work)
+        )
+
+        XCTAssertTrue(completed)
+        let storedRows = try await harness.store.dailyMetrics(
+            deviceId: computedSource,
+            from: window.day,
+            to: window.day
+        )
+        let stored = try XCTUnwrap(storedRows.first)
+        XCTAssertEqual(try XCTUnwrap(stored.totalSleepMin), 285, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(stored.efficiency), 0.95, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(stored.deepMin), 60, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(stored.remMin), 60, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(stored.lightMin), 165, accuracy: 0.001)
+        XCTAssertEqual(stored.restingHr, 45)
+        XCTAssertEqual(try XCTUnwrap(stored.avgHrv), 60, accuracy: 0.001)
+        let storedSleep = try await harness.store.sleepSessions(
+            deviceId: computedSource,
+            from: window.start - 24 * 60 * 60,
+            to: window.nextStart,
+            limit: 10
+        )
+        XCTAssertEqual(storedSleep, [sleep])
+    }
+
     func testExactCommittedSourceAnalysisReconcilesPrimaryButPreservesPreSleepConsentRows() async throws {
         let defaults = UserDefaults.standard
         let oldValue = defaults.object(forKey: PreSleepHeartRateFeedback.enabledKey)

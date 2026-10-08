@@ -257,7 +257,14 @@ final class Repository: ObservableObject {
     @Published var verifiedHealthProjection: VerifiedHealthProjection?
     /// Source-transition fence for latest-state sinks. An old context cannot
     /// publish while this flag is set, even if an older task is still alive.
-    var verifiedExternalSurfaceFenced = false
+    var verifiedExternalSurfaceFenced = false {
+        didSet {
+            if verifiedExternalSurfaceFenced && !oldValue { externalSurfaceInvalidationEpoch &+= 1 }
+        }
+    }
+    /// Retains a real invalidation across an async read even if publication has reopened meanwhile.
+    /// Ordinary metric refreshes do not change this ownership token.
+    private(set) var externalSurfaceInvalidationEpoch: UInt64 = 0
     /// Coverage metadata is separate from the bounded dashboard cache.
     @Published private(set) var historyExtent = RepositoryHistoryExtent(
         earliestDay: nil, latestDay: nil, importedDayCount: 0, computedDayCount: 0, appleDayCount: 0)
@@ -1496,7 +1503,8 @@ final class Repository: ObservableObject {
     /// The candidate is captured before the first suspension so the Sleep query and snapshot share one day.
     private func refreshTodayHealthSnapshotFromCurrentCachesAndPersist(
         now: Date,
-        refreshGeneration: Int
+        refreshGeneration: Int,
+        authoritativeDayRange: ClosedRange<String>
     ) async -> TodayHealthSnapshotPersistenceOutcome {
         guard refreshGeneration == refreshGen else { return .superseded }
         guard todayHealthSnapshotContext != nil else { return .failed }
@@ -1507,7 +1515,8 @@ final class Repository: ObservableObject {
         return await persistTodayHealthSnapshot(
             candidate: resolved,
             generation: todayHealthSnapshotGeneration,
-            refreshGeneration: refreshGeneration
+            refreshGeneration: refreshGeneration,
+            authoritativeDayRange: authoritativeDayRange
         )
     }
 
@@ -1516,7 +1525,8 @@ final class Repository: ObservableObject {
     private func persistTodayHealthSnapshot(
         candidate: TodayHealthSnapshot,
         generation: Int,
-        refreshGeneration: Int
+        refreshGeneration: Int,
+        authoritativeDayRange: ClosedRange<String>
     ) async -> TodayHealthSnapshotPersistenceOutcome {
         guard generation == todayHealthSnapshotGeneration,
               refreshGeneration == refreshGen
@@ -1532,7 +1542,8 @@ final class Repository: ObservableObject {
             candidate: candidate,
             generation: generation,
             refreshGeneration: refreshGeneration,
-            writeToken: writeToken
+            writeToken: writeToken,
+            authoritativeDayRange: authoritativeDayRange
         )
         todayHealthSnapshotAuthoritativeWriteInFlight = false
 
@@ -1632,7 +1643,8 @@ final class Repository: ObservableObject {
         candidate: TodayHealthSnapshot? = nil,
         generation: Int,
         refreshGeneration: Int? = nil,
-        writeToken: Int? = nil
+        writeToken: Int? = nil,
+        authoritativeDayRange: ClosedRange<String>? = nil
     ) async -> TodayHealthSnapshotPersistenceOutcome {
         let trace = PerformanceTrace.begin("today_health_snapshot_write")
         var changedRows = 0
@@ -1721,8 +1733,17 @@ final class Repository: ObservableObject {
             sleepScore: sleepScore,
             sleepDurationMinutes: finalBase.sleepDurationMinutes
         )
+        var prior = persistedForFailedSleepRead ?? todayHealthSnapshot
+        if let authoritativeDayRange {
+            let refreshSleep: Bool
+            if case .failed = sleepRead { refreshSleep = false } else { refreshSleep = true }
+            prior = refreshingPriorNightEvidence(
+                in: prior ?? enriched, displayDay: enriched.displayDay,
+                readDays: authoritativeDayRange, refreshSleep: refreshSleep,
+                now: todayHealthSnapshotNow())
+        }
         let resolved = TodayHealthSnapshotResolver.resolve(
-            persisted: persistedForFailedSleepRead ?? todayHealthSnapshot, live: enriched
+            persisted: prior, live: enriched
         ) ?? enriched
         guard isCurrentTodayHealthSnapshotWrite(
             generation: generation, refreshGeneration: refreshGeneration, writeToken: writeToken)
@@ -1754,6 +1775,63 @@ final class Repository: ObservableObject {
         changedRows = before == todayHealthSnapshot ? 0 : 1
         todayHealthSnapshotLastPersistedAt = Date()
         return .persisted
+    }
+
+    /// A completed bounded refresh owns prior-night corrections in that same read window. Resolve carry
+    /// from those caches before the ordinary durable snapshot write; a new-day absence alone must not
+    /// freeze a superseded score. Unknown or out-of-window evidence retains its previous snapshot.
+    private func refreshingPriorNightEvidence(
+        in snapshot: TodayHealthSnapshot, displayDay: String, readDays: ClosedRange<String>,
+        refreshSleep: Bool, now: Date
+    ) -> TodayHealthSnapshot {
+        var states = Dictionary(uniqueKeysWithValues: TodayHealthSnapshot.Metric.allCases.map {
+            ($0, snapshot.state(for: $0))
+        })
+        for metric in [TodayHealthSnapshot.Metric.recovery, .sleepDurationMinutes, .sleepScore] {
+            if metric == .sleepScore && !refreshSleep { continue }
+            let previous = snapshot.state(for: metric)
+            if let previousDay = previous.metricDay, previousDay >= displayDay { continue }
+            if let previousDay = previous.metricDay, !readDays.contains(previousDay) { continue }
+            let value: TodayHealthMetricValue?
+            if metric == .sleepScore {
+                value = canonicalHealth.sleepScoreByDay.values
+                    .filter { $0.day < displayDay && readDays.contains($0.day) }
+                    .max(by: { $0.day < $1.day }).map {
+                        TodayHealthMetricValue(value: $0.value, metricDay: $0.day, sourceId: $0.sourceId,
+                                               observedAt: $0.observedAt,
+                                               algorithmVersion: $0.modelVersion ?? $0.model.rawValue,
+                                               freshness: .aging)
+                    }
+            } else {
+                value = days.last(where: {
+                    $0.day < displayDay && readDays.contains($0.day)
+                        && (metric == .recovery ? $0.recovery : $0.totalSleepMin) != nil
+                }).flatMap { row in
+                    guard let number = metric == .recovery ? row.recovery : row.totalSleepMin else { return nil }
+                    return TodayHealthMetricValue(
+                        value: number, metricDay: row.day,
+                        sourceId: todayHealthMetricSource(day: row.day, metric: metric),
+                        observedAt: latestSleepEnd(for: row.day),
+                        algorithmVersion: metric == .recovery ? "daily-recovery-v1" : "daily-sleep-duration-v1",
+                        freshness: .aging)
+                }
+            }
+            if let value {
+                states[metric] = .value(value)
+            } else if let previousDay = previous.metricDay, readDays.contains(previousDay) {
+                states[metric] = .unavailable(TodayHealthUnavailableEvidence(
+                    metricDay: previousDay, sourceId: "canonical-complete-read", reason: .absent,
+                    observedAt: Int(now.timeIntervalSince1970), rawFrontierTs: nil,
+                    algorithmVersion: "canonical-absence-\(metric.rawValue)-v1", generation: snapshot.generation))
+            }
+        }
+        return TodayHealthSnapshot(
+            scopeId: snapshot.scopeId, context: snapshot.context, deviceId: snapshot.deviceId,
+            displayDay: snapshot.displayDay, logicalDay: snapshot.logicalDay, localDay: snapshot.localDay,
+            generatedAt: snapshot.generatedAt, rawFrontierTs: snapshot.rawFrontierTs,
+            generation: snapshot.generation, schemaVersion: snapshot.schemaVersion,
+            authoritativeMetrics: snapshot.authoritativeMetrics, dailyMetric: snapshot.dailyMetric,
+            metricStates: states)
     }
 
     /// Build an in-memory candidate from the authoritative cache generation just published by `refresh()`.
@@ -2361,7 +2439,7 @@ final class Repository: ObservableObject {
             && merged.importedStrainByDay == importedStrainByDay
         guard !unchanged else {
             let persistence = await refreshTodayHealthSnapshotFromCurrentCachesAndPersist(
-                now: now, refreshGeneration: myGen)
+                now: now, refreshGeneration: myGen, authoritativeDayRange: fromDay...toDay)
             return myGen == refreshGen && persistence.completesRefresh
         }
 
@@ -2379,7 +2457,7 @@ final class Repository: ObservableObject {
         self.loaded = true
         self.refreshSeq += 1
         let persistence = await refreshTodayHealthSnapshotFromCurrentCachesAndPersist(
-            now: now, refreshGeneration: myGen)
+            now: now, refreshGeneration: myGen, authoritativeDayRange: fromDay...toDay)
         return myGen == refreshGen && persistence.completesRefresh
     }
 
@@ -3046,7 +3124,7 @@ final class Repository: ObservableObject {
         // closed rather than risk treating a recovered night as an ordinary edit.
         do {
             if try await store.sleepRecoveryDailyOverride(
-                deviceId: computedDeviceId,
+                deviceId: canonicalComputedId,
                 sessionStartTs: detectedStartTs
             ) != nil {
                 _ = await recoverMissedSleep(
@@ -3371,8 +3449,8 @@ final class Repository: ObservableObject {
     /// streams got fabricated `SleepWindowReclip` stages (a trailing "awake" block) at edit time, and the
     /// `userEdited` flag then froze that breakdown against every later sync. Here , invoked from
     /// `analyzeRecent`, which runs after each sync backfill , we re-derive stages from the now-available
-    /// raw over each edited night's LOCKED bounds and rewrite the stage breakdown ONLY, never the user's
-    /// bed/wake correction. Idempotent: a night already staged from raw re-derives to the same JSON
+    /// raw over each edited night's LOCKED bounds, never the user's bed/wake correction.
+    /// Recovered nights also refresh their protected vitals and daily override from those bounds. Idempotent: a night already staged from raw re-derives to the same JSON
     /// (equality-skip, no write); a night edited-too-early heals the moment its raw arrives; a true
     /// imported night (raw never dense) is left untouched (`restageFromRaw` returns nil). Reads/writes the
     /// COMPUTED source , the same one `analyzeRecent` reads edited rows from. Returns the (possibly
@@ -3384,6 +3462,20 @@ final class Repository: ObservableObject {
     ) async -> [CachedSleepSession] {
         let computedSourceId = sourceId + "-noop"
         guard let store = await ensureStore() else { return [] }
+        // The live repository also refreshes canonical manual recoveries after a re-pair.
+        // Exact maintenance repositories do not adopt a live descriptor. Their source stays isolated.
+        // Do this before the empty-row return, without adding canonical rows to source-owned edits.
+        if sourceId != Self.whoopSource, liveSourceState.id == sourceId {
+            let canonicalRows = (try? await store.sleepSessions(
+                deviceId: canonicalComputedId, from: windowStart, to: windowEnd, limit: 100_000)) ?? []
+            for row in canonicalRows where row.userEdited {
+                guard (try? await store.sleepRecoveryDailyOverride(
+                    deviceId: canonicalComputedId, sessionStartTs: row.startTs)) != nil else { continue }
+                _ = await recoverMissedSleep(
+                    startTs: row.effectiveStartTs, endTs: row.endTs,
+                    replacingStartTs: row.startTs, publishAfterSave: false)
+            }
+        }
         func editedRows() async -> [CachedSleepSession] {
             ((try? await store.sleepSessions(deviceId: computedSourceId, from: windowStart,
                                              to: windowEnd, limit: 100_000)) ?? [])
@@ -3393,6 +3485,18 @@ final class Repository: ObservableObject {
         guard !edited.isEmpty else { return [] }
         var healed = false
         for row in edited {
+            // Recovered nights own a protected daily override. Refresh its vitals together with
+            // stages so sparse old HRV cannot survive forever after the raw coverage changes.
+            if sourceId == Repository.whoopSource,
+               (try? await store.sleepRecoveryDailyOverride(
+                   deviceId: computedSourceId, sessionStartTs: row.startTs)) != nil {
+                _ = await recoverMissedSleep(
+                    startTs: row.effectiveStartTs, endTs: row.endTs,
+                    replacingStartTs: row.startTs, publishAfterSave: false)
+                // Rejected revalidation can clear unsupported metrics while preserving the row.
+                healed = true
+                continue
+            }
             // Re-derive over the LOCKED corrected window (effective onset → wake). Skip when the raw
             // isn't dense yet, or when the result already matches what's stored (steady state , no write).
             guard let newJSON = await restageFromRaw(
@@ -4760,7 +4864,8 @@ extension Repository {
         analysis: AnalysisMutationReceipt,
         store: WhoopStore,
         now: Date,
-        snapshotBuilder: RepositoryPostAnalysisSnapshotBuilder.Type
+        snapshotBuilder: RepositoryPostAnalysisSnapshotBuilder.Type,
+        publicationBarrier: RepositoryPublicationBarrier = .shared
     ) async throws -> SnapshotCommitReceipt {
         switch work.kind {
         case .exactDays:
@@ -4825,6 +4930,7 @@ extension Repository {
             template: template,
             ownerDeviceId: namespace.rawDeviceId,
             read: read,
+            readWindows: windows,
             importedSourceIds: namespace.importedBaselineDeviceIds,
             computedSourceIds: [namespace.computedDeviceId],
             appleSourceId: Self.appleHealthSource,
@@ -4847,61 +4953,63 @@ extension Repository {
                 computedSourceIds: [namespace.computedDeviceId]
             )
         )
-        invalidateSuspendedTodayWritersForVerifiedPublication()
-        guard try await store.saveTodayHealthSnapshot(candidate),
-              let stored = try await store.todayHealthSnapshot(scopeId: candidate.scopeId),
-              stored.context == context,
-              stored.schemaVersion == TodayHealthSnapshot.currentSchemaVersion else {
-            throw PR28HistoricalPipelineError.snapshotReadBackFailed
-        }
+        return try await HistoricalRepositoryPublicationGate.run(barrier: publicationBarrier) {
+            invalidateSuspendedTodayWritersForVerifiedPublication()
+            guard try await store.saveTodayHealthSnapshot(candidate),
+                  let stored = try await store.todayHealthSnapshot(scopeId: candidate.scopeId),
+                  stored.context == context,
+                  stored.schemaVersion == TodayHealthSnapshot.currentSchemaVersion else {
+                throw PR28HistoricalPipelineError.snapshotReadBackFailed
+            }
 
-        let projection: VerifiedHealthProjection
-        do {
-            projection = try VerifiedHealthProjectionBuilder.build(from: stored)
-        } catch {
-            throw PR28HistoricalPipelineError.snapshotReadBackFailed
-        }
-        let receipt: SnapshotCommitReceipt
-        do {
-            receipt = try SnapshotCommitReceipt(
-                throughReceiptGeneration: analysis.throughReceiptGeneration,
-                analysisGeneration: analysis.analysisGeneration,
-                snapshotGeneration: stored.generation,
-                analyzedDays: analysis.analyzedDays,
+            let projection: VerifiedHealthProjection
+            do {
+                projection = try VerifiedHealthProjectionBuilder.build(from: stored)
+            } catch {
+                throw PR28HistoricalPipelineError.snapshotReadBackFailed
+            }
+            let receipt: SnapshotCommitReceipt
+            do {
+                receipt = try SnapshotCommitReceipt(
+                    throughReceiptGeneration: analysis.throughReceiptGeneration,
+                    analysisGeneration: analysis.analysisGeneration,
+                    snapshotGeneration: stored.generation,
+                    analyzedDays: analysis.analyzedDays,
+                    recordedTimeZoneIdentifier: work.recordedTimeZoneIdentifier,
+                    healthKitPayload: healthKitPayload,
+                    projection: projection
+                )
+            } catch {
+                throw PR28HistoricalPipelineError.snapshotReadBackFailed
+            }
+            let widgetCore = try VerifiedWidgetCorePayload(
+                contextId: projection.contextId,
+                projectionGeneration: projection.generation,
+                logicalDay: projection.logicalDay,
+                restingHR: stored.dailyMetric.restingHr,
+                sleepMinutes: stored.dailyMetric.totalSleepMin.map { Int($0.rounded()) },
+                steps: stored.dailyMetric.steps,
+                calories: stored.dailyMetric.activeKcalEst.map { Int($0.rounded()) },
+                recoveryDelta: Self.verifiedRecoveryDelta(
+                    projection: projection,
+                    read: read,
+                    importedSourceIds: Set(namespace.importedBaselineDeviceIds),
+                    computedSourceIds: [namespace.computedDeviceId],
+                    recordedTimeZoneIdentifier: work.recordedTimeZoneIdentifier
+                ),
                 recordedTimeZoneIdentifier: work.recordedTimeZoneIdentifier,
-                healthKitPayload: healthKitPayload,
-                projection: projection
+                enrichmentSourceIds: namespace.verificationSourceIds
             )
-        } catch {
-            throw PR28HistoricalPipelineError.snapshotReadBackFailed
+            _ = try await store.ensureVerifiedArtifacts(
+                receipt: receipt,
+                snapshot: stored,
+                widgetCore: widgetCore,
+                now: now
+            )
+            // Durable verification is intentionally not observable publication. The exact publication phase
+            // loads this receipt and the immutable snapshot again, then commits every cache family together.
+            return receipt
         }
-        let widgetCore = try VerifiedWidgetCorePayload(
-            contextId: projection.contextId,
-            projectionGeneration: projection.generation,
-            logicalDay: projection.logicalDay,
-            restingHR: stored.dailyMetric.restingHr,
-            sleepMinutes: stored.dailyMetric.totalSleepMin.map { Int($0.rounded()) },
-            steps: stored.dailyMetric.steps,
-            calories: stored.dailyMetric.activeKcalEst.map { Int($0.rounded()) },
-            recoveryDelta: Self.verifiedRecoveryDelta(
-                projection: projection,
-                read: read,
-                importedSourceIds: Set(namespace.importedBaselineDeviceIds),
-                computedSourceIds: [namespace.computedDeviceId],
-                recordedTimeZoneIdentifier: work.recordedTimeZoneIdentifier
-            ),
-            recordedTimeZoneIdentifier: work.recordedTimeZoneIdentifier,
-            enrichmentSourceIds: namespace.verificationSourceIds
-        )
-        _ = try await store.ensureVerifiedArtifacts(
-            receipt: receipt,
-            snapshot: stored,
-            widgetCore: widgetCore,
-            now: now
-        )
-        // Durable verification is intentionally not observable publication. The exact publication phase
-        // loads this receipt and the immutable snapshot again, then commits every cache family together.
-        return receipt
     }
 
     /// Read the exact durable mapping during a resumed work item. A missing mapping is an artifact error,

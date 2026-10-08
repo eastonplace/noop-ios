@@ -160,6 +160,7 @@ final class LiftStore: ObservableObject {
   private let canStartSession: @MainActor () -> Bool
   private var databaseTask: Task<Void, Error>?
   private var databaseInvalidated = false
+  private var applyingReviewedRoutines = false
   private var finishDate: Date?
   private let persistence: LiftPersistenceIO
   private let saveDebounceInterval: TimeInterval
@@ -1340,6 +1341,73 @@ final class LiftStore: ObservableObject {
       try persistence.writeSynchronously(persistenceEnvelope(), generation: saveGeneration)
     } catch {
       status = "Save failed: \(error.localizedDescription)"
+    }
+  }
+
+  /// Applies only reviewed routine/schedule changes to the current in-memory state.
+  /// A later ordinary save therefore retains the imported plan.
+  func applyReviewedRoutineChange(
+    validate: @MainActor () throws -> Void,
+    transform: @MainActor (Data) throws -> Data?
+  ) async throws {
+    guard !applyingReviewedRoutines else { throw ReviewedRoutineError.busy }
+    applyingReviewedRoutines = true
+    defer { applyingReviewedRoutines = false }
+    await loadAndWait()
+    await waitForPendingSave()
+    try Task.checkCancellation()
+    try validate()
+    guard didFinishLoad, database != nil, !databaseInvalidated else { throw ReviewedRoutineError.unavailable }
+    guard activeSession == nil, !isFinishing, canStartSession() else { throw ReviewedRoutineError.activeWorkout }
+    let original = persistenceEnvelope()
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let originalBytes = try encoder.encode(original)
+    guard let changed = try transform(originalBytes) else { return }
+    guard changed.count <= 8 * 1_024 * 1_024 else { throw ReviewedRoutineError.invalidChange }
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    // Compare at the persistence format's precision. Runtime dates can retain subseconds.
+    let serializedOriginal = try decoder.decode(LiftDataEnvelope.self, from: originalBytes)
+    let proposed = try decoder.decode(LiftDataEnvelope.self, from: changed)
+    var protectedFields = proposed
+    protectedFields.routines = serializedOriginal.routines
+    protectedFields.scheduledWorkouts = serializedOriginal.scheduledWorkouts
+    guard protectedFields == serializedOriginal,
+          Set(proposed.routines.map(\.id)).count == proposed.routines.count,
+          Set(proposed.scheduledWorkouts.map(\.id)).count == proposed.scheduledWorkouts.count else {
+      throw ReviewedRoutineError.invalidChange
+    }
+    try validate()
+    routines = proposed.routines
+    scheduledWorkouts = proposed.scheduledWorkouts
+    flushPendingSave()
+    let generation = saveGeneration
+    guard let task = databaseTask else { throw ReviewedRoutineError.unavailable }
+    do {
+      try await task.value
+      try Task.checkCancellation()
+      try validate()
+      guard !databaseInvalidated else { throw CancellationError() }
+    } catch {
+      // Keep later user edits. Revert only this uncommitted generation on a save failure.
+      if generation == saveGeneration, databaseSaveError != nil {
+        routines = original.routines
+        scheduledWorkouts = original.scheduledWorkouts
+      }
+      throw error
+    }
+  }
+
+  private enum ReviewedRoutineError: LocalizedError {
+    case busy, unavailable, activeWorkout, invalidChange
+    var errorDescription: String? {
+      switch self {
+      case .busy: return "Another workout plan is being saved. Try again when it finishes."
+      case .unavailable: return "The local workout store is unavailable. Your plan remains a draft."
+      case .activeWorkout: return "Finish your active workout before saving a Coach plan."
+      case .invalidChange: return "The reviewed plan attempted to change protected workout data. No changes were applied."
+      }
     }
   }
 

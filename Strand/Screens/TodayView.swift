@@ -849,11 +849,13 @@ struct TodayView: View {
         return value
     }
 
-    /// Recompute freshness at the UI boundary. A same-day value is fresh only when evidence attached to
-    /// that metric is no more than 60 minutes old. The snapshot's global HR frontier is not metric evidence:
-    /// it must never freshen Recovery or Sleep. A one-day carry is aging; an older carry is stale.
+    /// Recompute freshness at the UI boundary. Recovery and Sleep are daily scores: once scored for the
+    /// current day, their overnight observation time must not make them look stale later that same day.
+    /// Strain is intraday, so it still requires metric-specific evidence from the last 60 minutes. A
+    /// one-day carry is aging; an older carry is stale.
     nonisolated static func firstPaintMetricFreshness(
-        _ value: TodayHealthMetricValue?,
+        _ metric: TodayHealthSnapshot.Metric,
+        value: TodayHealthMetricValue?,
         snapshot: TodayHealthSnapshot?,
         currentLogicalDay: String,
         currentLocalDay: String,
@@ -870,6 +872,7 @@ struct TodayView: View {
             return dayGap == 1 ? .aging : .stale
         }
 
+        guard metric == .strain else { return .fresh }
         let evidenceTimestamp = value.rawFrontierTs ?? value.observedAt
         guard let evidenceTimestamp else { return .stale }
         let age = nowTimestamp - evidenceTimestamp
@@ -887,6 +890,7 @@ struct TodayView: View {
     ) -> Int? {
         let visibleMetrics: [TodayHealthSnapshot.Metric] = [.recovery, .strain, .sleepScore]
         return visibleMetrics.compactMap { metric in
+            guard metric == .strain else { return nil }
             guard let value = firstPaintMetric(
                 metric,
                 snapshot: snapshot,
@@ -941,7 +945,8 @@ struct TodayView: View {
     }
 
     private func carriedMetricDetail(
-        _ value: TodayHealthMetricValue?, snapshot: TodayHealthSnapshot?, currentLogicalDay: String,
+        _ metric: TodayHealthSnapshot.Metric,
+        value: TodayHealthMetricValue?, snapshot: TodayHealthSnapshot?, currentLogicalDay: String,
         currentLocalDay: String, nowTimestamp: Int
     ) -> String? {
         guard value != nil else { return nil }
@@ -949,7 +954,7 @@ struct TodayView: View {
                                            snapshotDisplayDay: snapshot?.displayDay,
                                            currentLogicalDay: currentLogicalDay,
                                            freshness: Self.firstPaintMetricFreshness(
-                                               value, snapshot: snapshot,
+                                               metric, value: value, snapshot: snapshot,
                                                currentLogicalDay: currentLogicalDay,
                                                currentLocalDay: currentLocalDay,
                                                nowTimestamp: nowTimestamp))
@@ -1721,7 +1726,7 @@ struct TodayView: View {
                 id: "recovery", label: String(localized: "Recovery"), value: charge, maximum: 100,
                 valueText: charge.map { "\(Int($0.rounded()))" } ?? "—",
                 state: paperScoreState(charge, kind: .charge),
-                detail: carriedMetricDetail(recoveryMetric, snapshot: firstPaint,
+                detail: carriedMetricDetail(.recovery, value: recoveryMetric, snapshot: firstPaint,
                                             currentLogicalDay: key.logicalKey,
                                             currentLocalDay: key.localKey, nowTimestamp: nowTimestamp),
                 accent: charge.map { RecoveryBands.color(for: $0) } ?? StrandPalette.recoveryData,
@@ -1731,7 +1736,7 @@ struct TodayView: View {
                 id: "strain", label: String(localized: "Strain"), value: strain, maximum: 21,
                 valueText: strain.map { String(format: "%.1f", $0) } ?? "—",
                 state: paperScoreState(effort, kind: .effort),
-                detail: carriedMetricDetail(strainMetric, snapshot: firstPaint,
+                detail: carriedMetricDetail(.strain, value: strainMetric, snapshot: firstPaint,
                                             currentLogicalDay: key.logicalKey,
                                             currentLocalDay: key.localKey, nowTimestamp: nowTimestamp),
                 accent: StrandPalette.strainAccent
@@ -1740,7 +1745,7 @@ struct TodayView: View {
                 id: "sleep", label: String(localized: "Sleep"), value: rest, maximum: 100,
                 valueText: rest.map { "\(Int($0.rounded()))" } ?? "—",
                 state: paperScoreState(rest, kind: .rest),
-                detail: carriedMetricDetail(sleepMetric, snapshot: firstPaint,
+                detail: carriedMetricDetail(.sleepScore, value: sleepMetric, snapshot: firstPaint,
                                             currentLogicalDay: key.logicalKey,
                                             currentLocalDay: key.localKey, nowTimestamp: nowTimestamp)
                     ?? day.map(sleepValue),
