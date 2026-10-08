@@ -113,7 +113,9 @@ struct RootTabView: View {
             devicesScreen
         }
         .sheet(isPresented: $showLift) {
-            LiftLogView()
+            // The Lift screen carries its own back/close control; the sheet only needs the app chrome
+            // out of the way.
+            LiftLogView().sheetScreenScaffoldEnvironment()
         }
         .sheet(item: $routedPillar) { destination in
             pillarScreen(destination)
@@ -188,6 +190,9 @@ struct RootTabView: View {
 
     @ViewBuilder
     private func pillarScreen(_ destination: NavRouter.Destination) -> some View {
+        // Routed pillars are modal sheets: no system navigation bar and no pinned app chrome, just the
+        // screen's own header with one close button. Screens that already draw their own close keep it.
+        let ownsClose = destination == .rhythm || destination == .updates || destination == .activeWorkout
         NavigationStack {
             Group {
                 switch destination {
@@ -204,15 +209,10 @@ struct RootTabView: View {
                 }
             }
             .background(StrandPalette.appCanvas.ignoresSafeArea())
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.hidden, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { routedPillar = nil }
-                        .foregroundStyle(StrandPalette.accent)
-                }
-            }
+            .toolbar(.hidden, for: .navigationBar)
+            .sheetScreenScaffoldEnvironment(onClose: ownsClose ? nil : { routedPillar = nil })
         }
+        .drillInDestinationEnvironment()
     }
 
     private static let sheetEase = Animation.timingCurve(0.22, 1, 0.36, 1, duration: 0.42)
@@ -232,7 +232,7 @@ struct RootTabView: View {
         case .live:
             quickScreen(LiveView())
         case .activeWorkout:
-            quickScreen(LiveWorkoutView(onClose: { quickAction = nil }))
+            quickScreen(LiveWorkoutView(onClose: { quickAction = nil }), ownsClose: true)
         case .workout:
             QuickWorkoutFlow(onClose: { quickAction = nil })
         case .journal:
@@ -244,19 +244,16 @@ struct RootTabView: View {
         }
     }
 
-    private func quickScreen<V: View>(_ view: V) -> some View {
+    /// A quick-action modal: no system navigation bar and no pinned app chrome, just the screen's own
+    /// header with one close button (unless the screen draws its own, `ownsClose`).
+    private func quickScreen<V: View>(_ view: V, ownsClose: Bool = false) -> some View {
         NavigationStack {
             view
                 .background(StrandPalette.appCanvas.ignoresSafeArea())
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbarBackground(.hidden, for: .navigationBar)
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button("Done") { quickAction = nil }
-                            .foregroundStyle(StrandPalette.accent)
-                    }
-                }
+                .toolbar(.hidden, for: .navigationBar)
+                .sheetScreenScaffoldEnvironment(onClose: ownsClose ? nil : { quickAction = nil })
         }
+        .drillInDestinationEnvironment()
     }
 
     private var devicesScreen: some View {
@@ -264,7 +261,9 @@ struct RootTabView: View {
             DevicesView(onClose: { showDevices = false })
                 .background(StrandPalette.appCanvas.ignoresSafeArea())
                 .toolbar(.hidden, for: .navigationBar)
+                .sheetScreenScaffoldEnvironment()
         }
+        .drillInDestinationEnvironment()
     }
 
     /// Settings is the one tab that intentionally keeps the native navigation bar. Its large title,
@@ -290,8 +289,11 @@ struct RootTabView: View {
         NavigationStack {
             view
                 .background(StrandPalette.appCanvas.ignoresSafeArea())
+                // The tab root keeps the pinned app chrome; everything pushed onto this stack is a drill-in.
+                .environment(\.screenScaffoldNavigationRole, .root)
                 .toolbar(.hidden, for: .navigationBar)
         }
+        .drillInDestinationEnvironment()
         .toolbar(.hidden, for: .tabBar)
         .tabItem { Label(title, systemImage: icon) }
     }

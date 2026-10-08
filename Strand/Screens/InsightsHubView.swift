@@ -83,13 +83,7 @@ struct InsightsHubView: View {
         .sheet(isPresented: $showJournal) {
             #if os(iOS)
             CoachingRootView()
-                .toolbarBackground(.hidden, for: .navigationBar)
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button("Done") { showJournal = false }
-                            .foregroundStyle(StrandPalette.textPrimary)
-                    }
-                }
+                .sheetScreenScaffoldEnvironment(onClose: { showJournal = false })
             #else
             CoachingRootView()
                 .toolbar {

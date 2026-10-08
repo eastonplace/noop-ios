@@ -260,6 +260,9 @@ struct WorkoutsView: View {
             NavigationStack {
                 WorkoutDetailView(row: target.row)
                     .environmentObject(repo)
+                    // Modal: one close button in the scaffold header, not the back chevron this screen
+                    // inherits from being presented over a pushed screen.
+                    .sheetScreenScaffoldEnvironment(onClose: { detail = nil })
             }
             #if os(iOS)
             .noopSheetPresentation(largeFirst: true)

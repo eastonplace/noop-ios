@@ -80,18 +80,23 @@ struct LabBookView: View {
             }
         }
         .task(id: repo.refreshSeq) { await load() }
+        // Nested sheets carry their own Cancel / Done; the sheetScreenScaffoldEnvironment only keeps the
+        // app chrome (and the presenting sheet's close button) from leaking into them.
         .sheet(isPresented: $showingEditor) {
             MarkerEditorView { drafts in
                 await save(drafts)
             }
+            .sheetScreenScaffoldEnvironment()
         }
         .sheet(item: detailBinding) { key in
             MarkerDetailView(markerKey: key.id,
                              readings: readings(for: key.id),
                              onDelete: { id in await delete(id) })
+                .sheetScreenScaffoldEnvironment()
         }
         .sheet(isPresented: $showingDisclaimer) {
             LabBookDisclaimerView()
+                .sheetScreenScaffoldEnvironment()
         }
         // macOS picker for the markers CSV; iOS goes through DocumentPicker (see
         // presentCsvImporter) for the iCloud download-on-pick behaviour (#179).

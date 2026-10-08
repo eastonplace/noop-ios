@@ -11,7 +11,7 @@ struct LiveWorkoutView: View {
     let onClose: () -> Void
 
     var body: some View {
-        StableLiveWorkoutContent(model: model, workout: model.activeWorkout)
+        StableLiveWorkoutContent(model: model, workout: model.activeWorkout, onClose: onClose)
             .equatable()
             .overlay {
                 WorkoutGoneObserver(model: model, onClose: onClose)
@@ -23,6 +23,9 @@ struct LiveWorkoutView: View {
 private struct StableLiveWorkoutContent: View, @preconcurrency Equatable {
     let model: AppModel
     let workout: AppModel.ActiveWorkout?
+    /// Hides the workout surface; the recording keeps running. Not part of equality: it only flips
+    /// presentation state in the host, so a fresh closure from a host re-render must not rebuild the content.
+    let onClose: () -> Void
     @AppStorage("workoutKeepScreenOn") private var keepScreenOn = false
 
     static func == (lhs: Self, rhs: Self) -> Bool {
@@ -80,6 +83,8 @@ private struct StableLiveWorkoutContent: View, @preconcurrency Equatable {
                     .lineLimit(1)
                 Spacer()
                 StatusBadge("Live", style: .live)
+                // The surface's single close control (modals carry no system navigation bar "Done").
+                NoopIconButton("xmark", accessibilityLabel: "Close", action: onClose)
             }
         }
         .frame(minHeight: 32)

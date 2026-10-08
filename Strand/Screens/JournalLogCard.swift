@@ -568,6 +568,11 @@ struct CoachingRootView: View {
                 }
             }
             .task(id: repo.refreshSeq) { await load() }
+            #if os(iOS)
+            // The scaffold header is this screen's only chrome; the stack's own bar would stack a second
+            // one above it.
+            .toolbar(.hidden, for: .navigationBar)
+            #endif
         }
         .tint(StrandPalette.journalAccent)
     }

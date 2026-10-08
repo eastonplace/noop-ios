@@ -118,6 +118,7 @@ struct FusedRecordView: View {
         // reason. Opening it never changes the resolved value — it only explains it.
         .sheet(item: $comparing) { row in
             ConflictCompareSheet(row: row)
+                .sheetScreenScaffoldEnvironment()
                 #if os(iOS)
                 .noopSheetPresentation(largeFirst: false)
                 #else

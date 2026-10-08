@@ -84,13 +84,9 @@ struct WorkoutDetailView: View {
                        // and every other liquid screen. Fixed and full-bleed; it does not scroll. This
                        // screen is presented in a sheet wrapped in a NavigationStack by WorkoutsView, so it
                        // needs no extra macOS NavigationStack of its own.
-                       topBackground: nil,
-                       trailing: {
-                           Button("Done") { dismiss() }
-                               .font(StrandFont.caption.weight(.semibold))
-                               .foregroundStyle(StrandPalette.textPrimary)
-                               .frame(minWidth: 44, minHeight: 44)
-                       }) {
+                       // The sheet host supplies the single close button (sheetScreenScaffoldEnvironment);
+                       // pushed from Today it shows the scaffold's back chevron instead.
+                       topBackground: nil) {
             paperEffortHero
             SegmentedPillControl(hasDrawableRoute ? DetailTab.allCases : [.overview, .heartRate], selection: $detailTab) { $0.label }
             switch detailTab {
