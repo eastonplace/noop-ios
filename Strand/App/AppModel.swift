@@ -59,6 +59,13 @@ enum DurableSourceTransitionKind: Equatable {
     case deleteData
 }
 
+extension HistoricalReceiptWatermark: MergeableWatermark {
+    /// The union of both watermarks' scopes, newest generation per scope (`init(coordinates:)` resolves it).
+    func merged(with newer: HistoricalReceiptWatermark) -> HistoricalReceiptWatermark {
+        HistoricalReceiptWatermark(coordinates: coordinates + newer.coordinates)
+    }
+}
+
 enum FullHistoryRepairAdmissionPolicy {
     /// Broad repair may publish only for the active source after Today hydration. Closed, archived, and
     /// no-active-source rows follow the lifecycle store's explicit durable cancellation policy.
@@ -482,7 +489,7 @@ final class AppModel: ObservableObject {
             .debounce(for: .seconds(2), scheduler: DispatchQueue.main)
             .sink { [weak self] finalization in
                 Task { [weak self] in
-                    await self?.refreshAfterBackfillBurst(watermark: finalization.watermark)
+                    await self?.handleFinalizedBackfillBurst(watermark: finalization.watermark)
                 }
             }
             .store(in: &hrCancellables)
@@ -600,8 +607,11 @@ final class AppModel: ObservableObject {
                 await self.intelligence.analyzeRecent(force: false)
                 #endif
                 // v5: recompute the skin-temp suite snapshots (cycle phase + body clock) from the
-                // freshly-scored history so the Health hub cards read a ready result.
-                await self.refreshV5Signals()
+                // freshly-scored history so the Health hub cards read a ready result. Skipped while a run or
+                // lift is active: it is a synchronous bulk SQLite aggregation, and the next tick catches up.
+                if !self.hasActiveWorkoutSession {
+                    await self.refreshV5Signals()
+                }
                 // Advance one durable immutable-artifact repair page per idle cadence grant. The keyset
                 // cursor moves past irreparable legacy heads, so later compatible rows cannot starve.
                 let cadenceRepairs = await self.repo.repairIncompleteVerifiedArtifacts()
@@ -964,7 +974,7 @@ final class AppModel: ObservableObject {
             hasTodaySnapshot: repo.todayHealthSnapshot != nil,
             hasActiveImport: hasActiveImport,
             isBackfilling: live.backfilling,
-            hasActiveWorkout: activeWorkout != nil)
+            hasActiveWorkout: hasActiveWorkoutSession)
     }
 
     private func fullHistoryRepairPresentationScope() -> HistoricalCursorScope? {
@@ -1653,6 +1663,35 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// A finished history burst triggers a dashboard refresh that reads and aggregates months of rows
+    /// synchronously (`refreshV5Signals`, the pipeline's exact-day analysis). Run while a run or lift is in
+    /// flight and backgrounded, that is the sustained CPU iOS kills the app for, so it is parked and replayed,
+    /// coalesced, when the session ends or the app next foregrounds with none. The durable receipts it would
+    /// have processed stay pending meanwhile.
+    private func handleFinalizedBackfillBurst(watermark: HistoricalReceiptWatermark?) async {
+        guard deferredSessionWork.admitBurst(watermark, sessionActive: hasActiveWorkoutSession) else {
+            live.append(log: "Backfill: dashboard refresh deferred until the active workout ends.")
+            return
+        }
+        await refreshAfterBackfillBurst(watermark: watermark)
+    }
+
+    /// Replay whatever was parked, once, when no run or lift is active. Called when a run ends, when a lift
+    /// session ends, and on return to the foreground; a no-op while a session is still active.
+    func replayDeferredSessionWorkIfIdle() {
+        let jobs = deferredSessionWork.drain(sessionActive: hasActiveWorkoutSession)
+        guard !jobs.isEmpty else { return }
+        live.append(log: "Backfill: replaying \(jobs.count) deferred refresh job(s) after the workout.")
+        Task { @MainActor [weak self] in
+            for job in jobs {
+                switch job {
+                case .burstRefresh(let watermark): await self?.refreshAfterBackfillBurst(watermark: watermark)
+                case .pipelineSignal: _ = await self?.signalHistoricalPipeline()
+                }
+            }
+        }
+    }
+
     private func refreshAfterBackfillBurst(watermark: HistoricalReceiptWatermark? = nil) async {
         let trace = PerformanceTrace.begin("backfill_finalize")
         defer { PerformanceTrace.end(trace) }
@@ -2052,16 +2091,17 @@ final class AppModel: ObservableObject {
                       !self.applicationIsActive,
                       !self.hasActiveImport,
                       !self.live.backfilling,
-                      self.activeWorkout == nil else { return }
+                      !self.hasActiveWorkoutSession else { return }
                 await self.intelligence.runEffortRescoreIfNeeded {
                     self.applicationIsActive || self.hasActiveImport
-                        || self.live.backfilling || self.activeWorkout != nil
+                        || self.live.backfilling || self.hasActiveWorkoutSession
                 }
             }
         } else {
             // A GPS run keeps recording through a screen lock. On return, make sure CoreLocation is still
             // streaming and that the background session is live (no-op unless a route is recording).
             gpsRecorder.resumeUpdatesIfNeeded()
+            replayDeferredSessionWorkIfIdle()
             Task { [weak self] in
                 guard let self,
                       self.repo.loaded,
@@ -2074,7 +2114,10 @@ final class AppModel: ObservableObject {
         // Re-arm the broad-repair lane at both scene edges. Its durable idle gate rejects the active edge,
         // while the inactive edge allows one bounded chronological batch after Today is already visible.
         Task { [weak self] in
-            _ = await self?.signalHistoricalPipeline()
+            guard let self,
+                  self.deferredSessionWork.admitPipelineSignal(sessionActive: self.hasActiveWorkoutSession)
+            else { return }
+            _ = await self.signalHistoricalPipeline()
         }
     }
 
@@ -2184,6 +2227,7 @@ final class AppModel: ObservableObject {
             pendingWorkoutRoute = nil
             pendingWorkoutWasGps = false
             workoutFinishState = .saved(saved)
+            replayDeferredSessionWorkIfIdle()
             emitWorkoutsTrace(WorkoutsTrace.sessionLine(
                 event: "end", sportKey: WorkoutSource.traceSportKey(w.sport), hrSamples: samples.count,
                 durationSec: Int(end.timeIntervalSince(w.start)),
@@ -2565,6 +2609,18 @@ final class AppModel: ObservableObject {
     var liftDoubleTapHandler: (() -> Void)?
     var discardLiftForDeletedSource: ((String) -> Void)?
     var hasActiveReceiptLift: (() -> Bool)?
+
+    /// A run or a lift is in flight. Heavy post-sync processing waits for this to clear (see
+    /// `ActiveSessionWorkPolicy`).
+    var hasActiveWorkoutSession: Bool {
+        ActiveSessionWorkPolicy.isSessionActive(
+            hasActiveWorkout: activeWorkout != nil,
+            hasActiveLift: hasActiveReceiptLift?() == true)
+    }
+
+    /// Post-sync refresh work parked while a session was active, replayed by `replayDeferredSessionWorkIfIdle`.
+    private var deferredSessionWork = DeferredSessionWork<HistoricalReceiptWatermark>()
+    var hasDeferredSessionWork: Bool { deferredSessionWork.hasPending }
 
     private func handleDoubleTap() {
         let now = Date()

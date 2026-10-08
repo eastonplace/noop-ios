@@ -58,6 +58,11 @@ enum HistoricalSyncBackgroundTaskRegistrar {
                 processingTask.setTaskCompleted(success: success)
             }
             let operation = Task { @MainActor in
+                if ActiveSessionGate.isActive() {
+                    Self.schedule(after: ActiveSessionGate.retryDelay)
+                    completion.complete(success: false)
+                    return
+                }
                 guard let snapshot = Self.snapshot,
                       let requestSync = Self.requestSync,
                       let initial = snapshot() else {

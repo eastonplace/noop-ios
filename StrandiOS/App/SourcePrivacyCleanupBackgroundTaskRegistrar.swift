@@ -110,6 +110,11 @@ enum SourcePrivacyCleanupBackgroundTaskRegistrar {
                 processingTask.setTaskCompleted(success: success)
             }
             let operation = Task { @MainActor in
+                if ActiveSessionGate.isActive() {
+                    Self.schedule(after: ActiveSessionGate.retryDelay)
+                    completion.complete(success: false)
+                    return
+                }
                 guard UIApplication.shared.isProtectedDataAvailable,
                       let recover = Self.recover,
                       let pendingState = Self.pendingState else {
