@@ -260,12 +260,202 @@ final class LocalCoachEngineTests: XCTestCase {
             XCTAssertFalse(engine.messages.isEmpty)
             XCTAssertFalse(engine.memories.isEmpty)
             XCTAssertNotNil(engine.plan)
+            let kinds = Set(engine.messages.flatMap { $0.cards ?? [] }.map(\.kind))
+            XCTAssertEqual(kinds, ["recovery", "sleep", "trend", "effort", "workouts", "stats"],
+                           "The preview conversation must show one of every card kind")
+            XCTAssertTrue(engine.messages.allSatisfy { ($0.cards ?? []).count <= LocalCoachEngine.maximumCardsPerMessage })
             let messages = engine.messages
             await engine.send("Do not execute")
             await engine.savePlan()
             XCTAssertEqual(engine.messages, messages)
             XCTAssertFalse(engine.isResponding)
         }
+    }
+
+    // MARK: Widget cards
+
+    func testToolCardsAttachToTheAnswerDeduplicatedAndCappedAtFour() async throws {
+        let samples = LocalCoachCard.previewSamples()
+        let data = TestCoachData()
+        data.resultCards = samples.readiness + samples.training   // six distinct cards
+        let model = TestCoachModel()
+        model.body = { _, read, receive in
+            _ = try await read("read_sleep", "", 7)
+            _ = try await read("read_sleep", "", 7)               // the same records again: no duplicates
+            receive("Answer")
+        }
+        let engine = make(data: data, model: model, directory: try directory())
+        engine.preferences.usePersonalData = true
+        await engine.send("How am I doing?")
+        let cards = try XCTUnwrap(engine.messages.last?.cards)
+        XCTAssertEqual(cards.count, LocalCoachEngine.maximumCardsPerMessage)
+        XCTAssertEqual(Set(cards.map(\.id)).count, cards.count)
+        XCTAssertEqual(cards, Array(data.resultCards.prefix(4)))
+        XCTAssertNil(engine.messages.first?.cards, "The user's message never carries cards")
+    }
+
+    func testRepeatedReadOfTheSameRecordsAddsNoSecondCard() async throws {
+        let data = TestCoachData()
+        data.resultCards = [LocalCoachCard.previewSamples().readiness[0]]
+        let model = TestCoachModel()
+        model.body = { _, read, receive in
+            _ = try await read("read_sleep", "", 1)
+            _ = try await read("read_sleep", "", 7)
+            receive("Answer")
+        }
+        let engine = make(data: data, model: model, directory: try directory())
+        engine.preferences.usePersonalData = true
+        await engine.send("Readiness")
+        XCTAssertEqual(engine.messages.last?.cards?.count, 1)
+    }
+
+    func testCardsAreNotAttachedWithoutPersonalDataConsent() async throws {
+        let data = TestCoachData()
+        data.resultCards = LocalCoachCard.previewSamples().readiness
+        let model = TestCoachModel()
+        model.body = { _, read, _ in _ = try await read("read_sleep", "", 7) }
+        let engine = make(data: data, model: model, directory: try directory())
+        await engine.send("How did I sleep?")           // usePersonalData is off
+        XCTAssertTrue(data.reads.isEmpty)
+        XCTAssertFalse(engine.messages.contains { !($0.cards ?? []).isEmpty })
+    }
+
+    func testPublicToolResultsNeverContributeCards() async throws {
+        let data = TestCoachData()
+        data.toolIDs = ["metric_explanations"]
+        data.resultCards = LocalCoachCard.previewSamples().readiness
+        let model = TestCoachModel()
+        model.body = { _, read, receive in
+            _ = try await read("metric_explanations", "", 7)
+            receive("Definitions")
+        }
+        let engine = make(data: data, model: model, directory: try directory())
+        await engine.send("What does recovery mean?")
+        XCTAssertEqual(data.reads.count, 1)
+        XCTAssertNil(engine.messages.last?.cards)
+        XCTAssertEqual(engine.messages.last?.text, "Definitions")
+    }
+
+    func testConsentRevokedDuringReadDropsCards() async throws {
+        let data = TestCoachData()
+        data.resultCards = LocalCoachCard.previewSamples().readiness
+        let gate = CoachTestGate()
+        data.beforeRead = { await gate.wait() }
+        let model = TestCoachModel()
+        model.body = { _, read, receive in
+            let result = try await read("read_sleep", "", 7)
+            receive(result.text)
+        }
+        let engine = make(data: data, model: model, directory: try directory())
+        engine.preferences.usePersonalData = true
+        let task = Task { await engine.send("Sleep") }
+        await gate.waitUntilEntered()
+        engine.preferences.usePersonalData = false
+        gate.release()
+        await task.value
+        XCTAssertFalse(engine.messages.contains { !($0.cards ?? []).isEmpty })
+    }
+
+    func testExportListsCardsAndEditingAMessageClearsThem() async throws {
+        let data = TestCoachData()
+        data.resultCards = LocalCoachCard.previewSamples().readiness
+        let model = TestCoachModel()
+        model.body = { _, read, receive in
+            _ = try await read("read_sleep", "", 7)
+            receive("Answer")
+        }
+        let engine = make(data: data, model: model, directory: try directory())
+        engine.preferences.usePersonalData = true
+        await engine.send("Readiness")
+        let export = engine.exportConversation()
+        XCTAssertTrue(export.contains("- Recovery card ("), export)
+        XCTAssertTrue(export.contains("recovery 82/100"), export)
+        XCTAssertTrue(export.contains("- Sleep card ("), export)
+        let answer = try XCTUnwrap(engine.messages.last)
+        XCTAssertEqual(answer.cards?.count, 2)
+        engine.editMessage(answer.id, text: "Edited answer")
+        XCTAssertNil(engine.messages.last?.cards)
+        XCTAssertFalse(engine.exportConversation().contains("Recovery card"))
+    }
+
+    func testCardsPersistAndReload() async throws {
+        let root = try directory()
+        let data = TestCoachData()
+        data.resultCards = LocalCoachCard.previewSamples().training
+        let model = TestCoachModel()
+        model.body = { _, read, receive in
+            _ = try await read("read_sleep", "", 7)
+            receive("Answer")
+        }
+        let engine = make(data: data, model: model, directory: root)
+        engine.preferences.usePersonalData = true
+        await engine.send("Training")
+        let expected = try XCTUnwrap(engine.messages.last?.cards)
+        XCTAssertFalse(expected.isEmpty)
+        let reopened = make(directory: root)
+        reopened.selectConversation(try XCTUnwrap(engine.selectedConversationID))
+        XCTAssertEqual(reopened.messages.last?.cards, expected)
+    }
+
+    func testLegacyConversationWithoutCardsDecodesAndRemainsSaveable() async throws {
+        let root = try directory()
+        let store = LocalCoachPersistence(directory: root)
+        var state = LocalCoachPersistence.State(sourceID: "a")
+        let conversation = LocalCoachConversation(title: "Legacy", messages: [
+            .init(role: .user, text: "old question"), .init(role: .assistant, text: "old answer", toolNames: ["readiness"])
+        ])
+        state.conversations = [conversation]
+        state.selectedConversationID = conversation.id
+        try store.save(state)
+        let raw = String(decoding: try Data(contentsOf: store.fileURL(sourceID: "a")), as: UTF8.self)
+        XCTAssertFalse(raw.contains("\"cards\""), "Optional nil cards must encode as an absent key, like pre-card builds wrote")
+
+        let engine = make(directory: root)
+        XCTAssertNil(engine.errorText, "A legacy state file must stay readable")
+        XCTAssertEqual(engine.messages.map(\.text), ["old question", "old answer"])
+        XCTAssertTrue(engine.messages.allSatisfy { $0.cards == nil })
+        await engine.send("New question")
+        XCTAssertNil(engine.errorText, "Saving after loading a legacy state must still work")
+        let reloaded = try store.load(sourceID: "a")
+        XCTAssertEqual(reloaded.conversations.first?.messages.count, 4)
+    }
+
+    func testLegacyMessageJSONDecodesWithNilCards() throws {
+        let legacy = """
+        {"id":"3F2504E0-4F89-41D3-9A0C-0305E82C3301","role":"assistant","text":"old answer",
+         "createdAt":780000000,"evidence":[],"toolNames":["readiness"],"isInterrupted":false}
+        """
+        let message = try JSONDecoder().decode(LocalCoachMessage.self, from: Data(legacy.utf8))
+        XCTAssertEqual(message.text, "old answer")
+        XCTAssertEqual(message.toolNames, ["readiness"])
+        XCTAssertNil(message.cards)
+    }
+
+    func testUnreadableCardIsDroppedWithoutBreakingTheMessage() throws {
+        let valid = LocalCoachCard.previewSamples().readiness[0]
+        let cardObject = try JSONSerialization.jsonObject(with: JSONEncoder().encode(valid))
+        let unknownCard: [String: Any] = ["hologram": ["_0": [String: Any]()]]
+        let message: [String: Any] = [
+            "id": "3F2504E0-4F89-41D3-9A0C-0305E82C3301", "role": "assistant", "text": "answer",
+            "createdAt": 780000000, "evidence": [], "toolNames": [], "isInterrupted": false,
+            "cards": [unknownCard, cardObject]
+        ]
+        let decoded = try JSONDecoder().decode(LocalCoachMessage.self, from: JSONSerialization.data(withJSONObject: message))
+        XCTAssertEqual(decoded.cards, [valid], "A card from a newer build is dropped; readable cards are kept")
+        var onlyUnknown = message
+        onlyUnknown["cards"] = [unknownCard]
+        let none = try JSONDecoder().decode(LocalCoachMessage.self, from: JSONSerialization.data(withJSONObject: onlyUnknown))
+        XCTAssertNil(none.cards)
+        XCTAssertEqual(none.text, "answer")
+    }
+
+    func testCardIdentityIsStablePerKindAndRecord() {
+        let samples = LocalCoachCard.previewSamples()
+        let all = samples.readiness + samples.training + samples.coverage
+        XCTAssertEqual(Set(all.map(\.id)).count, all.count)
+        XCTAssertEqual(LocalCoachCard.previewSamples().readiness.map(\.id), samples.readiness.map(\.id))
+        let merged = LocalCoachCard.merging(samples.readiness, with: samples.readiness + [samples.coverage[0]], limit: 4)
+        XCTAssertEqual(merged.count, 3)
     }
 
     func testPersistedConversationHistoryIsNotSilentlyEvicted() async throws {
@@ -418,8 +608,12 @@ final class LocalCoachEngineTests: XCTestCase {
 
 @MainActor
 private final class TestCoachData: LocalCoachDataAccess {
-    var toolDescriptors: [LocalCoachToolDescriptor] { [.init(id: "read_sleep", title: "Sleep", description: "Read sleep", symbol: "moon")] }
+    var toolIDs = ["read_sleep"]
+    var toolDescriptors: [LocalCoachToolDescriptor] {
+        toolIDs.map { .init(id: $0, title: "Sleep", description: "Read sleep", symbol: "moon") }
+    }
     var reads: [(query: String, days: Int)] = []
+    var resultCards: [LocalCoachCard] = []
     var saveCount = 0
     var resultText = "private result"
     var beforeRead: (() async -> Void)?
@@ -427,7 +621,8 @@ private final class TestCoachData: LocalCoachDataAccess {
     func query(_ name: String, query: String, days: Int) async throws -> LocalCoachToolResult {
         reads.append((query, days))
         await beforeRead?()
-        return .init(text: resultText, evidence: [.init(id: "sleep-1", title: "Sleep", detail: "7 hours", source: "a")])
+        return .init(text: resultText, evidence: [.init(id: "sleep-1", title: "Sleep", detail: "7 hours", source: "a")],
+                     cards: resultCards)
     }
     func makeWorkoutDraft(focus: String, minutes: Int, days: Int) async throws -> LocalCoachPlan {
         .init(title: focus, summary: "Draft", sourceID: "a", days: [])

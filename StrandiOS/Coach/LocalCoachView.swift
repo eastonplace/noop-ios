@@ -384,6 +384,9 @@ struct LocalCoachView: View {
             .onChange(of: coach.messages.count) { _, _ in
                 withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("coach.bottom", anchor: .bottom) }
             }
+            .onChange(of: coach.messages.last?.cards?.count) { _, _ in
+                withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("coach.bottom", anchor: .bottom) }
+            }
             .onAppear { proxy.scrollTo("coach.bottom", anchor: .bottom) }
         }.accessibilityIdentifier("coach.conversation")
     }
@@ -573,6 +576,15 @@ private struct LocalCoachMessageView: View {
                 Markdown(message.text)
                     .markdownTheme(.strand)
                     .textSelection(.enabled)
+            }
+            if let cards = message.cards, !cards.isEmpty {
+                VStack(spacing: 12) {
+                    ForEach(cards) { card in
+                        LocalCoachCardView(card: card)
+                            .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
+                    }
+                }
+                .animation(.easeOut(duration: 0.25), value: cards.map(\.id))
             }
             if !message.toolNames.isEmpty {
                 Text(message.toolNames.map { $0.replacingOccurrences(of: "_", with: " ").capitalized }.joined(separator: " · "))

@@ -504,6 +504,9 @@ struct StrandiOSApp: App {
                 #if DEBUG
                 if coachShellQARequested {
                     RootTabView()
+                } else if CommandLine.arguments.contains("--noop-coach-cards-qa") {
+                    // Synthetic preview engine only: every widget-card kind, no model, no repository, no database.
+                    LocalCoachPreviewHost(screen: LocalCoachScreen.chat.rawValue)
                 } else if let coachIndex = CommandLine.arguments.firstIndex(of: "--noop-coach-preview"),
                    CommandLine.arguments.indices.contains(coachIndex + 1) {
                     LocalCoachPreviewHost(screen: CommandLine.arguments[coachIndex + 1])

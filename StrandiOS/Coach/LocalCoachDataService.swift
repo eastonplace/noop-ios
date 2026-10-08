@@ -236,10 +236,12 @@ final class LocalCoachDataService {
         let rows = canonicalRows().filter { window.contains($0.day) }
         var lines = ["Window: \(window.label). Source: \(sourceDescription(expected))."]
         var evidence = [freshnessEvidence(expected)]
+        var cards: [LocalCoachCard] = []
         switch name {
         case "current_day", "readiness":
             let recent = rows.suffix(name == "readiness" ? 7 : 1)
-            lines += recent.map(Self.dayLine)
+            lines += recent.map { Self.dayLine($0, scaledEffort: true) }
+            cards += Self.recoveryCard(Array(recent), window: window)
             if let latest = recent.last {
                 lines.append("Latest requested record: \(latest.day). \(latest.day == LocalCoachWindow.key(now()) ? "Today's record may be incomplete." : "This record is stale for today's readiness.")")
             } else {
@@ -248,21 +250,22 @@ final class LocalCoachDataService {
             if name == "readiness" { lines.append("These are recorded indicators, not medical clearance or a new readiness calculation.") }
         case "sleep_history":
             lines += rows.map { row in
-                let efficiency = row.efficiency.flatMap { raw -> Double? in
-                    let percent = raw <= 1.5 ? raw * 100 : raw
-                    return percent.isFinite && (0...100).contains(percent) ? percent : nil
-                }
+                let efficiency = Self.efficiencyPercent(row.efficiency)
                 return "\(row.day): sleep \(Self.measured(row.totalSleepMin, unit: "min")), deep \(Self.measured(row.deepMin, unit: "min")), REM \(Self.measured(row.remMin, unit: "min")), light \(Self.measured(row.lightMin, unit: "min")), efficiency \(Self.measured(efficiency, unit: "%"))"
             }
             if rows.isEmpty { lines.append("No canonical sleep records in this window. The cache is bounded; this does not prove the database contains no older sleep.") }
+            cards += Self.sleepCard(rows, window: window)
         case "metric_trends":
-            lines += rows.map(Self.dayLine)
+            lines += rows.map { Self.dayLine($0, scaledEffort: true) }
             lines += Metric.all.map { metric in
                 let values = rows.compactMap { metric.value($0) }
-                return "\(metric.title): \(Self.mean(values).map { Self.number($0) + " " + metric.unit } ?? "not recorded"); \(values.count) observed days, not a complete calendar-day average."
+                let average = Self.mean(values).map { metric.id == "strain" ? Self.effortText($0) : Self.number($0) + " " + metric.unit }
+                return "\(metric.title): \(average ?? "not recorded"); \(values.count) observed days, not a complete calendar-day average."
             }
+            cards += Self.trendCards(rows, query: query, window: window)
         case "data_freshness":
             lines += [freshnessEvidence(expected).detail, "Request time is not data observation time. Last device sync timestamp is unavailable here."]
+            cards += Self.coverageCard(repo.freshness, window: window)
         case "workout_history", "workout_zones", "training_load":
             let read = try await workouts(window, expected: expected)
             try check(expected)
@@ -272,30 +275,41 @@ final class LocalCoachDataService {
                 let durations = workouts.compactMap { Self.valid($0.row.durationS, range: 0...604_800) }
                 lines.append("Observed workouts: \(workouts.count) (read cap: 200). Recorded duration: \(Self.number(durations.reduce(0, +) / 60)) min across \(durations.count) workouts with duration. Missing durations are excluded.")
                 let strain = rows.compactMap { Metric.effort.value($0) }
-                lines.append("Mean canonical daily effort: \(Self.mean(strain).map { Self.number($0) + " /100" } ?? "not recorded") across \(strain.count) observed days. Effort is nonlinear and is not summed. No acute/chronic load ratio or injury-risk estimate was calculated.")
+                lines.append("Mean canonical daily effort: \(Self.mean(strain).map { Self.effortText($0) } ?? "not recorded") across \(strain.count) observed days. Effort is nonlinear and is not summed. No acute/chronic load ratio or injury-risk estimate was calculated.")
             } else {
                 lines += shown.map { item in
                     let row = item.row
                     let prefix = "\(LocalCoachWindow.key(Date(timeIntervalSince1970: Double(row.startTs)))) | \(Self.clean(row.sport)) | \(item.owner) / \(Self.clean(row.source))"
                     if name == "workout_zones" { return prefix + " | " + Self.zoneDescription(row.zonesJSON) }
                     let effort = row.strainVersion == 2 ? Self.valid(row.strain, range: 0...100) : nil
-                    return prefix + " | duration \(Self.measured(row.durationS.map { $0 / 60 }, unit: "min")) | mean HR \(Self.measured(row.avgHr.map(Double.init), unit: "bpm")) | energy \(Self.measured(row.energyKcal, unit: "kcal")) | canonical effort \(Self.measured(effort, unit: "/100"))"
+                    return prefix + " | duration \(Self.measured(row.durationS.map { $0 / 60 }, unit: "min")) | mean HR \(Self.measured(row.avgHr.map(Double.init), unit: "bpm")) | energy \(Self.measured(row.energyKcal, unit: "kcal")) | effort \(effort.map { Self.effortText($0) } ?? "not recorded")"
                 }
             }
             if workouts.isEmpty { lines.append("No stored workouts in the allowed sources and date window.") }
+            if name == "training_load" {
+                cards += Self.effortCard(rows, workoutCount: read.truncated ? nil : workouts.count, window: window)
+            }
+            if name != "workout_zones" {
+                cards += Self.workoutsCard(shown.map(\.row), window: window)
+            }
             if read.truncated { lines.append("The 200-workout read cap was reached. Totals describe only the returned rows.") }
             lines.append("Only identical records across namespaces were collapsed. Distinct overlapping records remain and may describe the same activity.")
             evidence += shown.prefix(8).map { item in .init(id: "workout:\(item.owner):\(item.row.startTs):\(item.row.sport)", title: Self.clean(item.row.sport), detail: "Stored workout; \(Self.measured(item.row.durationS, unit: "seconds")).", source: "\(item.owner) / \(Self.clean(item.row.source))", date: Date(timeIntervalSince1970: Double(item.row.startTs))) }
         case "nutrition":
             let store = try await checkedStore(expected)
             // This is a separately labelled, user-level import. Never attribute food intake to a strap.
-            for (key, unit) in [("calories_in", "kcal"), ("protein_g", "g"), ("carbs_g", "g"), ("fat_g", "g")] {
+            var newestIntake: [(label: String, day: String, text: String)] = []
+            for (key, unit, label) in [("calories_in", "kcal", "Calories"), ("protein_g", "g", "Protein"), ("carbs_g", "g", "Carbs"), ("fat_g", "g", "Fat")] {
                 let points = try await store.metricSeries(deviceId: "nutrition-csv", key: key, from: window.from, to: window.through)
                 try check(expected)
                 let valid = points.prefix(365).filter { window.contains($0.day) && $0.value.isFinite && $0.value >= 0 }
                 lines += valid.map { "\($0.day): \(key) \(Self.number($0.value)) \(unit) [nutrition-csv]" }
                 if valid.isEmpty { lines.append("\(key): not recorded in nutrition-csv for this window.") }
+                if let newest = valid.max(by: { $0.day < $1.day }) {
+                    newestIntake.append((label, newest.day, "\(Int(newest.value.rounded())) \(unit)"))
+                }
             }
+            cards += Self.intakeCard(newestIntake, window: window)
             lines.append("Only stored CSV intake is available. Missing food logs cannot establish intake or a calorie deficit.")
             evidence.append(.init(id: "nutrition:\(window.from)", title: "Local nutrition import", detail: window.label, source: "nutrition-csv (independent local import)", date: LocalCoachWindow.date(window.through)))
         case "journal_associations":
@@ -352,7 +366,7 @@ final class LocalCoachDataService {
         try await finishRead(expected)
         let text = lines.joined(separator: "\n")
         let bounded = text.count > 32_000 ? String(text.prefix(31_800)) + "\n[Output truncated at the local text limit. Request a smaller date window.]" : text
-        return .init(text: bounded, evidence: Array(evidence.prefix(20)))
+        return .init(text: bounded, evidence: Array(evidence.prefix(20)), cards: cards)
     }
 
     func makeWorkoutDraft(focus: String, minutes: Int, days: Int) async throws -> LocalCoachPlan {
@@ -454,10 +468,134 @@ final class LocalCoachDataService {
         return number(value) + " " + unit
     }
     private static func clean(_ text: String) -> String { String(text.replacingOccurrences(of: "\n", with: " ").prefix(300)) }
-    private static func dayLine(_ day: DailyMetric) -> String {
+    private static func dayLine(_ day: DailyMetric, scaledEffort: Bool = false) -> String {
         day.day + ": " + Metric.all.map { metric in
-            "\(metric.title) \(measured(metric.value(day), unit: metric.unit))"
+            if scaledEffort, metric.id == "strain", let stored = metric.value(day) {
+                return "\(metric.title) \(effortText(stored))"
+            }
+            return "\(metric.title) \(measured(metric.value(day), unit: metric.unit))"
         }.joined(separator: "; ")
+    }
+
+    /// Effort as the Effort card shows it plus the stored value, e.g. "12.2 of 21 (58.0/100 canonical)",
+    /// so the reply text and the card agree. The stored 0...100 value remains the canonical measurement.
+    static func effortText(_ stored: Double) -> String {
+        let scale = UnitPrefs.resolveEffortScale(UserDefaults.standard.string(forKey: UnitPrefs.effortScaleKey) ?? "")
+        return "\(UnitFormatter.effortDisplay(stored, scale: scale)) of \(UnitFormatter.effortScaleMax(scale)) (\(number(stored))/100 canonical)"
+    }
+
+    // MARK: Card payloads
+    //
+    // Built from the same rows as the text above. Missing values stay nil (never 0), every card carries
+    // its newest record date, and Effort stays on the canonical stored 0...100 axis.
+
+    /// A card is stale when its newest record is at least two calendar days before the last day of the
+    /// window that was read. Yesterday's daily metrics are normal until today's are scored. The card's
+    /// date label always shows the record's actual date, stale or not.
+    private static func cardIsStale(_ day: String, _ window: LocalCoachWindow) -> Bool {
+        guard let newest = LocalCoachWindow.date(day), let end = LocalCoachWindow.date(window.through) else { return false }
+        return (LocalCoachWindow.calendar.dateComponents([.day], from: newest, to: end).day ?? 0) >= 2
+    }
+
+    private static func efficiencyPercent(_ raw: Double?) -> Double? {
+        guard let raw else { return nil }
+        let percent = raw <= 1.5 ? raw * 100 : raw
+        return percent.isFinite && (0...100).contains(percent) ? percent : nil
+    }
+
+    /// Newest of `candidates` that has at least one displayable readiness value.
+    static func recoveryCard(_ candidates: [DailyMetric], window: LocalCoachWindow) -> [LocalCoachCard] {
+        for row in candidates.reversed() {
+            let card = LocalCoachCard.Recovery(
+                day: row.day, isStale: cardIsStale(row.day, window), score: Metric.recovery.value(row),
+                hrvMs: valid(row.avgHrv, range: 0...1_000), restingHr: valid(row.restingHr.map(Double.init), range: 1...300),
+                sleepMinutes: valid(row.totalSleepMin, range: 0...1_440))
+            if card.score != nil || card.hrvMs != nil || card.restingHr != nil || card.sleepMinutes != nil {
+                return [.recovery(card)]
+            }
+        }
+        return []
+    }
+
+    static func sleepCard(_ rows: [DailyMetric], window: LocalCoachWindow) -> [LocalCoachCard] {
+        let nights = rows.compactMap { row in
+            valid(row.totalSleepMin, range: 0...1_440).map { (row: row, minutes: $0) }
+        }
+        guard let newest = nights.last else { return [] }
+        let row = newest.row
+        return [.sleep(.init(
+            day: row.day, isStale: cardIsStale(row.day, window), totalMinutes: newest.minutes,
+            deepMinutes: valid(row.deepMin, range: 0...1_440), remMinutes: valid(row.remMin, range: 0...1_440),
+            lightMinutes: valid(row.lightMin, range: 0...1_440), efficiencyPercent: efficiencyPercent(row.efficiency),
+            recentNights: nights.suffix(7).map { CoachSeriesPoint(day: $0.row.day, value: $0.minutes) }))]
+    }
+
+    /// At most two trend cards. Metrics the model's query names come first, then the usual order.
+    static func trendCards(_ rows: [DailyMetric], query: String, window: LocalCoachWindow) -> [LocalCoachCard] {
+        let words = query.lowercased()
+        let keywords: [String: [String]] = [
+            "recovery": ["recovery"], "strain": ["effort", "strain"], "sleep": ["sleep"],
+            "hrv": ["hrv", "variability"], "rhr": ["resting", "rhr", "heart rate"]
+        ]
+        let defaultOrder = ["recovery", "sleep", "hrv", "strain", "rhr"]
+        let named = Metric.all.filter { metric in (keywords[metric.id] ?? []).contains { words.contains($0) } }.map(\.id)
+        let order = named + defaultOrder.filter { !named.contains($0) }
+        var cards: [LocalCoachCard] = []
+        for id in order {
+            guard cards.count < 2, let metric = Metric.all.first(where: { $0.id == id }) else { continue }
+            let points = rows.compactMap { row in
+                metric.value(row).map { CoachSeriesPoint(day: row.day, value: $0) }
+            }.suffix(60)
+            guard points.count >= 2, let newest = points.last else { continue }
+            let values = points.map(\.value)
+            cards.append(.trend(.init(
+                metricID: metric.id, title: metric.title, unit: metric.unit, day: newest.day,
+                isStale: cardIsStale(newest.day, window), points: Array(points), latest: newest.value,
+                average: mean(values), minimum: values.min(), maximum: values.max())))
+        }
+        return cards
+    }
+
+    static func effortCard(_ rows: [DailyMetric], workoutCount: Int?, window: LocalCoachWindow) -> [LocalCoachCard] {
+        guard let row = rows.last(where: { Metric.effort.value($0) != nil }) else { return [] }
+        let span = LocalCoachWindow.calendar.dateComponents([.day], from: window.start, to: window.endExclusive).day ?? 1
+        return [.effort(.init(day: row.day, isStale: cardIsStale(row.day, window), value: Metric.effort.value(row),
+                              workoutCount: workoutCount, windowDays: max(1, span)))]
+    }
+
+    /// Newest three workouts. Only NOOP Strain V2 workouts carry an Effort, matching the text lines.
+    /// A workout list is history, not a claim about right now, so it is never flagged stale; the card
+    /// and every row show the real workout dates instead.
+    static func workoutsCard(_ rows: [WorkoutRow], window: LocalCoachWindow) -> [LocalCoachCard] {
+        let items = rows.prefix(3).map { row in
+            LocalCoachCard.WorkoutItem(
+                sport: clean(row.sport), startTs: row.startTs, durationS: valid(row.durationS, range: 0...604_800),
+                avgHr: valid(row.avgHr.map(Double.init), range: 1...300),
+                effort: row.strainVersion == 2 ? valid(row.strain, range: 0...100) : nil)
+        }
+        guard let first = items.first else { return [] }
+        let day = LocalCoachWindow.key(Date(timeIntervalSince1970: Double(first.startTs)))
+        return [.workouts(.init(day: day, isStale: false, items: items, windowFrom: window.from, windowThrough: window.through))]
+    }
+
+    /// Calendar span of the cached history. Source day counts overlap, so they are deliberately not shown.
+    static func coverageCard(_ fresh: RepositoryFreshness, window: LocalCoachWindow) -> [LocalCoachCard] {
+        guard let latest = fresh.latestDay, let latestDate = LocalCoachWindow.date(latest) else { return [] }
+        var items = [LocalCoachCard.StatItem(label: "Latest record", value: latest)]
+        if let earliest = fresh.earliestDay, let earliestDate = LocalCoachWindow.date(earliest), earliestDate <= latestDate {
+            items.append(.init(label: "Earliest record", value: earliest))
+            if let days = LocalCoachWindow.calendar.dateComponents([.day], from: earliestDate, to: latestDate).day {
+                items.append(.init(label: "History span", value: "\(days + 1) days"))
+            }
+        }
+        return [.stats(.init(title: "Data coverage", day: latest, isStale: cardIsStale(latest, window), items: items))]
+    }
+
+    /// Only values from the single newest intake day are combined, so one card never mixes dates.
+    static func intakeCard(_ newest: [(label: String, day: String, text: String)], window: LocalCoachWindow) -> [LocalCoachCard] {
+        guard let day = newest.map(\.day).max() else { return [] }
+        let items = newest.filter { $0.day == day }.prefix(3).map { LocalCoachCard.StatItem(label: $0.label, value: $0.text) }
+        return [.stats(.init(title: "Recorded nutrition", day: day, isStale: cardIsStale(day, window), items: Array(items)))]
     }
 
     static func zoneDescription(_ json: String?) -> String {
