@@ -633,7 +633,8 @@ public struct StatTriplet: View {
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     Text(item.label).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
-                    Text(item.value).font(StrandFont.statValue).foregroundStyle(StrandPalette.textPrimary)
+                    Text(item.value).font(StrandFont.statValue)
+                        .foregroundStyle(item.value == WidgetMetrics.missingValue ? StrandPalette.textTertiary : StrandPalette.textPrimary)
                         .lineLimit(1).minimumScaleFactor(0.7)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -674,8 +675,8 @@ public struct MetricTile: View {
             HStack(alignment: .firstTextBaseline, spacing: 3) {
                 Text(value)
                     .font(StrandFont.number(NoopMetrics.healthTileValueSize, weight: .bold))
-                    .foregroundStyle(StrandPalette.textPrimary)
-                if let unit {
+                    .foregroundStyle(value == WidgetMetrics.missingValue ? StrandPalette.textTertiary : StrandPalette.textPrimary)
+                if let unit, value != WidgetMetrics.missingValue {
                     Text(unit).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
                 }
             }

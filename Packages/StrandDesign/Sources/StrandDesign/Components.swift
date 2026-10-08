@@ -179,12 +179,32 @@ public struct NoopCard<Content: View>: View {
 
 // MARK: - Section header
 
+/// A section's header. On iOS, without an `overline` it is the widget-language eyebrow (letter-spaced caps
+/// title, optional leading domain symbol, trailing date or status text), so every section reads like a
+/// Coach card header. With an `overline`, and on macOS/watchOS, it keeps the established look.
 public struct SectionHeader: View {
     let overline: LocalizedStringKey?; let title: LocalizedStringKey; let trailing: String?
-    public init(_ title: LocalizedStringKey, overline: LocalizedStringKey? = nil, trailing: String? = nil) {
+    let systemImage: String?; let tint: DomainTint
+    public init(_ title: LocalizedStringKey, overline: LocalizedStringKey? = nil, trailing: String? = nil,
+                systemImage: String? = nil, tint: DomainTint = .neutral) {
         self.title = title; self.overline = overline; self.trailing = trailing
+        self.systemImage = systemImage; self.tint = tint
     }
     public var body: some View {
+        #if os(iOS)
+        if overline == nil {
+            // SectionHeader's trailing value is display-only. Interactive headers must supply
+            // their own Button/NavigationLink so link blue never lies about a static status/count.
+            SectionEyebrow(title, systemImage: systemImage, tint: tint,
+                           trailing: trailing.map { .text($0) } ?? .none)
+        } else {
+            classic
+        }
+        #else
+        classic
+        #endif
+    }
+    private var classic: some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
                 if let overline { Text(overline).strandOverline() }
