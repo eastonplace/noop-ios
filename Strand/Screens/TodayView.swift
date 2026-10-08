@@ -910,15 +910,17 @@ struct TodayView: View {
 
     /// A first-paint metric is current only when its own day matches the current logical day. The snapshot
     /// display day is not an age anchor because it can lag the wall clock during the rollover handoff.
+    /// `dayLabel` renders the stored `yyyy-MM-dd` day key for display; the default keeps the raw key.
     nonisolated static func firstPaintMetricDetail(
         metricDay: String?, snapshotDisplayDay: String?, currentLogicalDay: String,
-        freshness: TodayHealthMetricFreshness? = nil
+        freshness: TodayHealthMetricFreshness? = nil,
+        dayLabel: (String) -> String = { $0 }
     ) -> String? {
         guard let metricDay = metricDay ?? snapshotDisplayDay,
               metricDay != currentLogicalDay || freshness == .stale
         else { return nil }
-        if freshness == .stale { return String(localized: "Stale · \(metricDay)") }
-        return String(localized: "Last scored · \(metricDay)")
+        if freshness == .stale { return String(localized: "Stale · \(dayLabel(metricDay))") }
+        return String(localized: "Last scored · \(dayLabel(metricDay))")
     }
 
     nonisolated private static func dayDistance(from earlierDay: String, to laterDay: String) -> Int? {
@@ -957,7 +959,8 @@ struct TodayView: View {
                                                metric, value: value, snapshot: snapshot,
                                                currentLogicalDay: currentLogicalDay,
                                                currentLocalDay: currentLocalDay,
-                                               nowTimestamp: nowTimestamp))
+                                               nowTimestamp: nowTimestamp),
+                                           dayLabel: { Self.lastChargeDateFmt($0) })
     }
 
     private func resolvedDisplayDay(for key: DisplayDayKey) -> DailyMetric? {

@@ -122,10 +122,61 @@ private struct TodayPillarGauge: View {
     let action: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var revealed = false
+    /// One shared icon column, so the three labels start at the same offset whatever symbol precedes them.
+    @ScaledMetric(relativeTo: .caption) private var symbolColumn: CGFloat = 14
 
     private var fraction: Double {
         guard let value = model.value, model.maximum > 0 else { return 0 }
         return min(max(value / model.maximum, 0), 1)
+    }
+
+    /// The unfilled part of the dial: the pillar's own accent at a whisper, the way `DomainTint` lays its
+    /// wash over a card. A dial with no value has no domain to speak of, so its dashed track stays neutral.
+    private var trackColor: Color {
+        model.value == nil
+            ? StrandPalette.textTertiary.opacity(0.2)
+            : model.accent.opacity(0.16)
+    }
+
+    /// The domain symbol of a known pillar; an unknown id gets no icon.
+    private var symbol: String? {
+        switch model.id {
+        case "recovery": "heart.fill"
+        case "strain": "flame.fill"
+        case "sleep": "moon.fill"
+        default: nil
+        }
+    }
+
+    /// The `SectionEyebrow` treatment at the dial label's original size: a domain symbol in the accent, then
+    /// the letter-spaced uppercase name in secondary ink. If a large Dynamic Type size leaves no room, the
+    /// symbol goes first and only then does the name scale down. Nothing here is height-flexible at normal
+    /// sizes (no `minimumScaleFactor` on the common path), so every column's label row is the same height.
+    private var eyebrow: some View {
+        ViewThatFits(in: .horizontal) {
+            eyebrowRow(showsSymbol: true)
+            eyebrowRow(showsSymbol: false)
+            eyebrowRow(showsSymbol: false).minimumScaleFactor(0.6)
+        }
+    }
+
+    private func eyebrowRow(showsSymbol: Bool) -> some View {
+        HStack(spacing: 6) {
+            if showsSymbol, let symbol {
+                // Taking no height of its own keeps a tall glyph (the flame) from pushing one column's
+                // state line below its neighbours'.
+                Image(systemName: symbol)
+                    .font(StrandFont.caption)
+                    .foregroundStyle(model.accent)
+                    .frame(width: symbolColumn, height: 0)
+            }
+            Text(verbatim: model.label)
+                .font(StrandFont.caption.weight(.semibold))
+                .tracking(StrandFont.overlineTracking)
+                .textCase(.uppercase)
+                .foregroundStyle(StrandPalette.textSecondary)
+                .lineLimit(1)
+        }
     }
 
     var body: some View {
@@ -137,7 +188,7 @@ private struct TodayPillarGauge: View {
                     let radius = side / 2 - width / 2
                     ZStack {
                         Circle().trim(from: 0, to: 2 / 3)
-                            .stroke(StrandPalette.surfaceInset,
+                            .stroke(trackColor,
                                     style: StrokeStyle(lineWidth: width, lineCap: .round,
                                                        dash: model.value == nil ? [1, 5] : []))
                             .rotationEffect(.degrees(150))
@@ -171,7 +222,7 @@ private struct TodayPillarGauge: View {
                     .frame(maxWidth: .infinity)
                 }
                 .frame(height: 100)
-                Text(verbatim: model.label).font(StrandFont.caption.weight(.semibold)).lineLimit(1)
+                eyebrow
                 Text(verbatim: model.state).font(StrandFont.micro).foregroundStyle(model.accent).lineLimit(1)
                 if let detail = model.detail {
                     Text(verbatim: detail).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)

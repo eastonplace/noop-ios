@@ -269,7 +269,7 @@ extension WidgetGalleryView {
                 state: "Moderate", accent: RecoveryBands.color(for: 63), bandTicks: [0.34, 0.67]),
             TodayPillarModel(
                 id: "strain", label: "Strain", value: 3.5, maximum: 21, valueText: "3.5",
-                state: "Light", detail: "Stale · 2026-10-08", accent: StrandPalette.strainAccent),
+                state: "Light", detail: "Stale · Oct 8", accent: StrandPalette.strainAccent),
             TodayPillarModel(
                 id: "sleep", label: "Sleep", value: 97, maximum: 100, valueText: "97",
                 state: "Good", detail: "6h 48m", accent: StrandPalette.sleepAccent)
