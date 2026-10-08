@@ -47,20 +47,20 @@ struct LocalCoachCardView: View {
             let rows = value.items.map { "\($0.sport), \(LocalCoachCardFormat.startLabel($0.startTs)), \(LocalCoachCardFormat.duration(seconds: $0.durationS))" }
             return "Recent workouts, newest \(date). " + rows.joined(separator: "; ") + "."
         case .stats(let value):
-            return "\(value.title), \(date)\(stale). " + value.items.map { "\($0.label) \($0.value)" }.joined(separator: ", ") + "."
+            return "\(value.title), \(date)\(stale). " + value.items.map { "\($0.label) \(LocalCoachCardFormat.displayValue($0.value))" }.joined(separator: ", ") + "."
         }
     }
 }
 
 // MARK: - Shared chrome
 
-/// Bounded widget surface: tinted icon + eyebrow title on the left, record date (and a Stale pill when
-/// the newest record is older than the window that was read) on the right.
+/// Bounded widget surface: tinted icon + eyebrow title on the left, the record's actual date (and a Stale
+/// pill when the newest record is two or more days older than the window that was read) on the right.
 private struct CoachCardChrome<Content: View>: View {
     let symbol: String
     let title: String
     let tint: Color
-    let day: String?
+    let dateLabel: String?
     let isStale: Bool
     @ViewBuilder let content: () -> Content
 
@@ -71,8 +71,8 @@ private struct CoachCardChrome<Content: View>: View {
                 Text(title).strandOverline().lineLimit(1)
                 Spacer(minLength: NoopMetrics.space2)
                 if isStale { StatePill("Stale", tone: .warning, showsDot: false) }
-                if let day {
-                    Text(LocalCoachCardFormat.dayLabel(day))
+                if let dateLabel {
+                    Text(dateLabel)
                         .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary).lineLimit(1)
                 }
             }
@@ -159,7 +159,7 @@ private struct CoachRecoveryCard: View {
     var body: some View {
         CoachCardChrome(symbol: "heart.fill", title: "Recovery",
                         tint: card.score.map { RecoveryBands.color(for: $0) } ?? StrandPalette.textTertiary,
-                        day: card.day, isStale: card.isStale) {
+                        dateLabel: LocalCoachCardFormat.dayLabel(card.day), isStale: card.isStale) {
             CoachGaugeLayout {
                 if let score = card.score {
                     RecoveryRing(score: score, diameter: min(gauge, 132), lineWidth: CoachCardMetrics.gaugeLineWidth,
@@ -193,7 +193,7 @@ private struct CoachSleepCard: View {
 
     var body: some View {
         CoachCardChrome(symbol: "moon.stars.fill", title: "Sleep", tint: StrandPalette.sleepAccent,
-                        day: card.day, isStale: card.isStale) {
+                        dateLabel: LocalCoachCardFormat.dayLabel(card.day), isStale: card.isStale) {
             VStack(alignment: .leading, spacing: NoopMetrics.space3) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(LocalCoachCardFormat.duration(minutes: card.totalMinutes))
@@ -337,7 +337,7 @@ private struct CoachTrendCard: View {
 
     var body: some View {
         CoachCardChrome(symbol: format.symbol, title: "\(card.title) trend", tint: format.accent,
-                        day: card.day, isStale: card.isStale) {
+                        dateLabel: LocalCoachCardFormat.dayLabel(card.day), isStale: card.isStale) {
             VStack(alignment: .leading, spacing: NoopMetrics.space3) {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text(format.text(card.latest)).font(StrandFont.number(bigValue, weight: .bold))
@@ -353,7 +353,8 @@ private struct CoachTrendCard: View {
                                valueRange: card.metricID == "recovery" ? 0...100 : domain, showsArea: true,
                                height: 112, showsHover: false,
                                valueFormat: { format.text($0) },
-                               accessibilityLabel: "\(card.title) trend", yDomain: domain)
+                               accessibilityLabel: "\(card.title) trend", yDomain: domain,
+                               xAxisEndPadding: 22)
                         .accessibilityHidden(true)
                 }
                 HStack(alignment: .top, spacing: NoopMetrics.space2) {
@@ -390,7 +391,7 @@ private struct CoachEffortCard: View {
 
     var body: some View {
         CoachCardChrome(symbol: "flame.fill", title: "Effort", tint: StrandPalette.strainAccent,
-                        day: card.day, isStale: card.isStale) {
+                        dateLabel: LocalCoachCardFormat.dayLabel(card.day), isStale: card.isStale) {
             CoachGaugeLayout {
                 if let stored = card.value {
                     StrainGauge(strain: UnitFormatter.effortValue(stored, scale: effortScale), outOf: 21,
@@ -407,7 +408,7 @@ private struct CoachEffortCard: View {
                 if let stored = card.value {
                     CoachMetricRow(symbol: "speedometer", tint: StrandPalette.strainAccent, label: "Load",
                                    value: StrainScale.band(UnitFormatter.effortValue(stored, scale: effortScale)).title)
-                    Text("Out of \(UnitFormatter.effortScaleMax(effortScale)) · stored as \(LocalCoachCardFormat.whole(stored))/100")
+                    Text("Out of \(UnitFormatter.effortScaleMax(effortScale))")
                         .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
                 }
             }
@@ -421,9 +422,15 @@ private struct CoachWorkoutsCard: View {
     let card: LocalCoachCard.Workouts
     let effortScale: EffortScale
 
+    /// A list of workouts has no single record date; show the window that was read when it is known.
+    private var windowLabel: String? {
+        guard let from = card.windowFrom, let through = card.windowThrough else { return nil }
+        return LocalCoachCardFormat.windowLabel(from: from, through: through)
+    }
+
     var body: some View {
         CoachCardChrome(symbol: "figure.run", title: "Recent workouts", tint: StrandPalette.strainAccent,
-                        day: card.day, isStale: card.isStale) {
+                        dateLabel: windowLabel, isStale: card.isStale) {
             VStack(spacing: 0) {
                 ForEach(Array(card.items.enumerated()), id: \.offset) { index, item in
                     if index > 0 {
@@ -489,23 +496,38 @@ private struct CoachStatsCard: View {
 
     var body: some View {
         CoachCardChrome(symbol: symbol, title: card.title, tint: StrandPalette.accent,
-                        day: card.day, isStale: card.isStale) {
-            HStack(alignment: .top, spacing: 0) {
-                ForEach(Array(card.items.prefix(3).enumerated()), id: \.offset) { index, item in
-                    if index > 0 {
-                        Rectangle().fill(StrandPalette.hairline).frame(width: 1, height: 34)
-                            .accessibilityHidden(true)
-                    }
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(item.label).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
-                            .lineLimit(1)
-                        Text(item.value).font(StrandFont.number(valueSize, weight: .semibold))
-                            .foregroundStyle(StrandPalette.textPrimary)
-                            .lineLimit(2).minimumScaleFactor(0.7)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.leading, index == 0 ? 0 : NoopMetrics.space3)
+                        dateLabel: card.day.map { LocalCoachCardFormat.dayLabel($0) }, isStale: card.isStale) {
+            // One shared value size for every column: the largest that fits on one line, else a smaller
+            // shared size that may wrap to two lines. Columns never shrink independently.
+            ViewThatFits(in: .horizontal) {
+                columns(size: valueSize, lines: 1)
+                columns(size: valueSize * 0.85, lines: 1)
+                columns(size: valueSize * 0.7, lines: 2)
+            }
+        }
+    }
+
+    private func columns(size: CGFloat, lines: Int) -> some View {
+        HStack(alignment: .top, spacing: 0) {
+            ForEach(Array(card.items.prefix(3).enumerated()), id: \.offset) { index, item in
+                if index > 0 {
+                    Rectangle().fill(StrandPalette.hairline).frame(width: 1, height: 34)
+                        .accessibilityHidden(true)
                 }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(item.label).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                        .lineLimit(1)
+                    Text(LocalCoachCardFormat.displayValue(item.value))
+                        .font(StrandFont.number(size, weight: .semibold))
+                        .foregroundStyle(StrandPalette.textPrimary)
+                        .lineLimit(lines)
+                        // One-line sizes report their full width, so ViewThatFits moves to the next
+                        // shared size instead of truncating a single column.
+                        .fixedSize(horizontal: lines == 1, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, index == 0 ? 0 : NoopMetrics.space3)
+                .padding(.trailing, index == min(card.items.count, 3) - 1 ? 0 : NoopMetrics.space3)
             }
         }
     }

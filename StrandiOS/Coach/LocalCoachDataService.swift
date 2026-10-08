@@ -240,7 +240,7 @@ final class LocalCoachDataService {
         switch name {
         case "current_day", "readiness":
             let recent = rows.suffix(name == "readiness" ? 7 : 1)
-            lines += recent.map(Self.dayLine)
+            lines += recent.map { Self.dayLine($0, scaledEffort: true) }
             cards += Self.recoveryCard(Array(recent), window: window)
             if let latest = recent.last {
                 lines.append("Latest requested record: \(latest.day). \(latest.day == LocalCoachWindow.key(now()) ? "Today's record may be incomplete." : "This record is stale for today's readiness.")")
@@ -256,10 +256,11 @@ final class LocalCoachDataService {
             if rows.isEmpty { lines.append("No canonical sleep records in this window. The cache is bounded; this does not prove the database contains no older sleep.") }
             cards += Self.sleepCard(rows, window: window)
         case "metric_trends":
-            lines += rows.map(Self.dayLine)
+            lines += rows.map { Self.dayLine($0, scaledEffort: true) }
             lines += Metric.all.map { metric in
                 let values = rows.compactMap { metric.value($0) }
-                return "\(metric.title): \(Self.mean(values).map { Self.number($0) + " " + metric.unit } ?? "not recorded"); \(values.count) observed days, not a complete calendar-day average."
+                let average = Self.mean(values).map { metric.id == "strain" ? Self.effortText($0) : Self.number($0) + " " + metric.unit }
+                return "\(metric.title): \(average ?? "not recorded"); \(values.count) observed days, not a complete calendar-day average."
             }
             cards += Self.trendCards(rows, query: query, window: window)
         case "data_freshness":
@@ -274,14 +275,14 @@ final class LocalCoachDataService {
                 let durations = workouts.compactMap { Self.valid($0.row.durationS, range: 0...604_800) }
                 lines.append("Observed workouts: \(workouts.count) (read cap: 200). Recorded duration: \(Self.number(durations.reduce(0, +) / 60)) min across \(durations.count) workouts with duration. Missing durations are excluded.")
                 let strain = rows.compactMap { Metric.effort.value($0) }
-                lines.append("Mean canonical daily effort: \(Self.mean(strain).map { Self.number($0) + " /100" } ?? "not recorded") across \(strain.count) observed days. Effort is nonlinear and is not summed. No acute/chronic load ratio or injury-risk estimate was calculated.")
+                lines.append("Mean canonical daily effort: \(Self.mean(strain).map { Self.effortText($0) } ?? "not recorded") across \(strain.count) observed days. Effort is nonlinear and is not summed. No acute/chronic load ratio or injury-risk estimate was calculated.")
             } else {
                 lines += shown.map { item in
                     let row = item.row
                     let prefix = "\(LocalCoachWindow.key(Date(timeIntervalSince1970: Double(row.startTs)))) | \(Self.clean(row.sport)) | \(item.owner) / \(Self.clean(row.source))"
                     if name == "workout_zones" { return prefix + " | " + Self.zoneDescription(row.zonesJSON) }
                     let effort = row.strainVersion == 2 ? Self.valid(row.strain, range: 0...100) : nil
-                    return prefix + " | duration \(Self.measured(row.durationS.map { $0 / 60 }, unit: "min")) | mean HR \(Self.measured(row.avgHr.map(Double.init), unit: "bpm")) | energy \(Self.measured(row.energyKcal, unit: "kcal")) | canonical effort \(Self.measured(effort, unit: "/100"))"
+                    return prefix + " | duration \(Self.measured(row.durationS.map { $0 / 60 }, unit: "min")) | mean HR \(Self.measured(row.avgHr.map(Double.init), unit: "bpm")) | energy \(Self.measured(row.energyKcal, unit: "kcal")) | effort \(effort.map { Self.effortText($0) } ?? "not recorded")"
                 }
             }
             if workouts.isEmpty { lines.append("No stored workouts in the allowed sources and date window.") }
@@ -289,7 +290,7 @@ final class LocalCoachDataService {
                 cards += Self.effortCard(rows, workoutCount: read.truncated ? nil : workouts.count, window: window)
             }
             if name != "workout_zones" {
-                cards += Self.workoutsCard(shown.map(\.row))
+                cards += Self.workoutsCard(shown.map(\.row), window: window)
             }
             if read.truncated { lines.append("The 200-workout read cap was reached. Totals describe only the returned rows.") }
             lines.append("Only identical records across namespaces were collapsed. Distinct overlapping records remain and may describe the same activity.")
@@ -467,10 +468,20 @@ final class LocalCoachDataService {
         return number(value) + " " + unit
     }
     private static func clean(_ text: String) -> String { String(text.replacingOccurrences(of: "\n", with: " ").prefix(300)) }
-    private static func dayLine(_ day: DailyMetric) -> String {
+    private static func dayLine(_ day: DailyMetric, scaledEffort: Bool = false) -> String {
         day.day + ": " + Metric.all.map { metric in
-            "\(metric.title) \(measured(metric.value(day), unit: metric.unit))"
+            if scaledEffort, metric.id == "strain", let stored = metric.value(day) {
+                return "\(metric.title) \(effortText(stored))"
+            }
+            return "\(metric.title) \(measured(metric.value(day), unit: metric.unit))"
         }.joined(separator: "; ")
+    }
+
+    /// Effort as the Effort card shows it plus the stored value, e.g. "12.2 of 21 (58.0/100 canonical)",
+    /// so the reply text and the card agree. The stored 0...100 value remains the canonical measurement.
+    static func effortText(_ stored: Double) -> String {
+        let scale = UnitPrefs.resolveEffortScale(UserDefaults.standard.string(forKey: UnitPrefs.effortScaleKey) ?? "")
+        return "\(UnitFormatter.effortDisplay(stored, scale: scale)) of \(UnitFormatter.effortScaleMax(scale)) (\(number(stored))/100 canonical)"
     }
 
     // MARK: Card payloads
@@ -478,8 +489,13 @@ final class LocalCoachDataService {
     // Built from the same rows as the text above. Missing values stay nil (never 0), every card carries
     // its newest record date, and Effort stays on the canonical stored 0...100 axis.
 
-    /// A card is stale when its newest record is dated before the last day of the window that was read.
-    private static func cardIsStale(_ day: String, _ window: LocalCoachWindow) -> Bool { day < window.through }
+    /// A card is stale when its newest record is at least two calendar days before the last day of the
+    /// window that was read. Yesterday's daily metrics are normal until today's are scored. The card's
+    /// date label always shows the record's actual date, stale or not.
+    private static func cardIsStale(_ day: String, _ window: LocalCoachWindow) -> Bool {
+        guard let newest = LocalCoachWindow.date(day), let end = LocalCoachWindow.date(window.through) else { return false }
+        return (LocalCoachWindow.calendar.dateComponents([.day], from: newest, to: end).day ?? 0) >= 2
+    }
 
     private static func efficiencyPercent(_ raw: Double?) -> Double? {
         guard let raw else { return nil }
@@ -550,7 +566,7 @@ final class LocalCoachDataService {
     /// Newest three workouts. Only NOOP Strain V2 workouts carry an Effort, matching the text lines.
     /// A workout list is history, not a claim about right now, so it is never flagged stale; the card
     /// and every row show the real workout dates instead.
-    static func workoutsCard(_ rows: [WorkoutRow]) -> [LocalCoachCard] {
+    static func workoutsCard(_ rows: [WorkoutRow], window: LocalCoachWindow) -> [LocalCoachCard] {
         let items = rows.prefix(3).map { row in
             LocalCoachCard.WorkoutItem(
                 sport: clean(row.sport), startTs: row.startTs, durationS: valid(row.durationS, range: 0...604_800),
@@ -559,7 +575,7 @@ final class LocalCoachDataService {
         }
         guard let first = items.first else { return [] }
         let day = LocalCoachWindow.key(Date(timeIntervalSince1970: Double(first.startTs)))
-        return [.workouts(.init(day: day, isStale: false, items: items))]
+        return [.workouts(.init(day: day, isStale: false, items: items, windowFrom: window.from, windowThrough: window.through))]
     }
 
     /// Calendar span of the cached history. Source day counts overlap, so they are deliberately not shown.

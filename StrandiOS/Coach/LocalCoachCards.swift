@@ -82,6 +82,9 @@ enum LocalCoachCard: Codable, Equatable, Sendable, Identifiable {
         var day: String
         var isStale: Bool
         var items: [WorkoutItem]
+        /// The window that was read (civil dates), shown instead of a single record date.
+        var windowFrom: String? = nil
+        var windowThrough: String? = nil
     }
 
     struct StatItem: Codable, Equatable, Sendable {
@@ -189,17 +192,40 @@ enum LocalCoachCardFormat {
         return String(format: "%.1f", locale: Locale(identifier: "en_US_POSIX"), value)
     }
 
-    /// "Today", "Yesterday", "Sep 24" (adds the year when it is not the current one). Unparseable keys
-    /// are returned untouched rather than guessed.
+    /// "Today", "Yesterday", "Oct 3" (adds the year when it is not the current one, "Sep 30, 2025").
+    /// Always the record's real date. Unparseable keys are returned untouched rather than guessed.
     static func dayLabel(_ day: String, now: Date = Date()) -> String {
         guard let date = LocalCoachWindow.date(day) else { return day }
         let calendar = LocalCoachWindow.calendar
         let age = calendar.dateComponents([.day], from: date, to: calendar.startOfDay(for: now)).day ?? 0
         if age == 0 { return "Today" }
         if age == 1 { return "Yesterday" }
-        let sameYear = calendar.component(.year, from: date) == calendar.component(.year, from: now)
+        return humanDay(day, now: now)
+    }
+
+    /// "Oct 8" or "Aug 22, 2025": a plain calendar date with no relative wording.
+    static func humanDay(_ day: String, now: Date = Date()) -> String {
+        guard let date = LocalCoachWindow.date(day) else { return day }
+        let sameYear = LocalCoachWindow.calendar.component(.year, from: date)
+            == LocalCoachWindow.calendar.component(.year, from: now)
         return date.formatted(sameYear ? .dateTime.month(.abbreviated).day()
                                        : .dateTime.month(.abbreviated).day().year())
+    }
+
+    /// Stat values that are record dates (stored as `yyyy-MM-dd`) read as plain dates; anything else is unchanged.
+    static func displayValue(_ value: String, now: Date = Date()) -> String {
+        LocalCoachWindow.date(value) == nil ? value : humanDay(value, now: now)
+    }
+
+    /// "Last 7 days" when the window ends today, otherwise the real range ("Sep 1 - Sep 3").
+    static func windowLabel(from: String, through: String, now: Date = Date()) -> String? {
+        guard let start = LocalCoachWindow.date(from), let end = LocalCoachWindow.date(through), start <= end else { return nil }
+        let calendar = LocalCoachWindow.calendar
+        if LocalCoachWindow.key(now) == through {
+            let days = (calendar.dateComponents([.day], from: start, to: end).day ?? 0) + 1
+            return days == 1 ? "Today" : "Last \(days) days"
+        }
+        return from == through ? humanDay(from, now: now) : "\(humanDay(from, now: now)) - \(humanDay(through, now: now))"
     }
 
     /// "Wed 6:30 AM" for a workout start time (unix seconds).
@@ -252,10 +278,10 @@ extension LocalCoachCard {
                 .init(sport: "Running", startTs: Int(now.timeIntervalSince1970) - 6 * 3_600, durationS: 2_700, avgHr: 152, effort: 62),
                 .init(sport: "Strength training", startTs: Int(now.timeIntervalSince1970) - 2 * 86_400, durationS: 3_120, avgHr: 118, effort: 41),
                 .init(sport: "Cycling", startTs: Int(now.timeIntervalSince1970) - 4 * 86_400, durationS: 2_280, avgHr: nil, effort: nil)
-            ])),
-            .trend(.init(metricID: "recovery", title: "Recovery", unit: "/100", day: day(1), isStale: true,
-                         points: series([(13, 65), (12, 72), (11, 68), (9, 79), (8, 74), (7, 80), (5, 71), (4, 77),
-                                         (3, 83), (2, 76), (1, 82)]),
+            ], windowFrom: day(6), windowThrough: day(0))),
+            .trend(.init(metricID: "recovery", title: "Recovery", unit: "/100", day: day(3), isStale: true,
+                         points: series([(15, 65), (14, 72), (13, 68), (11, 79), (10, 74), (9, 80), (7, 71), (6, 77),
+                                         (5, 83), (4, 76), (3, 82)]),
                          latest: 82, average: 75.2, minimum: 65, maximum: 83)),
             .trend(.init(metricID: "hrv", title: "HRV", unit: "ms", day: day(0), isStale: false,
                          points: series([(13, 55), (12, 59), (11, 58), (9, 63), (8, 61), (7, 62), (5, 57), (4, 60),

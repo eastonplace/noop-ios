@@ -59,6 +59,9 @@ public struct TrendChart: View {
     public var yDomain: ClosedRange<Double>?
     /// Optional canonical tick values for fixed-domain metrics such as Strain (0/7/14/21).
     public var yAxisValues: [Double]?
+    /// Points of empty space reserved after the newest sample, so the last x-axis date label (centred on
+    /// its tick) is not truncated at the trailing edge. 0 (the default) leaves the plot edge-to-edge.
+    public var xAxisEndPadding: CGFloat
 
     /// Mean of all point values, computed once in `init` so the area fill's gradient
     /// stop doesn't run an O(n) reduce for every mark on every render.
@@ -79,7 +82,8 @@ public struct TrendChart: View {
         accessibilityLabel: String? = nil,
         nowCapColor: Color? = nil,
         yDomain: ClosedRange<Double>? = nil,
-        yAxisValues: [Double]? = nil
+        yAxisValues: [Double]? = nil,
+        xAxisEndPadding: CGFloat = 0
     ) {
         let sorted = points.sorted { $0.date < $1.date }
         self.points = sorted
@@ -94,6 +98,7 @@ public struct TrendChart: View {
         self.nowCapColor = nowCapColor
         self.yDomain = yDomain
         self.yAxisValues = yAxisValues
+        self.xAxisEndPadding = xAxisEndPadding
         let avg = sorted.isEmpty
             ? valueRange.lowerBound
             : sorted.map(\.value).reduce(0, +) / Double(sorted.count)
@@ -167,6 +172,11 @@ public struct TrendChart: View {
     var resolvedYDomain: ClosedRange<Double> { yDomain ?? valueRange }
 
     public var body: some View {
+        // The padding wrapper is outermost so the long chart modifier chain is untouched when it is 0.
+        chart.endPaddedXScale(xAxisEndPadding)
+    }
+
+    private var chart: some View {
         Chart {
             if showsArea {
                 ForEach(displayPoints) { p in
@@ -320,6 +330,17 @@ public struct TrendChart: View {
         .accessibilityLabel(Text(accessibilityLabel ?? "Trend"))
         .accessibilityValue(Text(a11ySummary))
         .accessibilityHidden(!showsHover && accessibilityLabel == nil)
+    }
+}
+
+private extension View {
+    /// Reserves `padding` points after the last x value (iOS 17 / macOS 14). A no-op for 0 and on older OSes.
+    @ViewBuilder func endPaddedXScale(_ padding: CGFloat) -> some View {
+        if padding > 0, #available(iOS 17.0, macOS 14.0, *) {
+            chartXScale(range: .plotDimension(endPadding: padding))
+        } else {
+            self
+        }
     }
 }
 

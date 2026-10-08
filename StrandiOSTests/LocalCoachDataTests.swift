@@ -220,8 +220,21 @@ final class LocalCoachDataTests: XCTestCase {
         XCTAssertNil(card.hrvMs, "A field missing from the newest record stays nil; it is not borrowed from an older day or zero-filled")
         XCTAssertNil(card.restingHr)
         XCTAssertNil(card.sleepMinutes)
-        XCTAssertTrue(card.isStale, "No record for the last requested day")
+        XCTAssertFalse(card.isStale, "Yesterday's daily record is normal before today's is scored")
         XCTAssertTrue(result.text.contains(key(1)))
+    }
+
+    func testCardsAreStaleOnlyWhenTheNewestRecordIsTwoOrMoreDaysOld() async throws {
+        for (ago, stale) in [(0, false), (1, false), (2, true), (5, true)] {
+            let result = try await service([metric(key(ago), recovery: 70, sleep: 400)]).query("readiness", query: "", days: 7)
+            guard case .recovery(let card)? = result.cards.first else { return XCTFail("Expected a recovery card for \(ago)") }
+            XCTAssertEqual(card.day, key(ago), "The date is always the record's real date")
+            XCTAssertEqual(card.isStale, stale, "newest record \(ago) days before the window end")
+        }
+        // A window that ends in the past is judged against its own last day, not against today.
+        let past = try await service([metric(key(9), recovery: 70)]).query("readiness", query: "\(key(9))", days: 1)
+        guard case .recovery(let historic)? = past.cards.first else { return XCTFail("Expected a recovery card") }
+        XCTAssertFalse(historic.isStale)
     }
 
     func testCurrentDayCardIsNotStaleWhenTodayHasARecord() async throws {
@@ -319,7 +332,10 @@ final class LocalCoachDataTests: XCTestCase {
         XCTAssertEqual(card.day, key(1))
         XCTAssertEqual(card.workoutCount, 3)
         XCTAssertEqual(card.windowDays, 7)
-        XCTAssertTrue(card.isStale)
+        XCTAssertFalse(card.isStale, "Yesterday is normal")
+        guard case .effort(let old)? = LocalCoachDataService.effortCard([metric(key(2), strain: 40)], workoutCount: 1, window: window).first
+        else { return XCTFail("Expected an effort card") }
+        XCTAssertTrue(old.isStale)
         XCTAssertTrue(LocalCoachDataService.effortCard([metric(key(0))], workoutCount: 1, window: window).isEmpty)
         XCTAssertTrue(LocalCoachDataService.effortCard([metric(key(0), strain: 150)], workoutCount: 1, window: window).isEmpty,
                       "Out-of-range effort is not shown")
@@ -342,11 +358,14 @@ final class LocalCoachDataTests: XCTestCase {
             workout(4, sport: "Cycling", duration: 2_280, hr: 0, strain: 500, version: 2),
             workout(6, sport: "Swimming", duration: 1_800, hr: 120, strain: 30, version: 2)
         ]
-        let cards = LocalCoachDataService.workoutsCard(rows)
+        let window = try makeWindow()
+        let cards = LocalCoachDataService.workoutsCard(rows, window: window)
         guard case .workouts(let card)? = cards.first else { return XCTFail("Expected a workouts card") }
         XCTAssertEqual(card.items.count, 3)
         XCTAssertFalse(card.isStale, "A workout list is history; the real dates are shown")
         XCTAssertEqual(card.day, key(0))
+        XCTAssertEqual(card.windowFrom, key(6))
+        XCTAssertEqual(card.windowThrough, key(0))
         XCTAssertEqual(card.items[0].effort, 62)
         XCTAssertEqual(card.items[0].avgHr, 152)
         XCTAssertEqual(card.items[0].durationS, 2_700)
@@ -356,7 +375,7 @@ final class LocalCoachDataTests: XCTestCase {
         XCTAssertEqual(card.items[1].sport, "Strength training")
         XCTAssertNil(card.items[2].avgHr, "A zero heart rate is not a measurement")
         XCTAssertNil(card.items[2].effort, "Out-of-range effort is dropped")
-        XCTAssertTrue(LocalCoachDataService.workoutsCard([]).isEmpty)
+        XCTAssertTrue(LocalCoachDataService.workoutsCard([], window: window).isEmpty)
     }
 
     func testCoverageAndNutritionStatsCardsNeverMixDatesOrInventValues() throws {
@@ -370,11 +389,11 @@ final class LocalCoachDataTests: XCTestCase {
         XCTAssertTrue(LocalCoachDataService.coverageCard(RepositoryFreshness(), window: window).isEmpty)
 
         guard case .stats(let intake)? = LocalCoachDataService.intakeCard([
-            (label: "Calories", day: key(1), text: "2150 kcal"),
-            (label: "Protein", day: key(3), text: "140 g"),
-            (label: "Carbs", day: key(1), text: "260 g")
+            (label: "Calories", day: key(2), text: "2150 kcal"),
+            (label: "Protein", day: key(4), text: "140 g"),
+            (label: "Carbs", day: key(2), text: "260 g")
         ], window: window).first else { return XCTFail("Expected a stats card") }
-        XCTAssertEqual(intake.day, key(1))
+        XCTAssertEqual(intake.day, key(2))
         XCTAssertEqual(intake.items.map(\.label), ["Calories", "Carbs"], "Only the newest intake day is shown")
         XCTAssertTrue(intake.isStale)
         XCTAssertTrue(LocalCoachDataService.intakeCard([], window: window).isEmpty)
@@ -412,6 +431,27 @@ final class LocalCoachDataTests: XCTestCase {
         XCTAssertEqual(LocalCoachCardFormat.whole(nil), "—")
         XCTAssertEqual(LocalCoachCardFormat.whole(82, unit: "/100"), "82/100")
         XCTAssertEqual(LocalCoachCardFormat.whole(64, unit: "ms"), "64 ms")
+    }
+
+    func testOlderRecordsShowTheirRealDateNeverTodayOrYesterday() {
+        let older = LocalCoachCardFormat.dayLabel(key(5), now: now)
+        XCTAssertNotEqual(older, "Today")
+        XCTAssertNotEqual(older, "Yesterday")
+        XCTAssertEqual(older, LocalCoachCardFormat.humanDay(key(5), now: now))
+        XCTAssertFalse(older.contains("2026"), "A date in the current year carries no year: \(older)")
+        let lastYear = LocalCoachCardFormat.dayLabel("2025-09-30", now: now)
+        XCTAssertTrue(lastYear.contains("2025"), lastYear)
+        XCTAssertEqual(LocalCoachCardFormat.displayValue("2025-08-22", now: now), LocalCoachCardFormat.humanDay("2025-08-22", now: now))
+        XCTAssertEqual(LocalCoachCardFormat.displayValue("413 days", now: now), "413 days")
+        XCTAssertEqual(LocalCoachCardFormat.windowLabel(from: key(6), through: key(0), now: now), "Last 7 days")
+        XCTAssertEqual(LocalCoachCardFormat.windowLabel(from: key(0), through: key(0), now: now), "Today")
+        XCTAssertTrue(LocalCoachCardFormat.windowLabel(from: key(9), through: key(7), now: now)?.contains(" - ") == true)
+        XCTAssertNil(LocalCoachCardFormat.windowLabel(from: "bad", through: key(0), now: now))
+    }
+
+    func testEffortToolTextCarriesBothTheDisplayAndCanonicalValue() {
+        XCTAssertEqual(LocalCoachDataService.effortText(58), "12.2 of 21 (58.0/100 canonical)")
+        XCTAssertEqual(LocalCoachDataService.effortText(0), "0.0 of 21 (0.0/100 canonical)")
     }
 
     private func actualCatalog() -> [LocalCoachCatalogExercise] {
