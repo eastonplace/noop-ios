@@ -73,6 +73,8 @@ struct LocalCoachToolDescriptor: Identifiable, Sendable {
 struct LocalCoachToolResult: Sendable {
     var text: String
     var evidence: [LocalCoachEvidence]
+    /// Visual summaries built from the same records as `text`. Never sent to the model.
+    var cards: [LocalCoachCard] = []
 }
 
 struct LocalCoachMessage: Codable, Equatable, Identifiable, Sendable {
@@ -84,6 +86,12 @@ struct LocalCoachMessage: Codable, Equatable, Identifiable, Sendable {
     var evidence: [LocalCoachEvidence] = []
     var toolNames: [String] = []
     var isInterrupted = false
+    /// Optional so conversations saved before cards existed (no `cards` key) still decode.
+    var cards: [LocalCoachCard]? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case id, role, text, createdAt, evidence, toolNames, isInterrupted, cards
+    }
 }
 
 struct LocalCoachConversation: Codable, Equatable, Identifiable, Sendable {
