@@ -123,9 +123,12 @@ public struct HRLiveModuleCard: View {
     /// height, so the header stays one text line tall.
     private var header: some View {
         HStack(spacing: NoopMetrics.space2) {
-            HRLiveHeart(color: samples.isEmpty ? StrandPalette.textTertiary : HRModuleTint.live,
-                        period: breathPeriod,
-                        active: !samples.isEmpty)
+            // The live heart: a heart in the live red whose ghost swells and fades at the wearer's cadence (the
+            // old dot's breathing halo, in the shape of the symbol). It holds still under Reduce Motion.
+            EyebrowPulseIcon(systemName: "heart.fill",
+                             color: samples.isEmpty ? StrandPalette.textTertiary : HRModuleTint.live,
+                             period: breathPeriod,
+                             pulses: !samples.isEmpty)
             Text("Live Heart Rate")
                 .strandOverline()
                 .lineLimit(1)
@@ -404,21 +407,9 @@ public struct HRLiveModuleCard: View {
         }
     }
 
-    /// "2H ›" as a compact chip. Its capsule is drawn a little taller than the layout it claims, so the
-    /// footer row grows by 2pt rather than by the full padding.
+    /// "2H ›" as the shared compact chip.
     private var rangeChip: some View {
-        HStack(spacing: 4) {
-            Text("2H")
-                .font(StrandFont.micro.weight(.semibold))
-            Image(systemName: "chevron.right")
-                .font(.system(size: 10, weight: .semibold))
-        }
-        .foregroundStyle(StrandPalette.textSecondary)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 3)
-        .background(Capsule(style: .continuous).fill(Color.white.opacity(0.06)))
-        .overlay(Capsule(style: .continuous).stroke(StrandPalette.hairline, lineWidth: 1))
-        .padding(.vertical, -2)
+        WidgetChip("2H")
     }
 
     private func footKey(label: String, value: String) -> some View {
@@ -439,39 +430,6 @@ public struct HRLiveModuleCard: View {
         let low = Int((values.min() ?? 0).rounded())
         let peak = Int((values.max() ?? 0).rounded())
         return "Live heart rate \(Int(latest.bpm.rounded())) beats per minute. Last two hours: low \(low), peak \(peak)."
-    }
-}
-
-/// The live heart: a heart in the live red whose ghost swells and fades at the wearer's cadence (the old dot's
-/// breathing halo, in the shape of the symbol). It holds still under Reduce Motion.
-private struct HRLiveHeart: View {
-    let color: Color
-    let period: Double
-    let active: Bool
-
-    @State private var breathing = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        Image(systemName: "heart.fill")
-            .font(StrandFont.caption)
-            .foregroundStyle(color)
-            .background {
-                if active && !reduceMotion {
-                    Image(systemName: "heart.fill")
-                        .font(StrandFont.caption)
-                        .foregroundStyle(color.opacity(0.4))
-                        .scaleEffect(breathing ? 1.7 : 0.9)
-                        .opacity(breathing ? 0 : 0.8)
-                }
-            }
-            .onAppear {
-                guard active, !reduceMotion else { return }
-                withAnimation(.easeOut(duration: max(period, 0.5)).repeatForever(autoreverses: false)) {
-                    breathing = true
-                }
-            }
-            .accessibilityHidden(true)
     }
 }
 
