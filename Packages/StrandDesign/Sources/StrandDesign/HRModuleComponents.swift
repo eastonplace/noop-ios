@@ -243,11 +243,6 @@ public struct HRLiveModuleCard: View {
                     .position(x: 22, y: max(7, y - 8))
             }
 
-            // Rails at the visible extremes, inset so the live head (a bead and its pulse ring, ~11pt out)
-            // never touches them.
-            railLabel(Int(yr.upperBound.rounded()), y: Self.railLabelY, width: size.width)
-            railLabel(Int(yr.lowerBound.rounded()), y: size.height - Self.railLabelY, width: size.width)
-
             areaPath(rendered, height: size.height)
                 .fill(
                     // The Coach trend charts' wash: the domain ink at 14% fading to nothing.
@@ -261,6 +256,12 @@ public struct HRLiveModuleCard: View {
             linePath(rendered)
                 .trim(from: 0, to: revealed ? 1 : 0)
                 .stroke(zoneGradient, style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
+
+            // Rails at the visible extremes, inset so the live head (a bead and its pulse ring, ~11pt out)
+            // never touches them. Drawn over the trace with a canvas knock-out, so a line that passes under a
+            // label stays legible and reads as passing behind it.
+            railLabel(Int(yr.upperBound.rounded()), y: Self.railLabelY, width: size.width)
+            railLabel(Int(yr.lowerBound.rounded()), y: size.height - Self.railLabelY, width: size.width)
 
             // The newest sample, pulsing quietly — this is the LIVE edge.
             if revealed, scrubIndex == nil, let lastPoint = rendered.last, let latest {
@@ -308,6 +309,13 @@ public struct HRLiveModuleCard: View {
         Text("\(value)")
             .font(StrandFont.micro).monospacedDigit()
             .foregroundStyle(StrandPalette.textTertiary)
+            // The knock-out grows outward from the digits (3pt across, 1pt up and down), so they don't move.
+            .background {
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .fill(StrandPalette.appCanvas.opacity(0.88))
+                    .padding(.horizontal, -3)
+                    .padding(.vertical, -1)
+            }
             .frame(width: Self.railLabelWidth, alignment: .trailing)
             .position(x: width - Self.railLabelInset - Self.railLabelWidth / 2, y: y)
     }
@@ -467,21 +475,16 @@ private struct HRLiveHeart: View {
     }
 }
 
-/// A zone word ("Resting", "Steady", "Pushing") in the Coach `StatePill`'s exact metrics (overline type,
-/// 10 / 5pt padding, a 12% wash and a 28% hairline of the tone), in the live red with red type.
+/// A zone word ("Resting", "Steady", "Pushing") on the shared state-pill chrome (the Coach "Stale" pill's
+/// exact metrics), washed and outlined in the live red with the pill's white type.
 private struct HRZonePill: View {
-    static let verticalPadding: CGFloat = 5
+    static let verticalPadding = StatePillMetrics.verticalPadding
     let word: String
 
     var body: some View {
         Text(verbatim: word)
-            .font(StrandFont.overline)
-            .tracking(0.4)
-            .foregroundStyle(HRModuleTint.live)
-            .padding(.horizontal, 10)
-            .padding(.vertical, Self.verticalPadding)
-            .background(Capsule(style: .continuous).fill(HRModuleTint.live.opacity(0.12)))
-            .overlay(Capsule(style: .continuous).stroke(HRModuleTint.live.opacity(0.28), lineWidth: 1))
+            .statePillLabel()
+            .statePillChrome(tint: HRModuleTint.live)
     }
 }
 

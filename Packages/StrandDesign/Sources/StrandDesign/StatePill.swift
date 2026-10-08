@@ -50,23 +50,38 @@ public struct StatePill: View {
                 }
             }
             Text(title)
-                .font(StrandFont.overline)
-                .tracking(0.4)
-                .foregroundStyle(StrandPalette.textPrimary)
+                .statePillLabel()
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(
-            Capsule(style: .continuous)
-                .fill(tone.color.opacity(0.12))
-        )
-        .overlay(
-            Capsule(style: .continuous)
-                .stroke(tone.color.opacity(0.28), lineWidth: 1)
-        )
+        .statePillChrome(tint: tone.color)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
     }
+}
+
+// MARK: - Shared pill metrics
+
+extension View {
+    /// The state pill's type: overline face, 0.4pt tracking, white ink. White, never the tone, so a
+    /// red or amber pill still reads as a quiet label on a tinted chip.
+    func statePillLabel() -> some View {
+        self.font(StrandFont.overline)
+            .tracking(0.4)
+            .foregroundStyle(StrandPalette.textPrimary)
+    }
+
+    /// The state pill's chip: 10 / 5pt padding, a 12% wash and a 1pt 28% hairline of the tone. `StatePill`
+    /// and every pill that must match it (Live HR zone, Stress value) share this one definition.
+    func statePillChrome(tint: Color) -> some View {
+        self.padding(.horizontal, StatePillMetrics.horizontalPadding)
+            .padding(.vertical, StatePillMetrics.verticalPadding)
+            .background(Capsule(style: .continuous).fill(tint.opacity(0.12)))
+            .overlay(Capsule(style: .continuous).stroke(tint.opacity(0.28), lineWidth: 1))
+    }
+}
+
+enum StatePillMetrics {
+    static let horizontalPadding: CGFloat = 10
+    static let verticalPadding: CGFloat = 5
 }
 
 // MARK: - ConnectionDot
