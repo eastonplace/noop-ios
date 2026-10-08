@@ -73,6 +73,7 @@ public struct TodayHeroCard: View {
                                 .font(.system(size: 13, weight: .semibold))
                                 .foregroundStyle(StrandPalette.strainAccent)
                                 .frame(width: 30, height: 30)
+                                .background(Circle().fill(DomainTint.strain.accent.opacity(0.14)))
                             VStack(alignment: .leading, spacing: 2) {
                                 HStack(spacing: 5) {
                                     Text("Today at a glance", bundle: .module)
@@ -83,7 +84,7 @@ public struct TodayHeroCard: View {
                                             .foregroundStyle(StrandPalette.liveRed)
                                     }
                                 }
-                                Text(verbatim: glance)
+                                Self.glanceText(glance)
                                     .font(StrandFont.footnote)
                                     .monospacedDigit()
                                     .foregroundStyle(StrandPalette.textSecondary)
@@ -103,17 +104,53 @@ public struct TodayHeroCard: View {
                         Button(workoutIsActive ? String(localized: "Open", bundle: .module)
                                                : String(localized: "Start", bundle: .module),
                                action: onWorkoutAction)
-                            .font(StrandFont.caption.weight(.semibold))
-                            .foregroundStyle(StrandPalette.surfaceRaised)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 7)
-                            .background(StrandPalette.textPrimary, in: Capsule())
-                            .buttonStyle(.plain)
+                            .buttonStyle(TodayWorkoutPillStyle())
                             .accessibilityLabel(workoutIsActive ? "Open active workout" : "Start workout")
                     }
                 }
             }
         }
+    }
+
+    /// The glance line with its values bright and its words muted, by colour alone ("**1** workout ·
+    /// **6,856** steps · **528** cal"). Each " · " segment leads with its value; "—" is a value too but reads
+    /// tertiary. A line that does not parse into any value renders as plain text in the caller's ink.
+    private static func glanceText(_ glance: String) -> Text {
+        func run(_ text: String, _ color: Color) -> AttributedString {
+            var piece = AttributedString(text)
+            piece.foregroundColor = color
+            return piece
+        }
+        let separator = " · "
+        var line = AttributedString()
+        var foundValue = false
+        for (index, segment) in glance.components(separatedBy: separator).enumerated() {
+            if index > 0 { line += run(separator, StrandPalette.textSecondary) }
+            let token = segment.prefix { $0 != " " }
+            let isMissing = token == WidgetMetrics.missingValue
+            guard isMissing || token.first?.isNumber == true else {
+                line += run(segment, StrandPalette.textSecondary)
+                continue
+            }
+            foundValue = true
+            line += run(String(token), isMissing ? StrandPalette.textTertiary : StrandPalette.textPrimary)
+            line += run(String(segment.dropFirst(token.count)), StrandPalette.textSecondary)
+        }
+        return foundValue ? Text(line) : Text(verbatim: glance)
+    }
+}
+
+/// The Start / Open pill: the brand green with dark ink, the same capsule, type size and padding as ever.
+/// The whole padded pill is the button (and dips a touch while pressed), not just its label.
+private struct TodayWorkoutPillStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(StrandFont.caption.weight(.semibold))
+            .foregroundStyle(StrandPalette.appCanvas)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(StrandPalette.ink, in: Capsule())
+            .opacity(configuration.isPressed ? 0.78 : 1)
     }
 }
 
@@ -225,7 +262,8 @@ private struct TodayPillarGauge: View {
                                         style: StrokeStyle(lineWidth: width))
                                 .rotationEffect(.degrees(150))
                         }
-                        ForEach(model.bandTicks, id: \.self) { tick in
+                        // An empty dial has no scale to mark, and the ticks would cut through its dots.
+                        ForEach(model.value == nil ? [] : model.bandTicks, id: \.self) { tick in
                             let angle = Angle.degrees(150 + 240 * tick)
                             Capsule().fill(StrandPalette.hairlineStrong)
                                 .frame(width: 1.5, height: width + 4)
