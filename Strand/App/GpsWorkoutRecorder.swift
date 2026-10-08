@@ -328,6 +328,16 @@ enum RouteStore {
 
 // MARK: - GpsWorkoutRecorder (CoreLocation wrapper)
 
+/// Seam over `CLBackgroundActivitySession` (iOS 17+, unavailable on macOS) so tests can assert the session is
+/// held while a route records and released afterwards without touching the real CoreLocation service.
+protocol GpsBackgroundActivity: AnyObject {
+    func invalidate()
+}
+
+#if os(iOS)
+extension CLBackgroundActivitySession: GpsBackgroundActivity {}
+#endif
+
 /// Records the route of an in-flight GPS workout from CoreLocation. Thin and fail-safe: requests
 /// When-In-Use authorization, streams fixes through `TrackFilter`, and accumulates the route + live
 /// distance/pace. The owning `AppModel` starts it when a distance-type sport is begun and reads the final
@@ -356,8 +366,17 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
     @Published private(set) var paceSecPerKm: Double?
     /// Number of accepted route points so far (lets the UI distinguish "recording, no fix yet" from "off").
     @Published private(set) var pointCount = 0
+    /// True while the user has granted only approximate location (Settings > Privacy > Location > Precise
+    /// Location off). The route still records, but fixes are kilometres coarse and TrackFilter's 50 m
+    /// accuracy gate will reject most of them, so a screen can explain the sparse route.
+    @Published private(set) var isReducedAccuracy = false
 
-    private let manager = CLLocationManager()
+    private let manager: CLLocationManager
+    /// Keeps a When-In-Use app's location updates alive while the screen is locked (iOS 17+). Held from the
+    /// moment updates begin until `stop()`. A session can only become active while the app is in the
+    /// foreground, so it is recreated whenever the app returns to the foreground mid-recording.
+    private var backgroundActivity: GpsBackgroundActivity?
+    private let makeBackgroundActivity: () -> GpsBackgroundActivity?
     private var filter = TrackFilter()
     private var segments: [[RouteMath.LatLng]] = []
     private var sessionID: UUID?
@@ -403,7 +422,10 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
     var onCheckpoint: ((ActiveGpsWorkoutPersistence.Checkpoint) -> Void)?
     private var rawFixCount = 0
 
-    override init() {
+    init(manager: CLLocationManager = CLLocationManager(),
+         makeBackgroundActivity: @escaping () -> GpsBackgroundActivity? = GpsWorkoutRecorder.liveBackgroundActivity) {
+        self.manager = manager
+        self.makeBackgroundActivity = makeBackgroundActivity
         super.init()
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyBest
@@ -417,6 +439,17 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
         manager.allowsBackgroundLocationUpdates = true
         manager.pausesLocationUpdatesAutomatically = false
         manager.activityType = .fitness
+        // The system's blue "NOOP is using your location" pill, which also lets the user tap back into the app.
+        manager.showsBackgroundLocationIndicator = true
+        #endif
+    }
+
+    /// The production session factory. nil off iOS, where `CLBackgroundActivitySession` does not exist.
+    nonisolated static func liveBackgroundActivity() -> GpsBackgroundActivity? {
+        #if os(iOS)
+        return CLBackgroundActivitySession()
+        #else
+        return nil
         #endif
     }
 
@@ -435,6 +468,8 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
         startsNewSegmentOnNextFix = true
         hadTerminatedGap = false
         isRecording = true
+        releaseBackgroundActivity()
+        refreshAccuracyAuthorization()
 
         switch manager.authorizationStatus {
         case .notDetermined:
@@ -455,7 +490,9 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
     @discardableResult
     func stop() -> [RouteMath.LatLng] {
         manager.stopUpdatingLocation()
+        releaseBackgroundActivity()
         isRecording = false
+        isReducedAccuracy = false
         return routePoints
     }
 
@@ -495,8 +532,27 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
         let elapsed = Double(Int64(Date().timeIntervalSince1970 * 1000) - startMs) / 1000
         paceSecPerKm = RouteMath.paceSecPerKm(meters: distanceM, seconds: elapsed)
         isRecording = snapshot.recordingWasActive
+        if isRecording {
+            refreshAccuracyAuthorization()
+        }
         if isRecording, (manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways) {
             beginUpdates()
+        }
+    }
+
+    /// Re-arm CoreLocation when the app returns to the foreground mid-recording. `startUpdatingLocation()`
+    /// is idempotent, so this is safe when updates never stopped; it recovers the case where they did
+    /// (the system ended them, or a permission change was missed while suspended). The background session
+    /// is recreated too, because only a foreground app can start one and an ended session cannot reactivate.
+    func resumeUpdatesIfNeeded() {
+        guard isRecording else { return }
+        refreshAccuracyAuthorization()
+        switch manager.authorizationStatus {
+        case .authorizedWhenInUse, .authorizedAlways:
+            renewBackgroundActivity()
+            beginUpdates()
+        default:
+            break
         }
     }
 
@@ -505,8 +561,40 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
     fileprivate func beginUpdates() {
         // Wrapped: a Mac with no location services, or an OEM quirk, must never crash the app — just
         // record nothing. Mirrors Android's try/catch around requestLocationUpdates (#101).
-        guard CLLocationManager.locationServicesEnabled() else { return }
+        // `type(of:)` dispatches dynamically so a test double can stub the class-level availability check.
+        guard type(of: manager).locationServicesEnabled() else { return }
+        if backgroundActivity == nil { backgroundActivity = makeBackgroundActivity() }
         manager.startUpdatingLocation()
+    }
+
+    fileprivate func releaseBackgroundActivity() {
+        backgroundActivity?.invalidate()
+        backgroundActivity = nil
+    }
+
+    /// Replace the held session with a fresh one. The new session exists before the old one is invalidated,
+    /// so recording is never momentarily without a session.
+    private func renewBackgroundActivity() {
+        let previous = backgroundActivity
+        backgroundActivity = makeBackgroundActivity()
+        previous?.invalidate()
+    }
+
+    fileprivate func refreshAccuracyAuthorization() {
+        let reduced = manager.accuracyAuthorization == .reducedAccuracy
+        guard reduced != isReducedAccuracy else { return }
+        isReducedAccuracy = reduced
+        if reduced {
+            logWorkouts("gps reducedAccuracy=true (approximate location only; route fixes will be coarse)")
+        }
+    }
+
+    /// One diagnostic line on the Workouts & GPS test-mode channel. The mode gate comes first so the recorder
+    /// formats nothing when the mode is off.
+    fileprivate func logWorkouts(_ line: @autoclosure () -> String) {
+        if TestCentre.active(.workouts), let workoutsLog {
+            workoutsLog(line())
+        }
     }
 
     /// Fold a batch of (already bound-checked at the source) fixes into the route, updating live
@@ -581,12 +669,17 @@ extension GpsWorkoutRecorder: @preconcurrency CLLocationManagerDelegate {
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         guard isRecording else { return }
+        refreshAccuracyAuthorization()
         switch manager.authorizationStatus {
         case .authorizedWhenInUse, .authorizedAlways:
+            // First-run grant: the prompt is shown in the foreground, so the session `beginUpdates` creates
+            // can become active. An existing session is deliberately left alone here: this callback can also
+            // arrive in the background, where a replacement would start inactive.
             beginUpdates()
         case .denied, .restricted:
             // Revoked mid-session: stop streaming but keep whatever route was captured so far (honest).
             manager.stopUpdatingLocation()
+            releaseBackgroundActivity()
         default:
             break
         }
@@ -606,6 +699,9 @@ extension GpsWorkoutRecorder: @preconcurrency CLLocationManagerDelegate {
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         // A transient failure (no fix yet) is normal and self-heals; we never tear down on it. A hard
-        // denial arrives via the auth callback instead. Swallow so a GPS hiccup can't crash a workout.
+        // denial arrives via the auth callback instead. Never throw so a GPS hiccup can't crash a workout,
+        // but leave a trace: a route that silently stops accruing is otherwise impossible to diagnose.
+        let nsError = error as NSError
+        logWorkouts("gps locationError domain=\(nsError.domain) code=\(nsError.code)")
     }
 }
