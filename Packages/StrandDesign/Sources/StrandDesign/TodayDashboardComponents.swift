@@ -353,17 +353,19 @@ public struct HealthDashboardCard: View {
     public var body: some View {
         PaperCard(padding: 12) {
             VStack(alignment: .leading, spacing: 9) {
-                HStack(alignment: .firstTextBaseline) {
-                    VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 3) {
+                    // The widget eyebrow, as on Live HR and Stress: ink symbol, caps title, quiet chip.
+                    HStack(spacing: NoopMetrics.space2) {
+                        HealthMonitorEyebrowIcon()
                         Text("Health Monitor", bundle: .module).strandOverline()
-                        Text(verbatim: status).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                        Spacer(minLength: NoopMetrics.space2)
+                        Button(action: onCustomize) {
+                            WidgetChip("Customise", systemImage: "slider.horizontal.3", showsChevron: false)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Customise")
                     }
-                    Spacer(minLength: 8)
-                    Button(action: onCustomize) {
-                        Label("CUSTOMISE", systemImage: "slider.horizontal.3")
-                            .font(StrandFont.micro.weight(.bold))
-                    }
-                    .buttonStyle(.plain).foregroundStyle(StrandPalette.accent)
+                    Text(verbatim: status).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
                 }
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: 3), spacing: 0) {
                     ForEach(Array(tiles.enumerated()), id: \.element.id) { index, tile in
@@ -409,6 +411,20 @@ public struct HealthDashboardCard: View {
     }
 }
 
+/// The Health Monitor symbol: ink, in the same `caption` size as the other eyebrow symbols, in a column as
+/// wide as the heart / bolt.heart on Live HR and Stress so all three titles start at the same x.
+private struct HealthMonitorEyebrowIcon: View {
+    @ScaledMetric(relativeTo: .caption) private var column: CGFloat = 14.67
+
+    var body: some View {
+        Image(systemName: "waveform.path.ecg")
+            .font(StrandFont.caption)
+            .foregroundStyle(StrandPalette.ink)
+            .frame(width: column, alignment: .leading)
+            .accessibilityHidden(true)
+    }
+}
+
 public struct HealthDashboardTile: View {
     public let model: HealthDashboardTileModel
     public init(model: HealthDashboardTileModel) { self.model = model }
@@ -440,7 +456,7 @@ public struct HealthDashboardTile: View {
             }
             if model.spark.count > 1 {
                 Sparkline(values: model.spark, gradient: Gradient(colors: [model.accent.opacity(0.4), model.accent]),
-                          lineWidth: 1.3, showsArea: false, showsHead: false, showsHover: false)
+                          lineWidth: 1.3, showsArea: true, showsHead: false, showsHover: false)
                     .frame(height: 12).accessibilityHidden(true)
             } else {
                 Color.clear.frame(height: 12)

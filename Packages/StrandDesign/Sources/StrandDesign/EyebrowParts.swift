@@ -65,6 +65,8 @@ struct WidgetChip: View {
             if let title {
                 Text(title, bundle: .module)
                     .font(StrandFont.micro.weight(.semibold))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
             }
             if showsChevron {
                 Image(systemName: "chevron.right")

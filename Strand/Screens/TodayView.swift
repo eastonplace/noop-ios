@@ -2978,17 +2978,19 @@ struct TodayView: View {
 
     /// A dashboard card's WHOOP-token tint (icon + accent). Score cards take their domain colour; vitals
     /// take their biometric hue; everything else takes the blue accent. No gold (WHOOP), tokens only.
+    /// Cards that have a `DomainTint` (stress, HRV, resting HR, sleep) read it from there, so a metric keeps
+    /// one colour across Today, the Coach cards and the catalog.
     private func dashboardTint(_ card: DashboardCard) -> Color {
         switch card {
-        case .stress:      return StrandPalette.effortColor
+        case .stress:      return DomainTint.stress.accent
         case .fitnessAge:  return StrandPalette.recoveryData
         case .vitality:    return StrandPalette.restColor
-        case .hrv:         return StrandPalette.metricPurple
-        case .restingHr:   return StrandPalette.metricRose
+        case .hrv:         return DomainTint.hrv.accent
+        case .restingHr:   return DomainTint.heart.accent
         case .respiratory: return StrandPalette.accent
         case .bloodOxygen: return StrandPalette.metricCyan
         case .skinTemp:    return StrandPalette.metricAmber
-        case .sleep:       return StrandPalette.restColor
+        case .sleep:       return DomainTint.sleep.accent
         case .steps:       return StrandPalette.metricCyan
         case .calories:    return StrandPalette.metricAmber
         case .hydration:   return StrandPalette.metricCyan
