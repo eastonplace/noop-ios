@@ -16,47 +16,48 @@ struct LocalCoachPlanView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: NoopMetrics.space4) {
                 if coach.isPreview { LocalCoachFixtureLabel() }
                 if let plan = coach.plan {
                     planHeader(plan)
                     days(plan)
                     if let day = selectedDay {
-                        HStack {
-                            LocalCoachSectionHeading(title: day.title, eyebrow: day.focus.uppercased())
-                            Spacer()
-                            Label("\(day.minutes) min", systemImage: "clock").font(.caption).foregroundStyle(StrandPalette.textTertiary)
-                        }
-                        VStack(spacing: 10) {
+                        SectionHeader(LocalizedStringKey(day.title), overline: LocalizedStringKey(day.focus),
+                                      trailing: "\(day.minutes) min")
+                        VStack(spacing: 0) {
                             ForEach(day.exercises) { exercise in
                                 Button { editingExercise = exercise } label: { exerciseRow(exercise) }
                                     .buttonStyle(.plain)
                             }
                         }
                         Text("Tap an exercise to adjust sets, reps, rest or notes. Start with a load you can control.")
-                            .font(.footnote).foregroundStyle(StrandPalette.textTertiary)
+                            .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
                     }
                     Button {
                         if plan.saved { showWorkouts = true } else { confirmSave = true }
                     } label: {
                         Label(plan.saved ? "Open saved workouts" : "Review & save plan", systemImage: plan.saved ? "checkmark.circle" : "plus.circle")
                     }
-                    .buttonStyle(LocalCoachPrimaryButtonStyle())
+                    .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
                     .disabled(coach.isResponding || coach.isPreview)
                     .accessibilityIdentifier("coach.savePlan")
                     Button("Build a different plan", action: onBuild)
-                        .font(.footnote).frame(maxWidth: .infinity).foregroundStyle(StrandPalette.textSecondary)
+                        .buttonStyle(NoopButtonStyle(.tertiary, fullWidth: true))
                 } else {
-                    VStack(alignment: .leading, spacing: 20) {
+                    VStack(alignment: .leading, spacing: NoopMetrics.space5) {
                         Image(systemName: "figure.strengthtraining.traditional")
                             .font(.system(size: 48, weight: .ultraLight)).foregroundStyle(StrandPalette.accent)
-                        Text("Make room\nfor progress.").font(.system(size: 34, weight: .medium, design: .rounded))
+                        Text("Make room\nfor progress.").font(StrandFont.title1)
                         Text("Build a training plan around your focus and available time. Review the exercises, adjust the details and save it to your NOOP workouts.")
+                            .font(StrandFont.body)
                             .foregroundStyle(StrandPalette.textSecondary).lineSpacing(4)
-                        Button("Build my plan", action: onBuild).buttonStyle(LocalCoachPrimaryButtonStyle())
-                    }.padding(.vertical, 20)
+                        Button("Build my plan", action: onBuild).buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
+                    }.padding(.vertical, NoopMetrics.space5)
                 }
-            }.padding(22)
+            }
+            .padding(.horizontal, NoopMetrics.space4)
+            .padding(.top, NoopMetrics.space2)
+            .padding(.bottom, NoopMetrics.space6)
         }
         .sheet(item: $editingExercise) { exercise in
             LocalCoachExerciseEditor(exercise: exercise) { edited in
@@ -65,12 +66,17 @@ struct LocalCoachPlanView: View {
                 plan.days[dayIndex].exercises[exerciseIndex] = edited
                 coach.updatePlan(plan)
             }
+            .noopSheetPresentation(largeFirst: true)
         }
         .sheet(isPresented: $showWorkouts) {
             NavigationStack {
                 WorkoutsView()
+                    .background(StrandPalette.appCanvas.ignoresSafeArea())
+                    .toolbarBackground(.hidden, for: .navigationBar)
                     .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showWorkouts = false } } }
             }
+            .tint(StrandPalette.accent)
+            .noopSheetPresentation(largeFirst: true)
         }
         .confirmationDialog("Save this plan to NOOP?", isPresented: $confirmSave, titleVisibility: .visible) {
             Button("Save reviewed plan") { Task { await coach.savePlan() } }
@@ -82,38 +88,42 @@ struct LocalCoachPlanView: View {
     }
 
     private func planHeader(_ plan: LocalCoachPlan) -> some View {
-        VStack(alignment: .leading, spacing: 15) {
-            HStack {
-                Text(plan.saved ? "SAVED TO YOUR WORKOUTS" : "BUILT FOR YOUR REVIEW")
-                    .font(.system(size: 9, weight: .medium, design: .monospaced)).tracking(1.2)
-                Spacer()
-                Image(systemName: plan.saved ? "checkmark.circle" : "calendar.badge.plus")
-            }.foregroundStyle(StrandPalette.accent)
-            Text(plan.title).font(.system(size: 28, weight: .medium, design: .rounded)).fixedSize(horizontal: false, vertical: true)
-            Text(plan.summary).font(.subheadline).foregroundStyle(StrandPalette.textSecondary).lineSpacing(3)
-            HStack(spacing: 16) {
-                Label("\(plan.days.count) sessions", systemImage: "calendar")
-                Label("Editable", systemImage: "slider.horizontal.3")
-            }.font(.caption).foregroundStyle(StrandPalette.textTertiary)
-        }.modifier(LocalCoachPanel())
+        ContentSection {
+            VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+                HStack {
+                    Text(plan.saved ? "Saved to your workouts" : "Built for your review").strandOverline()
+                    Spacer()
+                    Image(systemName: plan.saved ? "checkmark.circle" : "calendar.badge.plus")
+                        .foregroundStyle(StrandPalette.accent)
+                }
+                Text(plan.title).font(StrandFont.title2).fixedSize(horizontal: false, vertical: true)
+                Text(plan.summary).font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary).lineSpacing(3)
+                HStack(spacing: NoopMetrics.space4) {
+                    Label("\(plan.days.count) sessions", systemImage: "calendar")
+                    Label("Editable", systemImage: "slider.horizontal.3")
+                }.font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
+            }
+        }
     }
 
+    /// Day picker: selectable tiles are controls, so they keep a bounded fill (selected = ink, like the
+    /// canonical segmented control) while the rest of the plan sits flat on the page.
     private func days(_ plan: LocalCoachPlan) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
+            HStack(spacing: NoopMetrics.space3) {
                 ForEach(plan.days) { day in
                     let selected = selectedDay?.id == day.id
                     Button { selectedDayID = day.id } label: {
-                        VStack(alignment: .leading, spacing: 9) {
+                        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
                             Text(Calendar.current.date(byAdding: .day, value: day.dayOffset, to: plan.createdAt) ?? plan.createdAt,
                                  format: .dateTime.weekday(.abbreviated))
-                                .textCase(.uppercase).font(.system(size: 10, weight: .semibold, design: .monospaced))
-                            Text(day.focus).font(.system(size: 14, weight: .medium)).lineLimit(2)
-                            Text("\(day.exercises.count) exercises").font(.system(size: 10))
+                                .textCase(.uppercase).font(StrandFont.overline)
+                            Text(day.focus).font(StrandFont.subhead).lineLimit(2)
+                            Text("\(day.exercises.count) exercises").font(StrandFont.micro)
                         }
                         .foregroundStyle(selected ? StrandPalette.onInk : StrandPalette.textSecondary)
-                        .frame(width: 115, alignment: .leading).padding(14)
-                        .background(selected ? StrandPalette.accent : StrandPalette.inset, in: .rect(cornerRadius: 16))
+                        .frame(width: 115, alignment: .leading).padding(NoopMetrics.space3)
+                        .background(selected ? StrandPalette.ink : StrandPalette.inset, in: .rect(cornerRadius: NoopMetrics.radius3))
                     }.buttonStyle(.plain).accessibilityAddTraits(selected ? .isSelected : [])
                 }
             }
@@ -122,7 +132,7 @@ struct LocalCoachPlanView: View {
 
     private func exerciseRow(_ exercise: LocalCoachPlannedExercise) -> some View {
         let catalog = NoopLiftCatalog.entries.first { $0.id == exercise.catalogID } ?? NoopLiftCatalog.resolve(name: exercise.name)
-        return HStack(spacing: 14) {
+        return HStack(spacing: NoopMetrics.space3) {
             Group {
                 if let url = catalog?.imageURL, let image = UIImage(contentsOfFile: url.path) {
                     Image(uiImage: image).resizable().scaledToFit()
@@ -132,17 +142,17 @@ struct LocalCoachPlanView: View {
                 }
             }
             .frame(width: 60, height: 68).background(StrandPalette.inset)
-            .clipShape(.rect(cornerRadius: 12)).accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 7) {
-                Text(exercise.name.capitalized).font(.system(size: 14, weight: .semibold)).foregroundStyle(StrandPalette.textPrimary)
+            .clipShape(.rect(cornerRadius: NoopMetrics.radius2)).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(exercise.name.capitalized).font(StrandFont.subhead.weight(.semibold)).foregroundStyle(StrandPalette.textPrimary)
                 Text("\(exercise.sets) sets × \(exercise.reps) reps")
-                    .font(.system(size: 12, weight: .medium)).foregroundStyle(StrandPalette.accent)
+                    .font(StrandFont.caption).foregroundStyle(StrandPalette.accent)
                 Text("\(exercise.equipment.capitalized) · \(exercise.restSeconds)s rest")
-                    .font(.system(size: 10)).foregroundStyle(StrandPalette.textTertiary)
+                    .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
             }
             Spacer(minLength: 0)
-            Image(systemName: "slider.horizontal.3").font(.footnote).foregroundStyle(StrandPalette.textTertiary)
-        }.padding(12).background(StrandPalette.card, in: .rect(cornerRadius: 17))
+            Image(systemName: "slider.horizontal.3").font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
+        }.contentRowSurface()
     }
 }
 
@@ -157,12 +167,12 @@ struct LocalCoachPlanBuilder: View {
 
     var body: some View {
         NavigationStack {
-            Form {
+            NativeSettingsList {
                 Section {
                     Text("A plan you can make your own.")
-                        .font(.system(size: 28, weight: .medium, design: .rounded)).padding(.vertical, 10)
+                        .font(StrandFont.title2).padding(.vertical, NoopMetrics.space2)
                     Text("Choose your focus and schedule. NOOP uses its local exercise catalog to create a draft for you to review.")
-                        .font(.subheadline).foregroundStyle(.secondary)
+                        .font(StrandFont.subhead).foregroundStyle(.secondary)
                 }
                 Section("Your training") {
                     TextField("Focus", text: $focus, axis: .vertical).lineLimit(2...4)
@@ -190,11 +200,12 @@ struct LocalCoachPlanBuilder: View {
                     }.disabled(building || !coach.preferences.usePersonalData || focus.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         .accessibilityIdentifier("coach.createPlan")
                 }
-                if let error = coach.errorText { Text(error).foregroundStyle(StrandPalette.warning).font(.footnote) }
+                if let error = coach.errorText { Text(error).foregroundStyle(StrandPalette.warning).font(StrandFont.footnote) }
             }
             .navigationTitle("Build a plan").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { if building { coach.cancel() }; dismiss() } } }
-        }.tint(StrandPalette.accent).preferredColorScheme(.dark)
+        }
+        .coachSettingsSheetEnvironment()
     }
 }
 
@@ -210,7 +221,7 @@ private struct LocalCoachExerciseEditor: View {
 
     var body: some View {
         NavigationStack {
-            Form {
+            NativeSettingsList {
                 Section(draft.name.capitalized) {
                     Stepper("\(draft.sets) sets", value: $draft.sets, in: 1...8)
                     Stepper("\(draft.reps) reps", value: $draft.reps, in: 1...30)
@@ -219,7 +230,7 @@ private struct LocalCoachExerciseEditor: View {
                 }
                 if let entry = NoopLiftCatalog.entries.first(where: { $0.id == draft.catalogID }) ?? NoopLiftCatalog.resolve(name: draft.name),
                    !entry.instructions.isEmpty {
-                    Section("Movement guide") { Text(entry.instructions).font(.subheadline) }
+                    Section("Movement guide") { Text(entry.instructions).font(StrandFont.subhead) }
                 }
             }
             .navigationTitle("Tune your workout").navigationBarTitleDisplayMode(.inline)
@@ -227,7 +238,8 @@ private struct LocalCoachExerciseEditor: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) { Button("Apply") { onSave(draft); dismiss() } }
             }
-        }.tint(StrandPalette.accent).preferredColorScheme(.dark)
+        }
+        .coachSettingsSheetEnvironment()
     }
 }
 #endif
