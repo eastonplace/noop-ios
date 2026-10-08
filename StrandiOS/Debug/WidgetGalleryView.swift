@@ -8,6 +8,10 @@ import StrandDesign
 ///
 /// Sections: `tints`, `surfaces`, `cards`, `rows`, `flat`, `card`, `coach-a` ... `coach-d`.
 /// `flat` and `card` show the same content composed on the canvas and inside a `WidgetCard`.
+/// The Today restyle sections `today-hero`, `today-heart`, `today-stress` and `today-health` render the
+/// REAL Today components (full device width, Today's 16pt gutter, the app canvas) with the demo-seed values.
+/// Each logs its global frame as `[gallery-metrics] <name> x= y= w= h=` so before/after heights can be
+/// compared exactly (`xcrun simctl launch --console ...`).
 struct WidgetGalleryView: View {
     private let section: String?
 
@@ -32,7 +36,7 @@ struct WidgetGalleryView: View {
                 Text("Widget gallery\(section.map { " · \($0)" } ?? "")").strandOverline()
                 pages
             }
-            .padding(.horizontal, NoopMetrics.screenHPadding)
+            .padding(.horizontal, isTodaySection ? Self.todayGutter : NoopMetrics.screenHPadding)
             .padding(.vertical, NoopMetrics.space4)
         }
         .background(StrandPalette.appCanvas.ignoresSafeArea())
@@ -40,6 +44,10 @@ struct WidgetGalleryView: View {
     }
 
     private func shows(_ name: String) -> Bool { section == nil || section == name }
+
+    /// Today's side gutter is `ScreenScaffold`'s 16pt, not the 20pt `NoopMetrics.screenHPadding`.
+    private static let todayGutter: CGFloat = 16
+    private var isTodaySection: Bool { section?.hasPrefix("today-") == true }
 
     @ViewBuilder private var pages: some View {
         if shows("tints") { tintPage }
@@ -53,6 +61,10 @@ struct WidgetGalleryView: View {
         if shows("coach-b") { coachStack(Array(samples.training.prefix(2))) }
         if shows("coach-c") { coachStack(Array(samples.training.suffix(2))) }
         if shows("coach-d") { coachStack(samples.coverage) }
+        if shows("today-hero") { todayHeroPage }
+        if shows("today-heart") { todayHeartPage }
+        if shows("today-stress") { todayStressPage }
+        if shows("today-health") { todayHealthPage }
     }
 
     // MARK: Coach cards
@@ -227,6 +239,172 @@ struct WidgetGalleryView: View {
                 sleepBody
             }
         }
+    }
+}
+
+// MARK: - Today restyle sections
+//
+// The real Today components fed the values the demo seed produces (Thu, Oct 8: Recovery 63, Strain 3.5,
+// Sleep 97, 73 bpm, stress 0.1), so a before/after pair is an honest comparison of the screen itself.
+// The surrounding `.contentSurfacePresentation(.flat)` comes from the app root, exactly as on Today.
+
+private extension View {
+    /// DEBUG measurement: prints the view's global frame (points) whenever it changes, so a screenshot can
+    /// be cropped to the exact layout box and compared by height.
+    func galleryMeasured(_ name: String) -> some View {
+        onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
+            NSLog("[gallery-metrics] %@ x=%.2f y=%.2f w=%.2f h=%.2f", name, frame.minX, frame.minY,
+                  frame.width, frame.height)
+        }
+    }
+}
+
+extension WidgetGalleryView {
+    // MARK: Hero
+
+    private var todayPillars: [TodayPillarModel] {
+        [
+            TodayPillarModel(
+                id: "recovery", label: "Recovery", value: 63, maximum: 100, valueText: "63",
+                state: "Moderate", accent: RecoveryBands.color(for: 63), bandTicks: [0.34, 0.67]),
+            TodayPillarModel(
+                id: "strain", label: "Strain", value: 3.5, maximum: 21, valueText: "3.5",
+                state: "Light", detail: "Stale · 2026-10-08", accent: StrandPalette.strainAccent),
+            TodayPillarModel(
+                id: "sleep", label: "Sleep", value: 97, maximum: 100, valueText: "97",
+                state: "Good", detail: "6h 48m", accent: StrandPalette.sleepAccent)
+        ]
+    }
+
+    /// Every pillar value missing: the dashed tracks and the "Not rated" / "Not available" states.
+    private var todayEmptyPillars: [TodayPillarModel] {
+        [
+            TodayPillarModel(
+                id: "recovery", label: "Recovery", value: nil, maximum: 100, valueText: "—",
+                state: "Not rated", accent: StrandPalette.recoveryData, bandTicks: [0.34, 0.67]),
+            TodayPillarModel(
+                id: "strain", label: "Strain", value: nil, maximum: 21, valueText: "—",
+                state: "Not available", accent: StrandPalette.strainAccent),
+            TodayPillarModel(
+                id: "sleep", label: "Sleep", value: nil, maximum: 100, valueText: "—",
+                state: "Not available", accent: StrandPalette.sleepAccent)
+        ]
+    }
+
+    var todayHeroPage: some View {
+        VStack(alignment: .leading, spacing: WidgetMetrics.sectionSpacing) {
+            TodayHeroCard(
+                pillars: todayPillars, glance: "1 workout · 6,856 steps · 528 cal", workoutIsActive: false,
+                onPillar: { _ in }, onOpenWorkouts: {}, onWorkoutAction: {})
+                .galleryMeasured("today-hero")
+            caption("Empty state: all three values missing")
+            TodayHeroCard(
+                pillars: todayEmptyPillars, glance: "0 workouts · — steps · — cal", workoutIsActive: false,
+                onPillar: { _ in }, onOpenWorkouts: {}, onWorkoutAction: {})
+                .galleryMeasured("today-hero-empty")
+        }
+    }
+
+    // MARK: Live heart rate
+
+    /// Two hours of one-minute samples ending now: latest 73, low 72, peak 76, average 74.
+    private var todayHeartSamples: [HRTrackPoint] {
+        let count = 120
+        var values = (0..<count).map { index -> Double in
+            let slow = 1.1 * sin(Double(index) / 11.0)
+            let fast = 0.7 * sin(Double(index) / 3.3 + 1.0)
+            return min(75.6, max(72.4, 74 + slow + fast))
+        }
+        values[17] = 72
+        values[86] = 76
+        values[count - 1] = 73
+        let midnight = Calendar.current.startOfDay(for: sampleNow)
+        let nowSeconds = sampleNow.timeIntervalSince(midnight)
+        return values.enumerated().map { index, bpm in
+            HRTrackPoint(id: index, t: nowSeconds - Double(count - 1 - index) * 60, bpm: bpm)
+        }
+    }
+
+    var todayHeartPage: some View {
+        let midnight = Calendar.current.startOfDay(for: sampleNow)
+        return HRLiveModuleCard(
+            samples: todayHeartSamples, restingHR: 55,
+            timeLabel: { seconds in
+                let formatter = DateFormatter()
+                formatter.setLocalizedDateFormatFromTemplate("jmm")
+                return formatter.string(from: midnight.addingTimeInterval(seconds))
+            },
+            onOpen: {})
+            .galleryMeasured("today-heart")
+    }
+
+    // MARK: Stress
+
+    /// Hours 6...12 scored: one calm, two moderate, four high (the footer reads 1h / 2h / 4h).
+    private var todayStressHours: [Double?] {
+        var hours = [Double?](repeating: nil, count: 24)
+        for (offset, level) in [0.7, 1.1, 1.5, 2.8, 2.2, 2.1, 2.5].enumerated() { hours[6 + offset] = level }
+        return hours
+    }
+
+    var todayStressPage: some View {
+        StressModuleCard(hours: todayStressHours, value: 0.1, nowHour: 14, presentationMode: .combined, onOpen: {})
+            .galleryMeasured("today-stress")
+    }
+
+    // MARK: Health monitor
+
+    private func healthTile(
+        _ card: DashboardCard, value: String, unit: String? = nil, detail: String? = nil, spark: [Double] = [],
+        rail: HealthTileRail = .none, accent: Color
+    ) -> HealthDashboardTileModel {
+        HealthDashboardTileModel(
+            id: card.id, icon: card.icon, label: card.title, value: value, unit: unit, detail: detail,
+            spark: spark, rail: rail, accent: accent)
+    }
+
+    /// The default nine tiles, in the default order, with the Stress tile missing ("—") and the Respiratory
+    /// rail outside its typical range.
+    private var todayHealthTiles: [HealthDashboardTileModel] {
+        [
+            healthTile(.hrv, value: "64", unit: "ms",
+                       spark: [58, 61, 57, 63, 66, 62, 60, 65, 68, 64, 61, 66, 63, 64],
+                       rail: .typical(position: 0.62, range: 0.30...0.78, inRange: true),
+                       accent: StrandPalette.metricPurple),
+            healthTile(.restingHr, value: "55", unit: "bpm",
+                       spark: [56, 55, 57, 54, 55, 56, 58, 55, 54, 55, 56, 55, 54, 55],
+                       rail: .typical(position: 0.38, range: 0.22...0.70, inRange: true),
+                       accent: StrandPalette.metricRose),
+            healthTile(.respiratory, value: "21.4", unit: "rpm",
+                       spark: [15.2, 15.6, 15.1, 16.0, 16.8, 17.5, 18.4, 19.0, 19.9, 20.3, 20.8, 21.0, 21.2, 21.4],
+                       rail: .typical(position: 0.94, range: 0.30...0.70, inRange: false),
+                       accent: StrandPalette.accent),
+            healthTile(.bloodOxygen, value: "97%",
+                       spark: [96, 97, 97, 98, 96, 97, 97, 98, 97, 96, 97, 98, 97, 97],
+                       rail: .typical(position: 0.72, range: 0.50...0.92, inRange: true),
+                       accent: StrandPalette.metricCyan),
+            healthTile(.skinTemp, value: "+0.3°", detail: "2d ago",
+                       spark: [0.1, 0.0, -0.1, 0.2, 0.1, 0.3, 0.2, 0.0, 0.1, 0.3, 0.4, 0.2, 0.3, 0.3],
+                       rail: .typical(position: 0.58, range: 0.30...0.80, inRange: true),
+                       accent: StrandPalette.metricAmber),
+            healthTile(.sleep, value: "6h 48m",
+                       spark: [412, 388, 440, 395, 421, 367, 430, 402, 415, 390, 436, 408, 399, 408],
+                       rail: .progress(0.72), accent: StrandPalette.restColor),
+            healthTile(.stress, value: "—", accent: StrandPalette.effortColor),
+            healthTile(.steps, value: "6,856",
+                       spark: [7200, 5400, 8800, 6100, 9300, 4200, 7700, 8100, 5900, 10200, 6400, 7100, 8300, 6856],
+                       rail: .progress(0.69), accent: StrandPalette.metricCyan),
+            healthTile(.calories, value: "528", unit: "kcal",
+                       spark: [610, 480, 720, 540, 690, 430, 580, 650, 500, 760, 520, 590, 640, 528],
+                       rail: .progress(0.53), accent: StrandPalette.metricAmber)
+        ]
+    }
+
+    var todayHealthPage: some View {
+        HealthDashboardCard(
+            tiles: todayHealthTiles, status: "9 of 9 metrics selected",
+            onTile: { _ in }, onCustomize: {}, onShowAll: {}, onDataSources: {})
+            .galleryMeasured("today-health")
     }
 }
 #endif
