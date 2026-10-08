@@ -54,58 +54,19 @@ struct LocalCoachCardView: View {
 
 // MARK: - Shared chrome
 
-/// Bounded widget surface: tinted icon + eyebrow title on the left, the record's actual date (and a Stale
-/// pill when the newest record is two or more days older than the window that was read) on the right.
+/// Maps a Coach record onto the shared `WidgetCard`: the record's actual date (and a Stale pill when the
+/// newest record is two or more days older than the window that was read) sits in the header's trailing slot.
 private struct CoachCardChrome<Content: View>: View {
     let symbol: String
     let title: String
-    let tint: Color
+    let tint: DomainTint
     let dateLabel: String?
     let isStale: Bool
     @ViewBuilder let content: () -> Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-            HStack(spacing: NoopMetrics.space2) {
-                Image(systemName: symbol).font(StrandFont.caption).foregroundStyle(tint)
-                Text(title).strandOverline().lineLimit(1)
-                Spacer(minLength: NoopMetrics.space2)
-                if isStale { StatePill("Stale", tone: .warning, showsDot: false) }
-                if let dateLabel {
-                    Text(dateLabel)
-                        .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary).lineLimit(1)
-                }
-            }
-            content()
-        }
-        .padding(NoopMetrics.cardPadding)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .frostedCardSurface(tint: tint, cornerRadius: NoopMetrics.radius4)
-    }
-}
-
-/// Icon, label and a right-aligned tabular value. Missing values read "—" in the tertiary ink.
-private struct CoachMetricRow: View {
-    let symbol: String
-    let tint: Color
-    let label: String
-    let value: String
-    var unit: String? = nil
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
-            Image(systemName: symbol).font(StrandFont.caption).foregroundStyle(tint).frame(width: 18)
-            Text(label).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary).lineLimit(1)
-            Spacer(minLength: NoopMetrics.space1)
-            HStack(alignment: .firstTextBaseline, spacing: 2) {
-                Text(value).font(StrandFont.bodyNumber)
-                    .foregroundStyle(value == "—" ? StrandPalette.textTertiary : StrandPalette.textPrimary)
-                if let unit, value != "—" {
-                    Text(unit).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
-                }
-            }
-            .lineLimit(1)
-        }
+        WidgetCard(title: title, systemImage: symbol, tint: tint,
+                   trailing: .record(date: dateLabel, isStale: isStale), content: content)
     }
 }
 
@@ -123,28 +84,6 @@ private struct CoachEmptyRing: View {
     }
 }
 
-/// A gauge beside its stat rows. Falls back to stacked at accessibility text sizes so nothing truncates.
-private struct CoachGaugeLayout<Gauge: View, Rows: View>: View {
-    @Environment(\.dynamicTypeSize) private var typeSize
-    @ViewBuilder let gauge: () -> Gauge
-    @ViewBuilder let rows: () -> Rows
-
-    var body: some View {
-        if typeSize.isAccessibilitySize {
-            VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-                gauge()
-                rows()
-            }
-        } else {
-            HStack(alignment: .center, spacing: NoopMetrics.space4) {
-                gauge()
-                VStack(alignment: .leading, spacing: NoopMetrics.space3) { rows() }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-    }
-}
-
 private enum CoachCardMetrics {
     static let gaugeDiameter: CGFloat = 96
     static let gaugeLineWidth: CGFloat = 7
@@ -157,10 +96,9 @@ private struct CoachRecoveryCard: View {
     @ScaledMetric(relativeTo: .title) private var gauge = CoachCardMetrics.gaugeDiameter
 
     var body: some View {
-        CoachCardChrome(symbol: "heart.fill", title: "Recovery",
-                        tint: card.score.map { RecoveryBands.color(for: $0) } ?? StrandPalette.textTertiary,
+        CoachCardChrome(symbol: "heart.fill", title: "Recovery", tint: .recovery(score: card.score),
                         dateLabel: LocalCoachCardFormat.dayLabel(card.day), isStale: card.isStale) {
-            CoachGaugeLayout {
+            GaugeLayout {
                 if let score = card.score {
                     RecoveryRing(score: score, diameter: min(gauge, 132), lineWidth: CoachCardMetrics.gaugeLineWidth,
                                  showsLabel: true, showsWordmark: false, showsHover: false)
@@ -168,12 +106,12 @@ private struct CoachRecoveryCard: View {
                     CoachEmptyRing(diameter: min(gauge, 132), lineWidth: CoachCardMetrics.gaugeLineWidth)
                 }
             } rows: {
-                CoachMetricRow(symbol: "waveform.path.ecg", tint: StrandPalette.metricCyan, label: "HRV",
-                               value: LocalCoachCardFormat.whole(card.hrvMs), unit: "ms")
-                CoachMetricRow(symbol: "heart.fill", tint: StrandPalette.metricRose, label: "Resting HR",
-                               value: LocalCoachCardFormat.whole(card.restingHr), unit: "bpm")
-                CoachMetricRow(symbol: "moon.zzz.fill", tint: StrandPalette.sleepAccent, label: "Sleep",
-                               value: LocalCoachCardFormat.duration(minutes: card.sleepMinutes))
+                MetricValueRow(systemImage: "waveform.path.ecg", label: "HRV",
+                                value: LocalCoachCardFormat.whole(card.hrvMs), unit: "ms", tint: .hrv)
+                MetricValueRow(systemImage: "heart.fill", label: "Resting HR",
+                                value: LocalCoachCardFormat.whole(card.restingHr), unit: "bpm", tint: .heart)
+                MetricValueRow(systemImage: "moon.zzz.fill", label: "Sleep",
+                                value: LocalCoachCardFormat.duration(minutes: card.sleepMinutes), tint: .sleep)
             }
         }
     }
@@ -183,7 +121,6 @@ private struct CoachRecoveryCard: View {
 
 private struct CoachSleepCard: View {
     let card: LocalCoachCard.Sleep
-    @ScaledMetric(relativeTo: .title) private var bigValue: CGFloat = 34
 
     private var stages: [(label: String, minutes: Double?, color: Color)] {
         [("Deep", card.deepMinutes, StrandPalette.sleepDeep),
@@ -192,14 +129,11 @@ private struct CoachSleepCard: View {
     }
 
     var body: some View {
-        CoachCardChrome(symbol: "moon.stars.fill", title: "Sleep", tint: StrandPalette.sleepAccent,
+        CoachCardChrome(symbol: "moon.stars.fill", title: "Sleep", tint: .sleep,
                         dateLabel: LocalCoachCardFormat.dayLabel(card.day), isStale: card.isStale) {
-            VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+            VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text(LocalCoachCardFormat.duration(minutes: card.totalMinutes))
-                        .font(StrandFont.number(bigValue, weight: .bold))
-                        .foregroundStyle(card.totalMinutes == nil ? StrandPalette.textTertiary : StrandPalette.textPrimary)
-                        .lineLimit(1).minimumScaleFactor(0.7)
+                    HeroValue(value: LocalCoachCardFormat.duration(minutes: card.totalMinutes))
                     Spacer(minLength: NoopMetrics.space2)
                     if let efficiency = card.efficiencyPercent {
                         VStack(alignment: .trailing, spacing: 0) {
@@ -288,13 +222,13 @@ private struct CoachTrendFormat {
 
     func unit(_ payloadUnit: String) -> String { isEffort ? "of \(UnitFormatter.effortScaleMax(effortScale))" : payloadUnit }
 
-    var accent: Color {
+    var tint: DomainTint {
         switch metricID {
-        case "recovery": return StrandPalette.recoveryHigh
-        case "strain": return StrandPalette.strainAccent
-        case "sleep": return StrandPalette.sleepAccent
-        case "hrv": return StrandPalette.metricCyan
-        default: return StrandPalette.metricRose
+        case "recovery": return .custom(StrandPalette.recoveryHigh)
+        case "strain": return .strain
+        case "sleep": return .sleep
+        case "hrv": return .hrv
+        default: return .heart
         }
     }
 
@@ -312,7 +246,6 @@ private struct CoachTrendFormat {
 private struct CoachTrendCard: View {
     let card: LocalCoachCard.Trend
     let effortScale: EffortScale
-    @ScaledMetric(relativeTo: .title) private var bigValue: CGFloat = 34
 
     private var format: CoachTrendFormat { CoachTrendFormat(metricID: card.metricID, effortScale: effortScale) }
 
@@ -332,53 +265,29 @@ private struct CoachTrendCard: View {
 
     private var gradient: Gradient {
         card.metricID == "recovery" ? StrandPalette.recoveryGradient
-            : Gradient(colors: [format.accent.opacity(0.55), format.accent])
+            : Gradient(colors: [format.tint.accent.opacity(0.55), format.tint.accent])
     }
 
     var body: some View {
-        CoachCardChrome(symbol: format.symbol, title: "\(card.title) trend", tint: format.accent,
+        CoachCardChrome(symbol: format.symbol, title: "\(card.title) trend", tint: format.tint,
                         dateLabel: LocalCoachCardFormat.dayLabel(card.day), isStale: card.isStale) {
-            VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text(format.text(card.latest)).font(StrandFont.number(bigValue, weight: .bold))
-                        .foregroundStyle(card.latest == nil ? StrandPalette.textTertiary : StrandPalette.textPrimary)
-                        .lineLimit(1).minimumScaleFactor(0.7)
-                    Text(format.unit(card.unit)).font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
-                    Spacer(minLength: NoopMetrics.space2)
-                    Text("\(card.points.count) recorded days")
-                        .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
-                }
+            VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
+                HeroValue(value: format.text(card.latest), unit: format.unit(card.unit),
+                                caption: "\(card.points.count) recorded days")
                 if chartPoints.count > 1 {
                     TrendChart(points: chartPoints, gradient: gradient,
                                valueRange: card.metricID == "recovery" ? 0...100 : domain, showsArea: true,
-                               height: 112, showsHover: false,
+                               height: WidgetMetrics.chartHeight, showsHover: false,
                                valueFormat: { format.text($0) },
                                accessibilityLabel: "\(card.title) trend", yDomain: domain,
-                               xAxisEndPadding: 22)
+                               xAxisLabelCount: WidgetMetrics.maxXAxisLabels)
                         .accessibilityHidden(true)
                 }
-                HStack(alignment: .top, spacing: NoopMetrics.space2) {
-                    CoachTrendStat(label: "Low", value: format.text(card.minimum))
-                    CoachTrendStat(label: "Average", value: format.text(card.average))
-                    CoachTrendStat(label: "High", value: format.text(card.maximum))
-                }
+                StatFooter(items: [("Low", format.text(card.minimum)),
+                                      ("Average", format.text(card.average)),
+                                      ("High", format.text(card.maximum))])
             }
         }
-    }
-}
-
-private struct CoachTrendStat: View {
-    let label: String
-    let value: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(label).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
-            Text(value).font(StrandFont.bodyNumber)
-                .foregroundStyle(value == "—" ? StrandPalette.textTertiary : StrandPalette.textPrimary)
-                .lineLimit(1).minimumScaleFactor(0.8)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -390,9 +299,9 @@ private struct CoachEffortCard: View {
     @ScaledMetric(relativeTo: .title) private var gauge = CoachCardMetrics.gaugeDiameter
 
     var body: some View {
-        CoachCardChrome(symbol: "flame.fill", title: "Effort", tint: StrandPalette.strainAccent,
+        CoachCardChrome(symbol: "flame.fill", title: "Effort", tint: .strain,
                         dateLabel: LocalCoachCardFormat.dayLabel(card.day), isStale: card.isStale) {
-            CoachGaugeLayout {
+            GaugeLayout {
                 if let stored = card.value {
                     StrainGauge(strain: UnitFormatter.effortValue(stored, scale: effortScale), outOf: 21,
                                 diameter: min(gauge, 132), lineWidth: CoachCardMetrics.gaugeLineWidth,
@@ -402,12 +311,13 @@ private struct CoachEffortCard: View {
                     CoachEmptyRing(diameter: min(gauge, 132), lineWidth: CoachCardMetrics.gaugeLineWidth)
                 }
             } rows: {
-                CoachMetricRow(symbol: "figure.run", tint: StrandPalette.strainAccent, label: "Workouts",
-                               value: card.workoutCount.map(String.init) ?? "—",
-                               unit: card.workoutCount == nil ? nil : "in \(card.windowDays) d")
+                MetricValueRow(systemImage: "figure.run", label: "Workouts",
+                                value: card.workoutCount.map(String.init) ?? "—",
+                                unit: card.workoutCount == nil ? nil : "in \(card.windowDays) d", tint: .strain)
                 if let stored = card.value {
-                    CoachMetricRow(symbol: "speedometer", tint: StrandPalette.strainAccent, label: "Load",
-                                   value: StrainScale.band(UnitFormatter.effortValue(stored, scale: effortScale)).title)
+                    MetricValueRow(systemImage: "speedometer", label: "Load",
+                                    value: StrainScale.band(UnitFormatter.effortValue(stored, scale: effortScale)).title,
+                                    tint: .strain)
                     Text("Out of \(UnitFormatter.effortScaleMax(effortScale))")
                         .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
                 }
@@ -429,7 +339,7 @@ private struct CoachWorkoutsCard: View {
     }
 
     var body: some View {
-        CoachCardChrome(symbol: "figure.run", title: "Recent workouts", tint: StrandPalette.strainAccent,
+        CoachCardChrome(symbol: "figure.run", title: "Recent workouts", tint: .workout,
                         dateLabel: windowLabel, isStale: card.isStale) {
             VStack(spacing: 0) {
                 ForEach(Array(card.items.enumerated()), id: \.offset) { index, item in
@@ -488,47 +398,16 @@ private struct CoachWorkoutFigure: View {
 
 private struct CoachStatsCard: View {
     let card: LocalCoachCard.Stats
-    @ScaledMetric(relativeTo: .title3) private var valueSize: CGFloat = 20
 
     private var symbol: String {
         card.title == "Recorded nutrition" ? "fork.knife" : "clock.arrow.circlepath"
     }
 
     var body: some View {
-        CoachCardChrome(symbol: symbol, title: card.title, tint: StrandPalette.accent,
+        CoachCardChrome(symbol: symbol, title: card.title, tint: .accent,
                         dateLabel: card.day.map { LocalCoachCardFormat.dayLabel($0) }, isStale: card.isStale) {
-            // One shared value size for every column: the largest that fits on one line, else a smaller
-            // shared size that may wrap to two lines. Columns never shrink independently.
-            ViewThatFits(in: .horizontal) {
-                columns(size: valueSize, lines: 1)
-                columns(size: valueSize * 0.85, lines: 1)
-                columns(size: valueSize * 0.7, lines: 2)
-            }
-        }
-    }
-
-    private func columns(size: CGFloat, lines: Int) -> some View {
-        HStack(alignment: .top, spacing: 0) {
-            ForEach(Array(card.items.prefix(3).enumerated()), id: \.offset) { index, item in
-                if index > 0 {
-                    Rectangle().fill(StrandPalette.hairline).frame(width: 1, height: 34)
-                        .accessibilityHidden(true)
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(item.label).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
-                        .lineLimit(1)
-                    Text(LocalCoachCardFormat.displayValue(item.value))
-                        .font(StrandFont.number(size, weight: .semibold))
-                        .foregroundStyle(StrandPalette.textPrimary)
-                        .lineLimit(lines)
-                        // One-line sizes report their full width, so ViewThatFits moves to the next
-                        // shared size instead of truncating a single column.
-                        .fixedSize(horizontal: lines == 1, vertical: true)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, index == 0 ? 0 : NoopMetrics.space3)
-                .padding(.trailing, index == min(card.items.count, 3) - 1 ? 0 : NoopMetrics.space3)
-            }
+            StatFooter(items: card.items.prefix(3).map { (label: $0.label, value: LocalCoachCardFormat.displayValue($0.value)) },
+                          style: .prominent)
         }
     }
 }
