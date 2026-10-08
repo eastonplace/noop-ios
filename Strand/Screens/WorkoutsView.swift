@@ -162,18 +162,7 @@ struct WorkoutsView: View {
                        // full-bleed time-of-day sky behind the scroll content (it does not scroll).
                        topBackground: nil,
                        backAction: { dismiss() }) {
-            HStack(spacing: 16) {
-                Button { liftDestination = .history } label: {
-                    Label("Lift history", systemImage: "list.bullet.rectangle")
-                }
-                Spacer()
-                Button { liftDestination = .progress } label: {
-                    Label("Lift progress", systemImage: "chart.xyaxis.line")
-                }
-            }.font(.subheadline.weight(.semibold)).tint(StrandPalette.accent)
-            Button { liftDestination = .routines } label: {
-                Label("Manage routines", systemImage: "calendar")
-            }.font(.subheadline).tint(StrandPalette.textSecondary)
+            liftEntryRows
             if allRows.isEmpty {
                 VStack(alignment: .leading, spacing: NoopMetrics.space4) {
                     ComingSoon(what: loaded
@@ -523,6 +512,28 @@ struct WorkoutsView: View {
         case .lifting:      return String(localized: "Lifting")
         case .activityFile: return String(localized: "File")
         }
+    }
+
+    /// Lift entry points as canonical chevron rows (one flat section, hairline-separated) instead of loose
+    /// text links. Each row opens the same Lift sheet destination it always did.
+    private var liftEntryRows: some View {
+        StrandCard(padding: 0) {
+            VStack(spacing: 0) {
+                liftEntryRow("Lift history", icon: "list.bullet.rectangle", destination: .history)
+                Divider().overlay(StrandPalette.hairline)
+                liftEntryRow("Lift progress", icon: "chart.xyaxis.line", destination: .progress)
+                Divider().overlay(StrandPalette.hairline)
+                liftEntryRow("Manage routines", icon: "calendar", destination: .routines)
+            }
+        }
+    }
+
+    private func liftEntryRow(_ title: LocalizedStringKey, icon: String,
+                              destination: LiftDestination) -> some View {
+        Button { liftDestination = destination } label: {
+            SettingsRow(icon: icon, title: title, showsChevron: true)
+        }
+        .buttonStyle(PaperPressStyle())
     }
 
     /// Opens the add sheet (editing == nil). Present on the populated screen and the empty state so a
