@@ -202,7 +202,7 @@ private struct TodayPillarSnapshotCard: View {
                                     .font(StrandFont.micro.weight(.semibold))
                                     .foregroundStyle(StrandPalette.textPrimary)
                                 Text(glance)
-                                    .font(.system(size: 13))
+                                    .font(StrandFont.footnote)
                                     .foregroundStyle(StrandPalette.textSecondary)
                                     .lineLimit(1)
                             }
@@ -1664,7 +1664,7 @@ struct TodayView: View {
                 .overlay(alignment: .topTrailing) {
                     if updateStore.unreadCount > 0 {
                         Text("\(min(updateStore.unreadCount, 99))")
-                            .font(.system(size: 9, weight: .bold, design: .rounded))
+                            .font(StrandFont.rounded(9))
                             .monospacedDigit()
                             .foregroundStyle(StrandPalette.onInk)
                             // Fixed 14pt square + Circle() = a true CIRCLE on both platforms, kept INSIDE
