@@ -143,7 +143,7 @@ struct LabBookView: View {
                 } label: {
                     Label("Add a reading", systemImage: "plus")
                 }
-                .buttonStyle(.noopPrimary)
+                .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
                 .accessibilityLabel("Add a marker reading")
             }
         }
@@ -191,7 +191,7 @@ struct LabBookView: View {
                     } label: {
                         Label(csvImporting ? "Importing…" : "Choose CSV…", systemImage: "tray.and.arrow.down")
                     }
-                    .buttonStyle(.noopPrimary)
+                    .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
                     .disabled(csvImporting)
                     .accessibilityLabel("Choose a markers CSV file to import")
                     if csvImporting { ProgressView().controlSize(.small) }
@@ -1070,7 +1070,7 @@ private struct LabBookDisclaimerView: View {
                 bullet(String(localized: "Your records never leave \(Platform.deviceNounPhrase). There's no account, no cloud, no NOOP server. Because NOOP is an independent app you run yourself (not a healthcare provider), it isn't \"HIPAA-covered,\" and that protection doesn't apply here; the safety comes from the data being local-only and yours."))
                 bullet(String(localized: "Always rely on your doctor, pharmacist, or a qualified professional to interpret results and make decisions. If a number worries you, talk to them, not to an app."))
                 Button("Got it") { dismiss() }
-                    .buttonStyle(.noopPrimary)
+                    .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
                     .padding(.top, 4)
             }
         }

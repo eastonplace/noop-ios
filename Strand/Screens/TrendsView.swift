@@ -125,7 +125,7 @@ struct TrendsView: View {
                         } label: {
                             Label("Try again", systemImage: "arrow.clockwise")
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(NoopButtonStyle(.secondary))
                     }
                 }
             }

@@ -94,7 +94,7 @@ struct MarkerEditorView: View {
                         } label: {
                             Label("Add a custom marker", systemImage: "plus")
                         }
-                        .buttonStyle(.noopGhost)
+                        .buttonStyle(NoopButtonStyle(.tertiary, fullWidth: true))
                     }
                 }
             }
@@ -335,12 +335,10 @@ struct MarkerEditorView: View {
     private var footer: some View {
         HStack {
             Button("Cancel") { dismiss() }
-                .buttonStyle(.plain)
-                .font(StrandFont.body)
-                .foregroundStyle(StrandPalette.textSecondary)
+                .buttonStyle(NoopButtonStyle(.tertiary))
             Spacer()
             Button("Save") { save() }
-                .buttonStyle(.noopPrimary)
+                .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
                 .frame(maxWidth: 160)
                 .disabled(drafts.isEmpty || saving)
                 .accessibilityLabel("Save reading")

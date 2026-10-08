@@ -88,14 +88,12 @@ struct AutoWorkoutCard: View {
                     } label: {
                         Label("Save it", systemImage: "checkmark")
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(StrandPalette.textPrimary)
+                    .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
                     .disabled(saving)
 
                     Button("Not a workout") { dismiss(w) }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
                         .disabled(saving)
-                    Spacer()
                 }
             }
         }

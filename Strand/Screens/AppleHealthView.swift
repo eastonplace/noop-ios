@@ -573,8 +573,7 @@ struct AppleHealthView: View {
                     } label: {
                         Label("Enable Apple Health", systemImage: "heart.fill")
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(StrandPalette.textPrimary)
+                    .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
 
                 case .denied:
                     StatePill("Permission needed", tone: .warning)
@@ -585,8 +584,7 @@ struct AppleHealthView: View {
                     Link(destination: URL(string: UIApplication.openSettingsURLString)!) {
                         Label("Open Settings", systemImage: "gear")
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(StrandPalette.textPrimary)
+                    .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
 
                 case .authorized:
                     if let last = health.lastSync {
@@ -606,8 +604,7 @@ struct AppleHealthView: View {
                     } label: {
                         Label("Sync now", systemImage: "arrow.triangle.2.circlepath")
                     }
-                    .buttonStyle(.bordered)
-                    .tint(StrandPalette.metricCyan)
+                    .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
                     .disabled(health.syncing)
                 }
 

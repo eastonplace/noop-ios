@@ -476,7 +476,7 @@ struct SleepView: View {
                                             stagesJSON: session.stagesJSON,
                                             userEdited: session.userEdited)
                     }
-                    .buttonStyle(.noopGhost)
+                    .buttonStyle(NoopButtonStyle(.tertiary, fullWidth: true))
                 }
             }
         }
@@ -3446,7 +3446,7 @@ private struct SleepTimeEditor: View {
 
             HStack(spacing: NoopMetrics.gap) {
                 Button("Cancel") { dismiss() }
-                    .buttonStyle(.noopGhost)
+                    .buttonStyle(NoopButtonStyle(.tertiary, fullWidth: true))
                     .disabled(saving)
                 Spacer()
                 Button(saving ? "Saving…" : "Save") {
@@ -3463,7 +3463,7 @@ private struct SleepTimeEditor: View {
                         commit(start: start, end: end)
                     }
                 }
-                .buttonStyle(.noopPrimary)
+                .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
                 .disabled(saving || !proposedWindowIsValid)
             }
         }

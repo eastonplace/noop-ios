@@ -164,7 +164,7 @@ struct RhythmConsentGate: View {
 
                     if let onCancel {
                         Button("Not now", action: onCancel)
-                            .buttonStyle(.noopGhost)
+                            .buttonStyle(NoopButtonStyle(.tertiary, fullWidth: true))
                     }
                 }
             }

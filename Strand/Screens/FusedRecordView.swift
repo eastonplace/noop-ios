@@ -355,7 +355,7 @@ private struct ConflictCompareSheet: View {
                 }
 
                 Button("Done") { dismiss() }
-                    .buttonStyle(.noopSecondary)
+                    .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
                     .padding(.top, 4)
             }
         }
