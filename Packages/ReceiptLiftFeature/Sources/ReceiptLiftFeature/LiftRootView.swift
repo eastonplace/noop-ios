@@ -33,6 +33,19 @@ public enum LiftDestination: String, Identifiable {
   public var id: String { rawValue }
 }
 
+/// Whether the Lift start screen should open an active session's workout by itself. Reopening Lift after a
+/// relaunch used to land on a picker whose "Resume active lift" button needed a second tap. It is one-shot per
+/// presentation, so a deliberate dismissal of the workout is never undone.
+enum LiftAutoResumePolicy {
+  static func shouldResume(
+    destination: LiftDestination,
+    hasActiveSession: Bool,
+    alreadyAutoResumed: Bool
+  ) -> Bool {
+    destination == .start && hasActiveSession && !alreadyAutoResumed
+  }
+}
+
 struct LiftRootView: View {
   let destination: LiftDestination
   init(destination: LiftDestination = .start) { self.destination = destination }
@@ -41,6 +54,7 @@ struct LiftRootView: View {
   @State private var showsSettings = false
   @State private var previewRoutine: LiftRoutine?
   @State private var isWorkoutPresented = false
+  @State private var hasAutoResumed = false
   @State private var printedSession: LiftSession?
   @State private var selectedHistorySegment = LiftHistorySegment.receipts
 
@@ -78,6 +92,7 @@ struct LiftRootView: View {
     }
     .sheet(isPresented: $showsSettings) { SettingsView().environmentObject(store) }
     .tint(LiftTheme.accent)
+    .task { await autoResumeActiveSessionIfNeeded() }
     .fullScreenCover(isPresented: workoutPresentation) {
       LiveWorkoutView(
         onDismiss: { isWorkoutPresented = false },
@@ -144,6 +159,23 @@ struct LiftRootView: View {
         }
       }.padding(20)
     }.background(LiftTheme.paper)
+  }
+
+  private func autoResumeActiveSessionIfNeeded() async {
+    func shouldResume() -> Bool {
+      LiftAutoResumePolicy.shouldResume(
+        destination: destination,
+        hasActiveSession: store.activeSession != nil,
+        alreadyAutoResumed: hasAutoResumed
+      )
+    }
+    guard shouldResume() else { return }
+    // This view usually appears inside a sheet that is still sliding in; a cover presented during that
+    // transition can be dropped by UIKit, so let the sheet settle first.
+    try? await Task.sleep(for: .milliseconds(400))
+    guard !Task.isCancelled, shouldResume() else { return }
+    hasAutoResumed = true
+    isWorkoutPresented = true
   }
 
   private func presentPreview(_ routine: LiftRoutine) {

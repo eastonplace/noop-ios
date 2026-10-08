@@ -16,6 +16,7 @@ struct LiveWorkoutView: View {
             .overlay {
                 WorkoutGoneObserver(model: model, onClose: onClose)
             }
+            .tracksWorkoutSurface()
     }
 }
 

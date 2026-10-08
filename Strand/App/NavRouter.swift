@@ -56,6 +56,11 @@ final class NavRouter: ObservableObject {
     /// flight, so this is the one path that re-opens the live workout for an existing session.
     @Published var presentActiveWorkout = false
 
+    /// Which workout screens (the live run, the Lift flow) are on screen right now, wherever they were
+    /// presented from. Deliberately not `@Published`: it is only read at the moments the shell decides
+    /// whether to auto-present, and publishing it would re-render the shell on every appear/disappear.
+    private(set) var workoutSurfaces = WorkoutSurfaceVisibility()
+
     /// Ask the shell to open the quick-action sheet (Live HR · workout · journal · breathe).
     func requestQuickActions() { quickActionsRequested = true }
 
@@ -75,10 +80,33 @@ final class NavRouter: ObservableObject {
     /// presents the in-exercise screen even when the workout is already running, in one tap from the Today
     /// indicator card. The flag is consumed (and cleared) by `LiveView.consumeActiveWorkoutRequest()`.
     func openActiveWorkout() { presentActiveWorkout = true; requestedDestination = .activeWorkout }
+
+    func workoutSurfaceDidAppear(_ id: UUID) { workoutSurfaces.appeared(id) }
+    func workoutSurfaceDidDisappear(_ id: UUID) { workoutSurfaces.disappeared(id) }
+
     /// Open a Live Session (silent guardian, beta). The Liquid Today entry presents the session screen
     /// directly today; this route exists for deep-link parity so a future shell/inbox item can raise it
     /// the same way as every other destination.
     func openLiveSession() { requestedDestination = .liveSession }
     func openSettings() { requestedDestination = .settings }
     func openUpdates() { requestedDestination = .updates }
+}
+
+// MARK: - Workout surface tracking
+
+private struct WorkoutSurfaceTracker: ViewModifier {
+    @EnvironmentObject private var router: NavRouter
+    @State private var id = UUID()
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear { router.workoutSurfaceDidAppear(id) }
+            .onDisappear { router.workoutSurfaceDidDisappear(id) }
+    }
+}
+
+extension View {
+    /// Report this view's time on screen to the router, so the shell never stacks an auto-presented workout
+    /// on top of a workout screen some other view already presented.
+    func tracksWorkoutSurface() -> some View { modifier(WorkoutSurfaceTracker()) }
 }

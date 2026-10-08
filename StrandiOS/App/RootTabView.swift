@@ -17,6 +17,9 @@ struct RootTabView: View {
     @State private var quickAction: QuickAction?
     /// Presents the Devices manager (pair / switch bands) when a screen asks the shell to open it.
     @State private var showDevices = false
+    /// Presents the Lift flow. Owned here, not by `LiftResumeCard`, so the shell can open it on its own after a
+    /// relaunch and from the lift Live Activity's deep link.
+    @State private var showLift = false
     /// A routed v5 pillar screen (Insights hub / Lab Book / fused record / Rhythm) presented as a sheet
     /// when a hub row deep-links to it via NavRouter. nil = closed.
     @State private var routedPillar: NavRouter.Destination?
@@ -72,7 +75,7 @@ struct RootTabView: View {
         // Give the bar its own layout space. A TabView can forward an outer safe-area inset
         // inconsistently to nested NavigationStacks, covering a bottom-aligned composer.
             VStack(spacing: 0) {
-            LiftResumeCard().padding(.horizontal, 16)
+            LiftResumeCard(onResume: { showLift = true }).padding(.horizontal, 16)
             PaperTabBar(selection: $selectedTab, onReselect: { tab in
                 // Only Today owns a current-day data refresh. Reselecting Settings, Trends, or Sleep
                 // must not wake the store or rebuild unrelated health state.
@@ -89,6 +92,11 @@ struct RootTabView: View {
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         }
+        .background {
+            ActiveSessionAutoPresenter(
+                otherPresentationActive: quickAction != nil || showDevices || routedPillar != nil || showLift,
+                presentLift: { showLift = true })
+        }
         .task {
             routePendingCoachRequest()
             // AppModel owns the one initial full-history repository load. This shell only performs the
@@ -103,6 +111,9 @@ struct RootTabView: View {
         }
         .sheet(isPresented: $showDevices) {
             devicesScreen
+        }
+        .sheet(isPresented: $showLift) {
+            LiftLogView()
         }
         .sheet(item: $routedPillar) { destination in
             pillarScreen(destination)
@@ -263,6 +274,64 @@ struct RootTabView: View {
         }
         .toolbar(.hidden, for: .tabBar)
         .tabItem { Label(title, systemImage: icon) }
+    }
+}
+
+/// Invisible leaf that re-presents an in-flight run or lift without a tap: once on launch, and once each time
+/// the app returns from the background (see `ActiveSessionAutoPresentPolicy` for the rules). It is its own view
+/// so the AppModel and lift churn it observes re-renders only this empty body, never the tab shell.
+private struct ActiveSessionAutoPresenter: View {
+    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var lift: NoopReceiptLiftIntegration
+    @EnvironmentObject private var router: NavRouter
+    @Environment(\.scenePhase) private var scenePhase
+    let otherPresentationActive: Bool
+    let presentLift: () -> Void
+    @State private var policy = ActiveSessionAutoPresentPolicy()
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .task {
+                // Let the first frame and its sheets settle; a sheet presented during the launch transition
+                // can be dropped.
+                try? await Task.sleep(for: .milliseconds(300))
+                guard !Task.isCancelled, scenePhase == .active else { return }
+                present(policy.sceneBecameActive(context))
+            }
+            .onChange(of: scenePhase) { _, phase in
+                switch phase {
+                case .background: policy.sceneEnteredBackground()
+                case .active: present(policy.sceneBecameActive(context))
+                case .inactive: break
+                @unknown default: break
+                }
+            }
+            .onChange(of: lift.restoredSessionPending) { _, pending in
+                guard pending else { return }
+                lift.consumeRestoredSession()
+                // Restored while backgrounded (a background relaunch): the next foreground edge sees it.
+                guard scenePhase == .active else { return }
+                present(policy.liftSessionRestored(context))
+            }
+    }
+
+    private var context: ActiveSessionAutoPresentPolicy.Context {
+        ActiveSessionAutoPresentPolicy.Context(
+            hasActiveRun: model.activeWorkout != nil,
+            hasActiveLift: lift.coordinator?.hasActiveSession == true,
+            workoutSurfaceVisible: router.workoutSurfaces.isVisible,
+            otherPresentationActive: otherPresentationActive)
+    }
+
+    private func present(_ target: ActiveSessionAutoPresentPolicy.Target?) {
+        switch target {
+        case .run: router.openActiveWorkout()
+        case .lift: presentLift()
+        case nil: break
+        }
     }
 }
 
