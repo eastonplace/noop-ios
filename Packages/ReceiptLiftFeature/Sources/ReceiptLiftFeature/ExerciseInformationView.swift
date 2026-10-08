@@ -1,3 +1,4 @@
+import StrandDesign
 import SwiftUI
 
 struct ExerciseInformationView: View {
@@ -9,26 +10,52 @@ struct ExerciseInformationView: View {
       LiftExerciseThumb(exercise: exercise, size: 240)
         .frame(maxWidth: .infinity)
         .accessibilityLabel("Illustration of \(exercise.name)")
-      LabeledContent("Body area", value: metadata?.bodyPart.capitalized ?? exercise.muscleGroup)
-      LabeledContent("Primary muscle", value: metadata?.target.capitalized ?? exercise.muscleGroup)
-      if let secondary = metadata?.secondaryMuscles, !secondary.isEmpty {
-        LabeledContent("Secondary muscles", value: secondary.map { $0.capitalized }.joined(separator: ", "))
-      }
-      LabeledContent("Equipment", value: exercise.equipment.capitalized)
-      ReceiptSectionLabel(title: "How to perform")
-      if let steps = metadata?.instructionSteps?["en"], !steps.isEmpty {
-        ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
-          HStack(alignment: .top, spacing: 12) {
-            Text("\(index + 1).")
-              .foregroundStyle(LiftTheme.accent)
-            Text(step).fixedSize(horizontal: false, vertical: true)
-          }
+      VStack(spacing: 0) {
+        infoRow("Body area", metadata?.bodyPart.capitalized ?? exercise.muscleGroup)
+        infoRow("Primary muscle", metadata?.target.capitalized ?? exercise.muscleGroup)
+        if let secondary = metadata?.secondaryMuscles, !secondary.isEmpty {
+          infoRow("Secondary muscles", secondary.map { $0.capitalized }.joined(separator: ", "))
         }
-      } else {
-        Text(exercise.instructions).fixedSize(horizontal: false, vertical: true)
+        infoRow("Equipment", exercise.equipment.capitalized)
+      }
+      LiftSection(title: "How to perform") {
+        if let steps = metadata?.instructionSteps?["en"], !steps.isEmpty {
+          VStack(alignment: .leading, spacing: 10) {
+            ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
+              HStack(alignment: .top, spacing: 12) {
+                Text("\(index + 1).")
+                  .font(StrandFont.number(15))
+                  .foregroundStyle(LiftTheme.accent)
+                Text(step)
+                  .font(StrandFont.subhead)
+                  .foregroundStyle(StrandPalette.textPrimary)
+                  .fixedSize(horizontal: false, vertical: true)
+              }
+            }
+          }
+        } else {
+          Text(exercise.instructions)
+            .font(StrandFont.subhead)
+            .foregroundStyle(StrandPalette.textPrimary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
       }
     }
-    .font(.system(size: 15))
-    .foregroundStyle(LiftTheme.ink)
+  }
+
+  private func infoRow(_ label: String, _ value: String) -> some View {
+    HStack(alignment: .firstTextBaseline, spacing: 12) {
+      Text(label)
+        .font(StrandFont.subhead)
+        .foregroundStyle(StrandPalette.textSecondary)
+      Spacer(minLength: 8)
+      Text(value)
+        .font(StrandFont.subhead)
+        .foregroundStyle(StrandPalette.textPrimary)
+        .multilineTextAlignment(.trailing)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+    .contentRowSurface(boundedPadding: NoopMetrics.space3, flatVerticalPadding: NoopMetrics.space3)
+    .accessibilityElement(children: .combine)
   }
 }

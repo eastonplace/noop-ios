@@ -1,3 +1,4 @@
+import StrandDesign
 import SwiftUI
 
 struct RoutineEditorView: View {
@@ -18,19 +19,20 @@ struct RoutineEditorView: View {
         Section("Routine") {
           editorField("Name", text: $draft.name, prompt: "Upper A")
           editorField("Notes", text: $draft.notes, prompt: "Training notes", axis: .vertical)
-          Picker("Training Mode", selection: $draft.trainingMode) {
+          Picker("Training mode", selection: $draft.trainingMode) {
             ForEach(TrainingMode.allCases) { mode in
               Text(mode.title).tag(mode)
             }
           }
           .pickerStyle(.segmented)
         }
+        .listRowBackground(StrandPalette.card)
 
         Section("Order") {
           if draft.plans.isEmpty {
-            Text("NO EXERCISES YET")
-              .font(.receipt(11, weight: .bold))
-              .foregroundStyle(LiftTheme.inkSecondary)
+            Text("No exercises yet")
+              .font(StrandFont.subhead)
+              .foregroundStyle(StrandPalette.textSecondary)
           }
           ForEach(draft.plans) { plan in
             Button {
@@ -52,16 +54,18 @@ struct RoutineEditorView: View {
           Button {
             showsExercisePicker = true
           } label: {
-            Label("ADD EXERCISE", systemImage: "plus")
-              .font(.receipt(12, weight: .black))
+            Label("Add exercise", systemImage: "plus")
+              .font(StrandFont.body)
+              .foregroundStyle(StrandPalette.link)
               .frame(maxWidth: .infinity, minHeight: 44)
           }
           .accessibilityHint("Opens the contextual exercise picker")
         }
+        .listRowBackground(StrandPalette.card)
       }
       .scrollContentBackground(.hidden)
-      .background(LiftTheme.paper)
-      .navigationTitle(draft.id == nil ? "CREATE ROUTINE" : "EDIT ROUTINE")
+      .background(StrandPalette.appCanvas)
+      .navigationTitle(draft.id == nil ? "Create routine" : "Edit routine")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
@@ -83,8 +87,6 @@ struct RoutineEditorView: View {
           showsExercisePicker = false
         }
         .environmentObject(store)
-        .navigationTitle("ADD EXERCISE")
-        .navigationBarTitleDisplayMode(.inline)
       }
       .presentationDragIndicator(.visible)
     }
@@ -103,11 +105,12 @@ struct RoutineEditorView: View {
     axis: Axis = .horizontal
   ) -> some View {
     VStack(alignment: .leading, spacing: 5) {
-      Text(label.uppercased())
-        .font(.receipt(9, weight: .black))
-        .foregroundStyle(LiftTheme.inkSecondary)
+      Text(label)
+        .font(StrandFont.caption)
+        .foregroundStyle(StrandPalette.textSecondary)
       TextField(prompt, text: text, axis: axis)
-        .font(.receipt(13, weight: .bold))
+        .font(StrandFont.body)
+        .foregroundStyle(StrandPalette.textPrimary)
         .textInputAutocapitalization(.sentences)
         .frame(minHeight: 44)
     }
@@ -116,19 +119,20 @@ struct RoutineEditorView: View {
   private func planRow(_ plan: RoutinePlanDraft) -> some View {
     HStack(spacing: 10) {
       Image(systemName: "line.3.horizontal")
-        .foregroundStyle(LiftTheme.inkSecondary)
+        .foregroundStyle(StrandPalette.textTertiary)
         .accessibilityHidden(true)
       VStack(alignment: .leading, spacing: 3) {
-        Text(store.exerciseName(for: plan.exerciseID).uppercased())
-          .font(.receipt(12, weight: .black))
-          .foregroundStyle(LiftTheme.ink)
-        Text("\(plan.sets) × \(plan.reps) / \(plan.rest) / \(plan.targetEffort)".uppercased())
-          .font(.receipt(9, weight: .bold))
-          .foregroundStyle(LiftTheme.inkSecondary)
+        Text(store.exerciseName(for: plan.exerciseID).liftDisplayName)
+          .font(StrandFont.body)
+          .foregroundStyle(StrandPalette.textPrimary)
+        Text("\(plan.sets) × \(plan.reps) · \(plan.rest) · \(plan.targetEffort)")
+          .font(StrandFont.caption)
+          .foregroundStyle(StrandPalette.textSecondary)
       }
       Spacer(minLength: 8)
       Image(systemName: "chevron.right")
-        .foregroundStyle(LiftTheme.inkSecondary)
+        .font(.system(size: 13, weight: .semibold))
+        .foregroundStyle(StrandPalette.textTertiary)
         .accessibilityHidden(true)
     }
     .accessibilityElement(children: .combine)
@@ -250,14 +254,19 @@ private struct RoutinePlanEditor: View {
   var body: some View {
     NavigationStack {
       Form {
-        TextField("Sets", text: $draft.sets)
-        TextField("Reps", text: $draft.reps)
-        TextField("Rest", text: $draft.rest)
-        TextField("Target effort", text: $draft.targetEffort)
-        TextField("Notes", text: $draft.notes, axis: .vertical)
+        Group {
+          TextField("Sets", text: $draft.sets)
+          TextField("Reps", text: $draft.reps)
+          TextField("Rest", text: $draft.rest)
+          TextField("Target effort", text: $draft.targetEffort)
+          TextField("Notes", text: $draft.notes, axis: .vertical)
+        }
+        .listRowBackground(StrandPalette.card)
       }
-      .font(.receipt(13, weight: .bold))
-      .navigationTitle("PLAN DETAILS")
+      .font(StrandFont.body)
+      .scrollContentBackground(.hidden)
+      .background(StrandPalette.appCanvas)
+      .navigationTitle("Plan details")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {

@@ -1,3 +1,4 @@
+import StrandDesign
 import SwiftUI
 
 struct LiftMiniRestSnapshot: Equatable, Sendable {
@@ -83,32 +84,18 @@ struct MiniRestOptionsSheet: View {
   private let presets: [TimeInterval] = [30, 45, 60, 75, 90, 120, 150, 180]
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      HStack(spacing: 8) {
-        VStack(alignment: .leading, spacing: 2) {
-          Text("REST OPTIONS")
-            .font(.receipt(10, weight: .bold))
-            .foregroundStyle(LiftTheme.inkSecondary)
-          Text(store.workoutRestOverrideSeconds.map(liftDuration) ?? "USE PLAN")
-            .font(.receipt(24, weight: .black))
-            .foregroundStyle(LiftTheme.ink)
-            .monospacedDigit()
-        }
-        Spacer(minLength: 8)
-        Button("Close", systemImage: "xmark") {
-          dismiss()
-        }
-        .labelStyle(.iconOnly)
-        .frame(width: 44, height: 44)
-        .buttonStyle(ReceiptIconButtonStyle())
-        .accessibilityLabel("Close rest options")
+    LiftScreen(
+      title: "Rest options",
+      subtitle: LocalizedStringKey(
+        store.workoutRestOverrideSeconds.map { "Next rest \(liftDuration($0))" } ?? "Using the routine plan"
+      ),
+      trailing: {
+        NoopIconButton("xmark", accessibilityLabel: "Close rest options") { dismiss() }
       }
-
-      ReceiptDashedRule()
-
+    ) {
       LazyVGrid(
-        columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4),
-        spacing: 6
+        columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4),
+        spacing: 8
       ) {
         ForEach(presets, id: \.self) { seconds in
           MiniRestPresetButton(
@@ -120,23 +107,11 @@ struct MiniRestOptionsSheet: View {
         }
       }
 
-      Button("USE ROUTINE PLAN", systemImage: "arrow.uturn.left") {
+      NoopButton("Use routine plan", systemImage: "arrow.uturn.left", kind: .secondary, fullWidth: true) {
         store.setWorkoutRestOverride(seconds: nil)
-      }
-      .font(.receipt(10, weight: .black))
-      .foregroundStyle(LiftTheme.ink)
-      .frame(maxWidth: .infinity, minHeight: 44)
-      .buttonStyle(.plain)
-      .overlay {
-        RoundedRectangle(cornerRadius: 4, style: .continuous)
-          .stroke(LiftTheme.ink.opacity(0.35), lineWidth: 1)
       }
       .accessibilityHint("Clears the workout rest override")
     }
-    .padding(.horizontal, 16)
-    .padding(.top, 12)
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    .background(LiftTheme.paper.ignoresSafeArea())
   }
 }
 
@@ -221,24 +196,29 @@ private struct MiniRestBarContent: View {
     )
     .frame(height: LiftDesignMetrics.RestBar.height)
     .background(
-      LiftTheme.ink,
+      StrandPalette.surfaceInset,
       in: RoundedRectangle(
         cornerRadius: LiftDesignMetrics.RestBar.cornerRadius,
         style: .continuous
       )
     )
+    .overlay(
+      RoundedRectangle(
+        cornerRadius: LiftDesignMetrics.RestBar.cornerRadius,
+        style: .continuous
+      )
+      .strokeBorder(StrandPalette.hairline, lineWidth: 1)
+    )
   }
 
   private var restIdentity: some View {
     HStack(spacing: 6) {
-      Text("REST")
-        .font(.receipt(LiftDesignMetrics.RestBar.eyebrowFontSize, weight: .black))
-        .foregroundStyle(LiftTheme.paper.opacity(0.66))
+      Text("Rest")
+        .strandOverline()
       Button(action: onPresentOptions) {
         Text(timerInterval: now...endDate, countsDown: true, showsHours: false)
-          .font(.receipt(LiftDesignMetrics.RestBar.timerFontSize, weight: .black))
-          .foregroundStyle(LiftTheme.paper)
-          .monospacedDigit()
+          .font(StrandFont.number(LiftDesignMetrics.RestBar.timerFontSize, weight: .bold))
+          .foregroundStyle(StrandPalette.textPrimary)
           .frame(minWidth: 54, minHeight: 44)
           .contentShape(Rectangle())
       }
@@ -250,9 +230,9 @@ private struct MiniRestBarContent: View {
   }
 
   private var controls: some View {
-    HStack(spacing: 4) {
+    HStack(spacing: 0) {
       miniButton("−15", accessibilityLabel: "Subtract 15 seconds", action: onSubtract)
-      miniButton("SKIP", accessibilityLabel: "Skip rest", action: onSkip)
+      miniButton("Skip", accessibilityLabel: "Skip rest", action: onSkip)
       miniButton("+15", accessibilityLabel: "Add 15 seconds", action: onAdd)
     }
   }
@@ -263,8 +243,8 @@ private struct MiniRestBarContent: View {
     action: @escaping () -> Void
   ) -> some View {
     Button(title, action: action)
-      .font(.receipt(LiftDesignMetrics.RestBar.actionFontSize, weight: .black))
-      .foregroundStyle(LiftTheme.paper)
+      .font(StrandFont.caption.weight(.semibold))
+      .foregroundStyle(StrandPalette.link)
       .frame(minWidth: 44, minHeight: 44)
       .contentShape(Rectangle())
       .buttonStyle(.plain)
@@ -280,20 +260,8 @@ private struct MiniRestPresetButton: View {
   var body: some View {
     Button(action: action) {
       Text(liftDuration(seconds))
-        .font(.receipt(10, weight: .black))
-        .foregroundStyle(isSelected ? LiftTheme.paper : LiftTheme.ink)
-        .monospacedDigit()
-        .frame(maxWidth: .infinity, minHeight: 44)
-        .background(
-          isSelected ? LiftTheme.ink : LiftTheme.ink.opacity(0.06),
-          in: RoundedRectangle(cornerRadius: 4, style: .continuous)
-        )
-        .overlay {
-          RoundedRectangle(cornerRadius: 4, style: .continuous)
-            .stroke(LiftTheme.ink.opacity(isSelected ? 1 : 0.2), lineWidth: 1)
-        }
     }
-    .buttonStyle(.plain)
+    .buttonStyle(NoopButtonStyle(isSelected ? .primary : .secondary, fullWidth: true))
     .accessibilityLabel("Set next rest to \(liftDuration(seconds))")
     .accessibilityAddTraits(isSelected ? .isSelected : [])
   }

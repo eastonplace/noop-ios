@@ -1,4 +1,5 @@
 #if DEBUG
+import StrandDesign
 import SwiftUI
 
 /// Uses the production views with isolated sample data; never reads or writes NOOP health data.
@@ -49,20 +50,24 @@ public struct ReceiptLiftPreviewView: View {
                     }
                 case "detail":
                     if let exercise = store.activeExercises.first {
-                        NavigationStack { ExerciseProgressView(exerciseID: exercise.id, showsInformation: true) }
+                        NavigationStack { ExerciseProgressView(exerciseID: exercise.id, showsInformation: true, closesModal: true) }
                     }
                 case "workout": LiveWorkoutView(onDismiss: {})
                 case "library": NavigationStack { ExerciseLibraryView() }
                 case "schedule": NavigationStack { ScheduleView(onStartRoutine: { _ in }) }
                 case "progress":
                     if let exercise = store.activeExercises.first { NavigationStack { ExerciseProgressView(exerciseID: exercise.id) } }
+                case "history": LiftRootView(destination: .history)
+                case "settings": SettingsView()
+                case "rest": MiniRestOptionsSheet()
                 case "receipt":
                     if let session = store.sessions.first { CompletedReceiptView(session: session, onClose: {}) }
                 default: LiftRootView()
                 }
-            } else { ProgressView("Preparing sample workout…") }
+            } else { LiftStateMessage(isLoading: true, title: "Preparing sample workout…") }
         }
         .environmentObject(store)
+        .contentSurfacePresentation(.flat)
         .preferredColorScheme(.dark)
         .task {
             guard !ready else { return }

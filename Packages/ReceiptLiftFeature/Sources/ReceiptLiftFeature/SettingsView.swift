@@ -1,3 +1,4 @@
+import StrandDesign
 import SwiftUI
 
 struct SettingsView: View {
@@ -7,61 +8,67 @@ struct SettingsView: View {
   private let starterNames = ["Upper A", "Lower A", "Pull + Posture", "Push + Delts", "Lower B"]
 
   var body: some View {
-    NavigationStack {
-      ScrollView {
-        ReceiptSheet {
-          HStack(alignment: .top) {
-            ReceiptHeader(title: "Lift settings", subtitle: "Rest, feedback and workout exports")
-            Spacer()
-            Button("DONE") { dismiss() }
-              .font(.receipt(10, weight: .black))
-          }
-          ReceiptDashedRule()
-
-          Stepper(value: restBinding, in: 15...600, step: 15) {
-            settingLabel("Default Rest", value: "\(Int(store.settings.defaultRestSeconds)) sec")
-          }
-          ReceiptRule()
-          Toggle(isOn: hapticsBinding) { settingLabel("Haptics", value: store.settings.hapticsEnabled ? "On" : "Off") }
-            .tint(LiftTheme.ink)
-          ReceiptRule()
-          Picker("Export Paper", selection: exportBinding) {
-            Text("WHITE").tag(ExportPaperStyle.white)
-            Text("CREAM").tag(ExportPaperStyle.cream)
-          }
-          .pickerStyle(.segmented)
-
-          ReceiptDashedRule()
-          Menu {
-            ForEach(starterNames, id: \.self) { name in
-              Button(name) { store.restoreStarterRoutine(named: name) }
-            }
-          } label: {
-            ReceiptLine(
-              title: "Restore Starter Routine",
-              detail: "Five starter templates",
-              value: "OPEN →"
-            )
-          }
-          .buttonStyle(.plain)
-
-          ReceiptDashedRule()
-          ReceiptSectionLabel(title: "About")
-          ReceiptLine(title: "Version", value: appVersion)
-          Text("EXERCISE MEDIA: GYM VISUAL · SEE NOTICE")
-            .font(.receipt(9, weight: .bold))
-            .foregroundStyle(LiftTheme.inkSecondary)
-        }
+    LiftScreen(
+      title: "Lift settings",
+      subtitle: "Rest, feedback and workout exports",
+      trailing: {
+        NoopIconButton("xmark", accessibilityLabel: "Close") { dismiss() }
       }
-      .scrollIndicators(.hidden)
-      .toolbar(.hidden, for: .navigationBar)
+    ) {
+      LiftSection(title: "Workout") {
+        Stepper(value: restBinding, in: 15...600, step: 15) {
+          settingLabel("Default rest", value: "\(Int(store.settings.defaultRestSeconds)) sec")
+        }
+        .contentRowSurface(boundedPadding: NoopMetrics.space3, flatVerticalPadding: NoopMetrics.space3)
+
+        Toggle(isOn: hapticsBinding) {
+          settingLabel("Haptics", value: store.settings.hapticsEnabled ? "On" : "Off")
+        }
+        .noopToggle()
+        .contentRowSurface(boundedPadding: NoopMetrics.space3, flatVerticalPadding: NoopMetrics.space3)
+      }
+
+      LiftSection(title: "Receipts") {
+        VStack(alignment: .leading, spacing: 10) {
+          settingLabel("Export paper", value: "Used when you share a receipt image")
+          SegmentedPillControl(
+            [ExportPaperStyle.white, ExportPaperStyle.cream],
+            selection: exportBinding
+          ) { $0 == .white ? "White" : "Cream" }
+        }
+        .contentRowSurface(boundedPadding: NoopMetrics.space3, flatVerticalPadding: NoopMetrics.space3)
+
+        Menu {
+          ForEach(starterNames, id: \.self) { name in
+            Button(name) { store.restoreStarterRoutine(named: name) }
+          }
+        } label: {
+          LiftRow(
+            title: "Restore starter routine",
+            detail: "Five starter templates",
+            showsChevron: true
+          )
+        }
+        .buttonStyle(.plain)
+      }
+
+      LiftSection(title: "About") {
+        LiftRow(title: "Version", value: appVersion)
+        Text("Exercise media: Gym Visual · see notice")
+          .font(StrandFont.caption)
+          .foregroundStyle(StrandPalette.textTertiary)
+      }
     }
   }
 
   private func settingLabel(_ title: String, value: String) -> some View {
     VStack(alignment: .leading, spacing: 2) {
-      Text(title.uppercased()).font(.receipt(11, weight: .black))
-      Text(value.uppercased()).font(.receipt(9, weight: .bold)).foregroundStyle(LiftTheme.inkSecondary)
+      Text(title)
+        .font(StrandFont.body)
+        .foregroundStyle(StrandPalette.textPrimary)
+      Text(value)
+        .font(StrandFont.caption)
+        .foregroundStyle(StrandPalette.textSecondary)
     }
   }
 

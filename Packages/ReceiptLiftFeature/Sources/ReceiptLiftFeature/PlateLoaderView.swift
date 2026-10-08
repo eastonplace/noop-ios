@@ -1,3 +1,4 @@
+import StrandDesign
 import SwiftUI
 
 enum LiftPlateLoaderEligibility {
@@ -39,6 +40,7 @@ enum LiftPlatePresentation {
 }
 
 struct PlateLoaderView: View {
+  @Environment(\.dismiss) private var dismiss
   @Binding private var targetWeight: Double
   private let exercise: LiftExercise
   private let barWeight = LiftDesignMetrics.PlateLoader.barWeight
@@ -57,22 +59,20 @@ struct PlateLoaderView: View {
   }
 
   var body: some View {
-    ReceiptSheet {
-      ReceiptHeader(
-        title: "Plate Loader",
-        subtitle: exercise.name,
-        trailing: "\(LiftPlatePresentation.number(targetWeight)) LB"
-      )
-      ReceiptDashedRule()
-
+    LiftScreen(
+      title: "Plate loader",
+      subtitle: LocalizedStringKey("\(exercise.name.liftDisplayName) · \(LiftPlatePresentation.number(targetWeight)) lb"),
+      trailing: {
+        NoopIconButton("xmark", accessibilityLabel: "Close plate loader") { dismiss() }
+      }
+    ) {
       VStack(spacing: 12) {
         plateDiagram
         Text(
-          "BAR \(LiftPlatePresentation.number(barWeight)) \u{00B7} EACH SIDE \(LiftPlatePresentation.number(perSideTotal))"
+          "Bar \(LiftPlatePresentation.number(barWeight)) · Each side \(LiftPlatePresentation.number(perSideTotal))"
         )
-        .font(.receipt(10, weight: .black))
-        .monospacedDigit()
-        .foregroundStyle(LiftTheme.ink)
+        .font(StrandFont.number(13, weight: .medium))
+        .foregroundStyle(StrandPalette.textSecondary)
       }
       .frame(maxWidth: .infinity)
       .accessibilityElement(children: .ignore)
@@ -93,16 +93,17 @@ struct PlateLoaderView: View {
   private var plateDiagram: some View {
     ZStack {
       Rectangle()
-        .fill(LiftTheme.ink)
-        .frame(height: 1)
+        .fill(StrandPalette.textTertiary)
+        .frame(height: 2)
 
       HStack(spacing: 3) {
         if solution.perSide.isEmpty {
-          Rectangle()
-            .fill(LiftTheme.paper)
+          RoundedRectangle(cornerRadius: 3, style: .continuous)
+            .fill(StrandPalette.inset)
             .frame(width: 12, height: 72)
             .overlay {
-              Rectangle().stroke(LiftTheme.ink, lineWidth: 1)
+              RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .strokeBorder(StrandPalette.textTertiary, lineWidth: 1)
             }
         } else {
           ForEach(Array(solution.perSide.enumerated()), id: \.offset) { index, plate in
@@ -117,56 +118,39 @@ struct PlateLoaderView: View {
   private func plateSlab(_ plate: Double, index: Int) -> some View {
     let ratio = CGFloat(max(min(plate / 45, 1), 0.22))
     return Text(LiftPlatePresentation.number(plate))
-      .font(.receipt(8, weight: .black))
-      .foregroundStyle(LiftTheme.ink)
+      .font(StrandFont.number(11, weight: .bold))
+      .foregroundStyle(StrandPalette.onInk)
+      .fixedSize()
       .rotationEffect(.degrees(-90))
-      .frame(width: 20, height: 48 + (48 * ratio))
-      .background(LiftTheme.paper)
-      .overlay {
-        Rectangle()
-          .stroke(LiftTheme.ink, lineWidth: index == 0 ? 1.5 : 1)
-      }
+      .frame(width: 22, height: 48 + (48 * ratio))
+      .background(
+        index == 0 ? StrandPalette.ink : StrandPalette.accent.opacity(0.78),
+        in: RoundedRectangle(cornerRadius: 3, style: .continuous)
+      )
   }
 
   private var nearestChoices: some View {
     VStack(alignment: .leading, spacing: 8) {
-      Text("NEAREST")
-        .font(.receipt(9, weight: .black))
-        .tracking(0.8)
-        .foregroundStyle(LiftTheme.inkSecondary)
+      Text("Nearest loadable").strandOverline()
 
       HStack(spacing: 8) {
         if let nearestBelow = solution.nearestBelow {
-          nearestButton(title: "BELOW", value: nearestBelow)
+          nearestButton(title: "Below", value: nearestBelow)
         }
         if let nearestAbove = solution.nearestAbove {
-          nearestButton(title: "ABOVE", value: nearestAbove)
+          nearestButton(title: "Above", value: nearestAbove)
         }
       }
     }
-    .padding(.top, 2)
   }
 
   private func nearestButton(title: String, value: Double) -> some View {
     Button {
       targetWeight = value
     } label: {
-      VStack(spacing: 2) {
-        Text(title)
-          .font(.receipt(8, weight: .bold))
-          .foregroundStyle(LiftTheme.inkSecondary)
-        Text("\(LiftPlatePresentation.number(value)) LB")
-          .font(.receipt(12, weight: .black))
-          .monospacedDigit()
-          .foregroundStyle(LiftTheme.ink)
-      }
-      .frame(maxWidth: .infinity)
-      .frame(minHeight: LiftDesignMetrics.PlateLoader.minimumTargetSize)
-      .overlay {
-        Rectangle().stroke(LiftTheme.ink, lineWidth: 1)
-      }
+      Text("\(title) · \(LiftPlatePresentation.number(value)) lb")
     }
-    .buttonStyle(.plain)
+    .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
     .accessibilityLabel(
       "Use \(LiftPlatePresentation.number(value)) pounds, nearest \(title.lowercased())"
     )
