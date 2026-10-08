@@ -200,7 +200,8 @@ enum ScheduledDebugExport {
     /// the task. Both live in the iOS app target — call this from `StrandiOSApp.init()`. Safe to leave
     /// uncalled: `submitBackgroundRequest()` fails gracefully and the macOS path + "Run now" still work.
     static func register() {
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: bgTaskIdentifier, using: nil) { task in
+        // `.main`, not nil: this enum is @MainActor, so the closure traps if iOS invokes it on a worker queue.
+        BGTaskScheduler.shared.register(forTaskWithIdentifier: bgTaskIdentifier, using: .main) { task in
             // Write the drop, then immediately request the next one (BGAppRefresh is single-shot).
             if isEnabled { catchUpIfDue() }
             submitBackgroundRequest()

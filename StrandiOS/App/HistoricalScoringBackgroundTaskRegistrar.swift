@@ -65,9 +65,10 @@ enum HistoricalScoringBackgroundTaskRegistrar {
         guard !registered else { return true }
 
         let taskIdentifier = identifier
+        // The launch handler inherits `@MainActor`; see BackgroundTaskLaunchPolicy for why the queue matters.
         registered = BGTaskScheduler.shared.register(
             forTaskWithIdentifier: taskIdentifier,
-            using: nil
+            using: BackgroundTaskLaunchPolicy.launchQueue
         ) { task in
             guard let processingTask = task as? BGProcessingTask else {
                 task.setTaskCompleted(success: false)
@@ -109,21 +110,39 @@ enum HistoricalScoringBackgroundTaskRegistrar {
                 }
             }
 
-            processingTask.expirationHandler = {
-                worker.cancel()
-                // Submit synchronously before reporting completion. iOS may suspend the process as soon as
-                // the task is completed; the durable lease cleanup below is best-effort, but the next wake
-                // must already be armed even if this process is reclaimed first.
-                Self.submitRequest(identifier: taskIdentifier)
-                Task { @MainActor in
+            processingTask.expirationHandler = makeExpirationHandler(
+                cancelWorker: { worker.cancel() },
+                rearm: { submitRequest(identifier: taskIdentifier) },
+                cancelDurableWork: {
                     if let cancelWork = Self.cancelWork {
                         await cancelWork()
                     }
-                    completion.complete(success: false)
-                }
-            }
+                },
+                complete: { completion.complete(success: $0) }
+            )
         }
         return registered
+    }
+
+    /// Built `nonisolated` and `@Sendable` so it is safe on whichever queue iOS expires the task from;
+    /// the only main-actor work (durable lease cleanup) hops explicitly.
+    nonisolated static func makeExpirationHandler(
+        cancelWorker: @escaping @Sendable () -> Void,
+        rearm: @escaping @Sendable () -> Void,
+        cancelDurableWork: @escaping Cancel,
+        complete: @escaping @Sendable (Bool) -> Void
+    ) -> @Sendable () -> Void {
+        {
+            cancelWorker()
+            // Submit synchronously before reporting completion. iOS may suspend the process as soon as
+            // the task is completed; the durable lease cleanup below is best-effort, but the next wake
+            // must already be armed even if this process is reclaimed first.
+            rearm()
+            Task { @MainActor in
+                await cancelDurableWork()
+                complete(false)
+            }
+        }
     }
 
     static func completionDisposition(
