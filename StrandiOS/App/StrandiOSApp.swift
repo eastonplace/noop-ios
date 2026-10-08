@@ -770,6 +770,9 @@ private struct iOSRootView: View {
         }
         .animation(.easeInOut(duration: 0.35), value: onboarded)
         .animation(.easeInOut(duration: 0.35), value: acceptedTerms)
+        // Onboarding, the terms gate and "What's New" all sit between launch and the tab shell. A restored
+        // workout waits for them to finish rather than stacking a sheet on top.
+        .blocksAutoPresent(while: showWhatsNew || !onboarded || acceptedTerms != Terms.currentVersion)
         .sheet(isPresented: $showWhatsNew) {
             WhatsNewView(onClose: {
                 lastSeenChangelog = AppChangelog.currentVersion

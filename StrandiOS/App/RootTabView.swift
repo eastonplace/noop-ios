@@ -305,9 +305,12 @@ private struct ActiveSessionAutoPresenter: View {
     @EnvironmentObject private var lift: NoopReceiptLiftIntegration
     @EnvironmentObject private var router: NavRouter
     @Environment(\.scenePhase) private var scenePhase
+    /// The shell's own sheets. Launch-time modals elsewhere in the app report through the router.
     let otherPresentationActive: Bool
     let presentLift: () -> Void
     @State private var policy = ActiveSessionAutoPresentPolicy()
+
+    private var isBlocked: Bool { otherPresentationActive || router.isAutoPresentBlocked }
 
     var body: some View {
         Color.clear
@@ -320,6 +323,14 @@ private struct ActiveSessionAutoPresenter: View {
                 try? await Task.sleep(for: .milliseconds(300))
                 guard !Task.isCancelled, scenePhase == .active else { return }
                 present(policy.sceneBecameActive(context))
+            }
+            .task(id: isBlocked) {
+                // Whatever blocked an earlier attempt just went away. Wait for its dismissal to finish
+                // before presenting; a modal that returns meanwhile cancels this task (the id changes).
+                guard !isBlocked else { return }
+                try? await Task.sleep(for: .milliseconds(400))
+                guard !Task.isCancelled else { return }
+                present(policy.otherPresentationEnded(context))
             }
             .onChange(of: scenePhase) { _, phase in
                 switch phase {
@@ -343,7 +354,7 @@ private struct ActiveSessionAutoPresenter: View {
             hasActiveRun: model.activeWorkout != nil,
             hasActiveLift: lift.coordinator?.hasActiveSession == true,
             workoutSurfaceVisible: router.workoutSurfaces.isVisible,
-            otherPresentationActive: otherPresentationActive)
+            otherPresentationActive: isBlocked)
     }
 
     private func present(_ target: ActiveSessionAutoPresentPolicy.Target?) {

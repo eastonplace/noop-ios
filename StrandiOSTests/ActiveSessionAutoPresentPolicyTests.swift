@@ -125,6 +125,107 @@ final class ActiveSessionAutoPresentPolicyTests: XCTestCase {
         XCTAssertEqual(policy.liftSessionRestored(context(lift: true)), .lift)
     }
 
+    // MARK: Waiting out another modal
+
+    func testABlockedRunPresentsOnceTheModalIsGone() {
+        var policy = Policy()
+        // "What's New" is up at launch with a workout restored underneath it.
+        XCTAssertNil(policy.sceneBecameActive(context(run: true, otherPresentation: true)))
+
+        XCTAssertEqual(policy.otherPresentationEnded(context(run: true)), .run)
+        XCTAssertNil(policy.otherPresentationEnded(context(run: true)))
+    }
+
+    func testABlockedLiftPresentsOnceTheModalIsGone() {
+        var policy = Policy()
+        XCTAssertNil(policy.sceneBecameActive(context(lift: true, otherPresentation: true)))
+        XCTAssertEqual(policy.otherPresentationEnded(context(lift: true)), .lift)
+    }
+
+    func testAStillBlockedRetryStaysArmed() {
+        var policy = Policy()
+        XCTAssertNil(policy.sceneBecameActive(context(run: true, otherPresentation: true)))
+
+        // A second modal took the first one's place before the delay elapsed.
+        XCTAssertNil(policy.otherPresentationEnded(context(run: true, otherPresentation: true)))
+        XCTAssertEqual(policy.otherPresentationEnded(context(run: true)), .run)
+    }
+
+    func testNothingBlockedMeansNothingToRetry() {
+        var policy = Policy()
+        XCTAssertEqual(policy.sceneBecameActive(context(run: true)), .run)
+        // The user dismissed the run, then opened and closed some other sheet.
+        XCTAssertNil(policy.otherPresentationEnded(context(run: true)))
+
+        var idle = Policy()
+        XCTAssertNil(idle.sceneBecameActive(context(otherPresentation: true)))
+        XCTAssertNil(idle.otherPresentationEnded(context(run: true)))
+    }
+
+    func testRetryDropsWhenTheWorkoutEndedWhileBlocked() {
+        var policy = Policy()
+        XCTAssertNil(policy.sceneBecameActive(context(run: true, otherPresentation: true)))
+        XCTAssertNil(policy.otherPresentationEnded(context()))
+        // Cleared, so a later run is not revived by a stale retry.
+        XCTAssertNil(policy.otherPresentationEnded(context(run: true)))
+    }
+
+    func testRetryDropsWhenTheUserOpenedTheWorkoutByHand() {
+        var policy = Policy()
+        XCTAssertNil(policy.sceneBecameActive(context(run: true, otherPresentation: true)))
+        XCTAssertNil(policy.otherPresentationEnded(context(run: true, surfaceVisible: true)))
+        XCTAssertNil(policy.otherPresentationEnded(context(run: true)))
+    }
+
+    func testBackgroundingForgetsAPendingRetry() {
+        var policy = Policy()
+        XCTAssertNil(policy.sceneBecameActive(context(run: true, otherPresentation: true)))
+        policy.sceneEnteredBackground()
+        XCTAssertNil(policy.otherPresentationEnded(context(run: true)))
+    }
+
+    func testALateLiftRestoreBlockedByAModalRetriesAsALift() {
+        var policy = Policy()
+        XCTAssertNil(policy.sceneBecameActive(context(otherPresentation: true)))
+        XCTAssertNil(policy.liftSessionRestored(context(lift: true, otherPresentation: true)))
+
+        XCTAssertEqual(policy.otherPresentationEnded(context(lift: true)), .lift)
+    }
+
+    func testARetryNeverReplacesABlockedRunWithALift() {
+        var policy = Policy()
+        XCTAssertNil(policy.sceneBecameActive(context(run: true, otherPresentation: true)))
+        XCTAssertNil(policy.liftSessionRestored(context(run: true, lift: true, otherPresentation: true)))
+
+        XCTAssertEqual(policy.otherPresentationEnded(context(run: true, lift: true)), .run)
+    }
+
+    func testARetryForALiftNeverPresentsARunStartedMeanwhile() {
+        var policy = Policy()
+        XCTAssertNil(policy.sceneBecameActive(context(lift: true, otherPresentation: true)))
+        XCTAssertNil(policy.otherPresentationEnded(context(run: true, lift: true)))
+    }
+
+    func testBlockersAreTrackedByIdentity() {
+        var blockers = AutoPresentBlockers()
+        let whatsNew = UUID()
+        let terms = UUID()
+        XCTAssertFalse(blockers.isBlocked)
+
+        blockers.set(true, id: whatsNew)
+        blockers.set(true, id: whatsNew)
+        blockers.set(true, id: terms)
+        XCTAssertTrue(blockers.isBlocked)
+
+        blockers.set(false, id: whatsNew)
+        XCTAssertTrue(blockers.isBlocked)
+        blockers.set(false, id: terms)
+        XCTAssertFalse(blockers.isBlocked)
+
+        blockers.set(false, id: UUID())
+        XCTAssertFalse(blockers.isBlocked)
+    }
+
     // MARK: Surface visibility
 
     func testSurfaceVisibilityTracksIdentitiesNotCounts() {
