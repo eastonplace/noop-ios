@@ -2059,6 +2059,9 @@ final class AppModel: ObservableObject {
                 }
             }
         } else {
+            // A GPS run keeps recording through a screen lock. On return, make sure CoreLocation is still
+            // streaming and that the background session is live (no-op unless a route is recording).
+            gpsRecorder.resumeUpdatesIfNeeded()
             Task { [weak self] in
                 guard let self,
                       self.repo.loaded,

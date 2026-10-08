@@ -633,7 +633,17 @@ struct StrandiOSApp: App {
                     WidgetSnapshot.publishLive(from: model)
                 }
                 .onOpenURL { url in
-                    if url.host == "import-health" { model.handleHealthImportURL(url) }
+                    if url.host == "import-health" {
+                        model.handleHealthImportURL(url)
+                    } else if let link = WorkoutDeepLink(url: url) {
+                        switch link {
+                        case .activeRun:
+                            // A stale Live Activity link must not open an empty workout screen.
+                            if model.activeWorkout != nil { router.openActiveWorkout() }
+                        case .activeLift:
+                            router.openActiveLift()
+                        }
+                    }
                 }
                 .task {
                     #if DEBUG
@@ -693,7 +703,13 @@ struct StrandiOSApp: App {
             if phase == .active {
                 model.drainPendingIntents()
                 alarmRuntime.handleForeground()
-                model.ble.requestSync(.foreground)
+                // A historical offload holds the strap link for about a minute and suspends the realtime-HR
+                // keep-alive re-arm while it runs (BLEManager `guard !backfilling`). Unlocking mid-workout
+                // would therefore open a gap in the live HR stream, so the foreground catch-up waits for the
+                // next periodic sync.
+                if model.activeWorkout == nil {
+                    model.ble.requestSync(.foreground)
+                }
                 Task {
                     let trace = PerformanceTrace.begin("foreground_refresh")
                     defer { PerformanceTrace.end(trace) }

@@ -9,6 +9,10 @@ final class NoopReceiptLiftIntegration: ObservableObject {
     @Published private(set) var coordinator: ReceiptLiftCoordinator?
     @Published private(set) var owner: String?
     @Published private(set) var error: String?
+    /// One-shot, once per process: a lift session that was in flight when NOOP last closed has just been
+    /// restored from disk. The shell consumes it to re-present the workout without a tap.
+    @Published private(set) var restoredSessionPending = false
+    private var announcedRestoredSession = false
     private weak var model: AppModel?
     private var observation: AnyCancellable?
     private var selecting = false
@@ -87,7 +91,16 @@ final class NoopReceiptLiftIntegration: ObservableObject {
         await feature.load()
         guard coordinator === feature else { return }
         observation = feature.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+        // `observation` attaches only after the load above, so nothing told observers that the restored
+        // session now exists: the Resume Lift card stayed hidden until something unrelated re-rendered it.
+        objectWillChange.send()
+        if feature.hasActiveSession, !announcedRestoredSession {
+            announcedRestoredSession = true
+            restoredSessionPending = true
+        }
     }
+
+    func consumeRestoredSession() { restoredSessionPending = false }
 
     func discardSource(_ source: String) {
         guard owner == source else { return }

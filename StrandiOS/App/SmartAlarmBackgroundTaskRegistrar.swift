@@ -23,7 +23,7 @@ enum SmartAlarmBackgroundTaskRegistrar {
 
         registered = BGTaskScheduler.shared.register(
             forTaskWithIdentifier: SmartAlarmRuntimeBackgroundScheduler.bgTaskIdentifier,
-            using: nil
+            using: BackgroundTaskLaunchPolicy.launchQueue
         ) { task in
             guard let refreshTask = task as? BGAppRefreshTask else {
                 task.setTaskCompleted(success: false)
@@ -70,12 +70,23 @@ enum SmartAlarmBackgroundTaskRegistrar {
                     completion.complete(.evaluationError)
                 }
             }
-            refreshTask.expirationHandler = {
-                operation.cancel()
-                completion.complete(.expired)
-            }
+            refreshTask.expirationHandler = makeExpirationHandler(
+                cancelOperation: { operation.cancel() },
+                complete: { completion.complete($0) }
+            )
         }
         return registered
+    }
+
+    /// Built `nonisolated` and `@Sendable` so it is safe on whichever queue iOS expires the task from.
+    nonisolated static func makeExpirationHandler(
+        cancelOperation: @escaping @Sendable () -> Void,
+        complete: @escaping @Sendable (SmartAlarmBackgroundTerminalEvent) -> Void
+    ) -> @Sendable () -> Void {
+        {
+            cancelOperation()
+            complete(.expired)
+        }
     }
 
     static func loadRequest(

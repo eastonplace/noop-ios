@@ -80,7 +80,7 @@ private final class SourcePrivacyCleanupBackgroundCompletionGate: @unchecked Sen
 /// the next grant resumes from SQLite.
 @MainActor
 enum SourcePrivacyCleanupBackgroundTaskRegistrar {
-    static let identifier = "com.noopapp.noop.privacycleanup"
+    nonisolated static let identifier = "com.noopapp.noop.privacycleanup"
 
     typealias Recover = @MainActor @Sendable () async -> Void
     typealias PendingState = @MainActor @Sendable () async throws -> SourcePrivacyCleanupBackgroundState
@@ -100,7 +100,7 @@ enum SourcePrivacyCleanupBackgroundTaskRegistrar {
 
         registered = BGTaskScheduler.shared.register(
             forTaskWithIdentifier: identifier,
-            using: nil
+            using: BackgroundTaskLaunchPolicy.launchQueue
         ) { task in
             guard let processingTask = task as? BGProcessingTask else {
                 task.setTaskCompleted(success: false)
@@ -133,15 +133,28 @@ enum SourcePrivacyCleanupBackgroundTaskRegistrar {
                     completion.complete(success: false)
                 }
             }
-            processingTask.expirationHandler = {
-                operation.cancel()
-                Task { @MainActor in
-                    Self.schedule(after: SourcePrivacyCleanupBackgroundRetryPolicy.pendingDelay)
-                }
-                completion.complete(success: false)
-            }
+            processingTask.expirationHandler = makeExpirationHandler(
+                cancelOperation: { operation.cancel() },
+                rearm: { submitRequest(after: SourcePrivacyCleanupBackgroundRetryPolicy.pendingDelay) },
+                complete: { completion.complete(success: $0) }
+            )
         }
         return registered
+    }
+
+    /// Built `nonisolated` and `@Sendable` so it is safe on whichever queue iOS expires the task from.
+    /// The retry is armed synchronously, before completion is reported, because iOS may suspend the
+    /// process as soon as the task completes.
+    nonisolated static func makeExpirationHandler(
+        cancelOperation: @escaping @Sendable () -> Void,
+        rearm: @escaping @Sendable () -> Void,
+        complete: @escaping @Sendable (Bool) -> Void
+    ) -> @Sendable () -> Void {
+        {
+            cancelOperation()
+            rearm()
+            complete(false)
+        }
     }
 
     static func scheduleRetry(for error: Error, now: Date = Date()) {
@@ -155,6 +168,11 @@ enum SourcePrivacyCleanupBackgroundTaskRegistrar {
     }
 
     private static func schedule(after delay: TimeInterval, now: Date = Date()) {
+        submitRequest(after: delay, now: now)
+    }
+
+    /// `BGTaskScheduler` is thread-safe, so the expiration handler can call this from any queue.
+    nonisolated private static func submitRequest(after delay: TimeInterval, now: Date = Date()) {
         let request = BGProcessingTaskRequest(identifier: identifier)
         request.earliestBeginDate = now.addingTimeInterval(max(0, delay))
         request.requiresNetworkConnectivity = false

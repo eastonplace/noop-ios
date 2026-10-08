@@ -24,7 +24,7 @@ private final class HistoricalSyncBackgroundCompletionGate: @unchecked Sendable 
 /// secure-session, store, rate-limit, and active-sync admission remains inside `BLEManager.requestSync`.
 @MainActor
 enum HistoricalSyncBackgroundTaskRegistrar {
-    static let identifier = "com.noopapp.noop.historysync"
+    nonisolated static let identifier = "com.noopapp.noop.historysync"
 
     typealias Snapshot = @MainActor @Sendable () -> HistoricalSyncBackgroundSnapshot?
     typealias RequestSync = @MainActor @Sendable () -> Bool
@@ -47,7 +47,7 @@ enum HistoricalSyncBackgroundTaskRegistrar {
 
         registered = BGTaskScheduler.shared.register(
             forTaskWithIdentifier: identifier,
-            using: nil
+            using: BackgroundTaskLaunchPolicy.launchQueue
         ) { task in
             guard let processingTask = task as? BGProcessingTask else {
                 task.setTaskCompleted(success: false)
@@ -107,16 +107,29 @@ enum HistoricalSyncBackgroundTaskRegistrar {
                 }
             }
 
-            processingTask.expirationHandler = {
-                operation.cancel()
-                Task { @MainActor in
-                    Self.schedule(after: HistoricalSyncBackgroundSchedulingPolicy.minimumRetrySeconds)
-                }
-                completion.complete(success: false)
-            }
+            processingTask.expirationHandler = makeExpirationHandler(
+                cancelOperation: { operation.cancel() },
+                rearm: { submitRequest(after: HistoricalSyncBackgroundSchedulingPolicy.minimumRetrySeconds) },
+                complete: { completion.complete(success: $0) }
+            )
         }
         refresh()
         return registered
+    }
+
+    /// Built `nonisolated` and `@Sendable` so it is safe on whichever queue iOS expires the task from.
+    /// The retry is armed synchronously, before completion is reported, because iOS may suspend the
+    /// process as soon as the task completes.
+    nonisolated static func makeExpirationHandler(
+        cancelOperation: @escaping @Sendable () -> Void,
+        rearm: @escaping @Sendable () -> Void,
+        complete: @escaping @Sendable (Bool) -> Void
+    ) -> @Sendable () -> Void {
+        {
+            cancelOperation()
+            rearm()
+            complete(false)
+        }
     }
 
     static func refresh() {
@@ -141,6 +154,11 @@ enum HistoricalSyncBackgroundTaskRegistrar {
     }
 
     private static func schedule(after delay: TimeInterval, now: Date = Date()) {
+        submitRequest(after: delay, now: now)
+    }
+
+    /// `BGTaskScheduler` is thread-safe, so the expiration handler can call this from any queue.
+    nonisolated private static func submitRequest(after delay: TimeInterval, now: Date = Date()) {
         let request = BGProcessingTaskRequest(identifier: identifier)
         request.earliestBeginDate = now.addingTimeInterval(max(0, delay))
         request.requiresNetworkConnectivity = false

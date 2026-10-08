@@ -34,6 +34,7 @@ struct LiftLogView: View {
             }
         }
         .task { await lift.selectCurrentSource() }
+        .tracksWorkoutSurface()
     }
 
     @ViewBuilder private var content: some View {
@@ -49,12 +50,15 @@ struct LiftLogView: View {
     }
 }
 
+/// The shell's "Resume Lift" prompt. The sheet it opens is owned by the shell (`RootTabView`), not by this
+/// card: the card only exists while a session is active, so state held here was thrown away whenever the card
+/// left the tree, and the shell could not present the same sheet on its own after a relaunch.
 struct LiftResumeCard: View {
     @EnvironmentObject private var lift: NoopReceiptLiftIntegration
-    @State private var showLift = false
+    let onResume: () -> Void
     var body: some View {
         if lift.coordinator?.hasActiveSession == true {
-            Button { showLift = true } label: {
+            Button(action: onResume) {
                 HStack(spacing: 12) {
                     Image(systemName: "dumbbell.fill").foregroundStyle(StrandPalette.accent)
                     Text("Resume Lift").font(.headline)
@@ -63,7 +67,6 @@ struct LiftResumeCard: View {
                 }.padding(16).foregroundStyle(StrandPalette.textPrimary)
                     .background(StrandPalette.card, in: RoundedRectangle(cornerRadius: 14))
             }.buttonStyle(.plain)
-                .sheet(isPresented: $showLift) { LiftLogView() }
         }
     }
 }

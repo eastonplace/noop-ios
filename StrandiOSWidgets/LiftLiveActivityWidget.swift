@@ -11,6 +11,7 @@ struct LiftLiveActivityWidget: Widget {
       LiftLockScreenActivity(context: context)
         .activityBackgroundTint(LiftActivityStyle.paper)
         .activitySystemActionForegroundColor(LiftActivityStyle.ink)
+        .widgetURL(WorkoutDeepLink.activeLift.url)
     } dynamicIsland: { context in
       DynamicIsland {
         DynamicIslandExpandedRegion(.leading) {
@@ -62,6 +63,7 @@ struct LiftLiveActivityWidget: Widget {
       .keylineTint(
         liftActivityIsResting(context) ? LiftActivityStyle.clay : LiftActivityStyle.green
       )
+      .widgetURL(WorkoutDeepLink.activeLift.url)
     }
   }
 }
