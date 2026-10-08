@@ -81,38 +81,30 @@ struct ScoringGuideView: View {
     @State private var highlighted: ScoreSection? = nil
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-                // Design Reset: a FLAT opaque WHOOP-grey title surface — no scenic hero, no bloom, no
-                // domain tint. The header reads as a clean raised card edge, matching the Today look.
-                .background(StrandPalette.surfaceRaised)
-            Divider().overlay(StrandPalette.hairline)
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
-                        introCard
-                        scoreCard(.recovery,
-                                  headline: String(localized: "Recovery: how recovered are you?"),
-                                  body: String(localized: "Led by your heart-rate variability (HRV) measured against your own personal baseline, plus resting heart rate, last night's Sleep, breathing rate, and a skin-temperature signal (an early illness or overreach flag). Higher HRV versus your baseline means higher Recovery. NOOP needs a few nights to learn your baseline first. Until then you'll see “Calibrating”."),
-                                  vsWhoop: String(localized: "Same core idea as WHOOP's Recovery % (HRV-led recovery), but our weighting and baseline maths are our own, and openly documented."))
-                        scoreCard(.strain,
-                                  headline: String(localized: "Strain: how hard did your heart work?"),
-                                  body: String(localized: "Your cardiovascular and movement load across your sleep-to-sleep day. NOOP continuously weights each valid heart-rate interval by heart-rate reserve, credits worn sleep and real movement without double counting, and displays the result on the canonical 0–21 Strain scale. Ordinary days register; sustained maximum effort approaches 21. This is NOOP's transparent score, not WHOOP's proprietary formula, and muscular load is not yet included."),
-                                  vsWhoop: String(localized: "The display uses WHOOP's familiar 0–21 Day Strain scale. NOOP's underlying training-load recipe remains its own and is documented here."))
-                        scoreCard(.sleep,
-                                  headline: String(localized: "Sleep: how restorative was your sleep?"),
-                                  body: Self.sleepBody,
-                                  vsWhoop: String(localized: "Similar in spirit to WHOOP's Sleep Performance %; our composite is our own."))
-                        confidenceCard
-                        footerNote
-                    }
-                    .padding(20)
-                }
-                .onAppear { jump(to: initialSection, using: proxy) }
+        ScrollViewReader { proxy in
+            ScreenScaffold(title: "How your scores work",
+                           subtitle: "Recovery · Strain · Sleep",
+                           trailing: { NoopIconButton("xmark", accessibilityLabel: "Close", action: close) }) {
+                introCard
+                scoreCard(.recovery,
+                          headline: String(localized: "Recovery: how recovered are you?"),
+                          body: String(localized: "Led by your heart-rate variability (HRV) measured against your own personal baseline, plus resting heart rate, last night's Sleep, breathing rate, and a skin-temperature signal (an early illness or overreach flag). Higher HRV versus your baseline means higher Recovery. NOOP needs a few nights to learn your baseline first. Until then you'll see “Calibrating”."),
+                          vsWhoop: String(localized: "Same core idea as WHOOP's Recovery % (HRV-led recovery), but our weighting and baseline maths are our own, and openly documented."))
+                scoreCard(.strain,
+                          headline: String(localized: "Strain: how hard did your heart work?"),
+                          body: String(localized: "Your cardiovascular and movement load across your sleep-to-sleep day. NOOP continuously weights each valid heart-rate interval by heart-rate reserve, credits worn sleep and real movement without double counting, and displays the result on the canonical 0–21 Strain scale. Ordinary days register; sustained maximum effort approaches 21. This is NOOP's transparent score, not WHOOP's proprietary formula, and muscular load is not yet included."),
+                          vsWhoop: String(localized: "The display uses WHOOP's familiar 0–21 Day Strain scale. NOOP's underlying training-load recipe remains its own and is documented here."))
+                scoreCard(.sleep,
+                          headline: String(localized: "Sleep: how restorative was your sleep?"),
+                          body: Self.sleepBody,
+                          vsWhoop: String(localized: "Similar in spirit to WHOOP's Sleep Performance %; our composite is our own."))
+                confidenceCard
+                footerNote
             }
-            Divider().overlay(StrandPalette.hairline)
-            footerBar
+            .onAppear { jump(to: initialSection, using: proxy) }
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) { footerBar.sheetFooterBar() }
+        .sheetScreenScaffoldEnvironment()
         // Same sizing split as WhatsNewView: a fixed window on macOS, fill the presented
         // sheet on iOS so nothing runs off a narrow phone screen (#185).
         #if os(macOS)
@@ -122,45 +114,16 @@ struct ScoringGuideView: View {
         // A long explainer scroll → open full-height, with a grabber for swipe-to-dismiss.
         .noopSheetPresentation(largeFirst: true)
         #endif
-        .background(StrandPalette.surfaceBase)
     }
 
     // MARK: - Header / footer
 
-    private var header: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("YOUR DAILY SCORES").font(StrandFont.overline)
-                    .tracking(StrandFont.overlineTracking)
-                    .foregroundStyle(StrandPalette.textTertiary)
-                Text("How your scores work").font(StrandFont.rounded(26, weight: .bold))
-                    .foregroundStyle(StrandPalette.textPrimary)
-                Text("Recovery · Strain · Sleep").font(StrandFont.caption)
-                    .foregroundStyle(StrandPalette.textSecondary)
-            }
-            Spacer()
-            Button(action: close) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 22))
-                    .foregroundStyle(StrandPalette.textTertiary)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Close")
-        }
-        .padding(20)
-    }
-
     private var footerBar: some View {
-        HStack {
-            Spacer()
-            Button(action: close) {
-                Text("Got it").frame(minWidth: 120).padding(.vertical, 4)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(StrandPalette.ink)
-            .keyboardShortcut(.defaultAction)
+        Button(action: close) {
+            Text("Got it")
         }
-        .padding(16)
+        .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
+        .keyboardShortcut(.defaultAction)
     }
 
     /// Sheet hosts supply their state callback; pushed guides use the ambient navigation dismissal.
