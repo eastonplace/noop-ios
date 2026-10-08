@@ -51,11 +51,21 @@ struct LiveView: View {
     @State private var showLiveWorkout = false
     @State private var showStartSport = false
 
+    /// iOS presents Live as a modal quick action, whose scaffold header owns the single close button, so a
+    /// back chevron here would be a second one. macOS keeps its dismiss chevron.
+    private var scaffoldBackAction: (() -> Void)? {
+        #if os(iOS)
+        return nil
+        #else
+        return { dismiss() }
+        #endif
+    }
+
     var body: some View {
         ScreenScaffold(title: "Live Body Console",
                        subtitle: nil,
                        topBackground: nil,
-                       backAction: { dismiss() }) {
+                       backAction: scaffoldBackAction) {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
                 if let message = live.bluetoothUnavailableMessage {
                     NoteCard(LocalizedStringKey(message), title: "Bluetooth unavailable", style: .warning)

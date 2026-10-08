@@ -241,11 +241,17 @@ struct StressView: View {
         .sheet(isPresented: $showBreathe) {
             NavigationStack {
                 BreathingView()
+                    #if os(iOS)
+                    // Modal: the scaffold header carries the one close button, not a system bar "Done".
+                    .toolbar(.hidden, for: .navigationBar)
+                    .sheetScreenScaffoldEnvironment(onClose: { showBreathe = false })
+                    #else
                     .toolbar {
                         ToolbarItem {
                             Button("Done") { showBreathe = false }
                         }
                     }
+                    #endif
             }
             #if os(macOS)
             .frame(width: 520, height: 760)
@@ -309,11 +315,17 @@ struct StressView: View {
         .sheet(isPresented: $showBreathe) {
             NavigationStack {
                 BreathingView()
+                    #if os(iOS)
+                    // Modal: the scaffold header carries the one close button, not a system bar "Done".
+                    .toolbar(.hidden, for: .navigationBar)
+                    .sheetScreenScaffoldEnvironment(onClose: { showBreathe = false })
+                    #else
                     .toolbar {
                         ToolbarItem {
                             Button("Done") { showBreathe = false }
                         }
                     }
+                    #endif
             }
             #if os(macOS)
             .frame(width: 520, height: 760)

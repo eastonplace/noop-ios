@@ -28,10 +28,7 @@ struct DevicesView: View {
                        topBackground: nil,
                        trailing: {
                            if let onClose {
-                               Button("Done", action: onClose)
-                                   .buttonStyle(.plain)
-                                   .font(StrandFont.caption.weight(.semibold))
-                                   .foregroundStyle(StrandPalette.accent)
+                               NoopIconButton("xmark", accessibilityLabel: "Close", action: onClose)
                            } else {
                                Image(systemName: "plus")
                                    .font(.system(size: 16, weight: .semibold))

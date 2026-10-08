@@ -44,7 +44,7 @@ struct LocalCoachView: View {
     @State private var selectedTopic = LocalCoachTopic.today
     @FocusState private var composerFocused: Bool
     // The same chrome inputs ScreenScaffold reads, so the pinned header below behaves like every other tab
-    // root: app chrome only in the standard presentation, and a back chevron only when pushed as a detail.
+    // root: app chrome only in the standard presentation and only at a root (a detail owns a back chevron instead).
     @Environment(\.screenScaffoldNavigationRole) private var navigationRole
     @Environment(\.screenScaffoldPresentation) private var scaffoldPresentation
     @Environment(\.appHeaderChromeVisibility) private var chromeVisibility
@@ -135,36 +135,63 @@ struct LocalCoachView: View {
 
     // MARK: Pinned header
 
-    /// Canonical tab-root chrome, pinned: the app header chrome (strap / sync / profile), the compact
-    /// `NoopScreenHeader` that ScreenScaffold shows once its expanded title scrolls away, and the section
-    /// switcher. Compact (not expanded) on purpose: the conversation needs the vertical room, and the
-    /// title would otherwise sit above the keyboard-avoiding composer.
+    /// Canonical tab-root chrome, pinned: the app header chrome (strap / sync / profile) once, one title
+    /// row, and the section switcher. Compact on purpose: the conversation needs the vertical room, and an
+    /// expanded title would otherwise sit above the keyboard-avoiding composer.
     private var pinnedHeader: some View {
         VStack(spacing: 0) {
-            if scaffoldPresentation == .standard, chromeVisibility == .visible { AppHeaderChrome() }
+            if showsAppChrome { AppHeaderChrome() }
             VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-                NoopScreenHeader(
-                    title: "Coach",
-                    subtitle: "Personal intelligence",
-                    backAction: backAction,
-                    style: .compact
-                ) {
-                    HStack(spacing: NoopMetrics.space2) {
-                        NoopIconButton("clock.arrow.circlepath", accessibilityLabel: "Conversation history") {
-                            showLibrary = true
-                        }
-                        NoopIconButton("slider.horizontal.3", accessibilityLabel: "Coach settings") {
-                            showSettings = true
-                        }
-                    }
-                }
-                .padding(.horizontal, NoopMetrics.space4)
+                titleHeader
+                    .padding(.horizontal, NoopMetrics.space4)
                 sectionPicker
             }
             .padding(.vertical, 6)
             .background(StrandPalette.appCanvas)
             .overlay(alignment: .bottom) {
                 Rectangle().fill(StrandPalette.hairline).frame(height: 1).accessibilityHidden(true)
+            }
+        }
+    }
+
+    /// App chrome belongs to a tab root only; a pushed or modal Coach owns its own header instead.
+    private var showsAppChrome: Bool {
+        scaffoldPresentation == .standard && chromeVisibility == .visible && navigationRole == .root
+    }
+
+    /// At the tab root the chrome row already carries the wordmark, so the title is a single overline row
+    /// (like Today's) with the history and settings buttons trailing. Anywhere the chrome is absent the
+    /// canonical compact header supplies the one wordmark and the back chevron.
+    @ViewBuilder private var titleHeader: some View {
+        if showsAppChrome {
+            HStack(spacing: NoopMetrics.space2) {
+                Text("Coach")
+                    .font(StrandFont.screenOverline)
+                    .tracking(StrandFont.screenOverlineTracking)
+                    .textCase(.uppercase)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
+                Spacer(minLength: NoopMetrics.space2)
+                coachActions
+            }
+            .frame(minHeight: 40)
+        } else {
+            NoopScreenHeader(
+                title: "Coach",
+                subtitle: "Personal intelligence",
+                backAction: backAction,
+                style: .compact
+            ) { coachActions }
+        }
+    }
+
+    private var coachActions: some View {
+        HStack(spacing: NoopMetrics.space2) {
+            NoopIconButton("clock.arrow.circlepath", accessibilityLabel: "Conversation history") {
+                showLibrary = true
+            }
+            NoopIconButton("slider.horizontal.3", accessibilityLabel: "Coach settings") {
+                showSettings = true
             }
         }
     }

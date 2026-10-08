@@ -330,13 +330,7 @@ struct RhythmView: View {
 
     @ViewBuilder private var closeButton: some View {
         if let onClose {
-            Button(action: onClose) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 18))
-                    .foregroundStyle(StrandPalette.textTertiary)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Close Rhythm")
+            NoopIconButton("xmark", accessibilityLabel: "Close Rhythm", action: onClose)
         }
     }
 
