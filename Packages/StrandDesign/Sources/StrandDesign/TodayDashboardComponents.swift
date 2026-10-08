@@ -138,12 +138,36 @@ private struct TodayPillarGauge: View {
             : model.accent.opacity(0.16)
     }
 
+    /// The pillar's colour for its symbol and state line. With no value there is no domain colour to show,
+    /// so a missing dial reads quietly in tertiary ink rather than shouting its accent.
+    private var inkColor: Color {
+        model.value == nil ? StrandPalette.textTertiary : model.accent
+    }
+
+    /// The empty dial's track: distinct round dots, evenly spaced about `dotPitch` apart, with one dot centred
+    /// on each end of the 240° arc. The arc's path radius is `side / 2` (the stroke of a filled track straddles
+    /// it), so its length is known exactly and the pitch is solved to divide it evenly. The dots are drawn
+    /// individually: a dashed stroke can drop the final dash when it lands on the very end of the path.
+    @ViewBuilder
+    private func dottedTrack(side: CGFloat, width: CGFloat) -> some View {
+        let dotPitch: CGFloat = 13.5
+        let radius = side / 2
+        let arc = 2 * .pi * radius * (2 / 3)
+        let intervals = max(1, Int((arc / dotPitch).rounded()))
+        ForEach(0...intervals, id: \.self) { index in
+            let angle = Angle.degrees(150 + 240 * Double(index) / Double(intervals))
+            Circle().fill(trackColor)
+                .frame(width: width, height: width)
+                .offset(x: cos(angle.radians) * radius, y: sin(angle.radians) * radius)
+        }
+    }
+
     /// The domain symbol of a known pillar; an unknown id gets no icon.
     private var symbol: String? {
         switch model.id {
         case "recovery": "heart.fill"
         case "strain": "flame.fill"
-        case "sleep": "moon.fill"
+        case "sleep": "moon.stars.fill"
         default: nil
         }
     }
@@ -167,7 +191,7 @@ private struct TodayPillarGauge: View {
                 // state line below its neighbours'.
                 Image(systemName: symbol)
                     .font(StrandFont.caption)
-                    .foregroundStyle(model.accent)
+                    .foregroundStyle(inkColor)
                     .frame(width: symbolColumn, height: 0)
             }
             Text(verbatim: model.label)
@@ -187,11 +211,13 @@ private struct TodayPillarGauge: View {
                     let width: CGFloat = 8
                     let radius = side / 2 - width / 2
                     ZStack {
-                        Circle().trim(from: 0, to: 2 / 3)
-                            .stroke(trackColor,
-                                    style: StrokeStyle(lineWidth: width, lineCap: .round,
-                                                       dash: model.value == nil ? [1, 5] : []))
-                            .rotationEffect(.degrees(150))
+                        if model.value == nil {
+                            dottedTrack(side: side, width: width)
+                        } else {
+                            Circle().trim(from: 0, to: 2 / 3)
+                                .stroke(trackColor, style: StrokeStyle(lineWidth: width, lineCap: .round))
+                                .rotationEffect(.degrees(150))
+                        }
                         if let target = model.targetBand {
                             Circle().trim(from: (2 / 3) * target.lowerBound,
                                           to: (2 / 3) * target.upperBound)
@@ -223,7 +249,7 @@ private struct TodayPillarGauge: View {
                 }
                 .frame(height: 100)
                 eyebrow
-                Text(verbatim: model.state).font(StrandFont.micro).foregroundStyle(model.accent).lineLimit(1)
+                Text(verbatim: model.state).font(StrandFont.micro).foregroundStyle(inkColor).lineLimit(1)
                 if let detail = model.detail {
                     Text(verbatim: detail).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
                         .lineLimit(1).minimumScaleFactor(0.7)
