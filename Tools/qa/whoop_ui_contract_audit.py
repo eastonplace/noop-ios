@@ -22,14 +22,15 @@ STYLE_ROOTS: tuple[tuple[str, str, bool], ...] = (
     # (label, directory, gated)
     ("Strand/Screens", "Strand/Screens", True),
     ("StrandiOS/App", "StrandiOS/App", True),
+    # Lift (phase 2b): gated at 0 on every check.
+    ("Strand/Screens (Lift, Live workout)", "Strand/Screens", True),
+    ("Packages/ReceiptLiftFeature", "Packages/ReceiptLiftFeature", True),
     # Report-only for now: owned by in-flight work or intentionally fixed-size (widget text).
-    ("Strand/Screens (Lift, Live workout)", "Strand/Screens", False),
     ("StrandiOS/Coach", "StrandiOS/Coach", False),
-    ("Packages/ReceiptLiftFeature", "Packages/ReceiptLiftFeature", False),
     ("StrandiOSWidgets", "StrandiOSWidgets", False),
 )
 
-# Files under Strand/Screens that belong to the report-only Lift / Live-workout group.
+# Files under Strand/Screens that belong to the Lift / Live-workout group (its own row below).
 LIFT_SCREEN_PREFIXES = (
     "Strand/Screens/Lift",
     "Strand/Screens/NoopReceiptLift",
@@ -164,7 +165,7 @@ def audit_style(errors: list[str], warnings: list[str]) -> None:
     for label, directory, gated in STYLE_ROOTS:
         lift_group: bool | None = None
         if directory == "Strand/Screens":
-            lift_group = not gated  # gated row = everything except the Lift group; report row = only it
+            lift_group = label != "Strand/Screens"  # the base row excludes the Lift group; the Lift row is only it
         hits = scan_style(directory, lift_group)
         cells = []
         for key in keys:
