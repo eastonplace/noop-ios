@@ -693,7 +693,13 @@ struct StrandiOSApp: App {
             if phase == .active {
                 model.drainPendingIntents()
                 alarmRuntime.handleForeground()
-                model.ble.requestSync(.foreground)
+                // A historical offload holds the strap link for about a minute and suspends the realtime-HR
+                // keep-alive re-arm while it runs (BLEManager `guard !backfilling`). Unlocking mid-workout
+                // would therefore open a gap in the live HR stream, so the foreground catch-up waits for the
+                // next periodic sync.
+                if model.activeWorkout == nil {
+                    model.ble.requestSync(.foreground)
+                }
                 Task {
                     let trace = PerformanceTrace.begin("foreground_refresh")
                     defer { PerformanceTrace.end(trace) }
