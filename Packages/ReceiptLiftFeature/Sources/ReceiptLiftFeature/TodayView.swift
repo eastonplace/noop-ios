@@ -1,3 +1,4 @@
+import StrandDesign
 import SwiftUI
 
 struct LiftSevenDaySummary: Equatable, Sendable {
@@ -80,23 +81,22 @@ struct TodayView: View {
   }
 
   var body: some View {
-    ScrollView {
-      ReceiptSheet {
-        header
-        ReceiptDashedRule()
-        if let session = store.activeSession {
-          activeBlock(session)
-        } else {
-          nextWorkoutBlock
-        }
-        ReceiptDashedRule()
-        thisWeekBlock
-        ReceiptDashedRule()
-        recentBlock
+    LiftScreen(
+      title: "Lift",
+      subtitle: LocalizedStringKey(Date().formatted(.dateTime.weekday(.wide).month(.abbreviated).day())),
+      bottomPadding: 72,
+      trailing: {
+        NoopIconButton("gearshape", accessibilityLabel: "Settings") { showsSettings = true }
       }
-      .padding(.bottom, 72)
+    ) {
+      if let session = store.activeSession {
+        activeBlock(session)
+      } else {
+        nextWorkoutBlock
+      }
+      thisWeekBlock
+      recentBlock
     }
-    .scrollIndicators(.hidden)
     .sheet(isPresented: $showsSettings) {
       SettingsView()
         .environmentObject(store)
@@ -104,62 +104,39 @@ struct TodayView: View {
     }
   }
 
-  private var header: some View {
-    HStack(alignment: .top, spacing: 12) {
-      ReceiptHeader(
-        title: "Lift",
-        subtitle: Date().formatted(.dateTime.weekday(.wide).month(.abbreviated).day()).uppercased()
-      )
-      Spacer(minLength: 8)
-      Button { showsSettings = true } label: {
-        Image(systemName: "gearshape")
-          .frame(width: 44, height: 44)
-      }
-      .buttonStyle(ReceiptIconButtonStyle())
-      .accessibilityLabel("Settings")
-    }
-  }
-
   private var nextWorkoutBlock: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      ReceiptSectionLabel(title: "Next Workout")
+    LiftSection(title: "Next workout") {
       if let routine = store.nextSuggestedRoutine {
-        ReceiptLine(
-          index: 1,
+        LiftRow(
           title: routine.name,
-          detail: "~\(max(routine.exerciseIDs.count * 8, 20)) min · \(routine.exerciseIDs.count) exercises",
-          value: "→"
+          detail: "~\(max(routine.exerciseIDs.count * 8, 20)) min · \(routine.exerciseIDs.count) exercises"
         )
-        ReceiptPrimaryButton(title: "Start Workout", systemImage: "play.fill") {
+        NoopButton("Start workout", systemImage: "play.fill", kind: .primary, fullWidth: true) {
           onStartRoutine(routine)
         }
       } else {
-        ReceiptLine(index: 1, title: "Open Lift", detail: "No routine selected", value: "→")
+        LiftRow(title: "Open Lift", detail: "No routine selected")
       }
-      Button("OPEN LIFT", action: onOpenLift)
-        .frame(minHeight: 44)
-        .font(.receipt(10, weight: .bold))
-        .foregroundStyle(LiftTheme.inkSecondary)
-        .frame(maxWidth: .infinity)
-        .buttonStyle(.plain)
+      NoopButton("Open Lift", kind: .tertiary, fullWidth: true, action: onOpenLift)
     }
   }
 
   private func activeBlock(_ session: LiftSession) -> some View {
     let progress = store.activeRoutineProgress()
-    return VStack(alignment: .leading, spacing: 10) {
-      ReceiptSectionLabel(title: "Active Receipt")
-      ReceiptLine(index: 1, title: session.title, detail: "Workout in progress", value: progress?.setLabel ?? "0/0")
+    return LiftSection(title: "Active workout") {
+      LiftRow(
+        title: session.title,
+        detail: "Workout in progress",
+        value: progress?.setLabel ?? "0/0"
+      )
       HStack {
-        Text("ELAPSED")
-          .font(.receipt(9, weight: .bold))
-          .foregroundStyle(LiftTheme.inkSecondary)
+        Text("Elapsed").strandOverline()
         Spacer()
         Text(timerInterval: session.startedAt...Date.distantFuture, countsDown: false)
-          .font(.receipt(12, weight: .black))
-          .monospacedDigit()
+          .font(StrandFont.number(15))
+          .foregroundStyle(StrandPalette.textPrimary)
       }
-      ReceiptPrimaryButton(title: "Resume", systemImage: "arrow.up.right") {
+      NoopButton("Resume", systemImage: "arrow.up.right", kind: .primary, fullWidth: true) {
         onResumeWorkout()
       }
     }
@@ -172,33 +149,29 @@ struct TodayView: View {
       calendar: .current
     )
 
-    return VStack(alignment: .leading, spacing: 10) {
-      ReceiptSectionLabel(title: "This Week")
+    return LiftSection(title: "This week") {
       HStack(spacing: 12) {
-        ReceiptMetric(title: "Workouts", value: "\(summary.workoutCount)")
-        ReceiptMetric(title: "Sets", value: "\(summary.workingSetCount)")
-        ReceiptMetric(title: "Volume", value: liftVolume(summary.volume))
+        LiftMetric(title: "Workouts", value: "\(summary.workoutCount)")
+        LiftMetric(title: "Sets", value: "\(summary.workingSetCount)")
+        LiftMetric(title: "Volume", value: liftVolume(summary.volume))
       }
     }
   }
 
   private var recentBlock: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      ReceiptSectionLabel(title: "Recent")
+    LiftSection(title: "Recent") {
       if recentSessions.isEmpty {
-        Text("NO RECEIPTS YET.")
-          .font(.receipt(11, weight: .bold))
-          .foregroundStyle(LiftTheme.inkSecondary)
+        LiftEmptyNote(text: "No receipts yet.")
       } else {
-        ForEach(Array(recentSessions.enumerated()), id: \.element.id) { index, session in
+        ForEach(recentSessions) { session in
           NavigationLink {
             CompletedReceiptView(session: session, presentation: .settled)
           } label: {
-            ReceiptLine(
-              index: index + 1,
+            LiftRow(
               title: session.title,
               detail: session.startedAt.formatted(.dateTime.month(.abbreviated).day()),
-              value: "\(liftDuration((session.endedAt ?? session.startedAt).timeIntervalSince(session.startedAt))) →"
+              value: liftDuration((session.endedAt ?? session.startedAt).timeIntervalSince(session.startedAt)),
+              showsChevron: true
             )
           }
           .buttonStyle(.plain)

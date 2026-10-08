@@ -1,10 +1,12 @@
 import Charts
+import StrandDesign
 import SwiftUI
 
 struct HistoryView: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(\.scenePhase) private var scenePhase
   @EnvironmentObject private var store: LiftStore
+  @Environment(\.liftHostChrome) private var host
 
   private let selectedSegment: Binding<LiftHistorySegment>?
   @State private var localSegment: LiftHistorySegment = .receipts
@@ -40,31 +42,27 @@ struct HistoryView: View {
   }
 
   var body: some View {
-    ScrollView {
-      LazyVStack(alignment: .leading, spacing: 0) {
-        ReceiptHeader(title: progressOnly ? "Progress" : "History", subtitle: "Receipts and training progress")
-          .padding(.horizontal, 16)
-          .padding(.top, 12)
-
-        if !progressOnly {
-          historySegmentBar
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-        }
-
-        ReceiptRule()
-          .padding(.horizontal, 16)
-
-        if activeSegment == .receipts {
-          receiptRows
-        } else {
-          progressOverview
-        }
+    LiftScreen(
+      title: progressOnly ? "Progress" : "History",
+      subtitle: "Receipts and training progress",
+      backAction: host.onBack,
+      lazy: true,
+      trailing: { LiftHeaderTrailing() }
+    ) {
+      if !progressOnly {
+        SegmentedPillControl(
+          LiftHistorySegment.allCases,
+          selection: segmentSelection
+        ) { $0.title.capitalized }
+        .frame(maxWidth: .infinity, alignment: .leading)
       }
-      .padding(.bottom, 24)
+
+      if activeSegment == .receipts {
+        receiptRows
+      } else {
+        progressOverview
+      }
     }
-    .scrollIndicators(.hidden)
-    .background(LiftTheme.paper.ignoresSafeArea())
     .sheet(isPresented: $showingExercisePicker) {
       NavigationStack {
         ExerciseLibraryView { exercise in
@@ -94,76 +92,39 @@ struct HistoryView: View {
     }
   }
 
-  private var historySegmentBar: some View {
-    HStack(spacing: 0) {
-      ForEach(LiftHistorySegment.allCases) { segment in
-        segmentButton(segment)
-      }
-    }
-    .overlay(Rectangle().stroke(LiftTheme.ink, lineWidth: 1))
-  }
-
-  private func segmentButton(_ segment: LiftHistorySegment) -> some View {
-    let selected = activeSegment == segment
-    return Button {
-      setSegment(segment)
-    } label: {
-      Text(segment.title)
-        .font(.receipt(10, weight: .black))
-        .foregroundStyle(selected ? LiftTheme.paper : LiftTheme.ink)
-        .frame(maxWidth: .infinity, minHeight: 44)
-        .background(selected ? LiftTheme.ink : LiftTheme.paper)
-    }
-    .buttonStyle(.plain)
-    .accessibilityLabel(segment.title.capitalized)
-    .accessibilityValue(selected ? "Selected" : "Not selected")
-    .accessibilityAddTraits(selected ? .isSelected : [])
+  private var segmentSelection: Binding<LiftHistorySegment> {
+    Binding(get: { activeSegment }, set: { setSegment($0) })
   }
 
   @ViewBuilder
   private var receiptRows: some View {
     if completedSessions.isEmpty {
-      Text("NO SAVED RECEIPTS YET.")
-        .font(.receipt(11, weight: .bold))
-        .foregroundStyle(LiftTheme.inkSecondary)
-        .padding(16)
+      LiftStateMessage(
+        symbol: "list.bullet.rectangle",
+        title: "No receipts yet",
+        message: "Finish a workout and its receipt shows up here."
+      )
     } else {
-      ForEach(completedSessions) { session in
-        NavigationLink {
-          CompletedReceiptView(session: session, presentation: .settled)
-        } label: {
-          receiptRow(session)
+      LazyVStack(alignment: .leading, spacing: 0) {
+        ForEach(completedSessions) { session in
+          NavigationLink {
+            CompletedReceiptView(session: session, presentation: .settled)
+          } label: {
+            receiptRow(session)
+          }
+          .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
       }
     }
   }
 
   private func receiptRow(_ session: LiftSession) -> some View {
-    VStack(alignment: .leading, spacing: 8) {
-      Text(receiptDate(session.startedAt))
-        .font(.receipt(9, weight: .bold))
-        .foregroundStyle(LiftTheme.inkSecondary)
-
-      HStack(alignment: .firstTextBaseline, spacing: 12) {
-        Text(session.title.uppercased())
-          .font(.receipt(13, weight: .black))
-          .foregroundStyle(LiftTheme.ink)
-          .multilineTextAlignment(.leading)
-        Spacer(minLength: 8)
-        Text(liftVolume(session.totalVolume).uppercased())
-          .font(.receipt(11, weight: .black))
-          .foregroundStyle(LiftTheme.ink)
-        Text("→")
-          .font(.receipt(13, weight: .black))
-          .accessibilityHidden(true)
-      }
-
-      ReceiptDashedRule()
-    }
-    .padding(.horizontal, 16)
-    .padding(.top, 13)
-    .contentShape(Rectangle())
+    LiftRow(
+      title: session.title,
+      detail: receiptDate(session.startedAt),
+      value: liftVolume(session.totalVolume),
+      showsChevron: true
+    )
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(
       "\(receiptDate(session.startedAt)), \(session.title), \(liftVolume(session.totalVolume))"
@@ -173,77 +134,62 @@ struct HistoryView: View {
 
   private var progressOverview: some View {
     let snapshot = progressSnapshot
-    return VStack(alignment: .leading, spacing: 18) {
-      rangeBar
+    return VStack(alignment: .leading, spacing: 20) {
+      SegmentedPillControl(
+        LiftProgressRange.allCases,
+        selection: rangeSelection
+      ) { $0.title }
+      .frame(maxWidth: .infinity, alignment: .leading)
 
-      ReceiptSectionLabel(title: "Weekly Volume (LB)")
-      weeklyVolumeChart(snapshot)
+      LiftSection(title: "Weekly volume (lb)") {
+        weeklyVolumeChart(snapshot)
+      }
 
       metricsGrid(snapshot.metrics)
 
-      ReceiptSectionLabel(title: "Top Exercises (Volume)")
-      if snapshot.topExercises.isEmpty {
-        Text("NO VOLUME IN THIS RANGE.")
-          .font(.receipt(10, weight: .bold))
-          .foregroundStyle(LiftTheme.inkSecondary)
-      } else {
-        ForEach(Array(snapshot.topExercises.enumerated()), id: \.element.id) { index, exercise in
-          NavigationLink {
-            ExerciseProgressView(exerciseID: exercise.exerciseID)
-              .environmentObject(store)
-          } label: {
-            ReceiptLine(
-              index: index + 1,
-              title: exercise.name,
-              detail: "TOTAL TRAINING VOLUME",
-              value: "\(liftVolume(exercise.volume)) →"
-            )
+      LiftSection(title: "Top exercises (volume)") {
+        if snapshot.topExercises.isEmpty {
+          LiftEmptyNote(text: "No volume in this range.")
+        } else {
+          ForEach(Array(snapshot.topExercises.enumerated()), id: \.element.id) { index, exercise in
+            NavigationLink {
+              ExerciseProgressView(exerciseID: exercise.exerciseID)
+                .environmentObject(store)
+            } label: {
+              LiftRow(
+                title: exercise.name.liftDisplayName,
+                detail: "Total training volume",
+                value: liftVolume(exercise.volume),
+                showsChevron: true
+              ) {
+                LiftRowIndex(index: index + 1)
+              }
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Opens exercise progress")
           }
-          .buttonStyle(.plain)
-          .accessibilityHint("Opens exercise progress")
         }
       }
 
-      Button {
+      NoopButton("Find an exercise", systemImage: "magnifyingglass", kind: .secondary, fullWidth: true) {
         showingExercisePicker = true
-      } label: {
-        Text("FIND AN EXERCISE →")
-          .font(.receipt(10, weight: .black))
-          .foregroundStyle(LiftTheme.paper)
-          .frame(maxWidth: .infinity, minHeight: 44)
-          .background(LiftTheme.ink)
       }
-      .buttonStyle(.plain)
       .accessibilityHint("Searches the exercise library")
     }
     .id(selectedRange)
     .transition(.opacity)
-    .padding(16)
   }
 
-  private var rangeBar: some View {
-    HStack(spacing: 0) {
-      ForEach(LiftProgressRange.allCases) { range in
-        let selected = selectedRange == range
-        Button {
-          referenceNow = Date()
-          withAnimation(reduceMotion ? LiftMotion.reducedCrossfade : LiftMotion.compose) {
-            selectedRange = range
-          }
-        } label: {
-          Text(range.title)
-            .font(.receipt(10, weight: .black))
-            .foregroundStyle(selected ? LiftTheme.paper : LiftTheme.ink)
-            .frame(maxWidth: .infinity, minHeight: 44)
-            .background(selected ? LiftTheme.ink : LiftTheme.paper)
+  private var rangeSelection: Binding<LiftProgressRange> {
+    Binding(
+      get: { selectedRange },
+      set: { range in
+        referenceNow = Date()
+        withAnimation(reduceMotion ? LiftMotion.reducedCrossfade : LiftMotion.compose) {
+          selectedRange = range
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(range.title)
-        .accessibilityValue(selected ? "Selected" : "Not selected")
-        .accessibilityAddTraits(selected ? .isSelected : [])
       }
-    }
-    .overlay(Rectangle().stroke(LiftTheme.ink, lineWidth: 1))
+    )
   }
 
   private func weeklyVolumeChart(_ snapshot: LiftProgressSnapshot) -> some View {
@@ -254,7 +200,7 @@ struct HistoryView: View {
           x: .value("Week starting", week.weekStart, unit: .weekOfYear),
           y: .value("Weekly volume in pounds", week.volume)
         )
-        .foregroundStyle(LiftTheme.ink)
+        .foregroundStyle(LiftTheme.accent)
         .accessibilityLabel(week.weekStart.formatted(.dateTime.month(.abbreviated).day()))
         .accessibilityValue(liftVolume(week.volume))
       }
@@ -264,7 +210,8 @@ struct HistoryView: View {
           AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
             .foregroundStyle(LiftTheme.rule)
           AxisValueLabel(format: .dateTime.month(.abbreviated).day())
-            .font(.receipt(8, weight: .bold))
+            .font(StrandFont.micro)
+            .foregroundStyle(StrandPalette.textTertiary)
         }
       }
       .chartYAxis {
@@ -272,7 +219,8 @@ struct HistoryView: View {
           AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
             .foregroundStyle(LiftTheme.rule)
           AxisValueLabel()
-            .font(.receipt(8, weight: .bold))
+            .font(StrandFont.micro)
+            .foregroundStyle(StrandPalette.textTertiary)
         }
       }
       .frame(width: plotWidth, height: 220)
@@ -286,12 +234,12 @@ struct HistoryView: View {
 
   private func metricsGrid(_ metrics: LiftProgressMetrics) -> some View {
     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
-      ReceiptMetric(title: "Work Done", value: liftVolume(metrics.workDone))
-      ReceiptMetric(title: "Workouts", value: "\(metrics.workouts)")
-      ReceiptMetric(title: "Sets", value: "\(metrics.workingSets)")
-      ReceiptMetric(title: "Avg Duration", value: liftDuration(metrics.averageDuration))
-      ReceiptMetric(title: "Consistency", value: "\(Int(metrics.consistencyPercent.rounded()))%")
-      ReceiptMetric(title: "Exercises", value: "\(metrics.exerciseCount)")
+      LiftMetric(title: "Work done", value: liftVolume(metrics.workDone))
+      LiftMetric(title: "Workouts", value: "\(metrics.workouts)")
+      LiftMetric(title: "Sets", value: "\(metrics.workingSets)")
+      LiftMetric(title: "Avg duration", value: liftDuration(metrics.averageDuration))
+      LiftMetric(title: "Consistency", value: "\(Int(metrics.consistencyPercent.rounded()))%")
+      LiftMetric(title: "Exercises", value: "\(metrics.exerciseCount)")
     }
   }
 
@@ -318,8 +266,8 @@ struct HistoryView: View {
   }
 
   private func receiptDate(_ date: Date) -> String {
-    let day = date.formatted(.dateTime.month(.abbreviated).day().year()).uppercased()
-    let time = date.formatted(.dateTime.hour().minute()).uppercased()
+    let day = date.formatted(.dateTime.month(.abbreviated).day().year())
+    let time = date.formatted(.dateTime.hour().minute())
     return "\(day) · \(time)"
   }
 }

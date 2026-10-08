@@ -1,3 +1,4 @@
+import StrandDesign
 import SwiftUI
 
 struct LiftScheduleWeekDay: Identifiable, Equatable, Sendable {
@@ -84,18 +85,17 @@ struct ScheduleWeekStrip: View {
     } label: {
       VStack(spacing: 3) {
         Text(weekdaySymbol(for: day.date))
-          .font(.receipt(8, weight: .black))
-          .tracking(0.3)
+          .font(StrandFont.micro)
+          .foregroundStyle(isSelected ? StrandPalette.onInk : StrandPalette.textTertiary)
         Text(String(calendar.component(.day, from: day.date)))
-          .font(.receipt(12, weight: .black))
-          .monospacedDigit()
+          .font(StrandFont.number(16))
+          .foregroundStyle(isSelected ? StrandPalette.onInk : StrandPalette.textPrimary)
         Circle()
-          .fill(isSelected ? LiftTheme.paper : LiftTheme.ink)
+          .fill(isSelected ? StrandPalette.onInk : StrandPalette.accent)
           .frame(width: 4, height: 4)
           .opacity(day.isTrained ? 1 : 0)
           .accessibilityHidden(true)
       }
-      .foregroundStyle(isSelected ? LiftTheme.paper : LiftTheme.ink)
       .frame(maxWidth: .infinity)
       .frame(minHeight: LiftDesignMetrics.ScheduleWeek.minimumTargetSize)
       .background {
@@ -104,7 +104,7 @@ struct ScheduleWeekStrip: View {
             cornerRadius: LiftDesignMetrics.ScheduleWeek.selectionCornerRadius,
             style: .continuous
           )
-          .fill(LiftTheme.ink)
+          .fill(StrandPalette.ink)
           .matchedGeometryEffect(id: "schedule-week-selection", in: selectionNamespace)
         }
       }

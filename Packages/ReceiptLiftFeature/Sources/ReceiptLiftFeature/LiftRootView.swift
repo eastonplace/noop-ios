@@ -50,6 +50,7 @@ struct LiftRootView: View {
   let destination: LiftDestination
   init(destination: LiftDestination = .start) { self.destination = destination }
   @EnvironmentObject private var store: LiftStore
+  @Environment(\.liftHostChrome) private var host
   @State private var showsCompletedHistory = false
   @State private var showsSettings = false
   @State private var previewRoutine: LiftRoutine?
@@ -119,46 +120,42 @@ struct LiftRootView: View {
   }
 
   private var workoutPicker: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 20) {
-        HStack {
-          Text("Start a lift").font(.largeTitle.bold())
-          Spacer()
-          Button { showsSettings = true } label: {
-            Image(systemName: "gearshape").frame(width: 44, height: 44)
-          }.accessibilityLabel("Lift settings")
+    LiftScreen(
+      title: "Start a lift",
+      subtitle: "Choose a routine or build your workout as you go.",
+      backAction: host.onBack,
+      trailing: {
+        LiftHeaderTrailing {
+          NoopIconButton("gearshape", accessibilityLabel: "Lift settings") { showsSettings = true }
         }
-        Text("Choose a routine or build your workout as you go.")
-          .font(.subheadline).foregroundStyle(.secondary)
-        if store.activeSession != nil {
-          Button { isWorkoutPresented = true } label: {
-            Label("Resume active lift", systemImage: "play.fill")
-              .frame(maxWidth: .infinity, alignment: .leading).padding(18)
-          }.buttonStyle(.borderedProminent).foregroundStyle(StrandPalette.onInk)
-        } else {
-          Button(action: startOpenLift) {
-            Label("Open workout", systemImage: "plus")
-              .frame(maxWidth: .infinity, alignment: .leading).padding(18)
-          }.buttonStyle(.borderedProminent).foregroundStyle(StrandPalette.onInk)
-          Text("YOUR ROUTINES").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+      }
+    ) {
+      if store.activeSession != nil {
+        NoopButton("Resume active lift", systemImage: "play.fill", kind: .primary, fullWidth: true) {
+          isWorkoutPresented = true
+        }
+      } else {
+        NoopButton("Open workout", systemImage: "plus", kind: .primary, fullWidth: true, action: startOpenLift)
+        LiftSection(title: "Your routines") {
           ForEach(store.routines) { routine in
             Button { presentPreview(routine) } label: {
-              HStack(spacing: 12) {
-                Image(systemName: "dumbbell").foregroundStyle(LiftTheme.accent)
-                VStack(alignment: .leading, spacing: 6) {
-                  Text(routine.name).font(.headline)
-                  Text("\(routine.exerciseIDs.count) exercises · \(store.estimatedMinutes(for: routine)) min")
-                    .font(.subheadline).foregroundStyle(.secondary)
-                }
-                Spacer()
-                Image(systemName: "chevron.right").foregroundStyle(.secondary)
-              }.padding(18).frame(maxWidth: .infinity, alignment: .leading)
-                .background(StrandPalette.card, in: RoundedRectangle(cornerRadius: 16))
-            }.buttonStyle(.plain)
+              LiftRow(
+                title: routine.name,
+                detail: "\(routine.exerciseIDs.count) exercises · \(store.estimatedMinutes(for: routine)) min",
+                showsChevron: true
+              ) {
+                Image(systemName: "dumbbell")
+                  .font(.system(size: 16, weight: .semibold))
+                  .foregroundStyle(LiftTheme.accent)
+                  .frame(width: 28)
+                  .accessibilityHidden(true)
+              }
+            }
+            .buttonStyle(.plain)
           }
         }
-      }.padding(20)
-    }.background(LiftTheme.paper)
+      }
+    }
   }
 
   private func autoResumeActiveSessionIfNeeded() async {
