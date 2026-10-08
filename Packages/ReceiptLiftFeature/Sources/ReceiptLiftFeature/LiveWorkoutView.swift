@@ -1,4 +1,5 @@
 import os
+import StrandDesign
 import SwiftUI
 
 private let liftWorkoutPerformanceLog = OSLog(
@@ -120,27 +121,27 @@ struct LiftWorkoutQueueRowContent: View, Equatable {
   }
 
   var body: some View {
-    HStack(alignment: .top, spacing: 9) {
+    HStack(alignment: .center, spacing: 12) {
       Text(String(format: "%02d", row.ordinal))
-        .font(.receipt(11, weight: .bold))
-        .foregroundStyle(LiftTheme.inkSecondary)
+        .font(StrandFont.number(12, weight: .medium))
+        .foregroundStyle(StrandPalette.textTertiary)
         .frame(width: 24, alignment: .leading)
       queueArtwork
-      VStack(alignment: .leading, spacing: 3) {
-        Text(row.exercise.name.uppercased())
-          .font(.receipt(12, weight: .black))
-          .foregroundStyle(LiftTheme.ink)
-        Text((row.supersetLabel ?? (isPrinted ? "Printed to receipt" : "Tap to compose")).uppercased())
-          .font(.receipt(9, weight: .medium))
-          .foregroundStyle(LiftTheme.inkSecondary)
+      VStack(alignment: .leading, spacing: 2) {
+        Text(row.exercise.name.liftDisplayName)
+          .font(StrandFont.body)
+          .foregroundStyle(StrandPalette.textPrimary)
+        Text(row.supersetLabel ?? (isPrinted ? "Done" : "Tap to log sets"))
+          .font(StrandFont.caption)
+          .foregroundStyle(StrandPalette.textSecondary)
       }
       .frame(maxWidth: .infinity, alignment: .leading)
-      Text(row.progressLabel.uppercased())
-        .font(.receipt(11, weight: .black))
-        .monospacedDigit()
-        .foregroundStyle(LiftTheme.ink)
+      Text(row.progressLabel)
+        .font(StrandFont.number(14))
+        .foregroundStyle(StrandPalette.textPrimary)
     }
-    .frame(minHeight: 44)
+    .padding(.vertical, 4)
+    .frame(minHeight: 52)
     .contentShape(Rectangle())
     .opacity(isPrinted ? 0.58 : 1)
   }
@@ -178,12 +179,12 @@ private struct LiftWorkoutQueueActionRow: View {
       } label: {
         Label(action.title, systemImage: row.isDone ? "arrow.uturn.left" : "checkmark")
           .labelStyle(.titleAndIcon)
-          .font(.receipt(9, weight: .black))
-          .foregroundStyle(LiftTheme.paper)
+          .font(StrandFont.caption.weight(.semibold))
+          .foregroundStyle(StrandPalette.onInk)
           .frame(width: actionWidth)
           .frame(maxHeight: .infinity)
           .frame(minHeight: 52)
-          .background(LiftTheme.ink)
+          .background(StrandPalette.ink)
       }
       .buttonStyle(.plain)
       .accessibilityHidden(true)
@@ -298,12 +299,11 @@ struct LiveWorkoutView: View {
       ScrollView {
         LazyVStack(alignment: .leading, spacing: 0) {
           if let session = store.activeSession {
-            ReceiptSheet {
-              LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
-                Section {
-                  VStack(alignment: .leading, spacing: 12) {
-                    if let composerExercise, let ordinal = composerOrdinal {
-                      ReceiptSectionLabel(title: "Current Exercise")
+            LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+              Section {
+                VStack(alignment: .leading, spacing: LiftChromeMetrics.blockSpacing) {
+                  if let composerExercise, let ordinal = composerOrdinal {
+                    LiftSection(title: "Current exercise") {
                       ExerciseLogRow(
                         exercise: composerExercise,
                         store: store,
@@ -318,24 +318,22 @@ struct LiveWorkoutView: View {
                         onComposed: composerDidRender
                       )
                       .id(composerExercise.id)
-                    } else {
-                      emptyQueue
                     }
+                  } else {
+                    emptyQueue
+                  }
 
-                    queueSection(title: "Up Next", rows: upNextRows, isPrinted: false)
-                    queueSection(title: "Printed", rows: printedRows, isPrinted: true)
-                  }
-                  .padding(.top, 12)
-                } header: {
-                  VStack(alignment: .leading, spacing: 12) {
-                    workspaceHeader(session, queueRows: queueRows)
-                    ReceiptDashedRule()
-                  }
+                  queueSection(title: "Up next", rows: upNextRows, isPrinted: false)
+                  queueSection(title: "Done", rows: printedRows, isPrinted: true)
+                }
+                .padding(.top, 12)
+              } header: {
+                workspaceHeader(session, queueRows: queueRows)
                   .background(LiftTheme.paper)
                   .zIndex(1)
-                }
               }
             }
+            .padding(.horizontal, LiftChromeMetrics.gutter)
           } else {
             inactiveReceipt
           }
@@ -351,10 +349,14 @@ struct LiveWorkoutView: View {
     .liftScreenBackground()
     .safeAreaInset(edge: .bottom) {
       if let error = store.databaseSaveError {
-        VStack(spacing: 8) {
-          Text("Not saved yet: \(error)").font(.caption)
-          Button("Retry save") { store.flushPendingSave() }
-        }.padding(12).frame(maxWidth: .infinity).background(LiftTheme.paper)
+        HStack(spacing: 12) {
+          Text("Not saved yet: \(error)")
+            .font(StrandFont.caption)
+            .foregroundStyle(StrandPalette.textSecondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+          ChipButton("Retry save") { store.flushPendingSave() }
+        }
+        .liftFooterBar()
       }
     }
     .overlay(alignment: .top) {
@@ -393,7 +395,7 @@ struct LiveWorkoutView: View {
       case .restOptions:
         MiniRestOptionsSheet()
           .environmentObject(store)
-          .presentationDetents([.height(280)])
+          .presentationDetents([.height(400)])
           .presentationDragIndicator(.visible)
       case .receipt(let receiptSession):
         LiveReceiptView(session: receiptSession)
@@ -411,13 +413,13 @@ struct LiveWorkoutView: View {
         if let exercise = store.exercise(for: exerciseID) {
           SupersetPairingSheet(exercise: exercise)
             .environmentObject(store)
-            .presentationDetents([.height(360), .medium])
+            .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
       case .history(let exerciseID):
         if store.exercise(for: exerciseID) != nil {
           NavigationStack {
-            ExerciseProgressView(exerciseID: exerciseID, showsInformation: true)
+            ExerciseProgressView(exerciseID: exerciseID, showsInformation: true, closesModal: true)
             .environmentObject(store)
           }
           .presentationDetents([.large])
@@ -468,87 +470,43 @@ struct LiveWorkoutView: View {
     _ session: LiftSession,
     queueRows: [LiftWorkoutQueueRowState]
   ) -> some View {
-    VStack(alignment: .leading, spacing: 10) {
-      ViewThatFits(in: .horizontal) {
-        HStack(alignment: .top) {
-          workspaceReceiptHeader(session, queueRows: queueRows)
-            .fixedSize(horizontal: true, vertical: false)
-          Spacer(minLength: 8)
-          workspaceCloseButton
-        }
-
-        VStack(alignment: .leading, spacing: 8) {
-          workspaceReceiptHeader(session, queueRows: queueRows)
-          workspaceCloseButton
-            .frame(maxWidth: .infinity, alignment: .trailing)
-        }
+    VStack(alignment: .leading, spacing: 8) {
+      NoopScreenHeader(
+        title: LocalizedStringKey(session.title),
+        subtitle: LocalizedStringKey(sessionSetTotal(queueRows: queueRows, session: session)),
+        style: .compact
+      ) {
+        NoopIconButton("chevron.down", accessibilityLabel: "Close workout", action: onDismiss)
       }
 
       HStack(spacing: 8) {
         ElapsedWorkoutClock(startedAt: session.startedAt)
         Spacer(minLength: 8)
-        ReceiptSecondaryButton(
-          title: "Receipt",
-          systemImage: "ticket",
-          tint: LiftTheme.ink
-        ) {
+        ChipButton("Receipt", systemImage: "ticket") {
           activeSheet = .receipt(session)
         }
         Menu {
-          Button("Add Exercise", systemImage: "plus") {
+          Button("Add exercise", systemImage: "plus") {
             presentExercisePicker()
           }
-          Button("Finish Workout", systemImage: "checkmark") {
+          Button("Finish workout", systemImage: "checkmark") {
             finishWorkout()
           }
-          Button("Discard Workout", systemImage: "trash", role: .destructive) {
+          Button("Discard workout", systemImage: "trash", role: .destructive) {
             discardWorkout()
           }
         } label: {
           Image(systemName: "ellipsis")
-            .font(.receipt(16, weight: .black))
-            .foregroundStyle(LiftTheme.ink)
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(StrandPalette.textPrimary)
             .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
         }
         .accessibilityLabel("Workout actions")
       }
-    }
-  }
 
-  private func workspaceReceiptHeader(
-    _ session: LiftSession,
-    queueRows: [LiftWorkoutQueueRowState]
-  ) -> some View {
-    VStack(alignment: .leading, spacing: 5) {
-      Text(session.title.uppercased())
-        .font(.receipt(34, weight: .black))
-        .foregroundStyle(LiftTheme.ink)
-        .lineLimit(3)
-        .minimumScaleFactor(0.52)
-        .allowsTightening(true)
-        .fixedSize(horizontal: false, vertical: true)
-
-      HStack(alignment: .firstTextBaseline, spacing: 12) {
-        Text("ACTIVE RECEIPT")
-          .font(.receipt(10, weight: .bold))
-          .tracking(0.8)
-          .foregroundStyle(LiftTheme.inkSecondary)
-        Spacer(minLength: 8)
-        Text(sessionSetTotal(queueRows: queueRows, session: session).uppercased())
-          .font(.receipt(10, weight: .bold))
-          .foregroundStyle(LiftTheme.inkSecondary)
-          .multilineTextAlignment(.trailing)
-      }
+      LiftDivider()
     }
-  }
-
-  private var workspaceCloseButton: some View {
-    Button(action: onDismiss) {
-      Image(systemName: "chevron.down")
-        .frame(width: 44, height: 44)
-    }
-    .buttonStyle(ReceiptIconButtonStyle())
-    .accessibilityLabel("Close workout")
   }
 
   @ViewBuilder
@@ -558,20 +516,18 @@ struct LiveWorkoutView: View {
     isPrinted: Bool
   ) -> some View {
     if !rows.isEmpty {
-      ReceiptDashedRule()
-      ReceiptSectionLabel(title: title)
-      LazyVStack(alignment: .leading, spacing: 0) {
-        ForEach(rows) { row in
-          LiftWorkoutQueueActionRow(
-            row: row,
-            isPrinted: isPrinted,
-            continuityNamespace: workspaceContinuityNamespace,
-            onSelect: { selectComposer(row.id) },
-            onSetDone: { isDone in setExerciseDone(row.id, isDone: isDone) }
-          )
+      LiftSection(title: LocalizedStringKey(title)) {
+        LazyVStack(alignment: .leading, spacing: 0) {
+          ForEach(rows) { row in
+            LiftWorkoutQueueActionRow(
+              row: row,
+              isPrinted: isPrinted,
+              continuityNamespace: workspaceContinuityNamespace,
+              onSelect: { selectComposer(row.id) },
+              onSetDone: { isDone in setExerciseDone(row.id, isDone: isDone) }
+            )
 
-          if row.id != rows.last?.id {
-            ReceiptDashedRule()
+            LiftDivider()
           }
         }
       }
@@ -579,39 +535,18 @@ struct LiveWorkoutView: View {
   }
 
   private var emptyQueue: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      VStack(alignment: .leading, spacing: 8) {
-        ReceiptSectionLabel(title: "Current Exercise")
-        Text("NO EXERCISES ON THIS RECEIPT.")
-          .font(.receipt(12, weight: .black))
-          .foregroundStyle(LiftTheme.ink)
-        Text("ADD ONLY THE MOVEMENTS YOU PLAN TO LOG.")
-          .font(.receipt(10, weight: .bold))
-          .foregroundStyle(LiftTheme.inkSecondary)
-      }
-      .accessibilityElement(children: .combine)
-
-      ReceiptPrimaryButton(
-        title: "Add Exercise",
-        systemImage: "plus",
-        tint: LiftTheme.ink,
-        action: presentExercisePicker
-      )
+    LiftSection(title: "Current exercise") {
+      LiftEmptyNote(text: "No exercises in this workout yet. Add only the movements you plan to log.")
+      NoopButton("Add exercise", systemImage: "plus", kind: .primary, fullWidth: true, action: presentExercisePicker)
     }
   }
 
   private var inactiveReceipt: some View {
-    ReceiptSheet {
-      ReceiptHeader(title: "Workout Closed", subtitle: "Return to Today to begin")
-      ReceiptDashedRule()
-      ReceiptSecondaryButton(
-        title: "Close",
-        systemImage: "chevron.down",
-        tint: LiftTheme.ink,
-        fillsWidth: true,
-        action: onDismiss
-      )
+    VStack(alignment: .leading, spacing: LiftChromeMetrics.blockSpacing) {
+      NoopScreenHeader(title: "Workout closed", subtitle: "Return to Lift to begin")
+      NoopButton("Close", systemImage: "chevron.down", kind: .secondary, fullWidth: true, action: onDismiss)
     }
+    .padding(.horizontal, LiftChromeMetrics.gutter)
   }
 
   private func sessionSetTotal(
@@ -818,17 +753,20 @@ private struct WorkoutConfirmationStampView: View {
 
   var body: some View {
     Text(text)
-      .font(.receipt(11, weight: .black))
-      .foregroundStyle(LiftTheme.ink)
+      .font(StrandFont.caption.weight(.semibold))
+      .foregroundStyle(StrandPalette.textPrimary)
       .multilineTextAlignment(.center)
       .lineLimit(2)
       .minimumScaleFactor(0.72)
       .padding(.horizontal, 14)
       .frame(maxWidth: .infinity, minHeight: 44)
-      .background(LiftTheme.paper)
+      .background(
+        StrandPalette.card,
+        in: RoundedRectangle(cornerRadius: NoopMetrics.radius2, style: .continuous)
+      )
       .overlay {
-        RoundedRectangle(cornerRadius: 4, style: .continuous)
-          .stroke(LiftTheme.ink, lineWidth: 1.5)
+        RoundedRectangle(cornerRadius: NoopMetrics.radius2, style: .continuous)
+          .strokeBorder(StrandPalette.cardBorder, lineWidth: 1)
       }
       .accessibilityLabel(text)
       .onAppear {
@@ -874,13 +812,10 @@ private struct ElapsedWorkoutClock: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 2) {
-      Text("Elapsed")
-        .font(.receipt(8, weight: .bold))
-        .foregroundStyle(LiftTheme.inkSecondary)
+      Text("Elapsed").strandOverline()
       Text(timerInterval: startedAt...Date.distantFuture, countsDown: false)
-        .font(.receipt(12, weight: .black))
-        .monospacedDigit()
-        .foregroundStyle(LiftTheme.ink)
+        .font(StrandFont.number(18, weight: .bold))
+        .foregroundStyle(StrandPalette.textPrimary)
     }
     .accessibilityElement(children: .combine)
   }
@@ -936,43 +871,29 @@ private struct ExerciseLogRow: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 13) {
+    VStack(alignment: .leading, spacing: 16) {
       composerHeader
-      ReceiptDashedRule()
       lastSetsLine
       setProgressLine
       loadReadout
 
       if LiftPlateLoaderEligibility.isEligible(exercise) {
-        Button {
+        NoopButton("Plate loader", systemImage: "scalemass", kind: .secondary, fullWidth: true) {
           showsPlateLoader = true
-        } label: {
-          HStack(spacing: 8) {
-            Text("PLATE LOADER")
-            Spacer(minLength: 0)
-            Image(systemName: "scalemass")
-          }
-          .font(.receipt(10, weight: .black))
-          .foregroundStyle(LiftTheme.ink)
-          .padding(.horizontal, LiftDesignMetrics.Composer.plateLoaderHorizontalPadding)
-          .frame(maxWidth: .infinity, minHeight: 44)
-          .contentShape(Rectangle())
-          .overlay(Rectangle().stroke(LiftTheme.ink, lineWidth: 1))
         }
-        .buttonStyle(.plain)
         .accessibilityHint("Shows plates for the current composer weight")
       }
 
       VStack(spacing: 10) {
-        ReceiptStepper(
+        LiftStepper(
           title: "Weight",
-          value: liftLoad(weight, for: exercise).uppercased(),
+          value: liftLoad(weight, for: exercise),
           decrement: { weight = max(0, weight - 5) },
           increment: { weight += 5 },
           decrementLarge: { weight = max(0, weight - 25) },
           incrementLarge: { weight += 25 }
         )
-        ReceiptStepper(
+        LiftStepper(
           title: "Reps",
           value: "\(reps)",
           decrement: { reps = max(1, reps - 1) },
@@ -986,12 +907,7 @@ private struct ExerciseLogRow: View {
       }
       warmupChip
 
-      ReceiptPrimaryButton(
-        title: "Log Set",
-        systemImage: "plus",
-        tint: LiftTheme.ink,
-        action: logCurrentSet
-      )
+      NoopButton("Log set", systemImage: "plus", kind: .primary, fullWidth: true, action: logCurrentSet)
     }
     .onAppear {
       onComposed(exercise.id)
@@ -1004,12 +920,12 @@ private struct ExerciseLogRow: View {
         reps: $reps,
         isWarmup: $isWarmup
       )
-      .presentationDetents([.height(340)])
+      .presentationDetents([.medium, .large])
       .presentationDragIndicator(.visible)
     }
     .sheet(isPresented: $showsPlateLoader) {
       PlateLoaderView(targetWeight: $weight, exercise: exercise)
-        .presentationDetents([.height(360)])
+        .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
     }
   }
@@ -1056,16 +972,16 @@ private struct ExerciseLogRow: View {
   }
 
   private var composerIdentity: some View {
-    VStack(alignment: .leading, spacing: 5) {
+    VStack(alignment: .leading, spacing: 4) {
       Text(String(format: "%02d / %02d", index + 1, max(store.activeExercises.count, 1)))
-        .font(.receipt(LiftDesignMetrics.Composer.ordinalFontSize, weight: .bold))
-        .foregroundStyle(LiftTheme.inkSecondary)
-        .monospacedDigit()
-      Text(exercise.name.uppercased())
-        .font(.receipt(LiftDesignMetrics.Composer.nameFontSize, weight: .black))
-        .foregroundStyle(LiftTheme.ink)
+        .font(StrandFont.number(12, weight: .medium))
+        .foregroundStyle(StrandPalette.textTertiary)
+      Text(exercise.name.liftDisplayName)
+        .font(StrandFont.title2)
+        .foregroundStyle(StrandPalette.textPrimary)
+        .multilineTextAlignment(.leading)
         .lineLimit(3)
-        .minimumScaleFactor(0.72)
+        .minimumScaleFactor(0.8)
     }
   }
 
@@ -1096,21 +1012,19 @@ private struct ExerciseLogRow: View {
   }
 
   private var composerQuickActions: some View {
-    HStack(spacing: 16) {
-      Button("Swap", systemImage: "arrow.triangle.2.circlepath") { onPresentSwap(exercise) }
-      Button("Superset", systemImage: "link") { onPresentSuperset(exercise) }
+    HStack(spacing: 8) {
+      ChipButton("Swap", systemImage: "arrow.triangle.2.circlepath") { onPresentSwap(exercise) }
+      ChipButton("Superset", systemImage: "link") { onPresentSuperset(exercise) }
     }
-    .font(.system(size: 13, weight: .semibold))
-    .tint(LiftTheme.accent)
-    .frame(minHeight: 44)
+    .padding(.vertical, 6)
   }
 
   private var composerToolsMenu: some View {
     Menu {
-      Button("Details & Progress", systemImage: "clock.arrow.circlepath") {
+      Button("Details & progress", systemImage: "clock.arrow.circlepath") {
         onPresentHistory(exercise)
       }
-      Button("Swap Exercise", systemImage: "arrow.triangle.2.circlepath") {
+      Button("Swap exercise", systemImage: "arrow.triangle.2.circlepath") {
         onPresentSwap(exercise)
       }
       Button("Superset", systemImage: "link") {
@@ -1118,8 +1032,8 @@ private struct ExerciseLogRow: View {
       }
     } label: {
       Image(systemName: "ellipsis")
-        .font(.receipt(15, weight: .black))
-        .foregroundStyle(LiftTheme.ink)
+        .font(.system(size: 16, weight: .semibold))
+        .foregroundStyle(StrandPalette.textPrimary)
         .frame(width: 44, height: 44)
         .contentShape(Rectangle())
     }
@@ -1136,12 +1050,10 @@ private struct ExerciseLogRow: View {
 
   private var lastSetsLine: some View {
     HStack(alignment: .firstTextBaseline, spacing: 10) {
-      Text("LAST")
-        .font(.receipt(9, weight: .bold))
-        .foregroundStyle(LiftTheme.inkSecondary)
+      Text("Last").strandOverline()
       Text(lastSetsText)
-        .font(.receipt(11, weight: .black))
-        .foregroundStyle(savedWorkingSets.isEmpty ? LiftTheme.inkSecondary : LiftTheme.ink)
+        .font(StrandFont.number(13, weight: .medium))
+        .foregroundStyle(savedWorkingSets.isEmpty ? StrandPalette.textTertiary : StrandPalette.textPrimary)
         .lineLimit(2)
         .minimumScaleFactor(0.68)
       Spacer(minLength: 0)
@@ -1150,9 +1062,9 @@ private struct ExerciseLogRow: View {
   }
 
   private var lastSetsText: String {
-    guard !savedWorkingSets.isEmpty else { return "NO SAVED SETS" }
+    guard !savedWorkingSets.isEmpty else { return "No saved sets" }
     return savedWorkingSets.map {
-      "\(liftLoad($0.weight, for: exercise).uppercased()) × \($0.reps)"
+      "\(liftLoad($0.weight, for: exercise)) × \($0.reps)"
     }
     .joined(separator: "   ")
   }
@@ -1163,16 +1075,16 @@ private struct ExerciseLogRow: View {
 
   private var setProgressLine: some View {
     Text(setProgressText)
-      .font(.receipt(11, weight: .black))
-      .foregroundStyle(LiftTheme.inkSecondary)
+      .font(StrandFont.caption.weight(.semibold))
+      .foregroundStyle(StrandPalette.textSecondary)
       .monospacedDigit()
   }
 
   private var setProgressText: String {
     guard let target = setProgress.target else {
-      return "SET \(setProgress.completed + 1)"
+      return "Set \(setProgress.completed + 1)"
     }
-    return "SET \(min(setProgress.completed + 1, target)) OF \(target)"
+    return "Set \(min(setProgress.completed + 1, target)) of \(target)"
   }
 
   private var loadReadout: some View {
@@ -1183,7 +1095,7 @@ private struct ExerciseLogRow: View {
       )
       loadReadoutLine(loadSize: 34, multiplierSize: 26)
     }
-    .foregroundStyle(LiftTheme.ink)
+    .foregroundStyle(StrandPalette.textPrimary)
     .lineLimit(1)
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(
@@ -1209,35 +1121,41 @@ private struct ExerciseLogRow: View {
 
   private func loadReadoutLine(loadSize: CGFloat, multiplierSize: CGFloat) -> some View {
     HStack(alignment: .firstTextBaseline, spacing: 8) {
-      Text(liftLoad(weight, for: exercise).uppercased())
-        .font(.receipt(loadSize, weight: .black))
+      Text(liftLoad(weight, for: exercise))
+        .font(StrandFont.number(loadSize, weight: .bold))
         .contentTransition(.numericText())
         .minimumScaleFactor(0.62)
       Text("×")
-        .font(.receipt(multiplierSize, weight: .black))
-        .foregroundStyle(LiftTheme.inkSecondary)
+        .font(StrandFont.number(multiplierSize, weight: .medium))
+        .foregroundStyle(StrandPalette.textSecondary)
       Text("\(reps)")
-        .font(.receipt(loadSize, weight: .black))
-        .monospacedDigit()
+        .font(StrandFont.number(loadSize, weight: .bold))
         .contentTransition(.numericText())
       Spacer(minLength: 0)
     }
   }
 
+  private var effortSelection: Binding<Int> {
+    Binding(get: { Int(rpe) }, set: { rpe = Double($0) })
+  }
+
   private var effortEditor: some View {
-    VStack(spacing: 8) {
+    VStack(alignment: .leading, spacing: 8) {
       Button {
         isEffortExpanded.toggle()
       } label: {
         HStack(spacing: 8) {
-          Text("EFFORT")
+          Text("Effort")
+            .font(StrandFont.subhead)
+            .foregroundStyle(StrandPalette.textPrimary)
           Spacer()
           Text(rpe.formatted(.number.precision(.fractionLength(0))))
-            .monospacedDigit()
+            .font(StrandFont.number(15))
+            .foregroundStyle(StrandPalette.textPrimary)
           Image(systemName: isEffortExpanded ? "chevron.up" : "chevron.right")
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(StrandPalette.textTertiary)
         }
-        .font(.receipt(11, weight: .black))
-        .foregroundStyle(LiftTheme.ink)
         .frame(minHeight: 44)
         .contentShape(Rectangle())
       }
@@ -1246,24 +1164,8 @@ private struct ExerciseLogRow: View {
       .accessibilityHint(isEffortExpanded ? "Collapses effort choices" : "Expands effort choices")
 
       if isEffortExpanded {
-        HStack(spacing: 6) {
-          ForEach(6...10, id: \.self) { effort in
-            Button {
-              rpe = Double(effort)
-            } label: {
-              Text("\(effort)")
-                .font(.receipt(11, weight: .black))
-                .foregroundStyle(Int(rpe) == effort ? LiftTheme.paper : LiftTheme.ink)
-                .frame(maxWidth: .infinity, minHeight: 44)
-                .background(
-                  Int(rpe) == effort ? LiftTheme.ink : LiftTheme.ink.opacity(0.06),
-                  in: RoundedRectangle(cornerRadius: 4, style: .continuous)
-                )
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Effort \(effort)")
-          }
-        }
+        SegmentedPillControl(Array(6...10), selection: effortSelection) { "\($0)" }
+          .frame(maxWidth: .infinity, alignment: .leading)
       }
     }
   }
@@ -1274,17 +1176,18 @@ private struct ExerciseLogRow: View {
     } label: {
       HStack(spacing: 8) {
         Image(systemName: isWarmup ? "checkmark.square.fill" : "square")
-        Text("WARM-UP")
+          .foregroundStyle(isWarmup ? StrandPalette.accent : StrandPalette.textSecondary)
+        Text("Warm-up")
+          .font(StrandFont.subhead)
+          .foregroundStyle(StrandPalette.textPrimary)
         Spacer(minLength: 0)
       }
-      .font(.receipt(11, weight: .black))
-      .foregroundStyle(isWarmup ? LiftTheme.ink : LiftTheme.inkSecondary)
       .padding(.horizontal, LiftDesignMetrics.Composer.warmupChipHorizontalPadding)
       .frame(maxWidth: .infinity, minHeight: 44)
       .contentShape(Rectangle())
       .overlay(
-        RoundedRectangle(cornerRadius: 4, style: .continuous)
-          .stroke((isWarmup ? LiftTheme.ink : LiftTheme.inkSecondary).opacity(0.42), lineWidth: 1)
+        RoundedRectangle(cornerRadius: NoopMetrics.radius2, style: .continuous)
+          .strokeBorder(isWarmup ? StrandPalette.accent : StrandPalette.cardBorder, lineWidth: 1)
       )
     }
     .buttonStyle(.plain)
@@ -1298,16 +1201,20 @@ private struct ExerciseLogRow: View {
     } label: {
       HStack(spacing: 8) {
         Image(systemName: "figure.strengthtraining.traditional")
-        Text("WARM-UP?")
+          .foregroundStyle(StrandPalette.accent)
+        Text("Suggest a warm-up")
+          .font(StrandFont.subhead)
+          .foregroundStyle(StrandPalette.textPrimary)
         Spacer(minLength: 0)
         Image(systemName: "chevron.right")
+          .font(.system(size: 13, weight: .semibold))
+          .foregroundStyle(StrandPalette.textTertiary)
       }
-      .font(.receipt(11, weight: .black))
-      .foregroundStyle(LiftTheme.ink)
       .frame(maxWidth: .infinity, minHeight: 44)
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
+    .accessibilityLabel("Warm-up suggestion")
     .accessibilityHint("Shows suggested warm-up sets")
   }
 
@@ -1338,30 +1245,25 @@ private struct WarmupSuggestionSheet: View {
   @Binding var isWarmup: Bool
 
   var body: some View {
-    ScrollView {
-      ReceiptSheet {
-        HStack(alignment: .top, spacing: 8) {
-          ReceiptHeader(title: "Warm-Up?", subtitle: exercise.name)
-          Spacer(minLength: 8)
-          Button { dismiss() } label: {
-            Image(systemName: "xmark")
-              .frame(width: 44, height: 44)
-          }
-          .buttonStyle(ReceiptIconButtonStyle())
-          .accessibilityLabel("Close warm-up suggestion")
-        }
-
-        ReceiptDashedRule()
-        Text(plan.title.uppercased())
-          .font(.receipt(12, weight: .black))
-          .foregroundStyle(LiftTheme.ink)
-        Text(plan.reason.uppercased())
-          .font(.receipt(10, weight: .bold))
-          .foregroundStyle(LiftTheme.inkSecondary)
+    LiftScreen(
+      title: "Warm-up?",
+      subtitle: LocalizedStringKey(exercise.name.liftDisplayName),
+      trailing: {
+        NoopIconButton("xmark", accessibilityLabel: "Close warm-up suggestion") { dismiss() }
+      }
+    ) {
+      VStack(alignment: .leading, spacing: 4) {
+        Text(plan.title)
+          .font(StrandFont.headline)
+          .foregroundStyle(StrandPalette.textPrimary)
+        Text(plan.reason)
+          .font(StrandFont.subhead)
+          .foregroundStyle(StrandPalette.textSecondary)
           .fixedSize(horizontal: false, vertical: true)
+      }
 
-        if plan.hasSets {
-          ReceiptDashedRule()
+      if plan.hasSets {
+        VStack(spacing: 0) {
           ForEach(plan.sets) { set in
             WarmupSuggestionRow(set: set, exercise: exercise) {
               weight = set.weight
@@ -1369,21 +1271,12 @@ private struct WarmupSuggestionSheet: View {
               isWarmup = true
               dismiss()
             }
-            if set.id != plan.sets.last?.id {
-              ReceiptDashedRule()
-            }
           }
-        } else {
-          ReceiptDashedRule()
-          Text("NO LOADED RAMP NEEDED.")
-            .font(.receipt(10, weight: .black))
-            .foregroundStyle(LiftTheme.inkSecondary)
-            .frame(minHeight: 44)
         }
+      } else {
+        LiftEmptyNote(text: "No loaded ramp needed.")
       }
     }
-    .scrollIndicators(.hidden)
-    .liftScreenBackground()
   }
 }
 
@@ -1394,14 +1287,13 @@ private struct WarmupSuggestionRow: View {
 
   var body: some View {
     Button(action: onUse) {
-      ReceiptLine(
-        index: set.sequence,
-        title: "\(liftLoad(set.weight, for: exercise).uppercased()) × \(set.reps)",
+      LiftRow(
+        title: "\(liftLoad(set.weight, for: exercise)) × \(set.reps)",
         detail: rowSubtitle,
         value: "Use"
-      )
-      .frame(minHeight: 44)
-      .contentShape(Rectangle())
+      ) {
+        LiftRowIndex(index: set.sequence)
+      }
     }
     .buttonStyle(.plain)
     .accessibilityLabel(
@@ -1411,9 +1303,9 @@ private struct WarmupSuggestionRow: View {
 
   private var rowSubtitle: String {
     if let percent = set.percent {
-      return "\(Int((percent * 100).rounded()))% / \(set.note.uppercased())"
+      return "\(Int((percent * 100).rounded()))% · \(set.note)"
     }
-    return set.note.uppercased()
+    return set.note
   }
 }
 
@@ -1431,77 +1323,51 @@ private struct SupersetPairingSheet: View {
   }
 
   var body: some View {
-    ScrollView {
-      ReceiptSheet {
-        HStack(alignment: .top, spacing: 8) {
-          ReceiptHeader(title: "Superset", subtitle: exercise.name)
-          Spacer(minLength: 8)
-          Button { dismiss() } label: {
-            Image(systemName: "xmark")
-              .frame(width: 44, height: 44)
-          }
-          .buttonStyle(ReceiptIconButtonStyle())
-          .accessibilityLabel("Close superset pairing")
+    LiftScreen(
+      title: "Superset",
+      subtitle: LocalizedStringKey(exercise.name.liftDisplayName),
+      trailing: {
+        NoopIconButton("xmark", accessibilityLabel: "Close superset pairing") { dismiss() }
+      }
+    ) {
+      if let label = store.supersetLabel(for: exercise.id) {
+        HStack(spacing: 10) {
+          LiftBadge(text: label)
+          Text(currentPartnerText)
+            .font(StrandFont.subhead)
+            .foregroundStyle(StrandPalette.textPrimary)
+          Spacer(minLength: 0)
         }
-
-        ReceiptDashedRule()
-        if let label = store.supersetLabel(for: exercise.id) {
-          HStack(spacing: 10) {
-            Text(label.uppercased())
-              .font(.receipt(9, weight: .black))
-              .foregroundStyle(LiftTheme.paper)
-              .padding(.horizontal, 8)
-              .frame(minHeight: 30)
-              .background(LiftTheme.ink, in: Capsule())
-            Text(currentPartnerText.uppercased())
-              .font(.receipt(10, weight: .black))
-              .foregroundStyle(LiftTheme.ink)
-            Spacer(minLength: 0)
-          }
-          ReceiptSecondaryButton(
-            title: "Clear Pairing",
-            systemImage: "xmark",
-            tint: LiftTheme.ink,
-            fillsWidth: true
-          ) {
-            store.clearSuperset(for: exercise.id)
-            dismiss()
-          }
-          ReceiptDashedRule()
+        NoopButton("Clear pairing", systemImage: "xmark", kind: .secondary, fullWidth: true) {
+          store.clearSuperset(for: exercise.id)
+          dismiss()
         }
+      }
 
-        if candidates.isEmpty {
-          Text("ADD ANOTHER ACTIVE EXERCISE TO MAKE A SUPERSET.")
-            .font(.receipt(10, weight: .black))
-            .foregroundStyle(LiftTheme.inkSecondary)
-            .frame(minHeight: 44)
-        } else {
+      if candidates.isEmpty {
+        LiftEmptyNote(text: "Add another active exercise to make a superset.")
+      } else {
+        VStack(spacing: 0) {
           ForEach(candidates) { candidate in
             Button {
               store.setSuperset(exercise.id, with: candidate.id)
               dismiss()
             } label: {
-              ReceiptLine(
-                index: candidateOrdinal(candidate),
-                title: candidate.name,
+              LiftRow(
+                title: candidate.name.liftDisplayName,
                 detail: store.supersetLabel(for: candidate.id) ?? "Pair for this workout",
-                value: "Pair",
-                thumb: candidate
-              )
-              .frame(minHeight: 44)
-              .contentShape(Rectangle())
+                value: "Pair"
+              ) {
+                LiftRowIndex(index: candidateOrdinal(candidate))
+                LiftExerciseThumb(exercise: candidate, size: 40, showsBorder: false)
+              }
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Pair \(exercise.name) with \(candidate.name)")
-            if candidate.id != candidates.last?.id {
-              ReceiptDashedRule()
-            }
           }
         }
       }
     }
-    .scrollIndicators(.hidden)
-    .liftScreenBackground()
   }
 
   private var currentPartnerText: String {
