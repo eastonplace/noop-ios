@@ -451,7 +451,7 @@ struct PreSleepHeartRateFeedbackSection: View {
                 Button(actionInFlight ? "Turning on…" : "Turn on pre-sleep HR") {
                     setEnabled(true)
                 }
-                .buttonStyle(.noopSecondary)
+                .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
                 .disabled(actionInFlight)
                 .frame(minHeight: 44)
                 if let actionMessage {
@@ -563,7 +563,7 @@ struct PreSleepHeartRateFeedbackSection: View {
         Group {
             if !isDemoOverride {
                 Button("Turn off") { confirmsTurnOff = true }
-                    .buttonStyle(.noopGhost)
+                    .buttonStyle(NoopButtonStyle(.tertiary, fullWidth: true))
                     .disabled(actionInFlight)
                     .frame(minHeight: 44)
                     .accessibilityHint("Removes stored pre-sleep heart-rate summaries after confirmation")

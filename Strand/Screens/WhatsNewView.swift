@@ -15,56 +15,25 @@ struct WhatsNewView: View {
     ]
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-                .background(StrandPalette.card)
-            Divider().overlay(StrandPalette.hairline)
-            ScrollView {
-                // PERF: the changelog grows with every release, so build off-screen cards lazily.
-                LazyVStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
-                    ios21ReleaseCard
-                    expectationsCard
-                    ForEach(Array(AppChangelog.releases.enumerated()), id: \.element.id) { index, release in
-                        releaseCard(release, isLatest: index == 0)
-                    }
-                }
-                .padding(20)
+        // PERF: the changelog grows with every release, so build off-screen cards lazily.
+        ScreenScaffold(title: "NOOP \(AppChangelog.currentVersion)",
+                       subtitle: "iOS 2.1 release candidate",
+                       lazy: true,
+                       trailing: { NoopIconButton("xmark", accessibilityLabel: "Close", action: onClose) }) {
+            ios21ReleaseCard
+            expectationsCard
+            ForEach(Array(AppChangelog.releases.enumerated()), id: \.element.id) { index, release in
+                releaseCard(release, isLatest: index == 0)
             }
-            Divider().overlay(StrandPalette.hairline)
-            footer
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) { footer.sheetFooterBar() }
+        .sheetScreenScaffoldEnvironment()
         #if os(macOS)
         .frame(width: 560, height: 640)
         #else
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .noopSheetPresentation(largeFirst: true)
         #endif
-        .background(StrandPalette.surfaceBase)
-    }
-
-    private var header: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("WHAT'S NEW").font(StrandFont.overline)
-                    .tracking(StrandFont.overlineTracking)
-                    .foregroundStyle(StrandPalette.textTertiary)
-                Text("NOOP \(AppChangelog.currentVersion)")
-                    .font(StrandFont.rounded(26, weight: .bold))
-                    .foregroundStyle(StrandPalette.textPrimary)
-                Text("iOS 2.1 release candidate")
-                    .font(StrandFont.caption)
-                    .foregroundStyle(StrandPalette.textSecondary)
-            }
-            Spacer()
-            Button(action: onClose) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 22))
-                    .foregroundStyle(StrandPalette.textTertiary)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Close")
-        }
-        .padding(20)
     }
 
     private var ios21ReleaseCard: some View {
@@ -160,15 +129,10 @@ struct WhatsNewView: View {
     }
 
     private var footer: some View {
-        HStack {
-            Spacer()
-            Button(action: onClose) {
-                Text("Got it").frame(minWidth: 120).padding(.vertical, 4)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(StrandPalette.textPrimary)
-            .keyboardShortcut(.defaultAction)
+        Button(action: onClose) {
+            Text("Got it")
         }
-        .padding(16)
+        .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
+        .keyboardShortcut(.defaultAction)
     }
 }

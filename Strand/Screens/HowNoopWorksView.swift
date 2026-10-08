@@ -96,35 +96,36 @@ struct HowNoopWorksView: View {
         Group {
             if presentation == .settingsDetail, onClose == nil {
                 nativeSettingsBody
+            } else if onClose != nil {
+                scaffoldBody
+                    .safeAreaInset(edge: .bottom, spacing: 0) { footerBar.sheetFooterBar() }
+                    .sheetScreenScaffoldEnvironment()
+                    #if os(macOS)
+                    .frame(width: 560, height: 640)
+                    #else
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .noopSheetPresentation(largeFirst: true)
+                    #endif
             } else {
-                VStack(spacing: 0) {
-                    header
-                        .background(StrandPalette.card)
-                    Divider().overlay(StrandPalette.hairline)
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
-                            introCard
-                            ForEach(Section.allCases) { section in
-                                primerCard(section)
-                            }
-                            scoringMethodsCard
-                            footerNote
-                        }
-                        .padding(20)
-                    }
-                    if onClose != nil {
-                        Divider().overlay(StrandPalette.hairline)
-                        footerBar
-                    }
-                }
-                #if os(macOS)
-                .frame(width: 560, height: 640)
-                #else
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .noopSheetPresentation(largeFirst: true)
-                #endif
-                .background(StrandPalette.surfaceBase)
+                scaffoldBody
             }
+        }
+    }
+
+    private var scaffoldBody: some View {
+        ScreenScaffold(title: "How NOOP works",
+                       subtitle: "Sleep · scores · recording · where your numbers come from",
+                       trailing: {
+                           if onClose != nil {
+                               NoopIconButton("xmark", accessibilityLabel: "Close", action: close)
+                           }
+                       }) {
+            introCard
+            ForEach(Section.allCases) { section in
+                primerCard(section)
+            }
+            scoringMethodsCard
+            footerNote
         }
     }
 
@@ -162,45 +163,14 @@ struct HowNoopWorksView: View {
         #endif
     }
 
-    // MARK: - Header / footer
-
-    private var header: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("THE BASICS").font(StrandFont.overline)
-                    .tracking(StrandFont.overlineTracking)
-                    .foregroundStyle(StrandPalette.textTertiary)
-                Text("How NOOP works").font(StrandFont.rounded(26, weight: .bold))
-                    .foregroundStyle(StrandPalette.textPrimary)
-                Text("Sleep · scores · recording · where your numbers come from")
-                    .font(StrandFont.caption)
-                    .foregroundStyle(StrandPalette.textSecondary)
-            }
-            Spacer()
-            if onClose != nil {
-                Button(action: close) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 22))
-                        .foregroundStyle(StrandPalette.textTertiary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close")
-            }
-        }
-        .padding(20)
-    }
+    // MARK: - Footer
 
     private var footerBar: some View {
-        HStack {
-            Spacer()
-            Button(action: close) {
-                Text("Got it").frame(minWidth: 120).padding(.vertical, 4)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(StrandPalette.textPrimary)
-            .keyboardShortcut(.defaultAction)
+        Button(action: close) {
+            Text("Got it")
         }
-        .padding(16)
+        .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
+        .keyboardShortcut(.defaultAction)
     }
 
     private func close() {

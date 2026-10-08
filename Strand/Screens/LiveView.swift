@@ -115,18 +115,10 @@ struct LiveView: View {
         }
     }
 
-    // MARK: - Frosted card helper (matches Paper Today.card: rounded 22 + resting hairline)
+    // MARK: - Section helper (flat content section on iOS, bounded card elsewhere)
 
-    private func card<V: View>(@ViewBuilder _ content: () -> V) -> some View {
-        content()
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(StrandPalette.surfaceRaised)
-                    .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .strokeBorder(StrandPalette.hairline, lineWidth: 1))
-            )
+    private func card<V: View>(@ViewBuilder _ content: @escaping () -> V) -> some View {
+        StrandCard(padding: NoopMetrics.cardPadding, content: content)
     }
 
     // MARK: - Console header
@@ -255,47 +247,15 @@ struct LiveView: View {
     }
 
     private func reconnectGuideBanner(_ guide: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(StrandPalette.statusWarning)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Can't connect: your strap's pairing was reset")
-                    .font(StrandFont.subhead).foregroundStyle(StrandPalette.textPrimary)
-                Text(guide)
-                    .font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(NoopMetrics.space3)
-        .background(StrandPalette.surfaceRaised, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
-            .strokeBorder(StrandPalette.statusWarning.opacity(0.5), lineWidth: 1))
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Reconnect help: \(guide)")
+        NoteCard(LocalizedStringKey(guide), title: "Can't connect: your strap's pairing was reset", style: .warning)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Reconnect help: \(guide)")
     }
 
     private func pairingHintBanner(_ hint: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(StrandPalette.statusWarning)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Live HR works. Free the strap to unlock buzz, alarms & sync")
-                    .font(StrandFont.subhead).foregroundStyle(StrandPalette.textPrimary)
-                Text(hint)
-                    .font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(NoopMetrics.space3)
-        .background(StrandPalette.surfaceRaised, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
-            .strokeBorder(StrandPalette.statusWarning.opacity(0.5), lineWidth: 1))
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Pairing help: \(hint)")
+        NoteCard(LocalizedStringKey(hint), title: "Live HR works. Free the strap to unlock buzz, alarms & sync", style: .warning)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Pairing help: \(hint)")
     }
 
     /// Whether the low-bandwidth standard-HR fallback note should render. The note explains that live HR
@@ -311,26 +271,12 @@ struct LiveView: View {
     /// is NOT a warning — live HR is working — so it uses the accent (health-green) treatment with a signal
     /// glyph. Mirrors the banner layout (icon + headline + one-line explanation) for visual consistency.
     private func standardHRNote(_ detail: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "antenna.radiowaves.left.and.right")
-                .foregroundStyle(StrandPalette.accent)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Standard HR mode (low bandwidth)")
-                    .font(StrandFont.subhead).foregroundStyle(StrandPalette.textPrimary)
-                Text(detail)
-                    .font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text("Other metrics (R-R, frames, battery, history) need a full sync.")
-                    .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
+        VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+            NoteCard(LocalizedStringKey(detail), title: "Standard HR mode (low bandwidth)", style: .info)
+            Text("Other metrics (R-R, frames, battery, history) need a full sync.")
+                .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(NoopMetrics.space3)
-        .background(StrandPalette.surfaceRaised, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
-            .strokeBorder(StrandPalette.accent.opacity(0.4), lineWidth: 1))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Standard HR mode, low bandwidth. \(detail)")
     }
@@ -406,8 +352,6 @@ struct LiveView: View {
                 scanButton
             }
         }
-        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
-            .strokeBorder(StrandPalette.accent.opacity(0.30), lineWidth: 1))
     }
 
     // MARK: - Manage devices link
@@ -439,10 +383,8 @@ struct LiveView: View {
                     .foregroundStyle(StrandPalette.textTertiary)
                     .accessibilityHidden(true)
             }
-            .padding(NoopMetrics.space3)
-            .background(StrandPalette.surfaceRaised, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(StrandPalette.hairline, lineWidth: 1))
+            .padding(.vertical, NoopMetrics.space3)
+            .frame(minHeight: 44)
             .contentShape(Rectangle())
         }
         .buttonStyle(PaperPressStyle())
@@ -910,8 +852,8 @@ private struct LivePhysiology: View {
 
     private var activeConnection: Bool { live.connected && live.bonded }
 
-    /// The liquid heart pink (matches PaperSparkline's default + the mockup #ff6b81).
-    private let heartTrace = Color(.sRGB, red: 1, green: 107 / 255, blue: 129 / 255, opacity: 1)
+    /// The live-heart red (matches PaperSparkline's default + the live heart-rate ring).
+    private let heartTrace = StrandPalette.liveRed
 
     var body: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.space4) {
@@ -1120,91 +1062,87 @@ struct LiveLogCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
-                Text("STRAP LOG").font(StrandFont.overline).tracking(StrandFont.overlineTracking)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                Spacer()
-                // Export the log so people can attach it to a bug report (issue #17 — macOS users
-                // had no way to share it). Copy → clipboard; Save… → a .txt file.
-                Button("Copy") { copyStrapLog() }
-                    .buttonStyle(.plain).font(StrandFont.mono).foregroundStyle(StrandPalette.accent)
-                Button("Save…") { saveStrapLog() }
-                    .buttonStyle(.plain).font(StrandFont.mono).foregroundStyle(StrandPalette.accent)
-            }
-            ScrollViewReader { proxy in
-                VStack(alignment: .leading, spacing: 6) {
-                    if hiddenLineCount > 0 {
-                        Button("Load \(min(300, hiddenLineCount)) older lines") {
-                            displayedLineCount += min(300, hiddenLineCount)
-                            followsTail = false
-                        }
-                        .buttonStyle(.plain)
-                        .font(StrandFont.mono)
-                        .foregroundStyle(StrandPalette.accent)
-                        .accessibilityLabel("Load older strap log lines")
-                    }
-                    HStack {
-                        Text("Showing \(visibleLog.count) of \(live.log.count) lines")
-                            .font(StrandFont.micro)
-                            .foregroundStyle(StrandPalette.textTertiary)
-                        Spacer()
-                        Button(followsTail ? "Following latest" : "Follow latest") {
-                            followsTail = true
-                            if let last = live.log.indices.last {
-                                proxy.scrollTo(last, anchor: .bottom)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .font(StrandFont.micro)
-                        .foregroundStyle(StrandPalette.accent)
-                    }
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 2) {
-                            ForEach(visibleLog.indices, id: \.self) { idx in
-                                let line = live.log[idx]
-                            Text(line).font(StrandFont.mono)
-                                .foregroundStyle(StrandPalette.textSecondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .id(idx)
-                            }
-                        }
-                    }
-                    .frame(height: 200)
-                    // A deliberate drag means the reader is inspecting history. New streaming lines never
-                    // yank that context away; the explicit control above resumes tail-following.
-                    .simultaneousGesture(DragGesture().onChanged { _ in followsTail = false })
-                    .onChangeCompat(of: live.log.count) { _ in
-                        guard followsTail, let last = live.log.indices.last else { return }
-                        proxy.scrollTo(last, anchor: .bottom)
-                    }
+        StrandCard(padding: NoopMetrics.cardPadding) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 12) {
+                    Text("STRAP LOG").font(StrandFont.overline).tracking(StrandFont.overlineTracking)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                    Spacer()
+                    // Export the log so people can attach it to a bug report (issue #17 — macOS users
+                    // had no way to share it). Copy → clipboard; Save… → a .txt file.
+                    Button("Copy") { copyStrapLog() }
+                        .buttonStyle(.plain).font(StrandFont.mono).foregroundStyle(StrandPalette.accent)
+                    Button("Save…") { saveStrapLog() }
+                        .buttonStyle(.plain).font(StrandFont.mono).foregroundStyle(StrandPalette.accent)
                 }
-            }
-
-            // Users look on Live first when something's wrong (#507/#509), so link straight into the
-            // Test Centre diagnostic home, one tap from the log.
-            if showsTestCentreLink {
-                Divider().overlay(StrandPalette.hairline)
-                NavigationLink(destination: TestCentreView()) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "testtube.2").foregroundStyle(StrandPalette.accent)
-                        Text("Open Test Centre to report a bug").font(StrandFont.mono)
+                ScrollViewReader { proxy in
+                    VStack(alignment: .leading, spacing: 6) {
+                        if hiddenLineCount > 0 {
+                            Button("Load \(min(300, hiddenLineCount)) older lines") {
+                                displayedLineCount += min(300, hiddenLineCount)
+                                followsTail = false
+                            }
+                            .buttonStyle(.plain)
+                            .font(StrandFont.mono)
                             .foregroundStyle(StrandPalette.accent)
-                        Spacer()
-                        Image(systemName: "chevron.right").foregroundStyle(StrandPalette.textSecondary)
+                            .accessibilityLabel("Load older strap log lines")
+                        }
+                        HStack {
+                            Text("Showing \(visibleLog.count) of \(live.log.count) lines")
+                                .font(StrandFont.micro)
+                                .foregroundStyle(StrandPalette.textTertiary)
+                            Spacer()
+                            Button(followsTail ? "Following latest" : "Follow latest") {
+                                followsTail = true
+                                if let last = live.log.indices.last {
+                                    proxy.scrollTo(last, anchor: .bottom)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .font(StrandFont.micro)
+                            .foregroundStyle(StrandPalette.accent)
+                        }
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 2) {
+                                ForEach(visibleLog.indices, id: \.self) { idx in
+                                    let line = live.log[idx]
+                                Text(line).font(StrandFont.mono)
+                                    .foregroundStyle(StrandPalette.textSecondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .id(idx)
+                                }
+                            }
+                        }
+                        .frame(height: 200)
+                        // A deliberate drag means the reader is inspecting history. New streaming lines never
+                        // yank that context away; the explicit control above resumes tail-following.
+                        .simultaneousGesture(DragGesture().onChanged { _ in followsTail = false })
+                        .onChangeCompat(of: live.log.count) { _ in
+                            guard followsTail, let last = live.log.indices.last else { return }
+                            proxy.scrollTo(last, anchor: .bottom)
+                        }
                     }
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Open Test Centre")
+
+                // Users look on Live first when something's wrong (#507/#509), so link straight into the
+                // Test Centre diagnostic home, one tap from the log.
+                if showsTestCentreLink {
+                    Divider().overlay(StrandPalette.hairline)
+                    NavigationLink(destination: TestCentreView()) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "testtube.2").foregroundStyle(StrandPalette.accent)
+                            Text("Open Test Centre to report a bug").font(StrandFont.mono)
+                                .foregroundStyle(StrandPalette.accent)
+                            Spacer()
+                            Image(systemName: "chevron.right").foregroundStyle(StrandPalette.textSecondary)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Open Test Centre")
+                }
             }
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(StrandPalette.surfaceRaised,
-                    in: RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous)
-            .strokeBorder(StrandPalette.hairline, lineWidth: 1))
     }
 
     // MARK: - Strap-log export (issue #17 — let macOS users share the log for bug reports)
@@ -1281,39 +1219,33 @@ private struct SignalTrustTile: View {
     let tile: Model
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                // The signal's liquid gauge — a static-posed small vessel (no per-frame cost).
-                PaperGauge(value: tile.frac, tint: tile.tint, animated: false)
-                    .frame(width: 22, height: 22)
-                    .accessibilityHidden(true)
-                Text(tile.title.uppercased())
-                    .font(StrandFont.overline)
-                    .tracking(StrandFont.overlineTracking)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                Spacer(minLength: 0)
+        StrandCard(padding: 14) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    // The signal's liquid gauge — a static-posed small vessel (no per-frame cost).
+                    PaperGauge(value: tile.frac, tint: tile.tint, animated: false)
+                        .frame(width: 22, height: 22)
+                        .accessibilityHidden(true)
+                    Text(tile.title.uppercased())
+                        .font(StrandFont.overline)
+                        .tracking(StrandFont.overlineTracking)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                    Spacer(minLength: 0)
+                }
+                Text(tile.value)
+                    .font(StrandFont.headline)
+                    .foregroundStyle(tile.tint)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.65)
+                Text(tile.detail)
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            Text(tile.value)
-                .font(StrandFont.headline)
-                .foregroundStyle(tile.tint)
-                .lineLimit(1)
-                .minimumScaleFactor(0.65)
-            Text(tile.detail)
-                .font(StrandFont.footnote)
-                .foregroundStyle(StrandPalette.textTertiary)
-                .lineLimit(2)
-                .minimumScaleFactor(0.8)
-                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(14)
         .frame(minHeight: 112, alignment: .top)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(StrandPalette.surfaceRaised)
-                .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .strokeBorder(StrandPalette.hairline, lineWidth: 1))
-        )
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(tile.title): \(tile.value). \(tile.detail)")
     }

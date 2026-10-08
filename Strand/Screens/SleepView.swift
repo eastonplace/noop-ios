@@ -476,7 +476,7 @@ struct SleepView: View {
                                             stagesJSON: session.stagesJSON,
                                             userEdited: session.userEdited)
                     }
-                    .buttonStyle(.noopGhost)
+                    .buttonStyle(NoopButtonStyle(.tertiary, fullWidth: true))
                 }
             }
         }
@@ -1681,7 +1681,7 @@ struct SleepView: View {
                     var line = Path()
                     line.move(to: CGPoint(x: 0, y: y)); line.addLine(to: CGPoint(x: size.width, y: y))
                     ctx.stroke(line, with: .color(StrandPalette.hairline.opacity(0.5)), lineWidth: 1)
-                    ctx.draw(Text(verbatim: "\(Int(grid))").font(.system(size: 9)).foregroundColor(StrandPalette.textTertiary),
+                    ctx.draw(Text(verbatim: "\(Int(grid))").font(StrandFont.number(9, weight: .regular)).foregroundColor(StrandPalette.textTertiary),
                              at: CGPoint(x: 10, y: y - 7))
                     grid += step
                 }
@@ -3446,7 +3446,7 @@ private struct SleepTimeEditor: View {
 
             HStack(spacing: NoopMetrics.gap) {
                 Button("Cancel") { dismiss() }
-                    .buttonStyle(.noopGhost)
+                    .buttonStyle(NoopButtonStyle(.tertiary, fullWidth: true))
                     .disabled(saving)
                 Spacer()
                 Button(saving ? "Saving…" : "Save") {
@@ -3463,7 +3463,7 @@ private struct SleepTimeEditor: View {
                         commit(start: start, end: end)
                     }
                 }
-                .buttonStyle(.noopPrimary)
+                .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
                 .disabled(saving || !proposedWindowIsValid)
             }
         }

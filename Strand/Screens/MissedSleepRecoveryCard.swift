@@ -52,8 +52,7 @@ struct MissedSleepRecoveryCard: View {
                     Button("Set sleep window", action: onSetWindow)
                         .disabled(isRetrying)
                 }
-                .buttonStyle(.bordered)
-                .font(StrandFont.subhead)
+                .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
                 Text("Missing sensor data stays unknown.")
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textSecondary)

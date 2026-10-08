@@ -248,12 +248,8 @@ struct HRVSnapshotView: View {
                 phase == .capturing ? cancel() : start()
             } label: {
                 Label(primaryLabel, systemImage: primaryIcon)
-                    .font(StrandFont.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(phase == .capturing ? StrandPalette.statusCritical : StrandPalette.textPrimary)
+            .buttonStyle(NoopButtonStyle(phase == .capturing ? .destructive : .primary, fullWidth: true))
             .disabled(!bonded && phase != .capturing)
             .help(bonded
                   ? "Take a 60-second seated HRV reading from the live R-R stream."
@@ -264,12 +260,8 @@ struct HRVSnapshotView: View {
                     save(r)
                 } label: {
                     Label(saved ? "Saved" : "Save", systemImage: saved ? "checkmark.circle.fill" : "square.and.arrow.down")
-                        .font(StrandFont.body)
-                        .padding(.vertical, 12)
-                        .padding(.horizontal, 8)
                 }
-                .buttonStyle(.bordered)
-                .tint(StrandPalette.ink)
+                .buttonStyle(NoopButtonStyle(.secondary))
                 .disabled(saved)
             }
         }

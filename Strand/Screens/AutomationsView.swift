@@ -290,7 +290,7 @@ struct AutomationsView: View {
                     Button {
                         model.runMacAction(behavior.doubleTapAction, shortcut: behavior.doubleTapShortcut)
                     } label: { Label("Test action", systemImage: "play.fill") }
-                    .buttonStyle(.bordered).tint(StrandPalette.ink)
+                    .buttonStyle(ChipButtonStyle())
                     .disabled(behavior.doubleTapAction == .none)
                     Spacer()
                     // Live-observing leaf: re-renders on its own when the strap's bond state flips, so a
@@ -533,7 +533,7 @@ struct AutomationsView: View {
                         Button {
                             router.openRhythm()
                         } label: { Label("Open", systemImage: "waveform.path") }
-                        .buttonStyle(.bordered).tint(StrandPalette.ink)
+                        .buttonStyle(ChipButtonStyle())
                     }
                     .frame(minHeight: 42).padding(.vertical, 4)
                 }

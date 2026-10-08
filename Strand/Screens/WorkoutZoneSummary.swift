@@ -40,13 +40,13 @@ struct WorkoutZoneSummary: View {
                 .chartBackground { _ in
                     if typeSize.isAccessibilitySize {
                         Text(duration(selectedZone.map { values[$0 - 1] } ?? values.reduce(0, +)))
-                            .font(.system(size: 28, weight: .semibold, design: .rounded)).monospacedDigit()
+                            .font(StrandFont.rounded(28, weight: .semibold))
                     } else {
                         VStack(spacing: 4) {
                             Text(selectedZone.map { "Zone \($0)" } ?? "Recorded zones")
                                 .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
                             Text(duration(selectedZone.map { values[$0 - 1] } ?? values.reduce(0, +)))
-                                .font(.system(size: 28, weight: .semibold, design: .rounded)).monospacedDigit()
+                                .font(StrandFont.rounded(28, weight: .semibold))
                             Text(zoneShareLabel)
                                 .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
                         }

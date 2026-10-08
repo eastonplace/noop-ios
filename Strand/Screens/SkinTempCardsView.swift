@@ -118,7 +118,7 @@ struct CycleAwarenessCard: View {
                 // sits below the awareness/privacy lines without competing with the primary actions.
                 if let onTurnOff {
                     Button("Turn off cycle awareness", action: onTurnOff)
-                        .buttonStyle(.noopGhost)
+                        .buttonStyle(NoopButtonStyle(.tertiary, fullWidth: true))
                         .accessibilityHint("Stops reading a cycle phase from your nightly temperature. You can turn it back on here any time.")
                 }
             }
@@ -177,12 +177,12 @@ struct CycleAwarenessCard: View {
         HStack(spacing: NoopMetrics.gap) {
             if let onLogPeriod {
                 Button("Log period start", action: onLogPeriod)
-                    .buttonStyle(.noopSecondary)
+                    .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
                     .accessibilityHint("Optional. Stored only on this device.")
             }
             if let onOpenDetail {
                 Button("View detail", action: onOpenDetail)
-                    .buttonStyle(.noopGhost)
+                    .buttonStyle(NoopButtonStyle(.tertiary, fullWidth: true))
             }
         }
     }
@@ -260,7 +260,7 @@ struct CycleAwarenessOptInCard: View {
                     .fixedSize(horizontal: false, vertical: true)
                 PrivacyNote()
                 Button("Turn on cycle awareness", action: onEnable)
-                    .buttonStyle(.noopSecondary)
+                    .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
                     .padding(.top, 2)
             }
         }
@@ -314,7 +314,7 @@ struct BodyClockCard: View {
 
                 if let onOpenPlanner {
                     Button(plan == nil ? "Plan a trip or shift" : "View the full plan", action: onOpenPlanner)
-                        .buttonStyle(.noopGhost)
+                        .buttonStyle(NoopButtonStyle(.tertiary, fullWidth: true))
                         .padding(.top, 2)
                 }
             }

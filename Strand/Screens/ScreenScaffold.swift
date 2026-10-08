@@ -325,6 +325,33 @@ extension ScreenScaffold where Trailing == EmptyView {
     }
 }
 
+extension View {
+    /// Prepares the environment for a `ScreenScaffold` that is the root of a modal sheet.
+    ///
+    /// Sheets inherit their presenter's environment, so without this a sheet opened from a pushed
+    /// screen would show a stray back chevron, one opened from Settings would drop the scaffold header
+    /// (`.settingsDetail` hides it), and the pinned app chrome would sit above the sheet's own header.
+    func sheetScreenScaffoldEnvironment() -> some View {
+        environment(\.appHeaderChromeVisibility, .hidden)
+            .environment(\.screenScaffoldNavigationRole, .root)
+            .environment(\.screenScaffoldPresentation, .standard)
+    }
+}
+
+extension View {
+    /// The pinned action bar at the foot of a modal sheet: the canvas, a hairline above, and the shared
+    /// 16pt gutter. Attach with `.safeAreaInset(edge: .bottom, spacing: 0) { actions.sheetFooterBar() }`.
+    func sheetFooterBar() -> some View {
+        padding(.horizontal, 16)
+            .padding(.vertical, NoopMetrics.space3)
+            .frame(maxWidth: .infinity)
+            .background(StrandPalette.appCanvas)
+            .overlay(alignment: .top) {
+                Rectangle().fill(StrandPalette.hairline).frame(height: 1).accessibilityHidden(true)
+            }
+    }
+}
+
 /// Applies `.refreshable` only when a refresh hook is provided. A ViewModifier (rather than an
 /// inline `if`) keeps the two branches the same opaque type, and means nil callers — every macOS
 /// screen — never attach the modifier at all.

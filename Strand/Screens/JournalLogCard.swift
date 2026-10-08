@@ -398,15 +398,14 @@ struct JournalLogCard: View {
                 .font(StrandFont.footnote)
                 .foregroundStyle(StrandPalette.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
-            HStack {
+            HStack(spacing: NoopMetrics.space3) {
                 Button("Cancel") { renaming = nil }
-                    .buttonStyle(.bordered)
-                Spacer()
+                    .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
                 Button("Save") {
                     catalog.rename(item.canonical, to: renameDraft)
                     renaming = nil
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
             }
         }
         .padding(NoopMetrics.space4)
@@ -431,7 +430,7 @@ struct JournalLogCard: View {
                                       group: customGroup)
                     customDraft = ""
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(ChipButtonStyle())
                 .disabled(customDraft.trimmingCharacters(in: .whitespaces).isEmpty)
             }
             Picker("Group", selection: $customGroup) {
@@ -599,15 +598,8 @@ struct CoachingRootView: View {
                     CoachingCheckInView { Task { await load() } }
                 } label: {
                     Label("Continue check-in", systemImage: "arrow.right")
-                        .font(StrandFont.headline.weight(.semibold))
-                        .foregroundStyle(Color.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: NoopMetrics.controlHeight)
-                        .background(StrandPalette.journalAccent,
-                                    in: RoundedRectangle(cornerRadius: NoopButtonMetrics.cornerRadius,
-                                                         style: .continuous))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
                 .accessibilityHint("Opens the existing journal check-in")
             }
         }
@@ -1073,7 +1065,7 @@ struct CoachingCheckInView: View {
             } label: {
                 Label(saving ? "Saving…" : "Save check-in", systemImage: "checkmark")
             }
-            .buttonStyle(CoachingAccentButtonStyle())
+            .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
             .disabled(saving)
         }
     }
@@ -1142,21 +1134,6 @@ struct CoachingCheckInView: View {
         saving = false
         onSaved()
         dismiss()
-    }
-}
-
-private struct CoachingAccentButtonStyle: ButtonStyle {
-    @Environment(\.isEnabled) private var isEnabled
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(StrandFont.headline.weight(.semibold))
-            .foregroundStyle(Color.white)
-            .frame(maxWidth: .infinity)
-            .frame(height: NoopMetrics.controlHeight)
-            .background(StrandPalette.journalAccent,
-                        in: RoundedRectangle(cornerRadius: NoopButtonMetrics.cornerRadius,
-                                             style: .continuous))
-            .opacity(isEnabled ? (configuration.isPressed ? 0.78 : 1) : 0.4)
     }
 }
 
@@ -1333,7 +1310,7 @@ private struct CoachingAddBehaviorSheet: View {
                     onAdded()
                     dismiss()
                 }
-                .buttonStyle(CoachingAccentButtonStyle())
+                .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
                 .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             .padding(NoopMetrics.screenPadding)
