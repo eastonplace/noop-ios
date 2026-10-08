@@ -48,7 +48,7 @@ struct LiftActiveSessionView: View {
                                     Spacer()
                                     Button { showReceipt = true } label: {
                                         Label("Receipt", systemImage: "list.bullet.rectangle").font(.subheadline.weight(.medium))
-                                    }.buttonStyle(.bordered)
+                                    }.buttonStyle(NoopButtonStyle(.secondary))
                                 }
                                 ProgressView(value: Double(engine.sets.count), total: Double(max(1, engine.allSlots.count)))
                                     .tint(StrandPalette.accent).accessibilityLabel("Workout set progress")
@@ -137,7 +137,7 @@ struct LiftActiveSessionView: View {
             }
             HStack(spacing: 12) {
                 Button("Undo", systemImage: "arrow.uturn.backward") { session.undo() }
-                    .buttonStyle(.bordered).disabled(!engine.canUndo || saving)
+                    .buttonStyle(NoopButtonStyle(.secondary)).disabled(!engine.canUndo || saving)
                 Spacer()
                 Text("Double-tap your strap to advance")
                     .font(.caption).foregroundStyle(StrandPalette.textSecondary)

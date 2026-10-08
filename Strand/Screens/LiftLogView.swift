@@ -44,7 +44,7 @@ struct LegacyLiftLogView: View {
                 Text("YOUR PROGRAMS").font(.caption.weight(.semibold))
                 Spacer()
                 Button("New program", systemImage: "plus") { editor = .init(program: nil) }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(NoopButtonStyle(.secondary))
             }
             if loading { ProgressView("Loading your log…") }
             if let error {
@@ -60,7 +60,7 @@ struct LegacyLiftLogView: View {
                         Text("Make your first session yours.").font(StrandFont.title2)
                         Text("Choose your exercises, sets and rest. Log weight and reps as you train.")
                             .foregroundStyle(StrandPalette.textSecondary)
-                        Button("Create program") { editor = .init(program: nil) }.buttonStyle(.noopPrimary)
+                        Button("Create program") { editor = .init(program: nil) }.buttonStyle(NoopButtonStyle(.primary))
                     }
                 }
             }
@@ -338,7 +338,7 @@ private struct LiftProgramPreview: View {
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
             .safeAreaInset(edge: .bottom) {
                 Button("Begin workout", systemImage: "play.fill", action: begin)
-                    .buttonStyle(.noopPrimary).padding(20).background(StrandPalette.surfaceBase)
+                    .buttonStyle(NoopButtonStyle(.primary)).padding(20).background(StrandPalette.surfaceBase)
             }
     }
 }
@@ -379,7 +379,7 @@ private struct LiftProgramCard: View {
                 if let note = program.note, !note.isEmpty { Text(note).font(.subheadline).foregroundStyle(StrandPalette.textSecondary) }
                 if let error { Text(error).font(.caption).foregroundStyle(StrandPalette.statusCritical) }
                 Button("Preview workout", systemImage: "arrow.right", action: preview)
-                    .buttonStyle(.noopPrimary).disabled(!canStart)
+                    .buttonStyle(NoopButtonStyle(.primary)).disabled(!canStart)
             }
         }
         .task(id: "\(program.id)|\(program.updatedAt)") {

@@ -101,7 +101,7 @@ struct LiftComposerContent: View {
                     HStack {
                         Button { adjustWeight(-5) } label: { Image(systemName: "minus").frame(maxWidth: .infinity, minHeight: 44) }.accessibilityLabel("Decrease weight by five \(unit)")
                         Button { adjustWeight(5) } label: { Image(systemName: "plus").frame(maxWidth: .infinity, minHeight: 44) }.accessibilityLabel("Increase weight by five \(unit)")
-                    }.buttonStyle(.bordered)
+                    }.buttonStyle(NoopButtonStyle(.secondary))
                 }
                 VStack(alignment: .leading, spacing: 8) {
                     Text("REPS").font(.caption.weight(.semibold))
@@ -114,11 +114,11 @@ struct LiftComposerContent: View {
                     HStack {
                         Button { reps = String(max(1, (Int(reps) ?? 8) - 1)) } label: { Image(systemName: "minus").frame(maxWidth: .infinity, minHeight: 44) }.accessibilityLabel("Decrease reps")
                         Button { reps = String(min(1000, (Int(reps) ?? 8) + 1)) } label: { Image(systemName: "plus").frame(maxWidth: .infinity, minHeight: 44) }.accessibilityLabel("Increase reps")
-                    }.buttonStyle(.bordered)
+                    }.buttonStyle(NoopButtonStyle(.secondary))
                 }
             }.textFieldStyle(.roundedBorder)
             Button("Log set", systemImage: "plus") { editing = false; log() }
-                .buttonStyle(.noopPrimary).disabled(!canLog)
+                .buttonStyle(NoopButtonStyle(.primary)).disabled(!canLog)
         }
         #if os(iOS)
         .toolbar {
