@@ -62,6 +62,12 @@ public struct TrendChart: View {
     /// Points of empty space reserved after the newest sample, so the last x-axis date label (centred on
     /// its tick) is not truncated at the trailing edge. 0 (the default) leaves the plot edge-to-edge.
     public var xAxisEndPadding: CGFloat
+    /// Caps the x-axis at this many "MMM d" date labels, evenly spaced in time from the first sample to the
+    /// last, with the first label leading-aligned and the last trailing-aligned so neither is clipped at the
+    /// plot edges. Meant for daily series.
+    /// nil (the default) keeps Swift Charts' automatic ticks. Widget-style charts pass
+    /// `WidgetMetrics.maxXAxisLabels` so dates never crowd at phone width.
+    public var xAxisLabelCount: Int?
 
     /// Mean of all point values, computed once in `init` so the area fill's gradient
     /// stop doesn't run an O(n) reduce for every mark on every render.
@@ -83,7 +89,8 @@ public struct TrendChart: View {
         nowCapColor: Color? = nil,
         yDomain: ClosedRange<Double>? = nil,
         yAxisValues: [Double]? = nil,
-        xAxisEndPadding: CGFloat = 0
+        xAxisEndPadding: CGFloat = 0,
+        xAxisLabelCount: Int? = nil
     ) {
         let sorted = points.sorted { $0.date < $1.date }
         self.points = sorted
@@ -99,6 +106,7 @@ public struct TrendChart: View {
         self.yDomain = yDomain
         self.yAxisValues = yAxisValues
         self.xAxisEndPadding = xAxisEndPadding
+        self.xAxisLabelCount = xAxisLabelCount
         let avg = sorted.isEmpty
             ? valueRange.lowerBound
             : sorted.map(\.value).reduce(0, +) / Double(sorted.count)
@@ -140,6 +148,23 @@ public struct TrendChart: View {
     /// `dateFormat` default argument.
     public static func defaultDateString(_ date: Date) -> String {
         sharedDateFormatter.string(from: date)
+    }
+
+    /// Tick dates for a capped x-axis, or nil when the axis is automatic. Ticks are spaced evenly in TIME
+    /// from the first to the last sample (not by sample index, which bunches labels where a series has
+    /// gaps), so neighbouring labels are always a full `span / (count - 1)` apart.
+    private var xAxisTicks: [Date]? {
+        guard let count = xAxisLabelCount, count >= 2,
+              let first = points.first?.date, let last = points.last?.date, last > first else { return nil }
+        let span = last.timeIntervalSince(first)
+        return (0..<count).map { first.addingTimeInterval(span * Double($0) / Double(count - 1)) }
+    }
+
+    /// First label flush left, last flush right, the rest centred on their tick.
+    private func labelAlignment(for index: Int, of count: Int) -> Alignment {
+        if index == 0 { return .leading }
+        if index == count - 1 { return .trailing }
+        return .center
     }
 
     /// The point nearest a given chart-local x, using the proxy to map back.
@@ -231,10 +256,24 @@ public struct TrendChart: View {
         // every mark (line, area, points, overshoot) to the chart rectangle.
         .chartPlotStyle { plotArea in plotArea.clipped() }
         .chartXAxis {
-            AxisMarks(values: .automatic(desiredCount: 5)) { _ in
-                AxisGridLine().foregroundStyle(StrandPalette.hairline.opacity(0.4))
-                AxisValueLabel().foregroundStyle(StrandPalette.textTertiary)
+            if let ticks = xAxisTicks {
+                AxisMarks(values: ticks) { _ in
+                    AxisGridLine().foregroundStyle(StrandPalette.hairline.opacity(0.4))
+                    // Swift Charts leading-aligns a date label to its tick and offers no edge control, so a capped
+                    // axis only reserves the label gutter here (an invisible placeholder of the right height);
+                    // the labels themselves are drawn in the chart overlay, where first/last can be pinned flush.
+                    AxisValueLabel {
+                        Text("Mmm 00").opacity(0)
+                    }
+                    .foregroundStyle(StrandPalette.textTertiary)
                     .font(StrandFont.footnote)
+                }
+            } else {
+                AxisMarks(values: .automatic(desiredCount: 5)) { _ in
+                    AxisGridLine().foregroundStyle(StrandPalette.hairline.opacity(0.4))
+                    AxisValueLabel().foregroundStyle(StrandPalette.textTertiary)
+                        .font(StrandFont.footnote)
+                }
             }
         }
         .chartYAxis {
@@ -256,6 +295,21 @@ public struct TrendChart: View {
             GeometryReader { geo in
                 let plot = proxy.plotRectCompat(in: geo)
                 ZStack(alignment: .topLeading) {
+                    // Capped x-axis labels (see `chartXAxis`). A zero-width frame lets each label overflow from its
+                    // tick: leading for the first, trailing for the last, centred for the rest.
+                    if let ticks = xAxisTicks {
+                        ForEach(Array(ticks.enumerated()), id: \.offset) { index, date in
+                            if let px = proxy.position(forX: date) {
+                                Text(date, format: .dateTime.month(.abbreviated).day())
+                                    .font(StrandFont.footnote)
+                                    .foregroundStyle(StrandPalette.textTertiary)
+                                    .fixedSize()
+                                    .frame(width: 0, alignment: labelAlignment(for: index, of: ticks.count))
+                                    .offset(x: px + plot.minX, y: plot.maxY + 4)
+                                    .allowsHitTesting(false)
+                            }
+                        }
+                    }
                     if showsHover,
                        let hx = hoverX,
                        let p = nearestPoint(toX: hx, proxy: proxy, plot: plot),
