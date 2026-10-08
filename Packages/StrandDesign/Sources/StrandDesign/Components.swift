@@ -446,6 +446,8 @@ public struct SegmentedPillControl<T: Hashable>: View {
     /// option exists) but renders extra-dim and ignores taps; VoiceOver announces it dimmed.
     /// Defaults to everything enabled; ADDED additively, no existing call site touched.
     let isEnabled: (T) -> Bool
+    /// Optional per-segment accessibility identifier (for UI automation). nil = none, the default.
+    let identifier: ((T) -> String)?
     @Binding var selection: T
     @Namespace private var selectionThumb
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -455,6 +457,14 @@ public struct SegmentedPillControl<T: Hashable>: View {
     public init(_ items: [T], selection: Binding<T>, isEnabled: @escaping (T) -> Bool,
                 label: @escaping (T) -> String) {
         self.items = items; self._selection = selection; self.isEnabled = isEnabled; self.label = label
+        self.identifier = nil
+    }
+    /// Same control with a stable accessibility identifier per segment, so a screen that exposes the
+    /// segments as tabs keeps its UI-test hooks when it adopts the canonical control.
+    public init(_ items: [T], selection: Binding<T>, identifier: @escaping (T) -> String,
+                label: @escaping (T) -> String) {
+        self.items = items; self._selection = selection; self.isEnabled = { _ in true }; self.label = label
+        self.identifier = identifier
     }
     public var body: some View {
         HStack(spacing: 4) {
@@ -505,6 +515,7 @@ public struct SegmentedPillControl<T: Hashable>: View {
                 .disabled(!enabled)
                 // Announce the active range to VoiceOver and give a non-colour cue.
                 .accessibilityAddTraits(sel ? .isSelected : [])
+                .modifier(SegmentIdentifier(identifier: identifier?(item)))
             }
         }
         .padding(3)
@@ -522,6 +533,15 @@ public struct SegmentedPillControl<T: Hashable>: View {
         #elseif os(watchOS)
         StrandHaptic.selection.play()
         #endif
+    }
+}
+
+/// Applies a segment's accessibility identifier only when the caller supplied one, so existing call
+/// sites keep exactly the accessibility tree they had.
+private struct SegmentIdentifier: ViewModifier {
+    let identifier: String?
+    @ViewBuilder func body(content: Content) -> some View {
+        if let identifier { content.accessibilityIdentifier(identifier) } else { content }
     }
 }
 
