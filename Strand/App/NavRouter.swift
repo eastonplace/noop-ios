@@ -56,6 +56,10 @@ final class NavRouter: ObservableObject {
     /// flight, so this is the one path that re-opens the live workout for an existing session.
     @Published var presentActiveWorkout = false
 
+    /// Set by the lift Live Activity deep link (`noop://lift/active`). The iOS shell presents the Lift flow
+    /// (which resumes an active session on its own), then resets this to false.
+    @Published var activeLiftRequested = false
+
     /// Which workout screens (the live run, the Lift flow) are on screen right now, wherever they were
     /// presented from. Deliberately not `@Published`: it is only read at the moments the shell decides
     /// whether to auto-present, and publishing it would re-render the shell on every appear/disappear.
@@ -80,6 +84,8 @@ final class NavRouter: ObservableObject {
     /// presents the in-exercise screen even when the workout is already running, in one tap from the Today
     /// indicator card. The flag is consumed (and cleared) by `LiveView.consumeActiveWorkoutRequest()`.
     func openActiveWorkout() { presentActiveWorkout = true; requestedDestination = .activeWorkout }
+    /// Open the in-flight Lift session (the lift Live Activity's deep link).
+    func openActiveLift() { activeLiftRequested = true }
 
     func workoutSurfaceDidAppear(_ id: UUID) { workoutSurfaces.appeared(id) }
     func workoutSurfaceDidDisappear(_ id: UUID) { workoutSurfaces.disappeared(id) }

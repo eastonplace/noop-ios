@@ -24,6 +24,7 @@ struct NOOPLiveActivity: Widget {
             }
             .activityBackgroundTint(.black)
             .activitySystemActionForegroundColor(.white)
+            .widgetURL(context.state.isWorkout ? WorkoutDeepLink.activeRun.url : nil)
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
@@ -84,6 +85,7 @@ struct NOOPLiveActivity: Widget {
                     .foregroundStyle(context.state.bpm.map { HRZoneStyle.color(for: Double($0)) }
                                      ?? Color.white.opacity(0.5))
             }
+            .widgetURL(context.state.isWorkout ? WorkoutDeepLink.activeRun.url : nil)
         }
     }
 }

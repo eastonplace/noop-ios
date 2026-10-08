@@ -145,6 +145,11 @@ struct RootTabView: View {
                 break
             }
         }
+        .onChange(of: router.activeLiftRequested) { _, requested in
+            guard requested else { return }
+            router.activeLiftRequested = false
+            openLift()
+        }
         .onChange(of: router.quickActionsRequested) { _, requested in
             if requested {
                 withAnimation(Self.sheetEase) { quickAction = .menu }
@@ -157,6 +162,21 @@ struct RootTabView: View {
         .onChange(of: repo.todayHealthSnapshotScopeId) { _, _ in routePendingCoachRequest() }
         .onChange(of: repo.liveSourceState.lineageComponent) { _, _ in routePendingCoachRequest() }
         .onChange(of: repo.verifiedExternalSurfaceFenced) { _, _ in routePendingCoachRequest() }
+    }
+
+    /// The lift Live Activity's deep link. Any shell sheet already up is closed first, then the Lift flow
+    /// opens and (because it lands on its start screen) resumes the active session on its own.
+    private func openLift() {
+        guard !showLift else { return }
+        let shellSheetWasUp = quickAction != nil || showDevices || routedPillar != nil
+        quickAction = nil
+        showDevices = false
+        routedPillar = nil
+        if shellSheetWasUp {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { showLift = true }
+        } else {
+            showLift = true
+        }
     }
 
     private func routePendingCoachRequest() {
