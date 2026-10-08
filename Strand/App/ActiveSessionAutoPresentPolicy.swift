@@ -10,7 +10,9 @@ import Foundation
 ///    from `.background` (a lock, an app switch). A brief `.inactive` blip (Control Center, a permission
 ///    prompt) is not a new session. If the user dismisses the workout, nothing re-presents it until the next
 ///    session, so a deliberate dismissal is never fought.
-///  - Never stack: if any workout screen is already visible, or another shell-level sheet is up, do nothing.
+///  - Never stack: if any workout screen is already visible, do nothing. If another modal is up (a shell
+///    sheet, "What's New", the onboarding or terms gate) wait for it instead: remember what was blocked and
+///    present it once that modal is gone, unless the workout ended or was opened by hand in the meantime.
 ///  - A run wins over a lift. The two cannot normally coexist (starting one refuses while the other is
 ///    active), but a corrupt restore must not present both.
 ///  - A lift session that finishes restoring after the foreground edge already ran gets one late chance,
@@ -26,18 +28,22 @@ struct ActiveSessionAutoPresentPolicy: Equatable {
         var hasActiveLift: Bool
         /// A live run or lift screen is on screen right now, whichever view presented it.
         var workoutSurfaceVisible: Bool
-        /// Quick actions, Devices, or a routed pillar sheet is up, so presenting would stack on top of it.
+        /// Another modal is up (quick actions, Devices, a routed pillar sheet, "What's New", the onboarding or
+        /// terms gate), so presenting would stack on top of it.
         var otherPresentationActive: Bool
     }
 
     /// True until the first foreground edge of the current session has been evaluated.
     private var awaitingForegroundEdge = true
     private var presentedThisForeground = false
+    /// What a blocking modal kept us from presenting, to retry when that modal goes away.
+    private var blockedTarget: Target?
 
     /// The scene fully left the foreground. The next `sceneBecameActive` starts a new session.
     mutating func sceneEnteredBackground() {
         awaitingForegroundEdge = true
         presentedThisForeground = false
+        blockedTarget = nil
     }
 
     /// The scene is active (first appearance, or returning to the foreground). Only the first call of each
@@ -55,8 +61,14 @@ struct ActiveSessionAutoPresentPolicy: Equatable {
         return decide(context, allowRun: false)
     }
 
+    /// The modal that blocked an earlier attempt is gone. Re-evaluates only what that attempt was blocked on,
+    /// so it does nothing if nothing was blocked, the workout already ended, or the user opened it by hand.
+    mutating func otherPresentationEnded(_ context: Context) -> Target? {
+        guard let blocked = blockedTarget else { return nil }
+        return decide(context, allowRun: blocked == .run)
+    }
+
     private mutating func decide(_ context: Context, allowRun: Bool) -> Target? {
-        guard !context.workoutSurfaceVisible, !context.otherPresentationActive else { return nil }
         let target: Target?
         if context.hasActiveRun {
             target = allowRun ? .run : nil
@@ -65,8 +77,32 @@ struct ActiveSessionAutoPresentPolicy: Equatable {
         } else {
             target = nil
         }
+        guard !context.workoutSurfaceVisible else {
+            blockedTarget = nil
+            return nil
+        }
+        guard !context.otherPresentationActive else {
+            // Keep the oldest blocked target: a later, lower-priority attempt must not replace a run.
+            if blockedTarget == nil || target == .run { blockedTarget = target }
+            return nil
+        }
+        blockedTarget = nil
         if target != nil { presentedThisForeground = true }
         return target
+    }
+}
+
+/// Modals that must finish before a workout is auto-presented, tracked by view identity like
+/// `WorkoutSurfaceVisibility`. Unlike a sheet's own appearance, these register from the moment the modal is
+/// requested (the state flips), so a presentation decision made while the modal is still animating in
+/// already sees it.
+struct AutoPresentBlockers: Equatable {
+    private var blocking: Set<UUID> = []
+
+    var isBlocked: Bool { !blocking.isEmpty }
+
+    mutating func set(_ blocked: Bool, id: UUID) {
+        if blocked { blocking.insert(id) } else { blocking.remove(id) }
     }
 }
 

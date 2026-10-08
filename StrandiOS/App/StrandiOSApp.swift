@@ -62,6 +62,7 @@ struct StrandiOSApp: App {
         let receiptLift = NoopReceiptLiftIntegration(model: model)
         model.discardLiftForDeletedSource = { [weak receiptLift] owner in receiptLift?.discardSource(owner) }
         model.hasActiveReceiptLift = { [weak receiptLift] in receiptLift?.coordinator?.hasActiveSession == true }
+        ActiveSessionGate.isActive = { [weak model] in model?.hasActiveWorkoutSession == true }
         _receiptLift = StateObject(wrappedValue: receiptLift)
         let alarmMode = SmartAlarmAdaptiveModeStore(legacy: model.behavior)
         let alarmRuntime = SmartAlarmRuntimeController(model: model, modeStore: alarmMode)
@@ -460,6 +461,12 @@ struct StrandiOSApp: App {
     /// fence exclude every newer writer or unrelated refresh.
     @MainActor
     private func drainCommittedHealthScoring() async {
+        // A HealthKit observer wake mid-run would rescore a multi-day window off screen, the sustained
+        // background CPU iOS kills for. The scoring journal stays pending and the next foreground drain
+        // picks it up.
+        guard !ActiveSessionWorkPolicy.shouldDeferWhileOffScreen(
+            sessionActive: model.hasActiveWorkoutSession,
+            appIsActive: !RescoreBackgroundPolicy.isBackgrounded) else { return }
         let completed = await Self.drainCommittedHealthScoring(
             model: model,
             liveActivity: liveActivity,
@@ -773,6 +780,9 @@ private struct iOSRootView: View {
         }
         .animation(.easeInOut(duration: 0.35), value: onboarded)
         .animation(.easeInOut(duration: 0.35), value: acceptedTerms)
+        // Onboarding, the terms gate and "What's New" all sit between launch and the tab shell. A restored
+        // workout waits for them to finish rather than stacking a sheet on top.
+        .blocksAutoPresent(while: showWhatsNew || !onboarded || acceptedTerms != Terms.currentVersion)
         .sheet(isPresented: $showWhatsNew) {
             WhatsNewView(onClose: {
                 lastSeenChangelog = AppChangelog.currentVersion

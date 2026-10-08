@@ -90,7 +90,10 @@ final class NoopReceiptLiftIntegration: ObservableObject {
         error = nil
         await feature.load()
         guard coordinator === feature else { return }
-        observation = feature.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+        observation = feature.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+            self?.replayDeferredWorkAfterLiftChange()
+        }
         // `observation` attaches only after the load above, so nothing told observers that the restored
         // session now exists: the Resume Lift card stayed hidden until something unrelated re-rendered it.
         objectWillChange.send()
@@ -101,6 +104,14 @@ final class NoopReceiptLiftIntegration: ObservableObject {
     }
 
     func consumeRestoredSession() { restoredSessionPending = false }
+
+    /// Post-sync refresh work is parked while a lift is active. `objectWillChange` fires before the change
+    /// lands, so check after it has: if the session just ended, the model replays what was parked. Cheap and
+    /// rare: it only schedules anything while work is actually parked.
+    private func replayDeferredWorkAfterLiftChange() {
+        guard let model, model.hasDeferredSessionWork else { return }
+        Task { @MainActor [weak model] in model?.replayDeferredSessionWorkIfIdle() }
+    }
 
     func discardSource(_ source: String) {
         guard owner == source else { return }
