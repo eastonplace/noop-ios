@@ -186,19 +186,8 @@ struct LocalCoachPlanView: View {
     }
 
     private func exerciseRow(_ exercise: LocalCoachPlannedExercise) -> some View {
-        let catalog = NoopLiftCatalog.entries.first { $0.id == exercise.catalogID } ?? NoopLiftCatalog.resolve(name: exercise.name)
-        return HStack(spacing: NoopMetrics.space3) {
-            Group {
-                if let url = catalog?.imageURL, let image = UIImage(contentsOfFile: url.path) {
-                    Image(uiImage: image).resizable().scaledToFit()
-                        .background(Color.white)
-                } else {
-                    Image(systemName: "dumbbell").font(.system(size: 18, weight: .regular))
-                        .foregroundStyle(DomainTint.workout.accent)
-                }
-            }
-            .frame(width: 48, height: 54).background(DomainTint.workout.accent.opacity(0.12))
-            .clipShape(.rect(cornerRadius: NoopMetrics.radius1)).accessibilityHidden(true)
+        HStack(spacing: NoopMetrics.space3) {
+            CoachExerciseThumbnail(exercise: exercise)
             VStack(alignment: .leading, spacing: 3) {
                 Text(exercise.name.capitalized).font(StrandFont.subhead.weight(.semibold))
                     .foregroundStyle(StrandPalette.textPrimary)
@@ -256,6 +245,67 @@ struct LocalCoachPlanView: View {
             Text(title).font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
         }
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// Exercise pictures from the catalog: found through an index built once, read and scaled off the main thread, and
+/// kept by exercise. The plan redraws with every streamed token, so a redraw never goes back to the disk.
+@MainActor
+private enum CoachExerciseArt {
+    private static let cache = NSCache<NSString, UIImage>()
+    private static let entriesByID = Dictionary(NoopLiftCatalog.entries.map { ($0.id, $0) },
+                                                uniquingKeysWith: { first, _ in first })
+
+    /// What the picture depends on: the catalog entry the plan names, or the exercise's own name when the plan names
+    /// one the catalog does not have. Exercises with the same key share a picture.
+    static func key(for exercise: LocalCoachPlannedExercise) -> String {
+        entriesByID[exercise.catalogID] != nil ? exercise.catalogID : "name:" + exercise.name.lowercased()
+    }
+
+    static func cached(for exercise: LocalCoachPlannedExercise) -> UIImage? {
+        cache.object(forKey: key(for: exercise) as NSString)
+    }
+
+    static func image(for exercise: LocalCoachPlannedExercise, pixelSize: CGSize) async -> UIImage? {
+        if let hit = cached(for: exercise) { return hit }
+        let entry = entriesByID[exercise.catalogID] ?? NoopLiftCatalog.resolve(name: exercise.name)
+        guard let url = entry?.imageURL else { return nil }
+        let image = await Task.detached(priority: .utility) {
+            UIImage(contentsOfFile: url.path)?.preparingThumbnail(of: pixelSize)
+        }.value
+        if let image { cache.setObject(image, forKey: key(for: exercise) as NSString) }
+        return image
+    }
+}
+
+/// The exercise's picture, or the dumbbell until it has loaded (and for an exercise with no picture).
+private struct CoachExerciseThumbnail: View {
+    let exercise: LocalCoachPlannedExercise
+    @Environment(\.displayScale) private var displayScale
+    @State private var image: UIImage?
+
+    init(exercise: LocalCoachPlannedExercise) {
+        self.exercise = exercise
+        _image = State(initialValue: CoachExerciseArt.cached(for: exercise))
+    }
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image).resizable().scaledToFit()
+                    .background(Color.white)
+            } else {
+                Image(systemName: "dumbbell").font(.system(size: 18, weight: .regular))
+                    .foregroundStyle(DomainTint.workout.accent)
+            }
+        }
+        .frame(width: 48, height: 54).background(DomainTint.workout.accent.opacity(0.12))
+        .clipShape(.rect(cornerRadius: NoopMetrics.radius1)).accessibilityHidden(true)
+        .task(id: CoachExerciseArt.key(for: exercise)) {
+            image = CoachExerciseArt.cached(for: exercise)
+            image = await CoachExerciseArt.image(
+                for: exercise, pixelSize: CGSize(width: 48 * displayScale, height: 54 * displayScale))
+        }
     }
 }
 
