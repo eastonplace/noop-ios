@@ -887,8 +887,6 @@ public struct TrendsCalendarHeat: View {
 
     private static let labels = ["M", "T", "W", "T", "F", "S", "S"]
     private static let columns = 7
-    private static let cellHeight: CGFloat = 28
-    private static let rowGap: CGFloat = 8
     private static let intensitySteps: [Double] = [0.18, 0.34, 0.5, 0.66, 0.82]
 
     public init(
@@ -908,7 +906,6 @@ public struct TrendsCalendarHeat: View {
     }
 
     private var rows: Int { max(Int((Double(days.count) / Double(Self.columns)).rounded(.up)), 1) }
-    private var gridHeight: CGFloat { CGFloat(rows) * Self.cellHeight + CGFloat(rows - 1) * Self.rowGap }
 
     private var scoredRange: ClosedRange<Double> {
         let values = days.compactMap(\.value).filter(\.isFinite)
@@ -950,17 +947,17 @@ public struct TrendsCalendarHeat: View {
         let range = scoredRange
         let today = calendar.startOfDay(for: referenceDate)
         return GeometryReader { proxy in
-            let columnWidth = proxy.size.width / CGFloat(Self.columns)
-            let cellWidth = max(10, min(columnWidth - 12, 40))
+            let geo = geometry(width: proxy.size.width)
+            let columnWidth = geo.column
             ZStack(alignment: .topLeading) {
                 ForEach(Array(days.enumerated()), id: \.offset) { index, day in
                     let column = index % Self.columns
                     let row = index / Self.columns
                     cell(day: day, index: index, range: range, today: today)
-                        .frame(width: cellWidth, height: Self.cellHeight)
+                        .frame(width: geo.side, height: geo.side)
                         .position(
                             x: (CGFloat(column) + 0.5) * columnWidth,
-                            y: CGFloat(row) * (Self.cellHeight + Self.rowGap) + Self.cellHeight / 2
+                            y: CGFloat(row) * columnWidth + geo.side / 2
                         )
                         .opacity(revealed ? 1 : 0)
                         .animation(
@@ -973,7 +970,7 @@ public struct TrendsCalendarHeat: View {
                     let row = scrubIndex / Self.columns
                     let anchor = CGPoint(
                         x: (CGFloat(column) + 0.5) * columnWidth,
-                        y: CGFloat(row) * (Self.cellHeight + Self.rowGap) + Self.cellHeight / 2
+                        y: CGFloat(row) * columnWidth + geo.side / 2
                     )
                     let day = days[scrubIndex]
                     ChartTooltip(
@@ -1007,13 +1004,14 @@ public struct TrendsCalendarHeat: View {
                 }
             )
         }
-        .frame(height: gridHeight)
+        // As tall as its square slots, less the gap under the last row.
+        .aspectRatio(CGFloat(Self.columns) / (CGFloat(rows) - 0.3), contentMode: .fit)
     }
 
     private func cellIndex(at location: CGPoint, columnWidth: CGFloat) -> Int? {
         guard columnWidth > 0, !days.isEmpty else { return nil }
         let column = min(max(Int(location.x / columnWidth), 0), Self.columns - 1)
-        let row = min(max(Int(location.y / (Self.cellHeight + Self.rowGap)), 0), rows - 1)
+        let row = min(max(Int(location.y / columnWidth), 0), rows - 1)
         let index = row * Self.columns + column
         return index < days.count ? index : nil
     }
@@ -1027,9 +1025,6 @@ public struct TrendsCalendarHeat: View {
             switch TrendCalendar.cellState(for: day, today: referenceDate, calendar: calendar) {
             case .value(let value):
                 shape.fill(fill(for: value, range: range))
-                if colorScale == .recoveryBands {
-                    shape.strokeBorder(RecoveryBands.color(for: value).opacity(0.7), lineWidth: 1)
-                }
             case .missing:
                 shape.strokeBorder(StrandPalette.hairlineStrong.opacity(0.7), lineWidth: 1)
             case .future:
@@ -1046,15 +1041,7 @@ public struct TrendsCalendarHeat: View {
     private func fill(for value: Double, range: ClosedRange<Double>) -> Color {
         switch colorScale {
         case .recoveryBands:
-            let band = RecoveryBands.band(for: value)
-            let clamped = min(max(value, 0), 100)
-            let position: Double
-            switch band {
-            case .low: position = clamped / 34
-            case .medium: position = (clamped - 34) / 33
-            case .high: position = (clamped - 67) / 33
-            }
-            return RecoveryBands.color(for: value).opacity(0.14 + 0.2 * min(max(position, 0), 1))
+            return RecoveryBands.color(for: value)
         case .intensity:
             let span = range.upperBound - range.lowerBound
             let unit = span > 0 ? (value - range.lowerBound) / span : 0.5
@@ -1085,6 +1072,18 @@ public struct TrendsCalendarHeat: View {
             }
             .frame(minHeight: 14)
         }
+    }
+
+    /// Cell geometry for a grid `width` points wide: square tiles at 70% of their column on a square pitch, so
+    /// the grid keeps generous negative space.
+    private struct Geometry {
+        let column: CGFloat
+        let side: CGFloat
+    }
+
+    private func geometry(width: CGFloat) -> Geometry {
+        let column = width / CGFloat(Self.columns)
+        return Geometry(column: column, side: max(10, column * 0.7))
     }
 
     @ViewBuilder
@@ -1132,8 +1131,7 @@ public struct TrendsCalendarHeat: View {
     private func legendItem(_ title: LocalizedStringKey, color: Color) -> some View {
         HStack(spacing: 4) {
             RoundedRectangle(cornerRadius: 2.5, style: .continuous)
-                .fill(color.opacity(0.32))
-                .overlay(RoundedRectangle(cornerRadius: 2.5, style: .continuous).strokeBorder(color.opacity(0.9), lineWidth: 1))
+                .fill(color)
                 .frame(width: 10, height: 10)
             Text(title).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
         }
