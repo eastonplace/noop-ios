@@ -77,19 +77,20 @@ enum CoachRecordDate {
 // MARK: Primary pill
 
 /// The primary action: Today's Start pill (brand ink capsule, dark label) scaled up modestly for a page whose one
-/// job is this action. The tap area reaches 44pt without growing the layout.
+/// job is this action. The tap area reaches 44pt without growing the layout. Disabled it is the standard quiet
+/// look (the chip wash behind a tertiary label), never a dimmed accent, so it cannot be mistaken for a rendering fault.
 struct CoachPrimaryPillStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(StrandFont.subhead.weight(.semibold))
-            .foregroundStyle(StrandPalette.appCanvas)
+            .foregroundStyle(isEnabled ? StrandPalette.appCanvas : StrandPalette.textTertiary)
             .padding(.horizontal, NoopMetrics.space4)
             .padding(.vertical, 10)
-            .background(StrandPalette.ink, in: Capsule(style: .continuous))
+            .background(isEnabled ? StrandPalette.ink : StrandPalette.chipFill, in: Capsule(style: .continuous))
             .contentShape(Rectangle().inset(by: -4))
-            .opacity(isEnabled ? (configuration.isPressed ? 0.78 : 1) : 0.4)
+            .opacity(isEnabled && configuration.isPressed ? 0.78 : 1)
     }
 }
 
