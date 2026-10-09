@@ -9,9 +9,19 @@ import WhoopStore
 @ViewBuilder
 func sleepRecoveryEmptyState(what: String) -> some View {
     if MissedSleepRecoveryRouting.shouldReplaceEmptyState(what) {
-        MissedSleepRecoveryBridge()
+        // No night at all: the card carries the guidance the placeholder message would have shown.
+        MissedSleepRecoveryBridge(emptyDetail: what)
     } else {
-        ComingSoon(what: LocalizedStringKey(what))
+        SleepSection("Sleep", systemImage: "moon.zzz.fill", tint: .sleep) {
+            HStack(spacing: NoopMetrics.space2) {
+                ProgressView().tint(StrandPalette.restColor).accessibilityHidden(true)
+                Text(LocalizedStringKey(what))
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -22,6 +32,10 @@ enum MissedSleepRecoveryRouting {
 }
 
 struct MissedSleepRecoveryBridge: View {
+    /// The empty-state guidance, when the screen has no night at all (nil for "no sleep recorded for today yet" over
+    /// a screen that has history).
+    var emptyDetail: String? = nil
+
     @EnvironmentObject private var repo: Repository
     @EnvironmentObject private var intelligence: IntelligenceEngine
 
@@ -32,6 +46,7 @@ struct MissedSleepRecoveryBridge: View {
     var body: some View {
         MissedSleepRecoveryCard(
             isRetrying: isRetrying,
+            emptyDetail: emptyDetail,
             onRetry: { Task { await retryDetection() } },
             onSetWindow: { editorSeed = .lastNight() })
             .sheet(item: $editorSeed) { seed in
