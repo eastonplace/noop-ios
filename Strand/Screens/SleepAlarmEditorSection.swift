@@ -288,7 +288,7 @@ struct SleepAlarmEditorSection: View {
                     let weekdays = SmartAlarmView.alarmWeekdaySummary(behavior.smartAlarmWeekdays)
                     HStack(alignment: .center, spacing: NoopMetrics.space2) {
                         VStack(alignment: .leading, spacing: 4) {
-                            HeroValue(value: clock.number, unit: clock.unit, size: 30)
+                            HeroValue(value: clock.number, unit: clock.unit)
                             Text("\(status) · \(weekdays)")
                                 .font(StrandFont.subhead)
                                 .foregroundStyle(StrandPalette.textSecondary)
