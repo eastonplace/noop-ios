@@ -829,8 +829,10 @@ public enum ScoreState: Sendable, Equatable {
     var pulsing: Bool { self == .live }
 }
 
-/// The score-lifecycle chip: dot + hue@.12 fill + hue@.32 border + hue text. LIVE
-/// pulses its dot. `text` overrides the default state label (e.g. "Building — 2 of 4").
+/// The score-lifecycle chip, built from the shared state-pill parts so the app has ONE pill: a state-coloured
+/// dot, the white overline label, and the 10 / 5pt capsule with a 12% wash and a 28% hairline of the state hue
+/// (the `StatePill` chrome that the Coach cards and Today's pills use). LIVE pulses its dot. `text` overrides the
+/// default state label (e.g. "Building — 2 of 4").
 public struct ScoreStatePill: View {
     public var state: ScoreState
     public var text: LocalizedStringKey?
@@ -842,13 +844,9 @@ public struct ScoreStatePill: View {
         return HStack(spacing: 6) {
             PulseDot(color: hue, pulsing: state.pulsing, size: 7)
             Text(text ?? state.label)
-                .font(StrandFont.overline)
-                .tracking(0.4)
-                .foregroundStyle(hue)
+                .statePillLabel()
         }
-        .padding(.horizontal, 10).padding(.vertical, 5)
-        .background(Capsule(style: .continuous).fill(hue.opacity(0.12)))
-        .overlay(Capsule(style: .continuous).stroke(hue.opacity(0.32), lineWidth: 1))
+        .statePillChrome(tint: hue)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(text ?? state.label)
     }
