@@ -1762,10 +1762,10 @@ struct SleepView: View {
                     .foregroundStyle(StrandPalette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                 debtDeltaBars(ledger)
-                StatFooter(items: [
-                    (label: String(localized: "Balance"), value: debtSigned(ledger.balanceMin)),
-                    (label: String(localized: "Avg target"), value: durationText(ledger.needMin)),
-                    (label: String(localized: "Nights"), value: "\(ledger.nightCount)"),
+                SleepFactStrip(facts: [
+                    SleepFact("Balance", value: debtSigned(ledger.balanceMin)),
+                    SleepFact("Avg target", value: durationText(ledger.needMin)),
+                    SleepFact("Nights", value: "\(ledger.nightCount)"),
                 ])
                 Text("Counts nights with a computed target. Repayment is excluded from the target so existing debt is not counted twice.")
                     .font(StrandFont.micro)
@@ -1879,10 +1879,10 @@ struct SleepView: View {
                            accessibilityLabel: String(localized: "Hours asleep trend"),
                            yDomain: domain,
                            xAxisLabelCount: dynamicTypeSize >= .xxLarge ? 3 : WidgetMetrics.maxXAxisLabels)
-                StatFooter(items: [
-                    (label: String(localized: "Low"), value: values.min().map { String(format: "%.1f h", $0) } ?? "—"),
-                    (label: String(localized: "Latest"), value: values.last.map { String(format: "%.1f h", $0) } ?? "—"),
-                    (label: String(localized: "High"), value: values.max().map { String(format: "%.1f h", $0) } ?? "—"),
+                SleepFactStrip(facts: [
+                    SleepFact("Low", value: values.min().map { String(format: "%.1f h", $0) } ?? "—"),
+                    SleepFact("Latest", value: values.last.map { String(format: "%.1f h", $0) } ?? "—"),
+                    SleepFact("High", value: values.max().map { String(format: "%.1f h", $0) } ?? "—"),
                 ])
             } else {
                 sparsePlaceholder
