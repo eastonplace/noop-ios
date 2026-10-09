@@ -37,6 +37,46 @@ enum DrillInTrendStats {
     }
 }
 
+// MARK: - Ranges
+
+/// The ranges a drill-in chart offers. W, M, 3M and 6M are the Trends tab's own windows; 1Y and ALL are offered
+/// only by a section that asks for them (Stress), so Trends and the pillar screens keep exactly four.
+enum DrillInRange: String, CaseIterable, Identifiable {
+    case week = "W", month = "M", quarter = "3M", half = "6M", year = "1Y", all = "ALL"
+
+    var id: String { rawValue }
+
+    static let standard: [DrillInRange] = [.week, .month, .quarter, .half]
+    static let extended: [DrillInRange] = DrillInRange.allCases
+
+    /// A year or more spans two calendar years, so its dates carry the year.
+    var showsYear: Bool { self == .year || self == .all }
+
+    /// The window length in days ending at `reference`. ALL starts at the earliest day with a value (never a
+    /// window shorter than a month, so a short history is not stretched across the whole chart).
+    func days(earliest: Date?, through reference: Date, calendar: Calendar) -> Int {
+        switch self {
+        case .week: 7
+        case .month: 30
+        case .quarter: 90
+        case .half: 180
+        case .year: 365
+        case .all:
+            if let earliest {
+                max((calendar.dateComponents([.day], from: calendar.startOfDay(for: earliest),
+                                             to: calendar.startOfDay(for: reference)).day ?? 0) + 1, 30)
+            } else {
+                30
+            }
+        }
+    }
+
+    /// "Last 90 days", or "All time" for ALL.
+    func title(days: Int) -> String {
+        self == .all ? String(localized: "All time") : String(localized: "Last \(days) days")
+    }
+}
+
 // MARK: - Range section
 
 /// A metric over the last 7 / 30 / 90 / 180 days: eyebrow, "Last N days" with the range control beside it, the
@@ -52,30 +92,33 @@ struct DrillInTrendSection: View {
     let latest: Double?
     var valueBounds: ClosedRange<Double>? = nil
     var emptyMessage: String? = nil
+    /// The range control's segments. Defaults to W / M / 3M / 6M, like Trends.
+    var ranges: [DrillInRange] = DrillInRange.standard
 
-    @State private var range: TrendRange = .month
+    @State private var range: DrillInRange = .month
     private let calendar = Calendar.current
 
     var body: some View {
         let tint = metric.domainTint(latest: latest)
+        let rangeDays = range.days(earliest: observations.map(\.date).min(), through: referenceDate, calendar: calendar)
         let days = TrendCalendar.buildRollingWindow(
-            observations: observations, through: referenceDate, count: range.days, calendar: calendar)
+            observations: observations, through: referenceDate, count: rangeDays, calendar: calendar)
         let values = days.compactMap(\.value)
         VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
             SectionEyebrow(title: title, systemImage: metric.symbol, tint: tint)
             TrendsControlRow(
                 leading: { _ in
-                    Text(String(localized: "Last \(range.days) days"))
+                    Text(range.title(days: rangeDays))
                         .font(StrandFont.caption)
                         .foregroundStyle(StrandPalette.textSecondary)
                         .lineLimit(1)
                 },
-                trailing: { rangePicker }
+                trailing: { rangePicker(days: rangeDays) }
             )
             // One lone day is a dot, not a trend: say so instead of drawing an empty plot and a footer that repeats it.
             if values.count >= 2,
                let stats = DrillInTrendStats.baselineAndTypical(of: values),
-               let domain = TrendCalendar.dateDomain(through: referenceDate, count: range.days, calendar: calendar) {
+               let domain = TrendCalendar.dateDomain(through: referenceDate, count: rangeDays, calendar: calendar) {
                 TrendsHeroChart(
                     days: days,
                     dateDomain: domain,
@@ -89,7 +132,8 @@ struct DrillInTrendSection: View {
                     valueFormat: metric.format,
                     valueBounds: valueBounds ?? metric.valueBounds,
                     direction: metric.chartDirection,
-                    metricName: metric.rawValue
+                    metricName: metric.rawValue,
+                    longRange: range.showsYear
                 )
                 .id("\(metric.rawValue)-\(range.rawValue)")
                 StatFooter(items: [
@@ -109,23 +153,23 @@ struct DrillInTrendSection: View {
 
     /// The canonical segmented pill, announced as one adjustable "Range" control so VoiceOver reads "30 days"
     /// instead of the bare "M" (the same treatment the Trends tab gives it).
-    private var rangePicker: some View {
-        SegmentedPillControl(TrendRange.allCases, selection: $range) { $0.rawValue }
+    private func rangePicker(days: Int) -> some View {
+        SegmentedPillControl(ranges, selection: $range) { $0.rawValue }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Range")
-            .accessibilityValue("\(range.days) days")
+            .accessibilityValue(range == .all ? String(localized: "All time") : String(localized: "\(days) days"))
             .accessibilityAdjustableAction { direction in
-                let all = TrendRange.allCases
-                guard let index = all.firstIndex(of: range) else { return }
+                guard let index = ranges.firstIndex(of: range) else { return }
                 switch direction {
-                case .increment: range = all[min(index + 1, all.count - 1)]
-                case .decrement: range = all[max(index - 1, 0)]
+                case .increment: range = ranges[min(index + 1, ranges.count - 1)]
+                case .decrement: range = ranges[max(index - 1, 0)]
                 default: break
                 }
             }
             .accessibilityActions {
-                ForEach(TrendRange.allCases) { option in
-                    Button(String(localized: "Last \(option.days) days")) { range = option }
+                ForEach(ranges) { option in
+                    Button(option.title(days: option.days(earliest: observations.map(\.date).min(),
+                                                          through: referenceDate, calendar: calendar))) { range = option }
                 }
             }
     }

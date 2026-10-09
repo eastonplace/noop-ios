@@ -628,7 +628,8 @@ struct StressView: View {
             referenceDate: observations.last?.date ?? Calendar.current.startOfDay(for: Date()),
             latest: model.score,
             valueBounds: 0...3,
-            emptyMessage: String(localized: "Not enough recent days to chart a trend yet. Import a history or keep wearing your strap.")
+            emptyMessage: String(localized: "Not enough recent days to chart a trend yet. Import a history or keep wearing your strap."),
+            ranges: DrillInRange.extended
         )
     }
 

@@ -478,6 +478,9 @@ public struct TrendsHeroChart: View {
     let valueFormat: (Double) -> String
     private let direction: TrendPanelChart.Direction
     private let metricName: String
+    /// A window of a year or more, whose ticks fall in different months: axis and reading dates carry the year
+    /// so two Octobers are never alike. False for every default (W/M/3M/6M) chart.
+    private let showsYear: Bool
 
     let points: [TrendPoint]
     private let axis: TrendsAxis
@@ -515,7 +518,8 @@ public struct TrendsHeroChart: View {
         valueFormat: @escaping (Double) -> String = { ComponentValueFormat.rounded($0) },
         valueBounds: ClosedRange<Double> = (-Double.greatestFiniteMagnitude)...Double.greatestFiniteMagnitude,
         direction: TrendPanelChart.Direction = .contextual,
-        metricName: String = "Trend"
+        metricName: String = "Trend",
+        longRange: Bool = false
     ) {
         let sorted = days.sorted { $0.date < $1.date }
         self.days = sorted
@@ -541,8 +545,19 @@ public struct TrendsHeroChart: View {
         self.points = series
         self.dayIndices = indices
         self.axis = TrendsAxis.make(values: series.map(\.value), baseline: baseline, bounds: valueBounds)
-        self.tickLabels = Self.makeTickLabels(
-            domain: dateDomain, referenceDate: referenceDate, calendar: calendar)
+        // A year or more reads as "Oct 2025 · Feb 2026 …". A short history under the same control (ALL on a
+        // month of data) would repeat one month under every tick, so it falls back to day labels.
+        var labels = Self.makeTickLabels(
+            domain: dateDomain, referenceDate: referenceDate, calendar: calendar,
+            template: longRange ? "MMM yyyy" : "MMM d")
+        var yearLabels = longRange
+        if longRange, Set(labels.map(\.label)).count < labels.count {
+            labels = Self.makeTickLabels(
+                domain: dateDomain, referenceDate: referenceDate, calendar: calendar, template: "MMM d")
+            yearLabels = false
+        }
+        self.tickLabels = labels
+        self.showsYear = yearLabels
         let runs = TrendCurve.runs(dayIndices: indices, maxGapDays: Self.maxGapDays)
         self.singletonIndices = Set(runs.filter { $0.count == 1 }.map(\.lowerBound))
 
@@ -629,12 +644,12 @@ public struct TrendsHeroChart: View {
 
     private var heroCaption: String {
         if let scrubDay {
-            let label = TrendCalendar.relativeLabel(for: scrubDay.date, relativeTo: referenceDate, calendar: calendar)
+            let label = dayLabel(scrubDay.date)
             return scrubDay.value == nil ? String(localized: "No data · \(label)") : label
         }
         guard let latest = points.last else { return String(localized: "No data in this range") }
         if calendar.isDate(latest.date, inSameDayAs: dateDomain.upperBound) { return String(localized: "latest") }
-        let label = TrendCalendar.relativeLabel(for: latest.date, relativeTo: referenceDate, calendar: calendar)
+        let label = dayLabel(latest.date)
         return String(localized: "latest · \(label)")
     }
 
@@ -1027,7 +1042,8 @@ public struct TrendsHeroChart: View {
     private static func makeTickLabels(
         domain: ClosedRange<Date>,
         referenceDate: Date,
-        calendar: Calendar
+        calendar: Calendar,
+        template: String
     ) -> [(label: String, fraction: Double)] {
         let totalDays = calendar.dateComponents([.day], from: domain.lowerBound, to: domain.upperBound).day ?? 0
         guard totalDays > 0 else {
@@ -1043,7 +1059,7 @@ public struct TrendsHeroChart: View {
             let isLast = dayIndex == totalDays
             let label = isLast
                 ? TrendCalendar.relativeLabel(for: date, relativeTo: referenceDate, calendar: calendar)
-                : TrendsDateFormatters.shared.string(from: date, template: "MMM d", calendar: calendar)
+                : TrendsDateFormatters.shared.string(from: date, template: template, calendar: calendar)
             labels.append((label, Double(dayIndex) / Double(totalDays)))
         }
         return labels
@@ -1054,7 +1070,16 @@ public struct TrendsHeroChart: View {
     private var selectedDayAccessibilityValue: String {
         guard let day = scrubDay ?? days.last else { return String(localized: "No trend data") }
         let value = day.value.map { "\(valueFormat($0))\(unitSuffix)" } ?? String(localized: "No data")
-        return "\(TrendCalendar.relativeLabel(for: day.date, relativeTo: referenceDate, calendar: calendar)), \(value)"
+        return "\(dayLabel(day.date)), \(value)"
+    }
+
+    /// Today, Yesterday, else the date: with the year when the window spans a year or more.
+    private func dayLabel(_ date: Date) -> String {
+        let relative = TrendCalendar.relativeLabel(for: date, relativeTo: referenceDate, calendar: calendar)
+        guard showsYear, !calendar.isDate(date, inSameDayAs: referenceDate),
+              let yesterday = calendar.date(byAdding: .day, value: -1, to: referenceDate),
+              !calendar.isDate(date, inSameDayAs: yesterday) else { return relative }
+        return TrendsDateFormatters.shared.string(from: date, template: "EEE MMM d yyyy", calendar: calendar)
     }
 }
 
