@@ -179,8 +179,10 @@ struct LocalCoachPlanView: View {
                         .buttonStyle(.plain)
                 }
             }
-            // The rows carry their own air; pull them in so the gap under the heading matches the rest.
-            .padding(.vertical, -NoopMetrics.space1)
+            // The rows carry their own air; pull them in so the gaps under the heading and above the next
+            // section's hairline match the rest of the page.
+            .padding(.top, -NoopMetrics.space1)
+            .padding(.bottom, -NoopMetrics.space2)
         }
     }
 

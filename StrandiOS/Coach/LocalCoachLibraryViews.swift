@@ -122,6 +122,8 @@ struct LocalCoachMemoryView: View {
             Toggle("Use my memory", isOn: $coach.preferences.memoryEnabled)
                 .font(StrandFont.subhead).noopToggle()
                 .frame(minHeight: 44)
+                // The row is 44pt tall for the touch target; take the spare air back where the section ends.
+                .padding(.bottom, coach.preferences.usePersonalData ? -8 : 0)
             if !coach.preferences.usePersonalData {
                 CoachNotice(text: Text("Allow local records in Coach settings to add and use personal memory."),
                             tone: .warning)
@@ -155,8 +157,10 @@ struct LocalCoachMemoryView: View {
                     memoryRow(memory)
                 }
             }
-            // The rows carry their own air; pull them in so the gap under the eyebrow matches the rest.
-            .padding(.vertical, -6)
+            // The rows carry their own air; pull them in so the gaps under the eyebrow and above the next
+            // section's hairline match the rest of the page.
+            .padding(.top, -6)
+            .padding(.bottom, -14)
         }
     }
 

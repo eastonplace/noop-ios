@@ -285,7 +285,7 @@ struct CoachChipRow<Content: View>: View {
 
 /// The three records Coach reads, as Today's key metrics read: a domain symbol and label, the value bright with
 /// its unit muted, a sparkline in the domain colour and the number of recorded days. Hairlines between columns;
-/// stacked at accessibility sizes.
+/// stacked at accessibility sizes and wherever a column would truncate.
 struct CoachMetricStrip: View {
     let metrics: [LocalCoachMetric]
     @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.whoop.rawValue
@@ -299,26 +299,41 @@ struct CoachMetricStrip: View {
 
     var body: some View {
         if typeSize.isAccessibilitySize {
-            VStack(alignment: .leading, spacing: NoopMetrics.space4) {
-                ForEach(metrics) { column($0) }
-            }
+            stacked
         } else {
-            HStack(alignment: .top, spacing: 0) {
-                ForEach(Array(metrics.enumerated()), id: \.element.id) { index, metric in
-                    if index > 0 {
-                        Rectangle().fill(StrandPalette.hairline).frame(width: 1)
-                            .accessibilityHidden(true)
-                    }
-                    column(metric)
-                        .padding(.leading, index == 0 ? 0 : NoopMetrics.space3)
-                        .padding(.trailing, index == metrics.count - 1 ? 0 : NoopMetrics.space3)
-                }
+            // Three columns while every label and value fits whole; stacked when a size would truncate one.
+            ViewThatFits(in: .horizontal) {
+                columns(size: valueSize)
+                columns(size: valueSize * 0.85)
+                stacked
             }
-            .fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    private func column(_ metric: LocalCoachMetric) -> some View {
+    private func columns(size: CGFloat) -> some View {
+        HStack(alignment: .top, spacing: 0) {
+            ForEach(Array(metrics.enumerated()), id: \.element.id) { index, metric in
+                if index > 0 {
+                    Rectangle().fill(StrandPalette.hairline).frame(width: 1)
+                        .accessibilityHidden(true)
+                }
+                column(metric, size: size, fitsWhole: true)
+                    .padding(.leading, index == 0 ? 0 : NoopMetrics.space3)
+                    .padding(.trailing, index == metrics.count - 1 ? 0 : NoopMetrics.space3)
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var stacked: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.space4) {
+            ForEach(metrics) { column($0, size: valueSize, fitsWhole: false) }
+        }
+    }
+
+    /// `fitsWhole` makes the column report the full width of its label and value, so `ViewThatFits` moves on to
+    /// the next layout instead of truncating one of them.
+    private func column(_ metric: LocalCoachMetric, size: CGFloat, fitsWhole: Bool) -> some View {
         let look = Self.look(for: metric)
         let shown = display(metric)
         let samples = metric.samples.filter(\.isFinite)
@@ -329,14 +344,16 @@ struct CoachMetricStrip: View {
                 Text(metric.title).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
                     .lineLimit(1)
             }
+            .fixedSize(horizontal: fitsWhole, vertical: false)
             HStack(alignment: .firstTextBaseline, spacing: 2) {
-                Text(shown.value).font(StrandFont.number(valueSize, weight: .semibold))
+                Text(shown.value).font(StrandFont.number(size, weight: .semibold))
                     .foregroundStyle(shown.value == WidgetMetrics.missingValue ? StrandPalette.textTertiary : StrandPalette.textPrimary)
                 if let unit = shown.unit, shown.value != WidgetMetrics.missingValue {
                     Text(unit).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
                 }
             }
-            .lineLimit(1).minimumScaleFactor(0.7)
+            .lineLimit(1)
+            .fixedSize(horizontal: fitsWhole, vertical: false)
             if samples.count > 1 {
                 Sparkline(values: samples, gradient: look.tint.chartGradient, lineWidth: 2, showsHover: false)
                     .frame(height: 24)
