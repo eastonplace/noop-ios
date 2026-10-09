@@ -294,6 +294,9 @@ struct CoachMetricStrip: View {
 
     private var effortScale: EffortScale { UnitPrefs.resolveEffortScale(effortScaleRaw) }
 
+    /// Columns keep a line's room for the sparkline so their values align, unless no column has one to draw.
+    private var reservesChart: Bool { metrics.contains { $0.samples.filter(\.isFinite).count > 1 } }
+
     var body: some View {
         if typeSize.isAccessibilitySize {
             VStack(alignment: .leading, spacing: NoopMetrics.space4) {
@@ -338,7 +341,7 @@ struct CoachMetricStrip: View {
                 Sparkline(values: samples, gradient: look.tint.chartGradient, lineWidth: 2, showsHover: false)
                     .frame(height: 24)
                     .accessibilityHidden(true)
-            } else {
+            } else if reservesChart {
                 Color.clear.frame(height: 24).accessibilityHidden(true)
             }
             if !samples.isEmpty {

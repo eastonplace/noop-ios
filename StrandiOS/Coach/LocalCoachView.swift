@@ -102,6 +102,14 @@ struct LocalCoachView: View {
         .sheet(isPresented: $showAttachment) { attachmentReview.noopSheetPresentation(largeFirst: true) }
         .task { visible = true; consumeSiriDraft() }
         .task(id: coach.recordContextID) { await coach.refresh() }
+        #if DEBUG
+        // A capture launched straight into a page opens before the demo records land; read them once they have.
+        .task {
+            guard QACoachPage.requested != nil else { return }
+            try? await Task.sleep(for: .seconds(5))
+            await coach.refresh()
+        }
+        #endif
         .onDisappear { visible = false; stopInputs() }
         .onReceive(NotificationCenter.default.publisher(for: LocalCoachIntentBridge.notification)) { _ in consumeSiriDraft() }
         .onChange(of: scenePhase) { _, phase in
@@ -127,6 +135,10 @@ struct LocalCoachView: View {
             Task { await coach.refresh() }
         }
         .onChange(of: coach.selectedConversationID) { old, new in
+            #if DEBUG
+            // A capture that asked for a page (`--noop-coach-page`) stays on it when the saved thread loads.
+            if QACoachPage.requested != nil { return }
+            #endif
             if old != new, !coach.messages.isEmpty { screen = .chat }
         }
         .accessibilityElement(children: .contain)
