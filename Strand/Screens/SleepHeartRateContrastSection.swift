@@ -272,7 +272,7 @@ struct SleepHeartRateContrastSection: View {
     /// A waiting state in the section's own frame: the eyebrow, then a spinner (or the quiet reason) beside what
     /// NOOP is doing or needs.
     private func statusCard(title: String, detail: String, showsProgress: Bool) -> some View {
-        SleepSection("Sleep vs awake", systemImage: "heart.fill", tint: .heart) {
+        FlatSection("Sleep vs awake", systemImage: "heart.fill", tint: .heart) {
             HStack(alignment: .top, spacing: NoopMetrics.space3) {
                 if showsProgress {
                     ProgressView()
@@ -296,7 +296,7 @@ struct SleepHeartRateContrastSection: View {
     /// The comparison: awake and asleep means side by side (bright number, muted unit), what the difference is in a
     /// sentence, then the method and coverage in quieter ink. Descriptive only, and the section says so.
     private func resultCard(_ result: SleepHeartRateContrast.Result) -> some View {
-        SleepSection("Sleep vs awake", systemImage: "heart.fill", tint: .heart,
+        FlatSection("Sleep vs awake", systemImage: "heart.fill", tint: .heart,
                      trailing: .pill("Descriptive", tone: .neutral)) {
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .top, spacing: NoopMetrics.space4) {
@@ -426,7 +426,7 @@ struct PreSleepHeartRateFeedbackSection: View {
 
     /// The opt-in: what it compares, what it stores, and one chip to turn it on. Nothing is stored until it is on.
     private var optInCard: some View {
-        SleepSection("Pre-sleep HR", systemImage: "heart.text.square", tint: .heart,
+        FlatSection("Pre-sleep HR", systemImage: "heart.text.square", tint: .heart,
                      trailing: .pill("Off", tone: .neutral)) {
             Text("Compare your mean heart rate during the 30 minutes before main sleep with your own recent nights.")
                 .font(StrandFont.subhead)
@@ -436,7 +436,7 @@ struct PreSleepHeartRateFeedbackSection: View {
                 .font(StrandFont.footnote)
                 .foregroundStyle(StrandPalette.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
-            SleepChipButton(title: actionInFlight ? "Turning on…" : "Turn on pre-sleep HR",
+            WidgetChipButton(title: actionInFlight ? "Turning on…" : "Turn on pre-sleep HR",
                             systemImage: "heart.text.square",
                             accessibilityLabel: actionInFlight ? "Turning on…" : "Turn on pre-sleep HR",
                             accessibilityHint: "Compares your heart rate before sleep with your recent nights") {
@@ -450,7 +450,7 @@ struct PreSleepHeartRateFeedbackSection: View {
     }
 
     private var loadingCard: some View {
-        SleepSection("Pre-sleep HR", systemImage: "heart.text.square", tint: .heart,
+        FlatSection("Pre-sleep HR", systemImage: "heart.text.square", tint: .heart,
                      trailing: .pill("On", tone: .accent)) {
             HStack(alignment: .top, spacing: NoopMetrics.space3) {
                 ProgressView()
@@ -470,7 +470,7 @@ struct PreSleepHeartRateFeedbackSection: View {
     }
 
     private var buildingCard: some View {
-        SleepSection("Pre-sleep HR", systemImage: "heart.text.square", tint: .heart,
+        FlatSection("Pre-sleep HR", systemImage: "heart.text.square", tint: .heart,
                      trailing: .pill("On", tone: .accent)) {
             Text("Needs another complete pre-sleep window")
                 .font(StrandFont.body)
@@ -487,7 +487,7 @@ struct PreSleepHeartRateFeedbackSection: View {
     /// The reading: the night's pre-sleep mean as the hero value, what it is against the personal baseline in a
     /// sentence, then the context and the honesty line in quieter ink.
     private func enabledCard(_ feedback: PreSleepHeartRateFeedback.Feedback) -> some View {
-        SleepSection("Pre-sleep HR", systemImage: "heart.text.square", tint: .heart,
+        FlatSection("Pre-sleep HR", systemImage: "heart.text.square", tint: .heart,
                      trailing: .pill("On", tone: .accent)) {
             if let observation = feedback.observation {
                 HeroValue(value: String(format: "%.0f", observation.meanBpm), unit: "bpm")
@@ -532,7 +532,7 @@ struct PreSleepHeartRateFeedbackSection: View {
     @ViewBuilder
     private var turnOffButton: some View {
         if !isDemoOverride {
-            SleepChipButton(title: "Turn off", systemImage: "xmark", accessibilityLabel: "Turn off pre-sleep heart rate",
+            WidgetChipButton(title: "Turn off", systemImage: "xmark", accessibilityLabel: "Turn off pre-sleep heart rate",
                             accessibilityHint: "Removes stored pre-sleep heart-rate summaries after confirmation") {
                 confirmsTurnOff = true
             }
