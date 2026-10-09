@@ -438,7 +438,8 @@ struct PreSleepHeartRateFeedbackSection: View {
                 .fixedSize(horizontal: false, vertical: true)
             SleepChipButton(title: actionInFlight ? "Turning on…" : "Turn on pre-sleep HR",
                             systemImage: "heart.text.square",
-                            accessibilityLabel: "Turn on pre-sleep heart rate") {
+                            accessibilityLabel: actionInFlight ? "Turning on…" : "Turn on pre-sleep HR",
+                            accessibilityHint: "Compares your heart rate before sleep with your recent nights") {
                 setEnabled(true)
             }
             .disabled(actionInFlight)

@@ -18,23 +18,31 @@ struct SleepStageRowPresentation: Equatable {
 
     let fraction: Double
     let percent: Int
+    let minutes: Double
     let duration: String
     let delta: String?
     let deltaTone: DeltaTone?
+    /// Within half a minute of the personal typical, whatever the language the delta text is in.
+    let isOnTypical: Bool
 
-    init(stage: SleepStage, minutes: Double, total: Double, typical: Double? = nil) {
+    /// `percent` overrides the rounded share when the caller has already shared 100% out across the stages
+    /// (see `SleepStageShares`), so the rows add up.
+    init(stage: SleepStage, minutes: Double, total: Double, typical: Double? = nil, percent: Int? = nil) {
         let clampedMinutes = max(0, minutes)
+        self.minutes = clampedMinutes
         fraction = total > 0 ? min(1, max(0, clampedMinutes / total)) : 0
-        percent = Int((fraction * 100).rounded())
+        self.percent = percent ?? Int((fraction * 100).rounded())
         duration = Self.durationText(clampedMinutes)
 
         guard let typical, typical > 0 else {
             delta = nil
             deltaTone = nil
+            isOnTypical = false
             return
         }
 
         let difference = clampedMinutes - typical
+        isOnTypical = abs(difference) < 0.5
         let sign = difference >= 0 ? "+" : "−"
         delta = String(localized: "\(sign)\(Self.durationText(abs(difference))) vs typ")
 
@@ -105,6 +113,8 @@ struct SleepView: View {
     @EnvironmentObject var intelligence: IntelligenceEngine
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    /// The one-line stage row's content height; its 44pt tap target leaves half of the difference above and below.
+    @ScaledMetric(relativeTo: .body) private var stageRowContentHeight: CGFloat = 22
 
     /// Memoized snapshot of every expensive derivation (latest Night with its intervals
     /// resolved once, the seven metric series, the trend points, the typical means). Rebuilt
@@ -247,7 +257,6 @@ struct SleepView: View {
                         SleepSectionSeparator()
                         paperSleepStages(
                             night: displayedNight.night,
-                            intervals: displayedNight.intervals,
                             hasStageData: displayedNight.hasStageData
                         )
                         .staggeredAppear(index: 2)
@@ -555,14 +564,12 @@ struct SleepView: View {
         if nightOffset == 0 {
             return PaperNightContent(
                 night: model.night,
-                intervals: model.intervals,
                 hasStageData: !model.isStubNight && model.night.stages.total > 0
             )
         }
         if let navNight {
             return PaperNightContent(
                 night: navNight,
-                intervals: navNight.intervals,
                 hasStageData: navNight.stages.total > 0
             )
         }
@@ -573,14 +580,13 @@ struct SleepView: View {
                 sourceBlocks: dayBlocks(at: nightOffset),
                 habitualMidsleepSec: habitualMidsleepSec
             )
-            return PaperNightContent(night: stub, intervals: [], hasStageData: false)
+            return PaperNightContent(night: stub, hasStageData: false)
         }
         // The navigation bounds make this unreachable in normal use. Falling back to the memoized
         // latest night is preferable to dropping the whole screen during a concurrent data refresh;
         // the refresh path resets `nightOffset` to zero in the same update.
         return PaperNightContent(
             night: model.night,
-            intervals: model.intervals,
             hasStageData: !model.isStubNight && model.night.stages.total > 0
         )
     }
@@ -613,10 +619,11 @@ struct SleepView: View {
     /// measures is how much of the night's need was met), so a poor night never reads as a solid one.
     private func sleepScoreMessage(_ score: Double?) -> String {
         guard let score else { return String(localized: "Sleep is still calibrating from your recorded sleep.") }
-        switch score {
-        case ..<50: return String(localized: "Your sleep fell well short of what your body needed.")
-        case ..<70: return String(localized: "Your sleep covered part of what your body needed.")
-        default:    return String(localized: "This was a solid night of recovery.")
+        // Banded on the score as shown (whole numbers), so 49.6 reads "50 · Fair", never "Poor".
+        switch SleepScoreBand(score: score) {
+        case .poor: return String(localized: "Your sleep fell well short of what your body needed.")
+        case .fair: return String(localized: "Your sleep covered part of what your body needed.")
+        case .good, .optimal: return String(localized: "This was a solid night of recovery.")
         }
     }
 
@@ -633,7 +640,7 @@ struct SleepView: View {
     /// header, the hypnogram in the stage palette, and a row per stage. Hypnogram smoothing remains display-only
     /// and does not alter stored stage totals. This is the old window card folded in: its duration repeated the
     /// hero's, and its times belong with the timeline they describe.
-    private func paperSleepStages(night: Night, intervals: [SleepInterval], hasStageData: Bool) -> some View {
+    private func paperSleepStages(night: Night, hasStageData: Bool) -> some View {
         let presentation = SleepWindowPresentation(
             hasStageData: hasStageData,
             asleepMinutes: night.stages.asleep,
@@ -649,13 +656,13 @@ struct SleepView: View {
                 SleepFact("Woke", value: night.wakeText),
                 SleepFact("In bed", value: presentation.inBedDuration),
             ])
-            if intervals.isEmpty {
+            if night.stageTimeline.isEmpty {
                 Text("No stage timeline was recorded for this night.")
                     .font(StrandFont.subhead)
                     .foregroundStyle(StrandPalette.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                SleepStageChart(intervals: intervals, start: night.onsetDate, highlighted: selectedStage)
+                SleepStageChart(timeline: night.stageTimeline, start: night.onsetDate, highlighted: selectedStage)
                 stageBreakdownRows(night.stages)
             }
             // Keep the existing H9 honesty note mounted under the stage section.
@@ -694,11 +701,11 @@ struct SleepView: View {
 
     /// A short Sleep state word for the hero gauge — same banding the synthesis hero uses.
     private func sleepScoreWord(_ score: Double) -> String {
-        switch score {
-        case ..<50:  return String(localized: "Poor")
-        case ..<70:  return String(localized: "Fair")
-        case ..<85:  return String(localized: "Good")
-        default:     return String(localized: "Optimal")
+        switch SleepScoreBand(score: score) {
+        case .poor: return String(localized: "Poor")
+        case .fair: return String(localized: "Fair")
+        case .good: return String(localized: "Good")
+        case .optimal: return String(localized: "Optimal")
         }
     }
 
@@ -735,7 +742,8 @@ struct SleepView: View {
         let napMin = naps.reduce(0.0) { $0 + Double($1.endTs - $1.effectiveStartTs) / 60.0 }
         SleepSection("Naps", systemImage: "powersleep", tint: .sleep,
                      trailing: .custom(AnyView(
-                        SleepChipButton(title: "Add nap", systemImage: "plus", accessibilityLabel: "Add a nap") {
+                        SleepChipButton(title: "Add nap", systemImage: "plus", accessibilityLabel: "Add nap",
+                                         accessibilityHint: "Adds a missed nap to this day") {
                             addNap = AddNapSeed(forNight: night)
                         }))) {
             if naps.isEmpty {
@@ -917,24 +925,27 @@ struct SleepView: View {
     /// over `s.total`) — no new numbers.
     @ViewBuilder
     private func stageBreakdownRows(_ s: Stages) -> some View {
+        // Shares are shared out so the four rows add up to 100%, not 99% or 101%.
+        let shares = SleepStageShares.percents(minutes: [s.rem, s.deep, s.light, s.awake])
         VStack(alignment: .leading, spacing: 0) {
-            stageBreakdownRow(.rem,   minutes: s.rem,   total: s.total)
-            stageBreakdownRow(.deep,  minutes: s.deep,  total: s.total)
-            stageBreakdownRow(.light, minutes: s.light, total: s.total)
-            stageBreakdownRow(.awake, minutes: s.awake, total: s.total)
+            stageBreakdownRow(.rem,   minutes: s.rem,   total: s.total, percent: shares[0])
+            stageBreakdownRow(.deep,  minutes: s.deep,  total: s.total, percent: shares[1])
+            stageBreakdownRow(.light, minutes: s.light, total: s.total, percent: shares[2])
+            stageBreakdownRow(.awake, minutes: s.awake, total: s.total, percent: shares[3])
         }
-        // Each row's own 7pt of tap padding would otherwise sit between the last value and the hairline below.
-        .padding(.bottom, -7)
+        // Each row is a 44pt tap target; its spare height would otherwise sit between the last value and the
+        // hairline below. The spare shrinks as the text grows and is gone once the rows stack (accessibility sizes).
+        .padding(.bottom, -(dynamicTypeSize.isAccessibilitySize ? 0 : max(0, 15 - (stageRowContentHeight - 22) / 2)))
     }
 
     /// One stage row. `fraction = minutes / total` sets both the % and the bar fill. Tappable (WHOOP, ryanAtriumAi
     /// #988): selecting a row highlights that stage on the chart and recedes the rest; tapping it again clears.
     @ViewBuilder
-    private func stageBreakdownRow(_ stage: SleepStage, minutes: Double, total: Double) -> some View {
+    private func stageBreakdownRow(_ stage: SleepStage, minutes: Double, total: Double, percent: Int) -> some View {
         let isSelected = selectedStage == stage
         SleepStageBreakdownRow(
             stage: stage,
-            presentation: SleepStageRowPresentation(stage: stage, minutes: minutes, total: total),
+            presentation: SleepStageRowPresentation(stage: stage, minutes: minutes, total: total, percent: percent),
             isSelected: isSelected,
             othersSelected: selectedStage != nil && !isSelected
         ) {
@@ -986,7 +997,7 @@ struct SleepView: View {
                 SleepMetricTile(label: "Efficiency", value: pctValue(efficiencyPct(night)),
                                 caption: model.efficiency.typical.map { String(localized: "Typical \(pctValue($0))") },
                                 systemImage: "gauge.medium", series: spark(model.efficiency.series)),
-                SleepMetricTile(label: "Hours vs needed", value: pctValue(hoursVsNeed),
+                SleepMetricTile(label: "Hours vs Needed", value: pctValue(hoursVsNeed),
                                 caption: model.hoursVsNeeded.typical.map { String(localized: "Typical \(pctValue($0))") },
                                 systemImage: "scalemass.fill", series: spark(model.hoursVsNeeded.series)),
                 SleepMetricTile(label: "Restorative", value: restorative.map { pctValue($0) } ?? "—",
@@ -999,8 +1010,8 @@ struct SleepView: View {
                                 caption: model.respiratory.typical.map { String(localized: "Typical \(String(format: "%.1f", $0)) rpm") },
                                 systemImage: "lungs.fill", tint: breath, series: spark(model.respiratory.series)),
                 SleepMetricTile(label: "Night balance", value: balance ?? "—",
-                                caption: balance == nil ? String(localized: "Needs tonight's target")
-                                                        : String(localized: "vs tonight's target"),
+                                caption: balance == nil ? String(localized: "No target for this night")
+                                                        : String(localized: "vs this night's target"),
                                 systemImage: "plusminus.circle.fill"),
             ])
         }
@@ -1082,10 +1093,12 @@ struct SleepView: View {
         // over repo.days) and read here.
         SleepSection("Stages vs typical", systemImage: "chart.bar.doc.horizontal", tint: .sleep,
                      trailing: .text(nightOffset == 0 ? String(localized: "Last night") : String(localized: "Selected night"))) {
+            // The same shared-out shares as the legend above, so a stage reads the same percent in both places.
+            let shares = SleepStageShares.percents(minutes: [s.deep, s.rem, s.light, s.awake])
             VStack(alignment: .leading, spacing: NoopMetrics.space4) {
-                stageRow(stage: .deep, last: s.deep, typical: model.typicalDeepMin, nightTotal: s.total)
-                stageRow(stage: .rem, last: s.rem, typical: model.typicalRemMin, nightTotal: s.total)
-                stageRow(stage: .light, last: s.light, typical: model.typicalLightMin, nightTotal: s.total)
+                stageRow(stage: .deep, last: s.deep, typical: model.typicalDeepMin, nightTotal: s.total, percent: shares[0])
+                stageRow(stage: .rem, last: s.rem, typical: model.typicalRemMin, nightTotal: s.total, percent: shares[1])
+                stageRow(stage: .light, last: s.light, typical: model.typicalLightMin, nightTotal: s.total, percent: shares[2])
             }
             Text("The tick marks your typical for each stage.")
                 .font(StrandFont.micro)
@@ -1095,12 +1108,13 @@ struct SleepView: View {
 
     /// One stage against the user's typical. Same data as before (`last` minutes, `typical` personal mean).
     @ViewBuilder
-    private func stageRow(stage: SleepStage, last: Double, typical: Double?, nightTotal: Double) -> some View {
+    private func stageRow(stage: SleepStage, last: Double, typical: Double?, nightTotal: Double, percent: Int) -> some View {
         let presentation = SleepStageRowPresentation(
             stage: stage,
             minutes: last,
             total: nightTotal,
-            typical: typical
+            typical: typical,
+            percent: percent
         )
         // Scale both values against a shared per-row max so the typical tick is meaningful.
         let scaleMax = max(last, typical ?? 0) * 1.18
@@ -1113,7 +1127,8 @@ struct SleepView: View {
             percent: presentation.percent,
             duration: presentation.duration,
             delta: presentation.delta,
-            deltaIsGood: presentation.deltaTone.map { $0 == .positive }
+            deltaIsGood: presentation.deltaTone.map { $0 == .positive },
+            isOnTypical: presentation.isOnTypical
         )
         .accessibilityLabel(stageRowAccessibilityLabel(
             label: stage.label,
@@ -1125,10 +1140,11 @@ struct SleepView: View {
 
     /// Whole-string VoiceOver label for a stage row: one key per variant, never a stitched tail fragment.
     private func stageRowAccessibilityLabel(label: String, last: Double, sharePct: Int, typical: Double?) -> String {
+        let spokenLast = SleepSpokenDuration.text(minutes: last)
         if let typical, typical > 0 {
-            return String(localized: "\(label): \(durationText(last)) last night, \(sharePct) percent of the night, typical \(durationText(typical))")
+            return String(localized: "\(label): \(spokenLast) last night, \(sharePct) percent of the night, typical \(SleepSpokenDuration.text(minutes: typical))")
         }
-        return String(localized: "\(label): \(durationText(last)) last night, \(sharePct) percent of the night")
+        return String(localized: "\(label): \(spokenLast) last night, \(sharePct) percent of the night")
     }
 
     // MARK: - 4. 30-day asleep-hours trend
@@ -1145,7 +1161,7 @@ struct SleepView: View {
         SleepSection("Sleep duration", systemImage: "chart.line.uptrend.xyaxis", tint: tint,
                      trailing: .text(String(localized: "Last 30 days"))) {
             if pts.count > 1 {
-                HeroValue(value: avg.map { String(format: "%.1f", $0) } ?? "—", unit: "h avg",
+                HeroValue(value: avg.map { String(format: "%.1f", $0) } ?? "—", unit: String(localized: "h avg"),
                           caption: String(localized: "\(pts.count) recorded nights"))
                 // The Coach trend recipe: the tint's line, a wash fading to clear, at most four evenly spaced
                 // dates, the axis fitted to the data with headroom.
@@ -1222,7 +1238,6 @@ struct SleepView: View {
                                   historicalEfficiency.series)
         return SleepModel(
             night: night,
-            intervals: night.intervals,
             isPersistedHypnogram: (night.realSegments?.count ?? 0) >= 2,
             isStubNight: isStub,
             performance: performance.metric,
@@ -1490,7 +1505,7 @@ struct SleepView: View {
         // contributes nothing; if NO fragment has one, `motionEpochs` stays empty → honest empty state.
         var motion: [Double] = []
         for frag in group {
-            if let seg = decodeSegments(frag.stagesJSON, sessionStart: frag.effectiveStartTs), seg.stages.total > 0 {
+            if let seg = decodeSegments(frag.stagesJSON, sessionStart: onset), seg.stages.total > 0 {
                 stages.awake += seg.stages.awake; stages.light += seg.stages.light
                 stages.deep  += seg.stages.deep;  stages.rem   += seg.stages.rem
                 for iv in seg.intervals {
@@ -1974,32 +1989,41 @@ private struct SleepNeedBreakdownSection: View {
     let wakeDay: String
     @EnvironmentObject private var repo: Repository
     @State private var breakdown: SleepNeedBreakdown?
-    @State private var loaded = false
+    /// The wake day `breakdown` was last loaded for. The section only draws a breakdown whose own `day` is the
+    /// displayed night, and "Calibrating" only once that night has loaded, so changing night never flashes the
+    /// previous night's figures.
+    @State private var loadedDay: String?
 
     var body: some View {
+        let isVisible = SleepNeedBreakdownVisibility.isVisible(mode: SleepPerformanceV2Prefs.mode)
         // The section brings its own leading hairline: with the V2 need off it draws nothing at all, and the
         // page must not be left with a stray separator.
         VStack(alignment: .leading, spacing: 0) {
             // A zero-height anchor: while there is nothing to show the section is otherwise an empty view, and an
             // empty view in the lazy stack never appears, so its load task would never run.
             Color.clear.frame(height: 0).accessibilityHidden(true)
-            if SleepPerformanceV2Prefs.mode == .off {
-                EmptyView()
-            } else if let breakdown {
-                SleepSectionSeparator()
-                needSection(breakdown)
-            } else if loaded {
-                SleepSectionSeparator()
-                calibratingSection
+            if isVisible {
+                if let breakdown, breakdown.day == wakeDay {
+                    SleepSectionSeparator()
+                    needSection(breakdown)
+                } else if loadedDay == wakeDay {
+                    SleepSectionSeparator()
+                    calibratingSection
+                }
             }
         }
         .task(id: "\(wakeDay)-\(repo.refreshSeq)-\(repo.canonicalHealth.presentationRevision)") {
-            loaded = false
-            breakdown = nil
-            let value = await repo.noopSleepNeedBreakdownV2(day: wakeDay)
+            // Off: legacy stays authoritative with no V2 UI, so there is nothing to read from the store.
+            guard SleepNeedBreakdownVisibility.isVisible(mode: SleepPerformanceV2Prefs.mode) else {
+                breakdown = nil
+                loadedDay = nil
+                return
+            }
+            let day = wakeDay
+            let value = await repo.noopSleepNeedBreakdownV2(day: day)
             guard !Task.isCancelled else { return }
-            breakdown = value
-            loaded = true
+            breakdown = value?.day == day ? value : nil
+            loadedDay = day
         }
     }
 
@@ -2087,22 +2111,18 @@ private struct SleepInputKey: Equatable {
 /// only existing `Night` and interval values; trends/typicals remain in the memoized `SleepModel`.
 private struct PaperNightContent {
     let night: Night
-    let intervals: [SleepInterval]
     let hasStageData: Bool
 }
 
 /// Memoized result of every expensive SleepView derivation. Built once per data change in
 /// `buildModel()` and read by the subviews, so full passes over repo.days / repo.sleeps and
-/// the Night.intervals reconstruction no longer run on every render.
+/// the stage-timeline reconstruction no longer run on every render.
 private struct SleepModel {
     /// (latest, typical mean, full history) per metric — mirrors SleepView.Metric.
     typealias Metric = (latest: Double?, typical: Double?, series: [Double])
 
     let night: Night
-    /// Stage intervals for the hypnogram — computed once (Night.intervals is a computed
-    /// property; it was previously re-derived on each access during render).
-    let intervals: [SleepInterval]
-    /// True when `intervals` are the stager's persisted per-epoch segments (on-device
+    /// True when the night's intervals are the stager's persisted per-epoch segments (on-device
     /// APPROXIMATE staging), not the synthesized architecture.
     let isPersistedHypnogram: Bool
     /// True when `night` is the stage-less STUB for a newest day that failed to merge (#940: e.g.
@@ -2193,10 +2213,25 @@ private struct Night {
     /// The wall-clock start of the night (for the Hypnogram's clock labels).
     var onsetDate: Date { Date(timeIntervalSince1970: TimeInterval(session.effectiveStartTs)) }
 
-    /// Stage intervals laid end-to-end across the night, in seconds from start.
-    /// On-device computed nights use their REAL timeline; imported nights are reconstructed
-    /// from durations only (the export has no per-epoch timeline).
-    var intervals: [SleepInterval] {
+    /// The stage timeline on the night's clock (seconds from its onset), ready to draw. On-device computed nights
+    /// use their REAL timeline (fragments on one absolute clock, gaps kept); imported nights are reconstructed
+    /// from durations only (the export has no per-epoch timeline). Built once with the night, so no render
+    /// re-sorts or re-smooths it.
+    let stageTimeline: SleepStageTimeline
+
+    @MainActor
+    init(session: CachedSleepSession, stages: Stages, realSegments: [SleepInterval]? = nil,
+         sourceBlocks: [CachedSleepSession] = [], motionEpochs: [Double] = [], habitualMidsleepSec: Int? = nil) {
+        self.session = session
+        self.stages = stages
+        self.realSegments = realSegments
+        self.sourceBlocks = sourceBlocks
+        self.motionEpochs = motionEpochs
+        self.habitualMidsleepSec = habitualMidsleepSec
+        self.stageTimeline = SleepStageTimeline(Night.makeIntervals(stages: stages, realSegments: realSegments))
+    }
+
+    private static func makeIntervals(stages: Stages, realSegments: [SleepInterval]?) -> [SleepInterval] {
         if let real = realSegments, real.count >= 2 { return real }
         var t: TimeInterval = 0
         var out: [SleepInterval] = []

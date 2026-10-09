@@ -48,9 +48,11 @@ struct MissedSleepRecoveryCard: View {
                 .foregroundStyle(StrandPalette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
             SleepChipRow {
+                // The spoken name always contains the visible words, so Voice Control's "tap Retry detection" works.
                 SleepChipButton(title: isRetrying ? "Reviewing sleep…" : "Retry detection",
                                 systemImage: "arrow.clockwise",
-                                accessibilityLabel: "Retry sleep detection", action: onRetry)
+                                accessibilityLabel: isRetrying ? "Reviewing sleep…" : "Retry detection",
+                                accessibilityHint: "Runs sleep detection again", action: onRetry)
                     .disabled(isRetrying)
                 SleepChipButton(title: "Set sleep window", systemImage: "moon.stars",
                                 accessibilityLabel: "Set sleep window", action: onSetWindow)

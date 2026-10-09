@@ -1,5 +1,6 @@
 import SwiftUI
 import StrandDesign
+import os
 
 // MARK: - Sleep tab building blocks
 //
@@ -62,17 +63,45 @@ struct SleepSection<Content: View>: View {
 // MARK: - Values with muted units
 
 enum SleepValueSplit {
-    /// "55 bpm" -> ("55", "bpm"), "7:00 AM" -> ("7:00", "AM"). A compound like "6h 49m" or "12 of 21" stays whole:
-    /// the tail of a unit has no digit in it.
-    static func parts(_ raw: String) -> (number: String, unit: String?) {
-        let value = raw.trimmingCharacters(in: .whitespaces)
-        let spaces: Set<Character> = [" ", "\u{00A0}", "\u{202F}"]
-        guard let split = value.lastIndex(where: { spaces.contains($0) }) else { return (value, nil) }
+    /// "55 bpm" -> ("55", "bpm"), "7:00 AM" -> ("7:00", "AM"), "7:00 a. m." -> ("7:00", "a. m."). A compound like
+    /// "6h 49m" or "12 of 21" stays whole: the tail of a unit has no digit in it. A clock's day period is matched
+    /// against the locale's own AM/PM symbols (which can be several tokens), never guessed from "the last word";
+    /// a 24-hour clock has none, so it shows no unit.
+    static func parts(_ raw: String, locale: Locale = .autoupdatingCurrent) -> (number: String, unit: String?) {
+        let value = normalizingSpaces(raw)
+        for symbol in dayPeriodSymbols(for: locale) where value.hasSuffix(symbol) {
+            let head = String(value.dropLast(symbol.count)).trimmingCharacters(in: .whitespaces)
+            if head.contains(where: \.isNumber) { return (head, symbol) }
+        }
+        guard let split = value.lastIndex(of: " ") else { return (value, nil) }
         let head = value[..<split].trimmingCharacters(in: .whitespaces)
         let tail = value[value.index(after: split)...].trimmingCharacters(in: .whitespaces)
         guard head.contains(where: \.isNumber), !tail.isEmpty, tail.count <= 4,
               !tail.contains(where: \.isNumber) else { return (value, nil) }
         return (head, tail)
+    }
+
+    /// The locale's AM and PM symbols with every kind of space folded to a plain one, longest first.
+    static func dayPeriodSymbols(for locale: Locale) -> [String] {
+        let key = locale.identifier
+        if let hit = symbolCache.withLock({ $0[key] }) { return hit }
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        let symbols = [formatter.amSymbol, formatter.pmSymbol]
+            .compactMap { $0 }
+            .map(normalizingSpaces)
+            .filter { !$0.isEmpty }
+            .sorted { $0.count > $1.count }
+        symbolCache.withLock { $0[key] = symbols }
+        return symbols
+    }
+
+    private static let symbolCache = OSAllocatedUnfairLock<[String: [String]]>(initialState: [:])
+
+    private static func normalizingSpaces(_ text: String) -> String {
+        text.replacingOccurrences(of: "\u{00A0}", with: " ")
+            .replacingOccurrences(of: "\u{202F}", with: " ")
+            .trimmingCharacters(in: .whitespaces)
     }
 }
 
@@ -90,6 +119,8 @@ struct SleepValueText: View {
                 .font(StrandFont.number(size, weight: weight))
                 .foregroundStyle(missing ? StrandPalette.textTertiary : StrandPalette.textPrimary)
                 .lineLimit(1)
+                // "Unavailable" at tile size in a half-width column shrinks instead of truncating.
+                .minimumScaleFactor(0.6)
             if let unit = parts.unit, !missing {
                 Text(unit)
                     .font(StrandFont.caption)
@@ -239,7 +270,7 @@ struct SleepScoreDial: View {
         .frame(width: diameter, height: diameter * 0.84, alignment: .top)
         .onAppear { withAnimation(reduceMotion ? nil : .easeOut(duration: 0.65)) { revealed = true } }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(score.map { "Sleep score \(Int($0.rounded()))" } ?? "Sleep score unavailable")
+        .accessibilityLabel(score.map { String(localized: "Sleep score \(Int($0.rounded()))") } ?? String(localized: "Sleep score unavailable"))
     }
 }
 
@@ -332,15 +363,78 @@ struct SleepChipRow<Content: View>: View {
 
 // MARK: - Hypnogram
 
+/// A night's stage timeline prepared for drawing, built ONCE with the night (never per render): the intervals on
+/// one absolute clock (seconds from the night's onset, gaps between fragments kept), sorted and display-smoothed
+/// within each unbroken run so a short fragment is never absorbed across a gap, plus the raw per-stage minutes
+/// for the spoken summary. Render-only: totals and stored data are untouched.
+struct SleepStageTimeline {
+    /// A break longer than this between two intervals is a gap (strap off, got up), not an epoch seam.
+    static let gapSeconds: TimeInterval = 90
+
+    let intervals: [SleepInterval]
+    let origin: TimeInterval
+    let span: TimeInterval
+    let stageMinutes: [SleepStage: Double]
+
+    var isEmpty: Bool { intervals.isEmpty }
+
+    /// Main actor because the shared display smoothing lives on the (main-actor) `Hypnogram` view type.
+    @MainActor
+    init(_ raw: [SleepInterval], minimumSegment: TimeInterval = 300) {
+        let sorted = raw.sorted { $0.start < $1.start }
+        var minutes: [SleepStage: Double] = [:]
+
+        // Unbroken runs. A fragment that overlaps the one before it is clipped to start where that one ends, so
+        // overlapped time is neither drawn nor spoken twice.
+        var runs: [[SleepInterval]] = []
+        for interval in sorted {
+            var current = interval
+            if let last = runs.last?.last, current.start < last.end {
+                current = SleepInterval(stage: current.stage, start: last.end, end: current.end)
+                if current.end <= current.start { continue }
+            }
+            minutes[current.stage, default: 0] += current.duration / 60
+            if let last = runs.last?.last, current.start - last.end <= Self.gapSeconds {
+                runs[runs.count - 1].append(current)
+            } else {
+                runs.append([current])
+            }
+        }
+        stageMinutes = minutes
+        let smoothed = runs.flatMap { Hypnogram.displaySmoothed($0, minDuration: minimumSegment) }
+        intervals = smoothed
+        let first = smoothed.first?.start ?? 0
+        origin = first
+        span = max(1, (smoothed.map(\.end).max() ?? first + 1) - first)
+    }
+
+    /// Whether `next` follows `previous` without a gap, so a riser may join them.
+    func joins(_ previous: SleepInterval, _ next: SleepInterval) -> Bool {
+        next.start - previous.end <= Self.gapSeconds
+    }
+}
+
+/// Durations as they are said aloud ("1 hour, 38 minutes"), in the user's language.
+enum SleepSpokenDuration {
+    static func text(minutes: Double, locale: Locale = .autoupdatingCurrent) -> String {
+        let total = max(0, Int(minutes.rounded()))
+        let allowed: Set<Duration.UnitsFormatStyle.Unit> = total < 60 ? [.minutes] : [.hours, .minutes]
+        let style = Duration.UnitsFormatStyle.units(
+            allowed: allowed, width: .wide,
+            zeroValueUnits: total == 0 ? .show(length: 1) : .hide
+        ).locale(locale)
+        return Duration.seconds(total * 60).formatted(style)
+    }
+}
+
 /// The night's stage timeline, filling its width: four labelled lanes (awake at the top, deep at the bottom),
-/// quiet guides, slim rounded bars at their true duration and hairline risers between them, over a start / middle
-/// / end clock axis. The bars are the stage colours the rows below use. A highlighted stage keeps full strength
-/// while the rest recede. Render-only: the intervals and totals are untouched (the display smoothing is the
-/// shared `Hypnogram.displaySmoothed`).
+/// quiet guides, slim rounded bars at their true time on the night's clock and hairline risers between the bars
+/// that follow one another, over a start / middle / end clock axis. Where the night has a gap (a fragment boundary)
+/// the lanes are simply empty and no riser crosses it. The bars are the stage colours the rows below use. A
+/// highlighted stage keeps full strength while the rest recede. The axis is always left to right, like the trend
+/// charts.
 struct SleepStageChart: View {
-    private let intervals: [SleepInterval]
-    private let origin: TimeInterval
-    private let span: TimeInterval
+    private let timeline: SleepStageTimeline
     private let start: Date
     private let highlighted: SleepStage?
 
@@ -350,13 +444,8 @@ struct SleepStageChart: View {
     private static let laneOrder: [SleepStage] = [.awake, .rem, .light, .deep]
     private static let barThickness: CGFloat = 10
 
-    init(intervals: [SleepInterval], start: Date, highlighted: SleepStage?) {
-        let sorted = intervals.sorted { $0.start < $1.start }
-        let smoothed = Hypnogram.displaySmoothed(sorted, minDuration: 300)
-        self.intervals = smoothed
-        let first = smoothed.first?.start ?? 0
-        self.origin = first
-        self.span = max(1, (smoothed.map(\.end).max() ?? first + 1) - first)
+    init(timeline: SleepStageTimeline, start: Date, highlighted: SleepStage?) {
+        self.timeline = timeline
         self.start = start
         self.highlighted = highlighted
     }
@@ -367,13 +456,12 @@ struct SleepStageChart: View {
 
     private var summary: String {
         let parts = [SleepStage.deep, .rem, .light, .awake].compactMap { stage -> String? in
-            let minutes = intervals.filter { $0.stage == stage }.reduce(0.0) { $0 + $1.duration } / 60
-            guard minutes > 0 else { return nil }
-            return "\(stage.label) \(SleepStageRowPresentation.durationText(minutes))"
+            guard let minutes = timeline.stageMinutes[stage], minutes > 0 else { return nil }
+            return "\(stage.label) \(SleepSpokenDuration.text(minutes: minutes))"
         }
-        return parts.isEmpty
-            ? String(localized: "Sleep stages, no data")
-            : String(localized: "Sleep stages, \(parts.joined(separator: ", "))")
+        guard !parts.isEmpty else { return String(localized: "Sleep stages, no data") }
+        let from = clock(timeline.origin), to = clock(timeline.origin + timeline.span)
+        return String(localized: "Sleep stages from \(from) to \(to): \(parts.joined(separator: ", "))")
     }
 
     var body: some View {
@@ -395,9 +483,9 @@ struct SleepStageChart: View {
             HStack(alignment: .top, spacing: NoopMetrics.space2) {
                 Color.clear.frame(width: gutter, height: 1)
                 HStack(spacing: 0) {
-                    Text(clock(origin)).frame(maxWidth: .infinity, alignment: .leading)
-                    Text(clock(origin + span / 2)).frame(maxWidth: .infinity, alignment: .center)
-                    Text(clock(origin + span)).frame(maxWidth: .infinity, alignment: .trailing)
+                    Text(clock(timeline.origin)).frame(maxWidth: .infinity, alignment: .leading)
+                    Text(clock(timeline.origin + timeline.span / 2)).frame(maxWidth: .infinity, alignment: .center)
+                    Text(clock(timeline.origin + timeline.span)).frame(maxWidth: .infinity, alignment: .trailing)
                 }
                 .font(StrandFont.micro)
                 .foregroundStyle(StrandPalette.textTertiary)
@@ -406,12 +494,17 @@ struct SleepStageChart: View {
             }
             .accessibilityHidden(true)
         }
+        // The plot is drawn in time order from the left edge, so the lane labels, axis and plot all keep one
+        // direction in right-to-left languages (the trend charts do the same).
+        .environment(\.layoutDirection, .leftToRight)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(summary)
     }
 
     private var plot: some View {
         Canvas { context, size in
+            let intervals = timeline.intervals
+            let origin = timeline.origin, span = timeline.span
             let lane = size.height / CGFloat(Self.laneOrder.count)
             func y(_ stage: SleepStage) -> CGFloat { lane * (CGFloat(stage.bandRank) + 0.5) }
             func x(_ t: TimeInterval) -> CGFloat { CGFloat((t - origin) / span) * size.width }
@@ -426,6 +519,7 @@ struct SleepStageChart: View {
             var risers = Path()
             for index in intervals.indices.dropLast() {
                 let a = intervals[index], b = intervals[index + 1]
+                guard timeline.joins(a, b) else { continue }
                 risers.move(to: CGPoint(x: x(b.start), y: y(a.stage)))
                 risers.addLine(to: CGPoint(x: x(b.start), y: y(b.stage)))
             }
@@ -514,7 +608,7 @@ struct SleepStageBreakdownRow: View {
                     }
                 }
             }
-            .padding(.vertical, 7)
+            .frame(minHeight: 44)
             .padding(.horizontal, NoopMetrics.space2)
             .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(color.opacity(isSelected ? 0.13 : 0)))
             .opacity(othersSelected ? 0.5 : 1)
@@ -522,7 +616,7 @@ struct SleepStageBreakdownRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(stage.label): \(presentation.duration), \(presentation.percent) percent of the night")
+        .accessibilityLabel("\(stage.label): \(SleepSpokenDuration.text(minutes: presentation.minutes)), \(presentation.percent) percent of the night")
         .accessibilityHint("Highlights this stage on the sleep chart")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
@@ -539,20 +633,17 @@ struct SleepTypicalRow: View {
     let duration: String
     let delta: String?
     let deltaIsGood: Bool?
+    /// The presentation's own verdict that the night is within half a minute of typical (no text sniffing, so it
+    /// holds in every language).
+    let isOnTypical: Bool
     @Environment(\.dynamicTypeSize) private var typeSize
 
     private var color: Color { StrandPalette.sleepStageColor(stage) }
 
-    /// The mapper's "−0m vs typ" is a rounding artefact of a difference under half a minute: say so in words.
+    /// A difference under half a minute reads "on typical" in words, not "+0m vs typ".
     private var deltaText: String? {
         guard let delta else { return nil }
-        if isOnTypical { return String(localized: "on typical") }
-        return delta
-    }
-
-    private var isOnTypical: Bool {
-        guard let delta else { return false }
-        return delta.hasPrefix("+0m ") || delta.hasPrefix("−0m ")
+        return isOnTypical ? String(localized: "on typical") : delta
     }
 
     private var deltaColor: Color {
@@ -702,32 +793,46 @@ struct SleepBalanceBars: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var revealed = false
 
+    /// The strip's layout as pure numbers: one scale for both directions, with the centre line where the biggest
+    /// surplus and the biggest deficit leave room for each, so a fortnight of debt does not draw an empty half
+    /// above its bars.
+    struct Geometry: Equatable {
+        let height: CGFloat
+        let mid: CGFloat
+        let perMinute: CGFloat
+
+        init(minutes: [Double], height: CGFloat) {
+            let up = max(minutes.filter { $0 > 0 }.max() ?? 0, 0)
+            let down = max(minutes.filter { $0 < 0 }.map { -$0 }.max() ?? 0, 0)
+            self.height = height
+            perMinute = (height - 2) / CGFloat(max(up + down, 1))
+            mid = min(max(CGFloat(up) * perMinute + 1, 6), height - 6)
+        }
+
+        /// A night's bar length: at least 3pt so a small night is still there, never past its side of the strip.
+        func barHeight(for minutes: Double) -> CGFloat {
+            let room = minutes >= 0 ? mid - 2 : height - mid - 2
+            return min(room, max(3, CGFloat(abs(minutes)) * perMinute))
+        }
+    }
+
     var body: some View {
-        // One scale for both directions; the centre line sits where the biggest surplus and the biggest deficit
-        // leave room for each, so a fortnight of debt does not draw an empty half above its bars.
-        let maxUp = max(nights.map(\.minutes).filter { $0 > 0 }.max() ?? 0, 0)
-        let maxDown = max(nights.map { -$0.minutes }.filter { $0 > 0 }.max() ?? 0, 0)
-        let total = max(maxUp + maxDown, 1)
         let finalGeometry = reduceMotion || revealed
         GeometryReader { proxy in
+            let layout = Geometry(minutes: nights.map(\.minutes), height: proxy.size.height)
             let count = max(nights.count, 1)
             let slot = proxy.size.width / CGFloat(count)
             let barWidth = max(3, min(slot * 0.55, 14))
-            let usable = proxy.size.height - 2
-            let perMinute = usable / CGFloat(total)
-            let mid = min(max(CGFloat(maxUp) * perMinute + 1, 6), proxy.size.height - 6)
             ZStack(alignment: .topLeading) {
                 Rectangle().fill(StrandPalette.hairlineStrong).frame(height: 1)
-                    .position(x: proxy.size.width / 2, y: mid)
+                    .position(x: proxy.size.width / 2, y: layout.mid)
                 ForEach(Array(nights.enumerated()), id: \.element.id) { index, night in
-                    let room = night.minutes >= 0 ? mid - 2 : proxy.size.height - mid - 2
-                    let full = min(room, max(3, CGFloat(abs(night.minutes)) * perMinute))
-                    let height = finalGeometry ? full : 3
+                    let height = finalGeometry ? layout.barHeight(for: night.minutes) : 3
                     RoundedRectangle(cornerRadius: min(3, barWidth / 2), style: .continuous)
                         .fill(night.minutes >= 0 ? DomainTint.sleep.accent : StrandPalette.statusWarning)
                         .frame(width: barWidth, height: height)
                         .position(x: slot * CGFloat(index) + slot / 2,
-                                  y: night.minutes >= 0 ? mid - height / 2 : mid + height / 2)
+                                  y: night.minutes >= 0 ? layout.mid - height / 2 : layout.mid + height / 2)
                         .animation(reduceMotion ? nil : StrandMotion.value.delay(Double(min(index, 13)) * 0.02),
                                    value: revealed)
                 }
@@ -737,5 +842,56 @@ struct SleepBalanceBars: View {
         .onAppear { revealed = true }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilitySummary)
+    }
+}
+
+// MARK: - Presentation rules
+
+/// The Sleep score's state band, decided on the whole number the dial shows (so 49.6 reads "50", which is Fair).
+enum SleepScoreBand: Equatable {
+    case poor, fair, good, optimal
+
+    init(score: Double) {
+        switch score.rounded() {
+        case ..<50: self = .poor
+        case ..<70: self = .fair
+        case ..<85: self = .good
+        default: self = .optimal
+        }
+    }
+}
+
+/// Whole-number shares of a night that add up to exactly 100: each share is rounded down, then the stages with the
+/// biggest remainders take the leftover points, so four stages never read 99% or 101% in total.
+enum SleepStageShares {
+    static func percents(minutes: [Double]) -> [Int] {
+        let clamped = minutes.map { max(0, $0) }
+        let total = clamped.reduce(0, +)
+        guard total > 0 else { return clamped.map { _ in 0 } }
+        let exact = clamped.map { $0 / total * 100 }
+        var floors = exact.map { Int($0.rounded(.down)) }
+        var leftover = 100 - floors.reduce(0, +)
+        let order = exact.indices.sorted {
+            let a = exact[$0] - Double(floors[$0]), b = exact[$1] - Double(floors[$1])
+            return a != b ? a > b : $0 < $1
+        }
+        for index in order where leftover > 0 && clamped[index] > 0 {
+            floors[index] += 1
+            leftover -= 1
+        }
+        return floors
+    }
+}
+
+/// Where the Sleep tab shows the V2 "Tonight's need" breakdown. `SleepPerformanceV2Prefs`: `.off` keeps the legacy
+/// score authoritative with no V2 UI at all (and no store reads); `.shadow` computes and persists V2 alongside the
+/// legacy score and shows the need breakdown as explanatory context (the Sleep "Night detail" need tile already
+/// reads the same V2 series); `.on` makes V2 the production score. So it shows in shadow and on.
+enum SleepNeedBreakdownVisibility {
+    static func isVisible(mode: SleepPerformanceV2Prefs.Mode) -> Bool {
+        switch mode {
+        case .off: return false
+        case .shadow, .on: return true
+        }
     }
 }
