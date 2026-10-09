@@ -89,6 +89,10 @@ enum QARoute: String, CaseIterable {
     /// Logged once the route is on screen, so a capture script knows when to start waiting for a stable frame.
     func logPresented() { NSLog("[qa-route] presented %@", rawValue) }
 
+    /// Logged when the route's screen goes away again (a root re-render when the demo data lands can pop it), so a
+    /// capture script never takes a frame of the root it fell back to.
+    func logDismissed() { NSLog("[qa-route] dismissed %@", rawValue) }
+
     /// True while any modal is presented over the app's root view controller (the shell's quick-action and
     /// routed-pillar sheets), which is how the shell route knows its sheet was not dropped.
     @MainActor static var modalIsPresented: Bool {
@@ -170,7 +174,7 @@ private struct QARouteHost: ViewModifier {
     @State private var pushed = false
     @State private var covered = false
     @State private var sheeted = false
-    @State private var arrived = false
+    @State private var visible = false
 
     private var route: QARoute? {
         guard let route = QARoute.requested else { return nil }
@@ -182,18 +186,22 @@ private struct QARouteHost: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .navigationDestination(isPresented: $pushed) { pushDestination.onAppear(perform: arrive) }
-            .fullScreenCover(isPresented: $covered) {
-                coverDestination.environment(\.screenScaffoldNavigationRole, .detail).onAppear(perform: arrive)
+            .navigationDestination(isPresented: $pushed) {
+                pushDestination.onAppear(perform: arrive).onDisappear(perform: depart)
             }
-            .sheet(isPresented: $sheeted) { sheetDestination.onAppear(perform: arrive) }
+            .fullScreenCover(isPresented: $covered) {
+                coverDestination.environment(\.screenScaffoldNavigationRole, .detail)
+                    .onAppear(perform: arrive).onDisappear(perform: depart)
+            }
+            .sheet(isPresented: $sheeted) { sheetDestination.onAppear(perform: arrive).onDisappear(perform: depart) }
             .task {
                 guard let route else { return }
                 // A presentation issued while the tab root is still laying out (or while a transition is in
-                // flight, on a loaded machine) can be silently dropped, so retry until the screen appears.
-                for attempt in 0..<10 {
+                // flight, on a loaded machine) can be silently dropped, and a root re-render when the demo data
+                // lands can pop it again, so keep watching and re-present whenever the screen is not up.
+                for attempt in 0..<40 {
                     try? await Task.sleep(for: .milliseconds(attempt == 0 ? 1500 : 3000))
-                    if arrived { return }
+                    if visible { continue }
                     pushed = false; covered = false; sheeted = false
                     try? await Task.sleep(for: .milliseconds(400))
                     switch route.presentation {
@@ -207,9 +215,15 @@ private struct QARouteHost: ViewModifier {
     }
 
     private func arrive() {
-        guard !arrived, let route else { return }
-        arrived = true
+        guard !visible, let route else { return }
+        visible = true
         route.logPresented()
+    }
+
+    private func depart() {
+        guard visible, let route else { return }
+        visible = false
+        route.logDismissed()
     }
 
     private var anchorDayKey: String {
