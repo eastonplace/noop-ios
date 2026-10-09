@@ -43,17 +43,21 @@ struct EyebrowPulseIcon: View {
 }
 
 /// The compact footer / header chip: an optional symbol, a title, and a chevron on a quiet capsule ("2H ›",
-/// "Details ›", "Customise"). Its capsule is drawn a little taller than the layout it claims, so a row that
-/// carries it grows by 2pt rather than by the full padding.
+/// "Details ›", "Customise"). By default its capsule is drawn a little taller than the layout it claims, so a
+/// footer row that carries it grows by 2pt rather than by the full padding. A header row passes
+/// `overhangs: false`, so the chip's whole height is part of the row, like the state pill's.
 struct WidgetChip: View {
     let title: LocalizedStringKey?
     var systemImage: String? = nil
     var showsChevron: Bool = true
+    var overhangs: Bool = true
 
-    init(_ title: LocalizedStringKey? = nil, systemImage: String? = nil, showsChevron: Bool = true) {
+    init(_ title: LocalizedStringKey? = nil, systemImage: String? = nil, showsChevron: Bool = true,
+         overhangs: Bool = true) {
         self.title = title
         self.systemImage = systemImage
         self.showsChevron = showsChevron
+        self.overhangs = overhangs
     }
 
     var body: some View {
@@ -78,6 +82,6 @@ struct WidgetChip: View {
         .padding(.vertical, 3)
         .background(Capsule(style: .continuous).fill(Color.white.opacity(0.06)))
         .overlay(Capsule(style: .continuous).stroke(StrandPalette.hairline, lineWidth: 1))
-        .padding(.vertical, -2)
+        .padding(.vertical, overhangs ? -2 : 0)
     }
 }

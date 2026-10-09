@@ -1844,18 +1844,19 @@ struct TodayView: View {
 
     /// Today's four top-level sections: dials and glance (one card, its own divider), Live Heart Rate,
     /// Stress and Health Monitor. Exactly one hairline sits between each adjacent pair and none after the last;
-    /// every separator has the same air above and below. The conditional cards above (alert banner, auto
-    /// workout, active workout, syncing note) are outside this rule and keep the column's normal spacing.
+    /// every separator shows the same visible gap above and below (see `TodaySectionSeparator`). The
+    /// conditional cards above (alert banner, auto workout, active workout, syncing note) are outside this rule
+    /// and keep the column's normal spacing.
     @ViewBuilder
     private var paperSections: some View {
         if screenSnapshot != nil {
             VStack(alignment: .leading, spacing: 0) {
                 paperPillarCard
-                TodaySectionSeparator()
+                TodaySectionSeparator(above: 12, below: 13.3)
                 paperLiveHeartRateCard
-                TodaySectionSeparator()
+                TodaySectionSeparator(above: 15, below: 13.3)
                 paperStressCard
-                TodaySectionSeparator()
+                TodaySectionSeparator(above: 15, below: 13.3)
                 paperHealthMonitorCard
             }
         }

@@ -47,14 +47,23 @@ struct TodayHairline: View {
     }
 }
 
-/// The separator between two Today sections, with equal air above and below: 14.5pt each side, which keeps the
-/// 30pt the glance row and Live Heart Rate had between them (12pt of card padding above their hairline, 18pt
-/// of stack gap below).
+/// The separator between two Today sections. `above` and `below` are layout air in points. They are not equal
+/// on purpose: the sections' ink does not end where their layout does (a footer chip's capsule hangs 2pt below
+/// its row, a header pill's outline sits half a point outside its row), so the air is chosen per boundary to make
+/// the VISIBLE gap above and below every separator the same.
 public struct TodaySectionSeparator: View {
-    public init() {}
+    private let above: CGFloat
+    private let below: CGFloat
+
+    public init(above: CGFloat, below: CGFloat) {
+        self.above = above
+        self.below = below
+    }
 
     public var body: some View {
-        TodayHairline().padding(.vertical, 14.5)
+        TodayHairline()
+            .padding(.top, above)
+            .padding(.bottom, below)
     }
 }
 
@@ -106,15 +115,15 @@ public struct TodayHeroCard: View {
 
     public var body: some View {
         TodaySectionSurface(top: 12) {
-            // The dials / glance hairline is the same 1pt hairline as the one between sections. It replaces a
-            // 1px system Divider, so the air around it is 11.667pt rather than 12pt: the same 24.33pt in all.
+            // The dials / glance hairline is the same 1pt hairline as the ones between sections, with the air
+            // above and below chosen (like theirs) to make the visible gap the same on both sides.
             VStack(spacing: 0) {
                 HStack(alignment: .top, spacing: 6) {
                     ForEach(pillars) { pillar in
                         TodayPillarGauge(model: pillar) { onPillar(pillar.id) }
                     }
                 }
-                TodayHairline().padding(.vertical, 11.667)
+                TodayHairline().padding(.top, 9.87).padding(.bottom, 11.87)
                 HStack(spacing: 8) {
                     Button(action: onOpenWorkouts) {
                         HStack(spacing: 9) {
@@ -289,6 +298,14 @@ private struct TodayPillarGauge: View {
         }
     }
 
+    /// The detail line, unless the dial is unrated and the line is only the missing-value dash (or empty):
+    /// the dial's own dash and its state word already say that, so a lone "—" under them is noise.
+    private var visibleDetail: String? {
+        guard let detail = model.detail else { return nil }
+        if model.value == nil, detail.isEmpty || detail == WidgetMetrics.missingValue { return nil }
+        return detail
+    }
+
     var body: some View {
         Button(action: action) {
             VStack(spacing: 5) {
@@ -337,7 +354,7 @@ private struct TodayPillarGauge: View {
                 .frame(height: 100)
                 eyebrow
                 Text(verbatim: model.state).font(StrandFont.micro).foregroundStyle(inkColor).lineLimit(1)
-                if let detail = model.detail {
+                if let detail = visibleDetail {
                     Text(verbatim: detail).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
                         .lineLimit(1).minimumScaleFactor(0.7)
                 }
@@ -409,7 +426,7 @@ public struct HealthDashboardCard: View {
                         Text("Health Monitor", bundle: .module).strandOverline()
                         Spacer(minLength: NoopMetrics.space2)
                         Button(action: onCustomize) {
-                            WidgetChip("Customise", systemImage: "slider.horizontal.3", showsChevron: false)
+                            WidgetChip("Customise", systemImage: "slider.horizontal.3", showsChevron: false, overhangs: false)
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Customise")
@@ -478,6 +495,13 @@ public struct HealthDashboardTile: View {
     public let model: HealthDashboardTileModel
     public init(model: HealthDashboardTileModel) { self.model = model }
 
+    /// A number reads in the primary ink and the missing dash in the tertiary. A value with no digit in it
+    /// (a word such as "Calibrating") is a status, not a measurement, so it reads in the secondary ink.
+    private var valueInk: Color {
+        if model.value == WidgetMetrics.missingValue { return StrandPalette.textTertiary }
+        return model.value.contains(where: \.isNumber) ? StrandPalette.textPrimary : StrandPalette.textSecondary
+    }
+
     public var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 4) {
@@ -499,7 +523,7 @@ public struct HealthDashboardTile: View {
             }
             HStack(alignment: .firstTextBaseline, spacing: 2) {
                 Text(verbatim: model.value).font(StrandFont.number(17, weight: .semibold)).monospacedDigit()
-                    .foregroundStyle(model.value == "—" ? StrandPalette.textTertiary : StrandPalette.textPrimary)
+                    .foregroundStyle(valueInk)
                     .lineLimit(1).minimumScaleFactor(0.65)
                 if let unit = model.unit { Text(verbatim: unit).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary) }
             }

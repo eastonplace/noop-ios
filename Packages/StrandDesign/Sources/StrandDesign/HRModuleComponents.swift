@@ -119,8 +119,8 @@ public struct HRLiveModuleCard: View {
     }
 
     /// The widget eyebrow: a beating heart in the live red, the caps title, and the zone word as a tone pill.
-    /// The pill is the Coach "Stale" pill's exact size, but it hangs on the row without lending it its
-    /// height, so the header stays one text line tall.
+    /// The pill is the Coach "Stale" pill's exact size and its height is part of the row, so this header is
+    /// as tall as the Stress one and nothing overhangs it into the air above.
     private var header: some View {
         HStack(spacing: NoopMetrics.space2) {
             // The live heart: a heart in the live red whose ghost swells and fades at the wearer's cadence (the
@@ -135,8 +135,11 @@ public struct HRLiveModuleCard: View {
             Spacer(minLength: NoopMetrics.space2)
             if displayed != nil {
                 HRZonePill(word: zoneWord)
-                    .padding(.vertical, -HRZonePill.verticalPadding)
                     .contentTransition(.opacity)
+            } else {
+                // Waiting for a first reading: keep the row as tall as it will be, so the pill arriving
+                // does not push the module down.
+                HRZonePill(word: "Steady").hidden()
             }
         }
     }
@@ -436,7 +439,6 @@ public struct HRLiveModuleCard: View {
 /// A zone word ("Resting", "Steady", "Pushing") on the shared state-pill chrome (the Coach "Stale" pill's
 /// exact metrics), washed and outlined in the live red with the pill's white type.
 private struct HRZonePill: View {
-    static let verticalPadding = StatePillMetrics.verticalPadding
     let word: String
 
     var body: some View {
