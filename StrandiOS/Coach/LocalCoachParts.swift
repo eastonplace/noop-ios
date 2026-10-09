@@ -342,11 +342,16 @@ struct CoachMetricStrip: View {
                 Color.clear.frame(height: 24).accessibilityHidden(true)
             }
             if !samples.isEmpty {
-                Text("\(samples.count) days").font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                Text(daysTitle(samples.count))
+                    .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
+    }
+
+    private func daysTitle(_ count: Int) -> LocalizedStringKey {
+        count == 1 ? "1 day" : "\(count) days"
     }
 
     /// The figure as the Coach cards show it: recovery whole, effort on the person's display scale, sleep as hours

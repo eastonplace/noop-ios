@@ -7,6 +7,7 @@ struct LocalCoachPlanView: View {
     @State private var editing: PlanEdit?
     @State private var confirmSave = false
     @State private var showWorkouts = false
+    @State private var summaryExpanded = false
     let onBuild: () -> Void
 
     /// The exercise being tuned and the day it belongs to, so the edit lands on the right session.
@@ -65,6 +66,9 @@ struct LocalCoachPlanView: View {
         .accessibilityIdentifier("coach.plan")
     }
 
+    /// Summaries longer than this collapse to three lines behind a More chip.
+    private static let summaryCollapseLength = 170
+
     // MARK: Header
 
     /// The plan as one summary: its state, title and summary, three facts and the actions that move it forward.
@@ -79,8 +83,21 @@ struct LocalCoachPlanView: View {
             VStack(alignment: .leading, spacing: NoopMetrics.space2) {
                 Text(plan.title).font(StrandFont.title1).foregroundStyle(StrandPalette.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
+                // A generated summary can run long (assumptions, caveats). Keep the header calm: three lines,
+                // with a chip to read the rest. VoiceOver always reads all of it.
+                let isLong = plan.summary.count > Self.summaryCollapseLength
                 Text(plan.summary).font(StrandFont.subhead).lineSpacing(3)
                     .foregroundStyle(StrandPalette.textSecondary)
+                    .lineLimit(isLong && !summaryExpanded ? 3 : nil)
+                if isLong {
+                    Button { withAnimation(.easeOut(duration: 0.2)) { summaryExpanded.toggle() } } label: {
+                        WidgetChip(appTitle: summaryExpanded ? "Less" : "More",
+                                   systemImage: summaryExpanded ? "chevron.up" : "chevron.down",
+                                   showsChevron: false, overhangs: false)
+                            .chipHitTarget()
+                    }
+                    .buttonStyle(.plain)
+                }
             }
             CoachFactStrip(facts: [
                 CoachFact(label: "Workouts", value: "\(plan.days.count)"),
