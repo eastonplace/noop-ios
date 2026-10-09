@@ -209,15 +209,7 @@ struct SleepView: View {
                        onRefresh: { _ = await repo.refresh(.currentDay) },
                        lazy: true,
                        topBackground: nil,
-                       showsSubtitleInExpandedHeader: false,
-                       trailing: {
-                           HStack(spacing: 14) {
-                               Image(systemName: "square.and.arrow.up")
-                               Image(systemName: "ellipsis")
-                           }
-                           .font(.system(size: 15, weight: .medium))
-                           .foregroundStyle(StrandPalette.textPrimary)
-                       }) {
+                       showsSubtitleInExpandedHeader: false) {
             Group {
                 if let resolved, let displayedNight {
                     // Keep every section as its own lazy child. Wrapping these in an eager VStack caused

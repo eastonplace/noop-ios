@@ -46,28 +46,51 @@ struct EyebrowPulseIcon: View {
 /// "Details ›", "Customise"). By default its capsule is drawn a little taller than the layout it claims, so a
 /// footer row that carries it grows by 2pt rather than by the full padding. A header row passes
 /// `overhangs: false`, so the chip's whole height is part of the row, like the state pill's.
-struct WidgetChip: View {
-    let title: LocalizedStringKey?
-    var systemImage: String? = nil
-    var showsChevron: Bool = true
-    var overhangs: Bool = true
+///
+/// With a symbol and no title it is the matching icon button: same capsule, same height as a titled chip beside
+/// it, so a title row can carry "Explore" and a share glyph as one family. The caller supplies the accessibility
+/// label (a titled chip reads its title) and a 44pt tap area with `chipHitTarget()`.
+public struct WidgetChip: View {
+    private let title: LocalizedStringKey?
+    private let systemImage: String?
+    private let showsChevron: Bool
+    private let overhangs: Bool
+    /// Where `title` is looked up: this package's string table for the Today chips, or the app's (`nil`).
+    private let bundle: Bundle?
 
-    init(_ title: LocalizedStringKey? = nil, systemImage: String? = nil, showsChevron: Bool = true,
-         overhangs: Bool = true) {
+    /// The height of one line of the chip's title, so an icon-only chip is as tall as a titled one.
+    @ScaledMetric(relativeTo: .caption2) private var lineHeight: CGFloat = 13
+
+    private init(title: LocalizedStringKey?, bundle: Bundle?, systemImage: String?, showsChevron: Bool,
+                 overhangs: Bool) {
         self.title = title
+        self.bundle = bundle
         self.systemImage = systemImage
         self.showsChevron = showsChevron
         self.overhangs = overhangs
     }
 
-    var body: some View {
+    public init(_ title: LocalizedStringKey? = nil, systemImage: String? = nil, showsChevron: Bool = true,
+                overhangs: Bool = true) {
+        self.init(title: title, bundle: .module, systemImage: systemImage, showsChevron: showsChevron,
+                  overhangs: overhangs)
+    }
+
+    /// A chip built in the app, whose title is in the app's own string table (so it localises with the screen).
+    public init(appTitle title: LocalizedStringKey, systemImage: String? = nil, showsChevron: Bool = true,
+                overhangs: Bool = true) {
+        self.init(title: title, bundle: nil, systemImage: systemImage, showsChevron: showsChevron,
+                  overhangs: overhangs)
+    }
+
+    public var body: some View {
         HStack(spacing: 4) {
             if let systemImage {
                 Image(systemName: systemImage)
                     .font(.system(size: 10, weight: .semibold))
             }
             if let title {
-                Text(title, bundle: .module)
+                Text(title, bundle: bundle)
                     .font(StrandFont.micro.weight(.semibold))
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
@@ -77,11 +100,20 @@ struct WidgetChip: View {
                     .font(.system(size: 10, weight: .semibold))
             }
         }
+        .frame(minHeight: title == nil && systemImage != nil ? lineHeight : nil)
         .foregroundStyle(StrandPalette.textSecondary)
         .padding(.horizontal, 8)
         .padding(.vertical, 3)
         .background(Capsule(style: .continuous).fill(Color.white.opacity(0.06)))
         .overlay(Capsule(style: .continuous).stroke(StrandPalette.hairline, lineWidth: 1))
         .padding(.vertical, overhangs ? -2 : 0)
+    }
+}
+
+public extension View {
+    /// Grows a small chip's tap area to the 44pt minimum without moving anything: the hit region reaches past the
+    /// chip's layout bounds on every side.
+    func chipHitTarget() -> some View {
+        contentShape(Rectangle().inset(by: -13))
     }
 }
