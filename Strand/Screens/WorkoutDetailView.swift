@@ -472,7 +472,8 @@ struct WorkoutDetailView: View {
                     title: "HEART RATE",
                     subtitle: String(localized: "Beats per minute across the session"),
                     trailing: displayRow.avgHr.map { String(localized: "avg \($0)") },
-                    tint: StrandPalette.liveRed
+                    tint: StrandPalette.liveRed,
+                    systemImage: "heart.fill"
                 ) {
                     TrendChart(
                         points: hrPoints,

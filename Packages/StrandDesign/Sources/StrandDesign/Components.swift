@@ -226,6 +226,51 @@ public struct SectionHeader: View {
 
 // MARK: - Metric tile (UNIFORM fixed height)
 
+/// A tile value split for the widget metric look: a number reads in the primary ink with its unit smaller and
+/// muted ("54" then "bpm"), a missing value is a tertiary dash, and a word ("Calibrating") is a status rather
+/// than a measurement, so it reads in the secondary ink. Shared by `StatTile` and `ChartCard`'s header value.
+enum StatTileValue {
+    enum Ink { case primary, secondary, tertiary }
+    struct Parts: Equatable {
+        var number: String
+        var unit: String?
+        var ink: Ink
+
+        var color: Color {
+            switch ink {
+            case .primary: StrandPalette.textPrimary
+            case .secondary: StrandPalette.textSecondary
+            case .tertiary: StrandPalette.textTertiary
+            }
+        }
+    }
+
+    private static let missing: Set<String> = ["—", "–", "-", "--"]
+
+    /// "54 bpm" splits into ("54", "bpm"); "58%", "7h 12m" and "12 of 21" stay whole (the %, the compound
+    /// duration and the fraction are the value, not a number plus a unit).
+    static func parts(_ raw: String) -> Parts {
+        let value = raw.trimmingCharacters(in: .whitespaces)
+        if value.isEmpty || missing.contains(value) {
+            return Parts(number: value.isEmpty ? WidgetMetrics.missingValue : value, unit: nil, ink: .tertiary)
+        }
+        guard value.contains(where: \.isNumber) else {
+            return Parts(number: value, unit: nil, ink: .secondary)
+        }
+        if let space = value.firstIndex(of: " ") {
+            let head = value[..<space]
+            let tail = value[value.index(after: space)...].trimmingCharacters(in: .whitespaces)
+            let isNumber = head.contains(where: \.isNumber) && head.allSatisfy { $0.isNumber || ".,+-−±".contains($0) }
+            if isNumber, !tail.isEmpty, tail.count <= 12, !tail.contains(where: \.isNumber) {
+                return Parts(number: String(head), unit: tail, ink: .primary)
+            }
+        }
+        return Parts(number: value, unit: nil, ink: .primary)
+    }
+}
+
+/// The metric tile in the widget language: a secondary micro label (with an optional domain symbol), a large
+/// rounded value with its unit muted beside it, an optional trend chip and sparkline, and a tertiary caption.
 public struct StatTile<Accessory: View>: View {
     let label: LocalizedStringKey, value: String
     var caption: String? = nil
@@ -234,6 +279,10 @@ public struct StatTile<Accessory: View>: View {
     var deltaColor: Color = StrandPalette.textTertiary
     var sparkline: [Double]? = nil
     var sparkColor: Color = StrandPalette.accent
+    /// An optional domain symbol leading the label, drawn in the tint's colour (the tile's `accent` when no tint
+    /// is given). nil = no symbol, which is how every existing tile reads.
+    var systemImage: String? = nil
+    var tint: DomainTint? = nil
     /// An optional trailing accessory laid out INLINE in the header row beside the label (e.g. a small
     /// ⓘ that opens a scoring guide). Inline placement — not a corner overlay — so it can never sit on
     /// top of the value, sparkline or trend chip on a narrow tile (#495). Defaults to nothing.
@@ -243,13 +292,16 @@ public struct StatTile<Accessory: View>: View {
                 accent: Color = StrandPalette.textPrimary, delta: String? = nil,
                 deltaColor: Color = StrandPalette.textTertiary,
                 sparkline: [Double]? = nil, sparkColor: Color = StrandPalette.accent,
+                systemImage: String? = nil, tint: DomainTint? = nil,
                 @ViewBuilder accessory: @escaping () -> Accessory) {
         self.label = label; self.value = value; self.caption = caption; self.accent = accent
         self.delta = delta; self.deltaColor = deltaColor; self.sparkline = sparkline; self.sparkColor = sparkColor
+        self.systemImage = systemImage; self.tint = tint
         self.accessory = accessory
     }
 
     public var body: some View {
+        let parts = StatTileValue.parts(value)
         // The tile borrows its accent as a faint card wash, so each metric tile reads as
         // part of its colour world while staying legible on the deep blue-black.
         NoopCard(padding: 14, tint: accent) {
@@ -257,13 +309,26 @@ public struct StatTile<Accessory: View>: View {
                 // Header row: the metric label, and (right-aligned) the optional accessory laid out in
                 // flow so it reserves its own space rather than floating over the value below (#495).
                 HStack(alignment: .top, spacing: 4) {
-                    Text(label).strandOverline()
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        if let systemImage {
+                            Image(systemName: systemImage)
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(tint?.accent ?? accent)
+                        }
+                        Text(label).font(StrandFont.micro).foregroundStyle(StrandPalette.textSecondary)
+                    }
                     Spacer(minLength: 0)
                     accessory()
                 }
                 Spacer(minLength: 4)
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(value).font(StrandFont.metricValue).foregroundStyle(StrandPalette.textPrimary).lineLimit(1).minimumScaleFactor(0.6)
+                    HStack(alignment: .firstTextBaseline, spacing: 3) {
+                        Text(parts.number).font(StrandFont.metricValue).foregroundStyle(parts.color)
+                            .lineLimit(1).minimumScaleFactor(0.6)
+                        if let unit = parts.unit {
+                            Text(unit).font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary).lineLimit(1)
+                        }
+                    }
                     Spacer(minLength: 0)
                     // Trend chip — the delta as a tinted pill with a direction arrow.
                     if let delta { TrendChip(text: delta, color: deltaColor) }
@@ -302,9 +367,11 @@ public extension StatTile where Accessory == EmptyView {
     init(label: LocalizedStringKey, value: String, caption: String? = nil,
          accent: Color = StrandPalette.textPrimary, delta: String? = nil,
          deltaColor: Color = StrandPalette.textTertiary,
-         sparkline: [Double]? = nil, sparkColor: Color = StrandPalette.accent) {
+         sparkline: [Double]? = nil, sparkColor: Color = StrandPalette.accent,
+         systemImage: String? = nil, tint: DomainTint? = nil) {
         self.init(label: label, value: value, caption: caption, accent: accent, delta: delta,
                   deltaColor: deltaColor, sparkline: sparkline, sparkColor: sparkColor,
+                  systemImage: systemImage, tint: tint,
                   accessory: { EmptyView() })
     }
 }
@@ -344,33 +411,38 @@ public struct TrendChip: View {
 
 // MARK: - Chart card (UNIFORM: header + fixed chart body + footer)
 
+/// The chart card in the widget language: an eyebrow header (optional domain symbol, tracked caps title, the
+/// headline value at the trailing edge with its unit muted), a micro tertiary subtitle, the chart at a fixed
+/// height, and an optional footer under a hairline.
 public struct ChartCard<ChartBody: View, Footer: View>: View {
     let title: LocalizedStringKey
     var subtitle: String? = nil
     var trailing: String? = nil
     var height: CGFloat = NoopMetrics.chartHeight
     var tint: Color? = nil
+    /// An optional domain symbol leading the title, drawn in `tint`. nil = title only.
+    var systemImage: String? = nil
     @ViewBuilder let chart: () -> ChartBody
     @ViewBuilder let footer: () -> Footer
 
     public init(title: LocalizedStringKey, subtitle: String? = nil, trailing: String? = nil,
-                height: CGFloat = NoopMetrics.chartHeight, tint: Color? = nil,
+                height: CGFloat = NoopMetrics.chartHeight, tint: Color? = nil, systemImage: String? = nil,
                 @ViewBuilder chart: @escaping () -> ChartBody,
                 @ViewBuilder footer: @escaping () -> Footer = { EmptyView() }) {
         self.title = title; self.subtitle = subtitle; self.trailing = trailing
-        self.height = height; self.tint = tint; self.chart = chart; self.footer = footer
+        self.height = height; self.tint = tint; self.systemImage = systemImage
+        self.chart = chart; self.footer = footer
     }
 
     public var body: some View {
         NoopCard(tint: tint) {
             VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .firstTextBaseline) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(title).strandOverline()
-                        if let subtitle { Text(subtitle).font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary) }
+                VStack(alignment: .leading, spacing: 2) {
+                    SectionEyebrow(title, systemImage: systemImage, tint: tint.map(DomainTint.custom) ?? .neutral,
+                                   trailing: trailing.map { .custom(AnyView(ChartCardValue(text: $0))) } ?? .none)
+                    if let subtitle {
+                        Text(subtitle).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
                     }
-                    Spacer()
-                    if let trailing { Text(trailing).font(StrandFont.bodyNumber).foregroundStyle(StrandPalette.textPrimary) }
                 }
                 chart().frame(height: height)
                 let f = footer()
@@ -380,6 +452,21 @@ public struct ChartCard<ChartBody: View, Footer: View>: View {
                 }
             }
         }
+    }
+}
+
+/// The header value of a `ChartCard`: bright number, muted unit, a missing value in the tertiary dash.
+private struct ChartCardValue: View {
+    let text: String
+    var body: some View {
+        let parts = StatTileValue.parts(text)
+        HStack(alignment: .firstTextBaseline, spacing: 3) {
+            Text(parts.number).font(StrandFont.bodyNumber).foregroundStyle(parts.color)
+            if let unit = parts.unit {
+                Text(unit).font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
+            }
+        }
+        .lineLimit(1)
     }
 }
 
@@ -742,8 +829,10 @@ public enum ScoreState: Sendable, Equatable {
     var pulsing: Bool { self == .live }
 }
 
-/// The score-lifecycle chip: dot + hue@.12 fill + hue@.32 border + hue text. LIVE
-/// pulses its dot. `text` overrides the default state label (e.g. "Building — 2 of 4").
+/// The score-lifecycle chip, built from the shared state-pill parts so the app has ONE pill: a state-coloured
+/// dot, the white overline label, and the 10 / 5pt capsule with a 12% wash and a 28% hairline of the state hue
+/// (the `StatePill` chrome that the Coach cards and Today's pills use). LIVE pulses its dot. `text` overrides the
+/// default state label (e.g. "Building — 2 of 4").
 public struct ScoreStatePill: View {
     public var state: ScoreState
     public var text: LocalizedStringKey?
@@ -755,13 +844,9 @@ public struct ScoreStatePill: View {
         return HStack(spacing: 6) {
             PulseDot(color: hue, pulsing: state.pulsing, size: 7)
             Text(text ?? state.label)
-                .font(StrandFont.overline)
-                .tracking(0.4)
-                .foregroundStyle(hue)
+                .statePillLabel()
         }
-        .padding(.horizontal, 10).padding(.vertical, 5)
-        .background(Capsule(style: .continuous).fill(hue.opacity(0.12)))
-        .overlay(Capsule(style: .continuous).stroke(hue.opacity(0.32), lineWidth: 1))
+        .statePillChrome(tint: hue)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(text ?? state.label)
     }

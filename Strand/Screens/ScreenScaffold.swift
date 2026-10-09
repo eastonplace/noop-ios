@@ -170,7 +170,8 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
         }
         .coordinateSpace(.named("screen-scaffold-scroll"))
         .overlay(alignment: .top) {
-            if showsCompactHeader, title != nil || subtitle != nil {
+            // Never at a tab root: the pinned chrome stays put and its title row scrolls away like Today's.
+            if showsCompactHeader, !showsAppHeaderChrome, title != nil || subtitle != nil {
                 compactHeader
                 .padding(.horizontal, 16)
                 .padding(.vertical, 6)
@@ -241,7 +242,11 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
 
     @ViewBuilder private var headerForColumn: some View {
         #if os(iOS)
-        if presentation == .standard, title != nil || subtitle != nil {
+        if showsAppHeaderChrome, let title {
+            // A tab root already has the pinned chrome row (and its wordmark) above the content, so it gets
+            // one compact title row, like Today's, instead of a second wordmark, a large title and a subtitle.
+            NoopTabTitleRow(title) { headerTrailing }
+        } else if presentation == .standard, title != nil || subtitle != nil {
             expandedHeader
                 .accessibilityHidden(showsCompactHeader)
                 .onGeometryChange(for: Bool.self) { proxy in

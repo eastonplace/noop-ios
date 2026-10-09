@@ -153,7 +153,8 @@ public struct HRLiveModuleCard: View {
                 .foregroundStyle(displayed == nil ? StrandPalette.textTertiary : StrandPalette.textPrimary)
                 .contentTransition(.numericText())
             HStack(spacing: 0) {
-                Text(verbatim: "bpm")
+                // The app's string table carries the translations ("ppm" in Spanish).
+                Text("bpm")
                     .foregroundStyle(StrandPalette.textSecondary)
                 if !heroContext.isEmpty {
                     Text(verbatim: " \(heroContext)")
