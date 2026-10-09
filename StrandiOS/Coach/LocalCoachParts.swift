@@ -252,8 +252,17 @@ private struct CoachNoticeDetails: View {
     let text: String
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ScaledMetric(relativeTo: .footnote) private var maxTextHeight: CGFloat = 132
-    @State private var isExpanded = false
+    @State private var isExpanded = Self.startsOpen
     @State private var textHeight: CGFloat = 0
+
+    /// A capture can start the disclosure open: `--noop-coach-details-open`. DEBUG only.
+    private static var startsOpen: Bool {
+        #if DEBUG
+        CommandLine.arguments.contains("--noop-coach-details-open")
+        #else
+        false
+        #endif
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.space1) {
