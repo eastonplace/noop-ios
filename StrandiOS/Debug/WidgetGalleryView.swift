@@ -6,7 +6,9 @@ import StrandDesign
 /// (optionally `--noop-widget-gallery-section <name>` to render one screenful at a time, since a
 /// simulator screenshot cannot scroll). Contains synthetic data only.
 ///
-/// Sections: `tints`, `surfaces`, `cards`, `rows`, `flat`, `card`, `coach-a` ... `coach-d`.
+/// Sections: `tints`, `surfaces`, `cards`, `rows`, `flat`, `card`, `coach-a` ... `coach-d`, plus the shared
+/// app components `overline`, `stat-tile`, `chart-card` and `score-pill`, and `eyebrow-long` (long headers that
+/// must wrap, for the German / accessibility-size check).
 /// `flat` and `card` show the same content composed on the canvas and inside a `WidgetCard`.
 /// The Today restyle sections `today-hero`, `today-heart`, `today-stress` and `today-health` render the
 /// REAL Today components (full device width, Today's 16pt gutter, the app canvas) with the demo-seed values.
@@ -14,6 +16,7 @@ import StrandDesign
 /// compared exactly (`xcrun simctl launch --console ...`).
 struct WidgetGalleryView: View {
     private let section: String?
+    @Environment(\.dynamicTypeSize) private var systemTypeSize
 
     init() {
         let arguments = CommandLine.arguments
@@ -41,6 +44,24 @@ struct WidgetGalleryView: View {
         }
         .background(StrandPalette.appCanvas.ignoresSafeArea())
         .preferredColorScheme(.dark)
+        .environment(\.dynamicTypeSize, typeSizeOverride ?? systemTypeSize)
+    }
+
+    /// `--noop-gallery-type-size ax3` (or `ax1` ... `ax5`, `xxxl`) renders the screenful at that Dynamic Type size, so
+    /// the accessibility-size layouts can be captured without changing the simulator's own setting.
+    private var typeSizeOverride: DynamicTypeSize? {
+        let arguments = CommandLine.arguments
+        guard let index = arguments.firstIndex(of: "--noop-gallery-type-size"),
+              arguments.indices.contains(index + 1) else { return nil }
+        switch arguments[index + 1].lowercased() {
+        case "ax1": return .accessibility1
+        case "ax2": return .accessibility2
+        case "ax3": return .accessibility3
+        case "ax4": return .accessibility4
+        case "ax5": return .accessibility5
+        case "xxxl": return .xxxLarge
+        default: return nil
+        }
     }
 
     private func shows(_ name: String) -> Bool { section == nil || section == name }
@@ -61,6 +82,11 @@ struct WidgetGalleryView: View {
         if shows("coach-b") { coachStack(Array(samples.training.prefix(2))) }
         if shows("coach-c") { coachStack(Array(samples.training.suffix(2))) }
         if shows("coach-d") { coachStack(samples.coverage) }
+        if shows("overline") { overlinePage }
+        if shows("eyebrow-long") { eyebrowLongPage }
+        if shows("stat-tile") { statTilePage }
+        if shows("chart-card") { chartCardPage }
+        if shows("score-pill") { scorePillPage }
         if shows("today-hero") { todayHeroPage }
         if shows("today-heart") { todayHeartPage }
         if shows("today-stress") { todayStressPage }
@@ -238,6 +264,174 @@ struct WidgetGalleryView: View {
             WidgetCard(title: "Sleep", systemImage: "moon.stars.fill", tint: .sleep, trailing: .text("Today")) {
                 sleepBody
             }
+        }
+    }
+}
+
+// MARK: - Shared app components
+//
+// The components the rest of the app is built from (everything off Today), on the app canvas, with synthetic
+// values. Each tile / card logs its global frame as `[gallery-metrics] <name> ...` so a before/after pair can be
+// compared by exact height.
+
+extension WidgetGalleryView {
+    // MARK: Overline
+
+    /// A raw `.strandOverline()` beside a `SectionEyebrow` title: the 76 call sites of the first must read like
+    /// the second.
+    var overlinePage: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.space4) {
+            caption("Left: raw .strandOverline().  Right: the SectionEyebrow title (no symbol)")
+            ForEach(["Heart rate", "Sleep context", "Stress trend"], id: \.self) { title in
+                HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space4) {
+                    Text(title).strandOverline()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .galleryMeasured("overline-raw-\(title)")
+                    SectionEyebrow(title: title)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .galleryMeasured("overline-eyebrow-\(title)")
+                }
+            }
+        }
+    }
+
+    // MARK: Long headers
+
+    /// Long titles beside a date or a stale pill, the way a German or accessibility-size header reads: they wrap
+    /// to a second line instead of truncating.
+    var eyebrowLongPage: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.space4) {
+            caption("SectionHeader with a long title and a trailing date, then the record pill")
+            SectionHeader("Heart rate variability and resting heart rate", trailing: "Wed 7 → Thu 8 Oct")
+                .galleryMeasured("eyebrow-long-header")
+            SectionHeader("Sleep", trailing: "Oct 8")
+            SectionEyebrow(title: "Heart rate variability and resting heart rate", systemImage: "waveform.path.ecg",
+                           tint: .hrv, trailing: .record(date: "Dec 30, 2025", isStale: true))
+            SectionEyebrow(title: "Stress", systemImage: "bolt.heart", tint: .stress,
+                           trailing: .record(date: "Oct 5", isStale: true))
+        }
+    }
+
+    // MARK: StatTile
+
+    private var statTileSparkline: [Double] { [58, 61, 57, 63, 66, 62, 60, 65, 68, 64, 61, 66, 63, 64] }
+
+    var statTilePage: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.space4) {
+            caption("Numeric, unit in the value, missing, status word, percent, wrapped label")
+            let columns = [GridItem(.flexible(), spacing: NoopMetrics.gap), GridItem(.flexible(), spacing: NoopMetrics.gap)]
+            LazyVGrid(columns: columns, spacing: NoopMetrics.gap) {
+                StatTile(label: "Average", value: "71.4", caption: "Last 30 days", accent: StrandPalette.metricPurple)
+                    .galleryMeasured("stat-tile-number")
+                StatTile(label: "Resting HR", value: "54 bpm", accent: StrandPalette.metricRose)
+                    .galleryMeasured("stat-tile-unit")
+                StatTile(label: "Latest", value: "—", caption: "No reading yet", accent: StrandPalette.metricPurple)
+                    .galleryMeasured("stat-tile-missing")
+                StatTile(label: "Readiness", value: "Calibrating", caption: "First nights build a baseline",
+                         accent: StrandPalette.accent)
+                    .galleryMeasured("stat-tile-status")
+                StatTile(label: "Calm time", value: "58%", caption: "low-stress days · 30d",
+                         accent: StrandPalette.stressAccent)
+                    .galleryMeasured("stat-tile-percent")
+                StatTile(label: "Distance", value: "14.2 km", caption: "This week", accent: StrandPalette.strainAccent)
+                    .galleryMeasured("stat-tile-distance")
+                StatTile(label: "Autonomic balance (LF/HF)", value: "0.9", caption: "Sympathetic vs parasympathetic",
+                         accent: StrandPalette.metricPurple)
+                    .galleryMeasured("stat-tile-wrapped")
+                StatTile(label: "HRV", value: "64 ms", accent: StrandPalette.metricPurple,
+                         delta: "+4", deltaColor: StrandPalette.statusPositive,
+                         sparkline: statTileSparkline, sparkColor: StrandPalette.metricPurple)
+                    .galleryMeasured("stat-tile-spark")
+            }
+            caption("With a domain symbol (optional, in the domain tint)")
+            LazyVGrid(columns: columns, spacing: NoopMetrics.gap) {
+                StatTile(label: "HRV", value: "64 ms", accent: DomainTint.hrv.accent,
+                         systemImage: "waveform.path.ecg", tint: .hrv)
+                    .galleryMeasured("stat-tile-icon-hrv")
+                StatTile(label: "Resting HR", value: "54 bpm", accent: DomainTint.heart.accent,
+                         systemImage: "heart.fill", tint: .heart)
+                    .galleryMeasured("stat-tile-icon-heart")
+                StatTile(label: "Asleep", value: "7h 42m", caption: "Last night", accent: DomainTint.sleep.accent,
+                         systemImage: "moon.stars.fill", tint: .sleep)
+                    .galleryMeasured("stat-tile-icon-sleep")
+                StatTile(label: "Stress", value: "—", caption: "Calibrating", accent: DomainTint.stress.accent,
+                         systemImage: "waveform.path", tint: .stress)
+                    .galleryMeasured("stat-tile-icon-missing")
+            }
+        }
+    }
+
+    // MARK: ChartCard
+
+    private var chartCardPoints: [TrendPoint] {
+        let values: [Double] = [6.4, 7.1, 6.8, 7.6, 7.2, 6.1, 7.9, 7.4, 6.9, 7.7, 7.0, 6.6, 7.3, 7.8, 6.5, 7.2, 7.5,
+                                6.9, 7.1, 8.0, 7.4, 6.7, 7.2, 7.6, 6.8, 7.3, 7.9, 7.0, 7.4, 7.7]
+        return values.enumerated().map { index, value in
+            TrendPoint(date: sampleNow.addingTimeInterval(Double(index - values.count + 1) * 86_400), value: value)
+        }
+    }
+
+    var chartCardPage: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
+            caption("Title + subtitle + trailing value + footer, then a long trailing value, then no footer")
+            ChartCard(
+                title: "Hours asleep",
+                subtitle: "Per night, trailing 30 days",
+                trailing: "7.2 h avg",
+                tint: StrandPalette.restColor,
+                systemImage: "moon.zzz.fill",
+                chart: {
+                    TrendChart(points: chartCardPoints, gradient: StrandPalette.restGradient, valueRange: 5...9,
+                               showsArea: true, height: NoopMetrics.chartHeight, showsHover: false,
+                               valueFormat: { String(format: "%.1f h", $0) },
+                               xAxisLabelCount: WidgetMetrics.maxXAxisLabels)
+                },
+                footer: {
+                    ChartFooter([("Avg", "7.2 h"), ("Min", "6.1 h"), ("Max", "8.0 h"), ("Nights", "30")])
+                })
+                .galleryMeasured("chart-card-footer")
+            ChartCard(
+                title: "Heart Rate Variability",
+                subtitle: "30 readings · 30D",
+                trailing: "64 ms · Oct 8",
+                tint: DomainTint.hrv.accent,
+                systemImage: "waveform.path.ecg",
+                chart: {
+                    TrendChart(points: chartCardPoints, gradient: DomainTint.hrv.chartGradient, valueRange: 5...9,
+                               showsArea: true, height: NoopMetrics.chartHeight, showsHover: false,
+                               xAxisLabelCount: WidgetMetrics.maxXAxisLabels)
+                })
+                .galleryMeasured("chart-card-plain")
+            ChartCard(
+                title: "Stress · 30D",
+                subtitle: "Daily 0-3 proxy",
+                trailing: "—",
+                tint: DomainTint.stress.accent,
+                systemImage: "bolt.heart",
+                chart: { Color.clear })
+                .galleryMeasured("chart-card-missing")
+        }
+    }
+
+    // MARK: ScoreStatePill
+
+    var scorePillPage: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.space4) {
+            caption("ScoreStatePill (top) and the shared StatePill (below), same states")
+            HStack(spacing: NoopMetrics.space2) {
+                ScoreStatePill(.solid).galleryMeasured("score-pill-solid")
+                ScoreStatePill(.building)
+                ScoreStatePill(.calibrating)
+                ScoreStatePill(.live)
+            }
+            ScoreStatePill(.calibrating, text: "Calibrating, 2 of 4").galleryMeasured("score-pill-long")
+            HStack(spacing: NoopMetrics.space2) {
+                StatePill("Solid", tone: .positive).galleryMeasured("state-pill-solid")
+                StatePill("Building", tone: .accent)
+                StatePill("Calibrating", tone: .neutral)
+                StatePill("Live", tone: .accent, pulsing: true)
+            }
+            StatePill("Calibrating, 2 of 4", tone: .neutral).galleryMeasured("state-pill-long")
         }
     }
 }

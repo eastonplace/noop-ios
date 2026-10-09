@@ -47,7 +47,7 @@ struct TrendsEmptyState: View {
                 title: String(localized: "Trends"),
                 systemImage: "chart.xyaxis.line",
                 tint: .neutral,
-                trailing: .pill(isLoaded ? String(localized: "No history") : String(localized: "Loading"), tone: .neutral)
+                trailing: .pill(isLoaded ? "No history" : "Loading", tone: .neutral)
             )
             HeroValue(
                 value: WidgetMetrics.missingValue,

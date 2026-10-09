@@ -146,7 +146,8 @@ struct LocalCoachView: View {
                     .padding(.horizontal, NoopMetrics.space4)
                 sectionPicker
             }
-            .padding(.vertical, 6)
+            // No top padding: the title row sits where Today's and Trends' do, directly under the chrome.
+            .padding(.bottom, 6)
             .background(StrandPalette.appCanvas)
             .overlay(alignment: .bottom) {
                 Rectangle().fill(StrandPalette.hairline).frame(height: 1).accessibilityHidden(true)
@@ -159,40 +160,36 @@ struct LocalCoachView: View {
         scaffoldPresentation == .standard && chromeVisibility == .visible && navigationRole == .root
     }
 
-    /// At the tab root the chrome row already carries the wordmark, so the title is a single overline row
-    /// (like Today's) with the history and settings buttons trailing. Anywhere the chrome is absent the
-    /// canonical compact header supplies the one wordmark and the back chevron.
+    /// At the tab root the chrome row already carries the wordmark, so the title is the shared compact title row
+    /// (like Today's and Trends') with the history and settings buttons trailing. Anywhere the chrome is absent
+    /// the canonical compact header supplies the one wordmark and the back chevron.
     @ViewBuilder private var titleHeader: some View {
         if showsAppChrome {
-            HStack(spacing: NoopMetrics.space2) {
-                Text("Coach")
-                    .font(StrandFont.screenOverline)
-                    .tracking(StrandFont.screenOverlineTracking)
-                    .textCase(.uppercase)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                    .accessibilityAddTraits(.isHeader)
-                Spacer(minLength: NoopMetrics.space2)
-                coachActions
-            }
-            .frame(minHeight: 40)
+            NoopTabTitleRow("Coach") { coachActions }
         } else {
             NoopScreenHeader(
                 title: "Coach",
-                subtitle: "Personal intelligence",
                 backAction: backAction,
                 style: .compact
             ) { coachActions }
         }
     }
 
+    /// History and settings as compact chip-family icon buttons, the same capsule as Trends' share button.
     private var coachActions: some View {
         HStack(spacing: NoopMetrics.space2) {
-            NoopIconButton("clock.arrow.circlepath", accessibilityLabel: "Conversation history") {
-                showLibrary = true
+            Button { showLibrary = true } label: {
+                WidgetChip(systemImage: "clock.arrow.circlepath", showsChevron: false, overhangs: false)
+                    .chipHitTarget()
             }
-            NoopIconButton("slider.horizontal.3", accessibilityLabel: "Coach settings") {
-                showSettings = true
+            .buttonStyle(.plain)
+            .accessibilityLabel("Conversation history")
+            Button { showSettings = true } label: {
+                WidgetChip(systemImage: "slider.horizontal.3", showsChevron: false, overhangs: false)
+                    .chipHitTarget()
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Coach settings")
         }
     }
 

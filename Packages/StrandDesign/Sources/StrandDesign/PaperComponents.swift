@@ -118,6 +118,44 @@ public extension NoopScreenHeader where Trailing == EmptyView {
     }
 }
 
+/// The one title row of a tab root. The pinned app chrome above it already carries the wordmark, so a tab
+/// root adds only this compact row: the screen's caps overline title (Today's "TODAY" row, same type and
+/// height) with optional trailing controls, such as a `WidgetChip`, pinned to the right.
+public struct NoopTabTitleRow<Trailing: View>: View {
+    private let title: LocalizedStringKey
+    @ViewBuilder private let trailing: () -> Trailing
+
+    public init(_ title: LocalizedStringKey, @ViewBuilder trailing: @escaping () -> Trailing) {
+        self.title = title
+        self.trailing = trailing
+    }
+
+    public var body: some View {
+        HStack(spacing: NoopMetrics.space2) {
+            // Today's row takes its baseline from its caption-size date, so the invisible caption below keeps
+            // every tab's title on exactly the same line as "TODAY".
+            HStack(alignment: .firstTextBaseline, spacing: 0) {
+                Text(title)
+                    .font(StrandFont.screenOverline)
+                    .tracking(StrandFont.screenOverlineTracking)
+                    .textCase(.uppercase)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
+                Text(verbatim: "0").font(StrandFont.caption).hidden().frame(width: 0).accessibilityHidden(true)
+            }
+            Spacer(minLength: NoopMetrics.space2)
+            trailing()
+        }
+        .frame(minHeight: 24)
+    }
+}
+
+public extension NoopTabTitleRow where Trailing == EmptyView {
+    init(_ title: LocalizedStringKey) {
+        self.init(title) { EmptyView() }
+    }
+}
+
 /// Compatibility wrapper for existing non-scaffold call sites. New screen chrome should use
 /// `NoopScreenHeader` and choose an explicit expanded or compact presentation.
 public struct PaperHeaderBar<Trailing: View>: View {

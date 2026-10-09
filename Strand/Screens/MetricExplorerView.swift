@@ -941,7 +941,8 @@ struct MetricDetailView: View {
             title: "\(metric.title)",
             subtitle: subtitle,
             trailing: "\(heroValue) · \(asOf)",
-            tint: metric.key == "recovery" ? StrandPalette.recoveryData : metricDomain(metric).color
+            tint: metric.key == "recovery" ? StrandPalette.recoveryData : metricDomain(metric).color,
+            systemImage: metric.icon
         ) {
             TrendChart(
                 points: trendPoints(chartRows),
@@ -952,7 +953,8 @@ struct MetricDetailView: View {
                 valueFormat: {
                     metric.key == "strain" ? String(format: "%.1f", $0) : fmt($0)
                 },
-                yAxisValues: metric.key == "strain" ? [0, 7, 14, 21] : nil
+                yAxisValues: metric.key == "strain" ? [0, 7, 14, 21] : nil,
+                xAxisLabelCount: WidgetMetrics.maxXAxisLabels
             )
         } footer: {
             ChartFooter([

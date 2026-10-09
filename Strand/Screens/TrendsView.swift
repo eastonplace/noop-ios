@@ -86,29 +86,25 @@ struct TrendsView: View {
             lazy: true,
             topBackground: nil,
             trailing: {
-                HStack(spacing: 12) {
+                HStack(spacing: 8) {
                     NavigationLink {
                         TrendsExploreHubView()
                     } label: {
-                        Label("Explore", systemImage: "square.grid.2x2")
-                            .font(StrandFont.caption.weight(.semibold))
-                            .padding(.horizontal, 10)
-                            .frame(minWidth: 44, minHeight: 44)
-                            .background(StrandPalette.inset, in: Capsule(style: .continuous))
-                            .contentShape(Capsule(style: .continuous))
+                        WidgetChip(appTitle: "Explore", systemImage: "square.grid.2x2", showsChevron: false,
+                                   overhangs: false)
+                            .chipHitTarget()
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Explore insights and metrics")
                     .accessibilityHint("Opens insights, comparisons, metrics, and experiments")
                     Button { showingReport = true } label: {
-                        Image(systemName: "square.and.arrow.up")
+                        WidgetChip(systemImage: "square.and.arrow.up", showsChevron: false, overhangs: false)
+                            .chipHitTarget()
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Share Trends")
                     .accessibilityHint("Opens a shareable Trends report")
                 }
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(StrandPalette.textPrimary)
             }
         ) {
             if let message = loadState.errorMessage {

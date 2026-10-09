@@ -365,7 +365,8 @@ private struct TodayPillarGauge: View {
         .buttonStyle(.plain)
         .onAppear { withAnimation(reduceMotion ? nil : .easeOut(duration: 0.65)) { revealed = true } }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(model.label), \(model.valueText), \(model.state)")
+        .accessibilityLabel("\(model.label), \(model.valueText), \(model.state)"
+                            + (visibleDetail.map { ", \($0)" } ?? ""))
     }
 }
 
@@ -427,9 +428,10 @@ public struct HealthDashboardCard: View {
                         Spacer(minLength: NoopMetrics.space2)
                         Button(action: onCustomize) {
                             WidgetChip("Customise", systemImage: "slider.horizontal.3", showsChevron: false, overhangs: false)
+                                .chipHitTarget()
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("Customise")
+                        .accessibilityLabel(Text("Customise", bundle: .module))
                     }
                     Text(verbatim: status).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
                 }
@@ -525,7 +527,9 @@ public struct HealthDashboardTile: View {
                 Text(verbatim: model.value).font(StrandFont.number(17, weight: .semibold)).monospacedDigit()
                     .foregroundStyle(valueInk)
                     .lineLimit(1).minimumScaleFactor(0.65)
-                if let unit = model.unit { Text(verbatim: unit).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary) }
+                if let unit = model.unit, model.value != WidgetMetrics.missingValue {
+                    Text(verbatim: unit).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                }
             }
             if model.spark.count > 1 {
                 Sparkline(values: model.spark, gradient: Gradient(colors: [model.accent.opacity(0.4), model.accent]),
@@ -542,7 +546,7 @@ public struct HealthDashboardTile: View {
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
-            "\(model.label), \(model.value)\(model.unit.map { " \($0)" } ?? "")"
+            "\(model.label), \(model.value)\(model.value == WidgetMetrics.missingValue ? "" : (model.unit.map { " \($0)" } ?? ""))"
                 + (model.detail.map { ", \($0)" } ?? "")
         )
         .accessibilityHint("Opens details")

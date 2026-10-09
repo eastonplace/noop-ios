@@ -63,8 +63,8 @@ public struct TrendChart: View {
     /// its tick) is not truncated at the trailing edge. 0 (the default) leaves the plot edge-to-edge.
     public var xAxisEndPadding: CGFloat
     /// Caps the x-axis at this many "MMM d" date labels, evenly spaced in time from the first sample to the
-    /// last, with the first label leading-aligned and the last trailing-aligned so neither is clipped at the
-    /// plot edges. Meant for daily series.
+    /// last, with the first label flush to the plot's left edge and the last to its right so neither is clipped
+    /// at the edges. Never more labels than days spanned, so no date repeats. Meant for daily series.
     /// nil (the default) keeps Swift Charts' automatic ticks. Widget-style charts pass
     /// `WidgetMetrics.maxXAxisLabels` so dates never crowd at phone width.
     public var xAxisLabelCount: Int?
@@ -153,11 +153,29 @@ public struct TrendChart: View {
     /// Tick dates for a capped x-axis, or nil when the axis is automatic. Ticks are spaced evenly in TIME
     /// from the first to the last sample (not by sample index, which bunches labels where a series has
     /// gaps), so neighbouring labels are always a full `span / (count - 1)` apart.
-    private var xAxisTicks: [Date]? {
-        guard let count = xAxisLabelCount, count >= 2,
+    var xAxisTicks: [Date]? {
+        guard let requested = xAxisLabelCount, requested >= 2,
               let first = points.first?.date, let last = points.last?.date, last > first else { return nil }
+        // Labels read as calendar days, so a series that spans fewer days than labels asked for gets one label per
+        // day, never a repeated date; a series inside a single day falls back to the automatic axis.
+        let calendar = Calendar.current
+        let daysSpanned = calendar.dateComponents([.day], from: calendar.startOfDay(for: first),
+                                                   to: calendar.startOfDay(for: last)).day ?? 0
+        let count = min(requested, daysSpanned + 1)
+        guard count >= 2 else { return nil }
         let span = last.timeIntervalSince(first)
-        return (0..<count).map { first.addingTimeInterval(span * Double($0) / Double(count - 1)) }
+        let lastDay = calendar.startOfDay(for: last)
+        var ticks: [Date] = [first]
+        for index in 1..<(count - 1) {
+            // Interior ticks sit on a day boundary (so they read as that day), kept strictly between the ends.
+            let raw = first.addingTimeInterval(span * Double(index) / Double(count - 1))
+            let snapped = min(max(calendar.startOfDay(for: raw), first), last)
+            if let previous = ticks.last,
+               calendar.isDate(snapped, inSameDayAs: previous) || calendar.isDate(snapped, inSameDayAs: lastDay) { continue }
+            ticks.append(snapped)
+        }
+        ticks.append(last)
+        return ticks
     }
 
     /// First label flush left, last flush right, the rest centred on their tick.
@@ -263,7 +281,7 @@ public struct TrendChart: View {
                     // axis only reserves the label gutter here (an invisible placeholder of the right height);
                     // the labels themselves are drawn in the chart overlay, where first/last can be pinned flush.
                     AxisValueLabel {
-                        Text("Mmm 00").opacity(0)
+                        Text(verbatim: "Mmm 00").opacity(0).accessibilityHidden(true)
                     }
                     .foregroundStyle(StrandPalette.textTertiary)
                     .font(StrandFont.footnote)
@@ -369,6 +387,10 @@ public struct TrendChart: View {
                 }
             }
         }
+        // A time series reads left to right whatever the app's layout direction. Swift Charts mirrors the plot (and
+        // moves the y-axis) in a right-to-left layout, while the capped date labels above are placed from
+        // `position(forX:)` in absolute coordinates, which put them against the data and clipped at the edges.
+        .environment(\.layoutDirection, .leftToRight)
         .frame(height: height)
         // NOTE: no outer `.clipped()` here. The PLOT is already clipped to its own bounds by
         // `.chartPlotStyle { plotArea.clipped() }` above (that's what contains the catmullRom overshoot +

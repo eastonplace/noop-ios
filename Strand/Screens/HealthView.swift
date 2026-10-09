@@ -327,7 +327,8 @@ private struct HeartRateSection: View {
                     : (hasLiveHR ? String(localized: "Streaming live") : String(localized: "Awaiting strap")),
                 trailing: hasLiveHR ? "\(displayHR!) bpm" : "—",
                 height: hasLiveHR ? NoopMetrics.chartHeight : 112,
-                tint: StrandPalette.metricRose
+                tint: StrandPalette.metricRose,
+                systemImage: "heart.fill"
             ) {
                 heroChart(displayHR: displayHR, hasLiveHR: hasLiveHR,
                           fraction: fraction, zone: zone, series: series)
@@ -554,7 +555,7 @@ private struct RecoveryContributorsSection: View {
                 strength: higherIsBetter(latest?.avgHrv, base: hrvBase),
                 word: word(higherIsBetter(latest?.avgHrv, base: hrvBase)),
                 detail: latest?.avgHrv.map { "\(Int($0.rounded())) ms" } ?? "—",
-                tint: StrandPalette.metricCyan),       // HRV = teal
+                tint: DomainTint.hrv.accent),          // HRV = purple, the app-wide HRV hue
             Contributor(
                 label: "Resting HR",
                 strength: lowerIsBetter(latest?.restingHr.map(Double.init), base: rhrBase),

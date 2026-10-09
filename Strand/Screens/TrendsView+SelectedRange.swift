@@ -32,7 +32,7 @@ extension TrendsView {
                 systemImage: "flame.fill",
                 tint: .strain,
                 trailing: .pill(
-                    load.map(trainingLoadStatus) ?? String(localized: "Loading"),
+                    LocalizedStringKey(load.map(trainingLoadStatus) ?? "Loading"),
                     tone: load?.state == .established ? .positive : .neutral
                 )
             )
