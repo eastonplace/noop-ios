@@ -182,16 +182,19 @@ enum QAScrollDriver {
               points, y - top, maxY - top, scroll.adjustedContentInset.top, scroll.adjustedContentInset.bottom)
     }
 
-    /// The topmost vertically scrollable, full-width scroll view under the middle of the screen.
+    /// The topmost vertically scrollable, full-width scroll view under the middle of the screen. A page that scrolls
+    /// under a pinned header and composer is as tall as the screen with its content shorter than that, so the
+    /// content is measured with the adjusted insets.
     @MainActor private static func mainScrollView() -> UIScrollView? {
         guard let window = UIApplication.shared.connectedScenes
             .compactMap({ $0 as? UIWindowScene }).flatMap(\.windows).first(where: \.isKeyWindow) else { return nil }
         let center = CGPoint(x: window.bounds.midX, y: window.bounds.midY)
         var found: UIScrollView?
         func visit(_ view: UIView) {
-            if view.isHidden || view.alpha < 0.01 { return }
+            if view.isHidden || view.alpha < 0.01 || view.layer.opacity < 0.01 { return }
             if let scroll = view as? UIScrollView,
-               scroll.contentSize.height > scroll.bounds.height + 1,
+               scroll.contentSize.height + scroll.adjustedContentInset.top + scroll.adjustedContentInset.bottom
+                   > scroll.bounds.height + 1,
                scroll.bounds.width >= window.bounds.width * 0.8,
                scroll.convert(scroll.bounds, to: window).contains(center) {
                 found = scroll
