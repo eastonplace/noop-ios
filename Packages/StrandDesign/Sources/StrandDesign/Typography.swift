@@ -90,7 +90,11 @@ public enum StrandFont {
 // MARK: - Text helpers
 
 public extension Text {
-    /// WHOOP-style section label: bold, uppercase, and tracked.
+    /// WHOOP-style section label: bold, uppercase, and tracked, in the secondary ink.
+    ///
+    /// This is the one definition of the app's section-title type. `SectionEyebrow` draws its title with it, so
+    /// every raw `.strandOverline()` call site and every eyebrow in the widget language read identically: change
+    /// the font, tracking or colour here and both move together.
     func strandOverline() -> some View {
         self.font(StrandFont.overline)
             .tracking(StrandFont.overlineTracking)
