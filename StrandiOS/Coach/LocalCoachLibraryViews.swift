@@ -76,61 +76,133 @@ struct LocalCoachMemoryView: View {
     @State private var editing: LocalCoachMemory?
     @State private var adding = false
 
+    private var canAdd: Bool { coach.preferences.usePersonalData && coach.preferences.memoryEnabled }
+
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: NoopMetrics.space4) {
-                if coach.isPreview { LocalCoachFixtureLabel() }
-                ContentSection {
-                    VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-                        Image(systemName: "person.crop.circle.badge.checkmark")
-                            .font(.system(size: 34, weight: .ultraLight)).foregroundStyle(StrandPalette.accent)
-                        Text("A coach that\nknows your context.")
-                            .font(StrandFont.title2)
-                        Text("Your goals, routines and preferences. You decide what is remembered, and you can edit or remove it at any time.")
-                            .font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary).lineSpacing(3)
-                    }
-                }
-                Toggle("Use my memory", isOn: $coach.preferences.memoryEnabled)
-                    .font(StrandFont.subhead).noopToggle()
-                    .contentRowSurface()
-                if !coach.preferences.usePersonalData {
-                    NoteCard("Allow local records in Coach settings to add and use personal memory.", style: .warning)
+            VStack(alignment: .leading, spacing: 0) {
+                if coach.isPreview { LocalCoachFixtureLabel().padding(.bottom, NoopMetrics.space3) }
+                header
+                if coach.memories.isEmpty {
+                    CoachSectionSeparator()
+                    emptyMemory
                 }
                 ForEach(LocalCoachMemory.Category.allCases) { category in
                     let entries = coach.memories.filter { $0.category == category }
                     if !entries.isEmpty {
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text(category.title).strandOverline().padding(.bottom, NoopMetrics.space1)
-                            ForEach(entries) { memory in
-                                Button { editing = memory } label: {
-                                    HStack(alignment: .top, spacing: NoopMetrics.space3) {
-                                        Circle().fill(memory.enabled ? StrandPalette.accent : StrandPalette.textTertiary)
-                                            .frame(width: 6, height: 6).padding(.top, 6)
-                                        Text(memory.text).font(StrandFont.subhead).lineSpacing(3)
-                                            .foregroundStyle(StrandPalette.textSecondary).multilineTextAlignment(.leading)
-                                        Spacer(minLength: 0)
-                                        Image(systemName: "pencil").font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
-                                    }.contentRowSurface()
-                                }.buttonStyle(.plain)
-                            }
-                        }
+                        CoachSectionSeparator()
+                        categorySection(category, entries)
                     }
                 }
-                Button { adding = true } label: {
-                    Label("Add something about you", systemImage: "plus")
-                }.buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
-                    .disabled(!coach.preferences.usePersonalData || !coach.preferences.memoryEnabled)
-                    .accessibilityIdentifier("coach.addMemory")
                 Label("Saved locally. Never added automatically.", systemImage: "lock")
                     .font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
+                    .padding(.top, NoopMetrics.space4)
             }
             .padding(.horizontal, NoopMetrics.space4)
-            .padding(.top, NoopMetrics.space2)
-            .padding(.bottom, NoopMetrics.space6)
+            .padding(.top, CoachRhythm.pageTop)
+            .padding(.bottom, CoachRhythm.pageBottom)
         }
         .sheet(isPresented: $adding) { LocalCoachMemoryEditor(memory: nil).noopSheetPresentation(largeFirst: true) }
         .sheet(item: $editing) { LocalCoachMemoryEditor(memory: $0).noopSheetPresentation(largeFirst: true) }
         .accessibilityIdentifier("coach.memory")
+    }
+
+    // MARK: Header
+
+    /// What the page is for, the master switch, and (once something is remembered) the Add chip.
+    private var header: some View {
+        CoachSection("What Coach remembers", systemImage: "person.crop.circle.badge.checkmark", tint: .accent,
+                     trailing: coach.memories.isEmpty ? .none : .custom(AnyView(addChip))) {
+            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                Text("A coach that\nknows your context.").font(StrandFont.title1)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                Text("Your goals, routines and preferences. You decide what is remembered, and you can edit or remove it at any time.")
+                    .font(StrandFont.subhead).lineSpacing(3).foregroundStyle(StrandPalette.textSecondary)
+            }
+            Toggle("Use my memory", isOn: $coach.preferences.memoryEnabled)
+                .font(StrandFont.subhead).noopToggle()
+                .frame(minHeight: 44)
+            if !coach.preferences.usePersonalData {
+                CoachNotice(text: Text("Allow local records in Coach settings to add and use personal memory."),
+                            tone: .warning)
+            }
+        }
+    }
+
+    private var addChip: some View {
+        Button { adding = true } label: {
+            WidgetChip(appTitle: "Add", systemImage: "plus", showsChevron: false, overhangs: false)
+                .chipHitTarget()
+        }
+        .buttonStyle(.plain)
+        .disabled(!canAdd)
+        .opacity(canAdd ? 1 : 0.45)
+        .accessibilityLabel("Add something about you")
+        .accessibilityIdentifier("coach.addMemory")
+    }
+
+    // MARK: Entries
+
+    private func categorySection(_ category: LocalCoachMemory.Category, _ entries: [LocalCoachMemory]) -> some View {
+        let look = Self.look(for: category)
+        return CoachSection(LocalizedStringKey(category.title), systemImage: look.symbol, tint: look.tint,
+                            trailing: .text("\(entries.count)")) {
+            VStack(spacing: 0) {
+                ForEach(Array(entries.enumerated()), id: \.element.id) { index, memory in
+                    if index > 0 {
+                        Rectangle().fill(StrandPalette.hairline).frame(height: 1).accessibilityHidden(true)
+                    }
+                    memoryRow(memory)
+                }
+            }
+            // The rows carry their own air; pull them in so the gap under the eyebrow matches the rest.
+            .padding(.vertical, -6)
+        }
+    }
+
+    /// One fact, in the person's own words. A fact switched off stays listed, quiet, with an Off pill. The
+    /// pencil chip says the row edits; the whole row is the button.
+    private func memoryRow(_ memory: LocalCoachMemory) -> some View {
+        Button { editing = memory } label: {
+            HStack(alignment: .top, spacing: NoopMetrics.space3) {
+                Text(memory.text).font(StrandFont.subhead).lineSpacing(3)
+                    .foregroundStyle(memory.enabled ? StrandPalette.textPrimary : StrandPalette.textTertiary)
+                    .multilineTextAlignment(.leading)
+                Spacer(minLength: NoopMetrics.space1)
+                if !memory.enabled { StatePill("Off", tone: .neutral, showsDot: false) }
+                WidgetChip(systemImage: "pencil", showsChevron: false, overhangs: false)
+            }
+            .padding(.vertical, NoopMetrics.space3)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Edit")
+    }
+
+    private static func look(for category: LocalCoachMemory.Category) -> (symbol: String, tint: DomainTint) {
+        switch category {
+        case .goals: ("scope", .accent)
+        case .identity: ("person.crop.circle", .neutral)
+        case .lifestyle: ("leaf", .custom(StrandPalette.statusPositive))
+        case .preferences: ("slider.horizontal.3", .neutral)
+        case .events: ("calendar", .workout)
+        case .healthHistory: ("cross.case", .heart)
+        case .mood: ("face.smiling", .journal)
+        }
+    }
+
+    /// Nothing remembered yet: what goes here and the one action.
+    private var emptyMemory: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+            Text("Nothing saved yet").font(StrandFont.headline).foregroundStyle(StrandPalette.textPrimary)
+            Text("Add a goal, routine or preference and Coach will use it in your conversations.")
+                .font(StrandFont.subhead).lineSpacing(3).foregroundStyle(StrandPalette.textSecondary)
+            Button { adding = true } label: { Text("Add something about you") }
+                .buttonStyle(CoachPrimaryPillStyle())
+                .disabled(!canAdd)
+                .accessibilityIdentifier("coach.addMemory")
+        }
     }
 }
 
