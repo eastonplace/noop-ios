@@ -48,16 +48,21 @@ public struct FlatSectionSeparator: View {
 /// looked up in the app's string table.
 public struct FlatSection<Content: View>: View {
     private let eyebrow: SectionEyebrow
+    private let spacing: CGFloat
     private let content: () -> Content
 
+    /// `contentSpacing` is the space between the eyebrow and what follows it. A section whose content brings its own
+    /// top padding (a list of rows) passes less, so the first row sits where any other content would.
     public init(
         _ title: LocalizedStringKey,
         systemImage: String,
         tint: DomainTint = .neutral,
         trailing: EyebrowTrailing = .none,
+        contentSpacing: CGFloat = WidgetMetrics.contentSpacing,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.eyebrow = SectionEyebrow(title, systemImage: systemImage, tint: tint, trailing: trailing)
+        self.spacing = contentSpacing
         self.content = content
     }
 
@@ -67,14 +72,16 @@ public struct FlatSection<Content: View>: View {
         systemImage: String,
         tint: DomainTint = .neutral,
         trailing: EyebrowTrailing = .none,
+        contentSpacing: CGFloat = WidgetMetrics.contentSpacing,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.eyebrow = SectionEyebrow(title: title, systemImage: systemImage, tint: tint, trailing: trailing)
+        self.spacing = contentSpacing
         self.content = content
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
+        VStack(alignment: .leading, spacing: spacing) {
             eyebrow
             content()
         }
