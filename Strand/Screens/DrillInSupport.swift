@@ -72,7 +72,9 @@ struct DrillInTrendSection: View {
                 },
                 trailing: { rangePicker }
             )
-            if let stats = DrillInTrendStats.baselineAndTypical(of: values),
+            // One lone day is a dot, not a trend: say so instead of drawing an empty plot and a footer that repeats it.
+            if values.count >= 2,
+               let stats = DrillInTrendStats.baselineAndTypical(of: values),
                let domain = TrendCalendar.dateDomain(through: referenceDate, count: range.days, calendar: calendar) {
                 TrendsHeroChart(
                     days: days,
@@ -96,7 +98,7 @@ struct DrillInTrendSection: View {
                     (String(localized: "High"), metric.formatWithUnit(values.max() ?? .nan)),
                 ])
             } else {
-                Text(emptyMessage ?? String(localized: "No \(metric.rawValue) data in this range"))
+                Text(emptyMessage ?? String(localized: "Not enough days to chart a trend yet."))
                     .font(StrandFont.subhead)
                     .foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)

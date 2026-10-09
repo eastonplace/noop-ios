@@ -72087,6 +72087,46 @@
         }
       }
     },
+    "Not enough days to chart a trend yet.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch nicht genug Tage für einen Trend."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún no hay suficientes días para mostrar una tendencia."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non ci sono ancora abbastanza giorni per mostrare un andamento."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ainda não há dias suficientes para mostrar uma tendência."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "天数还不足以绘制趋势。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "天數還不足以繪製趨勢。"
+          }
+        }
+      }
+    },
     "Not enough nights yet.": {
       "localizations": {
         "de": {
