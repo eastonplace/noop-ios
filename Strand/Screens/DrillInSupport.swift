@@ -190,4 +190,10 @@ enum DrillInFormat {
     static func number(_ value: Double, fractionDigits: Int = 0) -> String {
         value.formatted(.number.precision(.fractionLength(fractionDigits)))
     }
+
+    /// The date a pushed screen's header row names ("Fri, Oct 9"), one format for every drill-in that says which
+    /// day it shows. A format style, so it follows the device's current locale each time it runs.
+    static func headerDate(_ date: Date) -> String {
+        date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
+    }
 }
