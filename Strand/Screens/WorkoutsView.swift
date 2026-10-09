@@ -201,6 +201,10 @@ struct WorkoutsView: View {
         #endif
         .task(id: repo.refreshSeq) {
             guard !usesPreviewRows else { return }
+            #if DEBUG
+            // QA: hold the hub in its loading state so that state can be captured (`--noop-qa-hold-load`).
+            if ProcessInfo.processInfo.arguments.contains("--noop-qa-hold-load") { return }
+            #endif
             // #797: read only the currently-loaded window (bounded on first paint), not the whole history.
             let r = await repo.workoutRows(days: loadedWindowDays ?? 4000)
             allRows = r

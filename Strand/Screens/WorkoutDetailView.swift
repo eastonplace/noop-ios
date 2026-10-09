@@ -66,8 +66,23 @@ struct WorkoutDetailView: View {
             }
         }
     }
-    @State private var detailTab: DetailTab = .overview
+    @State private var detailTab: DetailTab = Self.launchTab
     @State private var usualEffort: Double?
+
+    /// QA: `--noop-qa-detail-tab heart|map` opens the detail on that tab (DEBUG only).
+    private static var launchTab: DetailTab {
+        #if DEBUG
+        let arguments = ProcessInfo.processInfo.arguments
+        if let index = arguments.firstIndex(of: "--noop-qa-detail-tab"), arguments.indices.contains(index + 1) {
+            switch arguments[index + 1].lowercased() {
+            case "heart", "hr": return .heartRate
+            case "map": return .map
+            default: break
+            }
+        }
+        #endif
+        return .overview
+    }
     @State private var refreshedRow: WorkoutRow?
 
     /// The tap payload is only a routing key. Resolve it again after a durable workout

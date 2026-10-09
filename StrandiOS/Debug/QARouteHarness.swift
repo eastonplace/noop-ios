@@ -1,16 +1,23 @@
 #if DEBUG && os(iOS)
 import SwiftUI
 import StrandDesign
+import WhoopStore
 
 /// Screenshot/QA harness, DEBUG only: `--noop-qa-route <route>` opens a deep screen straight from launch so
 /// it can be captured without UI automation. Each route is presented the way the app normally reaches it:
 /// pushed inside the owning tab's navigation stack, the same full-screen cover or sheet, or through the shell's
 /// quick-action / routed-pillar sheets. Pair it with `--demo-seed` (demo data) and, optionally, `--demo-tab`.
 ///
-/// Routes: stress, hr-timeline, pillar-recovery, pillar-strain, sleep, workouts, today-workouts, health,
-/// metric-explorer, metric-detail-hrv, compare, trends-explore, insights, intelligence, scoring-guide, updates,
-/// live-hr, breathe, journal, intervals, start-workout, rhythm, smart-alarm, hydration, fitness-age, coupled,
-/// lab-book, trends-report.
+/// Routes: stress, hr-timeline, pillar-recovery, pillar-strain, sleep, workouts, today-workouts,
+/// today-workouts-rest, workout-detail-run, workout-detail-strength, workout-detail-whoop,
+/// workout-detail-manual, manual-workout, health, metric-explorer, metric-detail-hrv, compare, trends-explore,
+/// insights, intelligence, scoring-guide, updates, live-hr, breathe, journal, intervals, start-workout, rhythm,
+/// smart-alarm, hydration, fitness-age, coupled, lab-book, trends-report.
+///
+/// The `workout-detail-*` routes open the real detail screen the way the Workouts hub does (a sheet with its own
+/// navigation stack) for one of the demo week's known sessions (`AppleDemoWorkoutFixture`), so they need
+/// `--demo-seed`. `today-workouts-rest` opens Today's workouts for the demo week's rest day. `--noop-qa-hold-load`
+/// keeps the Workouts hub in its loading state.
 enum QARoute: String, CaseIterable {
     case stress
     case hrTimeline = "hr-timeline"
@@ -19,6 +26,12 @@ enum QARoute: String, CaseIterable {
     case sleep
     case workouts
     case todayWorkouts = "today-workouts"
+    case todayWorkoutsRest = "today-workouts-rest"
+    case workoutDetailRun = "workout-detail-run"
+    case workoutDetailStrength = "workout-detail-strength"
+    case workoutDetailWhoop = "workout-detail-whoop"
+    case workoutDetailManual = "workout-detail-manual"
+    case manualWorkout = "manual-workout"
     case health
     case metricExplorer = "metric-explorer"
     case metricDetailHRV = "metric-detail-hrv"
@@ -56,11 +69,13 @@ enum QARoute: String, CaseIterable {
 
     var presentation: Presentation {
         switch self {
-        case .stress, .hrTimeline, .workouts, .todayWorkouts, .health, .hydration, .fitnessAge, .coupled:
+        case .stress, .hrTimeline, .workouts, .todayWorkouts, .todayWorkoutsRest, .health, .hydration, .fitnessAge,
+             .coupled:
             return .push(.today)
         case .pillarRecovery, .pillarStrain, .sleep:
             return .cover(.today)
-        case .scoringGuide:
+        case .scoringGuide, .workoutDetailRun, .workoutDetailStrength, .workoutDetailWhoop, .workoutDetailManual,
+             .manualWorkout:
             return .sheet(.today)
         case .metricExplorer, .metricDetailHRV, .compare, .trendsExplore, .insights, .intelligence, .labBook:
             return .push(.trends)
@@ -276,6 +291,10 @@ private struct QARouteHost: ViewModifier {
         case .hrTimeline: FullDayChartView()
         case .workouts: WorkoutsView()
         case .todayWorkouts: TodayWorkoutsView(day: Repository.logicalDay(Date()))
+        case .todayWorkoutsRest:
+            // The demo week's rest day (AppleDemoWorkoutFixture): two days back, nothing logged.
+            TodayWorkoutsView(day: Repository.logicalDay(
+                Calendar.current.date(byAdding: .day, value: -2, to: Date()) ?? Date()))
         case .health: HealthView()
         case .hydration: HydrationView()
         case .fitnessAge: FitnessAgeDetailView()
@@ -306,7 +325,54 @@ private struct QARouteHost: ViewModifier {
         switch route {
         case .scoringGuide: ScoringGuideView(onClose: { sheeted = false })
         case .trendsReport: TrendsReportSheet(days: repo.canonicalDays)
+        case .workoutDetailRun: QAWorkoutDetailHost(kind: .run, onClose: { sheeted = false })
+        case .workoutDetailStrength: QAWorkoutDetailHost(kind: .strength, onClose: { sheeted = false })
+        case .workoutDetailWhoop: QAWorkoutDetailHost(kind: .whoop, onClose: { sheeted = false })
+        case .workoutDetailManual: QAWorkoutDetailHost(kind: .manual, onClose: { sheeted = false })
+        case .manualWorkout: ManualWorkoutSheet(editing: nil) { _, _ in }
         default: EmptyView()
+        }
+    }
+}
+
+/// Opens the real workout detail for one of the demo week's known sessions, presented the way the Workouts hub
+/// presents it: its own navigation stack inside a sheet, with one close button in the scaffold header.
+private struct QAWorkoutDetailHost: View {
+    enum Kind { case run, strength, whoop, manual }
+
+    let kind: Kind
+    let onClose: () -> Void
+    @EnvironmentObject private var repo: Repository
+    @State private var row: WorkoutRow?
+    @State private var searched = false
+
+    var body: some View {
+        Group {
+            if let row {
+                NavigationStack {
+                    WorkoutDetailView(row: row)
+                        .environmentObject(repo)
+                        .sheetScreenScaffoldEnvironment(onClose: onClose)
+                }
+                .noopSheetPresentation(largeFirst: true)
+            } else {
+                Text(searched ? "No matching demo workout. Launch with --demo-seed." : " ")
+                    .padding()
+            }
+        }
+        .task {
+            let rows = await repo.workoutRows(days: 30)
+            row = rows.first(where: matches)
+            searched = true
+        }
+    }
+
+    private func matches(_ row: WorkoutRow) -> Bool {
+        switch kind {
+        case .run: return row.sport == "Running" && row.source == "manual"
+        case .strength: return row.sport == "Strength Training" && row.source == "manual"
+        case .whoop: return row.source.lowercased() == "whoop" && row.strain != nil
+        case .manual: return row.sport == "Yoga" && row.source == "manual" && row.strain == nil
         }
     }
 }
