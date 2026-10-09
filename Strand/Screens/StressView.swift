@@ -339,15 +339,24 @@ struct StressView: View {
                 systemImage: "bolt.heart",
                 tint: .custom(tint)
             )
-            HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
-                HeroValue(
-                    value: shown.map { DrillInFormat.number($0, fractionDigits: 1) } ?? WidgetMetrics.missingValue,
-                    unit: shown == nil ? nil : String(localized: "of 3"),
-                    caption: caption,
-                    captionPlacement: .below
-                )
-                Spacer(minLength: NoopMetrics.space2)
-                ValuePill(shown.map(stressBandWord) ?? String(localized: "No data"), tint: tint)
+            // At accessibility text sizes the pill drops under the number instead of squeezing it.
+            let heroValue = HeroValue(
+                value: shown.map { DrillInFormat.number($0, fractionDigits: 1) } ?? WidgetMetrics.missingValue,
+                unit: shown == nil ? nil : String(localized: "of 3"),
+                caption: caption,
+                captionPlacement: .below
+            )
+            let heroPill = ValuePill(shown.map(stressBandWord) ?? String(localized: "No data"), tint: tint)
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
+                    heroValue
+                    Spacer(minLength: NoopMetrics.space2)
+                    heroPill
+                }
+                VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                    heroValue
+                    heroPill
+                }
             }
             .animation(StrandMotion.fade, value: scrubHour)
             VStack(alignment: .leading, spacing: 2) {
@@ -365,6 +374,7 @@ struct StressView: View {
                 hours: slots,
                 nowHour: Calendar.current.component(.hour, from: Date()),
                 summary: ribbonSummary(slots),
+                spokenHour: { spokenStressHour($0, in: slots) },
                 scrubHour: $scrubHour
             )
             hourlySplit(slots, mode: mode)
@@ -377,7 +387,23 @@ struct StressView: View {
             return String(localized: "No intraday stress data yet today.")
         }
         let counts = bandCounts(slots)
-        return String(localized: "Stress by hour today. Peak \(DrillInFormat.number(peak.1, fractionDigits: 1)) at \(StressDayRibbon.hourLabel(peak.0)). \(counts[0]) hours calm, \(counts[1]) moderate, \(counts[2]) high.")
+        // Hours are spoken as durations ("1 hour", "2 hours") so the system pluralises them for the language.
+        let calm = Self.spokenHours(counts[0]), moderate = Self.spokenHours(counts[1]), high = Self.spokenHours(counts[2])
+        return String(localized: "Stress by hour today. Peak \(DrillInFormat.number(peak.1, fractionDigits: 1)) at \(StressDayRibbon.hourLabel(peak.0)). Calm \(calm), moderate \(moderate), high \(high).")
+    }
+
+    private static func spokenHours(_ hours: Int) -> String {
+        Duration.seconds(hours * 3600).formatted(.units(allowed: [.hours], width: .wide))
+    }
+
+    /// What VoiceOver says as it steps the ribbon: the hour, then its band and level ("7 AM, High 2.6"), or that the
+    /// hour carried no signal.
+    private func spokenStressHour(_ hour: Int, in slots: [Double?]) -> String {
+        let label = StressDayRibbon.hourLabel(hour)
+        guard slots.indices.contains(hour), let level = slots[hour] else {
+            return String(localized: "\(label), no signal")
+        }
+        return "\(label), \(stressBandWord(level)) \(DrillInFormat.number(level, fractionDigits: 1))"
     }
 
     private func bandCounts(_ slots: [Double?]) -> [Int] {
@@ -386,23 +412,31 @@ struct StressView: View {
         return counts
     }
 
-    /// The scored hours by band, inline, and the day's peak; or one honest line when no hour could be scored.
+    /// The scored hours by band, inline; under them the day's mean over the hours that carried signal and the day's
+    /// peak; or one honest line when no hour could be scored.
     @ViewBuilder
     private func hourlySplit(_ slots: [Double?], mode: StressPresentationMode) -> some View {
         let scored = slots.enumerated().compactMap { index, level in level.map { (index, $0) } }
         if let peak = scored.max(by: { $0.1 < $1.1 }) {
             let counts = bandCounts(slots)
+            let mean = scored.map(\.1).reduce(0, +) / Double(scored.count)
+            let averageText = String(localized: "Avg \(DrillInFormat.number(mean, fractionDigits: 1)) · \(scored.count)h")
             let peakText = String(localized: "Peak \(DrillInFormat.number(peak.1, fractionDigits: 1)) · \(StressDayRibbon.hourLabel(peak.0))")
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: NoopMetrics.space3) {
-                    splitKeys(counts)
-                    Spacer(minLength: 0)
-                    Text(peakText).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary).lineLimit(1)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: NoopMetrics.space3) { splitKeys(counts) }
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: NoopMetrics.space3) {
+                        Text(averageText).lineLimit(1)
+                        Spacer(minLength: 0)
+                        Text(peakText).lineLimit(1)
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(averageText)
+                        Text(peakText)
+                    }
                 }
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: NoopMetrics.space3) { splitKeys(counts) }
-                    Text(peakText).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
-                }
+                .font(StrandFont.micro)
+                .foregroundStyle(StrandPalette.textTertiary)
             }
         } else if mode != .empty {
             Text("There is not enough same-day signal to build the hourly timeline yet.")
@@ -625,7 +659,8 @@ struct StressView: View {
             title: String(localized: "Stress trend"),
             metric: .stress,
             observations: observations,
-            referenceDate: observations.last?.date ?? Calendar.current.startOfDay(for: Date()),
+            // The real today, so a last scored day that is a few days old is dated as such, never as "Today".
+            referenceDate: Calendar.current.startOfDay(for: Date()),
             latest: model.score,
             valueBounds: 0...3,
             emptyMessage: String(localized: "Not enough recent days to chart a trend yet. Import a history or keep wearing your strap."),
@@ -930,64 +965,6 @@ enum StressMath {
                 return String(localized: "HRV is above baseline, a sign of a relaxed, well-recovered nervous system. Stress is low.")
             }
             return String(localized: "Resting heart rate and HRV are sitting at or below baseline: low physiological stress. You're in a calm, recovered state.")
-        }
-    }
-}
-
-enum StressPresentationMapper {
-    static func band(for level: Double) -> StressBand {
-        StressBand(score: level)
-    }
-
-    static func peakAnnotation(
-        peak: DaytimeStress.HourPoint?,
-        hourLabel: (Int) -> String
-    ) -> String? {
-        guard let peak, let level = peak.level else { return nil }
-        return String(localized: "PEAK \(String(format: "%.1f", level)) · \(hourLabel(peak.hour))")
-    }
-}
-
-// MARK: - Stress totals (Calm / Moderate / High) split for the day
-
-/// Splits the day's SCORED waking hours into the three stress bands and exposes each
-/// band's share + duration. Each intraday bucket is one hour (`DaytimeStress.bucketSeconds`),
-/// so the band's hour-count is its duration. Calm = 0–1, Moderate = 1–2, High = 2–3.
-struct StressTotals {
-    let calmHours: Int
-    let moderateHours: Int
-    let highHours: Int
-
-    init(hours: [DaytimeStress.HourPoint]) {
-        var c = 0, m = 0, hi = 0
-        for p in hours {
-            guard let lvl = p.level else { continue }
-            switch StressBand(score: lvl) {
-            case .low:    c += 1
-            case .medium: m += 1
-            case .high:   hi += 1
-            }
-        }
-        calmHours = c; moderateHours = m; highHours = hi
-    }
-
-    var total: Int { calmHours + moderateHours + highHours }
-
-    /// 0...1 share of the scored day spent in each band (0 when no scored hours).
-    func fraction(_ band: StressBand) -> Double {
-        guard total > 0 else { return 0 }
-        switch band {
-        case .low:    return Double(calmHours) / Double(total)
-        case .medium: return Double(moderateHours) / Double(total)
-        case .high:   return Double(highHours) / Double(total)
-        }
-    }
-
-    func hours(_ band: StressBand) -> Int {
-        switch band {
-        case .low:    return calmHours
-        case .medium: return moderateHours
-        case .high:   return highHours
         }
     }
 }

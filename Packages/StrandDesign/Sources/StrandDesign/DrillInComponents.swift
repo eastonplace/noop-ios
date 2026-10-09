@@ -320,6 +320,7 @@ public struct StressDayRibbon: View {
     private let hours: [Double?]
     private let nowHour: Int?
     private let summary: String
+    private let spokenHour: ((Int) -> String)?
     @Binding private var scrubHour: Int?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -335,10 +336,16 @@ public struct StressDayRibbon: View {
     ///   - hours: 24 slots, `nil` for no signal.
     ///   - nowHour: the hour the "now" tick sits under, or `nil` for a past day.
     ///   - summary: the localised VoiceOver description of the whole ribbon.
-    public init(hours: [Double?], nowHour: Int?, summary: String, scrubHour: Binding<Int?>) {
+    ///   - spokenHour: the localised reading VoiceOver speaks for an hour as it steps ("7 AM, High 2.6"); nil
+    ///     leaves the stepping silent.
+    public init(
+        hours: [Double?], nowHour: Int?, summary: String,
+        spokenHour: ((Int) -> String)? = nil, scrubHour: Binding<Int?>
+    ) {
         self.hours = hours
         self.nowHour = nowHour
         self.summary = summary
+        self.spokenHour = spokenHour
         self._scrubHour = scrubHour
     }
 
@@ -410,13 +417,18 @@ public struct StressDayRibbon: View {
         .padding(.top, scored.isEmpty ? 2 : 8)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(verbatim: summary))
+        .accessibilityValue(Text(verbatim: scrubHour.flatMap { spokenHour?($0) } ?? ""))
         .accessibilityHint(Text("Swipe up or down to step through hours"))
         .accessibilityAdjustableAction { direction in
-            let current = scrubHour ?? (nowHour ?? 12)
-            switch direction {
-            case .increment: scrubHour = min(current + 1, 23)
-            case .decrement: scrubHour = max(current - 1, 0)
-            default: break
+            // The first swipe lands on where the day is now (or, on a past day, its peak); then each swipe is an hour.
+            if let current = scrubHour {
+                switch direction {
+                case .increment: scrubHour = min(current + 1, 23)
+                case .decrement: scrubHour = max(current - 1, 0)
+                default: break
+                }
+            } else {
+                scrubHour = min(max(nowHour ?? peak?.hour ?? 12, 0), 23)
             }
             adjustReset?.cancel()
             adjustReset = Task { @MainActor in
@@ -518,6 +530,7 @@ public struct PillarWeekBars: View {
     private let referenceDate: Date
     private let calendar: Calendar
     private let valueFormat: (Double) -> String
+    private let spokenValue: ((Double) -> String)?
 
     private static let plotHeight: CGFloat = 96
 
@@ -529,7 +542,8 @@ public struct PillarWeekBars: View {
         anchorDate: Date,
         referenceDate: Date,
         calendar: Calendar = .autoupdatingCurrent,
-        valueFormat: @escaping (Double) -> String
+        valueFormat: @escaping (Double) -> String,
+        spokenValue: ((Double) -> String)? = nil
     ) {
         self.days = days
         self.maximum = maximum
@@ -539,6 +553,7 @@ public struct PillarWeekBars: View {
         self.referenceDate = referenceDate
         self.calendar = calendar
         self.valueFormat = valueFormat
+        self.spokenValue = spokenValue
     }
 
     public var body: some View {
@@ -578,7 +593,7 @@ public struct PillarWeekBars: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(verbatim: summary(names: names)))
+        .accessibilityLabel(Text(verbatim: summary()))
     }
 
     @ViewBuilder
@@ -612,10 +627,16 @@ public struct PillarWeekBars: View {
         .frame(maxWidth: .infinity)
     }
 
-    private func summary(names: [String]) -> String {
-        days.prefix(7).enumerated().map { index, day in
+    /// Spoken, so: whole weekday names, the value with its unit (`spokenValue`, else the printed one), "no data" for a
+    /// past day without one, and nothing at all for days that have not happened yet.
+    private func summary() -> String {
+        let names = TrendsWeekdayNames.full(calendar: calendar)
+        let today = calendar.startOfDay(for: referenceDate)
+        return days.prefix(7).enumerated().compactMap { index, day in
+            guard calendar.startOfDay(for: day.date) <= today else { return nil }
             let name = names.indices.contains(index) ? names[index] : ""
-            return "\(name) \(day.value.map(valueFormat) ?? WidgetMetrics.missingValue)"
+            let reading = day.value.map { (spokenValue ?? valueFormat)($0) } ?? String(localized: "no data")
+            return "\(name) \(reading)"
         }.joined(separator: ", ")
     }
 }
@@ -626,9 +647,11 @@ public struct PillarWeekBars: View {
 /// the right and ringed. Reads as the shape of the last few weeks at a glance.
 public struct BandStrip: View {
     private let colors: [Color?]
-    private let summary: String
+    private let summary: String?
 
-    public init(_ colors: [Color?], summary: String) {
+    /// - Parameter summary: what VoiceOver says for the strip. Leave it nil when a sentence beside it already says
+    ///   the same, so the strip is skipped instead of read twice.
+    public init(_ colors: [Color?], summary: String? = nil) {
         self.colors = colors
         self.summary = summary
     }
@@ -652,6 +675,7 @@ public struct BandStrip: View {
         }
         .padding(.horizontal, 2)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(verbatim: summary))
+        .accessibilityHidden(summary == nil)
+        .accessibilityLabel(Text(verbatim: summary ?? ""))
     }
 }

@@ -856,7 +856,7 @@ struct PaperPillarDetailView: View {
         pillarTrend
         DrillInSeparator()
         chargeDrivers
-        if latest != nil, !previousScores.isEmpty {
+        if latest != nil {
             DrillInSeparator()
             chargeStanding
         }
@@ -935,6 +935,17 @@ struct PaperPillarDetailView: View {
             : (String(localized: "▼ \(size) vs yesterday"), StrandPalette.metricRose)
     }
 
+    /// The change from yesterday as VoiceOver says it ("up 5 from yesterday"): the arrow glyph alone reads as nothing.
+    private var recoverySpokenDelta: String? {
+        guard kind == .charge, let latest, let yesterday else { return nil }
+        let change = Int(latest.rounded()) - Int(yesterday.rounded())
+        if change == 0 { return String(localized: "even with yesterday") }
+        let size = abs(change)
+        return change > 0
+            ? String(localized: "up \(size) from yesterday")
+            : String(localized: "down \(size) from yesterday")
+    }
+
     @ViewBuilder
     private var heroDial: some View {
         if kind == .charge {
@@ -948,7 +959,8 @@ struct PaperPillarDetailView: View {
                 captionColor: recoveryDelta?.color ?? StrandPalette.textTertiary,
                 scaleLabels: ("0", "100"),
                 accessibilityText: latest.map {
-                    String(localized: "Recovery \(Int($0.rounded())) of 100, \(heroWord)")
+                    let base = String(localized: "Recovery \(Int($0.rounded())) of 100, \(heroWord)")
+                    return recoverySpokenDelta.map { "\(base), \($0)" } ?? base
                 } ?? String(localized: "Recovery not rated")
             )
         } else {
@@ -1135,27 +1147,45 @@ struct PaperPillarDetailView: View {
 
     // MARK: Recovery: how today ranks
 
+    /// A ranking against fewer than a week of scores says little; below this the section is one calm line instead.
+    private static let minimumRankedDays = 7
+
+    /// Where today's score sits among the days before it. Ties count as half a day beaten (mid-rank), so a score
+    /// equal to every earlier day reads 50%, not 0% and not 100%.
+    static func standingPercent(of current: Double, among values: [Double]) -> Int {
+        guard !values.isEmpty else { return 0 }
+        let below = values.filter { $0 < current }.count
+        let tied = values.filter { $0 == current }.count
+        return Int(((Double(below) + Double(tied) / 2) / Double(values.count) * 100).rounded())
+    }
+
     private var chargeStanding: some View {
         let current = latest ?? 0
         let values = previousScores
-        let below = values.filter { $0 < current }.count
-        let percent = Int((Double(below) / Double(max(values.count, 1)) * 100).rounded())
-        let good = values.filter { RecoveryBands.band(for: $0) == .high }.count
-        let moderate = values.filter { RecoveryBands.band(for: $0) == .medium }.count
-        let low = values.filter { RecoveryBands.band(for: $0) == .low }.count
-        var colors: [Color?] = baselineWindow.map { day in day.value.map { RecoveryBands.color(for: $0) } }
-        colors.append(RecoveryBands.color(for: current))
-        let sentence = String(localized: "Better than \(percent)% of your last \(values.count) days")
         return VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
             SectionEyebrow(title: String(localized: "How today ranks"), systemImage: "chart.bar.fill", tint: pillarDomainTint)
-            Text(sentence)
-                .font(StrandFont.subhead)
-                .foregroundStyle(StrandPalette.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-            BandStrip(colors, summary: sentence)
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: NoopMetrics.space3) { standingKeys(good: good, moderate: moderate, low: low) }
-                VStack(alignment: .leading, spacing: 4) { standingKeys(good: good, moderate: moderate, low: low) }
+            if values.count < Self.minimumRankedDays {
+                Text("Needs a week of scores")
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                let percent = Self.standingPercent(of: current, among: values)
+                let good = values.filter { RecoveryBands.band(for: $0) == .high }.count
+                let moderate = values.filter { RecoveryBands.band(for: $0) == .medium }.count
+                let low = values.filter { RecoveryBands.band(for: $0) == .low }.count
+                let colors: [Color?] = baselineWindow.map { day in day.value.map { RecoveryBands.color(for: $0) } }
+                    + [RecoveryBands.color(for: current)]
+                Text(String(localized: "Better than \(percent)% of your last \(values.count) days"))
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                // The sentence above already says it; the strip is the picture, so VoiceOver skips it.
+                BandStrip(colors)
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: NoopMetrics.space3) { standingKeys(good: good, moderate: moderate, low: low) }
+                    VStack(alignment: .leading, spacing: 4) { standingKeys(good: good, moderate: moderate, low: low) }
+                }
             }
         }
     }
@@ -1222,7 +1252,8 @@ struct PaperPillarDetailView: View {
                 anchorDate: anchorDate,
                 referenceDate: calendar.startOfDay(for: Date()),
                 calendar: calendar,
-                valueFormat: { DrillInFormat.number($0, fractionDigits: 1) }
+                valueFormat: { DrillInFormat.number($0, fractionDigits: 1) },
+                spokenValue: { String(localized: "\(DrillInFormat.number($0, fractionDigits: 1)) of 21") }
             )
         }
     }
@@ -1693,8 +1724,10 @@ struct PaperPillarDetailView: View {
         return Baselines.deviation(value, state: state)
     }
 
+    /// The seven days strictly before the viewed one: what its HRV, resting HR and breathing are measured against
+    /// (day keys sort as dates, so this is right for a past day too, not just for the latest).
     private var priorFactorDays: [DailyMetric] {
-        Array(repo.days.dropLast().suffix(7))
+        Array(repo.days.filter { $0.day < anchorDayKey }.sorted { $0.day < $1.day }.suffix(7))
     }
 
     private var hrvFactorBand: FactorBand? {

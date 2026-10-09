@@ -42,6 +42,9 @@ struct FullDayChartView: View {
     @State private var ownedOnly = true
 
     @State private var series: Repository.TimelineSeries = .empty
+    /// Seconds the shown DAY spent resting / steady / pushing, read once per day at a fixed one-minute resolution so the
+    /// totals never depend on how far the chart is zoomed. Empty until the read lands.
+    @State private var zoneSeconds: [Double] = [0, 0, 0]
     // #979 spin-off — day annotations, mirroring the classic Today's Overview HR markers: the main
     // night's band (labelled with its duration) and each workout's sport glyph. Day-scoped facts, so
     // they're loaded per shown day (NOT per zoom window — the chart clamps them into the visible
@@ -80,7 +83,7 @@ struct FullDayChartView: View {
             // under the eyebrow, the chart in the Live HR module's language), the time in range, the source.
             VStack(alignment: .leading, spacing: 0) {
                 timelineSection
-                if metric == .hr, !series.points.isEmpty {
+                if metric == .hr, zoneSeconds.reduce(0, +) > 0 {
                     DrillInSeparator()
                     zonesSection
                 }
@@ -89,6 +92,7 @@ struct FullDayChartView: View {
             }
         }
         .task(id: taskKey) { await reload() }
+        .task(id: zonesKey) { await reloadZones() }
         .task(id: annotationKey) { await reloadAnnotations() }
         .task { await landOnLatestDayIfNeeded() }
     }
@@ -107,6 +111,12 @@ struct FullDayChartView: View {
         let lo = Int(visibleWindow.lowerBound.timeIntervalSince1970)
         let hi = Int(visibleWindow.upperBound.timeIntervalSince1970)
         return "\(metric.rawValue)|\(Int(dayStart.timeIntervalSince1970))|\(ownedOnly)|\(lo)|\(hi)|\(repo.refreshSeq)|\(reloadTick)"
+    }
+
+    /// Time in range is a fact about the day: it re-reads when the day, the source scope or fresh strap data changes,
+    /// and deliberately not when the window moves.
+    private var zonesKey: String {
+        "\(metric == .hr)|\(Int(dayStart.timeIntervalSince1970))|\(ownedOnly)|\(repo.refreshSeq)"
     }
 
     // MARK: Controls
@@ -197,19 +207,13 @@ struct FullDayChartView: View {
     }
 
     private var dayLabel: String {
+        let calendar = Calendar.autoupdatingCurrent
         let today = Repository.logicalDayStart(Date())
-        if Calendar.current.isDate(dayStart, inSameDayAs: today) { return String(localized: "Today") }
+        if calendar.isDate(dayStart, inSameDayAs: today) { return String(localized: "Today") }
         let yesterday = Repository.dateByAddingCalendarDays(-1, to: today)
-        if Calendar.current.isDate(dayStart, inSameDayAs: yesterday) { return String(localized: "Yesterday") }
-        return Self.dayFmt.string(from: dayStart)
+        if calendar.isDate(dayStart, inSameDayAs: yesterday) { return String(localized: "Yesterday") }
+        return dayStart.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
     }
-
-    private static let dayFmt: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = .current
-        f.setLocalizedDateFormatFromTemplate("EEE d MMM")
-        return f
-    }()
 
     // MARK: Timeline section
 
@@ -250,7 +254,7 @@ struct FullDayChartView: View {
                               end: workout.end.timeIntervalSince1970,
                               symbol: workout.symbol)
             },
-            timeLabel: { Self.timeFmt.string(from: Date(timeIntervalSince1970: $0)) },
+            timeLabel: { Self.timeText(Date(timeIntervalSince1970: $0)) },
             title: metric.title,
             tint: timelineTint,
             unit: unitSuffix.trimmingCharacters(in: .whitespaces),
@@ -304,7 +308,7 @@ struct FullDayChartView: View {
     /// off-wrist gap, or a metric this device doesn't record). Never a fabricated flat line.
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
-            HeroValue(value: WidgetMetrics.missingValue, caption: String(localized: "No \(metric.title.lowercased()) here"),
+            HeroValue(value: WidgetMetrics.missingValue, caption: String(localized: "\(metric.title): no data here"),
                       captionPlacement: .below)
             ZStack {
                 TrendsGhostRail(height: 176)
@@ -334,44 +338,46 @@ struct FullDayChartView: View {
     }
 
     /// Low, average and peak of the plotted window, inline as Today's Live HR module closes: the value bright,
-    /// its caps label quiet.
+    /// its caps label quiet, and the peak with the time it happened ("76 PEAK · 7:40"). At larger text the keys
+    /// wrap onto a second and third line instead of truncating.
     private var statsFooter: some View {
         let values = series.points.map(\.value)
-        return HStack(spacing: NoopMetrics.space3) {
-            footKey(label: String(localized: "Low"), value: format(values.min() ?? 0))
-            footKey(label: String(localized: "Avg"), value: format(values.reduce(0, +) / Double(max(1, values.count))))
-            footKey(label: String(localized: "Peak"), value: format(values.max() ?? 0))
-            Spacer(minLength: 0)
+        let peak = series.points.max(by: { $0.value < $1.value })
+        let low = footKey(label: String(localized: "Low"), value: format(values.min() ?? 0))
+        let average = footKey(label: String(localized: "Avg"),
+                              value: format(values.reduce(0, +) / Double(max(1, values.count))))
+        let high = footKey(label: String(localized: "Peak"), value: format(peak?.value ?? 0),
+                           time: peak.map { Self.timeText($0.date) })
+        return ViewThatFits(in: .horizontal) {
+            HStack(spacing: NoopMetrics.space3) {
+                low; average; high
+                Spacer(minLength: 0)
+            }
+            VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+                HStack(spacing: NoopMetrics.space3) { low; average }
+                high
+            }
+            VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+                low; average; high
+            }
         }
         .accessibilityElement(children: .combine)
     }
 
-    private func footKey(label: String, value: String) -> some View {
+    private func footKey(label: String, value: String, time: String? = nil) -> some View {
         HStack(spacing: 4) {
             Text(value)
                 .font(StrandFont.micro.weight(.semibold))
                 .monospacedDigit()
                 .foregroundStyle(StrandPalette.textPrimary)
-            Text(label.uppercased())
+            Text((time.map { "\(label.uppercased()) · \($0)" }) ?? label.uppercased())
                 .font(StrandFont.micro)
+                .monospacedDigit()
                 .foregroundStyle(StrandPalette.textTertiary)
         }
     }
 
     // MARK: Time in range (heart rate)
-
-    /// How long the plotted window spent resting (under 60), steady (60 to 110) and pushing (110 and over).
-    /// Each plotted point stands for its bucket's width, so the totals are as fine as the plot is.
-    private var zoneSeconds: [Double] {
-        let width = Double(max(series.bucketSeconds, 1))
-        var totals = [0.0, 0.0, 0.0]
-        for point in series.points where point.value.isFinite {
-            if point.value < HRZoneStyle.restCeiling { totals[0] += width }
-            else if point.value < HRZoneStyle.steadyCeiling { totals[1] += width }
-            else { totals[2] += width }
-        }
-        return totals
-    }
 
     private var zonesSection: some View {
         let seconds = zoneSeconds
@@ -386,7 +392,7 @@ struct FullDayChartView: View {
                 title: String(localized: "Time in range"),
                 systemImage: "chart.bar.fill",
                 tint: .heart,
-                trailing: .text(zoomDomain == nil ? dayLabel : String(localized: "In view"))
+                trailing: .text(dayLabel)
             )
             VStack(alignment: .leading, spacing: NoopMetrics.space3) {
                 ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
@@ -397,10 +403,15 @@ struct FullDayChartView: View {
         }
     }
 
+    /// "2h 5m", "7m", "<1m" for a sliver, and the missing dash for none.
+    static func zoneDuration(_ seconds: Double) -> String {
+        if seconds <= 0 { return WidgetMetrics.missingValue }
+        if seconds < 60 { return String(localized: "<1m") }
+        return Duration.seconds(seconds).formatted(.units(allowed: [.hours, .minutes], width: .narrow))
+    }
+
     private func zoneRow(word: String, range: String, ink: Color, seconds: Double, fraction: Double) -> some View {
-        let duration = seconds > 0
-            ? Duration.seconds(seconds).formatted(.units(allowed: [.hours, .minutes], width: .narrow))
-            : WidgetMetrics.missingValue
+        let duration = Self.zoneDuration(seconds)
         return VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
                 Circle().fill(ink).frame(width: 6, height: 6).accessibilityHidden(true)
@@ -493,6 +504,28 @@ struct FullDayChartView: View {
         loading = false
     }
 
+    /// How long the shown DAY spent resting (under 60), steady (60 to 110) and pushing (110 and over): the whole
+    /// calendar day read at one-minute buckets whatever the chart's zoom, each bucket standing for its own width.
+    /// (1500 target points makes the read layer pick 60 s for a 23-, 24- or 25-hour day alike.)
+    private func reloadZones() async {
+        guard metric == .hr else { zoneSeconds = [0, 0, 0]; return }
+        let result = await repo.timelineSeries(
+            metric: .hr,
+            from: Int(dayStart.timeIntervalSince1970),
+            to: Int(nextDayStart.timeIntervalSince1970),
+            targetPoints: 1500
+        )
+        guard !Task.isCancelled else { return }
+        let width = Double(max(result.bucketSeconds, 1))
+        var totals = [0.0, 0.0, 0.0]
+        for point in result.points where point.value.isFinite {
+            if point.value < HRZoneStyle.restCeiling { totals[0] += width }
+            else if point.value < HRZoneStyle.steadyCeiling { totals[1] += width }
+            else { totals[2] += width }
+        }
+        zoneSeconds = totals
+    }
+
     /// #979 spin-off — load the shown day's sleep + workouts and scope them EXACTLY like the classic
     /// Today's Overview HR markers: `allSleepSessions` (imported AND on-device computed sources — a
     /// Bluetooth-only user's sleep lives under the computed source), longest overlapping block = the main
@@ -541,10 +574,6 @@ struct FullDayChartView: View {
                       : String(localized: "\(series.bucketSeconds)-second average")
     }
 
-    private var latestReadout: String? {
-        series.points.last.map { "\(format($0.value))\(unitSuffix)" }
-    }
-
     private var unitSuffix: String {
         switch metric {
         case .hr: return " bpm"
@@ -578,40 +607,12 @@ struct FullDayChartView: View {
         }
     }
 
-    /// Padded value range so the line never sits flush against an edge (mirrors MetricExplorer/TodayView).
-    private func valueRange(_ pts: [TrendPoint]) -> ClosedRange<Double> {
-        let vals = pts.map(\.value)
-        guard let lo = vals.min(), let hi = vals.max() else {
-            return metric == .hr ? 40...120 : 0...1
-        }
-        if hi <= lo { return (lo - 1)...(hi + 1) }
-        let pad = (hi - lo) * 0.12
-        return (lo - pad)...(hi + pad)
+    /// The time of day in the device's locale, time zone and 12/24-hour preference ("5:45 PM" / "17:45"). The style
+    /// resolves the autoupdating locale and time zone each time it formats, so a travelling or re-regioned device
+    /// never keeps showing the old one.
+    private static func timeText(_ date: Date) -> String {
+        date.formatted(.dateTime.hour().minute())
     }
-
-    private func gradientFor(_ m: Repository.TimelineMetric) -> Gradient {
-        switch m {
-        case .hr:
-            return Gradient(colors: [StrandPalette.metricRose.opacity(0.55), StrandPalette.metricRose])
-        case .skinTemp:
-            return Gradient(colors: [StrandPalette.strain033.opacity(0.55), StrandPalette.strain033])
-        case .hrv, .spo2:
-            return Gradient(colors: [StrandPalette.sleepLight.opacity(0.55), StrandPalette.sleepLight])
-        case .respiration, .motion:
-            return Gradient(colors: [StrandPalette.textSecondary.opacity(0.5), StrandPalette.textSecondary])
-        // #175: the band-state track uses the deep-sleep hue so it reads as a distinct sleep track.
-        case .bandSleepState:
-            return Gradient(colors: [StrandPalette.sleepDeep.opacity(0.55), StrandPalette.sleepDeep])
-        }
-    }
-
-    /// The time of day in the device's locale and 12/24-hour preference ("5:45 PM" / "17:45").
-    private static let timeFmt: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = .current
-        f.setLocalizedDateFormatFromTemplate("jmm")
-        return f
-    }()
 }
 
 #if os(macOS)
