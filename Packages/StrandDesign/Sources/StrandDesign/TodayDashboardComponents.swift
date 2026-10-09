@@ -417,7 +417,7 @@ private struct HealthMonitorEyebrowIcon: View {
     @ScaledMetric(relativeTo: .caption) private var column: CGFloat = 14.67
 
     var body: some View {
-        Image(systemName: "waveform.path.ecg")
+        Image(systemName: "heart.text.square")
             .font(StrandFont.caption)
             .foregroundStyle(StrandPalette.ink)
             .frame(width: column, alignment: .leading)
