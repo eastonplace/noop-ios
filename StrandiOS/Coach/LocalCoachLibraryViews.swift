@@ -146,9 +146,9 @@ struct LocalCoachMemoryView: View {
     // MARK: Entries
 
     private func categorySection(_ category: LocalCoachMemory.Category, _ entries: [LocalCoachMemory]) -> some View {
-        let look = Self.look(for: category)
-        return CoachSection(LocalizedStringKey(category.title), systemImage: look.symbol, tint: look.tint,
-                            trailing: .text("\(entries.count)")) {
+        // Every category wears the Coach accent, like the other Coach eyebrows; only the symbol tells them apart.
+        CoachSection(LocalizedStringKey(category.title), systemImage: Self.symbol(for: category), tint: .accent,
+                     trailing: .text("\(entries.count)")) {
             VStack(spacing: 0) {
                 ForEach(Array(entries.enumerated()), id: \.element.id) { index, memory in
                     if index > 0 {
@@ -184,15 +184,15 @@ struct LocalCoachMemoryView: View {
         .accessibilityHint("Edit")
     }
 
-    private static func look(for category: LocalCoachMemory.Category) -> (symbol: String, tint: DomainTint) {
+    private static func symbol(for category: LocalCoachMemory.Category) -> String {
         switch category {
-        case .goals: ("scope", .accent)
-        case .identity: ("person.crop.circle", .neutral)
-        case .lifestyle: ("leaf", .custom(StrandPalette.statusPositive))
-        case .preferences: ("slider.horizontal.3", .neutral)
-        case .events: ("calendar", .workout)
-        case .healthHistory: ("cross.case", .heart)
-        case .mood: ("face.smiling", .journal)
+        case .goals: "scope"
+        case .identity: "person.crop.circle"
+        case .lifestyle: "leaf"
+        case .preferences: "slider.horizontal.3"
+        case .events: "calendar"
+        case .healthHistory: "cross.case"
+        case .mood: "face.smiling"
         }
     }
 
