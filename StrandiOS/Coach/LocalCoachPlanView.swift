@@ -67,9 +67,6 @@ struct LocalCoachPlanView: View {
         .accessibilityIdentifier("coach.plan")
     }
 
-    /// Summaries longer than this collapse to three lines behind a More chip.
-    private static let summaryCollapseLength = 170
-
     // MARK: Header
 
     /// The plan as one summary: its state, title and summary, three facts and the actions that move it forward.
@@ -84,20 +81,8 @@ struct LocalCoachPlanView: View {
                 Text(plan.title).font(StrandFont.title1).foregroundStyle(StrandPalette.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
                 // A generated summary can run long (assumptions, caveats). Keep the header calm: three lines,
-                // with a chip to read the rest. VoiceOver always reads all of it.
-                let isLong = plan.summary.count > Self.summaryCollapseLength
-                Text(plan.summary).font(StrandFont.subhead).lineSpacing(3)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .lineLimit(isLong && !summaryExpanded ? 3 : nil)
-                if isLong {
-                    Button { withAnimation(.easeOut(duration: 0.2)) { summaryExpanded.toggle() } } label: {
-                        WidgetChip(appTitle: summaryExpanded ? "Less" : "More",
-                                   systemImage: summaryExpanded ? "chevron.up" : "chevron.down",
-                                   showsChevron: false, overhangs: false)
-                            .chipHitTarget()
-                    }
-                    .buttonStyle(.plain)
-                }
+                // with a chip to read the rest when it really runs past them. VoiceOver always reads all of it.
+                CoachCollapsibleSummary(text: plan.summary, isExpanded: $summaryExpanded)
             }
             CoachFactStrip(facts: [
                 CoachFact(label: "Workouts", value: "\(plan.days.count)"),
@@ -249,6 +234,64 @@ struct LocalCoachPlanView: View {
         }
         .accessibilityElement(children: .combine)
     }
+}
+
+/// A paragraph that collapses to three lines behind a More chip only when it really runs past three lines at the
+/// current width and text size. Measured with two hidden copies, not guessed from a character count.
+private struct CoachCollapsibleSummary: View {
+    let text: String
+    @Binding var isExpanded: Bool
+    @State private var fullHeight: CGFloat = 0
+    @State private var clampedHeight: CGFloat = 0
+
+    private var overflows: Bool { fullHeight > clampedHeight + 1 }
+
+    private func summary(lines: Int?) -> some View {
+        Text(text).font(StrandFont.subhead).lineSpacing(3)
+            .foregroundStyle(StrandPalette.textSecondary)
+            .lineLimit(lines)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+            summary(lines: isExpanded ? nil : 3)
+            if overflows {
+                Button { withAnimation(.easeOut(duration: 0.2)) { isExpanded.toggle() } } label: {
+                    WidgetChip(appTitle: isExpanded ? "Less" : "More",
+                               systemImage: isExpanded ? "chevron.up" : "chevron.down",
+                               showsChevron: false, overhangs: false)
+                        .chipHitTarget()
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .background {
+            ZStack {
+                summary(lines: nil).fixedSize(horizontal: false, vertical: true)
+                    .background(GeometryReader { proxy in
+                        Color.clear.preference(key: CoachFullHeightKey.self, value: proxy.size.height)
+                    })
+                summary(lines: 3).fixedSize(horizontal: false, vertical: true)
+                    .background(GeometryReader { proxy in
+                        Color.clear.preference(key: CoachClampedHeightKey.self, value: proxy.size.height)
+                    })
+            }
+            .hidden()
+            .accessibilityHidden(true)
+        }
+        .onPreferenceChange(CoachFullHeightKey.self) { fullHeight = $0 }
+        .onPreferenceChange(CoachClampedHeightKey.self) { clampedHeight = $0 }
+    }
+}
+
+private struct CoachFullHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
+private struct CoachClampedHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
 /// Exercise pictures from the catalog: found through an index built once, read and scaled off the main thread, and
