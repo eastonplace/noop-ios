@@ -107,7 +107,9 @@ final class LocalCoachEngine: ObservableObject {
     private let persistence: LocalCoachPersistence?
     private let model: (any LocalCoachModelDriver)?
     private let source: @MainActor () -> LocalCoachSourceScope
+    private let records: @MainActor () -> String
     private var scope: LocalCoachSourceScope
+    private var recordsToken: String
     private var sourceObserver: AnyCancellable?
     private var initialized = false
     private var stateReadable = true
@@ -124,7 +126,19 @@ final class LocalCoachEngine: ObservableObject {
     private var lastAutoBriefDay: String?
 
     var recordsUpdating: Bool { scope.fenced }
-    var recordContextID: String { scope.storageID + "|" + scope.revision + (scope.fenced ? "|updating" : "|ready") }
+    /// What the page re-reads its snapshot for: the source, whether its records are being updated, and whether new
+    /// records have arrived. The arrival token lives here and not in `LocalCoachSourceScope`: a scope change means a
+    /// different source and clears the conversation, while new records for the same source must only refresh.
+    var recordContextID: String {
+        scope.storageID + "|" + scope.revision + (scope.fenced ? "|updating" : "|ready") + "|" + recordsToken
+    }
+
+    /// The repository's record-availability signal. `refreshSeq` and the snapshot revision move only on a real change
+    /// to the cached records (the repository diffs before bumping them), and `loaded` flips when the first load
+    /// lands, so live-only publications leave the token still.
+    static func recordsToken(of repo: Repository) -> String {
+        "\(repo.loaded ? "loaded" : "loading")|\(repo.refreshSeq)|\(repo.todayHealthSnapshotRevision)"
+    }
 
     convenience init(repo: Repository) {
         let source: @MainActor () -> LocalCoachSourceScope = {
@@ -138,22 +152,33 @@ final class LocalCoachEngine: ObservableObject {
         do { store = try .appLocal() }
         catch { store = nil; failure = error.localizedDescription }
         self.init(data: LocalCoachDataService(repo: repo), persistence: store,
-                  model: Self.makeModel(), source: source)
+                  model: Self.makeModel(), source: source, records: { Self.recordsToken(of: repo) })
         if let failure { storageError = failure; errorText = failure; stateReadable = false }
+        observe(repo)
+    }
+
+    /// Follows the repository: a different source reconciles the conversation, and new records move
+    /// `recordContextID` so the page reads a fresh snapshot instead of keeping the one taken before they landed.
+    func observe(_ repo: Repository) {
         // Read after the synchronous publication finishes, not inside @Published's willChange callback.
         sourceObserver = repo.objectWillChange.receive(on: DispatchQueue.main).sink { [weak self] _ in
-            MainActor.assumeIsolated { self?.reconcileSource() }
+            MainActor.assumeIsolated {
+                self?.reconcileSource()
+                self?.reconcileRecords()
+            }
         }
     }
 
     init(data: (any LocalCoachDataAccess)?, persistence: LocalCoachPersistence?,
          model: (any LocalCoachModelDriver)?, source: @escaping @MainActor () -> LocalCoachSourceScope,
-         isPreview: Bool = false) {
+         records: @escaping @MainActor () -> String = { "" }, isPreview: Bool = false) {
         self.data = data
         self.persistence = persistence
         self.model = model
         self.source = source
+        self.records = records
         self.scope = source()
+        self.recordsToken = records()
         self.isPreview = isPreview
         if !isPreview {
             do { preferences = try persistence?.loadPreferences() ?? .init() }
@@ -593,6 +618,14 @@ final class LocalCoachEngine: ObservableObject {
         cancel()
         history = []
         historyFloor = Date()
+    }
+
+    private func reconcileRecords() {
+        guard !isPreview else { return }
+        let current = records()
+        guard current != recordsToken else { return }
+        objectWillChange.send()
+        recordsToken = current
     }
 
     private func reconcileSource() {

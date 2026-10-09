@@ -1,5 +1,6 @@
 #if os(iOS)
 import XCTest
+import WhoopStore
 @testable import NOOP
 
 @MainActor
@@ -597,6 +598,79 @@ final class LocalCoachEngineTests: XCTestCase {
         XCTAssertTrue(reply.toolNames.contains("read_sleep"))
         XCTAssertTrue(reply.evidence.contains { $0.id == "sleep-1" })
         XCTAssertTrue(reply.text.contains("7"), reply.text)
+    }
+
+    // MARK: Records that land after the page opened
+
+    private let readTime = Date(timeIntervalSince1970: 1_790_438_400)
+
+    func testSnapshotReadBeforeRecordsLoadRefreshesWhenTheyLand() async throws {
+        let repo = Repository(deviceId: "coach-late")
+        let engine = repositoryBacked(repo, directory: try directory())
+        engine.addMemory(text: "Build strength", category: .goals)
+
+        // The page opens before the repository has loaded, so nothing is recorded yet.
+        await engine.refresh()
+        XCTAssertEqual(recovery(engine), "Not recorded")
+        let opened = engine.recordContextID
+
+        // The records land afterwards, as the repository publishes its first load.
+        repo.days = [day("2026-09-02", recovery: 71, sleep: 420)]
+        repo.loaded = true
+        repo.refreshSeq += 1
+        try await waitUntil { engine.recordContextID != opened }
+
+        // The page's `.task(id: recordContextID)` runs again and the snapshot now carries them.
+        await engine.refresh()
+        XCTAssertEqual(recovery(engine).flatMap(Double.init), 71)
+        XCTAssertEqual(engine.snapshot.latestDay, "2026-09-02")
+        XCTAssertEqual(engine.memories.map(\.text), ["Build strength"], "New records are not a source change.")
+    }
+
+    func testPublicationsThatChangeNoRecordsLeaveTheRecordContextAlone() async throws {
+        let repo = Repository(deviceId: "coach-live")
+        repo.loaded = true
+        repo.days = [day("2026-09-02", recovery: 71, sleep: 420)]
+        let engine = repositoryBacked(repo, directory: try directory())
+        let settled = engine.recordContextID
+
+        // Publishes, but changes nothing the Coach reads: the page must not re-run its read.
+        repo.vitalRows = []
+        repo.importedSleep = [:]
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(engine.recordContextID, settled)
+
+        // A real repository change does move it.
+        repo.refreshSeq += 1
+        try await waitUntil { engine.recordContextID != settled }
+    }
+
+    /// An engine over a real repository, wired as the app wires it: the production record token and observer.
+    private func repositoryBacked(_ repo: Repository, directory: URL) -> LocalCoachEngine {
+        let service = LocalCoachDataService(repo: repo, access: { true }, now: { self.readTime })
+        let engine = LocalCoachEngine(data: service, persistence: .init(directory: directory), model: nil,
+                                      source: { .init(storageID: "a", dataSourceID: repo.deviceId, revision: "1") },
+                                      records: { LocalCoachEngine.recordsToken(of: repo) })
+        engine.observe(repo)
+        engine.preferences.usePersonalData = true
+        return engine
+    }
+
+    private func recovery(_ engine: LocalCoachEngine) -> String? {
+        engine.snapshot.metrics.first { $0.id == "recovery" }?.value
+    }
+
+    /// The repository observer hops to the main queue, so give it room to run.
+    private func waitUntil(_ condition: () -> Bool) async throws {
+        var waited = 0
+        while !condition() && waited < 300 { try await Task.sleep(for: .milliseconds(10)); waited += 1 }
+        XCTAssertTrue(condition(), "The condition did not become true in time.")
+    }
+
+    private func day(_ key: String, recovery: Double?, sleep: Double?) -> DailyMetric {
+        DailyMetric(day: key, totalSleepMin: sleep, efficiency: nil, deepMin: nil, remMin: nil,
+                    lightMin: nil, disturbances: nil, restingHr: nil, avgHrv: nil,
+                    recovery: recovery, strain: nil, exerciseCount: nil, strainVersion: nil)
     }
 
     private func make(data: TestCoachData = TestCoachData(), model: TestCoachModel = TestCoachModel(),

@@ -102,14 +102,6 @@ struct LocalCoachView: View {
         .sheet(isPresented: $showAttachment) { attachmentReview.noopSheetPresentation(largeFirst: true) }
         .task { visible = true; consumeSiriDraft() }
         .task(id: coach.recordContextID) { await coach.refresh() }
-        #if DEBUG
-        // A capture launched straight into a page opens before the demo records land; read them once they have.
-        .task {
-            guard QACoachPage.requested != nil else { return }
-            try? await Task.sleep(for: .seconds(5))
-            await coach.refresh()
-        }
-        #endif
         .onDisappear { visible = false; stopInputs() }
         .onReceive(NotificationCenter.default.publisher(for: LocalCoachIntentBridge.notification)) { _ in consumeSiriDraft() }
         .onChange(of: scenePhase) { _, phase in
