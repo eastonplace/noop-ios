@@ -36,6 +36,62 @@ public struct TodayPillarModel: Identifiable, Equatable {
     }
 }
 
+/// The one hairline Today draws between its sections: the app's `hairline` token at the 1pt weight the flat
+/// cards use, across the full column.
+struct TodayHairline: View {
+    var body: some View {
+        Rectangle()
+            .fill(StrandPalette.hairline)
+            .frame(height: 1)
+            .accessibilityHidden(true)
+    }
+}
+
+/// The separator between two Today sections. `above` and `below` are layout air in points. They are not equal
+/// on purpose: the sections' ink does not end where their layout does (a footer chip's capsule hangs 2pt below
+/// its row, a header pill's outline sits half a point outside its row), so the air is chosen per boundary to make
+/// the VISIBLE gap above and below every separator the same.
+public struct TodaySectionSeparator: View {
+    private let above: CGFloat
+    private let below: CGFloat
+
+    public init(above: CGFloat, below: CGFloat) {
+        self.above = above
+        self.below = below
+    }
+
+    public var body: some View {
+        TodayHairline()
+            .padding(.top, above)
+            .padding(.bottom, below)
+    }
+}
+
+/// The surface of a Today section. In the app's flat presentation it draws no hairline of its own (Today draws
+/// exactly one separator between each pair of sections) and pads only the sides that have no separator; anywhere
+/// else it is the established `PaperCard`.
+private struct TodaySectionSurface<Content: View>: View {
+    var top: CGFloat = 0
+    var bottom: CGFloat = 0
+    @ViewBuilder var content: () -> Content
+    @Environment(\.contentSurfacePresentation) private var presentation
+
+    @ViewBuilder var body: some View {
+        #if os(iOS)
+        if presentation == .flat {
+            content()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, top)
+                .padding(.bottom, bottom)
+        } else {
+            PaperCard(padding: 12, content: content)
+        }
+        #else
+        PaperCard(padding: 12, content: content)
+        #endif
+    }
+}
+
 public struct TodayHeroCard: View {
     public let pillars: [TodayPillarModel]
     public let glance: String
@@ -58,14 +114,16 @@ public struct TodayHeroCard: View {
     }
 
     public var body: some View {
-        PaperCard(padding: 12) {
-            VStack(spacing: 12) {
+        TodaySectionSurface(top: 12) {
+            // The dials / glance hairline is the same 1pt hairline as the ones between sections, with the air
+            // above and below chosen (like theirs) to make the visible gap the same on both sides.
+            VStack(spacing: 0) {
                 HStack(alignment: .top, spacing: 6) {
                     ForEach(pillars) { pillar in
                         TodayPillarGauge(model: pillar) { onPillar(pillar.id) }
                     }
                 }
-                Divider().overlay(StrandPalette.hairline)
+                TodayHairline().padding(.top, 9.87).padding(.bottom, 11.87)
                 HStack(spacing: 8) {
                     Button(action: onOpenWorkouts) {
                         HStack(spacing: 9) {
@@ -73,6 +131,7 @@ public struct TodayHeroCard: View {
                                 .font(.system(size: 13, weight: .semibold))
                                 .foregroundStyle(StrandPalette.strainAccent)
                                 .frame(width: 30, height: 30)
+                                .background(Circle().fill(DomainTint.strain.accent.opacity(0.14)))
                             VStack(alignment: .leading, spacing: 2) {
                                 HStack(spacing: 5) {
                                     Text("Today at a glance", bundle: .module)
@@ -83,7 +142,7 @@ public struct TodayHeroCard: View {
                                             .foregroundStyle(StrandPalette.liveRed)
                                     }
                                 }
-                                Text(verbatim: glance)
+                                Self.glanceText(glance)
                                     .font(StrandFont.footnote)
                                     .monospacedDigit()
                                     .foregroundStyle(StrandPalette.textSecondary)
@@ -103,17 +162,53 @@ public struct TodayHeroCard: View {
                         Button(workoutIsActive ? String(localized: "Open", bundle: .module)
                                                : String(localized: "Start", bundle: .module),
                                action: onWorkoutAction)
-                            .font(StrandFont.caption.weight(.semibold))
-                            .foregroundStyle(StrandPalette.surfaceRaised)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 7)
-                            .background(StrandPalette.textPrimary, in: Capsule())
-                            .buttonStyle(.plain)
+                            .buttonStyle(TodayWorkoutPillStyle())
                             .accessibilityLabel(workoutIsActive ? "Open active workout" : "Start workout")
                     }
                 }
             }
         }
+    }
+
+    /// The glance line with its values bright and its words muted, by colour alone ("**1** workout ·
+    /// **6,856** steps · **528** cal"). Each " · " segment leads with its value; "—" is a value too but reads
+    /// tertiary. A line that does not parse into any value renders as plain text in the caller's ink.
+    private static func glanceText(_ glance: String) -> Text {
+        func run(_ text: String, _ color: Color) -> AttributedString {
+            var piece = AttributedString(text)
+            piece.foregroundColor = color
+            return piece
+        }
+        let separator = " · "
+        var line = AttributedString()
+        var foundValue = false
+        for (index, segment) in glance.components(separatedBy: separator).enumerated() {
+            if index > 0 { line += run(separator, StrandPalette.textSecondary) }
+            let token = segment.prefix { $0 != " " }
+            let isMissing = token == WidgetMetrics.missingValue
+            guard isMissing || token.first?.isNumber == true else {
+                line += run(segment, StrandPalette.textSecondary)
+                continue
+            }
+            foundValue = true
+            line += run(String(token), isMissing ? StrandPalette.textTertiary : StrandPalette.textPrimary)
+            line += run(String(segment.dropFirst(token.count)), StrandPalette.textSecondary)
+        }
+        return foundValue ? Text(line) : Text(verbatim: glance)
+    }
+}
+
+/// The Start / Open pill: the brand green with dark ink, the same capsule, type size and padding as ever.
+/// The whole padded pill is the button (and dips a touch while pressed), not just its label.
+private struct TodayWorkoutPillStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(StrandFont.caption.weight(.semibold))
+            .foregroundStyle(StrandPalette.appCanvas)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(StrandPalette.ink, in: Capsule())
+            .opacity(configuration.isPressed ? 0.78 : 1)
     }
 }
 
@@ -122,10 +217,93 @@ private struct TodayPillarGauge: View {
     let action: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var revealed = false
+    /// One shared icon column, so the three labels start at the same offset whatever symbol precedes them.
+    @ScaledMetric(relativeTo: .caption) private var symbolColumn: CGFloat = 14
 
     private var fraction: Double {
         guard let value = model.value, model.maximum > 0 else { return 0 }
         return min(max(value / model.maximum, 0), 1)
+    }
+
+    /// The unfilled part of the dial: the pillar's own accent at a whisper, the way `DomainTint` lays its
+    /// wash over a card. A dial with no value has no domain to speak of, so its dashed track stays neutral.
+    private var trackColor: Color {
+        model.value == nil
+            ? StrandPalette.textTertiary.opacity(0.2)
+            : model.accent.opacity(0.16)
+    }
+
+    /// The pillar's colour for its symbol and state line. With no value there is no domain colour to show,
+    /// so a missing dial reads quietly in tertiary ink rather than shouting its accent.
+    private var inkColor: Color {
+        model.value == nil ? StrandPalette.textTertiary : model.accent
+    }
+
+    /// The empty dial's track: distinct round dots, evenly spaced about `dotPitch` apart, with one dot centred
+    /// on each end of the 240° arc. The arc's path radius is `side / 2` (the stroke of a filled track straddles
+    /// it), so its length is known exactly and the pitch is solved to divide it evenly. The dots are drawn
+    /// individually: a dashed stroke can drop the final dash when it lands on the very end of the path.
+    @ViewBuilder
+    private func dottedTrack(side: CGFloat, width: CGFloat) -> some View {
+        let dotPitch: CGFloat = 13.5
+        let radius = side / 2
+        let arc = 2 * .pi * radius * (2 / 3)
+        let intervals = max(1, Int((arc / dotPitch).rounded()))
+        ForEach(0...intervals, id: \.self) { index in
+            let angle = Angle.degrees(150 + 240 * Double(index) / Double(intervals))
+            Circle().fill(trackColor)
+                .frame(width: width, height: width)
+                .offset(x: cos(angle.radians) * radius, y: sin(angle.radians) * radius)
+        }
+    }
+
+    /// The domain symbol of a known pillar; an unknown id gets no icon.
+    private var symbol: String? {
+        switch model.id {
+        case "recovery": "heart.fill"
+        case "strain": "flame.fill"
+        case "sleep": "moon.stars.fill"
+        default: nil
+        }
+    }
+
+    /// The `SectionEyebrow` treatment at the dial label's original size: a domain symbol in the accent, then
+    /// the letter-spaced uppercase name in secondary ink. If a large Dynamic Type size leaves no room, the
+    /// symbol goes first and only then does the name scale down. Nothing here is height-flexible at normal
+    /// sizes (no `minimumScaleFactor` on the common path), so every column's label row is the same height.
+    private var eyebrow: some View {
+        ViewThatFits(in: .horizontal) {
+            eyebrowRow(showsSymbol: true)
+            eyebrowRow(showsSymbol: false)
+            eyebrowRow(showsSymbol: false).minimumScaleFactor(0.6)
+        }
+    }
+
+    private func eyebrowRow(showsSymbol: Bool) -> some View {
+        HStack(spacing: 6) {
+            if showsSymbol, let symbol {
+                // Taking no height of its own keeps a tall glyph (the flame) from pushing one column's
+                // state line below its neighbours'.
+                Image(systemName: symbol)
+                    .font(StrandFont.caption)
+                    .foregroundStyle(inkColor)
+                    .frame(width: symbolColumn, height: 0)
+            }
+            Text(verbatim: model.label)
+                .font(StrandFont.caption.weight(.semibold))
+                .tracking(StrandFont.overlineTracking)
+                .textCase(.uppercase)
+                .foregroundStyle(StrandPalette.textSecondary)
+                .lineLimit(1)
+        }
+    }
+
+    /// The detail line, unless the dial is unrated and the line is only the missing-value dash (or empty):
+    /// the dial's own dash and its state word already say that, so a lone "—" under them is noise.
+    private var visibleDetail: String? {
+        guard let detail = model.detail else { return nil }
+        if model.value == nil, detail.isEmpty || detail == WidgetMetrics.missingValue { return nil }
+        return detail
     }
 
     var body: some View {
@@ -136,11 +314,13 @@ private struct TodayPillarGauge: View {
                     let width: CGFloat = 8
                     let radius = side / 2 - width / 2
                     ZStack {
-                        Circle().trim(from: 0, to: 2 / 3)
-                            .stroke(StrandPalette.surfaceInset,
-                                    style: StrokeStyle(lineWidth: width, lineCap: .round,
-                                                       dash: model.value == nil ? [1, 5] : []))
-                            .rotationEffect(.degrees(150))
+                        if model.value == nil {
+                            dottedTrack(side: side, width: width)
+                        } else {
+                            Circle().trim(from: 0, to: 2 / 3)
+                                .stroke(trackColor, style: StrokeStyle(lineWidth: width, lineCap: .round))
+                                .rotationEffect(.degrees(150))
+                        }
                         if let target = model.targetBand {
                             Circle().trim(from: (2 / 3) * target.lowerBound,
                                           to: (2 / 3) * target.upperBound)
@@ -148,7 +328,8 @@ private struct TodayPillarGauge: View {
                                         style: StrokeStyle(lineWidth: width))
                                 .rotationEffect(.degrees(150))
                         }
-                        ForEach(model.bandTicks, id: \.self) { tick in
+                        // An empty dial has no scale to mark, and the ticks would cut through its dots.
+                        ForEach(model.value == nil ? [] : model.bandTicks, id: \.self) { tick in
                             let angle = Angle.degrees(150 + 240 * tick)
                             Capsule().fill(StrandPalette.hairlineStrong)
                                 .frame(width: 1.5, height: width + 4)
@@ -171,9 +352,9 @@ private struct TodayPillarGauge: View {
                     .frame(maxWidth: .infinity)
                 }
                 .frame(height: 100)
-                Text(verbatim: model.label).font(StrandFont.caption.weight(.semibold)).lineLimit(1)
-                Text(verbatim: model.state).font(StrandFont.micro).foregroundStyle(model.accent).lineLimit(1)
-                if let detail = model.detail {
+                eyebrow
+                Text(verbatim: model.state).font(StrandFont.micro).foregroundStyle(inkColor).lineLimit(1)
+                if let detail = visibleDetail {
                     Text(verbatim: detail).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
                         .lineLimit(1).minimumScaleFactor(0.7)
                 }
@@ -236,19 +417,21 @@ public struct HealthDashboardCard: View {
     }
 
     public var body: some View {
-        PaperCard(padding: 12) {
+        TodaySectionSurface(bottom: 12) {
             VStack(alignment: .leading, spacing: 9) {
-                HStack(alignment: .firstTextBaseline) {
-                    VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 3) {
+                    // The widget eyebrow, as on Live HR and Stress: ink symbol, caps title, quiet chip.
+                    HStack(spacing: NoopMetrics.space2) {
+                        HealthMonitorEyebrowIcon()
                         Text("Health Monitor", bundle: .module).strandOverline()
-                        Text(verbatim: status).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                        Spacer(minLength: NoopMetrics.space2)
+                        Button(action: onCustomize) {
+                            WidgetChip("Customise", systemImage: "slider.horizontal.3", showsChevron: false, overhangs: false)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Customise")
                     }
-                    Spacer(minLength: 8)
-                    Button(action: onCustomize) {
-                        Label("CUSTOMISE", systemImage: "slider.horizontal.3")
-                            .font(StrandFont.micro.weight(.bold))
-                    }
-                    .buttonStyle(.plain).foregroundStyle(StrandPalette.accent)
+                    Text(verbatim: status).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
                 }
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: 3), spacing: 0) {
                     ForEach(Array(tiles.enumerated()), id: \.element.id) { index, tile in
@@ -294,9 +477,30 @@ public struct HealthDashboardCard: View {
     }
 }
 
+/// The Health Monitor symbol: ink, in the same `caption` size as the other eyebrow symbols, in a column as
+/// wide as the heart / bolt.heart on Live HR and Stress so all three titles start at the same x.
+private struct HealthMonitorEyebrowIcon: View {
+    @ScaledMetric(relativeTo: .caption) private var column: CGFloat = 14.67
+
+    var body: some View {
+        Image(systemName: "heart.text.square")
+            .font(StrandFont.caption)
+            .foregroundStyle(StrandPalette.ink)
+            .frame(width: column, alignment: .leading)
+            .accessibilityHidden(true)
+    }
+}
+
 public struct HealthDashboardTile: View {
     public let model: HealthDashboardTileModel
     public init(model: HealthDashboardTileModel) { self.model = model }
+
+    /// A number reads in the primary ink and the missing dash in the tertiary. A value with no digit in it
+    /// (a word such as "Calibrating") is a status, not a measurement, so it reads in the secondary ink.
+    private var valueInk: Color {
+        if model.value == WidgetMetrics.missingValue { return StrandPalette.textTertiary }
+        return model.value.contains(where: \.isNumber) ? StrandPalette.textPrimary : StrandPalette.textSecondary
+    }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -319,13 +523,13 @@ public struct HealthDashboardTile: View {
             }
             HStack(alignment: .firstTextBaseline, spacing: 2) {
                 Text(verbatim: model.value).font(StrandFont.number(17, weight: .semibold)).monospacedDigit()
-                    .foregroundStyle(model.value == "—" ? StrandPalette.textTertiary : StrandPalette.textPrimary)
+                    .foregroundStyle(valueInk)
                     .lineLimit(1).minimumScaleFactor(0.65)
                 if let unit = model.unit { Text(verbatim: unit).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary) }
             }
             if model.spark.count > 1 {
                 Sparkline(values: model.spark, gradient: Gradient(colors: [model.accent.opacity(0.4), model.accent]),
-                          lineWidth: 1.3, showsArea: false, showsHead: false, showsHover: false)
+                          lineWidth: 1.3, showsArea: true, showsHead: false, showsHover: false)
                     .frame(height: 12).accessibilityHidden(true)
             } else {
                 Color.clear.frame(height: 12)

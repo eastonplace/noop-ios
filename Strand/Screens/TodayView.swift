@@ -910,15 +910,17 @@ struct TodayView: View {
 
     /// A first-paint metric is current only when its own day matches the current logical day. The snapshot
     /// display day is not an age anchor because it can lag the wall clock during the rollover handoff.
+    /// `dayLabel` renders the stored `yyyy-MM-dd` day key for display; the default keeps the raw key.
     nonisolated static func firstPaintMetricDetail(
         metricDay: String?, snapshotDisplayDay: String?, currentLogicalDay: String,
-        freshness: TodayHealthMetricFreshness? = nil
+        freshness: TodayHealthMetricFreshness? = nil,
+        dayLabel: (String) -> String = { $0 }
     ) -> String? {
         guard let metricDay = metricDay ?? snapshotDisplayDay,
               metricDay != currentLogicalDay || freshness == .stale
         else { return nil }
-        if freshness == .stale { return String(localized: "Stale · \(metricDay)") }
-        return String(localized: "Last scored · \(metricDay)")
+        if freshness == .stale { return String(localized: "Stale · \(dayLabel(metricDay))") }
+        return String(localized: "Last scored · \(dayLabel(metricDay))")
     }
 
     nonisolated private static func dayDistance(from earlierDay: String, to laterDay: String) -> Int? {
@@ -957,7 +959,8 @@ struct TodayView: View {
                                                metric, value: value, snapshot: snapshot,
                                                currentLogicalDay: currentLogicalDay,
                                                currentLocalDay: currentLocalDay,
-                                               nowTimestamp: nowTimestamp))
+                                               nowTimestamp: nowTimestamp),
+                                           dayLabel: { Self.lastChargeDateFmt($0) })
     }
 
     private func resolvedDisplayDay(for key: DisplayDayKey) -> DailyMetric? {
@@ -1839,6 +1842,26 @@ struct TodayView: View {
         refreshScreenSnapshot()
     }
 
+    /// Today's four top-level sections: dials and glance (one card, its own divider), Live Heart Rate,
+    /// Stress and Health Monitor. Exactly one hairline sits between each adjacent pair and none after the last;
+    /// every separator shows the same visible gap above and below (see `TodaySectionSeparator`). The
+    /// conditional cards above (alert banner, auto workout, active workout, syncing note) are outside this rule
+    /// and keep the column's normal spacing.
+    @ViewBuilder
+    private var paperSections: some View {
+        if screenSnapshot != nil {
+            VStack(alignment: .leading, spacing: 0) {
+                paperPillarCard
+                TodaySectionSeparator(above: 12, below: 13.3)
+                paperLiveHeartRateCard
+                TodaySectionSeparator(above: 15, below: 13.3)
+                paperStressCard
+                TodaySectionSeparator(above: 15, below: 13.3)
+                paperHealthMonitorCard
+            }
+        }
+    }
+
     @ViewBuilder
     private var paperPillarCard: some View {
         if let screenSnapshot {
@@ -2128,10 +2151,7 @@ struct TodayView: View {
                 // score can legitimately trail Sleep until the corresponding R-R frames land, so surface
                 // the in-progress sync instead of leaving a bare "Not rated" that looks final.
                 SyncingHistoryNoteIfBackfilling()
-                paperPillarCard
-                paperLiveHeartRateCard
-                paperStressCard
-                paperHealthMonitorCard
+                paperSections
                 // D17 (Easton, 2026-07-10): Key Metrics section removed — it duplicated the
                 // pillar trio + Health Monitor. The editor/prefs code stays; only the Today
                 // rendering is gone.
@@ -2975,17 +2995,19 @@ struct TodayView: View {
 
     /// A dashboard card's WHOOP-token tint (icon + accent). Score cards take their domain colour; vitals
     /// take their biometric hue; everything else takes the blue accent. No gold (WHOOP), tokens only.
+    /// Cards that have a `DomainTint` (stress, HRV, resting HR, sleep) read it from there, so a metric keeps
+    /// one colour across Today, the Coach cards and the catalog.
     private func dashboardTint(_ card: DashboardCard) -> Color {
         switch card {
-        case .stress:      return StrandPalette.effortColor
+        case .stress:      return DomainTint.stress.accent
         case .fitnessAge:  return StrandPalette.recoveryData
         case .vitality:    return StrandPalette.restColor
-        case .hrv:         return StrandPalette.metricPurple
-        case .restingHr:   return StrandPalette.metricRose
+        case .hrv:         return DomainTint.hrv.accent
+        case .restingHr:   return DomainTint.heart.accent
         case .respiratory: return StrandPalette.accent
         case .bloodOxygen: return StrandPalette.metricCyan
         case .skinTemp:    return StrandPalette.metricAmber
-        case .sleep:       return StrandPalette.restColor
+        case .sleep:       return DomainTint.sleep.accent
         case .steps:       return StrandPalette.metricCyan
         case .calories:    return StrandPalette.metricAmber
         case .hydration:   return StrandPalette.metricCyan

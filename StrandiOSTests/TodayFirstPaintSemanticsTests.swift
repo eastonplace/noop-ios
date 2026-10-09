@@ -232,4 +232,19 @@ final class TodayFirstPaintSemanticsTests: XCTestCase {
             metricDay: nil, snapshotDisplayDay: "2026-08-02", currentLogicalDay: currentDay),
                        "Last scored · 2026-08-02")
     }
+
+    func testDetailPassesTheDayKeyThroughTheDisplayLabelWithoutChangingWhenItAppears() {
+        let currentDay = "2026-10-08"
+        XCTAssertEqual(TodayView.firstPaintMetricDetail(
+            metricDay: currentDay, snapshotDisplayDay: currentDay, currentLogicalDay: currentDay,
+            freshness: .stale, dayLabel: { _ in "Oct 8" }),
+                       "Stale · Oct 8")
+        XCTAssertEqual(TodayView.firstPaintMetricDetail(
+            metricDay: "2026-10-07", snapshotDisplayDay: currentDay, currentLogicalDay: currentDay,
+            dayLabel: { _ in "Oct 7" }),
+                       "Last scored · Oct 7")
+        XCTAssertNil(TodayView.firstPaintMetricDetail(
+            metricDay: currentDay, snapshotDisplayDay: currentDay, currentLogicalDay: currentDay,
+            freshness: .fresh, dayLabel: { _ in "Oct 8" }))
+    }
 }

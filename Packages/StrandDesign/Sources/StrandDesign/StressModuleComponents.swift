@@ -268,18 +268,24 @@ public struct StressModuleCard: View {
         }
     }
 
+    /// The widget eyebrow: the stress symbol in the current band's colour (its halo breathes as the old status
+    /// dot did, wider on a high day), the caps title, and the value as a tone pill.
     private var header: some View {
-        HStack(spacing: 6) {
-            StressBreathingDot(color: accent, active: (value ?? 0) >= 2)
+        HStack(spacing: NoopMetrics.space2) {
+            EyebrowPulseIcon(systemName: "bolt.heart",
+                             color: accent,
+                             period: isHigh ? 1.6 : 2.6,
+                             spread: isHigh ? 1.9 : 1.45)
             Text(dateContext.title)
-                .font(StrandFont.overline)
-                .tracking(StrandFont.overlineTracking)
-                .foregroundStyle(StrandPalette.textSecondary)
-            Spacer(minLength: 8)
+                .strandOverline()
+            Spacer(minLength: NoopMetrics.space2)
             valueBadge
         }
     }
 
+    private var isHigh: Bool { (value ?? 0) >= 2 }
+
+    /// The Coach state pill (shared chrome with the Live HR zone pill), washed in the band colour.
     private var valueBadge: some View {
         HStack(spacing: 4) {
             if scrubHour != nil {
@@ -289,15 +295,12 @@ public struct StressModuleCard: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.7)))
             }
             Text(displayedValue.map { String(format: "%.1f", $0) } ?? "–.–")
-                .font(StrandFont.captionNumber)
+                .statePillLabel()
                 .monospacedDigit()
                 .foregroundStyle(displayedValue == nil ? StrandPalette.textTertiary : StrandPalette.textPrimary)
                 .contentTransition(.numericText())
         }
-        .padding(.horizontal, 8)
-        .frame(height: 24)
-        .background(accent.opacity(displayedValue == nil ? 0.08 : 0.14), in: Capsule(style: .continuous))
-        .overlay(Capsule(style: .continuous).strokeBorder(accent.opacity(0.25), lineWidth: 0.75))
+        .statePillChrome(tint: accent)
         .animation(StrandMotion.interactive, value: scrubHour != nil)
     }
 
@@ -445,35 +448,47 @@ public struct StressModuleCard: View {
 
     // MARK: Band split footer
 
+    /// One inline line: the three band groups at an even 12pt, then the "Details ›" chip. When that line can't
+    /// fit (large Dynamic Type) the chip drops to its chevron before any group is squeezed.
     @ViewBuilder
     private var bandSplit: some View {
         let counts = bandCounts
         if counts.reduce(0, +) > 0 {
-            HStack(spacing: 10) {
-                bandKey(count: counts[0], word: "calm", color: StressHeatStyle.calm)
-                bandKey(count: counts[1], word: "moderate", color: StressHeatStyle.moderate)
-                bandKey(count: counts[2], word: "high", color: StressHeatStyle.high)
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(StrandPalette.textTertiary)
+            ViewThatFits(in: .horizontal) {
+                bandSplitLine(counts: counts, chip: WidgetChip("Details"))
+                bandSplitLine(counts: counts, chip: WidgetChip())
             }
         } else {
-            HStack {
-                Text(presentationMode == .dailyOnly
-                     ? (dateContext.isToday
-                        ? "No same-day signal to score yet."
-                        : "No hourly signal was recorded for this date.")
-                     : presentationMode == .intradayOnly
-                        ? "Same-day signal is present but not yet scorable."
-                        : "Wear through a few days to unlock the hourly ribbon.")
-                    .font(StrandFont.micro)
-                    .foregroundStyle(StrandPalette.textTertiary)
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(StrandPalette.textTertiary)
+            ViewThatFits(in: .horizontal) {
+                emptyBandSplitLine(chip: WidgetChip("Details"))
+                emptyBandSplitLine(chip: WidgetChip())
             }
+        }
+    }
+
+    private func bandSplitLine(counts: [Int], chip: WidgetChip) -> some View {
+        HStack(spacing: NoopMetrics.space3) {
+            bandKey(count: counts[0], word: "calm", color: StressHeatStyle.calm)
+            bandKey(count: counts[1], word: "moderate", color: StressHeatStyle.moderate)
+            bandKey(count: counts[2], word: "high", color: StressHeatStyle.high)
+            Spacer(minLength: 0)
+            chip
+        }
+    }
+
+    private func emptyBandSplitLine(chip: WidgetChip) -> some View {
+        HStack {
+            Text(presentationMode == .dailyOnly
+                 ? (dateContext.isToday
+                    ? "No same-day signal to score yet."
+                    : "No hourly signal was recorded for this date.")
+                 : presentationMode == .intradayOnly
+                    ? "Same-day signal is present but not yet scorable."
+                    : "Wear through a few days to unlock the hourly ribbon.")
+                .font(StrandFont.micro)
+                .foregroundStyle(StrandPalette.textTertiary)
+            Spacer(minLength: 0)
+            chip
         }
     }
 
@@ -494,7 +509,7 @@ public struct StressModuleCard: View {
                     .foregroundStyle(StrandPalette.textPrimary)
                 Text(word)
                     .font(StrandFont.micro)
-                    .foregroundStyle(StrandPalette.textTertiary)
+                    .foregroundStyle(StrandPalette.textSecondary)
             }
         }
     }
@@ -536,36 +551,6 @@ struct StressModulePressStyle: ButtonStyle {
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.985 : 1)
             .opacity(configuration.isPressed ? 0.92 : 1)
             .animation(.spring(response: 0.26, dampingFraction: 0.82), value: configuration.isPressed)
-    }
-}
-
-/// The status dot with a soft breathing halo — active (high band) breathes wider.
-private struct StressBreathingDot: View {
-    let color: Color
-    let active: Bool
-
-    @State private var breathing = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        Circle()
-            .fill(color)
-            .frame(width: 8, height: 8)
-            .overlay {
-                if !reduceMotion {
-                    Circle()
-                        .stroke(color.opacity(0.3), lineWidth: 4)
-                        .scaleEffect(breathing ? (active ? 1.9 : 1.45) : 0.9)
-                        .opacity(breathing ? 0 : 0.8)
-                }
-            }
-            .onAppear {
-                guard !reduceMotion else { return }
-                withAnimation(.easeOut(duration: active ? 1.6 : 2.6).repeatForever(autoreverses: false)) {
-                    breathing = true
-                }
-            }
-            .accessibilityHidden(true)
     }
 }
 
