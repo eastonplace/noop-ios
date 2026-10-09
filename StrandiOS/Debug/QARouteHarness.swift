@@ -115,7 +115,15 @@ enum QARoute: String, CaseIterable {
 /// `--noop-qa-scroll-poll`; the script writes the wanted offset in points (0 = top) to `/tmp/noop-qa-scroll.txt`
 /// and reads the `[qa-scroll] ...` line the app logs once the offset is applied.
 enum QAScrollDriver {
-    static let requestPath = "/tmp/noop-qa-scroll.txt"
+    /// `/tmp/noop-qa-scroll.txt` unless the launch passes `--noop-qa-scroll-file <path>`, so two capture scripts
+    /// working on two simulators at once can each keep their own request file.
+    static let requestPath: String = {
+        let arguments = ProcessInfo.processInfo.arguments
+        if let index = arguments.firstIndex(of: "--noop-qa-scroll-file"), arguments.indices.contains(index + 1) {
+            return arguments[index + 1]
+        }
+        return "/tmp/noop-qa-scroll.txt"
+    }()
     static var enabled: Bool { ProcessInfo.processInfo.arguments.contains("--noop-qa-scroll-poll") }
 
     @MainActor static func run() async {

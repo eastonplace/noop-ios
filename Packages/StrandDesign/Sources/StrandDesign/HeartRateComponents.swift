@@ -80,6 +80,28 @@ public struct HRWorkoutMark: Identifiable, Equatable {
     public let symbol: String
 }
 
+// MARK: Heart ink (the Live HR module's live-red ramp)
+
+private enum HRTimelineInk {
+    static let rest = StrandPalette.liveRed.opacity(0.58)
+    static let steady = StrandPalette.liveRed
+    static let push = StrandPalette.destructive
+    static let live = StrandPalette.liveRed
+
+    static func color(for bpm: Double) -> Color {
+        StrandPalette.sample(stops: stops, at: HRZoneStyle.unit(bpm))
+    }
+
+    private static let stops: [Gradient.Stop] = [
+        .init(color: rest, location: 0),
+        .init(color: rest, location: HRZoneStyle.unit(58)),
+        .init(color: steady, location: HRZoneStyle.unit(92)),
+        .init(color: steady, location: HRZoneStyle.unit(112)),
+        .init(color: push, location: HRZoneStyle.unit(142)),
+        .init(color: push, location: 1),
+    ]
+}
+
 // MARK: - HRTimelineChart
 
 public struct HRTimelineChart: View {
@@ -115,13 +137,14 @@ public struct HRTimelineChart: View {
     @State private var revealed = false
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            header
-            plot
-                .frame(height: 170)
-            timeAxis
+        VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
+            heroRow
+            VStack(alignment: .leading, spacing: 6) {
+                plot
+                    .frame(height: 176)
+                timeAxis
+            }
             hintRow
-            if showsZoneLegend { HRZoneLegend() }
         }
         .onAppear {
             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.85).delay(0.1)) {
@@ -225,21 +248,40 @@ public struct HRTimelineChart: View {
 
     // MARK: Chrome
 
-    private var header: some View {
-        HStack {
-            Text(zoomDomain == nil ? "24-hour timeline" : "Zoomed window")
-                .font(StrandFont.footnote)
-                .foregroundStyle(StrandPalette.textTertiary)
-            Spacer()
-            if let sample = scrubSample {
-                Text("\(valueFormat(sample.bpm))\(unitSuffix) · \(timeLabel(sample.t))")
-                    .font(StrandFont.captionNumber)
-                    .foregroundStyle(sampleColor(sample.bpm))
-            } else if let peak = visiblePeak {
-                Text("PEAK \(valueFormat(peak.bpm)) · \(timeLabel(peak.t))")
-                    .font(StrandFont.captionNumber)
-                    .foregroundStyle(sampleColor(peak.bpm))
+    /// The reading the hero shows: the sample under the finger, else the last reading in view.
+    private var shownSample: HRTrackPoint? { scrubSample ?? visibleRaw.last }
+
+    /// The Live HR module's hero: the number big with its unit, the time it was read under it, and (for heart
+    /// rate) the zone word on the shared pill. Hold and drag on the plot morphs it into the reading under the
+    /// finger, the way the Trends hero chart reads a day.
+    private var heroRow: some View {
+        HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
+            HeroValue(
+                value: shownSample.map { valueFormat($0.bpm) } ?? WidgetMetrics.missingValue,
+                unit: shownSample == nil || unit.isEmpty ? nil : unit,
+                caption: heroCaption,
+                captionPlacement: .below
+            )
+            Spacer(minLength: NoopMetrics.space2)
+            if showsZoneLegend, let sample = shownSample {
+                ValuePill(zoneWord(sample.bpm), tint: HRTimelineInk.live)
             }
+        }
+        .animation(StrandMotion.fade, value: scrubSample?.id)
+    }
+
+    private var heroCaption: String? {
+        guard let sample = shownSample else { return nil }
+        return scrubSample == nil
+            ? String(localized: "latest · \(timeLabel(sample.t))")
+            : timeLabel(sample.t)
+    }
+
+    private func zoneWord(_ bpm: Double) -> String {
+        switch HRZoneStyle.zone(for: bpm) {
+        case 0: return String(localized: "Resting")
+        case 1: return String(localized: "Steady")
+        default: return String(localized: "Pushing")
         }
     }
 
@@ -260,23 +302,27 @@ public struct HRTimelineChart: View {
     /// Names the gestures (a hidden gesture nobody tries is a feature that doesn't exist) and
     /// carries the explicit Reset alongside the double-tap, mirroring the Deep Timeline's hint row.
     private var hintRow: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: NoopMetrics.space2) {
             Image(systemName: zoomDomain == nil
                   ? "arrow.up.left.and.arrow.down.right"
                   : "arrow.down.right.and.arrow.up.left")
-                .font(StrandFont.micro.weight(.semibold))
-            Text(zoomDomain == nil
-                 ? "Pinch to zoom · drag to pan · hold to read"
-                 : "Zoomed in · drag to pan · double-tap to reset")
-            Spacer()
+                .font(.system(size: 10, weight: .semibold))
+                .accessibilityHidden(true)
+            if zoomDomain == nil {
+                Text("Pinch to zoom · drag to pan · hold to read")
+            } else {
+                Text("Zoomed in · drag to pan · double-tap to reset")
+            }
+            Spacer(minLength: NoopMetrics.space2)
             if zoomDomain != nil {
-                Button("Reset") { resetZoom() }
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.accent)
-                    .buttonStyle(.plain)
+                Button { resetZoom() } label: {
+                    WidgetChip(appTitle: "Reset", showsChevron: false, overhangs: false).chipHitTarget()
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("Reset zoom"))
             }
         }
-        .font(StrandFont.footnote)
+        .font(StrandFont.micro)
         .foregroundStyle(StrandPalette.textTertiary)
     }
 
@@ -366,11 +412,19 @@ public struct HRTimelineChart: View {
                 StrandPalette.hairlineStrong.opacity(0.7),
                 style: StrokeStyle(lineWidth: 0.7, dash: [3, 4])
             )
+            // Rail labels knock the canvas out of the line, so a line that passes under one stays legible and
+            // reads as passing behind it (the Live HR module's and the Trends chart's rails).
             Text(valueFormat(value))
                 .font(StrandFont.micro)
                 .monospacedDigit()
                 .foregroundStyle(StrandPalette.textTertiary)
-                .position(x: size.width - 12, y: max(8, y - 8))
+                .background {
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                        .fill(StrandPalette.appCanvas.opacity(0.88))
+                        .padding(.horizontal, -3)
+                        .padding(.vertical, -1)
+                }
+                .position(x: size.width - 14, y: max(8, y - 8))
         }
     }
 
@@ -390,8 +444,9 @@ public struct HRTimelineChart: View {
         if rendered.count >= 2 {
             areaPath(rendered, height: size.height)
                 .fill(
+                    // The Coach trend charts' wash: the domain ink at 14% fading to nothing.
                     LinearGradient(
-                        colors: [averageZoneColor.opacity(0.16), averageZoneColor.opacity(0.02)],
+                        colors: [washColor.opacity(0.14), .clear],
                         startPoint: .top,
                         endPoint: .bottom
                     )
@@ -401,7 +456,7 @@ public struct HRTimelineChart: View {
                 .trim(from: 0, to: revealed ? 1 : 0)
                 .stroke(
                     lineGradient,
-                    style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round)
+                    style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round)
                 )
         } else if let only = rendered.first, let sample = visible.first {
             Circle()
@@ -492,14 +547,14 @@ public struct HRTimelineChart: View {
         return unit == "%" ? "%" : " \(unit)"
     }
 
-    /// The colour a single sample speaks: the flat metric tint, or HR's zone ramp.
+    /// The colour a single sample speaks: the flat metric tint, or the heart's own ramp.
     private func sampleColor(_ value: Double) -> Color {
-        tint ?? HRZoneStyle.color(for: value)
+        tint ?? HRTimelineInk.color(for: value)
     }
 
-    /// Vertical zone ramp re-projected onto the visible bpm range, so a zoomed-in night reads
-    /// all-rest blue and the workout window reads push rose — the colour never lies under zoom.
-    /// Flat-tinted metrics ride a simple deep→bright vertical gradient instead (Deep Timeline).
+    /// The line's vertical ramp, re-projected onto the visible range: the Live HR module's live-red ramp for the
+    /// heart (a quiet red at rest, the full red when steady, the hot red when pushing), so the colour never lies
+    /// under zoom. Flat-tinted metrics ride a simple deep-to-bright vertical gradient of their tint instead.
     private var lineGradient: LinearGradient {
         if let tint {
             return LinearGradient(colors: [tint.opacity(0.55), tint], startPoint: .bottom, endPoint: .top)
@@ -507,17 +562,13 @@ public struct HRTimelineChart: View {
         let lo = yRange.lowerBound
         let span = yRange.upperBound - lo
         let stops = stride(from: 0.0, through: 1.0, by: 0.125).map { position in
-            Gradient.Stop(color: HRZoneStyle.color(for: lo + position * span), location: position)
+            Gradient.Stop(color: HRTimelineInk.color(for: lo + position * span), location: position)
         }
         return LinearGradient(gradient: Gradient(stops: stops), startPoint: .bottom, endPoint: .top)
     }
 
-    private var averageZoneColor: Color {
-        if let tint { return tint }
-        let values = visible.map(\.bpm)
-        guard !values.isEmpty else { return HRZoneStyle.rest }
-        return HRZoneStyle.color(for: values.reduce(0, +) / Double(values.count))
-    }
+    /// The wash under the line: the metric's tint, or the heart's.
+    private var washColor: Color { tint ?? DomainTint.heart.accent }
 
     /// Midpoint-bezier smoothing — byte-identical curve construction to StressLoadChart.
     private func linePath(_ points: [(CGFloat, CGFloat)]) -> Path {
