@@ -70,7 +70,7 @@ enum CoachRecordDate {
         guard let day, let date = LocalCoachWindow.date(day) else { return .none }
         let age = LocalCoachWindow.calendar.dateComponents(
             [.day], from: date, to: LocalCoachWindow.calendar.startOfDay(for: now)).day ?? 0
-        return .record(date: LocalCoachCardFormat.dayLabel(day, now: now), isStale: age >= 2)
+        return .record(date: LocalCoachCardFormat.dayLabel(date, now: now), isStale: age >= 2)
     }
 }
 
@@ -137,7 +137,7 @@ struct CoachRow: View {
 struct CoachFact {
     let label: LocalizedStringKey
     let value: String
-    var unit: String?
+    var unit: LocalizedStringKey?
 }
 
 /// Label-over-value columns with hairline dividers, the shape of `StatFooter(.prominent)` with the unit muted.
@@ -441,21 +441,21 @@ struct CoachMetricStrip: View {
     /// the next layout instead of truncating one of them.
     private func column(_ metric: LocalCoachMetric, size: CGFloat, fitsWhole: Bool) -> some View {
         let look = Self.look(for: metric)
-        let shown = display(metric)
+        let shown = CoachMetricFigure(metric, effortScale: effortScale)
         let samples = metric.samples.filter(\.isFinite)
         return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 5) {
                 Image(systemName: look.symbol).font(StrandFont.caption).foregroundStyle(look.tint.accent)
                     .accessibilityHidden(true)
-                Text(metric.title).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                Self.label(for: metric).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
                     .lineLimit(1)
             }
             .fixedSize(horizontal: fitsWhole, vertical: false)
             HStack(alignment: .firstTextBaseline, spacing: 2) {
                 Text(shown.value).font(StrandFont.number(size, weight: .semibold))
                     .foregroundStyle(shown.value == WidgetMetrics.missingValue ? StrandPalette.textTertiary : StrandPalette.textPrimary)
-                if let unit = shown.unit, shown.value != WidgetMetrics.missingValue {
-                    Text(unit).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                if let unit = shown.unitText, shown.value != WidgetMetrics.missingValue {
+                    unit.font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
                 }
             }
             .lineLimit(1)
@@ -480,20 +480,15 @@ struct CoachMetricStrip: View {
         count == 1 ? "1 day" : "\(count) days"
     }
 
-    /// The figure as the Coach cards show it: recovery whole, effort on the person's display scale, sleep as hours
-    /// and minutes. A record that was not recorded reads "—", never zero.
-    private func display(_ metric: LocalCoachMetric) -> (value: String, unit: String?) {
-        guard metric.value != "Not recorded" else { return (WidgetMetrics.missingValue, nil) }
-        let unit = metric.unit.isEmpty ? nil : metric.unit
-        guard let stored = Double(metric.value) else { return (metric.value, unit) }
+    /// The label for each record, worded as Today words it (Strain, not Effort) and read through the catalog. The
+    /// record's own title stays what the model is told; it is only the fallback for a record this strip does not know.
+    private static func label(for metric: LocalCoachMetric) -> Text {
         switch metric.id {
-        case "strain":
-            return (UnitFormatter.effortDisplay(stored, scale: effortScale),
-                    "of \(UnitFormatter.effortScaleMax(effortScale))")
-        case "sleep":
-            return (LocalCoachCardFormat.duration(minutes: stored * 60), nil)
-        default:
-            return (LocalCoachCardFormat.whole(stored), unit)
+        case "recovery": Text("Recovery")
+        case "strain": Text("Strain")
+        case "sleep": Text("Sleep")
+        case "hrv": Text("HRV")
+        default: Text(verbatim: metric.title)
         }
     }
 
@@ -504,6 +499,48 @@ struct CoachMetricStrip: View {
         case "sleep": ("moon.stars.fill", .sleep)
         case "hrv": ("waveform.path.ecg", .hrv)
         default: ("circle.fill", .accent)
+        }
+    }
+}
+
+/// What one record in the metric strip shows: the figure as the Coach cards show it (recovery whole, strain on the
+/// person's display scale, sleep as hours and minutes) and its unit. A record that is not a number, because the day
+/// was not recorded, reads "—", never zero. Pure, so it can be tested.
+struct CoachMetricFigure: Equatable {
+    enum Unit: Equatable {
+        /// "of 21": the top of the strain scale.
+        case ofScale(String)
+        /// The record's own unit, shown as it is ("ms", "/100").
+        case plain(String)
+    }
+
+    let value: String
+    let unit: Unit?
+
+    init(_ metric: LocalCoachMetric, effortScale: EffortScale) {
+        guard let stored = Double(metric.value) else {
+            value = WidgetMetrics.missingValue
+            unit = nil
+            return
+        }
+        switch metric.id {
+        case "strain":
+            value = UnitFormatter.effortDisplay(stored, scale: effortScale)
+            unit = .ofScale(UnitFormatter.effortScaleMax(effortScale))
+        case "sleep":
+            value = LocalCoachCardFormat.duration(minutes: stored * 60)
+            unit = nil
+        default:
+            value = LocalCoachCardFormat.whole(stored)
+            unit = metric.unit.isEmpty ? nil : .plain(metric.unit)
+        }
+    }
+
+    var unitText: Text? {
+        switch unit {
+        case .ofScale(let top)?: return Text("of \(top)")
+        case .plain(let text)?: return Text(verbatim: text)
+        case nil: return nil
         }
     }
 }

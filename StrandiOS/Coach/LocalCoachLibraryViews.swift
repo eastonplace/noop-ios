@@ -232,7 +232,7 @@ private struct LocalCoachMemoryEditor: View {
                 Section("What should Coach know?") {
                     TextField("A goal, routine or preference", text: $text, axis: .vertical).lineLimit(4...10)
                     Picker("Category", selection: $category) {
-                        ForEach(LocalCoachMemory.Category.allCases) { Text($0.title).tag($0) }
+                        ForEach(LocalCoachMemory.Category.allCases) { Text(LocalizedStringKey($0.title)).tag($0) }
                     }
                     Toggle("Use in conversations", isOn: $enabled)
                 }

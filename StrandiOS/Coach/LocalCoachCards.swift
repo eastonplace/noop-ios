@@ -166,13 +166,12 @@ enum LocalCoachCard: Codable, Equatable, Sendable, Identifiable {
 
 /// Number and duration wording shared by the card views, the export text and the accessibility labels.
 enum LocalCoachCardFormat {
-    /// "7h 42m", "45m". Nil, non-finite or negative durations are "—" (never "0m").
+    /// "7h 42m", "45m". Nil, non-finite or negative durations are "—" (never "0m"). Worded through the catalog
+    /// entries Sleep uses for the same figure, so it reads in the person's language.
     static func duration(minutes: Double?) -> String {
         guard let minutes, minutes.isFinite, minutes >= 0 else { return "—" }
         let total = Int(minutes.rounded())
-        let hours = total / 60
-        let rest = total % 60
-        return hours == 0 ? "\(rest)m" : "\(hours)h \(String(format: "%02d", rest))m"
+        return total < 60 ? String(localized: "\(total)m") : String(localized: "\(total / 60)h \(total % 60)m")
     }
 
     static func duration(seconds: Double?) -> String {
@@ -196,16 +195,25 @@ enum LocalCoachCardFormat {
     /// Always the record's real date. Unparseable keys are returned untouched rather than guessed.
     static func dayLabel(_ day: String, now: Date = Date()) -> String {
         guard let date = LocalCoachWindow.date(day) else { return day }
+        return dayLabel(date, now: now)
+    }
+
+    /// The same label for a date that is already parsed, so a caller that needs the date as well reads the key once.
+    static func dayLabel(_ date: Date, now: Date = Date()) -> String {
         let calendar = LocalCoachWindow.calendar
         let age = calendar.dateComponents([.day], from: date, to: calendar.startOfDay(for: now)).day ?? 0
-        if age == 0 { return "Today" }
-        if age == 1 { return "Yesterday" }
-        return humanDay(day, now: now)
+        if age == 0 { return String(localized: "Today") }
+        if age == 1 { return String(localized: "Yesterday") }
+        return humanDay(date, now: now)
     }
 
     /// "Oct 8" or "Aug 22, 2025": a plain calendar date with no relative wording.
     static func humanDay(_ day: String, now: Date = Date()) -> String {
         guard let date = LocalCoachWindow.date(day) else { return day }
+        return humanDay(date, now: now)
+    }
+
+    static func humanDay(_ date: Date, now: Date = Date()) -> String {
         let sameYear = LocalCoachWindow.calendar.component(.year, from: date)
             == LocalCoachWindow.calendar.component(.year, from: now)
         return date.formatted(sameYear ? .dateTime.month(.abbreviated).day()
@@ -223,14 +231,15 @@ enum LocalCoachCardFormat {
         let calendar = LocalCoachWindow.calendar
         if LocalCoachWindow.key(now) == through {
             let days = (calendar.dateComponents([.day], from: start, to: end).day ?? 0) + 1
-            return days == 1 ? "Today" : "Last \(days) days"
+            return days == 1 ? String(localized: "Today") : String(localized: "Last \(days) days")
         }
         return from == through ? humanDay(from, now: now) : "\(humanDay(from, now: now)) - \(humanDay(through, now: now))"
     }
 
-    /// "Wed 6:30 AM" for a workout start time (unix seconds).
+    /// "Wed 6:30 AM" for a workout start time (unix seconds). The clock follows the app's 12/24-hour setting.
     static func startLabel(_ startTs: Int) -> String {
-        Date(timeIntervalSince1970: Double(startTs)).formatted(.dateTime.weekday(.abbreviated).hour().minute())
+        let date = Date(timeIntervalSince1970: Double(startTs))
+        return date.formatted(.dateTime.weekday(.abbreviated)) + " " + AppClock.hourMinute(date)
     }
 
     /// One plain-text line per card for `exportConversation`. Canonical Effort stays on 0...100 here,

@@ -733,7 +733,7 @@ final class LocalCoachEngine: ObservableObject {
         engine.snapshot = .init(generatedAt: Date(), sourceID: "preview-synthetic", latestDay: "2026-09-26",
                                summary: "Synthetic preview: steady recovery, room for a focused session.",
                                metrics: [
-                                .init(id: "sleep", title: "Sleep", value: "7h 42m", unit: "", detail: "Synthetic example", samples: [6.8, 7.2, 7.1, 7.8, 7.5, 7.7, 7.7]),
+                                .init(id: "sleep", title: "Sleep", value: "7.7", unit: "h", detail: "Synthetic example", samples: [6.8, 7.2, 7.1, 7.8, 7.5, 7.7, 7.7]),
                                 .init(id: "recovery", title: "Recovery", value: "82", unit: "%", detail: "Synthetic example", samples: [65, 72, 68, 79, 74, 80, 82]),
                                 .init(id: "hrv", title: "HRV", value: "64", unit: "ms", detail: "Synthetic example", samples: [55, 59, 58, 63, 61, 62, 64])
                                ], evidence: [evidence], context: "Clearly synthetic screenshot fixture; never supplied to a model.")

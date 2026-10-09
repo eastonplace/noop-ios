@@ -767,7 +767,7 @@ private struct LocalCoachMessageView: View {
         }
     }
 
-    private var timeLabel: String { message.createdAt.formatted(date: .omitted, time: .shortened) }
+    private var timeLabel: String { AppClock.hourMinute(message.createdAt) }
 
     // MARK: You
 
@@ -791,7 +791,7 @@ private struct LocalCoachMessageView: View {
         .padding(.leading, NoopMetrics.space8)
         .frame(maxWidth: .infinity, alignment: .trailing)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text(verbatim: String(localized: "You") + ". " + message.text))
+        .accessibilityLabel(Text("You. \(message.text)"))
     }
 
     // MARK: Coach
@@ -834,9 +834,7 @@ private struct LocalCoachMessageView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var sourcesTitle: LocalizedStringKey {
-        message.evidence.count == 1 ? "1 source record" : "\(message.evidence.count) source records"
-    }
+    private var sourcesTitle: LocalizedStringKey { "\(message.evidence.count) source records" }
 
     private var eyebrowTrailing: EyebrowTrailing {
         guard streaming else { return .text(timeLabel) }
