@@ -34,6 +34,56 @@ public enum StrainScorerV2 {
         case activity
     }
 
+    /// The parts of a physiological-day score, read from the same computation that produces it.
+    ///
+    /// The day score is the largest of three non-additive display-scale values: the cardiovascular
+    /// component (heart-rate load plus the sleep seed), the step floor and the active-energy floor.
+    /// `cardio`, `steps` and `energy` are on that 0...21 display scale, so they compare directly with
+    /// one another. `score` is the winner on the 0...100 stored scale, bit-identical to what
+    /// ``strain(_:maxHR:restingHR:mode:)`` returns for the same inputs; ``displayValue(fromStored:)``
+    /// puts it on the display scale.
+    public struct DayStrainComponents: Equatable, Sendable {
+        public enum Component: Equatable, Sendable { case cardio, steps, energy }
+
+        /// Heart-rate load (counted only once the day has `minReadings` readings and
+        /// `minCoverageSeconds` of coverage) plus the sleep seed, through ``displayStrain(forEffectiveLoad:)``.
+        /// Non-nil exactly when `score` is; 0 when neither heart rate nor sleep contributes.
+        public let cardio: Double?
+        /// ``stepFloor(_:)`` of the day's step count; nil when the context carries no step count.
+        public let steps: Double?
+        /// ``activeEnergyFloor(_:)`` of the day's active energy; nil when the context carries none.
+        public let energy: Double?
+        /// The stored-scale day score; nil when the day has none (no wear coverage, an unusable HR
+        /// range, or neither cardiovascular coverage nor any sleep, step or energy evidence).
+        public let score: Double?
+        /// The component equal to the day's display maximum. Ties resolve cardio, then steps, then
+        /// energy; nil when the day is unscored or every component is 0.
+        public let dominant: Component?
+
+        public init(cardio: Double?, steps: Double?, energy: Double?,
+                    score: Double?, dominant: Component?) {
+            self.cardio = cardio
+            self.steps = steps
+            self.energy = energy
+            self.score = score
+            self.dominant = dominant
+        }
+
+        /// A day with no score: every field nil.
+        public static let unscored = DayStrainComponents(
+            cardio: nil, steps: nil, energy: nil, score: nil, dominant: nil)
+
+        static func dominantComponent(cardio: Double, steps: Double?, energy: Double?) -> Component? {
+            let steps = steps ?? 0
+            let energy = energy ?? 0
+            let top = max(cardio, steps, energy)
+            guard top > 0 else { return nil }
+            if cardio == top { return .cardio }
+            if steps == top { return .steps }
+            return .energy
+        }
+    }
+
     /// Constant-time preview state for a chronological live activity stream.
     ///
     /// The authoritative saved score still runs through ``strain(_:maxHR:restingHR:mode:)`` over the
@@ -217,10 +267,15 @@ public enum StrainScorerV2 {
                               mode: Mode) -> Double? {
         let effectiveMax = maxHR ?? StrainScorer.tanakaHRmax(age: Double(StrainScorer.defaultAge))
         guard effectiveMax.isFinite, restingHR.isFinite, effectiveMax > restingHR else { return nil }
-        let sorted = hr
+        return strainSorted(sortedValidSamples(hr), maxHR: effectiveMax, restingHR: restingHR, mode: mode)
+    }
+
+    /// The scorer's input filter: drops readings outside 30...240 bpm and orders by timestamp, then
+    /// bpm, so the last reading of an equal-second run carries that second's maximum.
+    static func sortedValidSamples(_ hr: [HRSample]) -> [HRSample] {
+        hr
             .filter { (30...240).contains($0.bpm) }
             .sorted { lhs, rhs in lhs.ts == rhs.ts ? lhs.bpm < rhs.bpm : lhs.ts < rhs.ts }
-        return strainSorted(sorted, maxHR: effectiveMax, restingHR: restingHR, mode: mode)
     }
 
     /// Fast path for already sorted, validated input. The public API remains defensive.
@@ -233,6 +288,63 @@ public enum StrainScorerV2 {
         let effectiveMax = maxHR ?? StrainScorer.tanakaHRmax(age: Double(StrainScorer.defaultAge))
         guard effectiveMax.isFinite, restingHR.isFinite, effectiveMax > restingHR else { return nil }
 
+        let (cardiovascularLoad, coverageSeconds) = cardiovascularKernel(
+            sortedValidHR, effectiveMax: effectiveMax, restingHR: restingHR)
+        let hasCardiovascularCoverage = coverageSeconds >= minCoverageSeconds
+
+        switch mode {
+        case .activity:
+            guard hasCardiovascularCoverage else { return nil }
+            return storedValue(fromDisplay: displayStrain(forEffectiveLoad: cardiovascularLoad))
+        case .physiologicalDay(let context):
+            return physiologicalStoredValue(cardiovascularLoad: cardiovascularLoad,
+                                             coverageSeconds: coverageSeconds,
+                                             context: context)
+        }
+    }
+
+    /// The parts of the score ``strain(_:maxHR:restingHR:mode:)`` returns for
+    /// `.physiologicalDay(context)`, from the identical pipeline: the same bpm filter, timestamp sort
+    /// and equal-second maximum, the same interval kernel and gates. `score` therefore equals that
+    /// function's result exactly, and `dominant` names which of cardio, steps or energy set it.
+    ///
+    /// Returns ``DayStrainComponents/unscored`` exactly when `strain` returns nil. `hr` may be
+    /// unsorted and may hold duplicates and out-of-range readings; the call costs one sort.
+    public static func dayStrainComponents(_ hr: [HRSample],
+                                           maxHR: Double? = nil,
+                                           restingHR: Double = defaultRestingHR,
+                                           context: DayContext) -> DayStrainComponents {
+        let effectiveMax = maxHR ?? StrainScorer.tanakaHRmax(age: Double(StrainScorer.defaultAge))
+        guard effectiveMax.isFinite, restingHR.isFinite, effectiveMax > restingHR else { return .unscored }
+        return dayStrainComponentsSorted(sortedValidSamples(hr), maxHR: effectiveMax,
+                                         restingHR: restingHR, context: context)
+    }
+
+    /// Components for already sorted, validated input: the `strainSorted` counterpart.
+    static func dayStrainComponentsSorted<C: RandomAccessCollection>(
+        _ sortedValidHR: C,
+        maxHR: Double?,
+        restingHR: Double,
+        context: DayContext
+    ) -> DayStrainComponents where C.Element == HRSample {
+        let effectiveMax = maxHR ?? StrainScorer.tanakaHRmax(age: Double(StrainScorer.defaultAge))
+        guard effectiveMax.isFinite, restingHR.isFinite, effectiveMax > restingHR else { return .unscored }
+
+        let (cardiovascularLoad, coverageSeconds) = cardiovascularKernel(
+            sortedValidHR, effectiveMax: effectiveMax, restingHR: restingHR)
+        return physiologicalComponents(cardiovascularLoad: cardiovascularLoad,
+                                       coverageSeconds: coverageSeconds,
+                                       context: context)
+    }
+
+    /// Cardiovascular load and covered seconds of an already sorted, validated stream. Each interval
+    /// between distinct timestamps (at most `maxIntervalSeconds`) is charged at the earlier second's
+    /// maximum bpm; nothing counts until the stream holds `minReadings` readings.
+    private static func cardiovascularKernel<C: RandomAccessCollection>(
+        _ sortedValidHR: C,
+        effectiveMax: Double,
+        restingHR: Double
+    ) -> (load: Double, coverageSeconds: Int) where C.Element == HRSample {
         let reserve = effectiveMax - restingHR
         var cardiovascularLoad = 0.0
         var coverageSeconds = 0
@@ -252,34 +364,40 @@ public enum StrainScorerV2 {
                 next = sortedValidHR.index(after: next)
             }
         }
-        let hasCardiovascularCoverage = coverageSeconds >= minCoverageSeconds
-
-        switch mode {
-        case .activity:
-            guard hasCardiovascularCoverage else { return nil }
-            return storedValue(fromDisplay: displayStrain(forEffectiveLoad: cardiovascularLoad))
-        case .physiologicalDay(let context):
-            return physiologicalStoredValue(cardiovascularLoad: cardiovascularLoad,
-                                             coverageSeconds: coverageSeconds,
-                                             context: context)
-        }
+        return (cardiovascularLoad, coverageSeconds)
     }
 
-    static func physiologicalStoredValue(cardiovascularLoad: Double, coverageSeconds: Int,
-                                         context: DayContext) -> Double? {
-        guard context.hasWearCoverage else { return nil }
+    /// The day-score computation, split into its three display-scale components and their maximum.
+    /// `physiologicalStoredValue` returns this result's `score`, so the batch scorer, the live
+    /// accumulator and ``dayStrainComponents(_:maxHR:restingHR:context:)`` cannot disagree.
+    static func physiologicalComponents(cardiovascularLoad: Double, coverageSeconds: Int,
+                                        context: DayContext) -> DayStrainComponents {
+        guard context.hasWearCoverage else { return .unscored }
         let hasCardiovascularCoverage = coverageSeconds >= minCoverageSeconds
         let hasBackgroundEvidence = context.validWornSleepMinutes != nil
             || context.steps != nil
             || context.activeEnergyKcal != nil
-        guard hasCardiovascularCoverage || hasBackgroundEvidence else { return nil }
+        guard hasCardiovascularCoverage || hasBackgroundEvidence else { return .unscored }
         let sleepLoad = min(sleepSeedCapLoad,
                             max(0, context.validWornSleepMinutes ?? 0) * 0.014)
         let cardioDisplay = displayStrain(
             forEffectiveLoad: (hasCardiovascularCoverage ? cardiovascularLoad : 0) + sleepLoad)
-        let stepDisplay = context.steps.map(stepFloor) ?? 0
-        let energyDisplay = context.activeEnergyKcal.map(activeEnergyFloor) ?? 0
-        return storedValue(fromDisplay: max(cardioDisplay, stepDisplay, energyDisplay))
+        let stepDisplay = context.steps.map(stepFloor)
+        let energyDisplay = context.activeEnergyKcal.map(activeEnergyFloor)
+        return DayStrainComponents(
+            cardio: cardioDisplay,
+            steps: stepDisplay,
+            energy: energyDisplay,
+            score: storedValue(fromDisplay: max(cardioDisplay, stepDisplay ?? 0, energyDisplay ?? 0)),
+            dominant: DayStrainComponents.dominantComponent(
+                cardio: cardioDisplay, steps: stepDisplay, energy: energyDisplay))
+    }
+
+    static func physiologicalStoredValue(cardiovascularLoad: Double, coverageSeconds: Int,
+                                         context: DayContext) -> Double? {
+        physiologicalComponents(cardiovascularLoad: cardiovascularLoad,
+                                coverageSeconds: coverageSeconds,
+                                context: context).score
     }
 
     public static func loadPerMinute(atHRR hrr: Double) -> Double {
