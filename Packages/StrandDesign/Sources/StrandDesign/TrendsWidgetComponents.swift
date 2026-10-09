@@ -1355,7 +1355,7 @@ public struct TrendsCalendarHeat: View {
             case .recoveryBands:
                 legendItem("Low", color: RecoveryBands.color(for: 10))
                 legendItem("Moderate", color: RecoveryBands.color(for: 50))
-                legendItem("Good", color: RecoveryBands.color(for: 90))
+                legendItem("Primed", color: RecoveryBands.color(for: 90))
             case .intensity:
                 HStack(spacing: 4) {
                     Text("Lower").font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)

@@ -1196,7 +1196,7 @@ struct PaperPillarDetailView: View {
 
     @ViewBuilder
     private func standingKeys(good: Int, moderate: Int, low: Int) -> some View {
-        standingKey(count: String(localized: "\(good) good"), color: StrandPalette.recoveryHigh)
+        standingKey(count: String(localized: "\(good) primed"), color: StrandPalette.recoveryHigh)
         standingKey(count: String(localized: "\(moderate) moderate"), color: StrandPalette.recoveryMed)
         standingKey(count: String(localized: "\(low) low"), color: StrandPalette.recoveryLow)
     }
