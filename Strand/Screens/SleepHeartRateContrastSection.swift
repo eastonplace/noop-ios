@@ -297,7 +297,7 @@ struct SleepHeartRateContrastSection: View {
     /// sentence, then the method and coverage in quieter ink. Descriptive only, and the section says so.
     private func resultCard(_ result: SleepHeartRateContrast.Result) -> some View {
         SleepSection("Sleep vs awake", systemImage: "heart.fill", tint: .heart,
-                     trailing: .pill("descriptive", tone: .neutral)) {
+                     trailing: .pill("Descriptive", tone: .neutral)) {
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .top, spacing: NoopMetrics.space4) {
                     comparisonValue("Awake", bpm: result.wakeMeanBpm)
@@ -427,7 +427,7 @@ struct PreSleepHeartRateFeedbackSection: View {
     /// The opt-in: what it compares, what it stores, and one chip to turn it on. Nothing is stored until it is on.
     private var optInCard: some View {
         SleepSection("Pre-sleep HR", systemImage: "heart.text.square", tint: .heart,
-                     trailing: .pill("off", tone: .neutral)) {
+                     trailing: .pill("Off", tone: .neutral)) {
             Text("Compare your mean heart rate during the 30 minutes before main sleep with your own recent nights.")
                 .font(StrandFont.subhead)
                 .foregroundStyle(StrandPalette.textSecondary)
@@ -450,7 +450,7 @@ struct PreSleepHeartRateFeedbackSection: View {
 
     private var loadingCard: some View {
         SleepSection("Pre-sleep HR", systemImage: "heart.text.square", tint: .heart,
-                     trailing: .pill("on", tone: .accent)) {
+                     trailing: .pill("On", tone: .accent)) {
             HStack(alignment: .top, spacing: NoopMetrics.space3) {
                 ProgressView()
                     .tint(DomainTint.heart.accent)
@@ -470,7 +470,7 @@ struct PreSleepHeartRateFeedbackSection: View {
 
     private var buildingCard: some View {
         SleepSection("Pre-sleep HR", systemImage: "heart.text.square", tint: .heart,
-                     trailing: .pill("on", tone: .accent)) {
+                     trailing: .pill("On", tone: .accent)) {
             Text("Needs another complete pre-sleep window")
                 .font(StrandFont.body)
                 .foregroundStyle(StrandPalette.textPrimary)
@@ -487,7 +487,7 @@ struct PreSleepHeartRateFeedbackSection: View {
     /// sentence, then the context and the honesty line in quieter ink.
     private func enabledCard(_ feedback: PreSleepHeartRateFeedback.Feedback) -> some View {
         SleepSection("Pre-sleep HR", systemImage: "heart.text.square", tint: .heart,
-                     trailing: .pill("on", tone: .accent)) {
+                     trailing: .pill("On", tone: .accent)) {
             if let observation = feedback.observation {
                 HeroValue(value: String(format: "%.0f", observation.meanBpm), unit: "bpm")
             }

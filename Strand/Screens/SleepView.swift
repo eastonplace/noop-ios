@@ -176,10 +176,6 @@ struct SleepView: View {
     /// chart and recedes the rest (tap again to clear). Display-only selection state. (ryanAtriumAi #988)
     @State private var selectedStage: SleepStage? = nil
 
-    /// Sleeping heart-rate for the displayed night (1-min buckets), for the WHOOP-style HR chart above
-    /// the stage rows. Loaded once per night via `.task(id:)` on the stage card. (ryanAtriumAi #988)
-    @State private var nightHR: [HRBucket] = []
-
     /// The transient UNDO banner shown after a suppressing delete (#65). Non-nil for ~7 seconds: carries
     /// the snapshot needed to restore the deleted night into its ORIGINAL namespace and the window text
     /// for the message. A user-created/edited delete writes no tombstone but still offers undo (restore).
@@ -487,8 +483,6 @@ struct SleepView: View {
         }
     }
 
-    // MARK: - 0. REST HERO — scenic backdrop + sleep-performance gauge (Bevel)
-
     // MARK: - Delete undo (#65)
 
     /// Show the transient UNDO banner after a suppressing delete, and arm the 7-second auto-dismiss. A
@@ -698,58 +692,6 @@ struct SleepView: View {
         }
     }
 
-    /// The Sleep world's opening: a scenic indigo backdrop with — when the night carries a 0–100
-    /// sleep-performance score — the canonical liquid `PaperGauge` in the Sleep tint with the score
-    /// counting up over it (the SAME hero language Today's score cells and the Trends headline use);
-    /// otherwise a big SF-Rounded hours-slept headline over the same backdrop. Source attribution stays
-    /// in the detail footnotes and Data Sources rather than inside this hero (C7). Presentation-only
-    /// — the number comes straight from the existing `model.performance.latest` / hours computation.
-    @ViewBuilder
-    private func restHero(_ model: SleepModel) -> some View {
-        let score = model.performance.latest
-        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            SectionHeader("Sleep performance", overline: "Last night", trailing: String(localized: "Sleep"))
-            // A subtle night atmosphere sits behind the sleep hero ONLY (the Sleep world's whisper:
-            // faint indigo wash + crescent moon over the near-black canvas, no glow), clipped to the
-            // card. Replaces the now-flat ScenicHeroBackground here.
-            VStack(spacing: NoopMetrics.space4) {
-                if let score {
-                    // R7: the liquid vessel is intentionally replaced by the canonical flat Paper ring.
-                    VStack(spacing: NoopMetrics.space3) {
-                        ScoreRing(value: score, range: 0...100, accent: StrandPalette.restAccent,
-                                  size: 96, centerCaption: nil)
-                        Text(sleepScoreWord(score))
-                            .font(StrandFont.subhead.weight(.semibold))
-                            .foregroundStyle(StrandPalette.textPrimary)
-                    }
-                    .padding(.top, NoopMetrics.space1)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("Sleep performance \(Int(score.rounded())) of 100")
-                } else {
-                    // No 0–100 score for the night — lead with hours slept as a big rounded headline
-                    // whose minutes tick up on appear (the same count-up the scored hero gets).
-                    VStack(spacing: NoopMetrics.space1) {
-                        CountUpText(
-                            value: model.night.stages.asleep,
-                            format: { durationText($0) },
-                            font: StrandFont.number(46),
-                            color: StrandPalette.textPrimary
-                        )
-                        Text("asleep last night")
-                            .font(StrandFont.subhead)
-                            .foregroundStyle(StrandPalette.textSecondary)
-                    }
-                    .padding(.vertical, NoopMetrics.space5)
-                    .accessibilityElement(children: .combine)
-                }
-            }
-            .padding(NoopMetrics.cardInnerPadding + NoopMetrics.space1)
-            .frame(maxWidth: .infinity)
-            .timeOfDayBackground(.night)
-            .clipShape(RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous))
-        }
-    }
-
     /// A short Sleep state word for the hero gauge — same banding the synthesis hero uses.
     private func sleepScoreWord(_ score: Double) -> String {
         switch score {
@@ -758,18 +700,6 @@ struct SleepView: View {
         case ..<85:  return String(localized: "Good")
         default:     return String(localized: "Optimal")
         }
-    }
-
-    /// Whether the night's sleep-performance score is WHOOP's own imported figure or NOOP's
-    /// on-device approximation — so the hero is honest about provenance, like Today's badges.
-    private func sleepScoreSource(_ model: SleepModel) -> LocalizedStringKey {
-        let displayedDay = Repository.localDayKey(
-            Date(timeIntervalSince1970: TimeInterval(model.night.session.endTs))
-        )
-        if let point = repo.canonicalHealth.sleepScore(day: displayedDay), point.isImported {
-            return "Whoop"
-        }
-        return "On-device"
     }
 
     // MARK: - Provenance for the displayed night (COMPONENT 4, spec 2026-06-20)
@@ -784,59 +714,6 @@ struct SleepView: View {
     private func nightSource(_ night: Night) -> String {
         let wakeDay = Repository.localDayKey(Date(timeIntervalSince1970: TimeInterval(night.session.endTs)))
         return repo.importedSleep[wakeDay] != nil ? String(localized: "Whoop") : String(localized: "On-device")
-    }
-
-    // MARK: - 0b. SLEEP MARKS — tap to log "going to sleep" / "I'm awake" (#461, Phase 1)
-    //
-    // Extracted to the `SleepMarkCard` leaf at the foot of this file. It owns its OWN `@EnvironmentObject
-    // var live` (it appends to the shareable strap log) + `repo`, plus the `lastMark` confirmation state,
-    // so SleepView itself no longer observes LiveState and a 1 Hz HR tick can't re-render this body. The
-    // card renders byte-for-byte what the inline `sleepMarkCard` did (same copy, buttons, haptic, layout).
-
-    // MARK: - 1. HERO — stage breakdown
-
-    @ViewBuilder
-    private func hero(_ model: SleepModel) -> some View {
-        // Offset 0 reads the memoized latest night; navigated offsets read the cached
-        // `navNight` — never a fresh decode here (this runs on every 1Hz HR tick). When a
-        // navigated session decoded to no usable stages, the header stays on that REAL
-        // session's date/times with an honest placeholder in the chart slot — never the
-        // latest night silently rendered under a navigated label. (#160)
-        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            // #940: when the NEWEST day failed to merge (model.isStubNight), offset 0 falls through
-            // to the same honest stage-less stub path the navigated browse uses, instead of drawing
-            // a zeroed stage card. History stays browsable and the edit pencil stays reachable.
-            if nightOffset == 0, !model.isStubNight {
-                nightNavHeader(trailing: model.night.spanLabel)
-                sleepWindowRow(model.night)
-                stageCard(model.night, intervals: model.intervals)
-                napSection(model.night)
-            } else if let night = navNight {
-                nightNavHeader(trailing: night.spanLabel)
-                sleepWindowRow(night)
-                stageCard(night, intervals: night.intervals)
-                napSection(night)
-            } else if let session = sessionRow(at: nightOffset) {
-                // Stage-less stub purely to reuse Night's date/time formatting.
-                let stub = Night(session: session, stages: Stages(awake: 0, light: 0, deep: 0, rem: 0),
-                                 sourceBlocks: dayBlocks(at: nightOffset),
-                                 habitualMidsleepSec: habitualMidsleepSec)
-                nightNavHeader(trailing: stub.spanLabel)
-                sleepWindowRow(stub)
-                ChartCard(
-                    title: "Stage breakdown",
-                    subtitle: String(localized: "\(durationText(Double(session.endTs - session.startTs) / 60.0)) in bed"),
-                    height: NoopMetrics.chartHeight,
-                    tint: StrandPalette.restColor,
-                    systemImage: "moon.stars.fill",
-                    chart: { noStagePlaceholder }
-                )
-                napSection(stub)
-            }
-        }
-        // Stale-highlight guard: browsing to another night clears the stage selection. Attached to
-        // the always-present hero container (not a branch that gets swapped out mid-navigation).
-        .onChange(of: nightOffset) { _, _ in selectedStage = nil }
     }
 
     /// Naps (#508): each of the day's sleep blocks OTHER than the night's main block, individually
@@ -935,98 +812,6 @@ struct SleepView: View {
         return "\(start) – \(end)"
     }
 
-    /// The stage-breakdown ChartCard for a decoded night: hypnogram when intervals
-    /// reconstruct, else the proportional stage bar. Intervals are passed in so offset 0
-    /// uses the memoized `model.intervals` rather than re-deriving them. (#160)
-    @ViewBuilder
-    private func stageCard(_ night: Night, intervals: [SleepInterval]) -> some View {
-        let s = night.stages
-        let isPersisted = (night.realSegments?.count ?? 0) >= 2
-        let subtitle = isPersisted
-            ? String(localized: "\(durationText(night.timeInBed)) in bed · \(efficiencyText(night)) efficiency · stages approximate (on-device)")
-            : String(localized: "\(durationText(night.timeInBed)) in bed · \(efficiencyText(night)) efficiency")
-        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-            if intervals.count >= 2 {
-                // WHOOP sleep-details layout (ryanAtriumAi #988): one full-width timeline ROW per
-                // stage — hatched track = the whole night, solid segments = when that stage occurred,
-                // header carries the stage %, duration right-aligned. Tap a row to highlight that
-                // stage; the others grey out. Replaces the 4-level hypnogram, whose staircase turned
-                // fragmented on-device staging into an unreadable comb. No separate footer — the
-                // rows ARE the legend.
-                ChartCard(
-                    title: "Stage breakdown",
-                    subtitle: subtitle,
-                    height: 524,
-                    tint: StrandPalette.restColor,
-                    systemImage: "moon.stars.fill",
-                    chart: { stageTimeline(s, intervals: intervals, night: night) }
-                )
-            } else {
-                ChartCard(
-                    title: "Stage breakdown",
-                    subtitle: subtitle,
-                    trailing: durationText(s.asleep),
-                    height: NoopMetrics.chartHeight,
-                    tint: StrandPalette.restColor,
-                    systemImage: "moon.stars.fill",
-                    chart: { stageBar(s) },
-                    footer: { stageBreakdownRows(s) }
-                )
-            }
-            // #407 — subordinate movement/restlessness trace UNDER the hypnogram, on the SAME timeline, for
-            // the SAME main-night GROUP blocks the hero resolved (mergeDay's group). Shown only for a real
-            // (≥2-segment) hypnogram so the strip aligns with a genuine timeline; the proportional stage-bar
-            // fallback has no timeline to anchor to. Placed OUTSIDE the fixed-height ChartCard so it doesn't
-            // clip the hypnogram. Honest empty state inside `motionStrip` when no group fragment has motion.
-            if intervals.count >= 2 {
-                motionStrip(night)
-            }
-            // H9 — when the engine's Sleep confidence flags this night's staging as low-confidence (a
-            // high-efficiency night whose deep+REM share is implausibly low → a likely staging miss, not
-            // a real night with no restorative sleep), say so honestly under the breakdown rather than
-            // presenting the suspect split as fact. Read straight from `ScoreConfidence.rest(...)` — the
-            // SAME engine call the daily pass uses — so the badge can never disagree with the score.
-            if stageStagingIsLowConfidence(night) {
-                stageLowConfidenceNote
-            }
-        }
-        // WHOOP top-chart data (ryanAtriumAi #988): 1-min sleeping-HR buckets for THIS night, reloaded
-        // only when the displayed night changes (same `.task(id:)` pattern the other per-night loads use).
-        .task(id: night.session.startTs) {
-            nightHR = await repo.hrBuckets(from: night.session.startTs,
-                                           to: night.session.endTs,
-                                           bucketSeconds: 60)
-        }
-    }
-
-    /// #407 — the per-epoch movement/restlessness strip drawn UNDER the hypnogram, on the SAME timeline.
-    /// Reads the already-resolved main-night GROUP's persisted motion off `night.motionEpochs` (laid
-    /// fragment-by-fragment in `mergeDay`, NO re-resolution of the night). The left inset (44pt axis + 12pt
-    /// spacing) matches the Hypnogram's `HStack` so the strip's plot lines up under the stage bands above.
-    /// When the night has no persisted motion (older rows whose `motionJSON` is NULL) it shows an HONEST
-    /// empty note rather than a fabricated flat zero trace.
-    @ViewBuilder
-    private func motionStrip(_ night: Night) -> some View {
-        // Label above the trace, plot inset 10pt to line up with the stage-timeline rows' strips
-        // (the old 44+12 gutter matched the removed Hypnogram's y-axis column). (ryanAtriumAi #988)
-        VStack(alignment: .leading, spacing: 2) {
-            Text("Move")
-                .font(StrandFont.footnote)
-                .foregroundStyle(StrandPalette.textTertiary)
-            if night.motionEpochs.count >= 2 {
-                MotionTrace(epochs: night.motionEpochs, height: 40, tint: StrandPalette.restColor)
-                    .padding(.horizontal, 10)
-            } else {
-                Text("No movement detail for this night")
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textTertiary)
-                    .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
-                    .accessibilityLabel(Text("No movement detail recorded for this night"))
-            }
-        }
-        .accessibilityElement(children: .contain)
-    }
-
     /// H9 — true when this night's staging is LOW-CONFIDENCE: a high-efficiency night (lots of measured
     /// sleep) whose restorative (deep+REM) share is implausibly low, which the EEG-free classifier is far
     /// more likely to have mis-staged than a genuine night with no deep or REM. Delegates to the engine's
@@ -1084,65 +869,6 @@ struct SleepView: View {
         .accessibilityLabel("Low confidence staging. This night scored high efficiency but very little deep or REM, more likely an estimate miss than a real restorative shortfall.")
     }
 
-    /// The night's clock window — when you fell asleep and when you woke — as its own clearly
-    /// labelled row. These were previously only in the nav-header's trailing caption, which
-    /// truncates between the two chevrons on a phone, so in practice the two times people look for
-    /// first were effectively hidden. The header now carries just the date span.
-    @ViewBuilder
-    private func sleepWindowRow(_ night: Night) -> some View {
-        // A frosted Sleep-tinted card (was a flat surfaceRaised block) so the window row sits in the
-        // same colour world as the rest of the screen. Bevel treatment — content unchanged.
-        NoopCard(padding: NoopMetrics.cardInnerPadding, tint: StrandPalette.restColor) {
-            VStack(alignment: .leading, spacing: NoopMetrics.rowSpacing) {
-                HStack(spacing: 0) {
-                    sleepTime(icon: "moon.zzz.fill", label: "Asleep", value: night.onsetText)
-                    Spacer(minLength: 12)
-                    Rectangle().fill(StrandPalette.hairline).frame(width: 1, height: 30)
-                    Spacer(minLength: 12)
-                    sleepTime(icon: "sun.max.fill", label: "Woke", value: night.wakeText)
-                    Spacer(minLength: 8)
-                    wakeEditButton(night)
-                }
-                .frame(maxWidth: .infinity)
-                // Provenance (C4) + the "why this is your main sleep" explainer (C1). The badge names the
-                // REAL per-day merge winner; the info button reveals the foundation reason for the pick.
-                Divider().overlay(StrandPalette.hairline)
-                mainSleepFooter(night)
-            }
-        }
-    }
-
-    /// The hero's footer: the night's provenance badge (the real merge winner) next to a tappable "why
-    /// this is your main sleep" affordance. Tapping reveals the foundation `MainNightReason` copy in a
-    /// popover, so the pick is explainable on the spot without leaving the hero. (spec 2026-06-20 C1/C4)
-    @ViewBuilder
-    private func mainSleepFooter(_ night: Night) -> some View {
-        HStack(spacing: 10) {
-            // C4 — provenance. Dynamic String into the badge slot, so wrap in "\()" (the
-            // String vs LocalizedStringKey SwiftUI footgun) to show it verbatim, not as a lookup key.
-            SourceBadge("\(nightSource(night))", tint: StrandPalette.restColor)
-            Spacer(minLength: 8)
-            if mainSleepReasonText(night) != nil {
-                Button { showMainSleepWhy.toggle() } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: "info.circle")
-                        Text("Why this sleep?")
-                    }
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.restColor)
-                    .frame(minHeight: 44)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(PaperPressStyle())
-                .help("Why this is your main sleep")
-                .accessibilityLabel("Why this is your main sleep")
-                .popover(isPresented: $showMainSleepWhy, arrowEdge: .bottom) {
-                    whyPopover(text: mainSleepReasonText(night) ?? "", napSuffix: false)
-                }
-            }
-        }
-    }
-
     /// A compact explainer popover: the verbatim foundation reason text, with the nap suffix appended for a
     /// nap row. Plain English, no jargon, no em-dashes (the words come straight from `mainSleepReasonText`
     /// and the spec's nap-row suffix). Sized for both macOS and iOS. (spec 2026-06-20 C1)
@@ -1176,96 +902,12 @@ struct SleepView: View {
         .accessibilityElement(children: .combine)
     }
 
-    private func sleepTime(icon: String, label: LocalizedStringKey, value: String) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: icon)
-                .font(StrandFont.headline)
-                .foregroundStyle(StrandPalette.restColor)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(label).strandOverline()
-                Text(value).font(StrandFont.number(22)).foregroundStyle(StrandPalette.textPrimary)
-            }
-        }
-        .accessibilityElement(children: .combine)
-    }
-
-    /// Pencil affordance that opens the wake-time editor for `night`. Auto-detection misreads the wake
-    /// time most often (a late lie-in, or a morning stir read as still-asleep), so a one-tap correction
-    /// lives right next to the "Woke" value. A filled pencil marks a night already hand-corrected. (#318)
-    ///
-    /// The hero shows a MERGED/synthetic Night — its `session` carries no `stagesJSON` and a reset
-    /// `userEdited` (mergeDay), with the real stage data in `night.stages`. So resolve the actual stored
-    /// block we're editing — the one whose wake time IS the night's wake — and edit against its detected
-    /// startTs key, current effective bed/wake (to seed the pickers), stagesJSON, and edited state.
-    @ViewBuilder
-    private func wakeEditButton(_ night: Night) -> some View {
-        // Resolve the real stored block by identity (the night's main block), never by re-scanning
-        // `allSessions` for a wake-time match — that guess could pick the wrong source/night and, when
-        // it missed, fall back to the synthetic effective onset (not a real key) so the edit no-oped.
-        if let target = night.editTarget {
-            let isEdited = target.userEdited
-            Button {
-                wakeEdit = WakeEdit(detectedStartTs: target.startTs,
-                                    bedTs: target.effectiveStartTs,
-                                    wakeTs: target.endTs,
-                                    stagesJSON: target.stagesJSON,
-                                    userEdited: isEdited)
-            } label: {
-                Image(systemName: isEdited ? "pencil.circle.fill" : "pencil.circle")
-                    .font(StrandFont.headline)
-                    .foregroundStyle(StrandPalette.restColor)
-            }
-            .buttonStyle(PaperPressStyle())
-            .help("Edit sleep times")
-            .accessibilityLabel(isEdited ? "Edit sleep times (edited)" : "Edit sleep times")
-        }
-    }
-
-    /// Full-width proportional stacked stage bar (fallback when no intervals).
-    @ViewBuilder
-    private func stageBar(_ s: Stages) -> some View {
-        let total = max(1, s.total)
-        VStack(alignment: .leading, spacing: 10) {
-            Spacer(minLength: 0)
-            GeometryReader { geo in
-                HStack(spacing: 2) {
-                    segment(.deep, s.deep, total, geo.size.width)
-                    segment(.light, s.light, total, geo.size.width)
-                    segment(.rem, s.rem, total, geo.size.width)
-                    segment(.awake, s.awake, total, geo.size.width)
-                }
-            }
-            .frame(height: 34)
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Sleep stage breakdown: deep \(pct(s.deep, s.total)) percent, light \(pct(s.light, s.total)) percent, REM \(pct(s.rem, s.total)) percent, awake \(pct(s.awake, s.total)) percent")
-            HStack(spacing: 16) {
-                legend(.deep, String(localized: "Deep"))
-                legend(.light, String(localized: "Light"))
-                legend(.rem, String(localized: "REM"))
-                legend(.awake, String(localized: "Awake"))
-            }
-            Spacer(minLength: 0)
-        }
-    }
-
     @ViewBuilder
     private func segment(_ stage: SleepStage, _ minutes: Double, _ total: Double, _ width: CGFloat) -> some View {
         let w = CGFloat(minutes / total) * width
         Rectangle()
             .fill(StrandPalette.sleepStageColor(stage))
             .frame(width: max(0, w))
-    }
-
-    @ViewBuilder
-    private func legend(_ stage: SleepStage, _ label: String) -> some View {
-        HStack(spacing: 5) {
-            RoundedRectangle(cornerRadius: 2, style: .continuous)
-                .fill(StrandPalette.sleepStageColor(stage))
-                .frame(width: 9, height: 9)
-            Text(label).font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
-        }
     }
 
     // MARK: - Stage rows (dot + stage + share bar + duration)
@@ -1307,372 +949,6 @@ struct SleepView: View {
         }
     }
 
-    // MARK: - WHOOP stage-timeline rows (the sleep-details reference design, ryanAtriumAi #988)
-
-    /// Clock labels for the timeline axis; "jmm" respects the device 12/24-hour setting.
-    private static var stageAxisFormatter: DateFormatter { AppClock.hourMinuteFormatter() }
-
-    /// The WHOOP sleep-stages chart: a stack of four per-stage timeline rows (AWAKE · LIGHT ·
-    /// DEEP · REM, WHOOP's order) over a shared onset→wake time axis. Each row is independently
-    /// legible no matter how fragmented the on-device staging is — segments in one row can never
-    /// tangle with another stage's, which is exactly why WHOOP renders sleep this way.
-    @ViewBuilder
-    private func stageTimeline(_ s: Stages, intervals: [SleepInterval], night: Night) -> some View {
-        // Light display smoothing (90s) keeps WHOOP's fine tick texture while dropping epoch noise;
-        // the hypnogram needed 300s because stages shared one staircase — rows tolerate detail.
-        let smoothed = Hypnogram.displaySmoothed(intervals.sorted { $0.start < $1.start }, minDuration: 90)
-        let origin = smoothed.first?.start ?? 0
-        let span = max(1, (smoothed.map(\.end).max() ?? 1) - origin)
-        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-            // WHOOP's hero pair: HOURS OF SLEEP + RESTORATIVE SLEEP (deep + REM), each against
-            // its 30-day typical.
-            sleepHeadline(s)
-            // WHOOP's sleeping heart-rate chart above the rows: thin HR trace across the night.
-            // Selecting a stage tints the trace + washes the chart columns during that stage.
-            sleepHRChart(intervals: smoothed, origin: origin, span: span, night: night)
-                .frame(height: 124)
-                .padding(.horizontal, 10)
-                .padding(.bottom, 2)
-            stageTimelineRow(.awake, minutes: s.awake, total: s.total, intervals: smoothed, origin: origin, span: span)
-            stageTimelineRow(.light, minutes: s.light, total: s.total, intervals: smoothed, origin: origin, span: span)
-            stageTimelineRow(.deep,  minutes: s.deep,  total: s.total, intervals: smoothed, origin: origin, span: span)
-            stageTimelineRow(.rem,   minutes: s.rem,   total: s.total, intervals: smoothed, origin: origin, span: span)
-            // onset · midpoint · wake clock labels, aligned with the rows' inner strips.
-            HStack {
-                Text(Self.stageAxisFormatter.string(from: night.onsetDate))
-                Spacer()
-                Text(Self.stageAxisFormatter.string(from: night.onsetDate.addingTimeInterval(span / 2)))
-                Spacer()
-                Text(Self.stageAxisFormatter.string(from: night.onsetDate.addingTimeInterval(span)))
-            }
-            .font(StrandFont.footnote)
-            .foregroundStyle(StrandPalette.textTertiary)
-            .padding(.horizontal, 10)
-            .accessibilityHidden(true)
-            // WHOOP's per-stage insight: with a stage selected, tonight vs the 30-day typical
-            // range; otherwise a quiet hint that the rows are tappable. Fixed-height slot so
-            // selecting a stage never reflows the card.
-            stageInsight(s)
-                .frame(height: 30, alignment: .topLeading)
-                .padding(.horizontal, 2)
-        }
-    }
-
-    /// WHOOP's hero pair for the night: HOURS OF SLEEP and RESTORATIVE SLEEP (deep + REM), each
-    /// with its trailing-30-day typical underneath — the "how does tonight compare" read without
-    /// leaving the card.
-    @ViewBuilder
-    private func sleepHeadline(_ s: Stages) -> some View {
-        let restorative = s.deep + s.rem
-        HStack(alignment: .top, spacing: NoopMetrics.space6) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(durationText(s.asleep))
-                    .font(StrandFont.number(26))
-                    .foregroundStyle(StrandPalette.textPrimary)
-                Text("HOURS OF SLEEP")
-                    .font(StrandFont.overline)
-                    .tracking(StrandFont.overlineTracking)
-                    .foregroundStyle(StrandPalette.textTertiary)
-                if let t = stageTypical(nil) {
-                    Text("typically \(durationText(t.mean))")
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                }
-            }
-            VStack(alignment: .leading, spacing: 2) {
-                Text(durationText(restorative))
-                    .font(StrandFont.number(26))
-                    .foregroundStyle(StrandPalette.sleepREM)
-                Text("RESTORATIVE SLEEP")
-                    .font(StrandFont.overline)
-                    .tracking(StrandFont.overlineTracking)
-                    .foregroundStyle(StrandPalette.textTertiary)
-                if let t = restorativeTypical() {
-                    Text("typically \(durationText(t))")
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                }
-            }
-            Spacer()
-        }
-        .accessibilityElement(children: .combine)
-    }
-
-    /// The tonight-vs-typical line under the stage rows. Selected: "REM 2h 45m · typically
-    /// 1h 50m to 2h 20m, above your usual." Unselected: the tap affordance hint.
-    @ViewBuilder
-    private func stageInsight(_ s: Stages) -> some View {
-        if let sel = selectedStage {
-            let minutes = stageMinutes(sel, in: s)
-            if let t = stageTypical(sel) {
-                let phrase = minutes > t.hi ? String(localized: "above your usual")
-                    : (minutes < t.lo ? String(localized: "below your usual")
-                                      : String(localized: "about your usual"))
-                (Text(sel.label).fontWeight(.semibold).foregroundColor(StrandPalette.sleepStageColor(sel))
-                    + Text(" \(durationText(minutes)) · typically \(durationText(t.lo)) to \(durationText(t.hi)), \(phrase)."))
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .lineLimit(2)
-            } else {
-                Text("\(sel.label): \(durationText(minutes)). Not enough history yet for a typical range.")
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .lineLimit(2)
-            }
-        } else {
-            Text("Tap a stage to compare with your 30-day typical.")
-                .font(StrandFont.footnote)
-                .foregroundStyle(StrandPalette.textTertiary)
-        }
-    }
-
-    /// Tonight's minutes for one stage out of the decoded totals.
-    private func stageMinutes(_ stage: SleepStage, in s: Stages) -> Double {
-        switch stage {
-        case .awake: return s.awake
-        case .light: return s.light
-        case .deep:  return s.deep
-        case .rem:   return s.rem
-        }
-    }
-
-    /// Per-stage typical minutes over the trailing 30 scored days: the 25th–75th percentile band
-    /// plus the mean — WHOOP's "typical range". Pass nil for total asleep. Returns nil below 5
-    /// scored nights (honest cold-start: no fabricated range from a few days).
-    private func stageTypical(_ stage: SleepStage?) -> (lo: Double, hi: Double, mean: Double)? {
-        let values: [Double] = repo.days.suffix(30).compactMap { d in
-            switch stage {
-            case nil:     return d.totalSleepMin
-            case .light?: return d.lightMin
-            case .deep?:  return d.deepMin
-            case .rem?:   return d.remMin
-            case .awake?:
-                // Awake isn't a stored daily column; derive from in-bed minus asleep via efficiency.
-                guard let asleep = d.totalSleepMin, asleep > 0, var e = d.efficiency, e > 0 else { return nil }
-                if e > 1.5 { e /= 100 }   // efficiency arrives as % on some import paths
-                guard e > 0.3, e <= 1 else { return nil }
-                return asleep * (1 - e) / e
-            }
-        }.filter { $0 > 0 }.sorted()
-        guard values.count >= 5 else { return nil }
-        func pct(_ p: Double) -> Double {
-            let idx = p * Double(values.count - 1)
-            let l = Int(idx.rounded(.down)), u = Int(idx.rounded(.up))
-            let frac = idx - Double(l)
-            return values[l] * (1 - frac) + values[u] * frac
-        }
-        let mean = values.reduce(0, +) / Double(values.count)
-        return (pct(0.25), pct(0.75), mean)
-    }
-
-    /// 30-day mean restorative minutes (deep + REM per scored night).
-    private func restorativeTypical() -> Double? {
-        let values: [Double] = repo.days.suffix(30).compactMap { d in
-            guard let deep = d.deepMin, let rem = d.remMin else { return nil }
-            let v = deep + rem
-            return v > 0 ? v : nil
-        }
-        guard values.count >= 5 else { return nil }
-        return values.reduce(0, +) / Double(values.count)
-    }
-
-    /// One WHOOP stage row: header (STAGE · coloured % · right-aligned duration) above a hatched
-    /// night-long track with solid segments where the stage occurred. Tap toggles the highlight:
-    /// the selected row keeps its colour + gains a border while every other row's segments grey out.
-    @ViewBuilder
-    private func stageTimelineRow(_ stage: SleepStage, minutes: Double, total: Double,
-                                  intervals: [SleepInterval], origin: TimeInterval, span: TimeInterval) -> some View {
-        let color = StrandPalette.sleepStageColor(stage)
-        let isSelected = selectedStage == stage
-        let dimmed = selectedStage != nil && !isSelected
-        let percent = total > 0 ? Int((minutes / total * 100).rounded()) : 0
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Text(stage.label.uppercased())
-                    .font(StrandFont.overline)
-                    .tracking(StrandFont.overlineTracking)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                Text("\(percent)%")
-                    .font(StrandFont.captionNumber)
-                    .foregroundStyle(dimmed ? StrandPalette.textTertiary : color)
-                Spacer()
-                Text(durationText(minutes))
-                    .font(StrandFont.captionNumber)
-                    .foregroundStyle(StrandPalette.textPrimary)
-            }
-            GeometryReader { geo in
-                ZStack(alignment: .topLeading) {
-                    StageHatchedTrack()
-                    ForEach(intervals.filter { $0.stage == stage }) { iv in
-                        let x0 = CGFloat((iv.start - origin) / span) * geo.size.width
-                        let w = max(2, CGFloat((iv.end - iv.start) / span) * geo.size.width)
-                        RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                            .fill(dimmed ? StrandPalette.textTertiary.opacity(0.55) : color)
-                            .frame(width: w, height: geo.size.height)
-                            .offset(x: x0)
-                    }
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-            }
-            .frame(height: 20)
-        }
-        .padding(.vertical, 8)
-        .padding(.horizontal, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(StrandPalette.textPrimary.opacity(0.045))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(isSelected ? StrandPalette.hairlineStrong : Color.clear, lineWidth: 1.5)
-        )
-        .contentShape(Rectangle())
-        .onTapGesture {
-            withAnimation(StrandMotion.fade) { selectedStage = isSelected ? nil : stage }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(stage.label): \(durationText(minutes)), \(percent) percent of the night")
-        .accessibilityHint("Highlights this stage on the sleep chart")
-        .accessibilityAddTraits(.isButton)
-    }
-
-    /// WHOOP's sleeping heart-rate chart: a thin HR trace across the night with dashed onset/wake
-    /// rules and quiet bpm gridlines. With a stage selected, the trace re-colours inside that
-    /// stage's intervals and those time columns get a faint stage-tinted wash — WHOOP's "what did
-    /// my heart do during REM" read. Canvas-drawn (~550 one-minute buckets), gaps in the data
-    /// break the line honestly rather than interpolating across them.
-    @ViewBuilder
-    private func sleepHRChart(intervals: [SleepInterval], origin: TimeInterval, span: TimeInterval, night: Night) -> some View {
-        let nightStartTs = night.onsetDate.timeIntervalSince1970
-        let buckets = nightHR.filter {
-            let rel = TimeInterval($0.ts) - nightStartTs
-            return rel >= origin - 60 && rel <= origin + span + 60
-        }
-        if buckets.count >= 2 {
-            Canvas { ctx, size in
-                let bpms = buckets.map(\.bpm)
-                let lo = (bpms.min() ?? 40) - 5
-                let hi = (bpms.max() ?? 90) + 5
-                func point(_ b: HRBucket) -> CGPoint {
-                    let rel = TimeInterval(b.ts) - nightStartTs
-                    let x = CGFloat((rel - origin) / span) * size.width
-                    let y = size.height * (1 - CGFloat((b.bpm - lo) / max(1, hi - lo)))
-                    return CGPoint(x: x, y: y)
-                }
-                // Selected-stage column washes UNDER everything else.
-                if let sel = selectedStage {
-                    let wash = StrandPalette.sleepStageColor(sel).opacity(0.13)
-                    for iv in intervals where iv.stage == sel {
-                        let x0 = CGFloat((iv.start - origin) / span) * size.width
-                        let w = max(1, CGFloat((iv.end - iv.start) / span) * size.width)
-                        ctx.fill(Path(CGRect(x: x0, y: 0, width: w, height: size.height)), with: .color(wash))
-                    }
-                }
-                // Quiet bpm gridlines + labels at ~3 nice values.
-                let step = max(10.0, (((hi - lo) / 3) / 10).rounded() * 10)
-                var grid = (lo / step).rounded(.up) * step
-                while grid < hi {
-                    let y = size.height * (1 - CGFloat((grid - lo) / max(1, hi - lo)))
-                    var line = Path()
-                    line.move(to: CGPoint(x: 0, y: y)); line.addLine(to: CGPoint(x: size.width, y: y))
-                    ctx.stroke(line, with: .color(StrandPalette.hairline.opacity(0.5)), lineWidth: 1)
-                    ctx.draw(Text(verbatim: "\(Int(grid))").font(StrandFont.number(9, weight: .regular)).foregroundColor(StrandPalette.textTertiary),
-                             at: CGPoint(x: 10, y: y - 7))
-                    grid += step
-                }
-                // Base trace across the whole night; the line BREAKS across >5-min data gaps.
-                // Split by signal confidence: clean/measured HR draws solid, weak-optical stretches
-                // (PPG conf < 0.3) draw lighter + dashed, so a weak estimate is never presented as a
-                // clean measured beat. NOTE: with the default acceptance floor (0.3) no stored PPG
-                // sample carries conf < 0.3, so this weak branch is inert unless a future opt-in
-                // weak-signal mode (which needs a faithfulness eval first) lowers the floor.
-                let baseColor = selectedStage == nil
-                    ? StrandPalette.restColor.opacity(0.9)
-                    : StrandPalette.textTertiary.opacity(0.45)
-                var strong = Path()
-                var weakPath = Path()
-                var prev: (ts: Int, pt: CGPoint, strong: Bool)? = nil
-                for b in buckets {
-                    let p = point(b)
-                    let isStrong = b.conf >= 0.3
-                    if let pr = prev, b.ts - pr.ts <= 300 {
-                        // Bridge class transitions from the previous point so the trace stays
-                        // continuous — the weak segment owns the bridging stroke.
-                        if isStrong {
-                            if pr.strong { strong.addLine(to: p) }
-                            else { strong.move(to: pr.pt); strong.addLine(to: p) }
-                        } else {
-                            if !pr.strong { weakPath.addLine(to: p) }
-                            else { weakPath.move(to: pr.pt); weakPath.addLine(to: p) }
-                        }
-                    } else {
-                        if isStrong { strong.move(to: p) } else { weakPath.move(to: p) }
-                    }
-                    prev = (b.ts, p, isStrong)
-                }
-                ctx.stroke(strong, with: .color(baseColor), style: StrokeStyle(lineWidth: 1.2, lineJoin: .round))
-                ctx.stroke(weakPath, with: .color(baseColor.opacity(0.55)),
-                           style: StrokeStyle(lineWidth: 1, lineJoin: .round, dash: [2, 3]))
-                // Selected-stage trace overlay: the HR line re-drawn in the stage colour, only
-                // inside that stage's intervals.
-                if let sel = selectedStage {
-                    let ranges = intervals.filter { $0.stage == sel }.map { ($0.start, $0.end) }
-                    var overlay = Path()
-                    var lastIn: Int? = nil
-                    for b in buckets {
-                        let rel = TimeInterval(b.ts) - nightStartTs
-                        let inside = ranges.contains { rel >= $0.0 && rel <= $0.1 }
-                        if inside {
-                            let p = point(b)
-                            if let last = lastIn, b.ts - last <= 300 { overlay.addLine(to: p) } else { overlay.move(to: p) }
-                            lastIn = b.ts
-                        } else {
-                            lastIn = nil
-                        }
-                    }
-                    ctx.stroke(overlay, with: .color(StrandPalette.sleepStageColor(sel)),
-                               style: StrokeStyle(lineWidth: 1.6, lineJoin: .round))
-                }
-                // Dashed onset/wake rules (WHOOP's sleep-window markers).
-                for x in [CGFloat(0.75), size.width - 0.75] {
-                    var rule = Path()
-                    rule.move(to: CGPoint(x: x, y: 0)); rule.addLine(to: CGPoint(x: x, y: size.height))
-                    ctx.stroke(rule, with: .color(StrandPalette.textTertiary.opacity(0.5)),
-                               style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
-                }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-            .accessibilityLabel(Text("Sleeping heart rate through the night"))
-        } else {
-            Text("No heart-rate detail for this night")
-                .font(StrandFont.footnote)
-                .foregroundStyle(StrandPalette.textTertiary)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-        }
-    }
-
-    /// WHOOP's diagonal-hatched timeline track: subtle 45° stripes over a dark inset well — reads
-    /// as "the whole night" behind the solid stage segments, and makes gaps (other stages) obvious
-    /// without drawing anything for them.
-    private struct StageHatchedTrack: View {
-        var body: some View {
-            ZStack {
-                Rectangle().fill(StrandPalette.surfaceInset.opacity(0.9))
-                Canvas { context, size in
-                    var path = Path()
-                    let step: CGFloat = 5
-                    var x: CGFloat = -size.height
-                    while x < size.width {
-                        path.move(to: CGPoint(x: x, y: size.height))
-                        path.addLine(to: CGPoint(x: x + size.height, y: 0))
-                        x += step
-                    }
-                    context.stroke(path, with: .color(StrandPalette.textTertiary.opacity(0.16)), lineWidth: 1)
-                }
-            }
-        }
-    }
-
     // MARK: - 2. Night detail (tile grid, one tile per metric of the displayed night)
 
     /// The displayed night's numbers as a grid of `SleepMetricTile`: a domain symbol and tint per metric, the
@@ -1702,7 +978,10 @@ struct SleepView: View {
                                 systemImage: "bed.double.fill", series: spark(model.trendPoints.map(\.value))),
                 SleepMetricTile(label: "Sleep need",
                                 value: need.map(durationText) ?? (needsLoading ? "Loading…" : "Unavailable"),
-                                caption: needFromImport ? String(localized: "From WHOOP") : nil,
+                                // The need's provenance, named like the hero's source: the imported figure is Whoop's,
+                                // the rest is NOOP's own computation on this device.
+                                caption: need == nil ? nil
+                                    : (needFromImport ? String(localized: "Whoop") : String(localized: "On-device")),
                                 systemImage: "target"),
                 SleepMetricTile(label: "Efficiency", value: pctValue(efficiencyPct(night)),
                                 caption: model.efficiency.typical.map { String(localized: "Typical \(pctValue($0))") },
@@ -1775,12 +1054,13 @@ struct SleepView: View {
         }
     }
 
-    /// The state pill's tone for the balance: debt warns (critical past the same ~3 h the colour used to flip at),
-    /// a surplus or a balanced fortnight is positive or neutral.
+    /// The state pill's tone for the balance: debt is the warning amber (the deficit bars' colour), a surplus is
+    /// positive and a balanced fortnight is neutral.
     private func debtTone(_ ledger: SleepDebtLedger) -> StrandTone {
         if ledger.magnitudeMin < SleepDebt.onTargetBandMin { return .neutral }
         if !ledger.isDebt { return .positive }
-        return ledger.magnitudeMin < 180 ? .warning : .critical
+        // Debt is one tone: the same warning amber as the deficit bars, however deep it runs.
+        return .warning
     }
 
     /// The diverging per-night delta strip: each night a bar from the centre line — up in the sleep tint for a
@@ -2048,9 +1328,6 @@ struct SleepView: View {
         return idx.map { sessions[$0] }.sorted { $0.effectiveStartTs < $1.effectiveStartTs }
     }
 
-    /// Soft nap-duration hint retained for callers/tests; the nap CLASSIFICATION is now purely "not the
-    /// chosen main block" (see `isNap`), never an independent duration/onset test. (#518/#547)
-    static let napMaxHours: Double = 3.0
     /// Classify a block as a nap: it's a nap exactly when it is NOT the day's chosen main block. Derived
     /// from the pick (never an independent onset/duration gate), so the label can't contradict the
     /// selection — the contradiction the audit flagged. The main block is never a nap. (#518/#547)
@@ -2520,52 +1797,10 @@ struct SleepView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// Hero chart slot for a NAVIGATED session with no decodable stages — honest about the
-    /// gap instead of rendering the latest night under a navigated label. (#160)
-    private var noStagePlaceholder: some View {
-        Text("No stage data recorded for this night.")
-            .font(StrandFont.footnote)
-            .foregroundStyle(StrandPalette.textTertiary)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-            .background(StrandPalette.surfaceInset, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-
     // MARK: - Formatting helpers
-
-    private func pct(_ minutes: Double, _ total: Double) -> Int {
-        total > 0 ? Int((minutes / total * 100).rounded()) : 0
-    }
 
     private func pctValue(_ v: Double?) -> String {
         v.map { "\(Int($0.rounded()))%" } ?? "—"
-    }
-
-    private func rrValue(_ v: Double?) -> String {
-        v.map { String(format: "%.1f", $0) } ?? "—"
-    }
-
-    /// "+12% vs typical" / "−0.4 rpm vs typical" — the latest-vs-mean caption every tile carries.
-    private func vsTypical(_ latest: Double?, _ typical: Double?, suffix: String, decimals: Int = 0) -> String {
-        guard let latest, let typical, typical != 0 else { return String(localized: "vs typical - ") }
-        let diff = latest - typical
-        let sign = diff >= 0 ? "+" : "−"
-        let mag = abs(diff)
-        let num = decimals == 0 ? "\(Int(mag.rounded()))" : String(format: "%.\(decimals)f", mag)
-        return String(localized: "\(sign)\(num)\(suffix) vs typical")
-    }
-
-    private func debtCaption(_ debt: Double?) -> String {
-        guard let debt else { return String(localized: "vs need") }
-        return debt < 15 ? String(localized: "On target") : String(localized: "Below need")
-    }
-
-    private func debtColor(_ debt: Double?) -> Color {
-        guard let debt else { return StrandPalette.textPrimary }
-        switch debt {
-        case ..<15:  return StrandPalette.statusPositive
-        case ..<60:  return StrandPalette.statusWarning
-        default:     return StrandPalette.statusCritical
-        }
     }
 
     // MARK: - Sleep-debt ledger formatting
@@ -2587,8 +1822,8 @@ struct SleepView: View {
 
     /// Short tag under/beside the headline: DEBT / SURPLUS / ON TARGET.
     private func debtTag(_ ledger: SleepDebtLedger) -> String {
-        if ledger.magnitudeMin < SleepDebt.onTargetBandMin { return String(localized: "balanced") }
-        return ledger.isDebt ? String(localized: "sleep debt") : String(localized: "surplus")
+        if ledger.magnitudeMin < SleepDebt.onTargetBandMin { return String(localized: "Balanced") }
+        return ledger.isDebt ? String(localized: "Sleep debt") : String(localized: "Surplus")
     }
 
     /// Plain-English read of the running balance over the window.
@@ -2607,26 +1842,11 @@ struct SleepView: View {
         return String(localized: "You're carrying about \(mag) of surplus over \(span). You've slept past your need on balance. Nicely ahead.")
     }
 
-    /// Color the balance by sign + size: surplus/within-band → positive green, modest
-    /// debt → warning, heavier debt → critical.
-    private func debtBalanceColor(_ ledger: SleepDebtLedger) -> Color {
-        if ledger.magnitudeMin < SleepDebt.onTargetBandMin || !ledger.isDebt {
-            return StrandPalette.statusPositive
-        }
-        // A debt: amber up to ~3 h accumulated, red beyond.
-        return ledger.magnitudeMin < 180 ? StrandPalette.statusWarning : StrandPalette.statusCritical
-    }
-
     /// Signed "+1h 20m" / "−2h 10m" / "0m" balance string.
     private func debtSigned(_ minutes: Double) -> String {
         if abs(minutes) < 1 { return String(localized: "0m") }
         let sign = minutes >= 0 ? "+" : "−"
         return "\(sign)\(durationText(abs(minutes)))"
-    }
-
-    private func efficiencyText(_ night: Night) -> String {
-        let e = efficiencyPct(night)
-        return e.map { "\(Int($0.rounded()))%" } ?? "—"
     }
 
     /// Efficiency in percent. Prefer a plausible stored session value, else derive from
@@ -2727,65 +1947,6 @@ struct SleepView: View {
     }()
 }
 
-/// Stateful reveal shell for the memoized `SleepDebtLedger` values. The bar geometry
-/// remains a direct rendering of `ledger.nights`; only the first-appearance height is
-/// animated. Reduce Motion renders the final geometry on the very first frame.
-private struct SleepDebtDeltaBars: View {
-    let ledger: SleepDebtLedger
-    let accessibilitySummary: String
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var revealed = false
-
-    var body: some View {
-        let deltas = ledger.nights.map { $0.deltaMin }
-        let scale = max(deltas.map { abs($0) }.max() ?? 1, 1)
-        let showsFinalGeometry = reduceMotion || revealed
-
-        GeometryReader { geo in
-            let count = max(deltas.count, 1)
-            let slot = geo.size.width / CGFloat(count)
-            let barWidth = max(2, slot * 0.6)
-            let midpoint = geo.size.height / 2
-
-            ZStack(alignment: .topLeading) {
-                Rectangle()
-                    .fill(StrandPalette.hairline)
-                    .frame(height: 1)
-                    .position(x: geo.size.width / 2, y: midpoint)
-
-                ForEach(Array(ledger.nights.enumerated()), id: \.element.day) { index, night in
-                    let delta = night.deltaMin
-                    let fraction = CGFloat(abs(delta) / scale)
-                    let finalHeight = max(2, fraction * (midpoint - 2))
-                    let visibleHeight = showsFinalGeometry ? finalHeight : 2
-                    let x = slot * CGFloat(index) + slot / 2
-
-                    RoundedRectangle(cornerRadius: 2, style: .continuous)
-                        .fill(delta >= 0 ? StrandPalette.accent : StrandPalette.metricRose)
-                        .frame(width: barWidth, height: visibleHeight)
-                        .position(
-                            x: x,
-                            y: delta >= 0
-                                ? midpoint - visibleHeight / 2
-                                : midpoint + visibleHeight / 2
-                        )
-                        .animation(
-                            reduceMotion
-                                ? nil
-                                : StrandMotion.value.delay(Double(min(index, 13)) * 0.02),
-                            value: revealed
-                        )
-                }
-            }
-        }
-        .frame(height: 56)
-        .onAppear { revealed = true }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilitySummary)
-    }
-}
-
 // MARK: - Live-observing leaf subviews (scroll-stutter isolation)
 //
 // SleepView itself does NOT observe `LiveState` (a connected strap publishes at ~1 Hz, which would
@@ -2793,81 +1954,6 @@ private struct SleepDebtDeltaBars: View {
 // `@EnvironmentObject var live`, so a live tick re-renders only the mark card / syncing note — never
 // the hero hypnogram, the stage chart, the metric grid or the trends. They render byte-for-byte what
 // the inline code did before the extraction (mirrors the Today leaf-scoping pattern).
-
-/// The "going to sleep / I'm awake" sleep-mark card (#461, Phase 1). Tapping logs a timestamped mark —
-/// persisted to the `sleep_mark` metric series AND appended to the shareable strap log — then confirms
-/// with a haptic and a transient line. LOGGING ONLY: a mark never touches the sleep detector or the
-/// night boundaries. Owns `live` (it appends to the strap log) + `repo` (the metric-series write) and
-/// the `lastMark` confirmation state, so its strap-log write keeps working without SleepView observing.
-private struct SleepMarkCard: View {
-    @EnvironmentObject private var repo: Repository
-    @EnvironmentObject private var live: LiveState
-
-    /// The most recent sleep-mark the user tapped, shown as a transient confirmation line under the
-    /// two buttons. Drives the SwiftUI haptic landing too. LOGGING-ONLY: a mark never feeds the sleep
-    /// detector — it's persisted to the metric series + strap log. (#461)
-    @State private var lastMark: SleepMark?
-
-    var body: some View {
-        PaperCard {
-            VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
-                Text("Sleep Marks").strandOverline()
-                Text("Tap when you're heading to bed or when you wake. Each tap is logged with the time. It doesn't change tonight's detected sleep.")
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: NoopMetrics.gap) {
-                    sleepMarkButton("Going to sleep", systemImage: "moon.zzz.fill", type: .bedtime)
-                    sleepMarkButton("I'm awake", systemImage: "sun.max.fill", type: .wake)
-                }
-                if let lastMark {
-                    Text(lastMark.confirmation)
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.restColor)
-                        .transition(.opacity)
-                        .accessibilityLabel(lastMark.confirmation)
-                }
-            }
-        }
-        // A success haptic lands when a new mark is captured (value-driven, not per-tap), matching the
-        // app's sparse tactile vocabulary. No-op on macOS.
-        .strandHaptic(.success, trigger: lastMark?.tsMs ?? 0)
-    }
-
-    private func sleepMarkButton(_ title: LocalizedStringKey, systemImage: String,
-                                 type: SleepMarkType) -> some View {
-        Button { logMark(type) } label: {
-            HStack(spacing: 7) {
-                Image(systemName: systemImage).font(.system(size: 15, weight: .semibold))
-                Text(title)
-                    .font(StrandFont.caption.weight(.medium))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.72)
-            }
-            .foregroundStyle(StrandPalette.textPrimary)
-            .frame(maxWidth: .infinity, minHeight: NoopMetrics.controlHeight)
-            .background(StrandPalette.inset,
-                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(type == .bedtime ? "Log going to sleep" : "Log waking up")
-    }
-
-    /// Persist + log a tapped mark. Optimistically shows the confirmation immediately, fires the
-    /// haptic via `lastMark`, appends the human-readable strap-log line, then writes the metric-series
-    /// row through the repo's live store handle (no new Repository API, no schema change). The write is
-    /// idempotent by (deviceId, day, key). (#461)
-    private func logMark(_ type: SleepMarkType) {
-        let mark = SleepMark(type: type)
-        withAnimation(.easeOut(duration: 0.2)) { lastMark = mark }
-        // The shareable strap log is the human-readable surface that lands in a debug export.
-        live.append(log: mark.logLine)
-        Task {
-            guard let store = await repo.storeHandle() else { return }
-            _ = try? await store.upsertMetricSeries([mark.metricPoint], deviceId: repo.deviceId)
-        }
-    }
-}
 
 /// The "Syncing strap history…" note, shown only while a historical offload is running (#77). Owns the
 /// `LiveState` observation so the chunk count ticks without re-rendering the rest of the Sleep screen.
@@ -2972,28 +2058,6 @@ private struct SleepNeedBreakdownSection: View {
 
     private static func accessibilitySummary(_ b: SleepNeedBreakdown) -> String {
         String(localized: "Tonight's sleep need \(SleepAlarmTime.duration(Int(b.totalMinutes.rounded()))): baseline \(SleepAlarmTime.hoursMinutes(b.baselineMinutes)), yesterday's Effort \(SleepAlarmTime.hoursMinutes(b.strainAdjustmentMinutes, signed: true)), sleep debt repayment \(SleepAlarmTime.hoursMinutes(b.debtRepaymentMinutes, signed: true)), nap credit \(SleepAlarmTime.hoursMinutes(-b.napCreditMinutes, signed: true))")
-    }
-}
-
-// MARK: - Diagonal-hatch track (WHOOP "typical range" context)
-
-/// A repeating set of 45° diagonal lines for the "typical range" context track behind a stage bar
-/// ("solid = you, hatch = the context"). Pure geometry — stroke it in the stage colour and clip it to a
-/// capsule. `spacing` is the gap between lines; the lines run further than the bounds so the clip edges
-/// stay clean. Presentation-only; no data of its own.
-private struct DiagonalHatch: Shape {
-    var spacing: CGFloat = 5
-    var lineWidth: CGFloat = 1
-    func path(in rect: CGRect) -> Path {
-        var p = Path()
-        // Start well before the left edge so the 45° lines fully cover the rect after the diagonal shear.
-        var x = -rect.height
-        while x < rect.width {
-            p.move(to: CGPoint(x: x, y: rect.height))
-            p.addLine(to: CGPoint(x: x + rect.height, y: 0))
-            x += spacing
-        }
-        return p
     }
 }
 
