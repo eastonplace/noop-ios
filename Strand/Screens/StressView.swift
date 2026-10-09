@@ -541,7 +541,7 @@ struct StressView: View {
     }
 
     private func tileGrid(_ model: StressModel) -> some View {
-        let columns = typeSize.isAccessibilitySize
+        let columns = typeSize >= .xxxLarge
             ? [GridItem(.flexible())]
             : [GridItem(.flexible(), spacing: NoopMetrics.space3), GridItem(.flexible())]
         let rampColor = StressModuleBand.color(model.score)
