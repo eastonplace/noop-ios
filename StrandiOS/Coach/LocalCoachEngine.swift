@@ -764,6 +764,13 @@ final class LocalCoachEngine: ObservableObject {
             ])
         })
         engine.responseSeconds = 2.4
+        #if DEBUG
+        // A capture can show a failure without a model: `--noop-coach-error "<the system's own text>"`.
+        if let index = CommandLine.arguments.firstIndex(of: "--noop-coach-error"),
+           CommandLine.arguments.indices.contains(index + 1) {
+            engine.errorText = CommandLine.arguments[index + 1]
+        }
+        #endif
         return engine
     }
 }
