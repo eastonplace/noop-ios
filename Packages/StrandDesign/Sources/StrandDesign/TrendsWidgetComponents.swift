@@ -443,42 +443,32 @@ public struct TrendsHeroChart: View {
         let showsAverageLabel = [highY, showsLow ? lowY : nil]
             .compactMap { $0 }
             .allSatisfy { abs($0 - baselineY) > 14 }
-        // Labels slide along their rule to the first slot the line does not cross; none free, none drawn.
+        // Labels slide along their rule to the clearest slot, away from where the line crosses.
         let samples = lineSamples(rendered)
-        let typicalY = min(max(zoneTop + 10, 9), size.height - 9)
-        let typicalX = labelSlot(at: typicalY, width: size.width, samples: samples, fromTrailingEdge: false, halfWidth: 26)
+        let railLabels = railLabelPlacements(
+            high: high, highY: highY, low: showsLow ? low : nil, lowY: lowY,
+            baselineY: showsAverageLabel ? baselineY : nil, width: size.width, samples: samples
+        )
+        let typicalSpot: CGPoint? = zoneBottom > zoneTop
+            ? typicalLabelSpot(
+                zoneTop: zoneTop, zoneBottom: zoneBottom, width: size.width, samples: samples,
+                avoiding: railLabels.map(\.point)
+            )
+            : nil
 
         ZStack {
-            // The typical zone: a quiet band, its name knocked out at the leading edge.
+            // The typical zone: a quiet band; its name is placed with the other labels below the line.
             if zoneBottom > zoneTop {
                 Rectangle()
                     .fill(washColor.opacity(colorsLineByBand ? 0.05 : 0.07))
                     .frame(height: zoneBottom - zoneTop)
                     .position(x: size.width / 2, y: (zoneTop + zoneBottom) / 2)
-                if let typicalX {
-                    Text("typical")
-                        .font(StrandFont.micro)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                        .trendsRailKnockout()
-                        .position(x: typicalX, y: typicalY)
-                }
             }
 
-            // Rails at the recorded high and low, and the dashed average between them. Their labels sit on the
-            // rules at the trailing edge, inset so the live bead never touches them.
-            if let high, let highY {
-                rail(y: highY, width: size.width, label: valueFormat(high), dashed: false, samples: samples)
-            }
-            if showsLow, let low, let lowY {
-                rail(y: lowY, width: size.width, label: valueFormat(low), dashed: false, samples: samples)
-            }
-            rail(
-                y: baselineY,
-                width: size.width,
-                label: showsAverageLabel ? "avg \(valueFormat(baseline))" : nil,
-                dashed: true,
-                samples: samples
-            )
+            // Rails at the recorded high and low, and the dashed average between them.
+            if let highY { rail(y: highY, width: size.width, dashed: false) }
+            if showsLow, let lowY { rail(y: lowY, width: size.width, dashed: false) }
+            rail(y: baselineY, width: size.width, dashed: true)
 
             if rendered.count >= 2 {
                 area
@@ -507,6 +497,25 @@ public struct TrendsHeroChart: View {
                     .overlay(Circle().stroke(StrandPalette.appCanvas, lineWidth: 1.5))
                     .position(end)
                     .transition(.opacity)
+            }
+
+            // Names ride above the line on a canvas plate, each on the clearest stretch of its rule.
+            if let typicalSpot {
+                Text("typical")
+                    .font(StrandFont.micro)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .trendsRailKnockout()
+                    .fixedSize()
+                    .position(typicalSpot)
+            }
+            ForEach(Array(railLabels.enumerated()), id: \.offset) { _, label in
+                Text(verbatim: label.text)
+                    .font(StrandFont.micro)
+                    .monospacedDigit()
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .trendsRailKnockout()
+                    .fixedSize()
+                    .position(label.point)
             }
 
             if let scrubDay {
@@ -546,29 +555,69 @@ public struct TrendsHeroChart: View {
         return out
     }
 
-    /// The centre x of the first label slot on a rule at `y` that no sampled point of the line falls inside,
-    /// searching from the trailing (or leading) edge inwards.
-    private func labelSlot(
-        at y: CGFloat,
-        width: CGFloat,
-        samples: [CGPoint],
-        fromTrailingEdge: Bool = true,
-        halfWidth: CGFloat = 24
-    ) -> CGFloat? {
-        let step: CGFloat = 52
-        for index in 0..<8 {
-            let x = fromTrailingEdge
-                ? width - Self.railLabelInset - Self.railLabelWidth / 2 - CGFloat(index) * step
-                : halfWidth + 4 + CGFloat(index) * step
-            guard x - halfWidth >= 0, x + halfWidth <= width else { continue }
-            let blocked = samples.contains { abs($0.x - x) <= halfWidth + 3 && abs($0.y - y) <= 10 }
-            if !blocked { return x }
+    private func railLabelPlacements(
+        high: Double?, highY: CGFloat?, low: Double?, lowY: CGFloat?, baselineY: CGFloat?,
+        width: CGFloat, samples: [CGPoint]
+    ) -> [(text: String, point: CGPoint)] {
+        var placed: [(text: String, point: CGPoint)] = []
+        if let high, let highY, let x = labelSlot(at: highY, width: width, samples: samples) {
+            placed.append((valueFormat(high), CGPoint(x: x, y: highY)))
         }
-        return nil
+        if let low, let lowY, let x = labelSlot(at: lowY, width: width, samples: samples) {
+            placed.append((valueFormat(low), CGPoint(x: x, y: lowY)))
+        }
+        if let baselineY, let x = labelSlot(at: baselineY, width: width, samples: samples) {
+            placed.append(("avg \(valueFormat(baseline))", CGPoint(x: x, y: baselineY)))
+        }
+        return placed
+    }
+
+    /// How many sampled points of the line fall inside a label box centred on `point`.
+    private func crossings(of point: CGPoint, halfWidth: CGFloat, samples: [CGPoint]) -> Int {
+        samples.reduce(0) { count, sample in
+            abs(sample.x - point.x) <= halfWidth + 3 && abs(sample.y - point.y) <= 10 ? count + 1 : count
+        }
+    }
+
+    /// The centre x of the slot on a rule at `y` where the line crosses the label least, searching from the
+    /// trailing edge inwards so the first clear stretch wins.
+    private func labelSlot(at y: CGFloat, width: CGFloat, samples: [CGPoint], halfWidth: CGFloat = 24) -> CGFloat? {
+        var best: (x: CGFloat, hits: Int)?
+        for index in 0..<10 {
+            let x = width - Self.railLabelInset - Self.railLabelWidth / 2 - CGFloat(index) * 40
+            guard x - halfWidth >= 0 else { break }
+            let hits = crossings(of: CGPoint(x: x, y: y), halfWidth: halfWidth, samples: samples)
+            if best == nil || hits < best!.hits { best = (x, hits) }
+            if hits == 0 { break }
+        }
+        return best?.x
+    }
+
+    /// Where "typical" sits inside the band: the leading-most spot, from the top of the band down, that the
+    /// line crosses least.
+    private func typicalLabelSpot(
+        zoneTop: CGFloat, zoneBottom: CGFloat, width: CGFloat, samples: [CGPoint], avoiding labels: [CGPoint]
+    ) -> CGPoint? {
+        let halfWidth: CGFloat = 26
+        let ys = [zoneTop + 10, (zoneTop + zoneBottom) / 2, zoneBottom - 10]
+            .filter { $0 >= 8 && $0 <= zoneBottom }
+        var best: (point: CGPoint, hits: Int)?
+        for y in ys {
+            for index in 0..<10 {
+                let x = halfWidth + 4 + CGFloat(index) * 36
+                guard x + halfWidth <= width else { break }
+                let point = CGPoint(x: x, y: y)
+                let overlapsLabel = labels.contains { abs($0.x - point.x) < 62 && abs($0.y - point.y) < 18 }
+                let hits = crossings(of: point, halfWidth: halfWidth, samples: samples) + (overlapsLabel ? 1000 : 0)
+                if best == nil || hits < best!.hits { best = (point, hits) }
+                if hits == 0 { return point }
+            }
+        }
+        return best?.point
     }
 
     @ViewBuilder
-    private func rail(y: CGFloat, width: CGFloat, label: String?, dashed: Bool, samples: [CGPoint]) -> some View {
+    private func rail(y: CGFloat, width: CGFloat, dashed: Bool) -> some View {
         Path { path in
             path.move(to: CGPoint(x: 0, y: y))
             path.addLine(to: CGPoint(x: width, y: y))
@@ -577,16 +626,6 @@ public struct TrendsHeroChart: View {
             dashed ? StrandPalette.hairlineStrong.opacity(0.9) : StrandPalette.hairline.opacity(0.9),
             style: StrokeStyle(lineWidth: 0.7, dash: dashed ? [3, 4] : [])
         )
-        if let label, let x = labelSlot(at: y, width: width, samples: samples) {
-            Text(verbatim: label)
-                .font(StrandFont.micro)
-                .monospacedDigit()
-                .foregroundStyle(StrandPalette.textTertiary)
-                .trendsRailKnockout()
-                .fixedSize()
-                .frame(width: Self.railLabelWidth, alignment: .center)
-                .position(x: x, y: y)
-        }
     }
 
     private var lineGradient: LinearGradient {
@@ -881,7 +920,7 @@ public struct TrendsCalendarHeat: View {
             case .value(let value):
                 shape.fill(fill(for: value, range: range))
                 if colorScale == .recoveryBands {
-                    shape.strokeBorder(RecoveryBands.color(for: value).opacity(0.9), lineWidth: 1)
+                    shape.strokeBorder(RecoveryBands.color(for: value).opacity(0.7), lineWidth: 1)
                 }
             case .missing:
                 shape.strokeBorder(StrandPalette.hairlineStrong.opacity(0.7), lineWidth: 1)
@@ -907,7 +946,7 @@ public struct TrendsCalendarHeat: View {
             case .medium: position = (clamped - 34) / 33
             case .high: position = (clamped - 67) / 33
             }
-            return RecoveryBands.color(for: value).opacity(0.12 + 0.2 * min(max(position, 0), 1))
+            return RecoveryBands.color(for: value).opacity(0.14 + 0.2 * min(max(position, 0), 1))
         case .intensity:
             let span = range.upperBound - range.lowerBound
             let unit = span > 0 ? (value - range.lowerBound) / span : 0.5
