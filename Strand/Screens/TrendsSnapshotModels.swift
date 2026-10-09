@@ -217,6 +217,49 @@ enum ProductionTrendMetric: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+extension ProductionTrendMetric {
+    /// The SF Symbol this metric wears across Today's Health Monitor and the Coach cards.
+    var symbol: String {
+        switch self {
+        case .recovery: "heart.fill"
+        case .strain: "flame.fill"
+        case .sleepPerformance: "moon.stars.fill"
+        case .sleepDuration: "bed.double.fill"
+        case .hrv: "waveform.path.ecg"
+        case .restingHR: "heart.fill"
+        case .respiratory: "lungs.fill"
+        case .spo2: "drop.fill"
+        case .skinTemp: "thermometer.medium"
+        case .steps: "figure.walk"
+        case .calories: "flame.fill"
+        case .stress: "bolt.heart"
+        }
+    }
+
+    /// One domain tint per metric: its symbol, its chart ink and its accents all read from this. Recovery
+    /// follows the band of its latest score, exactly as Today's dial does.
+    func domainTint(latest: Double?) -> DomainTint {
+        switch self {
+        case .recovery: .recovery(score: latest)
+        case .strain: .strain
+        case .sleepPerformance, .sleepDuration: .sleep
+        case .hrv: .hrv
+        case .restingHR: .heart
+        case .stress: .stress
+        case .respiratory, .spo2, .skinTemp, .steps, .calories: .custom(tint)
+        }
+    }
+
+    /// What the metric can physically be, so a chart axis never runs past it (a recovery of -4, or 108%).
+    var valueBounds: ClosedRange<Double> {
+        switch self {
+        case .recovery, .sleepPerformance, .spo2: 0...100
+        case .skinTemp: -Double.greatestFiniteMagnitude...Double.greatestFiniteMagnitude
+        default: 0...Double.greatestFiniteMagnitude
+        }
+    }
+}
+
 struct TrendsScreenSnapshotKey: Hashable, Sendable {
     let revision: Int
     let anchorDay: String

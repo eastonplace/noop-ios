@@ -36,7 +36,7 @@ try:
     require(
         "Strand/Screens/TrendsView+WeeklyReview.swift",
         "paperMoverRows",
-        'Text("Weekly readout")',
+        '"Weekly readout"',
     )
     require(
         "Strand/Screens/TrendsSnapshotModels.swift",

@@ -112,29 +112,14 @@ struct TrendsView: View {
             }
         ) {
             if let message = loadState.errorMessage {
-                NoopCard {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Trends could not refresh")
-                            .font(StrandFont.headline)
-                            .foregroundStyle(StrandPalette.textPrimary)
-                        Text(message)
-                            .font(StrandFont.subhead)
-                            .foregroundStyle(StrandPalette.textSecondary)
-                        Button {
-                            Task { await loadDataForCurrentRevision() }
-                        } label: {
-                            Label("Try again", systemImage: "arrow.clockwise")
-                        }
-                        .buttonStyle(NoopButtonStyle(.secondary))
-                    }
+                TrendsErrorCard(message: message) {
+                    Task { await loadDataForCurrentRevision() }
                 }
             }
             if repo.days.isEmpty {
-                ComingSoon(what: repo.loaded
-                    ? "Trends need history to draw. Import your WHOOP export in Data Sources to see weeks, months and years instantly."
-                    : "Loading your history…")
+                TrendsEmptyState(isLoaded: repo.loaded)
             } else {
-                VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+                VStack(alignment: .leading, spacing: 0) {
                     paperScoresOverTime
                     trainingLoadCard
                     paperWeekReview

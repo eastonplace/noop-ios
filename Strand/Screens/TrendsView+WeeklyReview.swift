@@ -10,6 +10,7 @@ extension TrendsView {
     @ViewBuilder
     var paperWeekReview: some View {
         if let screenSnapshot = currentScreenSnapshot {
+            trendsSeparator
             paperWeekReview(screenSnapshot)
         } else {
             EmptyView()
@@ -22,173 +23,159 @@ extension TrendsView {
         let movers = paperMoverRows(digest)
         let insight = paperInsightText(digest, reviewLines: reviewLines)
 
-        return PaperCard {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 10) {
-                    Button { stepWeek(-1) } label: {
-                        Image(systemName: "chevron.left").frame(width: 44, height: 44)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(weekOffset <= minWeekOffset
-                        ? StrandPalette.textTertiary
-                        : StrandPalette.link)
-                    .disabled(weekOffset <= minWeekOffset)
-                    .accessibilityLabel("Previous week")
+        return VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
+            SectionEyebrow(
+                title: String(localized: "Weekly readout"),
+                systemImage: "chart.bar.doc.horizontal",
+                tint: .accent,
+                trailing: .pill(String(localized: "\(digest.daysWithData)/7 days"), tone: .neutral)
+            )
 
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Weekly readout").strandOverline()
-                        Text(weekOffsetLabel)
-                            .font(StrandFont.caption)
-                            .foregroundStyle(StrandPalette.textSecondary)
-                    }
+            weekStepper
 
-                    Spacer()
+            TrendsWeekColumns(items: [
+                paperWeekItem(.charge, digest: digest),
+                paperWeekItem(.effort, digest: digest),
+                paperWeekItem(.rest, digest: digest),
+            ])
 
-                    Text("\(digest.daysWithData)/7 days")
-                        .font(StrandFont.micro.weight(.semibold))
-                        .monospacedDigit()
-                        .foregroundStyle(StrandPalette.textSecondary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 5)
-                        .background(StrandPalette.surfaceInset, in: Capsule())
-
-                    Button { stepWeek(1) } label: {
-                        Image(systemName: "chevron.right").frame(width: 44, height: 44)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(weekOffset >= 0
-                        ? StrandPalette.textTertiary
-                        : StrandPalette.link)
-                    .disabled(weekOffset >= 0)
-                    .accessibilityLabel("Next week")
-                }
-
-                paperScoreTiles(digest)
-
-                if !movers.isEmpty {
-                    Text("Biggest changes").strandOverline()
-                    VStack(spacing: 9) {
+            if !movers.isEmpty {
+                VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                    Text("Biggest changes")
+                        .font(StrandFont.micro)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                    VStack(spacing: NoopMetrics.space2) {
                         ForEach(movers, id: \.metric.rawValue) { summary in
-                            HStack(spacing: 9) {
-                                Circle()
-                                    .fill(paperMoverAccent(summary.metric))
-                                    .frame(width: 7, height: 7)
-                                Text(summary.metric.label)
-                                    .font(StrandFont.caption.weight(.semibold))
-                                    .foregroundStyle(StrandPalette.textPrimary)
-                                if summary.isRoughComparison {
-                                    Text("early read")
-                                        .font(StrandFont.micro)
-                                        .foregroundStyle(StrandPalette.textTertiary)
-                                }
-                                Spacer(minLength: 8)
-                                Text(paperMoverValue(summary))
-                                    .font(StrandFont.captionNumber.weight(.semibold))
-                                    .monospacedDigit()
-                                    .foregroundStyle(StrandPalette.textPrimary)
-                                Text(paperMoverDelta(summary))
-                                    .font(StrandFont.micro.weight(.semibold))
-                                    .monospacedDigit()
-                                    .foregroundStyle(paperMoverTone(summary))
-                                    .frame(minWidth: 50, alignment: .trailing)
-                            }
+                            TrendsMoverRow(
+                                systemImage: paperMoverSymbol(summary.metric),
+                                label: summary.metric.label,
+                                isEarlyRead: summary.isRoughComparison,
+                                value: paperMoverValue(summary),
+                                delta: paperMoverDelta(summary),
+                                tone: paperMoverTone(summary),
+                                tint: paperMoverTint(summary)
+                            )
                         }
                     }
                 }
+                .padding(.top, NoopMetrics.space1)
+            }
 
+            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                Text("Highlights")
+                    .font(StrandFont.micro)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                ForEach(Array(reviewLines.enumerated()), id: \.offset) { _, line in
+                    HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
+                        Circle()
+                            .fill(reviewDotColor(for: line))
+                            .frame(width: 6, height: 6)
+                            .alignmentGuide(.firstTextBaseline) { dimensions in dimensions[VerticalAlignment.center] + 4 }
+                            .accessibilityHidden(true)
+                        Text(line)
+                            .font(StrandFont.subhead)
+                            .foregroundStyle(StrandPalette.textPrimary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
                 if let consistency = digest.sleepConsistencySD {
                     Label(
                         "Sleep score variability ±\(ProductionTrendMetric.sleepPerformance.format(consistency)) points",
                         systemImage: "moon.zzz"
                     )
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textSecondary)
+                    .font(StrandFont.micro)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .padding(.top, NoopMetrics.space1)
                 }
-
-                Divider().overlay(StrandPalette.hairline)
-
-                ForEach(Array(reviewLines.enumerated()), id: \.offset) { _, line in
-                    HStack(alignment: .top, spacing: 9) {
-                        Circle()
-                            .fill(reviewDotColor(for: line))
-                            .frame(width: 7, height: 7)
-                            .padding(.top, 6)
-                        Text(line)
-                            .font(StrandFont.body)
-                            .foregroundStyle(StrandPalette.textPrimary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-
-                HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(StrandPalette.link)
-                        .padding(.top, 2)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Insight").strandOverline()
-                        Text(insight)
-                            .font(StrandFont.footnote)
-                            .foregroundStyle(StrandPalette.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .padding(12)
-                .background(
-                    StrandPalette.surfaceInset,
-                    in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-                )
             }
+            .padding(.top, NoopMetrics.space1)
+
+            WidgetCard(title: String(localized: "Insight"), systemImage: "sparkles", tint: .accent) {
+                Text(insight)
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.top, NoopMetrics.space1)
         }
     }
 
-    private func paperScoreTiles(_ digest: WeeklyDigest) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            paperScoreTile(
-                .charge,
-                digest: digest,
-                accent: digest.summary(.charge).flatMap { summary in
-                    summary.thisWeek.n > 0
-                        ? RecoveryBands.color(for: summary.thisWeek.mean)
-                        : nil
-                } ?? StrandPalette.recoveryData
-            )
-            paperScoreTile(.effort, digest: digest, accent: StrandPalette.strainAccent)
-            paperScoreTile(.rest, digest: digest, accent: StrandPalette.sleepAccent)
+    /// Previous / next week as two chip chevrons around the week's name.
+    private var weekStepper: some View {
+        HStack(spacing: 0) {
+            Button { stepWeek(-1) } label: {
+                TrendsStepChipLabel(systemImage: "chevron.left", isEnabled: weekOffset > minWeekOffset)
+                    .frame(width: 44, height: 44)
+            }
+            .buttonStyle(.plain)
+            .disabled(weekOffset <= minWeekOffset)
+            .accessibilityLabel("Previous week")
+
+            Text(weekOffsetLabel)
+                .font(StrandFont.subhead.weight(.semibold))
+                .foregroundStyle(StrandPalette.textPrimary)
+                .frame(maxWidth: .infinity)
+                .accessibilityAddTraits(.isHeader)
+
+            Button { stepWeek(1) } label: {
+                TrendsStepChipLabel(systemImage: "chevron.right", isEnabled: weekOffset < 0)
+                    .frame(width: 44, height: 44)
+            }
+            .buttonStyle(.plain)
+            .disabled(weekOffset >= 0)
+            .accessibilityLabel("Next week")
         }
+        .padding(.vertical, -9)
     }
 
-    private func paperScoreTile(
-        _ metric: WeeklyMetric,
-        digest: WeeklyDigest,
-        accent: Color
-    ) -> some View {
+    private func paperWeekItem(_ metric: WeeklyMetric, digest: WeeklyDigest) -> TrendsWeekColumns.Item {
         let summary = digest.summary(metric)
         let hasValue = (summary?.thisWeek.n ?? 0) > 0
         let mean = summary?.thisWeek.mean ?? 0
-        let value: String = hasValue
-            ? weeklyMetricValue(metric, value: mean)
-            : "—"
         let delta = summary?.wowDelta ?? 0
         let sign = delta >= 0 ? "+" : "−"
-
-        return PaperCard(padding: 12) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(LocalizedStringKey(metric.label))
-                    .font(StrandFont.caption.weight(.semibold))
-                    .foregroundStyle(accent)
-                Text(value)
-                    .font(StrandFont.statValue)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                Text(hasValue
-                    ? "\(sign)\(weeklyMetricDelta(metric, value: abs(delta))) vs last week"
-                    : "No data this week")
-                    .font(StrandFont.micro)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .lineLimit(2)
+        let deltaMagnitude = weeklyMetricDelta(metric, value: abs(delta))
+        let unchanged = hasValue && trendsDeltaIsZero(deltaMagnitude)
+        let tone: TrendDeltaTone
+        if hasValue, !unchanged, let summary, !summary.isRoughComparison {
+            switch summary.wowGoodness {
+            case 1: tone = .positive
+            case -1: tone = .negative
+            default: tone = .neutral
             }
-            .frame(maxWidth: .infinity, minHeight: 70, alignment: .leading)
+        } else {
+            tone = .neutral
         }
+        let tint: DomainTint
+        let symbol: String
+        switch metric {
+        case .charge:
+            tint = .recovery(score: hasValue ? mean : nil)
+            symbol = "heart.fill"
+        case .effort:
+            tint = .strain
+            symbol = "flame.fill"
+        case .rest:
+            tint = .sleep
+            symbol = "moon.stars.fill"
+        case .rhr:
+            tint = .heart
+            symbol = "heart.fill"
+        case .hrv:
+            tint = .hrv
+            symbol = "waveform.path.ecg"
+        }
+        return TrendsWeekColumns.Item(
+            id: metric.rawValue,
+            systemImage: symbol,
+            label: metric.label,
+            value: hasValue ? weeklyMetricValue(metric, value: mean) : WidgetMetrics.missingValue,
+            delta: !hasValue
+                ? String(localized: "No data this week")
+                : unchanged ? String(localized: "Flat vs last week") : "\(sign)\(deltaMagnitude) vs last week",
+            tone: tone,
+            tint: tint
+        )
     }
 
     private func paperReviewLines(_ digest: WeeklyDigest) -> [String] {
@@ -222,13 +209,23 @@ extension TrendsView {
         )
     }
 
-    private func paperMoverAccent(_ metric: WeeklyMetric) -> Color {
+    private func paperMoverSymbol(_ metric: WeeklyMetric) -> String {
         switch metric {
-        case .charge: StrandPalette.recoveryData
-        case .effort: StrandPalette.strainAccent
-        case .rest: StrandPalette.sleepAccent
-        case .rhr: StrandPalette.metricRose
-        case .hrv: StrandPalette.metricPurple
+        case .charge: "heart.fill"
+        case .effort: "flame.fill"
+        case .rest: "moon.stars.fill"
+        case .rhr: "heart.fill"
+        case .hrv: "waveform.path.ecg"
+        }
+    }
+
+    private func paperMoverTint(_ summary: WeeklyMetricSummary) -> DomainTint {
+        switch summary.metric {
+        case .charge: .recovery(score: summary.thisWeek.n > 0 ? summary.thisWeek.mean : nil)
+        case .effort: .strain
+        case .rest: .sleep
+        case .rhr: .heart
+        case .hrv: .hrv
         }
     }
 
@@ -253,15 +250,15 @@ extension TrendsView {
         case .charge: magnitude = ProductionTrendMetric.recovery.format(abs(delta))
         case .rest: magnitude = ProductionTrendMetric.sleepPerformance.format(abs(delta))
         }
-        return "\(delta >= 0 ? "+" : "−")\(magnitude)"
+        return trendsDeltaIsZero(magnitude) ? String(localized: "No change") : "\(delta >= 0 ? "+" : "−")\(magnitude)"
     }
 
-    private func paperMoverTone(_ summary: WeeklyMetricSummary) -> Color {
-        guard !summary.isRoughComparison else { return StrandPalette.textTertiary }
+    private func paperMoverTone(_ summary: WeeklyMetricSummary) -> StrandTone {
+        guard !summary.isRoughComparison else { return .neutral }
         switch summary.wowGoodness {
-        case 1: return StrandPalette.statusPositive
-        case -1: return StrandPalette.statusCritical
-        default: return StrandPalette.textSecondary
+        case 1: return .positive
+        case -1: return .critical
+        default: return .neutral
         }
     }
 
