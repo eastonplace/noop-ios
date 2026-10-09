@@ -430,7 +430,7 @@ struct RhythmView: View {
                 StatTile(label: "CLOUD SHAPE",
                          value: fmt(headlineWindow?.sd1sd2, "%.2f"),
                          caption: String(localized: "SD1:SD2 ratio"),
-                         accent: StrandPalette.metricCyan)
+                         accent: DomainTint.hrv.accent)
                 StatTile(label: "BEAT-TO-BEAT",
                          value: percent(headlineWindow?.normRmssd),
                          caption: String(localized: "variation index"),

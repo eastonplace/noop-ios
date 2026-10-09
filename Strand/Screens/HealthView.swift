@@ -555,7 +555,7 @@ private struct RecoveryContributorsSection: View {
                 strength: higherIsBetter(latest?.avgHrv, base: hrvBase),
                 word: word(higherIsBetter(latest?.avgHrv, base: hrvBase)),
                 detail: latest?.avgHrv.map { "\(Int($0.rounded())) ms" } ?? "—",
-                tint: StrandPalette.metricCyan),       // HRV = teal
+                tint: DomainTint.hrv.accent),          // HRV = purple, the app-wide HRV hue
             Contributor(
                 label: "Resting HR",
                 strength: lowerIsBetter(latest?.restingHr.map(Double.init), base: rhrBase),
