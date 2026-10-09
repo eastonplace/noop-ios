@@ -2893,19 +2893,18 @@ private struct SleepNeedBreakdownSection: View {
     var body: some View {
         // The section brings its own leading hairline: with the V2 need off it draws nothing at all, and the
         // page must not be left with a stray separator.
-        Group {
+        VStack(alignment: .leading, spacing: 0) {
+            // A zero-height anchor: while there is nothing to show the section is otherwise an empty view, and an
+            // empty view in the lazy stack never appears, so its load task would never run.
+            Color.clear.frame(height: 0).accessibilityHidden(true)
             if SleepPerformanceV2Prefs.mode == .off {
                 EmptyView()
             } else if let breakdown {
-                VStack(alignment: .leading, spacing: 0) {
-                    SleepSectionSeparator()
-                    needSection(breakdown)
-                }
+                SleepSectionSeparator()
+                needSection(breakdown)
             } else if loaded {
-                VStack(alignment: .leading, spacing: 0) {
-                    SleepSectionSeparator()
-                    calibratingSection
-                }
+                SleepSectionSeparator()
+                calibratingSection
             }
         }
         .task(id: "\(wakeDay)-\(repo.refreshSeq)-\(repo.canonicalHealth.presentationRevision)") {

@@ -489,7 +489,7 @@ struct PreSleepHeartRateFeedbackSection: View {
         SleepSection("Pre-sleep HR", systemImage: "heart.text.square", tint: .heart,
                      trailing: .pill("on", tone: .accent)) {
             if let observation = feedback.observation {
-                HeroValue(value: String(format: "%.0f", observation.meanBpm), unit: "bpm", size: 30)
+                HeroValue(value: String(format: "%.0f", observation.meanBpm), unit: "bpm")
             }
             Text(feedbackHeadline(feedback))
                 .font(StrandFont.body)

@@ -703,19 +703,25 @@ struct SleepBalanceBars: View {
     @State private var revealed = false
 
     var body: some View {
-        let scale = max(nights.map { abs($0.minutes) }.max() ?? 1, 1)
+        // One scale for both directions; the centre line sits where the biggest surplus and the biggest deficit
+        // leave room for each, so a fortnight of debt does not draw an empty half above its bars.
+        let maxUp = max(nights.map(\.minutes).filter { $0 > 0 }.max() ?? 0, 0)
+        let maxDown = max(nights.map { -$0.minutes }.filter { $0 > 0 }.max() ?? 0, 0)
+        let total = max(maxUp + maxDown, 1)
         let finalGeometry = reduceMotion || revealed
         GeometryReader { proxy in
             let count = max(nights.count, 1)
             let slot = proxy.size.width / CGFloat(count)
             let barWidth = max(3, min(slot * 0.55, 14))
-            let mid = proxy.size.height / 2
+            let usable = proxy.size.height - 2
+            let perMinute = usable / CGFloat(total)
+            let mid = min(max(CGFloat(maxUp) * perMinute + 1, 6), proxy.size.height - 6)
             ZStack(alignment: .topLeading) {
                 Rectangle().fill(StrandPalette.hairlineStrong).frame(height: 1)
                     .position(x: proxy.size.width / 2, y: mid)
                 ForEach(Array(nights.enumerated()), id: \.element.id) { index, night in
-                    let fraction = CGFloat(abs(night.minutes) / scale)
-                    let full = max(3, fraction * (mid - 2))
+                    let room = night.minutes >= 0 ? mid - 2 : proxy.size.height - mid - 2
+                    let full = min(room, max(3, CGFloat(abs(night.minutes)) * perMinute))
                     let height = finalGeometry ? full : 3
                     RoundedRectangle(cornerRadius: min(3, barWidth / 2), style: .continuous)
                         .fill(night.minutes >= 0 ? DomainTint.sleep.accent : StrandPalette.statusWarning)
