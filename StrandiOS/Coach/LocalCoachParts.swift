@@ -210,12 +210,14 @@ struct CoachFactStrip: View {
 // MARK: Flat notice
 
 /// A status line on the canvas (an error, a notice): a tinted symbol and secondary text, no box. The flat
-/// replacement for `NoteCard` on Coach pages.
+/// replacement for `NoteCard` on Coach pages. A failure passes `details`: the system's own wording, kept out of
+/// the sentence and one tap away under "Details".
 struct CoachNotice: View {
     enum Tone { case warning, info }
 
     let text: Text
     var tone: Tone = .warning
+    var details: String?
 
     private var symbol: String { tone == .warning ? "exclamationmark.triangle.fill" : "arrow.triangle.2.circlepath" }
     private var color: Color { tone == .warning ? StrandPalette.statusWarning : StrandPalette.textSecondary }
@@ -224,11 +226,114 @@ struct CoachNotice: View {
         HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
             Image(systemName: symbol).font(StrandFont.caption).foregroundStyle(color)
                 .accessibilityHidden(true)
-            text.font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+                text.font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
+                if let details { CoachNoticeDetails(text: details).id(details) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .accessibilityElement(children: .combine)
+        // With Details the sentence and the button stay two elements, so the button can be reached.
+        .accessibilityElement(children: details == nil ? .combine : .contain)
     }
+}
+
+extension CoachNotice {
+    /// A failure message as the person should meet it: a plain sentence, the system's wording under Details.
+    init(error raw: String) {
+        let copy = CoachErrorCopy(raw)
+        self.init(text: Text(LocalizedStringKey(copy.message)), tone: .warning, details: copy.details)
+    }
+}
+
+/// "Details" and a chevron; opened, the system's text. Long text scrolls inside a bounded height instead of
+/// pushing the page's composer off the screen.
+private struct CoachNoticeDetails: View {
+    let text: String
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ScaledMetric(relativeTo: .footnote) private var maxTextHeight: CGFloat = 132
+    @State private var isExpanded = false
+    @State private var textHeight: CGFloat = 0
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+            Button {
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { isExpanded.toggle() }
+            } label: {
+                HStack(spacing: 4) {
+                    Text("Details")
+                    Image(systemName: "chevron.down").font(StrandFont.micro.weight(.semibold))
+                        .rotationEffect(.degrees(isExpanded ? 180 : 0)).accessibilityHidden(true)
+                }
+                .font(StrandFont.footnote.weight(.semibold))
+                .foregroundStyle(StrandPalette.textSecondary)
+                .chipHitTarget()
+            }
+            .buttonStyle(.plain)
+            .accessibilityValue(isExpanded ? Text("Expanded") : Text("Collapsed"))
+            .accessibilityIdentifier("coach.errorDetails")
+            if isExpanded {
+                ScrollView {
+                    Text(verbatim: text)
+                        .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(GeometryReader { proxy in
+                            Color.clear.preference(key: CoachDetailsHeightKey.self, value: proxy.size.height)
+                        })
+                }
+                .onPreferenceChange(CoachDetailsHeightKey.self) { textHeight = $0 }
+                .frame(height: min(textHeight, maxTextHeight))
+            }
+        }
+    }
+}
+
+private struct CoachDetailsHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
+/// How a failure reads on screen: one plain sentence the person can act on, with the system's own wording kept
+/// under Details. The engine's messages are either curated sentences (shown as written) or a
+/// `LocalCoachErrorPrefix` phrase followed by the system's text, which is never the headline.
+struct CoachErrorCopy: Equatable {
+    /// An English catalog key, shown through `LocalizedStringKey`.
+    let message: String
+    /// The original text, when `message` replaced it.
+    let details: String?
+
+    init(_ raw: String) {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        // One of Coach's own sentences, bare or inside the system's text (a tool that failed with it): lead with it.
+        if let curated = LocalCoachFailure.allCases.compactMap(\.errorDescription).first(where: { text.contains($0) }) {
+            message = curated
+            details = text == curated ? nil : text
+        } else if let known = Self.plain.first(where: { text.hasPrefix($0.prefix) }) {
+            message = known.message
+            details = text
+        } else {
+            message = text
+            details = nil
+        }
+    }
+
+    /// The plain sentence for each phrase the engine puts before a system error's own wording.
+    static let plain: [(prefix: String, message: String)] = [
+        (LocalCoachErrorPrefix.responseStopped,
+         "Coach could not finish that reply. Try again, or ask it a different way."),
+        (LocalCoachErrorPrefix.recordsUnreadable,
+         "Coach could not read your records just now. Try again in a moment."),
+        (LocalCoachErrorPrefix.settingsUnreadable,
+         "Coach could not read its saved settings, so it is off for now. Restart NOOP to try again."),
+        (LocalCoachErrorPrefix.settingsNotSaved,
+         "Your latest Coach settings were not saved. Try changing them again."),
+        (LocalCoachErrorPrefix.historyUnreadable,
+         "Coach could not load your saved conversations. Restart NOOP to try again."),
+        (LocalCoachErrorPrefix.changesNotSaved,
+         "Your latest Coach changes were not saved. Try again."),
+        (LocalCoachErrorPrefix.storageUnavailable,
+         "Coach could not open its storage, so nothing will be saved. Restart NOOP to try again.")
+    ]
 }
 
 // MARK: Typing dots

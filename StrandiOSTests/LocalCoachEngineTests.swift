@@ -600,6 +600,87 @@ final class LocalCoachEngineTests: XCTestCase {
         XCTAssertTrue(reply.text.contains("7"), reply.text)
     }
 
+    // MARK: Failures read as plain sentences
+
+    func testCuratedSentenceReadsAsWrittenWithoutDetails() {
+        let sentence = LocalCoachFailure.consent.localizedDescription
+        let copy = CoachErrorCopy(sentence)
+        XCTAssertEqual(copy.message, sentence)
+        XCTAssertNil(copy.details)
+    }
+
+    func testOwnSentenceInsideTheSystemsTextLeadsAndTheWholeTextStaysUnderDetails() {
+        let raw = LocalCoachErrorPrefix.responseStopped
+            + "An error occurred while invoking the tool: LocalCoachReadTool(name: \"sleep_history\") Underlying error: "
+            + LocalCoachFailure.toolBudget.localizedDescription
+        let copy = CoachErrorCopy(raw)
+        XCTAssertEqual(copy.message, LocalCoachFailure.toolBudget.localizedDescription)
+        XCTAssertEqual(copy.details, raw)
+    }
+
+    func testEveryEnginePhraseHasAPlainSentenceAndNeverLeadsWithTheSystemText() {
+        let phrases = [LocalCoachErrorPrefix.responseStopped, LocalCoachErrorPrefix.recordsUnreadable,
+                       LocalCoachErrorPrefix.settingsUnreadable, LocalCoachErrorPrefix.settingsNotSaved,
+                       LocalCoachErrorPrefix.historyUnreadable, LocalCoachErrorPrefix.changesNotSaved,
+                       LocalCoachErrorPrefix.storageUnavailable]
+        XCTAssertEqual(Set(CoachErrorCopy.plain.map { $0.prefix }), Set(phrases))
+        for phrase in phrases {
+            let raw = phrase + "NSCocoaErrorDomain Code=4 \"The file doesn\u{2019}t exist.\""
+            let copy = CoachErrorCopy(raw)
+            XCTAssertFalse(copy.message.contains("NSCocoaErrorDomain"), phrase)
+            XCTAssertNotEqual(copy.message, raw, phrase)
+            XCTAssertEqual(copy.details, raw, phrase)
+        }
+    }
+
+    func testModelFailureReachesThePageAsAPlainSentence() async throws {
+        let model = TestCoachModel()
+        model.body = { _, _, _ in throw CoachSystemError() }
+        let engine = make(model: model, directory: try directory())
+        await engine.send("How did I sleep?")
+        let raw = try XCTUnwrap(engine.errorText)
+        XCTAssertTrue(raw.hasPrefix(LocalCoachErrorPrefix.responseStopped))
+        let copy = CoachErrorCopy(raw)
+        XCTAssertEqual(copy.message, "Coach could not finish that reply. Try again, or ask it a different way.")
+        XCTAssertEqual(copy.details, raw)
+        XCTAssertTrue(copy.details?.contains("FoundationModels") == true)
+    }
+
+    func testRecordReadFailureReachesThePageAsAPlainSentence() async throws {
+        let data = TestCoachData()
+        data.snapshotFailure = CoachSystemError()
+        let engine = make(data: data, directory: try directory())
+        engine.preferences.usePersonalData = true
+        await engine.refresh()
+        let raw = try XCTUnwrap(engine.errorText)
+        XCTAssertTrue(raw.hasPrefix(LocalCoachErrorPrefix.recordsUnreadable))
+        XCTAssertEqual(CoachErrorCopy(raw).message, "Coach could not read your records just now. Try again in a moment.")
+    }
+
+    func testUnreadableHistoryReachesThePageAsAPlainSentence() throws {
+        let store = LocalCoachPersistence(directory: try directory())
+        try store.save(.init(sourceID: "a"))
+        try Data("broken json".utf8).write(to: store.fileURL(sourceID: "a"))
+        let engine = LocalCoachEngine(data: TestCoachData(), persistence: store, model: TestCoachModel(),
+                                      source: { .init(storageID: "a", dataSourceID: "a", revision: "1") })
+        let raw = try XCTUnwrap(engine.errorText)
+        XCTAssertTrue(raw.hasPrefix(LocalCoachErrorPrefix.historyUnreadable))
+        XCTAssertEqual(CoachErrorCopy(raw).message, "Coach could not load your saved conversations. Restart NOOP to try again.")
+    }
+
+    func testPlainSentencesAndDetailsAreTranslated() throws {
+        let bundle = Bundle(for: LocalCoachEngine.self)
+        for locale in ["de", "es", "it", "pt-PT", "zh-Hans", "zh-Hant"] {
+            let path = try XCTUnwrap(bundle.path(forResource: locale, ofType: "lproj"), locale)
+            let table = try XCTUnwrap(Bundle(path: path), locale)
+            let keys = CoachErrorCopy.plain.map { $0.message } + ["Details"]
+            for key in keys {
+                XCTAssertNotEqual(table.localizedString(forKey: key, value: "\u{0}missing", table: nil), "\u{0}missing",
+                                  "\(locale) has no translation for: \(key)")
+            }
+        }
+    }
+
     // MARK: Records that land after the page opened
 
     private let readTime = Date(timeIntervalSince1970: 1_790_438_400)
@@ -691,7 +772,11 @@ private final class TestCoachData: LocalCoachDataAccess {
     var saveCount = 0
     var resultText = "private result"
     var beforeRead: (() async -> Void)?
-    func snapshot() async throws -> LocalCoachSnapshot { .empty }
+    var snapshotFailure: Error?
+    func snapshot() async throws -> LocalCoachSnapshot {
+        if let snapshotFailure { throw snapshotFailure }
+        return .empty
+    }
     func query(_ name: String, query: String, days: Int) async throws -> LocalCoachToolResult {
         reads.append((query, days))
         await beforeRead?()
@@ -726,6 +811,10 @@ private final class CoachTestGate {
         XCTFail("The controlled asynchronous operation did not start")
     }
     func release() { continuation?.resume(); continuation = nil }
+}
+
+private struct CoachSystemError: LocalizedError {
+    var errorDescription: String? { "The operation couldn\u{2019}t be completed. (FoundationModels.GenerationError error 2.)" }
 }
 
 @MainActor

@@ -239,7 +239,7 @@ private struct LocalCoachMemoryEditor: View {
                 if memory != nil {
                     Section { Button("Delete memory", role: .destructive) { confirmDelete = true } }
                 }
-                if let error = coach.errorText { Text(error).font(StrandFont.footnote).foregroundStyle(StrandPalette.warning) }
+                if let error = coach.errorText { CoachNotice(error: error) }
             }
             .navigationTitle(memory == nil ? "Add memory" : "Edit memory")
             .navigationBarTitleDisplayMode(.inline)

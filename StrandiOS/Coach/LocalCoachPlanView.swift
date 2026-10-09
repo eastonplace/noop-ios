@@ -304,7 +304,7 @@ struct LocalCoachPlanBuilder: View {
                     }.disabled(building || !coach.preferences.usePersonalData || focus.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         .accessibilityIdentifier("coach.createPlan")
                 }
-                if let error = coach.errorText { Text(error).foregroundStyle(StrandPalette.warning).font(StrandFont.footnote) }
+                if let error = coach.errorText { CoachNotice(error: error) }
             }
             .navigationTitle("Build a plan").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { if building { coach.cancel() }; dismiss() } } }

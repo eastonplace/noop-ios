@@ -49,7 +49,7 @@ protocol LocalCoachModelDriver {
                 read: @escaping LocalCoachRead, receive: @escaping LocalCoachReceive) async throws
 }
 
-enum LocalCoachFailure: LocalizedError {
+enum LocalCoachFailure: LocalizedError, CaseIterable {
     case disabled, consent, sourceChanged, recordsUpdating, toolBudget, unknownTool, inputTooLong, contextFull, preview, missingPlan
     var errorDescription: String? {
         switch self {
@@ -65,6 +65,18 @@ enum LocalCoachFailure: LocalizedError {
         case .missingPlan: return "Create and review a workout plan before saving it."
         }
     }
+}
+
+/// The phrases the engine puts in front of a system error's own wording. The Coach pages recognise them to lead with
+/// a plain sentence and keep the system text under Details (`CoachErrorCopy`), so both sides share one definition.
+enum LocalCoachErrorPrefix {
+    static let responseStopped = "On-device response stopped: "
+    static let recordsUnreadable = "Could not read local records: "
+    static let settingsUnreadable = "Could not read Coach settings: "
+    static let settingsNotSaved = "Coach settings were not saved: "
+    static let historyUnreadable = "Could not load Coach history: "
+    static let changesNotSaved = "Coach changes were not saved: "
+    static let storageUnavailable = "Could not open Coach storage: "
 }
 
 enum LocalCoachText {
@@ -150,7 +162,7 @@ final class LocalCoachEngine: ObservableObject {
         let store: LocalCoachPersistence?
         var failure: String?
         do { store = try .appLocal() }
-        catch { store = nil; failure = error.localizedDescription }
+        catch { store = nil; failure = LocalCoachErrorPrefix.storageUnavailable + error.localizedDescription }
         self.init(data: LocalCoachDataService(repo: repo), persistence: store,
                   model: Self.makeModel(), source: source, records: { Self.recordsToken(of: repo) })
         if let failure { storageError = failure; errorText = failure; stateReadable = false }
@@ -185,7 +197,7 @@ final class LocalCoachEngine: ObservableObject {
             catch {
                 settingsReadable = false
                 preferences.enabled = false
-                storageError = "Could not read Coach settings: \(error.localizedDescription)"
+                storageError = LocalCoachErrorPrefix.settingsUnreadable + error.localizedDescription
                 errorText = storageError
             }
             loadSource()
@@ -230,7 +242,7 @@ final class LocalCoachEngine: ObservableObject {
             }
         } catch {
             guard refreshID == token, source() == captured else { reconcileSource(); return }
-            if !(error is CancellationError) { errorText = "Could not read local records: \(error.localizedDescription)" }
+            if !(error is CancellationError) { errorText = LocalCoachErrorPrefix.recordsUnreadable + error.localizedDescription }
         }
     }
 
@@ -609,7 +621,7 @@ final class LocalCoachEngine: ObservableObject {
         updateAvailability()
         if settingsReadable {
             do { try persistence?.savePreferences(preferences) }
-            catch { storageError = "Coach settings were not saved: \(error.localizedDescription)"; errorText = storageError }
+            catch { storageError = LocalCoachErrorPrefix.settingsNotSaved + error.localizedDescription; errorText = storageError }
         }
         persistState()
     }
@@ -670,7 +682,7 @@ final class LocalCoachEngine: ObservableObject {
             }
         } catch {
             stateReadable = false
-            storageError = "Could not load Coach history: \(error.localizedDescription)"
+            storageError = LocalCoachErrorPrefix.historyUnreadable + error.localizedDescription
             errorText = storageError
         }
     }
@@ -697,7 +709,7 @@ final class LocalCoachEngine: ObservableObject {
                                                memories: memories, plan: plan, selectedConversationID: selectedConversationID,
                                                historyFloor: historyFloor)
         do { try persistence.save(state) }
-        catch { storageError = "Coach changes were not saved: \(error.localizedDescription)"; errorText = storageError }
+        catch { storageError = LocalCoachErrorPrefix.changesNotSaved + error.localizedDescription; errorText = storageError }
     }
 
     private func updateAvailability() {
@@ -707,7 +719,7 @@ final class LocalCoachEngine: ObservableObject {
 
     private static func describe(_ error: Error) -> String {
         if let failure = error as? LocalCoachFailure { return failure.localizedDescription }
-        return "On-device response stopped: " + LocalCoachText.bounded(error.localizedDescription, bytes: 1_000)
+        return LocalCoachErrorPrefix.responseStopped + LocalCoachText.bounded(error.localizedDescription, bytes: 1_000)
     }
 
     static func preview(screen: String = "home") -> LocalCoachEngine {

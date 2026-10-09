@@ -234,10 +234,8 @@ struct LocalCoachView: View {
 
     @ViewBuilder private var statusNote: some View {
         if let error = inputError ?? voice.errorText ?? coach.errorText ?? LocalCoachIntentBridge.errorText {
-            statusStrip {
-                CoachNotice(text: Text(LocalizedStringKey(error)), tone: .warning)
-            }
-            .accessibilityIdentifier("coach.error")
+            statusStrip { CoachNotice(error: error) }
+                .accessibilityIdentifier("coach.error")
         } else if coach.recordsUpdating && (screen == .home || screen == .chat) {
             statusStrip {
                 CoachNotice(text: Text("Your records are updating. General chat is available."), tone: .info)

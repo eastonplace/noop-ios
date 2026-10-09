@@ -26007,6 +26007,206 @@
         }
       }
     },
+    "Coach could not finish that reply. Try again, or ask it a different way.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Coach konnte diese Antwort nicht abschließen. Versuche es noch einmal oder formuliere die Frage anders."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El entrenador no pudo terminar esa respuesta. Inténtalo de nuevo o pregúntalo de otra manera."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coach non è riuscito a completare quella risposta. Riprova o formula la domanda in un altro modo."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O treinador não conseguiu concluir essa resposta. Tente novamente ou pergunte de outra forma."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "教练无法完成这条回复。请重试，或换一种方式提问。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "教練無法完成這則回覆。請再試一次，或換個方式提問。"
+          }
+        }
+      }
+    },
+    "Coach could not load your saved conversations. Restart NOOP to try again.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Coach konnte deine gespeicherten Unterhaltungen nicht laden. Starte NOOP neu, um es noch einmal zu versuchen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El entrenador no pudo cargar tus conversaciones guardadas. Reinicia NOOP para volver a intentarlo."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coach non è riuscito a caricare le conversazioni salvate. Riavvia NOOP per riprovare."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O treinador não conseguiu carregar as conversas guardadas. Reinicie o NOOP para tentar novamente."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "教练无法载入已保存的对话。请重新启动 NOOP 后再试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "教練無法載入已儲存的對話。請重新啟動 NOOP 後再試。"
+          }
+        }
+      }
+    },
+    "Coach could not open its storage, so nothing will be saved. Restart NOOP to try again.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Coach konnte seinen Speicher nicht öffnen, daher wird nichts gespeichert. Starte NOOP neu, um es noch einmal zu versuchen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El entrenador no pudo abrir su almacenamiento, así que no se guardará nada. Reinicia NOOP para volver a intentarlo."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coach non è riuscito ad aprire il proprio archivio, quindi non verrà salvato nulla. Riavvia NOOP per riprovare."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O treinador não conseguiu abrir o seu armazenamento, por isso nada será guardado. Reinicie o NOOP para tentar novamente."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "教练无法打开其存储空间，因此不会保存任何内容。请重新启动 NOOP 后再试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "教練無法開啟其儲存空間，因此不會儲存任何內容。請重新啟動 NOOP 後再試。"
+          }
+        }
+      }
+    },
+    "Coach could not read its saved settings, so it is off for now. Restart NOOP to try again.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Coach konnte seine gespeicherten Einstellungen nicht lesen und ist vorerst aus. Starte NOOP neu, um es noch einmal zu versuchen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El entrenador no pudo leer sus ajustes guardados, así que está desactivado por ahora. Reinicia NOOP para volver a intentarlo."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coach non è riuscito a leggere le impostazioni salvate ed è disattivato per ora. Riavvia NOOP per riprovare."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O treinador não conseguiu ler as definições guardadas, por isso está desativado por agora. Reinicie o NOOP para tentar novamente."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "教练无法读取已保存的设置，因此暂时处于关闭状态。请重新启动 NOOP 后再试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "教練無法讀取已儲存的設定，因此暫時處於關閉狀態。請重新啟動 NOOP 後再試。"
+          }
+        }
+      }
+    },
+    "Coach could not read your records just now. Try again in a moment.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Coach konnte deine Aufzeichnungen gerade nicht lesen. Versuche es gleich noch einmal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El entrenador no pudo leer tus registros en este momento. Inténtalo de nuevo en unos instantes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coach non è riuscito a leggere i tuoi record in questo momento. Riprova tra poco."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O treinador não conseguiu ler os seus registos neste momento. Tente novamente daqui a pouco."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "教练暂时无法读取你的记录。请稍后再试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "教練暫時無法讀取你的記錄。請稍後再試。"
+          }
+        }
+      }
+    },
     "Compares your heart rate before sleep with your recent nights": {
       "localizations": {
         "de": {
@@ -34667,6 +34867,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "描述性統計"
+          }
+        }
+      }
+    },
+    "Details": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Details"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detalles"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dettagli"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detalhes"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "详情"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "詳情"
           }
         }
       }
@@ -118377,6 +118617,86 @@
           "stringUnit": {
             "state": "translated",
             "value": "你的每日評分"
+          }
+        }
+      }
+    },
+    "Your latest Coach changes were not saved. Try again.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine letzten Änderungen im Coach wurden nicht gespeichert. Versuche es noch einmal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se guardaron tus últimos cambios en el entrenador. Inténtalo de nuevo."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le ultime modifiche a Coach non sono state salvate. Riprova."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "As últimas alterações ao treinador não foram guardadas. Tente novamente."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近对教练所做的更改未能保存。请重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近對教練所做的更改未能儲存。請再試一次。"
+          }
+        }
+      }
+    },
+    "Your latest Coach settings were not saved. Try changing them again.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine letzten Coach-Einstellungen wurden nicht gespeichert. Ändere sie noch einmal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se guardaron tus últimos ajustes del entrenador. Vuelve a cambiarlos."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le ultime impostazioni di Coach non sono state salvate. Prova a modificarle di nuovo."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "As últimas definições do treinador não foram guardadas. Tente alterá-las novamente."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近的教练设置未能保存。请再改一次。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近的教練設定未能儲存。請再更改一次。"
           }
         }
       }
