@@ -1651,6 +1651,7 @@ struct TodayView: View {
                     }
                 }
         }
+        .settingsSheetScreenScaffoldEnvironment()
     }
     #endif
 

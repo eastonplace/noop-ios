@@ -132,8 +132,12 @@ struct TestCentreView: View {
         .onAppear {
             ScheduledDebugExport.activateIfEnabled()
         }
+        // A sheet opened from here gets its own header context, not this screen's (a pushed screen's compact row
+        // has no subtitle and Settings' native header draws none), or the review would lose the line that says
+        // nothing leaves the device until Share.
         .sheet(item: $report.pending) { _ in
             ReportReviewSheet(report: report)
+                .sheetScreenScaffoldEnvironment(onClose: { report.cancel() })
         }
         .sheet(isPresented: $showStartSport, onDismiss: {
             if model.activeWorkout != nil { showLiveWorkout = true }
@@ -151,6 +155,7 @@ struct TestCentreView: View {
             HRVSnapshotView(onClose: { showHRVSnapshot = false }, source: hrvSnapshotSource)
                 .environmentObject(model)
                 .environmentObject(live)
+                .sheetScreenScaffoldEnvironment()
         }
         .alert(infoTitle, isPresented: $showInfo) {
             Button("OK", role: .cancel) { }
