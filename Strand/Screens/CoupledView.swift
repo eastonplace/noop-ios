@@ -763,8 +763,8 @@ struct PaperPillarDetailView: View {
         NavigationStack {
             ScreenScaffold(
                 title: LocalizedStringKey(detailTitle),
-                subtitle: LocalizedStringKey(detailDateLabel),
-                topBackground: nil
+                topBackground: nil,
+                headerContext: detailDateLabel
             ) {
                 // Recovery and Strain are flat sections with one hairline between them (the sections add their
                 // own air); the two legacy kinds keep their stacked cards.

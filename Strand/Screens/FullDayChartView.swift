@@ -78,7 +78,7 @@ struct FullDayChartView: View {
     private var visibleWindow: ClosedRange<Date> { zoomDomain ?? dayBounds }
 
     var body: some View {
-        ScreenScaffold(title: "Deep Timeline", subtitle: "Every second of your day, zoomable.") {
+        ScreenScaffold(title: "Deep Timeline") {
             // Flat sections with one hairline between them, like Today and Trends: the timeline (its controls
             // under the eyebrow, the chart in the Live HR module's language), the time in range, the source.
             VStack(alignment: .leading, spacing: 0) {

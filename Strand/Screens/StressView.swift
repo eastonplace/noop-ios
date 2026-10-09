@@ -78,7 +78,7 @@ struct StressView: View {
     }
 
     var body: some View {
-        ScreenScaffold(title: "Stress", subtitle: "Autonomic load from HRV and resting heart rate",
+        ScreenScaffold(title: "Stress",
                        onRefresh: { await load() },
                        // PERF (scroll): lazy column — byte-identical layout (LazyVStack == eager VStack
                        // alignment/spacing/header). The content is one inner eager VStack, so the staggered
@@ -378,6 +378,11 @@ struct StressView: View {
                 scrubHour: $scrubHour
             )
             hourlySplit(slots, mode: mode)
+            // What the page used to say under its title: how the number is made.
+            Text("Autonomic load from HRV and resting heart rate")
+                .font(StrandFont.micro)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

@@ -111,6 +111,10 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
     /// Optional inline back action for pushed/sheet screens. When present, the shared Paper header
     /// owns the chevron so navigation never consumes a separate row above the wordmark.
     var backAction: (() -> Void)? = nil
+    /// Tertiary context shown at the trailing end of a pushed screen's compact title row (the date being viewed,
+    /// say). Pushed screens drop `subtitle` from their header, so anything the subtitle said that matters belongs
+    /// here or in the screen's content. Ignored everywhere else.
+    var headerContext: String? = nil
     /// Optional element pinned to the header's trailing edge (e.g. the strap-battery badge on Today).
     /// Defaults to `EmptyView` via the convenience init below, so other screens are unaffected.
     @ViewBuilder var trailing: () -> Trailing
@@ -246,6 +250,19 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
             // A tab root already has the pinned chrome row (and its wordmark) above the content, so it gets
             // one compact title row, like Today's, instead of a second wordmark, a large title and a subtitle.
             NoopTabTitleRow(title) { headerTrailing }
+        } else if let title, let back = detailBackAction {
+            // A pushed screen gets one compact row of its own: back chip, caps title, optional context. No
+            // wordmark (the tab it came from owns that) and no subtitle line. The bare `trailing()` goes in (a
+            // pushed screen has no sheet close button), so an empty one adds no gap after the context.
+            NoopDetailTitleRow(title, context: headerContext, backAction: back) { trailing() }
+                .accessibilityHidden(showsCompactHeader)
+                .onGeometryChange(for: Bool.self) { proxy in
+                    proxy.frame(in: .named("screen-scaffold-scroll")).maxY <= 0
+                } action: { isPastTop in
+                    if showsCompactHeader != isPastTop {
+                        showsCompactHeader = isPastTop
+                    }
+                }
         } else if presentation == .standard, title != nil || subtitle != nil {
             expandedHeader
                 .accessibilityHidden(showsCompactHeader)
@@ -267,6 +284,14 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
     /// back chevron instead, and a modal sheet owns a close button, so neither stacks a second header.
     private var showsAppHeaderChrome: Bool {
         presentation == .standard && appHeaderChromeVisibility == .visible && navigationRole == .root
+    }
+
+    /// The back action of a pushed screen that wears the compact title row, nil for every other screen: a tab
+    /// root (pinned chrome), a modal sheet's root (a close button, or a wizard's own back step, keeps its header),
+    /// Settings' native detail pages, and a scaffold that draws over a sky backdrop or has no title of its own.
+    private var detailBackAction: (() -> Void)? {
+        guard presentation == .standard, navigationRole == .detail, topBackground == nil, title != nil else { return nil }
+        return resolvedBackAction
     }
 
     private var resolvedBackAction: (() -> Void)? {
@@ -303,15 +328,19 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
         )
     }
 
-    private var compactHeader: some View {
-        NoopScreenHeader(
-            title: title,
-            subtitle: subtitle,
-            backAction: resolvedBackAction,
-            onDark: false,
-            style: .compact,
-            trailing: { headerTrailing }
-        )
+    @ViewBuilder private var compactHeader: some View {
+        if let title, let back = detailBackAction {
+            NoopDetailTitleRow(title, context: headerContext, backAction: back) { trailing() }
+        } else {
+            NoopScreenHeader(
+                title: title,
+                subtitle: subtitle,
+                backAction: resolvedBackAction,
+                onDark: false,
+                style: .compact,
+                trailing: { headerTrailing }
+            )
+        }
     }
     #endif
 
@@ -390,11 +419,13 @@ extension ScreenScaffold where Trailing == EmptyView {
          onRefresh: (() async -> Void)? = nil, lazy: Bool = false, topBackground: AnyView? = nil,
          showsSubtitleInExpandedHeader: Bool = true,
          backAction: (() -> Void)? = nil,
+         headerContext: String? = nil,
          @ViewBuilder content: @escaping () -> Content) {
         self.init(title: title, subtitle: subtitle, onRefresh: onRefresh, lazy: lazy,
                   topBackground: topBackground,
                   showsSubtitleInExpandedHeader: showsSubtitleInExpandedHeader,
                   backAction: backAction,
+                  headerContext: headerContext,
                   trailing: { EmptyView() }, content: content)
     }
 }
