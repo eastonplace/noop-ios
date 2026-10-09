@@ -10,15 +10,16 @@ final class DrillInQAFixesTests: XCTestCase {
     // MARK: One recovery word per score, and it never crosses a colour band
 
     func testRecoveryWordEdges() {
+        // The cuts are on the score as drawn, whole points with a half rounding up: a 24.5 is drawn "25".
         XCTAssertEqual(RecoveryBands.word(for: 0), "Depleted")
-        XCTAssertEqual(RecoveryBands.word(for: 24.9), "Depleted")
-        XCTAssertEqual(RecoveryBands.word(for: 25), "Low")
-        XCTAssertEqual(RecoveryBands.word(for: 33.9), "Low")
-        XCTAssertEqual(RecoveryBands.word(for: 34), "Moderate")
-        XCTAssertEqual(RecoveryBands.word(for: 66.9), "Moderate")
-        XCTAssertEqual(RecoveryBands.word(for: 67), "Primed")
-        XCTAssertEqual(RecoveryBands.word(for: 87.9), "Primed")
-        XCTAssertEqual(RecoveryBands.word(for: 88), "Peak")
+        XCTAssertEqual(RecoveryBands.word(for: 24.4), "Depleted")
+        XCTAssertEqual(RecoveryBands.word(for: 24.5), "Low")
+        XCTAssertEqual(RecoveryBands.word(for: 33.4), "Low")
+        XCTAssertEqual(RecoveryBands.word(for: 33.5), "Moderate")
+        XCTAssertEqual(RecoveryBands.word(for: 66.4), "Moderate")
+        XCTAssertEqual(RecoveryBands.word(for: 66.5), "Primed")
+        XCTAssertEqual(RecoveryBands.word(for: 87.4), "Primed")
+        XCTAssertEqual(RecoveryBands.word(for: 87.5), "Peak")
         XCTAssertEqual(RecoveryBands.word(for: 100), "Peak")
     }
 
@@ -32,10 +33,18 @@ final class DrillInQAFixesTests: XCTestCase {
         for (word, set) in colours { XCTAssertEqual(set.count, 1, "\(word) wears more than one colour") }
     }
 
-    func testTheTodayCaptionsAndTheRingAskTheSameFunction() {
-        for score in [0.0, 24.9, 25, 34, 35, 66.9, 67, 70, 80, 87.9, 88, 100] {
-            XCTAssertEqual(StrandPalette.recoveryState(score), RecoveryBands.word(for: score).localizedUppercase)
+    /// What the screens print for a score, asked of the call sites themselves: the caption under Today's pillar card
+    /// and the caps word the ring and the heat-strip tooltip draw. Literal words, so a call site that drifts to its own
+    /// cut points (the old 50/70 and 35/70 cuts) fails here.
+    func testTheCallSitesPrintTheBandWordOfTheScoreAsDrawn() {
+        let drawn: [(Double, String)] = [(10, "Depleted"), (40, "Moderate"), (60, "Moderate"), (66.6, "Primed"),
+                                         (80, "Primed"), (87.5, "Peak"), (95, "Peak")]
+        for (score, word) in drawn {
+            XCTAssertEqual(TodayView.paperScoreState(score, kind: .charge), word, "Today caption for \(score)")
+            XCTAssertEqual(StrandPalette.recoveryState(score), word.uppercased(), "ring caps for \(score)")
         }
+        XCTAssertEqual(TodayView.paperScoreState(nil, kind: .charge), "Not rated")
+        XCTAssertEqual(TodayView.paperScoreState(.nan, kind: .charge), "Depleted")
     }
 
     // MARK: Stress colour is the band's colour

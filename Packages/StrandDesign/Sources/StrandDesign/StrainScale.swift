@@ -86,8 +86,15 @@ public enum RecoveryBands {
     /// Inside the green band a score from this is "Peak", the rest of the band "Primed".
     private static let peakFrom = 88.0
 
+    /// The score as the screens print it: whole points (rounded half away from zero, like every score label), kept
+    /// inside 0...100. The bands cut that number, so a 66.6 that is drawn "67" is a "67" and never a yellow one.
+    /// A score that is not a number reads as 0, the depleted end, never as a good one.
+    private static func displayed(_ score: Double) -> Double {
+        score.isFinite ? min(max(score.rounded(), 0), 100) : 0
+    }
+
     public static func band(for score: Double) -> RecoveryBand {
-        let value = score.isFinite ? min(max(score, 0), 100) : 0
+        let value = displayed(score)
         if value >= 67 { return .high }
         if value >= 34 { return .medium }
         return .low
@@ -98,7 +105,7 @@ public enum RecoveryBands {
     /// extra cut points sit inside a colour band, so each word wears exactly one colour: Depleted and Low are the
     /// red band, Moderate the yellow one, Primed and Peak the green one. A ring that draws caps uppercases it there.
     public static func word(for score: Double) -> String {
-        let value = score.isFinite ? min(max(score, 0), 100) : 0
+        let value = displayed(score)
         switch band(for: value) {
         case .low:
             return value < depletedBelow

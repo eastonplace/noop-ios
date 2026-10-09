@@ -1732,7 +1732,7 @@ struct TodayView: View {
             TodayPillarModel(
                 id: "recovery", label: String(localized: "Recovery"), value: charge, maximum: 100,
                 valueText: charge.map { "\(Int($0.rounded()))" } ?? "—",
-                state: paperScoreState(charge, kind: .charge),
+                state: Self.paperScoreState(charge, kind: .charge),
                 detail: carriedMetricDetail(.recovery, value: recoveryMetric, snapshot: firstPaint,
                                             currentLogicalDay: key.logicalKey,
                                             currentLocalDay: key.localKey, nowTimestamp: nowTimestamp),
@@ -1742,7 +1742,7 @@ struct TodayView: View {
             TodayPillarModel(
                 id: "strain", label: String(localized: "Strain"), value: strain, maximum: 21,
                 valueText: strain.map { String(format: "%.1f", $0) } ?? "—",
-                state: paperScoreState(effort, kind: .effort),
+                state: Self.paperScoreState(effort, kind: .effort),
                 detail: carriedMetricDetail(.strain, value: strainMetric, snapshot: firstPaint,
                                             currentLogicalDay: key.logicalKey,
                                             currentLocalDay: key.localKey, nowTimestamp: nowTimestamp),
@@ -1751,7 +1751,7 @@ struct TodayView: View {
             TodayPillarModel(
                 id: "sleep", label: String(localized: "Sleep"), value: rest, maximum: 100,
                 valueText: rest.map { "\(Int($0.rounded()))" } ?? "—",
-                state: paperScoreState(rest, kind: .rest),
+                state: Self.paperScoreState(rest, kind: .rest),
                 detail: carriedMetricDetail(.sleepScore, value: sleepMetric, snapshot: firstPaint,
                                             currentLogicalDay: key.logicalKey,
                                             currentLocalDay: key.localKey, nowTimestamp: nowTimestamp)
@@ -1886,7 +1886,7 @@ struct TodayView: View {
         }
     }
 
-    private func paperScoreState(_ value: Double?, kind: PaperPillarDetailKind) -> String {
+    static func paperScoreState(_ value: Double?, kind: PaperPillarDetailKind) -> String {
         guard let value else {
             return kind == .charge ? String(localized: "Not rated") : String(localized: "Not available")
         }
@@ -5069,20 +5069,21 @@ struct TodayView: View {
         }
         // true = slept 7h+; false = short; nil = no banked duration.
         let sleptWell: Bool? = d.totalSleepMin.map { $0 / 60.0 >= 7 }
-        switch rec {
-        case ..<50:
+        // The same bands as the recovery word and colour beside this line: a "Moderate" never reads "low".
+        switch RecoveryBands.band(for: rec) {
+        case .low:
             switch sleptWell {
             case true?:  return String(localized: "Recovery is low and sleep was consistent.")
             case false?: return String(localized: "Recovery is low but sleep ran short.")
             case nil:    return String(localized: "Recovery is low.")
             }
-        case ..<70:
+        case .medium:
             switch sleptWell {
             case true?:  return String(localized: "Recovery is steady and sleep was consistent.")
             case false?: return String(localized: "Recovery is steady but sleep ran short.")
             case nil:    return String(localized: "Recovery is steady.")
             }
-        default:
+        case .high:
             switch sleptWell {
             case true?:  return String(localized: "Recovery is strong and sleep was consistent.")
             case false?: return String(localized: "Recovery is strong but sleep ran short.")

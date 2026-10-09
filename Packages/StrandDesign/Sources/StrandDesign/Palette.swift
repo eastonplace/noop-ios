@@ -307,11 +307,8 @@ public enum StrandPalette {
 
     public static func recoveryColor(_ score: Double) -> Color {
         guard !isClassic else { return sample(stops: cRecoveryStops, at: score / 100.0) }
-        switch score {
-        case ..<34: return recoveryLow
-        case ..<67: return recoveryMed
-        default: return recoveryHigh
-        }
+        // The one set of cuts: RecoveryBands (rounded as drawn, and a score that is not a number is depleted, not green).
+        return RecoveryBands.color(for: score)
     }
 
     public static func strainColor(_ strain: Double) -> Color {
