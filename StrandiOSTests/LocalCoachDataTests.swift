@@ -517,7 +517,8 @@ final class LocalCoachPresentationTests: XCTestCase {
     }
 
     func testCountsHaveOneAndOtherFormsInEveryLanguage() throws {
-        let keys = ["%lld sessions · Ready for your review", "%lld sessions · Saved to your workouts", "%lld source records"]
+        let keys = ["%lld sessions · Ready for your review", "%lld sessions · Saved to your workouts", "%lld source records",
+                    "%lld sessions this week"]
         let bundle = Bundle(for: LocalCoachEngine.self)
         for locale in ["en", "de", "es", "it", "pt-PT", "zh-Hans", "zh-Hant"] {
             let path = try XCTUnwrap(bundle.path(forResource: "Localizable", ofType: "stringsdict",
