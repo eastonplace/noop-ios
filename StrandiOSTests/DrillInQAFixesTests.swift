@@ -61,7 +61,8 @@ final class DrillInQAFixesTests: XCTestCase {
         XCTAssertEqual(PaperPillarDetailView.standingPercent(of: 50, among: [50, 50, 50, 50]), 50)
         XCTAssertEqual(PaperPillarDetailView.standingPercent(of: 90, among: [10, 20, 30, 40]), 100)
         XCTAssertEqual(PaperPillarDetailView.standingPercent(of: 5, among: [10, 20, 30, 40]), 0)
-        XCTAssertEqual(PaperPillarDetailView.standingPercent(of: 30, among: [10, 20, 30, 40]), 50)
+        // Two days beaten and one tied is 2.5 of 4 days: 62.5%, shown as 63.
+        XCTAssertEqual(PaperPillarDetailView.standingPercent(of: 30, among: [10, 20, 30, 40]), 63)
         XCTAssertEqual(PaperPillarDetailView.standingPercent(of: 30, among: []), 0)
     }
 
