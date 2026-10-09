@@ -1792,7 +1792,7 @@ struct PaperPillarDetailView: View {
         switch kind {
         case .charge:
             guard let latest else { return String(localized: "Calibrating") }
-            return RecoveryBands.band(for: latest).rawValue.capitalized
+            return RecoveryBands.word(for: latest)
         case .effort:
             guard let latest else { return String(localized: "Calibrating") }
             let band = StrainScale.band(latest).title

@@ -1,3 +1,4 @@
+import SwiftUI
 import XCTest
 @testable import NOOP
 import StrandDesign
@@ -6,15 +7,35 @@ import StrandDesign
 /// Deep Timeline's day-level totals.
 @MainActor
 final class DrillInQAFixesTests: XCTestCase {
-    // MARK: Recovery words follow the bands the colours follow
+    // MARK: One recovery word per score, and it never crosses a colour band
 
-    func testRecoveryWordChangesExactlyWhereTheBandColourDoes() {
-        XCTAssertEqual(RecoveryBands.word(for: 0), "Low")
+    func testRecoveryWordEdges() {
+        XCTAssertEqual(RecoveryBands.word(for: 0), "Depleted")
+        XCTAssertEqual(RecoveryBands.word(for: 24.9), "Depleted")
+        XCTAssertEqual(RecoveryBands.word(for: 25), "Low")
         XCTAssertEqual(RecoveryBands.word(for: 33.9), "Low")
         XCTAssertEqual(RecoveryBands.word(for: 34), "Moderate")
         XCTAssertEqual(RecoveryBands.word(for: 66.9), "Moderate")
-        XCTAssertEqual(RecoveryBands.word(for: 67), "Good")
-        XCTAssertEqual(RecoveryBands.word(for: 100), "Good")
+        XCTAssertEqual(RecoveryBands.word(for: 67), "Primed")
+        XCTAssertEqual(RecoveryBands.word(for: 87.9), "Primed")
+        XCTAssertEqual(RecoveryBands.word(for: 88), "Peak")
+        XCTAssertEqual(RecoveryBands.word(for: 100), "Peak")
+    }
+
+    func testEveryRecoveryWordWearsExactlyOneColour() {
+        var colours: [String: Set<Color>] = [:]
+        for tenth in 0...1000 {
+            let score = Double(tenth) / 10
+            colours[RecoveryBands.word(for: score), default: []].insert(RecoveryBands.color(for: score))
+        }
+        XCTAssertEqual(Set(colours.keys), ["Depleted", "Low", "Moderate", "Primed", "Peak"])
+        for (word, set) in colours { XCTAssertEqual(set.count, 1, "\(word) wears more than one colour") }
+    }
+
+    func testTheTodayCaptionsAndTheRingAskTheSameFunction() {
+        for score in [0.0, 24.9, 25, 34, 35, 66.9, 67, 70, 80, 87.9, 88, 100] {
+            XCTAssertEqual(StrandPalette.recoveryState(score), RecoveryBands.word(for: score).localizedUppercase)
+        }
     }
 
     // MARK: Stress colour is the band's colour

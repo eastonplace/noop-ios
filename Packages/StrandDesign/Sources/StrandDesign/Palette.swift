@@ -324,14 +324,10 @@ public enum StrandPalette {
         return strainAccent
     }
 
+    /// The recovery word in caps, for the places that draw caps (the ring, the heat-strip tooltip). It is
+    /// `RecoveryBands.word(for:)` and nothing else: one word per score everywhere.
     public static func recoveryState(_ score: Double) -> String {
-        switch score {
-        case ..<25: return String(localized: "DEPLETED", bundle: .module)
-        case ..<50: return String(localized: "LOW", bundle: .module)
-        case ..<70: return String(localized: "MODERATE", bundle: .module)
-        case ..<88: return String(localized: "PRIMED", bundle: .module)
-        default: return String(localized: "PEAK", bundle: .module)
-        }
+        RecoveryBands.word(for: score).localizedUppercase
     }
 
     public static func hrZoneColor(_ zone: Int) -> Color {

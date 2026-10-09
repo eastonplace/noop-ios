@@ -4065,7 +4065,7 @@ struct TodayView: View {
                     ?? carried.map { "\(Int($0.value.rounded()))%" } ?? "—",
                 // Component 2: never a bare blank, when there's no number, no calibration count and
                 // nothing to carry, the caption states the honest "Needs the strap" rather than nothing.
-                caption: d?.recovery.map { StrandPalette.recoveryState($0).capitalized }
+                caption: d?.recovery.map { RecoveryBands.word(for: $0) }
                     ?? recoveryCalibration.map { _ in String(localized: "Calibrating") }
                     ?? carried.map { $0.caption }
                     ?? Self.needsStrapCaption,
@@ -5055,13 +5055,7 @@ struct TodayView: View {
     /// A short recovery state word for the synthesis hero.
     private func synthesisWord(_ score: Double?) -> String {
         guard let s = score else { return String(localized: "No Data") }
-        switch s {
-        case ..<25:  return String(localized: "Depleted")
-        case ..<50:  return String(localized: "Low")
-        case ..<70:  return String(localized: "Steady")
-        case ..<88:  return String(localized: "Primed")
-        default:     return String(localized: "Peak")
-        }
+        return RecoveryBands.word(for: s)
     }
 
     /// Plain-English synthesis of recovery + sleep. Whole-phrase variants per (charge band × sleep

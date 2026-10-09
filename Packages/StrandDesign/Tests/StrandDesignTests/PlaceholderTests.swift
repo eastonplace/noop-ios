@@ -67,10 +67,31 @@ final class StrandDesignTests: XCTestCase {
 
     func testRecoveryStateWords() {
         XCTAssertEqual(StrandPalette.recoveryState(10), "DEPLETED")
-        XCTAssertEqual(StrandPalette.recoveryState(40), "LOW")
+        XCTAssertEqual(StrandPalette.recoveryState(40), "MODERATE")
         XCTAssertEqual(StrandPalette.recoveryState(60), "MODERATE")
         XCTAssertEqual(StrandPalette.recoveryState(80), "PRIMED")
         XCTAssertEqual(StrandPalette.recoveryState(95), "PEAK")
+    }
+
+    /// The word is the colour band's word: the two extra cut points (25, 88) sit inside a band, so no word
+    /// ever straddles two colours and the ring's caps are just the Title Case word uppercased.
+    func testRecoveryWordFollowsTheColourBands() {
+        let edges: [(Double, String)] = [
+            (0, "Depleted"), (24.9, "Depleted"), (25, "Low"), (33.9, "Low"), (34, "Moderate"),
+            (66.9, "Moderate"), (67, "Primed"), (87.9, "Primed"), (88, "Peak"), (100, "Peak"),
+        ]
+        for (score, word) in edges {
+            XCTAssertEqual(RecoveryBands.word(for: score), word, "score \(score)")
+            XCTAssertEqual(StrandPalette.recoveryState(score), word.uppercased(), "score \(score)")
+        }
+        var colours: [String: Set<String>] = [:]
+        for tenth in 0...1000 {
+            let score = Double(tenth) / 10
+            let band = String(describing: RecoveryBands.band(for: score))
+            colours[RecoveryBands.word(for: score), default: []].insert(band)
+        }
+        for (word, bands) in colours { XCTAssertEqual(bands.count, 1, "\(word) crosses a colour band") }
+        XCTAssertEqual(RecoveryBands.word(for: .nan), "Depleted")
     }
 
     func testStrainColorScaleAndEndpoints() {
