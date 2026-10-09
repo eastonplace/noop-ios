@@ -963,8 +963,11 @@ struct PaperPillarDetailView: View {
                 captionColor: recoveryDelta?.color ?? StrandPalette.textTertiary,
                 scaleLabels: ("0", "100"),
                 accessibilityText: latest.map {
-                    let base = String(localized: "Recovery \(Int($0.rounded())) of 100, \(heroWord)")
-                    return recoverySpokenDelta.map { "\(base), \($0)" } ?? base
+                    let score = Int($0.rounded())
+                    guard let change = recoverySpokenDelta else {
+                        return String(localized: "Recovery \(score) of 100, \(heroWord)")
+                    }
+                    return String(localized: "Recovery \(score) of 100, \(heroWord), \(change)")
                 } ?? String(localized: "Recovery not rated")
             )
         } else {

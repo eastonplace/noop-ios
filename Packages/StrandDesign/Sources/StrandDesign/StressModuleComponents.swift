@@ -539,9 +539,15 @@ public struct StressModuleCard: View {
         }
         let counts = bandCounts
         if counts.reduce(0, +) > 0 {
-            parts.append("\(counts[0]) hours calm, \(counts[1]) moderate, \(counts[2]) high")
+            // Hours are spoken as durations ("1 hour", "2 hours") so the system pluralises them for the language.
+            let calm = Self.spokenHours(counts[0]), moderate = Self.spokenHours(counts[1]), high = Self.spokenHours(counts[2])
+            parts.append(String(localized: "Calm \(calm), moderate \(moderate), high \(high)", bundle: .module))
         }
         return parts.joined(separator: ", ")
+    }
+
+    static func spokenHours(_ hours: Int) -> String {
+        Duration.seconds(hours * 3600).formatted(.units(allowed: [.hours], width: .wide))
     }
 }
 

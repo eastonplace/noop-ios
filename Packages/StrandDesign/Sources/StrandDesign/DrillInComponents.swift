@@ -324,8 +324,12 @@ public struct StressDayRibbon: View {
     @Binding private var scrubHour: Int?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The app's locale, which carries its 12/24-hour setting.
+    @Environment(\.locale) private var locale
     @State private var revealed = false
-    @State private var adjustReset: Task<Void, Never>?
+    /// Whether VoiceOver is on the ribbon. The hour it has stepped to is kept for as long as it is, and let go when
+    /// focus moves on, so a slow listener who pauses between swipes never finds the position jumped back.
+    @AccessibilityFocusState private var voiceOverOnRibbon: Bool
 
     private static let height: CGFloat = 76
     /// With no scored hour there is nothing to draw tall: the row keeps only its baseline ticks.
@@ -367,7 +371,7 @@ public struct StressDayRibbon: View {
         .onAppear {
             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.5).delay(0.05)) { revealed = true }
         }
-        .onDisappear { adjustReset?.cancel() }
+        .onDisappear { if scrubHour != nil { scrubHour = nil } }
     }
 
     private var ribbon: some View {
@@ -419,6 +423,7 @@ public struct StressDayRibbon: View {
         .accessibilityLabel(Text(verbatim: summary))
         .accessibilityValue(Text(verbatim: scrubHour.flatMap { spokenHour?($0) } ?? ""))
         .accessibilityHint(Text("Swipe up or down to step through hours"))
+        .accessibilityFocused($voiceOverOnRibbon)
         .accessibilityAdjustableAction { direction in
             // The first swipe lands on where the day is now (or, on a past day, its peak); then each swipe is an hour.
             if let current = scrubHour {
@@ -430,10 +435,11 @@ public struct StressDayRibbon: View {
             } else {
                 scrubHour = min(max(nowHour ?? peak?.hour ?? 12, 0), 23)
             }
-            adjustReset?.cancel()
-            adjustReset = Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 4_000_000_000)
-                guard !Task.isCancelled else { return }
+        }
+        // Stepping ends when VoiceOver leaves the ribbon, not on a timer: the reading is released, and the hero it
+        // drives goes back to the day.
+        .onChangeCompat(of: voiceOverOnRibbon) { onRibbon in
+            if !onRibbon, scrubHour != nil {
                 withAnimation(StrandMotion.interactive) { scrubHour = nil }
             }
         }
@@ -487,7 +493,7 @@ public struct StressDayRibbon: View {
     private var axis: some View {
         HStack(spacing: 0) {
             ForEach(Array([0, 6, 12, 18, 24].enumerated()), id: \.offset) { index, hour in
-                Text(verbatim: Self.hourLabel(hour))
+                Text(verbatim: Self.hourLabel(hour, locale: locale))
                     .frame(maxWidth: .infinity, alignment: index == 0 ? .leading : index == 4 ? .trailing : .center)
             }
         }
@@ -497,11 +503,12 @@ public struct StressDayRibbon: View {
         .accessibilityHidden(true)
     }
 
-    /// "12 AM" / "00" for an hour of the day, following the device's locale.
-    public static func hourLabel(_ hour: Int) -> String {
+    /// "12 AM" / "00" for an hour of the day, in `locale`: the app's own, which carries its 12/24-hour setting (the
+    /// device's when none is given).
+    public static func hourLabel(_ hour: Int, locale: Locale = .autoupdatingCurrent) -> String {
         let normalized = ((hour % 24) + 24) % 24
         let date = Calendar.current.date(bySettingHour: normalized, minute: 0, second: 0, of: Date()) ?? Date()
-        return date.formatted(.dateTime.hour())
+        return date.formatted(.dateTime.hour().locale(locale))
     }
 }
 

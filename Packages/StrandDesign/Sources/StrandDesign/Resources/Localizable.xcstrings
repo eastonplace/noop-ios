@@ -1396,6 +1396,46 @@
           }
         }
       }
+    },
+    "Calm %@, moderate %@, high %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ruhig %@, moderat %@, hoch %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En calma %@, moderado %@, alto %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calmo %@, moderato %@, alto %@"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Calmo %@, moderado %@, alto %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "平静 %@，中等 %@，偏高 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "平靜 %@，中等 %@，偏高 %@"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

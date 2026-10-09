@@ -87639,6 +87639,46 @@
         }
       }
     },
+    "Recovery %lld of 100, %@, %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erholung %lld von 100, %@, %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recuperación %lld de 100, %@, %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recupero %lld su 100, %@, %@"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Recuperação %lld de 100, %@, %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢复 %lld，满分 100，%@，%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢復 %lld，滿分 100，%@，%@"
+          }
+        }
+      }
+    },
     "Recovery (all history)": {
       "localizations": {
         "de": {
