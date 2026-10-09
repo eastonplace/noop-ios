@@ -231,6 +231,9 @@ struct CoachNotice: View {
                 text.font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
                 if let details { CoachNoticeDetails(text: details).id(details) }
             }
+            // Always its full height: when the page is short (large text, Details open) the conversation above gives
+            // way, never the sentence.
+            .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         // With Details the sentence and the button stay two elements, so the button can be reached.
