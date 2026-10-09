@@ -82,7 +82,7 @@ public enum DomainTint: Sendable {
         case .sleep: return StrandPalette.sleepAccent
         case .strain, .workout: return StrandPalette.strainAccent
         case .stress: return StrandPalette.stressAccent
-        case .hrv: return StrandPalette.metricCyan
+        case .hrv: return StrandPalette.metricPurple
         case .heart: return StrandPalette.metricRose
         case .journal: return StrandPalette.journalAccent
         case .accent: return StrandPalette.accent
