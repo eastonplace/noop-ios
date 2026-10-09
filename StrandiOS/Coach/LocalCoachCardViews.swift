@@ -393,6 +393,8 @@ private struct CoachWorkoutRow: View {
                 }
                 .padding(.leading, NoopMetrics.iconCircleDiameter + NoopMetrics.space3)
             }
+            // Fills the card's width so the row starts at its leading edge; without it the card centres a stacked row.
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
