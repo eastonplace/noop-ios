@@ -123,40 +123,85 @@ private func trendsFormattedIsZero(_ text: String) -> Bool {
 
 // MARK: - Scrubbing that lets the page scroll
 
-/// Touch-and-drag reading for a chart, calendar or bar row that sits inside a vertically scrolling page.
+/// Touch-and-hold-then-drag reading for a chart, calendar or bar row that sits inside a vertically scrolling
+/// page.
 ///
-/// The drag runs alongside the scroll view's own pan instead of replacing it. A touch that rests, or moves
-/// mostly sideways, scrubs. The moment a touch moves mostly up or down it is the page scrolling: the reading
-/// is cleared and the drag is ignored until the finger lifts, so a swipe that starts on a chart still scrolls.
+/// A touch that starts moving at once is the page scrolling: the press has not rested long enough, so the
+/// recogniser fails and the scroll view takes the touch, exactly as it does anywhere else on the screen. A touch
+/// that rests for a beat (a tenth of a second) reads the chart under the finger and keeps reading as the finger
+/// drags, the way the Stocks chart does. Lifting the finger clears the reading. On iOS this is a UIKit long-press
+/// recogniser (allowed to run beside the scroll view's pan); elsewhere it is an immediate drag.
 struct TrendsScrubModifier: ViewModifier {
     let onScrub: (CGPoint) -> Void
     let onEnd: () -> Void
 
-    private enum Intent { case undecided, scrub, scroll }
-    @State private var intent: Intent = .undecided
-
     func body(content: Content) -> some View {
-        content.simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { drag in
-                    if intent == .undecided {
-                        let dx = abs(drag.translation.width)
-                        let dy = abs(drag.translation.height)
-                        if max(dx, dy) >= 6 {
-                            intent = dy > dx ? .scroll : .scrub
-                            if intent == .scroll { onEnd() }
-                        }
-                    }
-                    guard intent != .scroll else { return }
-                    onScrub(drag.location)
-                }
-                .onEnded { _ in
-                    intent = .undecided
-                    onEnd()
-                }
+        #if canImport(UIKit)
+        content.overlay(
+            TrendsScrubSurface(onScrub: onScrub, onEnd: onEnd)
+                .accessibilityHidden(true)
         )
+        #else
+        content.gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { onScrub($0.location) }
+                .onEnded { _ in onEnd() }
+        )
+        #endif
     }
 }
+
+#if canImport(UIKit)
+import UIKit
+
+/// A transparent surface carrying the long-press recogniser, laid over the view it reads.
+private struct TrendsScrubSurface: UIViewRepresentable {
+    let onScrub: (CGPoint) -> Void
+    let onEnd: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .clear
+        view.isAccessibilityElement = false
+        let recognizer = UILongPressGestureRecognizer(
+            target: context.coordinator, action: #selector(Coordinator.handle(_:)))
+        recognizer.minimumPressDuration = 0.1
+        recognizer.allowableMovement = 8
+        recognizer.cancelsTouchesInView = false
+        recognizer.delegate = context.coordinator
+        view.addGestureRecognizer(recognizer)
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.onScrub = onScrub
+        context.coordinator.onEnd = onEnd
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var onScrub: (CGPoint) -> Void = { _ in }
+        var onEnd: () -> Void = {}
+
+        @MainActor @objc func handle(_ recognizer: UILongPressGestureRecognizer) {
+            switch recognizer.state {
+            case .began, .changed:
+                onScrub(recognizer.location(in: recognizer.view))
+            case .ended, .cancelled, .failed:
+                onEnd()
+            default:
+                break
+            }
+        }
+
+        nonisolated func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+        ) -> Bool { true }
+    }
+}
+#endif
 
 private extension View {
     func trendsScrub(onScrub: @escaping (CGPoint) -> Void, onEnd: @escaping () -> Void) -> some View {
@@ -172,11 +217,28 @@ public struct TrendsMenuChipLabel: View {
     private let title: String
     private let systemImage: String
     private let tint: Color
+    private let isCompact: Bool
 
-    public init(title: String, systemImage: String, tint: Color) {
+    /// `isCompact` caps the title's width and lets it scale down a little, so a long metric name still shares
+    /// a row with the range control on a narrow phone.
+    public init(title: String, systemImage: String, tint: Color, isCompact: Bool = false) {
         self.title = title
         self.systemImage = systemImage
         self.tint = tint
+        self.isCompact = isCompact
+    }
+
+    @ViewBuilder
+    private var titleText: some View {
+        let text = Text(verbatim: title)
+            .font(StrandFont.captionNumber.weight(.semibold))
+            .foregroundStyle(StrandPalette.textPrimary)
+            .lineLimit(1)
+        if isCompact {
+            text.minimumScaleFactor(0.74).frame(maxWidth: 104, alignment: .leading)
+        } else {
+            text
+        }
     }
 
     public var body: some View {
@@ -184,10 +246,7 @@ public struct TrendsMenuChipLabel: View {
             Image(systemName: systemImage)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(tint)
-            Text(verbatim: title)
-                .font(StrandFont.captionNumber.weight(.semibold))
-                .foregroundStyle(StrandPalette.textPrimary)
-                .lineLimit(1)
+            titleText
             Image(systemName: "chevron.up.chevron.down")
                 .font(.system(size: 9, weight: .bold))
                 .foregroundStyle(StrandPalette.textTertiary)
@@ -198,6 +257,49 @@ public struct TrendsMenuChipLabel: View {
         .overlay(Capsule(style: .continuous).strokeBorder(StrandPalette.hairline, lineWidth: 1))
         .frame(minHeight: 44)
         .contentShape(Capsule(style: .continuous))
+    }
+}
+
+/// The metric chip and the range control on one tight row, so the control row reads as part of the section it
+/// drives. At larger text sizes, or when a long metric name leaves no room, the range control drops under the
+/// chip instead of truncating. `leading` receives whether the chip should compress its title.
+public struct TrendsControlRow<Leading: View, Trailing: View>: View {
+    private let leading: (Bool) -> Leading
+    private let trailing: Trailing
+
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    public init(@ViewBuilder leading: @escaping (Bool) -> Leading, @ViewBuilder trailing: () -> Trailing) {
+        self.leading = leading
+        self.trailing = trailing()
+    }
+
+    public var body: some View {
+        if typeSize >= .xLarge {
+            stacked
+        } else {
+            ViewThatFits(in: .horizontal) {
+                row(isCompact: false)
+                row(isCompact: true)
+                stacked
+            }
+        }
+    }
+
+    private func row(isCompact: Bool) -> some View {
+        HStack(spacing: 0) {
+            leading(isCompact)
+            Spacer(minLength: NoopMetrics.space2)
+            trailing
+        }
+        .frame(minHeight: 44)
+    }
+
+    private var stacked: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            leading(false)
+            trailing.frame(minHeight: 44)
+        }
     }
 }
 
@@ -261,6 +363,7 @@ public struct TrendsHeroChart: View {
     private let dayIndices: [Int]
     private let tickLabels: [(label: String, fraction: Double)]
 
+    @ScaledMetric(relativeTo: .caption2) private var labelUnit: CGFloat = 1
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var revealed = false
     @State private var scrubDay: CalendarMetricDay?
@@ -536,7 +639,6 @@ public struct TrendsHeroChart: View {
     }
 
     private static let railLabelInset: CGFloat = 16
-    private static let railLabelWidth: CGFloat = 44
 
     /// The line, sampled every few points along every run, for keeping labels off it.
     private func lineSamples(_ rendered: [CGPoint]) -> [CGPoint] {
@@ -560,33 +662,38 @@ public struct TrendsHeroChart: View {
         width: CGFloat, samples: [CGPoint]
     ) -> [(text: String, point: CGPoint)] {
         var placed: [(text: String, point: CGPoint)] = []
-        if let high, let highY, let x = labelSlot(at: highY, width: width, samples: samples) {
-            placed.append((valueFormat(high), CGPoint(x: x, y: highY)))
+        func place(_ text: String, y: CGFloat) {
+            if let x = labelSlot(at: y, text: text, width: width, samples: samples) {
+                placed.append((text, CGPoint(x: x, y: y)))
+            }
         }
-        if let low, let lowY, let x = labelSlot(at: lowY, width: width, samples: samples) {
-            placed.append((valueFormat(low), CGPoint(x: x, y: lowY)))
-        }
-        if let baselineY, let x = labelSlot(at: baselineY, width: width, samples: samples) {
-            placed.append(("avg \(valueFormat(baseline))", CGPoint(x: x, y: baselineY)))
-        }
+        if let high, let highY { place(valueFormat(high), y: highY) }
+        if let low, let lowY { place(valueFormat(low), y: lowY) }
+        if let baselineY { place("avg \(valueFormat(baseline))", y: baselineY) }
         return placed
+    }
+
+    /// Half the width of a label's plate, scaled with the text size.
+    private func halfWidth(of text: String) -> CGFloat {
+        max(14, CGFloat(text.count) * 2.9 + 6) * labelUnit
     }
 
     /// How many sampled points of the line fall inside a label box centred on `point`.
     private func crossings(of point: CGPoint, halfWidth: CGFloat, samples: [CGPoint]) -> Int {
         samples.reduce(0) { count, sample in
-            abs(sample.x - point.x) <= halfWidth + 3 && abs(sample.y - point.y) <= 10 ? count + 1 : count
+            abs(sample.x - point.x) <= halfWidth + 3 && abs(sample.y - point.y) <= 10 * labelUnit ? count + 1 : count
         }
     }
 
     /// The centre x of the slot on a rule at `y` where the line crosses the label least, searching from the
     /// trailing edge inwards so the first clear stretch wins.
-    private func labelSlot(at y: CGFloat, width: CGFloat, samples: [CGPoint], halfWidth: CGFloat = 24) -> CGFloat? {
+    private func labelSlot(at y: CGFloat, text: String, width: CGFloat, samples: [CGPoint]) -> CGFloat? {
+        let half = halfWidth(of: text)
         var best: (x: CGFloat, hits: Int)?
         for index in 0..<10 {
-            let x = width - Self.railLabelInset - Self.railLabelWidth / 2 - CGFloat(index) * 40
-            guard x - halfWidth >= 0 else { break }
-            let hits = crossings(of: CGPoint(x: x, y: y), halfWidth: halfWidth, samples: samples)
+            let x = width - Self.railLabelInset - half - CGFloat(index) * 40 * labelUnit
+            guard x - half >= 0 else { break }
+            let hits = crossings(of: CGPoint(x: x, y: y), halfWidth: half, samples: samples)
             if best == nil || hits < best!.hits { best = (x, hits) }
             if hits == 0 { break }
         }
@@ -598,17 +705,18 @@ public struct TrendsHeroChart: View {
     private func typicalLabelSpot(
         zoneTop: CGFloat, zoneBottom: CGFloat, width: CGFloat, samples: [CGPoint], avoiding labels: [CGPoint]
     ) -> CGPoint? {
-        let halfWidth: CGFloat = 26
-        let ys = [zoneTop + 10, (zoneTop + zoneBottom) / 2, zoneBottom - 10]
+        let half = halfWidth(of: "typical")
+        let inset = 10 * labelUnit
+        let ys = [zoneTop + inset, (zoneTop + zoneBottom) / 2, zoneBottom - inset]
             .filter { $0 >= 8 && $0 <= zoneBottom }
         var best: (point: CGPoint, hits: Int)?
         for y in ys {
             for index in 0..<10 {
-                let x = halfWidth + 4 + CGFloat(index) * 36
-                guard x + halfWidth <= width else { break }
+                let x = half + 4 + CGFloat(index) * 36 * labelUnit
+                guard x + half <= width else { break }
                 let point = CGPoint(x: x, y: y)
-                let overlapsLabel = labels.contains { abs($0.x - point.x) < 62 && abs($0.y - point.y) < 18 }
-                let hits = crossings(of: point, halfWidth: halfWidth, samples: samples) + (overlapsLabel ? 1000 : 0)
+                let overlapsLabel = labels.contains { abs($0.x - point.x) < 62 * labelUnit && abs($0.y - point.y) < 18 * labelUnit }
+                let hits = crossings(of: point, halfWidth: half, samples: samples) + (overlapsLabel ? 1000 : 0)
                 if best == nil || hits < best!.hits { best = (point, hits) }
                 if hits == 0 { return point }
             }
@@ -871,7 +979,7 @@ public struct TrendsCalendarHeat: View {
                     ChartTooltip(
                         value: day.value.map(valueFormat) ?? "No data",
                         label: TrendCalendar.relativeLabel(for: day.date, relativeTo: referenceDate, calendar: calendar),
-                        accent: day.value == nil ? nil : tint.accent
+                        accent: day.value.map { colorScale == .recoveryBands ? RecoveryBands.color(for: $0) : tint.accent }
                     )
                     .position(
                         ChartTooltipPlacement.position(
@@ -1153,7 +1261,7 @@ public struct TrendsWeekdayBars: View {
                     ChartTooltip(
                         value: value.map(valueFormat) ?? "No data",
                         label: Self.fullLabels[scrubIndex],
-                        accent: value == nil ? nil : tint.accent
+                        accent: value.map { barColor?($0) ?? tint.accent }
                     )
                     .position(
                         ChartTooltipPlacement.position(

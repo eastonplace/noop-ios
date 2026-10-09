@@ -379,22 +379,13 @@ extension TrendsView {
     // MARK: - Controls
 
     private var rangeControls: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: NoopMetrics.space2) {
-                metricMenu
-                Spacer(minLength: NoopMetrics.space2)
-                rangePicker
-            }
-            .frame(minHeight: 44)
-            VStack(alignment: .leading, spacing: 0) {
-                metricMenu
-                rangePicker
-                    .frame(minHeight: 44)
-            }
-        }
+        TrendsControlRow(
+            leading: { isCompact in metricMenu(isCompact: isCompact) },
+            trailing: { rangePicker }
+        )
     }
 
-    private var metricMenu: some View {
+    private func metricMenu(isCompact: Bool) -> some View {
         let tint = selectedMetric.domainTint(latest: currentScreenSnapshot?.selectedPoints.last?.value)
         return Menu {
             Picker("Metric", selection: $selectedMetric) {
@@ -406,7 +397,8 @@ extension TrendsView {
             TrendsMenuChipLabel(
                 title: selectedMetric.rawValue,
                 systemImage: selectedMetric.symbol,
-                tint: tint.accent
+                tint: tint.accent,
+                isCompact: isCompact
             )
         }
         .buttonStyle(.plain)

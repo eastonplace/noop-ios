@@ -57,6 +57,11 @@ try:
     require(
         "Strand/Screens/TrendsView+SelectedRange.swift",
         "private var rangeControls",
+        "TrendsControlRow(",
+    )
+    require(
+        "Packages/StrandDesign/Sources/StrandDesign/TrendsWidgetComponents.swift",
+        "public struct TrendsControlRow",
         "ViewThatFits(in: .horizontal)",
         ".frame(minHeight: 44)",
     )
