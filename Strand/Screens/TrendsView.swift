@@ -120,6 +120,8 @@ struct TrendsView: View {
                     trainingLoadCard
                     paperWeekReview
                 }
+                // Today's first section sits this far below the tab title row; match it.
+                .padding(.top, 9)
             }
         }
         .sheet(isPresented: $showingReport) {
