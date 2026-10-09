@@ -36,6 +36,53 @@ public struct TodayPillarModel: Identifiable, Equatable {
     }
 }
 
+/// The one hairline Today draws between its sections: the app's `hairline` token at the 1pt weight the flat
+/// cards use, across the full column.
+struct TodayHairline: View {
+    var body: some View {
+        Rectangle()
+            .fill(StrandPalette.hairline)
+            .frame(height: 1)
+            .accessibilityHidden(true)
+    }
+}
+
+/// The separator between two Today sections, with equal air above and below: 14.5pt each side, which keeps the
+/// 30pt the glance row and Live Heart Rate had between them (12pt of card padding above their hairline, 18pt
+/// of stack gap below).
+public struct TodaySectionSeparator: View {
+    public init() {}
+
+    public var body: some View {
+        TodayHairline().padding(.vertical, 14.5)
+    }
+}
+
+/// The surface of a Today section. In the app's flat presentation it draws no hairline of its own (Today draws
+/// exactly one separator between each pair of sections) and pads only the sides that have no separator; anywhere
+/// else it is the established `PaperCard`.
+private struct TodaySectionSurface<Content: View>: View {
+    var top: CGFloat = 0
+    var bottom: CGFloat = 0
+    @ViewBuilder var content: () -> Content
+    @Environment(\.contentSurfacePresentation) private var presentation
+
+    @ViewBuilder var body: some View {
+        #if os(iOS)
+        if presentation == .flat {
+            content()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, top)
+                .padding(.bottom, bottom)
+        } else {
+            PaperCard(padding: 12, content: content)
+        }
+        #else
+        PaperCard(padding: 12, content: content)
+        #endif
+    }
+}
+
 public struct TodayHeroCard: View {
     public let pillars: [TodayPillarModel]
     public let glance: String
@@ -58,14 +105,16 @@ public struct TodayHeroCard: View {
     }
 
     public var body: some View {
-        PaperCard(padding: 12) {
-            VStack(spacing: 12) {
+        TodaySectionSurface(top: 12) {
+            // The dials / glance hairline is the same 1pt hairline as the one between sections. It replaces a
+            // 1px system Divider, so the air around it is 11.667pt rather than 12pt: the same 24.33pt in all.
+            VStack(spacing: 0) {
                 HStack(alignment: .top, spacing: 6) {
                     ForEach(pillars) { pillar in
                         TodayPillarGauge(model: pillar) { onPillar(pillar.id) }
                     }
                 }
-                Divider().overlay(StrandPalette.hairline)
+                TodayHairline().padding(.vertical, 11.667)
                 HStack(spacing: 8) {
                     Button(action: onOpenWorkouts) {
                         HStack(spacing: 9) {
@@ -351,7 +400,7 @@ public struct HealthDashboardCard: View {
     }
 
     public var body: some View {
-        PaperCard(padding: 12) {
+        TodaySectionSurface(bottom: 12) {
             VStack(alignment: .leading, spacing: 9) {
                 VStack(alignment: .leading, spacing: 3) {
                     // The widget eyebrow, as on Live HR and Stress: ink symbol, caps title, quiet chip.

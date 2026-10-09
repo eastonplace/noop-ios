@@ -1842,6 +1842,25 @@ struct TodayView: View {
         refreshScreenSnapshot()
     }
 
+    /// Today's four top-level sections: dials and glance (one card, its own divider), Live Heart Rate,
+    /// Stress and Health Monitor. Exactly one hairline sits between each adjacent pair and none after the last;
+    /// every separator has the same air above and below. The conditional cards above (alert banner, auto
+    /// workout, active workout, syncing note) are outside this rule and keep the column's normal spacing.
+    @ViewBuilder
+    private var paperSections: some View {
+        if screenSnapshot != nil {
+            VStack(alignment: .leading, spacing: 0) {
+                paperPillarCard
+                TodaySectionSeparator()
+                paperLiveHeartRateCard
+                TodaySectionSeparator()
+                paperStressCard
+                TodaySectionSeparator()
+                paperHealthMonitorCard
+            }
+        }
+    }
+
     @ViewBuilder
     private var paperPillarCard: some View {
         if let screenSnapshot {
@@ -2131,10 +2150,7 @@ struct TodayView: View {
                 // score can legitimately trail Sleep until the corresponding R-R frames land, so surface
                 // the in-progress sync instead of leaving a bare "Not rated" that looks final.
                 SyncingHistoryNoteIfBackfilling()
-                paperPillarCard
-                paperLiveHeartRateCard
-                paperStressCard
-                paperHealthMonitorCard
+                paperSections
                 // D17 (Easton, 2026-07-10): Key Metrics section removed — it duplicated the
                 // pillar trio + Health Monitor. The editor/prefs code stays; only the Today
                 // rendering is gone.
