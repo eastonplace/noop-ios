@@ -4,64 +4,42 @@ import StrandDesign
 
 struct LocalCoachPlanView: View {
     @EnvironmentObject private var coach: LocalCoachEngine
-    @State private var selectedDayID: UUID?
-    @State private var editingExercise: LocalCoachPlannedExercise?
+    @State private var editing: PlanEdit?
     @State private var confirmSave = false
     @State private var showWorkouts = false
     let onBuild: () -> Void
 
-    private var selectedDay: LocalCoachPlanDay? {
-        coach.plan?.days.first(where: { $0.id == selectedDayID }) ?? coach.plan?.days.first
+    /// The exercise being tuned and the day it belongs to, so the edit lands on the right session.
+    private struct PlanEdit: Identifiable {
+        let dayID: UUID
+        let exercise: LocalCoachPlannedExercise
+        var id: UUID { exercise.id }
     }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: NoopMetrics.space4) {
-                if coach.isPreview { LocalCoachFixtureLabel() }
+            VStack(alignment: .leading, spacing: 0) {
+                if coach.isPreview { LocalCoachFixtureLabel().padding(.bottom, NoopMetrics.space3) }
                 if let plan = coach.plan {
                     planHeader(plan)
-                    days(plan)
-                    if let day = selectedDay {
-                        SectionHeader(LocalizedStringKey(day.title), overline: LocalizedStringKey(day.focus),
-                                      trailing: "\(day.minutes) min")
-                        VStack(spacing: 0) {
-                            ForEach(day.exercises) { exercise in
-                                Button { editingExercise = exercise } label: { exerciseRow(exercise) }
-                                    .buttonStyle(.plain)
-                            }
-                        }
-                        Text("Tap an exercise to adjust sets, reps, rest or notes. Start with a load you can control.")
-                            .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
+                    ForEach(plan.days) { day in
+                        CoachSectionSeparator()
+                        daySection(day, in: plan)
                     }
-                    Button {
-                        if plan.saved { showWorkouts = true } else { confirmSave = true }
-                    } label: {
-                        Label(plan.saved ? "Open saved workouts" : "Review & save plan", systemImage: plan.saved ? "checkmark.circle" : "plus.circle")
-                    }
-                    .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
-                    .disabled(coach.isResponding || coach.isPreview)
-                    .accessibilityIdentifier("coach.savePlan")
-                    Button("Build a different plan", action: onBuild)
-                        .buttonStyle(NoopButtonStyle(.tertiary, fullWidth: true))
+                    Text("Tap an exercise to adjust sets, reps, rest or notes. Start with a load you can control.")
+                        .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
+                        .padding(.top, NoopMetrics.space4)
                 } else {
-                    VStack(alignment: .leading, spacing: NoopMetrics.space5) {
-                        Image(systemName: "figure.strengthtraining.traditional")
-                            .font(.system(size: 48, weight: .ultraLight)).foregroundStyle(StrandPalette.accent)
-                        Text("Make room\nfor progress.").font(StrandFont.title1)
-                        Text("Build a training plan around your focus and available time. Review the exercises, adjust the details and save it to your NOOP workouts.")
-                            .font(StrandFont.body)
-                            .foregroundStyle(StrandPalette.textSecondary).lineSpacing(4)
-                        Button("Build my plan", action: onBuild).buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
-                    }.padding(.vertical, NoopMetrics.space5)
+                    emptyPlan
                 }
             }
             .padding(.horizontal, NoopMetrics.space4)
-            .padding(.top, NoopMetrics.space2)
-            .padding(.bottom, NoopMetrics.space6)
+            .padding(.top, CoachRhythm.pageTop)
+            .padding(.bottom, CoachRhythm.pageBottom)
         }
-        .sheet(item: $editingExercise) { exercise in
-            LocalCoachExerciseEditor(exercise: exercise) { edited in
-                guard var plan = coach.plan, let dayIndex = plan.days.firstIndex(where: { $0.id == selectedDay?.id }),
+        .sheet(item: $editing) { edit in
+            LocalCoachExerciseEditor(exercise: edit.exercise) { edited in
+                guard var plan = coach.plan, let dayIndex = plan.days.firstIndex(where: { $0.id == edit.dayID }),
                       let exerciseIndex = plan.days[dayIndex].exercises.firstIndex(where: { $0.id == edited.id }) else { return }
                 plan.days[dayIndex].exercises[exerciseIndex] = edited
                 coach.updatePlan(plan)
@@ -87,46 +65,105 @@ struct LocalCoachPlanView: View {
         .accessibilityIdentifier("coach.plan")
     }
 
+    // MARK: Header
+
+    /// The plan as one summary: its state, title and summary, three facts and the actions that move it forward.
     private func planHeader(_ plan: LocalCoachPlan) -> some View {
-        ContentSection {
+        let minutes = plan.days.map(\.minutes)
+        let perSession = minutes.isEmpty ? nil : Int((Double(minutes.reduce(0, +)) / Double(minutes.count)).rounded())
+        let exercises = plan.days.reduce(0) { $0 + $1.exercises.count }
+        return CoachSection(plan.saved ? "Saved to your workouts" : "Built for your review",
+                            systemImage: plan.saved ? "checkmark.circle.fill" : "calendar.badge.plus",
+                            tint: .workout,
+                            trailing: .pill(plan.saved ? "Saved" : "Draft", tone: plan.saved ? .positive : .neutral)) {
+            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                Text(plan.title).font(StrandFont.title1).foregroundStyle(StrandPalette.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(plan.summary).font(StrandFont.subhead).lineSpacing(3)
+                    .foregroundStyle(StrandPalette.textSecondary)
+            }
+            CoachFactStrip(facts: [
+                CoachFact(label: "Workouts", value: "\(plan.days.count)"),
+                CoachFact(label: "Per workout", value: perSession.map(String.init) ?? WidgetMetrics.missingValue,
+                          unit: "min"),
+                CoachFact(label: "Exercises", value: "\(exercises)")
+            ])
+            actions(plan)
+        }
+    }
+
+    /// Save is the one primary action; rebuilding is a chip beside it (below it at large text sizes).
+    private func actions(_ plan: LocalCoachPlan) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: NoopMetrics.space3) {
+                saveButton(plan)
+                rebuildChip
+                Spacer(minLength: 0)
+            }
             VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-                HStack {
-                    Text(plan.saved ? "Saved to your workouts" : "Built for your review").strandOverline()
-                    Spacer()
-                    Image(systemName: plan.saved ? "checkmark.circle" : "calendar.badge.plus")
-                        .foregroundStyle(StrandPalette.accent)
-                }
-                Text(plan.title).font(StrandFont.title2).fixedSize(horizontal: false, vertical: true)
-                Text(plan.summary).font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary).lineSpacing(3)
-                HStack(spacing: NoopMetrics.space4) {
-                    Label("\(plan.days.count) sessions", systemImage: "calendar")
-                    Label("Editable", systemImage: "slider.horizontal.3")
-                }.font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
+                saveButton(plan)
+                rebuildChip
             }
         }
     }
 
-    /// Day picker: selectable tiles are controls, so they keep a bounded fill (selected = ink, like the
-    /// canonical segmented control) while the rest of the plan sits flat on the page.
-    private func days(_ plan: LocalCoachPlan) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: NoopMetrics.space3) {
-                ForEach(plan.days) { day in
-                    let selected = selectedDay?.id == day.id
-                    Button { selectedDayID = day.id } label: {
-                        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-                            Text(Calendar.current.date(byAdding: .day, value: day.dayOffset, to: plan.createdAt) ?? plan.createdAt,
-                                 format: .dateTime.weekday(.abbreviated))
-                                .textCase(.uppercase).font(StrandFont.overline)
-                            Text(day.focus).font(StrandFont.subhead).lineLimit(2)
-                            Text("\(day.exercises.count) exercises").font(StrandFont.micro)
-                        }
-                        .foregroundStyle(selected ? StrandPalette.onInk : StrandPalette.textSecondary)
-                        .frame(width: 115, alignment: .leading).padding(NoopMetrics.space3)
-                        .background(selected ? StrandPalette.ink : StrandPalette.inset, in: .rect(cornerRadius: NoopMetrics.radius3))
-                    }.buttonStyle(.plain).accessibilityAddTraits(selected ? .isSelected : [])
+    private func saveButton(_ plan: LocalCoachPlan) -> some View {
+        Button {
+            if plan.saved { showWorkouts = true } else { confirmSave = true }
+        } label: {
+            Label(plan.saved ? "Open saved workouts" : "Review & save plan",
+                  systemImage: plan.saved ? "checkmark.circle" : "plus.circle")
+                .labelStyle(.titleAndIcon)
+        }
+        .buttonStyle(CoachPrimaryPillStyle())
+        .disabled(coach.isResponding || coach.isPreview)
+        .accessibilityIdentifier("coach.savePlan")
+    }
+
+    private var rebuildChip: some View {
+        Button(action: onBuild) {
+            WidgetChip(appTitle: "Build a different plan", systemImage: "arrow.triangle.2.circlepath",
+                       showsChevron: false, overhangs: false)
+                .chipHitTarget()
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: Days
+
+    private func date(of day: LocalCoachPlanDay, in plan: LocalCoachPlan) -> Date {
+        Calendar.current.date(byAdding: .day, value: day.dayOffset, to: plan.createdAt) ?? plan.createdAt
+    }
+
+    /// One session: the weekday as the eyebrow (a Today pill on the day itself), its title and focus, then the
+    /// exercises as plain rows.
+    private func daySection(_ day: LocalCoachPlanDay, in plan: LocalCoachPlan) -> some View {
+        let when = date(of: day, in: plan)
+        let isToday = Calendar.current.isDateInToday(when)
+        let heading = when.formatted(.dateTime.weekday(.wide).month(.abbreviated).day())
+        return CoachSection(verbatim: heading, systemImage: "figure.strengthtraining.traditional", tint: .workout,
+                            trailing: isToday ? .pill("Today", tone: .accent) : .none) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(day.title).font(StrandFont.headline).foregroundStyle(StrandPalette.textPrimary)
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text(day.focus).font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
+                    Text("·").font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
+                    Text("\(day.minutes)").font(StrandFont.captionNumber).foregroundStyle(StrandPalette.textPrimary)
+                    Text("min").font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                }
+                .accessibilityElement(children: .combine)
+            }
+            VStack(spacing: 0) {
+                ForEach(Array(day.exercises.enumerated()), id: \.element.id) { index, exercise in
+                    if index > 0 {
+                        Rectangle().fill(StrandPalette.hairline).frame(height: 1).accessibilityHidden(true)
+                    }
+                    Button { editing = PlanEdit(dayID: day.id, exercise: exercise) } label: { exerciseRow(exercise) }
+                        .buttonStyle(.plain)
                 }
             }
+            // The rows carry their own air; pull them in so the gap under the heading matches the rest.
+            .padding(.vertical, -NoopMetrics.space1)
         }
     }
 
@@ -138,21 +175,69 @@ struct LocalCoachPlanView: View {
                     Image(uiImage: image).resizable().scaledToFit()
                         .background(Color.white)
                 } else {
-                    Image(systemName: "dumbbell").font(.system(size: 22, weight: .light)).foregroundStyle(StrandPalette.accent)
+                    Image(systemName: "dumbbell").font(.system(size: 18, weight: .regular))
+                        .foregroundStyle(DomainTint.workout.accent)
                 }
             }
-            .frame(width: 60, height: 68).background(StrandPalette.inset)
-            .clipShape(.rect(cornerRadius: NoopMetrics.radius2)).accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 6) {
-                Text(exercise.name.capitalized).font(StrandFont.subhead.weight(.semibold)).foregroundStyle(StrandPalette.textPrimary)
-                Text("\(exercise.sets) sets × \(exercise.reps) reps")
-                    .font(StrandFont.caption).foregroundStyle(StrandPalette.accent)
+            .frame(width: 48, height: 54).background(DomainTint.workout.accent.opacity(0.12))
+            .clipShape(.rect(cornerRadius: NoopMetrics.radius1)).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(exercise.name.capitalized).font(StrandFont.subhead.weight(.semibold))
+                    .foregroundStyle(StrandPalette.textPrimary)
                 Text("\(exercise.equipment.capitalized) · \(exercise.restSeconds)s rest")
                     .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
             }
-            Spacer(minLength: 0)
-            Image(systemName: "slider.horizontal.3").font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
-        }.contentRowSurface()
+            .multilineTextAlignment(.leading)
+            Spacer(minLength: NoopMetrics.space2)
+            VStack(alignment: .trailing, spacing: 0) {
+                Text("\(exercise.sets) × \(exercise.reps)").font(StrandFont.bodyNumber)
+                    .foregroundStyle(StrandPalette.textPrimary).lineLimit(1)
+                Text("sets × reps").font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+            }
+            Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(StrandPalette.textTertiary).accessibilityHidden(true)
+        }
+        .padding(.vertical, NoopMetrics.space2)
+        .frame(minHeight: 44)
+        .contentShape(Rectangle())
+    }
+
+    // MARK: Empty
+
+    /// No plan yet: an invitation, the one action, and what happens next.
+    private var emptyPlan: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+                CoachMedallion(systemImage: "figure.strengthtraining.traditional", tint: .workout)
+                Text("Make room\nfor progress.").font(StrandFont.title1)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                Text("Build a training plan around your focus and available time. Review the exercises, adjust the details and save it to your NOOP workouts.")
+                    .font(StrandFont.subhead).lineSpacing(3).foregroundStyle(StrandPalette.textSecondary)
+                Button(action: onBuild) { Text("Build my plan") }
+                    .buttonStyle(CoachPrimaryPillStyle())
+                    .accessibilityIdentifier("coach.buildPlan")
+            }
+            CoachSectionSeparator()
+            CoachSection("How it works", systemImage: "list.number", tint: .workout) {
+                VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+                    step(1, "Pick your focus and time")
+                    step(2, "Review and adjust the draft")
+                    step(3, "Save it to your workouts")
+                }
+            }
+        }
+    }
+
+    private func step(_ number: Int, _ title: LocalizedStringKey) -> some View {
+        HStack(spacing: NoopMetrics.space3) {
+            Text("\(number)").font(StrandFont.captionNumber)
+                .foregroundStyle(DomainTint.workout.accent)
+                .frame(width: 24, height: 24)
+                .background(Circle().fill(DomainTint.workout.accent.opacity(0.14)))
+                .accessibilityHidden(true)
+            Text(title).font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 
