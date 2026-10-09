@@ -128,6 +128,7 @@ struct CoachRow: View {
                     .accessibilityHidden(true)
             }
         }
+        .frame(minHeight: 44)
         .contentShape(Rectangle())
     }
 }
