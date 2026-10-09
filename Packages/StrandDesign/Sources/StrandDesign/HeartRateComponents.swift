@@ -331,21 +331,38 @@ public struct HRTimelineChart: View {
     private var plot: some View {
         GeometryReader { proxy in
             let size = proxy.size
-            plotLayers(size: size)
-                .contentShape(Rectangle())
-                // Scrub sits on the inner view so its 0.25 s hold gate arbitrates first: an immediate
-                // drag fails the hold and falls through to the pan/pinch below (OverviewHRChart #979).
-                .gesture(scrubGesture)
+            plotTouch(plotLayers(size: size).contentShape(Rectangle()))
                 .onAppear { plotWidth = size.width }
                 .onChangeCompat(of: size.width) { plotWidth = $0 }
         }
         .frame(maxWidth: .infinity)
-        .gesture(magnifyGesture)
-        .simultaneousGesture(panGesture)
-        .simultaneousGesture(TapGesture(count: 2).onEnded { resetZoom() })
         // One collapsed VoiceOver element with a whole-picture summary, never a mark-by-mark walk.
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilitySummary)
+    }
+
+    /// The plot's touch handling. On iOS every gesture lives on one UIKit surface so a vertical drag is the
+    /// page scrolling (as it is over every other chart), a hold reads, a horizontal drag pans, two fingers
+    /// zoom and a double tap resets. Elsewhere the same actions ride on SwiftUI gestures.
+    @ViewBuilder
+    private func plotTouch<Content: View>(_ content: Content) -> some View {
+        #if canImport(UIKit)
+        content.overlay(
+            HRTimelineTouchSurface(
+                onScrub: scrub, onScrubEnd: endScrub,
+                onPan: panChanged, onPanEnd: panEnded,
+                onPinch: pinchChanged, onPinchEnd: pinchEnded,
+                onDoubleTap: resetZoom
+            )
+            .accessibilityHidden(true)
+        )
+        #else
+        content
+            .modifier(TrendsScrubModifier(onScrub: scrub, onEnd: endScrub))
+            .simultaneousGesture(magnifyGesture)
+            .simultaneousGesture(panGesture)
+            .simultaneousGesture(TapGesture(count: 2).onEnded { resetZoom() })
+        #endif
     }
 
     @ViewBuilder
@@ -602,55 +619,59 @@ public struct HRTimelineChart: View {
 
     private var magnifyGesture: some Gesture {
         MagnificationGesture()
-            .onChanged { scale in
-                let base = gestureAnchor ?? window
-                if gestureAnchor == nil { gestureAnchor = base }
-                apply(Self.zoomed(base, scale: Double(scale), anchorFraction: 0.5, bounds: interactionBounds))
-            }
-            .onEnded { _ in
-                gestureAnchor = nil
-                onSettledWindow(zoomDomain)
-            }
+            .onChanged { pinchChanged(scale: Double($0)) }
+            .onEnded { _ in pinchEnded() }
     }
 
     private var panGesture: some Gesture {
         DragGesture(minimumDistance: 6)
-            .onChanged { value in
-                let base = gestureAnchor ?? window
-                if gestureAnchor == nil { gestureAnchor = base }
-                let span = base.upperBound - base.lowerBound
-                let secondsPerPoint = plotWidth > 0 ? span / Double(plotWidth) : 0
-                apply(Self.panned(base, delta: -value.translation.width * secondsPerPoint, bounds: interactionBounds))
-            }
-            .onEnded { _ in
-                gestureAnchor = nil
-                onSettledWindow(zoomDomain)
-            }
+            .onChanged { panChanged(dx: $0.translation.width) }
+            .onEnded { _ in panEnded() }
+    }
+
+    private func pinchChanged(scale: Double) {
+        let base = gestureAnchor ?? window
+        if gestureAnchor == nil { gestureAnchor = base }
+        apply(Self.zoomed(base, scale: scale, anchorFraction: 0.5, bounds: interactionBounds))
+    }
+
+    private func pinchEnded() {
+        gestureAnchor = nil
+        onSettledWindow(zoomDomain)
+    }
+
+    private func panChanged(dx: CGFloat) {
+        // A hold that has engaged the crosshair owns the touch: the window stays put under the finger.
+        guard !scrubEngaged else { return }
+        let base = gestureAnchor ?? window
+        if gestureAnchor == nil { gestureAnchor = base }
+        let span = base.upperBound - base.lowerBound
+        let secondsPerPoint = plotWidth > 0 ? span / Double(plotWidth) : 0
+        apply(Self.panned(base, delta: -dx * secondsPerPoint, bounds: interactionBounds))
+    }
+
+    private func panEnded() {
+        gestureAnchor = nil
+        onSettledWindow(zoomDomain)
     }
 
     /// Touch-and-hold-then-drag scrub: the stationary hold is the gate that separates reading
     /// from the pan drag and pinch that own immediate movement (OverviewHRChart #979 contract).
-    private var scrubGesture: some Gesture {
-        LongPressGesture(minimumDuration: 0.25, maximumDistance: 8)
-            .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .local))
-            .onChanged { value in
-                guard case .second(true, let drag) = value else { return }
-                if !scrubEngaged {
-                    scrubEngaged = true
-                    StrandHaptic.selection.play()
-                }
-                if let drag {
-                    var transaction = Transaction()
-                    transaction.disablesAnimations = true
-                    withTransaction(transaction) { scrubTime = time(atX: drag.location.x) }
-                }
-            }
-            .onEnded { _ in
-                scrubEngaged = false
-                var transaction = Transaction()
-                transaction.disablesAnimations = true
-                withTransaction(transaction) { scrubTime = nil }
-            }
+    private func scrub(at point: CGPoint) {
+        if !scrubEngaged {
+            scrubEngaged = true
+            StrandHaptic.selection.play()
+        }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { scrubTime = time(atX: point.x) }
+    }
+
+    private func endScrub() {
+        scrubEngaged = false
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { scrubTime = nil }
     }
 
     private func time(atX x: CGFloat) -> TimeInterval {
@@ -665,7 +686,7 @@ public struct HRTimelineChart: View {
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {
-            zoomDomain = (domain.lowerBound <= interactionBounds.lowerBound && domain.upperBound >= interactionBounds.upperBound)
+            zoomDomain = (domain.lowerBound <= interactionBounds.lowerBound + 1 && domain.upperBound >= interactionBounds.upperBound - 1)
                 ? nil : domain
         }
     }
@@ -861,3 +882,128 @@ public extension HRTimelineChart {
         self.onSettledWindow = onSettledWindow
     }
 }
+
+#if canImport(UIKit)
+import UIKit
+
+/// The HR timeline's touch surface: hold-to-read, one-finger horizontal pan, pinch and double tap on one
+/// transparent UIKit view laid over the plot.
+///
+/// They share a view because a touch only reaches the recognisers on the view it lands on. Keeping every
+/// recogniser here (and none as a SwiftUI gesture on the plot) is what lets a vertical drag fall through to the
+/// page's scroll view: the pan declines to begin unless the finger is moving more sideways than up or down, and
+/// the hold only reads once the finger has rested for a beat.
+private struct HRTimelineTouchSurface: UIViewRepresentable {
+    var onScrub: (CGPoint) -> Void
+    var onScrubEnd: () -> Void
+    var onPan: (CGFloat) -> Void
+    var onPanEnd: () -> Void
+    var onPinch: (Double) -> Void
+    var onPinchEnd: () -> Void
+    var onDoubleTap: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .clear
+        view.isAccessibilityElement = false
+        let coordinator = context.coordinator
+
+        let hold = UILongPressGestureRecognizer(target: coordinator, action: #selector(Coordinator.hold(_:)))
+        hold.minimumPressDuration = 0.25
+        hold.allowableMovement = 8
+
+        let pan = UIPanGestureRecognizer(target: coordinator, action: #selector(Coordinator.pan(_:)))
+        pan.maximumNumberOfTouches = 1
+
+        let pinch = UIPinchGestureRecognizer(target: coordinator, action: #selector(Coordinator.pinch(_:)))
+
+        let doubleTap = UITapGestureRecognizer(target: coordinator, action: #selector(Coordinator.doubleTap(_:)))
+        doubleTap.numberOfTapsRequired = 2
+
+        for recognizer in [hold, pan, pinch, doubleTap] as [UIGestureRecognizer] {
+            recognizer.cancelsTouchesInView = false
+            recognizer.delegate = coordinator
+            view.addGestureRecognizer(recognizer)
+        }
+        coordinator.holdRecognizer = hold
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        let coordinator = context.coordinator
+        coordinator.onScrub = onScrub
+        coordinator.onScrubEnd = onScrubEnd
+        coordinator.onPan = onPan
+        coordinator.onPanEnd = onPanEnd
+        coordinator.onPinch = onPinch
+        coordinator.onPinchEnd = onPinchEnd
+        coordinator.onDoubleTap = onDoubleTap
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var onScrub: (CGPoint) -> Void = { _ in }
+        var onScrubEnd: () -> Void = {}
+        var onPan: (CGFloat) -> Void = { _ in }
+        var onPanEnd: () -> Void = {}
+        var onPinch: (Double) -> Void = { _ in }
+        var onPinchEnd: () -> Void = {}
+        var onDoubleTap: () -> Void = {}
+        weak var holdRecognizer: UILongPressGestureRecognizer?
+
+        @MainActor @objc func hold(_ recognizer: UILongPressGestureRecognizer) {
+            switch recognizer.state {
+            case .began, .changed: onScrub(recognizer.location(in: recognizer.view))
+            case .ended, .cancelled, .failed: onScrubEnd()
+            default: break
+            }
+        }
+
+        @MainActor @objc func pan(_ recognizer: UIPanGestureRecognizer) {
+            switch recognizer.state {
+            case .began, .changed: onPan(recognizer.translation(in: recognizer.view).x)
+            case .ended, .cancelled, .failed: onPanEnd()
+            default: break
+            }
+        }
+
+        @MainActor @objc func pinch(_ recognizer: UIPinchGestureRecognizer) {
+            switch recognizer.state {
+            case .began, .changed: onPinch(Double(recognizer.scale))
+            case .ended, .cancelled, .failed: onPinchEnd()
+            default: break
+            }
+        }
+
+        @MainActor @objc func doubleTap(_ recognizer: UITapGestureRecognizer) {
+            if recognizer.state == .ended { onDoubleTap() }
+        }
+
+        /// A drag that starts more up-and-down than sideways is the page scrolling: the pan stays out of it.
+        nonisolated func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            MainActor.assumeIsolated {
+                guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
+                let velocity = pan.velocity(in: pan.view)
+                return abs(velocity.x) > abs(velocity.y)
+            }
+        }
+
+        /// The hold may run beside the scroll view's pan and the navigation pop only until it has been
+        /// recognised; from then on the reading owns the touch. Pinch and double tap combine freely with the
+        /// rest; a pan never runs beside another pan or the hold.
+        nonisolated func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+        ) -> Bool {
+            MainActor.assumeIsolated {
+                switch gestureRecognizer {
+                case is UILongPressGestureRecognizer: return gestureRecognizer.state == .possible
+                case is UIPanGestureRecognizer: return false
+                default: return true
+                }
+            }
+        }
+    }
+}
+#endif

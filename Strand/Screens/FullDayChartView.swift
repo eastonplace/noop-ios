@@ -317,6 +317,19 @@ struct FullDayChartView: View {
                     .padding(.horizontal, NoopMetrics.space4)
                     .background(StrandPalette.appCanvas.opacity(0.88))
             }
+            // A zoom that lands on an empty stretch has no plot to double-tap, so the way back stays on screen.
+            if zoomDomain != nil {
+                HStack {
+                    Spacer(minLength: 0)
+                    Button {
+                        withAnimation(StrandMotion.interactive) { zoomDomain = nil }
+                    } label: {
+                        WidgetChip(appTitle: "Reset", showsChevron: false, overhangs: false).chipHitTarget()
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Text("Reset zoom"))
+                }
+            }
         }
     }
 
