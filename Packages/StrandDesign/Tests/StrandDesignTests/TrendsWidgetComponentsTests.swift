@@ -97,6 +97,49 @@ final class TrendsWidgetComponentsTests: XCTestCase {
         XCTAssertTrue(empty.lower.isFinite && empty.upper.isFinite)
     }
 
+    // MARK: Isolated days, weekday names, units
+
+    func testAnIsolatedDayOnALongRangeIsStillMarkedForADot() {
+        let calendar = Calendar(identifier: .gregorian)
+        let start = calendar.startOfDay(for: Date(timeIntervalSince1970: 1_750_000_000))
+        // 120 days. Days 0...39 are recorded, then a long gap, day 70 stands alone, then another long gap and a
+        // run from day 100: with more than 35 points the dots switch off, so the lone day needs its own rule.
+        let recorded = Set(Array(0...39) + [70] + Array(100...119))
+        let days = (0..<120).map { offset in
+            CalendarMetricDay(
+                date: calendar.date(byAdding: .day, value: offset, to: start)!,
+                value: recorded.contains(offset) ? 60 + Double(offset % 7) : nil
+            )
+        }
+        let hero = TrendsHeroChart(
+            days: days, dateDomain: start...calendar.date(byAdding: .day, value: 119, to: start)!,
+            referenceDate: start, calendar: calendar, baseline: 62, typical: 58...66, tint: .neutral, unit: "")
+
+        XCTAssertGreaterThan(hero.points.count, 35)
+        let lone = hero.points.firstIndex { calendar.dateComponents([.day], from: start, to: $0.date).day == 70 }
+        XCTAssertNotNil(lone)
+        XCTAssertEqual(hero.singletonIndices, Set([lone].compactMap { $0 }))
+    }
+
+    func testWeekdayNamesFollowTheLocaleAndStartOnMonday() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = .current
+        let short = TrendsWeekdayNames.veryShort(calendar: calendar)
+        let full = TrendsWeekdayNames.full(calendar: calendar)
+        XCTAssertEqual(short.count, 7)
+        XCTAssertEqual(full.count, 7)
+        // Symbols run Sunday first; the grid runs Monday first, so Sunday ends the list.
+        XCTAssertEqual(full.first, calendar.standaloneWeekdaySymbols[1])
+        XCTAssertEqual(full.last, calendar.standaloneWeekdaySymbols[0])
+        XCTAssertEqual(short.first, calendar.veryShortStandaloneWeekdaySymbols[1])
+    }
+
+    func testUnitSuffixIsSpacedForWordsAndLocaleAwareForPercent() {
+        XCTAssertEqual(TrendsUnitSuffix.text(for: ""), "")
+        XCTAssertEqual(TrendsUnitSuffix.text(for: "bpm"), " bpm")
+        XCTAssertTrue(TrendsUnitSuffix.text(for: "%").hasSuffix("%"))
+    }
+
     // MARK: Defaults
 
     func testNewComponentsRejectNonFiniteValuesInTheirDefaultFormat() {

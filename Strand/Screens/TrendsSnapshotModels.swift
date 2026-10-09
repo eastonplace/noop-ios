@@ -92,6 +92,34 @@ struct TrendSummaryPresentation {
     }
 }
 
+/// The words on one Scores row: the latest value, and how the period average moved against the one before.
+/// Pure, so the row text can be pinned in a test (the Strain row once scaled an already-scaled value).
+struct TrendsSummaryRowText: Equatable {
+    let latest: String
+    let delta: String
+    let tone: TrendSummaryDeltaTone
+
+    init(metric: ProductionTrendMetric, presentation: TrendSummaryPresentation) {
+        latest = presentation.latest.map(metric.scoresRowFormat) ?? WidgetMetrics.missingValue
+        var tone = presentation.deltaTone
+        if !presentation.comparisonIsReliable {
+            delta = String(localized: "Early read · \(presentation.currentCount)/\(presentation.expectedCount) days")
+        } else if let value = presentation.delta {
+            let magnitude = metric.scoresRowFormat(abs(value))
+            if trendsDeltaIsZero(magnitude) {
+                delta = String(localized: "No change")
+                tone = .neutral
+            } else {
+                let signed = (value >= 0 ? "+" : "−") + magnitude
+                delta = String(localized: "\(signed) avg")
+            }
+        } else {
+            delta = String(localized: "Need prior data")
+        }
+        self.tone = tone
+    }
+}
+
 struct PaperTrendSeries: Sendable {
     let recovery: [TrendPoint]
     let strain: [TrendPoint]
@@ -196,7 +224,16 @@ enum ProductionTrendMetric: String, CaseIterable, Identifiable, Sendable {
     func formatWithUnit(_ value: Double) -> String {
         let rendered = format(value)
         guard rendered != "—", !unit.isEmpty else { return rendered }
-        return unit == "%" ? "\(rendered)%" : "\(rendered) \(unit)"
+        return rendered + TrendsUnitSuffix.text(for: unit)
+    }
+
+    /// How a Scores row writes a value. Recovery and strain go bare (the row label names them); the rest carry
+    /// their unit. Strain is already on the 0–21 display scale here, so it only ever takes `format`.
+    func scoresRowFormat(_ value: Double) -> String {
+        switch self {
+        case .recovery, .strain: format(value)
+        default: formatWithUnit(value)
+        }
     }
 
     /// Imported database rows are untrusted display input. Keep corrupt but finite

@@ -102,6 +102,85 @@ struct TrendsAxis: Equatable {
     }
 }
 
+// MARK: - Formatting helpers
+
+/// Date formatters, built once per calendar, time zone, locale and template. A `DateFormatter` is costly to make
+/// and the scrub readouts ask for one on every step.
+final class TrendsDateFormatters: @unchecked Sendable {
+    static let shared = TrendsDateFormatters()
+
+    private let lock = NSLock()
+    private var cache: [String: DateFormatter] = [:]
+
+    func string(from date: Date, template: String, calendar: Calendar) -> String {
+        let locale = Locale.current
+        let key = "\(calendar.identifier)|\(calendar.timeZone.identifier)|\(locale.identifier)|\(template)"
+        lock.lock()
+        defer { lock.unlock() }
+        let formatter: DateFormatter
+        if let cached = cache[key] {
+            formatter = cached
+        } else {
+            let made = DateFormatter()
+            made.calendar = calendar
+            made.locale = locale
+            made.timeZone = calendar.timeZone
+            made.setLocalizedDateFormatFromTemplate(template)
+            cache[key] = made
+            formatter = made
+        }
+        return formatter.string(from: date)
+    }
+}
+
+/// The text that follows a value for its unit. A percent follows the current locale ("85%" in English, "85 %"
+/// in German and Spanish) instead of a hard-coded "%"; other units are set off by a space.
+public enum TrendsUnitSuffix {
+    private static let lock = NSLock()
+    private nonisolated(unsafe) static var percentCache: [String: String] = [:]
+
+    public static func text(for unit: String) -> String {
+        if unit.isEmpty { return "" }
+        return unit == "%" ? percent : " \(unit)"
+    }
+
+    private static var percent: String {
+        let locale = Locale.current
+        lock.lock()
+        defer { lock.unlock() }
+        if let cached = percentCache[locale.identifier] { return cached }
+        let formatter = NumberFormatter()
+        formatter.locale = locale
+        formatter.numberStyle = .percent
+        // Prefix-style locales have no suffix to borrow; keep the plain sign there.
+        let suffix = formatter.positiveSuffix.flatMap { $0.isEmpty ? nil : $0 } ?? "%"
+        percentCache[locale.identifier] = suffix
+        return suffix
+    }
+}
+
+/// Weekday names in the current locale, Monday first (the order the calendar and weekday views lay out).
+enum TrendsWeekdayNames {
+    static func veryShort(calendar: Calendar) -> [String] {
+        rotated(localised(calendar).veryShortStandaloneWeekdaySymbols)
+    }
+
+    static func full(calendar: Calendar) -> [String] {
+        rotated(localised(calendar).standaloneWeekdaySymbols)
+    }
+
+    private static func localised(_ calendar: Calendar) -> Calendar {
+        var copy = calendar
+        copy.locale = .current
+        return copy
+    }
+
+    /// Symbols run Sunday first; Monday first is the same list with Sunday moved to the end.
+    private static func rotated(_ symbols: [String]) -> [String] {
+        symbols.count == 7 ? Array(symbols[1...]) + [symbols[0]] : symbols
+    }
+}
+
 // MARK: - Small shared parts
 
 /// The canvas knock-out behind a rail label: it grows outward from the digits, so they do not move, and a
@@ -195,10 +274,15 @@ private struct TrendsScrubSurface: UIViewRepresentable {
             }
         }
 
+        /// Other recognisers (the scroll view's pan, the navigation pop, a sheet's dismiss) may run beside this one
+        /// only until the hold has been recognised. From then on the reading owns the touch, so the page does not
+        /// move under the finger.
         nonisolated func gestureRecognizer(
             _ gestureRecognizer: UIGestureRecognizer,
             shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
-        ) -> Bool { true }
+        ) -> Bool {
+            MainActor.assumeIsolated { gestureRecognizer.state == .possible }
+        }
     }
 }
 #endif
@@ -339,6 +423,43 @@ public struct TrendsStepChipLabel: View {
     }
 }
 
+// MARK: - Hero plot layout
+
+/// The static layers of the hero plot, in the plot's own coordinates.
+struct TrendsPlotLayout {
+    let rendered: [CGPoint]
+    let baselineY: CGFloat
+    let zoneTop: CGFloat
+    let zoneBottom: CGFloat
+    let highY: CGFloat?
+    let lowY: CGFloat?
+    let railLabels: [(text: String, point: CGPoint)]
+    let typicalSpot: CGPoint?
+    let line: Path
+    let area: Path
+}
+
+/// Remembers the last layout so a scrub, which redraws the plot on every step, does not rebuild it.
+final class TrendsPlotLayoutCache {
+    private struct Key: Equatable {
+        let size: CGSize
+        let token: Int
+        let labelUnit: CGFloat
+    }
+
+    private var key: Key?
+    private var stored: TrendsPlotLayout?
+
+    func layout(size: CGSize, token: Int, labelUnit: CGFloat, make: () -> TrendsPlotLayout) -> TrendsPlotLayout {
+        let wanted = Key(size: size, token: token, labelUnit: labelUnit)
+        if let stored, key == wanted { return stored }
+        let made = make()
+        key = wanted
+        stored = made
+        return made
+    }
+}
+
 // MARK: - Hero chart
 
 /// The selected-range chart: a hero value with a baseline pill, then the Coach trend recipe (a tinted line over
@@ -358,16 +479,25 @@ public struct TrendsHeroChart: View {
     private let direction: TrendPanelChart.Direction
     private let metricName: String
 
-    private let points: [TrendPoint]
+    let points: [TrendPoint]
     private let axis: TrendsAxis
     private let dayIndices: [Int]
     private let tickLabels: [(label: String, fraction: Double)]
+    /// Indices (into `points`) of days with no neighbour inside the gap limit: no line reaches them, so they
+    /// always get their own dot.
+    /// Points that stand alone between gaps: no line reaches them, so each is drawn as a dot at any range.
+    let singletonIndices: Set<Int>
+    private let summaryText: String
+    /// Changes whenever anything that shapes the plot's static layers changes.
+    private let layoutToken: Int
 
     @ScaledMetric(relativeTo: .caption2) private var labelUnit: CGFloat = 1
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var revealed = false
     @State private var scrubDay: CalendarMetricDay?
     @State private var plotWidth: CGFloat = 1
+    @State private var layoutCache = TrendsPlotLayoutCache()
+    @State private var adjustReset: Task<Void, Never>?
 
     private static let plotHeight: CGFloat = 148
     private static let maxGapDays = 3
@@ -413,6 +543,32 @@ public struct TrendsHeroChart: View {
         self.axis = TrendsAxis.make(values: series.map(\.value), baseline: baseline, bounds: valueBounds)
         self.tickLabels = Self.makeTickLabels(
             domain: dateDomain, referenceDate: referenceDate, calendar: calendar)
+        let runs = TrendCurve.runs(dayIndices: indices, maxGapDays: Self.maxGapDays)
+        self.singletonIndices = Set(runs.filter { $0.count == 1 }.map(\.lowerBound))
+
+        var hasher = Hasher()
+        hasher.combine(series.count)
+        for point in series {
+            hasher.combine(point.date)
+            hasher.combine(point.value)
+        }
+        hasher.combine(dateDomain.lowerBound)
+        hasher.combine(dateDomain.upperBound)
+        hasher.combine(baseline)
+        hasher.combine(typical.lowerBound)
+        hasher.combine(typical.upperBound)
+        hasher.combine(colorsLineByBand)
+        hasher.combine(unit)
+        self.layoutToken = hasher.finalize()
+
+        let suffix = TrendsUnitSuffix.text(for: unit)
+        let latestText = series.last.map { "\(valueFormat($0.value))\(suffix)" } ?? String(localized: "none")
+        let averageText = "\(valueFormat(baseline))\(suffix)"
+        let lowerText = valueFormat(typical.lowerBound)
+        let upperText = valueFormat(typical.upperBound)
+        let missing = sorted.filter { $0.value == nil }.count
+        self.summaryText = String(
+            localized: "\(metricName) trend, latest \(latestText), average \(averageText), typical \(lowerText) to \(upperText), \(series.count) recorded days and \(missing) missing.")
     }
 
     public var body: some View {
@@ -432,10 +588,7 @@ public struct TrendsHeroChart: View {
 
     // MARK: Derived
 
-    private var unitSuffix: String {
-        if unit.isEmpty { return "" }
-        return unit == "%" ? "%" : " \(unit)"
-    }
+    private var unitSuffix: String { TrendsUnitSuffix.text(for: unit) }
 
     private var lastValue: Double? { points.last?.value }
 
@@ -467,7 +620,8 @@ public struct TrendsHeroChart: View {
             Spacer(minLength: NoopMetrics.space2)
             if let shownValue {
                 let pill = deltaPill(for: shownValue)
-                StatePill(LocalizedStringKey(pill.text), tone: pill.tone, showsDot: false)
+                StatePill(pill.title, tone: pill.tone, showsDot: false)
+                    .accessibilityLabel(pill.spoken)
             }
         }
         .animation(StrandMotion.fade, value: scrubDay)
@@ -476,28 +630,32 @@ public struct TrendsHeroChart: View {
     private var heroCaption: String {
         if let scrubDay {
             let label = TrendCalendar.relativeLabel(for: scrubDay.date, relativeTo: referenceDate, calendar: calendar)
-            return scrubDay.value == nil ? "No data · \(label)" : label
+            return scrubDay.value == nil ? String(localized: "No data · \(label)") : label
         }
         guard let latest = points.last else { return String(localized: "No data in this range") }
         if calendar.isDate(latest.date, inSameDayAs: dateDomain.upperBound) { return String(localized: "latest") }
         let label = TrendCalendar.relativeLabel(for: latest.date, relativeTo: referenceDate, calendar: calendar)
-        return "latest · \(label)"
+        return String(localized: "latest · \(label)")
     }
 
-    private func deltaPill(for value: Double) -> (text: String, tone: StrandTone) {
+    /// The change against the range average: the pill's title, what VoiceOver says instead of the arrow glyph,
+    /// and the tone (green when the move is the good direction for the metric, red when it is not).
+    private func deltaPill(for value: Double) -> (title: LocalizedStringKey, spoken: String, tone: StrandTone) {
         let delta = value - baseline
         let magnitude = valueFormat(abs(delta))
         guard delta.isFinite, !trendsFormattedIsZero(magnitude) else {
-            return (String(localized: "On average"), .neutral)
+            return ("On average", String(localized: "On average"), .neutral)
         }
-        let arrow = delta > 0 ? "▲" : "▼"
         let tone: StrandTone
         switch direction {
         case .higherIsBetter: tone = delta > 0 ? .positive : .critical
         case .lowerIsBetter: tone = delta < 0 ? .positive : .critical
         case .contextual: tone = .neutral
         }
-        return ("\(arrow) \(magnitude) vs avg", tone)
+        if delta > 0 {
+            return ("▲ \(magnitude) vs avg", String(localized: "up \(magnitude) vs avg"), tone)
+        }
+        return ("▼ \(magnitude) vs avg", String(localized: "down \(magnitude) vs avg"), tone)
     }
 
     // MARK: Plot
@@ -511,7 +669,7 @@ public struct TrendsHeroChart: View {
                 .onChangeCompat(of: proxy.size.width) { plotWidth = $0 }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilitySummary)
+        .accessibilityLabel(summaryText)
         .accessibilityValue(selectedDayAccessibilityValue)
         .accessibilityHint(Text("Swipe up or down to step through days"))
         .accessibilityAdjustableAction { direction in
@@ -524,19 +682,32 @@ public struct TrendsHeroChart: View {
             case .decrement: scrubDay = days[max(current - 1, 0)]
             default: break
             }
+            scheduleAdjustReset()
+        }
+        .onDisappear { adjustReset?.cancel() }
+    }
+
+    /// VoiceOver has no "adjust ended" callback, so the stepped reading clears itself a few seconds after the last
+    /// step, and the hero goes back to the latest day.
+    private func scheduleAdjustReset() {
+        adjustReset?.cancel()
+        adjustReset = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(StrandMotion.interactive) { scrubDay = nil }
         }
     }
 
-    @ViewBuilder
-    private func plotLayers(size: CGSize) -> some View {
-        let xOf: (Date) -> CGFloat = { size.width * CGFloat(TrendCalendar.unitPosition(of: $0, in: dateDomain)) }
+    /// Everything in the plot that depends only on the data and the plot's size: the curve, its wash, the rails
+    /// and where each label sits. Built once per data or size change, not on every scrub step.
+    private func makeLayout(size: CGSize) -> TrendsPlotLayout {
         let yOf: (Double) -> CGFloat = { size.height * CGFloat(1 - axis.unit($0)) }
-        let rendered: [CGPoint] = points.map { CGPoint(x: xOf($0.date), y: yOf($0.value)) }
+        let rendered: [CGPoint] = points.map {
+            CGPoint(x: size.width * CGFloat(TrendCalendar.unitPosition(of: $0.date, in: dateDomain)), y: yOf($0.value))
+        }
         let baselineY = yOf(baseline)
         let zoneTop = yOf(min(typical.upperBound, axis.upper))
         let zoneBottom = yOf(max(typical.lowerBound, axis.lower))
-        let line = linePath(rendered)
-        let area = areaPath(rendered, height: size.height)
 
         let high = points.map(\.value).max()
         let low = points.map(\.value).min()
@@ -558,6 +729,38 @@ public struct TrendsHeroChart: View {
                 avoiding: railLabels.map(\.point)
             )
             : nil
+        return TrendsPlotLayout(
+            rendered: rendered,
+            baselineY: baselineY,
+            zoneTop: zoneTop,
+            zoneBottom: zoneBottom,
+            highY: highY,
+            lowY: showsLow ? lowY : nil,
+            railLabels: railLabels,
+            typicalSpot: typicalSpot,
+            line: linePath(rendered),
+            area: areaPath(rendered, height: size.height)
+        )
+    }
+
+    @ViewBuilder
+    private func plotLayers(size: CGSize) -> some View {
+        let xOf: (Date) -> CGFloat = { size.width * CGFloat(TrendCalendar.unitPosition(of: $0, in: dateDomain)) }
+        let yOf: (Double) -> CGFloat = { size.height * CGFloat(1 - axis.unit($0)) }
+        let layout = layoutCache.layout(size: size, token: layoutToken, labelUnit: labelUnit) {
+            makeLayout(size: size)
+        }
+        let rendered = layout.rendered
+        let baselineY = layout.baselineY
+        let zoneTop = layout.zoneTop
+        let zoneBottom = layout.zoneBottom
+        let highY = layout.highY
+        let lowY = layout.lowY
+        let railLabels = layout.railLabels
+        let typicalSpot = layout.typicalSpot
+        let line = layout.line
+        let area = layout.area
+        let dotIndices = points.indices.filter { points.count <= 35 || singletonIndices.contains($0) }
 
         ZStack {
             // The typical zone: a quiet band; its name is placed with the other labels below the line.
@@ -570,7 +773,7 @@ public struct TrendsHeroChart: View {
 
             // Rails at the recorded high and low, and the dashed average between them.
             if let highY { rail(y: highY, width: size.width, dashed: false) }
-            if showsLow, let lowY { rail(y: lowY, width: size.width, dashed: false) }
+            if let lowY { rail(y: lowY, width: size.width, dashed: false) }
             rail(y: baselineY, width: size.width, dashed: true)
 
             if rendered.count >= 2 {
@@ -582,15 +785,14 @@ public struct TrendsHeroChart: View {
                     .stroke(lineGradient, style: StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
             }
 
-            // One dot per recorded day while the series is short enough to read them.
-            if points.count <= 35 {
-                ForEach(Array(zip(points.indices, rendered)), id: \.0) { index, point in
-                    Circle()
-                        .fill(color(for: points[index].value))
-                        .frame(width: 4, height: 4)
-                        .position(point)
-                        .opacity(revealed ? 1 : 0)
-                }
+            // One dot per recorded day while the series is short enough to read them, and always one for a day
+            // the line cannot reach.
+            ForEach(dotIndices, id: \.self) { index in
+                Circle()
+                    .fill(color(for: points[index].value))
+                    .frame(width: 4, height: 4)
+                    .position(rendered[index])
+                    .opacity(revealed ? 1 : 0)
             }
 
             if revealed, scrubDay == nil, let end = rendered.last {
@@ -669,7 +871,7 @@ public struct TrendsHeroChart: View {
         }
         if let high, let highY { place(valueFormat(high), y: highY) }
         if let low, let lowY { place(valueFormat(low), y: lowY) }
-        if let baselineY { place("avg \(valueFormat(baseline))", y: baselineY) }
+        if let baselineY { place(String(localized: "avg \(valueFormat(baseline))"), y: baselineY) }
         return placed
     }
 
@@ -705,7 +907,7 @@ public struct TrendsHeroChart: View {
     private func typicalLabelSpot(
         zoneTop: CGFloat, zoneBottom: CGFloat, width: CGFloat, samples: [CGPoint], avoiding labels: [CGPoint]
     ) -> CGPoint? {
-        let half = halfWidth(of: "typical")
+        let half = halfWidth(of: String(localized: "typical"))
         let inset = 10 * labelUnit
         let ys = [zoneTop + inset, (zoneTop + zoneBottom) / 2, zoneBottom - inset]
             .filter { $0 >= 8 && $0 <= zoneBottom }
@@ -831,12 +1033,6 @@ public struct TrendsHeroChart: View {
         guard totalDays > 0 else {
             return [(TrendCalendar.relativeLabel(for: domain.upperBound, relativeTo: referenceDate, calendar: calendar), 0)]
         }
-        let formatter = DateFormatter()
-        formatter.calendar = calendar
-        formatter.locale = .current
-        formatter.timeZone = calendar.timeZone
-        formatter.setLocalizedDateFormatFromTemplate("MMM d")
-
         let count = min(WidgetMetrics.maxXAxisLabels, totalDays + 1)
         var seen = Set<Int>()
         var labels: [(label: String, fraction: Double)] = []
@@ -847,7 +1043,7 @@ public struct TrendsHeroChart: View {
             let isLast = dayIndex == totalDays
             let label = isLast
                 ? TrendCalendar.relativeLabel(for: date, relativeTo: referenceDate, calendar: calendar)
-                : formatter.string(from: date)
+                : TrendsDateFormatters.shared.string(from: date, template: "MMM d", calendar: calendar)
             labels.append((label, Double(dayIndex) / Double(totalDays)))
         }
         return labels
@@ -855,24 +1051,19 @@ public struct TrendsHeroChart: View {
 
     // MARK: Accessibility
 
-    private var accessibilitySummary: String {
-        let missing = days.filter { $0.value == nil }.count
-        let latest = lastValue.map { "\(valueFormat($0))\(unitSuffix)" } ?? "none"
-        return "\(metricName) trend, latest \(latest), average \(valueFormat(baseline))\(unitSuffix), typical \(valueFormat(typical.lowerBound)) to \(valueFormat(typical.upperBound)), \(points.count) recorded days and \(missing) missing."
-    }
-
     private var selectedDayAccessibilityValue: String {
-        guard let day = scrubDay ?? days.last else { return "No trend data" }
-        let value = day.value.map { "\(valueFormat($0))\(unitSuffix)" } ?? "No data"
+        guard let day = scrubDay ?? days.last else { return String(localized: "No trend data") }
+        let value = day.value.map { "\(valueFormat($0))\(unitSuffix)" } ?? String(localized: "No data")
         return "\(TrendCalendar.relativeLabel(for: day.date, relativeTo: referenceDate, calendar: calendar)), \(value)"
     }
 }
 
 // MARK: - Calendar heat
 
-/// The last five Monday-first weeks as small rounded cells. Recovery keeps its three band hues at a moderated
-/// intensity; every other metric steps the opacity of its own tint. Today is outlined, days with no reading are
-/// faint outlines, and touching or dragging across the grid reads any day.
+/// The last five Monday-first weeks as square, 6pt-radius tiles at 70% of their column, so the grid keeps generous
+/// negative space. Recovery draws its three band hues at full strength; every other metric steps the opacity of its
+/// own tint. Today is outlined, days with no reading are faint outlines, and touching and holding then dragging across
+/// the grid reads any day.
 public struct TrendsCalendarHeat: View {
     private let days: [TrendCalendarDay]
     private let tint: DomainTint
@@ -881,13 +1072,30 @@ public struct TrendsCalendarHeat: View {
     let valueFormat: (Double) -> String
     private let colorScale: TrendHeatColorScale
 
+    private let weekdayInitials: [String]
+    private let summaryText: String
+    /// Where VoiceOver starts stepping: today's tile, else the last day with a reading.
+    private let startIndex: Int
+
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var revealed = false
     @State private var scrubIndex: Int?
+    @State private var adjustReset: Task<Void, Never>?
 
-    private static let labels = ["M", "T", "W", "T", "F", "S", "S"]
     private static let columns = 7
     private static let intensitySteps: [Double] = [0.18, 0.34, 0.5, 0.66, 0.82]
+
+    /// Cell geometry for a grid `width` points wide: square tiles at 70% of their column on a square pitch, so
+    /// the grid keeps generous negative space.
+    private struct Geometry {
+        let column: CGFloat
+        let side: CGFloat
+    }
+
+    private func geometry(width: CGFloat) -> Geometry {
+        let column = width / CGFloat(Self.columns)
+        return Geometry(column: column, side: max(10, column * 0.7))
+    }
 
     public init(
         days: [TrendCalendarDay],
@@ -903,6 +1111,22 @@ public struct TrendsCalendarHeat: View {
         self.calendar = calendar
         self.valueFormat = valueFormat
         self.colorScale = colorScale
+        self.weekdayInitials = TrendsWeekdayNames.veryShort(calendar: calendar)
+        self.startIndex = days.firstIndex { calendar.isDate($0.date, inSameDayAs: referenceDate) }
+            ?? days.lastIndex { $0.value != nil }
+            ?? max(days.count - 1, 0)
+
+        let values = days.compactMap(\.value)
+        if let best = values.max() {
+            let average = valueFormat(TrendCalendar.stableMean(values) ?? 0)
+            let states = days.map { TrendCalendar.cellState(for: $0, today: referenceDate, calendar: calendar) }
+            let missing = states.filter { $0 == .missing }.count
+            let future = states.filter { $0 == .future }.count
+            self.summaryText = String(
+                localized: "Calendar, last 5 weeks, \(values.count) scored, \(missing) missing, \(future) upcoming, average \(average), best \(valueFormat(best)).")
+        } else {
+            self.summaryText = String(localized: "No calendar data yet.")
+        }
     }
 
     private var rows: Int { max(Int((Double(days.count) / Double(Self.columns)).rounded(.up)), 1) }
@@ -916,7 +1140,7 @@ public struct TrendsCalendarHeat: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.space2) {
             HStack(spacing: 0) {
-                ForEach(Array(Self.labels.enumerated()), id: \.offset) { _, label in
+                ForEach(Array(weekdayInitials.enumerated()), id: \.offset) { _, label in
                     Text(verbatim: label)
                         .font(StrandFont.micro)
                         .foregroundStyle(StrandPalette.textTertiary)
@@ -929,15 +1153,27 @@ public struct TrendsCalendarHeat: View {
         }
         .onAppear { revealed = true }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilitySummary)
+        .accessibilityLabel(summaryText)
         .accessibilityValue(selectedAccessibilityValue)
         .accessibilityAdjustableAction { direction in
-            let current = scrubIndex ?? max(days.count - 1, 0)
+            let current = scrubIndex ?? startIndex
             switch direction {
             case .increment: scrubIndex = min(current + 1, max(days.count - 1, 0))
             case .decrement: scrubIndex = max(current - 1, 0)
             default: break
             }
+            scheduleAdjustReset()
+        }
+        .onDisappear { adjustReset?.cancel() }
+    }
+
+    /// VoiceOver has no "adjust ended" callback, so the stepped reading clears a few seconds after the last step.
+    private func scheduleAdjustReset() {
+        adjustReset?.cancel()
+        adjustReset = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(StrandMotion.interactive) { scrubIndex = nil }
         }
     }
 
@@ -974,7 +1210,7 @@ public struct TrendsCalendarHeat: View {
                     )
                     let day = days[scrubIndex]
                     ChartTooltip(
-                        value: day.value.map(valueFormat) ?? "No data",
+                        value: day.value.map(valueFormat) ?? String(localized: "No data"),
                         label: TrendCalendar.relativeLabel(for: day.date, relativeTo: referenceDate, calendar: calendar),
                         accent: day.value.map { colorScale == .recoveryBands ? RecoveryBands.color(for: $0) : tint.accent }
                     )
@@ -1056,7 +1292,7 @@ public struct TrendsCalendarHeat: View {
     private var footer: some View {
         if let scrubIndex, days.indices.contains(scrubIndex) {
             let day = days[scrubIndex]
-            Text(verbatim: "\(TrendCalendar.relativeLabel(for: day.date, relativeTo: referenceDate, calendar: calendar)) · \(day.value.map(valueFormat) ?? "No data")")
+            Text(verbatim: "\(TrendCalendar.relativeLabel(for: day.date, relativeTo: referenceDate, calendar: calendar)) · \(day.value.map(valueFormat) ?? String(localized: "No data"))")
                 .font(StrandFont.micro)
                 .monospacedDigit()
                 .foregroundStyle(day.value == nil ? StrandPalette.textTertiary : tint.accent)
@@ -1074,22 +1310,12 @@ public struct TrendsCalendarHeat: View {
         }
     }
 
-    /// Cell geometry for a grid `width` points wide: square tiles at 70% of their column on a square pitch, so
-    /// the grid keeps generous negative space.
-    private struct Geometry {
-        let column: CGFloat
-        let side: CGFloat
-    }
-
-    private func geometry(width: CGFloat) -> Geometry {
-        let column = width / CGFloat(Self.columns)
-        return Geometry(column: column, side: max(10, column * 0.7))
-    }
-
     @ViewBuilder
     private var bestLabel: some View {
         if let best = TrendCalendar.best(in: days, relativeTo: referenceDate, calendar: calendar) {
-            Text(verbatim: "Best \(valueFormat(best.value)) · \(best.daysAgo)d ago")
+            Text(verbatim: best.daysAgo == 0
+                ? String(localized: "Best \(valueFormat(best.value)) · today")
+                : String(localized: "Best \(valueFormat(best.value)) · \(best.daysAgo)d ago"))
                 .font(StrandFont.micro)
                 .monospacedDigit()
                 .foregroundStyle(StrandPalette.textTertiary)
@@ -1139,20 +1365,10 @@ public struct TrendsCalendarHeat: View {
 
     // MARK: Accessibility
 
-    private var accessibilitySummary: String {
-        let values = days.compactMap(\.value)
-        guard let best = values.max() else { return "No calendar data yet." }
-        let average = TrendCalendar.stableMean(values) ?? 0
-        let states = days.map { TrendCalendar.cellState(for: $0, today: referenceDate, calendar: calendar) }
-        let missing = states.filter { $0 == .missing }.count
-        let future = states.filter { $0 == .future }.count
-        return "Calendar, last 35 days, \(values.count) scored, \(missing) missing, \(future) upcoming, average \(valueFormat(average)), best \(valueFormat(best))."
-    }
-
     private var selectedAccessibilityValue: String {
-        guard let index = scrubIndex, days.indices.contains(index) else { return "No day selected" }
+        guard let index = scrubIndex, days.indices.contains(index) else { return String(localized: "No day selected") }
         let day = days[index]
-        return "\(TrendCalendar.relativeLabel(for: day.date, relativeTo: referenceDate, calendar: calendar)), \(day.value.map(valueFormat) ?? "No data")"
+        return "\(TrendCalendar.relativeLabel(for: day.date, relativeTo: referenceDate, calendar: calendar)), \(day.value.map(valueFormat) ?? String(localized: "No data"))"
     }
 }
 
@@ -1168,12 +1384,14 @@ public struct TrendsWeekdayBars: View {
     private let barColor: ((Double) -> Color)?
     let valueFormat: (Double) -> String
 
+    private let initials: [String]
+    private let fullNames: [String]
+    private let summaryText: String
+
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var revealed = false
     @State private var scrubIndex: Int?
-
-    private static let labels = ["M", "T", "W", "T", "F", "S", "S"]
-    private static let fullLabels = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    @State private var adjustReset: Task<Void, Never>?
 
     public init(
         values: [Double?],
@@ -1189,6 +1407,19 @@ public struct TrendsWeekdayBars: View {
         self.calendar = calendar
         self.barColor = barColor
         self.valueFormat = valueFormat
+        let names = TrendsWeekdayNames.full(calendar: calendar)
+        self.initials = TrendsWeekdayNames.veryShort(calendar: calendar)
+        self.fullNames = names
+
+        let current = TrendCalendar.mondayFirstWeekdayIndex(for: referenceDate, calendar: calendar)
+        let padded = Array(values.prefix(7)) + Array(repeating: nil, count: max(0, 7 - values.count))
+        let missingText = String(localized: "missing")
+        let summary = zip(names, padded).map { name, value in
+            "\(name) \(value.map(valueFormat) ?? missingText)"
+        }.joined(separator: ", ")
+        let today = names.indices.contains(current) ? names[current] : ""
+        self.summaryText = String(
+            localized: "Average by weekday. Today is \(today). \(summary). Touch and hold, then drag to inspect each weekday.")
     }
 
     public var body: some View {
@@ -1233,7 +1464,7 @@ public struct TrendsWeekdayBars: View {
                             reduceMotion ? nil : StrandMotion.value.delay(Double(index) * 0.03),
                             value: revealed
                         )
-                    Text(verbatim: Self.labels[index])
+                    Text(verbatim: initials[index])
                         .font(StrandFont.micro.weight(isSelected || isCurrent ? .semibold : .regular))
                         .foregroundStyle(isSelected || isCurrent ? StrandPalette.textPrimary : StrandPalette.textTertiary)
                         .position(x: x, y: top + plotHeight + 12)
@@ -1243,13 +1474,19 @@ public struct TrendsWeekdayBars: View {
                 if scrubIndex == nil, let labelIndex = (0..<7).first(where: { index in
                     values[index].map { heightOf($0) <= heightOf(average) } ?? true
                 }) {
-                    Text(verbatim: "avg \(valueFormat(average))")
+                    let averageText = String(localized: "avg \(valueFormat(average))")
+                    // Keep the plate inside the row however wide the text and the average are.
+                    let half = max(14, CGFloat(averageText.count) * 2.9 + 6)
+                    Text(verbatim: averageText)
                         .font(StrandFont.micro)
                         .monospacedDigit()
                         .foregroundStyle(StrandPalette.textTertiary)
                         .trendsRailKnockout()
                         .fixedSize()
-                        .position(x: max(30, slot * CGFloat(labelIndex) + slot / 2), y: max(7, averageY - 9))
+                        .position(
+                            x: min(max(half, slot * CGFloat(labelIndex) + slot / 2), max(half, proxy.size.width - half)),
+                            y: max(7, averageY - 9)
+                        )
                 }
 
                 if let scrubIndex, values.indices.contains(scrubIndex) {
@@ -1257,8 +1494,8 @@ public struct TrendsWeekdayBars: View {
                     let height = value.map(heightOf) ?? 6
                     let x = slot * CGFloat(scrubIndex) + slot / 2
                     ChartTooltip(
-                        value: value.map(valueFormat) ?? "No data",
-                        label: Self.fullLabels[scrubIndex],
+                        value: value.map(valueFormat) ?? String(localized: "No data"),
+                        label: fullNames[scrubIndex],
                         accent: value.map { barColor?($0) ?? tint.accent }
                     )
                     .position(
@@ -1289,7 +1526,7 @@ public struct TrendsWeekdayBars: View {
         }
         .onAppear { revealed = true }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilitySummary)
+        .accessibilityLabel(summaryText)
         .accessibilityValue(selectedWeekdayAccessibilityValue)
         .accessibilityAdjustableAction { direction in
             let current = scrubIndex ?? TrendCalendar.mondayFirstWeekdayIndex(for: referenceDate, calendar: calendar)
@@ -1298,6 +1535,18 @@ public struct TrendsWeekdayBars: View {
             case .decrement: scrubIndex = max(current - 1, 0)
             default: break
             }
+            scheduleAdjustReset()
+        }
+        .onDisappear { adjustReset?.cancel() }
+    }
+
+    /// VoiceOver has no "adjust ended" callback, so the stepped reading clears a few seconds after the last step.
+    private func scheduleAdjustReset() {
+        adjustReset?.cancel()
+        adjustReset = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(StrandMotion.interactive) { scrubIndex = nil }
         }
     }
 
@@ -1310,17 +1559,9 @@ public struct TrendsWeekdayBars: View {
         return base.opacity(isCurrent ? 1 : 0.72)
     }
 
-    private var accessibilitySummary: String {
-        let current = TrendCalendar.mondayFirstWeekdayIndex(for: referenceDate, calendar: calendar)
-        let summary = zip(Self.fullLabels, values).map { name, value in
-            "\(name) \(value.map(valueFormat) ?? "missing")"
-        }.joined(separator: ", ")
-        return "Average by weekday. Today is \(Self.fullLabels[current]). \(summary). Touch and drag to inspect each weekday."
-    }
-
     private var selectedWeekdayAccessibilityValue: String {
-        guard let index = scrubIndex else { return "No weekday selected" }
-        return "\(Self.fullLabels[index]), \(values[index].map(valueFormat) ?? "No data")"
+        guard let index = scrubIndex else { return String(localized: "No weekday selected") }
+        return "\(fullNames[index]), \(values[index].map(valueFormat) ?? String(localized: "No data"))"
     }
 }
 
@@ -1669,6 +1910,12 @@ public struct TrendsMoverRow: View {
                 .frame(minWidth: 76, alignment: .trailing)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(label), \(value), \(delta)\(isEarlyRead ? ", early read" : "")")
+        .accessibilityLabel(Text(verbatim: spokenSummary))
+    }
+
+    /// One spoken line; a rough comparison says so in the listener's language.
+    private var spokenSummary: String {
+        let base = "\(label), \(value), \(delta)"
+        return isEarlyRead ? "\(base), \(String(localized: "early read"))" : base
     }
 }

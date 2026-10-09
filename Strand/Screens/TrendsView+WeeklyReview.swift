@@ -135,9 +135,11 @@ extension TrendsView {
         let delta = summary?.wowDelta ?? 0
         let sign = delta >= 0 ? "+" : "−"
         let deltaMagnitude = weeklyMetricDelta(metric, value: abs(delta))
-        let unchanged = hasValue && trendsDeltaIsZero(deltaMagnitude)
+        // With no readings last week the engine reports this week's mean as the "change". That is not a change.
+        let hasPrior = (summary?.weekOverWeek.previous.n ?? 0) > 0
+        let unchanged = hasValue && hasPrior && trendsDeltaIsZero(deltaMagnitude)
         let tone: TrendDeltaTone
-        if hasValue, !unchanged, let summary, !summary.isRoughComparison {
+        if hasValue, hasPrior, !unchanged, let summary, !summary.isRoughComparison {
             switch summary.wowGoodness {
             case 1: tone = .positive
             case -1: tone = .negative
@@ -172,7 +174,9 @@ extension TrendsView {
             value: hasValue ? weeklyMetricValue(metric, value: mean) : WidgetMetrics.missingValue,
             delta: !hasValue
                 ? String(localized: "No data this week")
-                : unchanged ? String(localized: "Flat vs last week") : "\(sign)\(deltaMagnitude) vs last week",
+                : !hasPrior ? String(localized: "No prior week")
+                : unchanged ? String(localized: "Flat vs last week")
+                : String(localized: "\(sign + deltaMagnitude) vs last week"),
             tone: tone,
             tint: tint
         )
@@ -240,21 +244,26 @@ extension TrendsView {
         }
     }
 
-    private func paperMoverDelta(_ summary: WeeklyMetricSummary) -> String {
-        let delta = summary.wowDelta
-        let magnitude: String
+    private func paperMoverMagnitude(_ summary: WeeklyMetricSummary) -> String {
+        let delta = abs(summary.wowDelta)
         switch summary.metric {
-        case .effort: magnitude = StrainScale.formattedDelta(abs(delta))
-        case .rhr: magnitude = ProductionTrendMetric.restingHR.formatWithUnit(abs(delta))
-        case .hrv: magnitude = ProductionTrendMetric.hrv.formatWithUnit(abs(delta))
-        case .charge: magnitude = ProductionTrendMetric.recovery.format(abs(delta))
-        case .rest: magnitude = ProductionTrendMetric.sleepPerformance.format(abs(delta))
+        case .effort: return StrainScale.formattedDelta(delta)
+        case .rhr: return ProductionTrendMetric.restingHR.formatWithUnit(delta)
+        case .hrv: return ProductionTrendMetric.hrv.formatWithUnit(delta)
+        case .charge: return ProductionTrendMetric.recovery.format(delta)
+        case .rest: return ProductionTrendMetric.sleepPerformance.format(delta)
         }
-        return trendsDeltaIsZero(magnitude) ? String(localized: "No change") : "\(delta >= 0 ? "+" : "−")\(magnitude)"
     }
 
+    private func paperMoverDelta(_ summary: WeeklyMetricSummary) -> String {
+        let magnitude = paperMoverMagnitude(summary)
+        if trendsDeltaIsZero(magnitude) { return String(localized: "No change") }
+        return (summary.wowDelta >= 0 ? "+" : "−") + magnitude
+    }
+
+    /// A move that rounds to nothing carries no colour: "No change" is neither good nor bad.
     private func paperMoverTone(_ summary: WeeklyMetricSummary) -> StrandTone {
-        guard !summary.isRoughComparison else { return .neutral }
+        guard !summary.isRoughComparison, !trendsDeltaIsZero(paperMoverMagnitude(summary)) else { return .neutral }
         switch summary.wowGoodness {
         case 1: return .positive
         case -1: return .critical

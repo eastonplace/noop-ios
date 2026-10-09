@@ -241,7 +241,7 @@ extension TrendsView {
                 title: String(localized: "Calendar"),
                 systemImage: "calendar",
                 tint: tint,
-                trailing: .text(String(localized: "Latest 35 days"))
+                trailing: .text(String(localized: "Last 5 weeks"))
             )
             TrendsCalendarHeat(
                 days: snapshot.heatDays,
@@ -290,40 +290,36 @@ extension TrendsView {
             )
             VStack(alignment: .leading, spacing: NoopMetrics.space3) {
                 trendSummaryRow(
-                    "Recovery",
-                    systemImage: ProductionTrendMetric.recovery.symbol,
+                    String(localized: "Recovery"),
+                    metric: .recovery,
                     points: series.recovery,
                     previousPoints: previousSeries.recovery,
                     goodDirection: .higher,
-                    tint: ProductionTrendMetric.recovery.domainTint(latest: series.recovery.last?.value),
-                    format: ProductionTrendMetric.recovery.format
+                    tint: ProductionTrendMetric.recovery.domainTint(latest: series.recovery.last?.value)
                 )
                 trendSummaryRow(
-                    "Strain",
-                    systemImage: ProductionTrendMetric.strain.symbol,
+                    String(localized: "Strain"),
+                    metric: .strain,
                     points: series.strain,
                     previousPoints: previousSeries.strain,
                     goodDirection: .neutral,
-                    tint: .strain,
-                    format: StrainScale.formatted
+                    tint: .strain
                 )
                 trendSummaryRow(
-                    "Sleep",
-                    systemImage: ProductionTrendMetric.sleepPerformance.symbol,
+                    String(localized: "Sleep"),
+                    metric: .sleepPerformance,
                     points: series.sleep,
                     previousPoints: previousSeries.sleep,
                     goodDirection: .higher,
-                    tint: .sleep,
-                    format: ProductionTrendMetric.sleepPerformance.formatWithUnit
+                    tint: .sleep
                 )
                 trendSummaryRow(
-                    "HRV",
-                    systemImage: ProductionTrendMetric.hrv.symbol,
+                    String(localized: "HRV"),
+                    metric: .hrv,
                     points: series.hrv,
                     previousPoints: previousSeries.hrv,
                     goodDirection: .higher,
-                    tint: .hrv,
-                    format: ProductionTrendMetric.hrv.formatWithUnit
+                    tint: .hrv
                 )
             }
         }
@@ -331,12 +327,11 @@ extension TrendsView {
 
     private func trendSummaryRow(
         _ label: String,
-        systemImage: String,
+        metric: ProductionTrendMetric,
         points: [TrendPoint],
         previousPoints: [TrendPoint],
         goodDirection: TrendSummaryGoodDirection,
-        tint: DomainTint,
-        format: (Double) -> String
+        tint: DomainTint
     ) -> some View {
         let presentation = TrendSummaryPresentation(
             series: points,
@@ -344,33 +339,20 @@ extension TrendsView {
             goodDirection: goodDirection,
             expectedCount: selectedRange.days
         )
-        var tone: TrendDeltaTone
-        switch presentation.deltaTone {
+        let text = TrendsSummaryRowText(metric: metric, presentation: presentation)
+        let tone: TrendDeltaTone
+        switch text.tone {
         case .positive: tone = .positive
         case .negative: tone = .negative
         case .neutral: tone = .neutral
         }
-        let deltaText: String
-        if !presentation.comparisonIsReliable {
-            deltaText = "Early read · \(presentation.currentCount)/\(presentation.expectedCount) days"
-        } else if let delta = presentation.delta {
-            let magnitude = format(abs(delta))
-            if trendsDeltaIsZero(magnitude) {
-                deltaText = String(localized: "No change")
-                tone = .neutral
-            } else {
-                deltaText = "\(delta >= 0 ? "+" : "−")\(magnitude) avg"
-            }
-        } else {
-            deltaText = "Need prior data"
-        }
 
         return TrendsSummaryRow(
-            systemImage: systemImage,
+            systemImage: metric.symbol,
             label: label,
             values: presentation.spark.map(\.value),
-            latest: presentation.latest.map(format) ?? WidgetMetrics.missingValue,
-            delta: deltaText,
+            latest: text.latest,
+            delta: text.delta,
             tone: tone,
             tint: tint
         )
@@ -412,7 +394,6 @@ extension TrendsView {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Range")
             .accessibilityValue("\(selectedRange.days) days")
-            .accessibilityHint("Swipe up or down to change the range")
             .accessibilityAdjustableAction { direction in
                 let all = TrendRange.allCases
                 guard let index = all.firstIndex(of: selectedRange) else { return }
@@ -420,6 +401,12 @@ extension TrendsView {
                 case .increment: selectedRange = all[min(index + 1, all.count - 1)]
                 case .decrement: selectedRange = all[max(index - 1, 0)]
                 default: break
+                }
+            }
+            // Direct choices for Voice Control and Switch Control, which cannot swipe an adjustable.
+            .accessibilityActions {
+                ForEach(TrendRange.allCases) { range in
+                    Button(String(localized: "Last \(range.days) days")) { selectedRange = range }
                 }
             }
     }
