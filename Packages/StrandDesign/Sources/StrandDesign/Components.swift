@@ -411,33 +411,38 @@ public struct TrendChip: View {
 
 // MARK: - Chart card (UNIFORM: header + fixed chart body + footer)
 
+/// The chart card in the widget language: an eyebrow header (optional domain symbol, tracked caps title, the
+/// headline value at the trailing edge with its unit muted), a micro tertiary subtitle, the chart at a fixed
+/// height, and an optional footer under a hairline.
 public struct ChartCard<ChartBody: View, Footer: View>: View {
     let title: LocalizedStringKey
     var subtitle: String? = nil
     var trailing: String? = nil
     var height: CGFloat = NoopMetrics.chartHeight
     var tint: Color? = nil
+    /// An optional domain symbol leading the title, drawn in `tint`. nil = title only.
+    var systemImage: String? = nil
     @ViewBuilder let chart: () -> ChartBody
     @ViewBuilder let footer: () -> Footer
 
     public init(title: LocalizedStringKey, subtitle: String? = nil, trailing: String? = nil,
-                height: CGFloat = NoopMetrics.chartHeight, tint: Color? = nil,
+                height: CGFloat = NoopMetrics.chartHeight, tint: Color? = nil, systemImage: String? = nil,
                 @ViewBuilder chart: @escaping () -> ChartBody,
                 @ViewBuilder footer: @escaping () -> Footer = { EmptyView() }) {
         self.title = title; self.subtitle = subtitle; self.trailing = trailing
-        self.height = height; self.tint = tint; self.chart = chart; self.footer = footer
+        self.height = height; self.tint = tint; self.systemImage = systemImage
+        self.chart = chart; self.footer = footer
     }
 
     public var body: some View {
         NoopCard(tint: tint) {
             VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .firstTextBaseline) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(title).strandOverline()
-                        if let subtitle { Text(subtitle).font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary) }
+                VStack(alignment: .leading, spacing: 2) {
+                    SectionEyebrow(title, systemImage: systemImage, tint: tint.map(DomainTint.custom) ?? .neutral,
+                                   trailing: trailing.map { .custom(AnyView(ChartCardValue(text: $0))) } ?? .none)
+                    if let subtitle {
+                        Text(subtitle).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
                     }
-                    Spacer()
-                    if let trailing { Text(trailing).font(StrandFont.bodyNumber).foregroundStyle(StrandPalette.textPrimary) }
                 }
                 chart().frame(height: height)
                 let f = footer()
@@ -447,6 +452,21 @@ public struct ChartCard<ChartBody: View, Footer: View>: View {
                 }
             }
         }
+    }
+}
+
+/// The header value of a `ChartCard`: bright number, muted unit, a missing value in the tertiary dash.
+private struct ChartCardValue: View {
+    let text: String
+    var body: some View {
+        let parts = StatTileValue.parts(text)
+        HStack(alignment: .firstTextBaseline, spacing: 3) {
+            Text(parts.number).font(StrandFont.bodyNumber).foregroundStyle(parts.color)
+            if let unit = parts.unit {
+                Text(unit).font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
+            }
+        }
+        .lineLimit(1)
     }
 }
 

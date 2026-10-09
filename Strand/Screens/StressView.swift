@@ -638,7 +638,8 @@ struct StressView: View {
                     title: "Stress · \(range.label)",
                     subtitle: String(localized: "Daily 0-3 proxy"),
                     trailing: String(localized: "avg \(String(format: "%.1f", avg))"),
-                    tint: StressRamp.calm
+                    tint: DomainTint.stress.accent,
+                    systemImage: "bolt.heart"
                 ) {
                     TrendChart(
                         points: points,
@@ -648,7 +649,8 @@ struct StressView: View {
                         height: NoopMetrics.chartHeight,
                         valueFormat: { String(format: "%.1f", $0) },
                         accessibilityLabel: String(localized: "Stress trend"),
-                        yDomain: 0...yTop
+                        yDomain: 0...yTop,
+                        xAxisLabelCount: WidgetMetrics.maxXAxisLabels
                     )
                 } footer: {
                     ChartFooter([

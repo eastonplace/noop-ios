@@ -854,6 +854,7 @@ struct SleepView: View {
                     subtitle: String(localized: "\(durationText(Double(session.endTs - session.startTs) / 60.0)) in bed"),
                     height: NoopMetrics.chartHeight,
                     tint: StrandPalette.restColor,
+                    systemImage: "moon.stars.fill",
                     chart: { noStagePlaceholder }
                 )
                 napSection(stub)
@@ -1023,6 +1024,7 @@ struct SleepView: View {
                     subtitle: subtitle,
                     height: 524,
                     tint: StrandPalette.restColor,
+                    systemImage: "moon.stars.fill",
                     chart: { stageTimeline(s, intervals: intervals, night: night) }
                 )
             } else {
@@ -1032,6 +1034,7 @@ struct SleepView: View {
                     trailing: durationText(s.asleep),
                     height: NoopMetrics.chartHeight,
                     tint: StrandPalette.restColor,
+                    systemImage: "moon.stars.fill",
                     chart: { stageBar(s) },
                     footer: { stageBreakdownRows(s) }
                 )
@@ -1964,6 +1967,7 @@ struct SleepView: View {
                 trailing: avg.map { String(localized: "\(String(format: "%.1f", $0)) h avg") },
                 height: NoopMetrics.chartHeight,
                 tint: StrandPalette.restColor,
+                systemImage: "moon.zzz.fill",
                 chart: {
                     if !pts.isEmpty {
                         TrendChart(points: pts,
@@ -1972,7 +1976,8 @@ struct SleepView: View {
                                    showsArea: true,
                                    height: NoopMetrics.chartHeight,
                                    valueFormat: { String(format: "%.1f h", $0) },
-                                   accessibilityLabel: String(localized: "Hours asleep trend"))
+                                   accessibilityLabel: String(localized: "Hours asleep trend"),
+                                   xAxisLabelCount: WidgetMetrics.maxXAxisLabels)
                     } else {
                         sparsePlaceholder
                     }

@@ -796,7 +796,8 @@ struct AppleHealthView: View {
                         valueRange: valueRange(pts, fallback: fallback),
                         showsArea: true,
                         height: NoopMetrics.chartHeight,
-                        valueFormat: fmt
+                        valueFormat: fmt,
+                        xAxisLabelCount: WidgetMetrics.maxXAxisLabels
                     )
                 } else if let only = vals.last {
                     // A single point is not a line — present the lone reading,

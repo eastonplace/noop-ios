@@ -341,10 +341,12 @@ extension WidgetGalleryView {
                 subtitle: "Per night, trailing 30 days",
                 trailing: "7.2 h avg",
                 tint: StrandPalette.restColor,
+                systemImage: "moon.zzz.fill",
                 chart: {
                     TrendChart(points: chartCardPoints, gradient: StrandPalette.restGradient, valueRange: 5...9,
                                showsArea: true, height: NoopMetrics.chartHeight, showsHover: false,
-                               valueFormat: { String(format: "%.1f h", $0) })
+                               valueFormat: { String(format: "%.1f h", $0) },
+                               xAxisLabelCount: WidgetMetrics.maxXAxisLabels)
                 },
                 footer: {
                     ChartFooter([("Avg", "7.2 h"), ("Min", "6.1 h"), ("Max", "8.0 h"), ("Nights", "30")])
@@ -354,17 +356,20 @@ extension WidgetGalleryView {
                 title: "Heart Rate Variability",
                 subtitle: "30 readings · 30D",
                 trailing: "64 ms · Oct 8",
-                tint: StrandPalette.metricPurple,
+                tint: DomainTint.hrv.accent,
+                systemImage: "waveform.path.ecg",
                 chart: {
                     TrendChart(points: chartCardPoints, gradient: DomainTint.hrv.chartGradient, valueRange: 5...9,
-                               showsArea: true, height: NoopMetrics.chartHeight, showsHover: false)
+                               showsArea: true, height: NoopMetrics.chartHeight, showsHover: false,
+                               xAxisLabelCount: WidgetMetrics.maxXAxisLabels)
                 })
                 .galleryMeasured("chart-card-plain")
             ChartCard(
                 title: "Stress · 30D",
                 subtitle: "Daily 0-3 proxy",
                 trailing: "—",
-                tint: StrandPalette.stressAccent,
+                tint: DomainTint.stress.accent,
+                systemImage: "bolt.heart",
                 chart: { Color.clear })
                 .galleryMeasured("chart-card-missing")
         }
