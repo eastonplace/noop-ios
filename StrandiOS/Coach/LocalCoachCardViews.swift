@@ -39,10 +39,10 @@ struct LocalCoachCardView: View {
             return "Sleep, \(date)\(stale). Total \(LocalCoachCardFormat.duration(minutes: value.totalMinutes)), deep \(LocalCoachCardFormat.duration(minutes: value.deepMinutes)), REM \(LocalCoachCardFormat.duration(minutes: value.remMinutes)), light \(LocalCoachCardFormat.duration(minutes: value.lightMinutes)), efficiency \(LocalCoachCardFormat.whole(value.efficiencyPercent, unit: "percent"))."
         case .trend(let value):
             let format = CoachTrendFormat(metricID: value.metricID, effortScale: effortScale)
-            return "\(value.title) trend, newest \(date)\(stale). Latest \(format.text(value.latest)) \(format.unit(value.unit)), average \(format.text(value.average)), low \(format.text(value.minimum)), high \(format.text(value.maximum)), \(value.points.count) observed days."
+            return "\(format.title(value.title)) trend, newest \(date)\(stale). Latest \(format.text(value.latest)) \(format.unit(value.unit)), average \(format.text(value.average)), low \(format.text(value.minimum)), high \(format.text(value.maximum)), \(value.points.count) observed days."
         case .effort(let value):
             let scaled = value.value.map { UnitFormatter.effortDisplay($0, scale: effortScale) } ?? "not recorded"
-            return "Effort, \(date)\(stale). \(scaled) out of \(UnitFormatter.effortScaleMax(effortScale)). \(value.workoutCount.map { "\($0) workouts in \(value.windowDays) days" } ?? "Workout count not available")."
+            return "Strain, \(date)\(stale). \(scaled) out of \(UnitFormatter.effortScaleMax(effortScale)). \(value.workoutCount.map { "\($0) workouts in \(value.windowDays) days" } ?? "Workout count not available")."
         case .workouts(let value):
             let rows = value.items.map { "\($0.sport), \(LocalCoachCardFormat.startLabel($0.startTs)), \(LocalCoachCardFormat.duration(seconds: $0.durationS))" }
             return "Recent workouts, newest \(date). " + rows.joined(separator: "; ") + "."
@@ -222,6 +222,10 @@ private struct CoachTrendFormat {
 
     func unit(_ payloadUnit: String) -> String { isEffort ? "of \(UnitFormatter.effortScaleMax(effortScale))" : payloadUnit }
 
+    /// What the card calls the metric: Strain, as Today words it. The card keeps the record's own title, which is
+    /// also what the model is told.
+    func title(_ recordTitle: String) -> String { isEffort ? "Strain" : recordTitle }
+
     var tint: DomainTint {
         switch metricID {
         case "recovery": return .custom(StrandPalette.recoveryHigh)
@@ -269,7 +273,7 @@ private struct CoachTrendCard: View {
     }
 
     var body: some View {
-        CoachCardChrome(symbol: format.symbol, title: "\(card.title) trend", tint: format.tint,
+        CoachCardChrome(symbol: format.symbol, title: "\(format.title(card.title)) trend", tint: format.tint,
                         dateLabel: LocalCoachCardFormat.dayLabel(card.day), isStale: card.isStale) {
             VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
                 HeroValue(value: format.text(card.latest), unit: format.unit(card.unit),
@@ -279,7 +283,7 @@ private struct CoachTrendCard: View {
                                valueRange: card.metricID == "recovery" ? 0...100 : domain, showsArea: true,
                                height: WidgetMetrics.chartHeight, showsHover: false,
                                valueFormat: { format.text($0) },
-                               accessibilityLabel: "\(card.title) trend", yDomain: domain,
+                               accessibilityLabel: "\(format.title(card.title)) trend", yDomain: domain,
                                xAxisLabelCount: WidgetMetrics.maxXAxisLabels)
                         .accessibilityHidden(true)
                 }
@@ -291,7 +295,7 @@ private struct CoachTrendCard: View {
     }
 }
 
-// MARK: - Effort
+// MARK: - Strain
 
 private struct CoachEffortCard: View {
     let card: LocalCoachCard.Effort
@@ -299,7 +303,7 @@ private struct CoachEffortCard: View {
     @ScaledMetric(relativeTo: .title) private var gauge = CoachCardMetrics.gaugeDiameter
 
     var body: some View {
-        CoachCardChrome(symbol: "flame.fill", title: "Effort", tint: .strain,
+        CoachCardChrome(symbol: "flame.fill", title: "Strain", tint: .strain,
                         dateLabel: LocalCoachCardFormat.dayLabel(card.day), isStale: card.isStale) {
             GaugeLayout {
                 if let stored = card.value {
@@ -416,13 +420,13 @@ private struct CoachWorkoutRow: View {
 
     private func effortFigure(leading: Bool) -> some View {
         CoachWorkoutFigure(value: item.effort.map { UnitFormatter.effortDisplay($0, scale: effortScale) } ?? "—",
-                           label: "EFFORT", tint: StrandPalette.strainAccent, leading: leading)
+                           label: "STRAIN", tint: StrandPalette.strainAccent, leading: leading)
     }
 }
 
 private struct CoachWorkoutFigure: View {
     let value: String
-    let label: String
+    let label: LocalizedStringKey
     let tint: Color
     /// Left-aligned under the heading in the stacked row; right-aligned at the row's end otherwise.
     var leading = false
