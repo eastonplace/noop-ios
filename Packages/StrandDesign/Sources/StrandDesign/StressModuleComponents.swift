@@ -7,8 +7,8 @@ import SwiftUI
 // contract as production (dot + overline + value badge on one quiet row, state word,
 // 24-hour ribbon) — every layer upgraded:
 //
-//   · the whole module tints by the CURRENT band (StressLoadStyle's calm→moderate→high
-//     ramp, the same ramp the new StressView detail chart speaks), never a fixed accent
+//   · the whole module tints by the CURRENT band (calm / moderate / high, the same three
+//     colours the band legend and the StressView detail speak), never a fixed accent
 //   · the status dot breathes a soft halo (Reduce Motion gated)
 //   · the ribbon pips carry their hour's LEVEL as height, not just colour-opacity,
 //     revealed with a 18 ms stagger; unscored hours stay honest baseline ticks
@@ -33,8 +33,11 @@ public enum StressHeatStyle {
 
     public static let stops = StressLoadStyle.stops
 
+    /// The colour of a level is the colour of its band, from `StressModuleBand.band` (calm under 1, moderate
+    /// from 1, high from 2), so the word, the pill, the ribbon bars and the band scale never disagree. The
+    /// older smooth ramp put a "High" 2.4 between the moderate green and the high yellow, where it read lime.
     public static func color(for level: Double) -> Color {
-        StressLoadStyle.color(for: level)
+        zoneColor(StressModuleBand.band(level))
     }
 
     public static func zoneColor(_ band: Int) -> Color {
