@@ -8651,6 +8651,46 @@
         }
       }
     },
+    "%lldh calm": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld Std. ruhig"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld h en calma"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld h calmo"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%lld h calmo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "平静 %lld 小时"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "平靜 %lld 小時"
+          }
+        }
+      }
+    },
     "%lldh elevated": {
       "localizations": {
         "de": {
@@ -8687,6 +8727,86 @@
           "stringUnit": {
             "state": "translated",
             "value": "升高 %lld 小時"
+          }
+        }
+      }
+    },
+    "%lldh high": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld Std. hoch"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld h alto"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld h alto"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%lld h alto"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "高 %lld 小时"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "高 %lld 小時"
+          }
+        }
+      }
+    },
+    "%lldh moderate": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld Std. moderat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld h moderado"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld h moderato"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%lld h moderado"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中等 %lld 小时"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中等 %lld 小時"
           }
         }
       }
@@ -70677,6 +70797,46 @@
         }
       }
     },
+    "No stress signal today": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Heute kein Stresssignal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hoy no hay señal de estrés"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun segnale di stress oggi"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sem sinal de stress hoje"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天没有压力信号"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天沒有壓力訊號"
+          }
+        }
+      }
+    },
     "No supported apps found": {
       "localizations": {
         "de": {
@@ -77811,6 +77971,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "峰值"
+          }
+        }
+      }
+    },
+    "Peak %@ · %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spitze %@ · %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pico %@ · %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Picco %@ · %@"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pico %@ · %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "峰值 %@ · %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "峰值 %@ · %@"
           }
         }
       }
@@ -91149,6 +91349,86 @@
         }
       }
     },
+    "Same-day signal is present, but there is not enough scored data yet while your baseline builds.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das heutige Signal ist da, aber während deine Basislinie entsteht, liegen noch nicht genug bewertete Daten vor."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hay señal de hoy, pero aún no hay suficientes datos puntuados mientras se construye tu línea base."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il segnale di oggi c'è, ma non ci sono ancora abbastanza dati valutati mentre si costruisce la tua linea di base."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Há sinal de hoje, mas ainda não existem dados pontuados suficientes enquanto a tua linha de base é criada."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已有今日信号，但在基线建立期间，评分数据仍不足。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已有今日訊號，但在基線建立期間，評分資料仍不足。"
+          }
+        }
+      }
+    },
+    "Same-day signal is present, but there is not enough scored data yet.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das heutige Signal ist da, aber es liegen noch nicht genug bewertete Daten vor."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hay señal de hoy, pero aún no hay suficientes datos puntuados."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il segnale di oggi c'è, ma non ci sono ancora abbastanza dati valutati."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Há sinal de hoje, mas ainda não existem dados pontuados suficientes."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已有今日信号，但评分数据仍不足。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已有今日訊號，但評分資料仍不足。"
+          }
+        }
+      }
+    },
     "Sat": {
       "localizations": {
         "de": {
@@ -94563,6 +94843,86 @@
           "stringUnit": {
             "state": "translated",
             "value": "顯示 NOOP 從何處同步"
+          }
+        }
+      }
+    },
+    "Showing the same-day stress signal while your daily baseline builds.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt das heutige Stresssignal, während sich deine Tagesbasislinie aufbaut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se muestra la señal de estrés de hoy mientras se construye tu línea base diaria."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra il segnale di stress di oggi mentre si costruisce la tua linea di base giornaliera."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A mostrar o sinal de stress de hoje enquanto a tua linha de base diária é criada."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在每日基线建立期间，显示今日压力信号。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在每日基線建立期間，顯示今日壓力訊號。"
+          }
+        }
+      }
+    },
+    "Showing the same-day stress signal; a daily score has not landed yet.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt das heutige Stresssignal; ein Tageswert liegt noch nicht vor."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se muestra la señal de estrés de hoy; todavía no hay puntuación diaria."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra il segnale di stress di oggi; il punteggio giornaliero non è ancora arrivato."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A mostrar o sinal de stress de hoje; a pontuação diária ainda não chegou."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示今日压力信号；每日评分尚未生成。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示今日壓力訊號；每日評分尚未產生。"
           }
         }
       }
@@ -101561,6 +101921,46 @@
         }
       }
     },
+    "Stress by hour today. Peak %@ at %@. %lld hours calm, %lld moderate, %lld high.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stress pro Stunde heute. Spitze %@ um %@. %lld Stunden ruhig, %lld moderat, %lld hoch."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estrés por hora hoy. Pico %@ a las %@. %lld horas en calma, %lld moderadas, %lld altas."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stress per ora oggi. Picco %@ alle %@. %lld ore calme, %lld moderate, %lld alte."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stress por hora hoje. Pico %@ às %@. %lld horas calmas, %lld moderadas, %lld altas."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今日按小时的压力。峰值 %@，出现在 %@。平静 %lld 小时，中等 %lld 小时，偏高 %lld 小时。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今日按小時的壓力。峰值 %@，出現在 %@。平靜 %lld 小時，中等 %lld 小時，偏高 %lld 小時。"
+          }
+        }
+      }
+    },
     "Stress check-in": {
       "localizations": {
         "de": {
@@ -101637,6 +102037,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "壓力簽到（觸覺回饋）"
+          }
+        }
+      }
+    },
+    "Stress could not refresh": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stress konnte nicht aktualisiert werden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo actualizar el estrés"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile aggiornare lo stress"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível atualizar o stress"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "压力数据无法刷新"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "壓力資料無法重新整理"
           }
         }
       }
@@ -102471,6 +102911,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "向上或向下輕掃以逐日查看"
+          }
+        }
+      }
+    },
+    "Swipe up or down to step through hours": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach oben oder unten wischen, um durch die Stunden zu gehen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desliza hacia arriba o abajo para recorrer las horas"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scorri su o giù per spostarti tra le ore"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desliza para cima ou para baixo para percorrer as horas"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上下滑动以逐小时查看"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上下滑動以逐小時查看"
           }
         }
       }
@@ -105371,6 +105851,46 @@
         }
       }
     },
+    "There is not enough same-day signal to build the hourly timeline yet.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Es liegt noch nicht genug Signal von heute vor, um den Stundenverlauf aufzubauen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún no hay suficiente señal de hoy para crear la cronología por horas."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non c'è ancora abbastanza segnale di oggi per costruire la timeline oraria."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ainda não há sinal suficiente de hoje para criar a cronologia por horas."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今日信号尚不足以生成逐小时时间线。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今日訊號尚不足以產生逐小時時間軸。"
+          }
+        }
+      }
+    },
     "There wasn't a calm, still window clean enough to describe. Try again after a settled night.": {
       "localizations": {
         "de": {
@@ -108013,6 +108533,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "今日壓力分佈：平靜 %@，中等 %@，高 %@。"
+          }
+        }
+      }
+    },
+    "Today's value is your recorded daily stress score (0-3).": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der heutige Wert ist dein aufgezeichneter Tages-Stresswert (0–3)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El valor de hoy es tu puntuación diaria de estrés registrada (0-3)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il valore di oggi è il tuo punteggio di stress giornaliero registrato (0-3)."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O valor de hoje é a tua pontuação diária de stress registada (0-3)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天的数值是你记录的每日压力评分（0-3）。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天的數值是你記錄的每日壓力評分（0-3）。"
           }
         }
       }
@@ -119377,6 +119937,46 @@
         }
       }
     },
+    "Your historical baseline is available, but today has not supplied enough daily or hourly signal.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine historische Basislinie ist vorhanden, aber heute liegen noch nicht genug Tages- oder Stundensignale vor."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu línea base histórica está disponible, pero hoy aún no hay suficiente señal diaria u horaria."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La tua linea di base storica è disponibile, ma oggi non c'è ancora abbastanza segnale giornaliero o orario."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A tua linha de base histórica está disponível, mas hoje ainda não há sinal diário ou horário suficiente."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的历史基线已可用，但今天的每日或逐小时信号仍不足。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的歷史基線已可用，但今天的每日或逐小時訊號仍不足。"
+          }
+        }
+      }
+    },
     "Your last %lld hours have stayed in the high band. A few minutes of paced breathing can help downshift your nervous system.": {
       "localizations": {
         "de": {
@@ -122087,6 +122687,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "已涵蓋"
+          }
+        }
+      }
+    },
+    "daily score": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tageswert"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "puntuación diaria"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "punteggio giornaliero"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "pontuação diária"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每日评分"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每日評分"
           }
         }
       }
@@ -127645,6 +128285,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "今天"
+          }
+        }
+      }
+    },
+    "today so far": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "heute bisher"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hoy hasta ahora"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "oggi finora"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "hoje até agora"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今日至今"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今日至今"
           }
         }
       }

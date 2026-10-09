@@ -134,7 +134,11 @@ struct DrillInTrendSection: View {
 enum DrillInFormat {
     /// A signed whole or one-decimal change in the device's locale ("+12", "−2", "+0.4").
     static func signed(_ value: Double, fractionDigits: Int = 0) -> String {
-        value.formatted(.number.precision(.fractionLength(fractionDigits)).sign(strategy: .always()))
+        // A change that rounds to nothing reads "0" (or "0.0"), never "-0.0" or "+0".
+        let scale = pow(10, Double(fractionDigits))
+        let rounded = (value * scale).rounded() / scale
+        return (rounded == 0 ? 0 : rounded)
+            .formatted(.number.precision(.fractionLength(fractionDigits)).sign(strategy: .always(includingZero: false)))
     }
 
     static func number(_ value: Double, fractionDigits: Int = 0) -> String {

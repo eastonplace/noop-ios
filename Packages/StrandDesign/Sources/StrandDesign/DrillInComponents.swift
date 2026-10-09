@@ -327,6 +327,8 @@ public struct StressDayRibbon: View {
     @State private var adjustReset: Task<Void, Never>?
 
     private static let height: CGFloat = 76
+    /// With no scored hour there is nothing to draw tall: the row keeps only its baseline ticks.
+    private static let emptyHeight: CGFloat = 14
     private static let tick: CGFloat = 3
 
     /// - Parameters:
@@ -348,6 +350,8 @@ public struct StressDayRibbon: View {
         scored.max(by: { $0.level < $1.level })
     }
 
+    private var rowHeight: CGFloat { scored.isEmpty ? Self.emptyHeight : Self.height }
+
     public var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             ribbon
@@ -364,7 +368,7 @@ public struct StressDayRibbon: View {
             let width = proxy.size.width
             let slot = width / 24
             ZStack(alignment: .bottom) {
-                guides(width: width)
+                if !scored.isEmpty { guides(width: width) }
                 Rectangle()
                     .fill(StrandPalette.hairlineStrong.opacity(0.8))
                     .frame(height: 1)
@@ -402,8 +406,8 @@ public struct StressDayRibbon: View {
                 onEnd: { withAnimation(StrandMotion.interactive) { scrubHour = nil } }
             ))
         }
-        .frame(height: Self.height)
-        .padding(.top, 8)
+        .frame(height: rowHeight)
+        .padding(.top, scored.isEmpty ? 2 : 8)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(verbatim: summary))
         .accessibilityHint(Text("Swipe up or down to step through hours"))
