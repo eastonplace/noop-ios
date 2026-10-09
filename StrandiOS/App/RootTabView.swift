@@ -27,7 +27,27 @@ struct RootTabView: View {
     @AppStorage(ClockFormatPreference.defaultsKey) private var clockPreference = ClockFormatPreference.system.rawValue
     @State private var selectedTab: Int
     /// Paper is the sole Today surface.
-    private var todayTabRoot: some View { TodayView() }
+    private var todayTabRoot: some View {
+        #if DEBUG
+        TodayView().qaRouteHost(.today)
+        #else
+        TodayView()
+        #endif
+    }
+    private var trendsTabRoot: some View {
+        #if DEBUG
+        TrendsView().qaRouteHost(.trends)
+        #else
+        TrendsView()
+        #endif
+    }
+    private var sleepTabRoot: some View {
+        #if DEBUG
+        SleepView().qaRouteHost(.sleep)
+        #else
+        SleepView()
+        #endif
+    }
 
     init() {
         var initialTab = 0
@@ -45,6 +65,9 @@ struct RootTabView: View {
             case "more", "settings": 3
             default: 0
             }
+        } else if let route = QARoute.requested {
+            // `--noop-qa-route` launches over the tab that owns the route.
+            initialTab = route.launchTab.rawValue
         }
         #endif
         _selectedTab = State(initialValue: initialTab)
@@ -64,9 +87,9 @@ struct RootTabView: View {
         VStack(spacing: 0) {
         TabView(selection: $selectedTab) {
             tab(todayTabRoot, "Today", "square.grid.2x2").tag(0)
-            tab(TrendsView(), "Trends", "chart.bar").tag(1)
+            tab(trendsTabRoot, "Trends", "chart.bar").tag(1)
             tab(LocalCoachView(), "Coach", "bubble.left.and.text.bubble.right").tag(4)
-            tab(SleepView(), "Sleep", "moon").tag(2)
+            tab(sleepTabRoot, "Sleep", "moon").tag(2)
             settingsTab.tag(3)
         }
         .environment(\.locale, clockPreference.isEmpty ? Locale.autoupdatingCurrent : AppClock.formattingLocale)
@@ -97,6 +120,14 @@ struct RootTabView: View {
                 otherPresentationActive: quickAction != nil || showDevices || routedPillar != nil || showLift,
                 presentLift: { showLift = true })
         }
+        #if DEBUG
+        .task { await presentQAShellRoute() }
+        .task { await QAScrollDriver.run() }
+        // Capture scripts wait for the demo history before judging a frame stable.
+        .onChange(of: repo.days.count, initial: true) { _, count in
+            if count > 0 { NSLog("[qa-route] data days=%d", count) }
+        }
+        #endif
         .task {
             routePendingCoachRequest()
             // AppModel owns the one initial full-history repository load. This shell only performs the
@@ -165,6 +196,30 @@ struct RootTabView: View {
         .onChange(of: repo.liveSourceState.lineageComponent) { _, _ in routePendingCoachRequest() }
         .onChange(of: repo.verifiedExternalSurfaceFenced) { _, _ in routePendingCoachRequest() }
     }
+
+    #if DEBUG
+    /// `--noop-qa-route` for the screens the shell itself presents (quick actions, routed pillars).
+    private func presentQAShellRoute() async {
+        guard let route = QARoute.requested, case .shell(let target) = route.presentation else { return }
+        // A sheet requested mid-launch can be dropped, so retry until a modal is actually up.
+        for attempt in 0..<10 {
+            try? await Task.sleep(for: .milliseconds(attempt == 0 ? 1800 : 3500))
+            if QARoute.modalIsPresented { route.logPresented(); return }
+            quickAction = nil
+            routedPillar = nil
+            try? await Task.sleep(for: .milliseconds(400))
+            switch target {
+            case .updates: routedPillar = .updates
+            case .rhythm: routedPillar = .rhythm
+            case .liveHR: quickAction = .live
+            case .breathe: quickAction = .breathe
+            case .journal: quickAction = .journal
+            case .intervals: quickAction = .intervals
+            case .startWorkout: quickAction = .workout
+            }
+        }
+    }
+    #endif
 
     /// The lift Live Activity's deep link. Any shell sheet already up is closed first, then the Lift flow
     /// opens and (because it lands on its start screen) resumes the active session on its own.
