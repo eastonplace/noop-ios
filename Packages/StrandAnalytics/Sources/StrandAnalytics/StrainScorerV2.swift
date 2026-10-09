@@ -84,6 +84,18 @@ public enum StrainScorerV2 {
         }
     }
 
+    /// One point of ``cumulativeCardioStrain(_:maxHR:restingHR:context:start:end:bucket:)``.
+    public struct CumulativeCardioPoint: Equatable, Sendable {
+        public let t: Date
+        /// The cardio component on the 0...21 display scale as of `t`.
+        public let value: Double
+
+        public init(t: Date, value: Double) {
+            self.t = t
+            self.value = value
+        }
+    }
+
     /// Constant-time preview state for a chronological live activity stream.
     ///
     /// The authoritative saved score still runs through ``strain(_:maxHR:restingHR:mode:)`` over the
@@ -223,6 +235,21 @@ public enum StrainScorerV2 {
             )
         }
 
+        /// The day's components under the batch scorer's rules, which differ from `strain` in one
+        /// respect: like ``StrainScorerV2/strain(_:maxHR:restingHR:mode:)``, no heart-rate load counts
+        /// until the stream holds `minReadings` readings. The live `strain` above has never applied that
+        /// gate and is left as it was; the two differ only for fewer than 20 readings spanning 10 minutes.
+        var batchEquivalentComponents: DayStrainComponents {
+            guard effectiveMaxHR.isFinite, restingHR.isFinite, effectiveMaxHR > restingHR else {
+                return .unscored
+            }
+            let counted = readingCount >= StrainScorerV2.minReadings
+            return StrainScorerV2.physiologicalComponents(
+                cardiovascularLoad: counted ? cardiovascularLoad : 0,
+                coverageSeconds: counted ? coverageSeconds : 0,
+                context: context)
+        }
+
         public mutating func update(context: DayContext) { self.context = context }
 
         public mutating func append(_ sample: HRSample) {
@@ -336,6 +363,87 @@ public enum StrainScorerV2 {
                                        coverageSeconds: coverageSeconds,
                                        context: context)
     }
+
+    /// The cardio component of the day score as it builds up through the day: one point at `start` and
+    /// then every `bucket` seconds, the last at the final reading inside `[start, end]`.
+    ///
+    /// Replays `hr` once through ``PhysiologicalDayAccumulator``. The value at `t` is exactly the `cardio`
+    /// that ``dayStrainComponents(_:maxHR:restingHR:context:)`` reports for the readings with
+    /// `start <= ts <= t` (0 while that day would have no cardio component yet), so the last point equals
+    /// the `cardio` of the whole window bit for bit, for positive timestamps. Values are on the 0...21
+    /// display scale and never decrease. Three things follow from the score's own rules:
+    /// - The curve starts at the sleep seed, not at zero, when the context carries sleep minutes.
+    /// - Heart-rate load joins only once the day has `minReadings` readings and `minCoverageSeconds` of
+    ///   coverage, so the curve steps up when those gates open.
+    /// - It is the cardio component only. The day's score is `max(cardio, steps, energy)`, so the curve
+    ///   ends at the displayed score only when `dominant` is `.cardio`.
+    ///
+    /// `hr` may be unsorted and may hold duplicates and out-of-range readings; it is filtered exactly as
+    /// ``strain(_:maxHR:restingHR:mode:)`` filters (`sortedValidSamples`). Readings outside the window are
+    /// ignored, and a gap in the data carries the last value forward. The first point's `t` is `start`;
+    /// the others are `start + k * bucket`; the last is the final reading's time, so it is never after
+    /// `end`. Boundaries are relative to `start`, not to wall-clock multiples of `bucket`.
+    ///
+    /// Returns `[]` for no readings in the window, `end < start`, a non-positive or non-finite `bucket`,
+    /// an unusable HR range, a context without wear coverage, a day with no cardio component at all,
+    /// and a span that would need more than 1,000,000 points. A `bucket` under one second is treated as
+    /// one second, since readings carry whole-second timestamps.
+    ///
+    /// Pure and synchronous: one sort plus a single O(n) replay, then O(span / bucket) work. A full 1 Hz
+    /// day (86,400 readings) took about 4 ms optimised and 50 to 160 ms unoptimised on a busy 8-core Mac,
+    /// so it is fine to run once, off the main thread, when a screen opens.
+    public static func cumulativeCardioStrain(_ hr: [HRSample],
+                                              maxHR: Double? = nil,
+                                              restingHR: Double = defaultRestingHR,
+                                              context: DayContext,
+                                              start: Date,
+                                              end: Date,
+                                              bucket: TimeInterval = 300) -> [CumulativeCardioPoint] {
+        let effectiveMax = maxHR ?? StrainScorer.tanakaHRmax(age: Double(StrainScorer.defaultAge))
+        let startSeconds = start.timeIntervalSince1970
+        let endSeconds = end.timeIntervalSince1970
+        guard effectiveMax.isFinite, restingHR.isFinite, effectiveMax > restingHR,
+              context.hasWearCoverage,
+              bucket.isFinite, bucket > 0,
+              startSeconds.isFinite, endSeconds.isFinite, startSeconds <= endSeconds else { return [] }
+        let step = max(bucket, 1)
+
+        let sorted = sortedValidSamples(hr)
+        var next = 0
+        while next < sorted.count, Double(sorted[next].ts) < startSeconds { next += 1 }
+        var limit = sorted.count
+        while limit > next, Double(sorted[limit - 1].ts) > endSeconds { limit -= 1 }
+        guard next < limit else { return [] }
+        let lastSeconds = Double(sorted[limit - 1].ts)
+        guard (lastSeconds - startSeconds) / step <= Double(maxCumulativePoints) else { return [] }
+
+        var accumulator = PhysiologicalDayAccumulator(
+            maxHR: effectiveMax, restingHR: restingHR, context: context)
+        var points: [CumulativeCardioPoint] = []
+        points.reserveCapacity(Int((lastSeconds - startSeconds) / step) + 2)
+        var boundary = 0.0
+        while true {
+            let t = start.addingTimeInterval(boundary * step)
+            let tSeconds = t.timeIntervalSince1970
+            if tSeconds >= lastSeconds { break }
+            while next < limit, Double(sorted[next].ts) <= tSeconds {
+                accumulator.append(sorted[next])
+                next += 1
+            }
+            points.append(CumulativeCardioPoint(
+                t: t, value: accumulator.batchEquivalentComponents.cardio ?? 0))
+            boundary += 1
+        }
+        while next < limit {
+            accumulator.append(sorted[next])
+            next += 1
+        }
+        guard let closing = accumulator.batchEquivalentComponents.cardio else { return [] }
+        points.append(CumulativeCardioPoint(t: Date(timeIntervalSince1970: lastSeconds), value: closing))
+        return points
+    }
+
+    private static let maxCumulativePoints = 1_000_000
 
     /// Cardiovascular load and covered seconds of an already sorted, validated stream. Each interval
     /// between distinct timestamps (at most `maxIntervalSeconds`) is charged at the earlier second's
