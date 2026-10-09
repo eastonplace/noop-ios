@@ -34,7 +34,7 @@ public enum TrendRange: String, CaseIterable, Identifiable, Sendable {
     }
 
     public var summarySubtitle: String {
-        "Last \(days) days · vs prior \(days)"
+        String(localized: "Last \(days) days · vs prior \(days)")
     }
 
     public var startLabel: String {
@@ -527,12 +527,7 @@ public enum TrendCalendar {
         let difference = calendar.dateComponents([.day], from: target, to: reference).day ?? 0
         if difference == 0 { return String(localized: "Today", bundle: .module) }
         if difference == 1 { return String(localized: "Yesterday", bundle: .module) }
-        let formatter = DateFormatter()
-        formatter.calendar = calendar
-        formatter.locale = .current
-        formatter.timeZone = calendar.timeZone
-        formatter.setLocalizedDateFormatFromTemplate("EEE MMM d")
-        return formatter.string(from: target)
+        return TrendsDateFormatters.shared.string(from: target, template: "EEE MMM d", calendar: calendar)
     }
 
     public static func unitPosition(of date: Date, in domain: ClosedRange<Date>) -> Double {
