@@ -65,11 +65,16 @@ struct EyebrowPulseIcon: View {
 /// With a symbol and no title it is the matching icon button: same capsule, same height as a titled chip beside
 /// it, so a title row can carry "Explore" and a share glyph as one family. The caller supplies the accessibility
 /// label (a titled chip reads its title) and a 44pt tap area with `chipHitTarget()`.
+///
+/// A chip that is one of a set of choices (a topic filter) passes `isSelected`: the capsule fills with the brand
+/// ink and the label turns to dark ink, the same selected look as `SegmentedPillControl`. The caller adds the
+/// `.isSelected` accessibility trait to the button that wraps it.
 public struct WidgetChip: View {
     private let title: LocalizedStringKey?
     private let systemImage: String?
     private let showsChevron: Bool
     private let overhangs: Bool
+    private let isSelected: Bool
     /// Where `title` is looked up: this package's string table for the Today chips, or the app's (`nil`).
     private let bundle: Bundle?
 
@@ -77,25 +82,26 @@ public struct WidgetChip: View {
     @ScaledMetric(relativeTo: .caption2) private var lineHeight: CGFloat = 13
 
     private init(title: LocalizedStringKey?, bundle: Bundle?, systemImage: String?, showsChevron: Bool,
-                 overhangs: Bool) {
+                 overhangs: Bool, isSelected: Bool) {
         self.title = title
         self.bundle = bundle
         self.systemImage = systemImage
         self.showsChevron = showsChevron
         self.overhangs = overhangs
+        self.isSelected = isSelected
     }
 
     public init(_ title: LocalizedStringKey? = nil, systemImage: String? = nil, showsChevron: Bool = true,
-                overhangs: Bool = true) {
+                overhangs: Bool = true, isSelected: Bool = false) {
         self.init(title: title, bundle: .module, systemImage: systemImage, showsChevron: showsChevron,
-                  overhangs: overhangs)
+                  overhangs: overhangs, isSelected: isSelected)
     }
 
     /// A chip built in the app, whose title is in the app's own string table (so it localises with the screen).
     public init(appTitle title: LocalizedStringKey, systemImage: String? = nil, showsChevron: Bool = true,
-                overhangs: Bool = true) {
+                overhangs: Bool = true, isSelected: Bool = false) {
         self.init(title: title, bundle: nil, systemImage: systemImage, showsChevron: showsChevron,
-                  overhangs: overhangs)
+                  overhangs: overhangs, isSelected: isSelected)
     }
 
     public var body: some View {
@@ -118,11 +124,11 @@ public struct WidgetChip: View {
             }
         }
         .frame(minHeight: title == nil && systemImage != nil ? lineHeight : nil)
-        .foregroundStyle(StrandPalette.textSecondary)
+        .foregroundStyle(isSelected ? StrandPalette.onInk : StrandPalette.textSecondary)
         .padding(.horizontal, 8)
         .padding(.vertical, 3)
-        .background(Capsule(style: .continuous).fill(StrandPalette.chipFill))
-        .overlay(Capsule(style: .continuous).stroke(StrandPalette.hairline, lineWidth: 1))
+        .background(Capsule(style: .continuous).fill(isSelected ? StrandPalette.ink : StrandPalette.chipFill))
+        .overlay(Capsule(style: .continuous).stroke(isSelected ? Color.clear : StrandPalette.hairline, lineWidth: 1))
         .padding(.vertical, overhangs ? -2 : 0)
     }
 }

@@ -127,6 +127,10 @@ struct LocalCoachView: View {
             Task { await coach.refresh() }
         }
         .onChange(of: coach.selectedConversationID) { old, new in
+            #if DEBUG
+            // A capture that asked for a page (`--noop-coach-page`) stays on it when the saved thread loads.
+            if QACoachPage.requested != nil { return }
+            #endif
             if old != new, !coach.messages.isEmpty { screen = .chat }
         }
         .accessibilityElement(children: .contain)
@@ -219,190 +223,164 @@ struct LocalCoachView: View {
         .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
     }
 
+    /// The model's state as the screen draws it (a DEBUG launch argument can stand in for it in captures).
+    private var availability: LocalCoachAvailability {
+        #if DEBUG
+        QACoachAvailability.requested ?? coach.availability
+        #else
+        coach.availability
+        #endif
+    }
+
     @ViewBuilder private var statusNote: some View {
         if let error = inputError ?? voice.errorText ?? coach.errorText ?? LocalCoachIntentBridge.errorText {
-            NoteCard(LocalizedStringKey(error), style: .warning)
-                .accessibilityElement(children: .combine)
-                .padding(.horizontal, NoopMetrics.space4).padding(.vertical, NoopMetrics.space2)
+            statusStrip { CoachNotice(error: error) }
                 .accessibilityIdentifier("coach.error")
         } else if coach.recordsUpdating && (screen == .home || screen == .chat) {
-            NoteCard("Your records are updating. General chat is available.", style: .info)
-                .accessibilityElement(children: .combine)
-                .padding(.horizontal, NoopMetrics.space4).padding(.vertical, NoopMetrics.space2)
-                .accessibilityIdentifier("coach.recordsUpdating")
+            statusStrip {
+                CoachNotice(text: Text("Your records are updating. General chat is available."), tone: .info)
+            }
+            .accessibilityIdentifier("coach.recordsUpdating")
         }
+    }
+
+    /// A flat status line over the page foot: canvas ground, one hairline above, no box.
+    private func statusStrip<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        content()
+            .padding(.horizontal, NoopMetrics.space4).padding(.vertical, NoopMetrics.space3)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(StrandPalette.appCanvas)
+            .overlay(alignment: .top) {
+                Rectangle().fill(StrandPalette.hairline).frame(height: 1).accessibilityHidden(true)
+            }
     }
 
     // MARK: Overview
 
     private var overview: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: NoopMetrics.space4) {
-                if coach.isPreview { LocalCoachFixtureLabel() }
+            VStack(alignment: .leading, spacing: 0) {
+                if coach.isPreview { LocalCoachFixtureLabel().padding(.bottom, NoopMetrics.space3) }
                 outlook
-                if !coach.snapshot.metrics.isEmpty { metricStrip }
-                if !coach.preferences.usePersonalData { consentSection }
-                topicSection
-                planEntry
-                briefSection
-                Button { showSources = true } label: {
-                    StrandCard(padding: 0) {
-                        SettingsRow(icon: "checkmark.shield", title: "See the records behind your coach", showsChevron: true)
-                    }
+                if !coach.snapshot.metrics.isEmpty {
+                    CoachSectionSeparator()
+                    CoachMetricStrip(metrics: Array(coach.snapshot.metrics.prefix(3)))
                 }
-                .buttonStyle(PaperPressStyle())
+                if !coach.preferences.usePersonalData {
+                    CoachSectionSeparator()
+                    consentSection
+                }
+                CoachSectionSeparator()
+                topicSection
+                CoachSectionSeparator()
+                planEntry
+                CoachSectionSeparator()
+                briefSection
+                CoachSectionSeparator()
+                sourcesEntry
             }
             .padding(.horizontal, NoopMetrics.space4)
-            .padding(.top, NoopMetrics.space2)
-            .padding(.bottom, NoopMetrics.space6)
+            .padding(.top, CoachRhythm.pageTop)
+            .padding(.bottom, CoachRhythm.pageBottom)
         }
         .refreshable { await coach.refresh() }
         .scrollDismissesKeyboard(.interactively)
         .accessibilityIdentifier("coach.overview")
     }
 
+    /// The daily outlook: headline, the brief under it, and the model's state as a pill. The record's real date
+    /// sits at the eyebrow's trailing edge, as it does on the Coach cards.
     private var outlook: some View {
-        ContentSection {
-            VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-                HStack(spacing: NoopMetrics.space2) {
-                    Image(systemName: "sun.horizon").font(StrandFont.caption).foregroundStyle(StrandPalette.accent)
-                    Text("Your daily outlook").strandOverline()
-                    Spacer(minLength: 0)
-                    Image(systemName: "sparkle").font(StrandFont.subhead).foregroundStyle(StrandPalette.accent)
-                }
-                .accessibilityElement(children: .combine)
+        CoachSection("Your daily outlook", systemImage: "sun.horizon", tint: .accent,
+                     trailing: CoachRecordDate.trailing(day: coach.snapshot.latestDay)) {
+            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
                 Text(coach.preferences.usePersonalData ? "Your day, in focus." : "Start with your goals.")
-                    .font(StrandFont.title2)
+                    .font(StrandFont.title1)
+                    .foregroundStyle(StrandPalette.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
                 Text(coach.dailyBrief.hasPrefix("Allow local") ? coach.snapshot.summary : coach.dailyBrief)
                     .font(StrandFont.subhead).lineSpacing(3)
                     .foregroundStyle(StrandPalette.textSecondary)
                     .lineLimit(5)
-                HStack(spacing: 6) {
-                    Circle().fill(coach.availability == .available ? StrandPalette.accent : StrandPalette.textTertiary)
-                        .frame(width: 6, height: 6)
-                    Text(coach.isPreview ? "Sample records, no model inference" : coach.availability.title)
-                        .font(StrandFont.micro)
-                    Spacer(minLength: 6)
-                    if let day = coach.snapshot.latestDay {
-                        Text(day).font(StrandFont.mono(11))
-                    }
-                }.foregroundStyle(StrandPalette.textTertiary)
             }
+            availabilityPill
         }
     }
 
-    private var metricStrip: some View {
-        ContentSection {
-            HStack(alignment: .top, spacing: NoopMetrics.space3) {
-                ForEach(Array(coach.snapshot.metrics.prefix(3))) { metric in
-                    VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-                        Text(metric.title).strandOverline().lineLimit(1).minimumScaleFactor(0.7)
-                        HStack(alignment: .firstTextBaseline, spacing: 2) {
-                            Text(metric.value).font(StrandFont.metricValue).minimumScaleFactor(0.7)
-                            Text(metric.unit).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
-                        }.lineLimit(1)
-                        metricSparkline(metric)
-                        Text(metric.detail).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary).lineLimit(2)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityElement(children: .combine)
-                }
-            }
+    private var availabilityPill: some View {
+        let title = coach.isPreview ? "Sample records, no model inference" : availability.title
+        let tone: StrandTone = switch availability {
+        case .available: .accent
+        case .checking: .neutral
+        default: .warning
         }
-    }
-
-    /// The canonical StrandDesign `Sparkline` over the same finite samples the metric always drew.
-    @ViewBuilder private func metricSparkline(_ metric: LocalCoachMetric) -> some View {
-        let values = metric.samples.filter(\.isFinite)
-        let tint = metricTint(metric.id)
-        if values.count > 1 {
-            Sparkline(values: values, gradient: Gradient(colors: [tint.opacity(0.5), tint]),
-                      lineWidth: 2, showsHover: false)
-                .frame(height: 24)
-                .accessibilityHidden(true)
-        } else {
-            Color.clear.frame(height: 24).accessibilityHidden(true)
-        }
-    }
-
-    private func metricTint(_ id: String) -> Color {
-        if id.localizedCaseInsensitiveContains("sleep") { return StrandPalette.sleepAccent }
-        if id.localizedCaseInsensitiveContains("strain") { return StrandPalette.strainAccent }
-        return StrandPalette.accent
+        return StatePill(LocalizedStringKey(title), tone: tone, pulsing: availability == .checking)
     }
 
     private var consentSection: some View {
-        ContentSection {
-            VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-                Label("Make it personal", systemImage: "lock.shield").font(StrandFont.headline)
-                Text("Allow Coach to read your selected NOOP records on this iPhone. Your local coach does not send them to a cloud model.")
-                    .font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
-                Button("Use my local records") {
-                    coach.preferences.usePersonalData = true
-                }
-                .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
-                .accessibilityIdentifier("coach.allowRecords")
+        CoachSection("Make it personal", systemImage: "lock.shield", tint: .accent) {
+            Text("Allow Coach to read your selected NOOP records on this iPhone. Your local coach does not send them to a cloud model.")
+                .font(StrandFont.subhead).lineSpacing(3)
+                .foregroundStyle(StrandPalette.textSecondary)
+            Button {
+                coach.preferences.usePersonalData = true
+            } label: {
+                Text("Use my local records")
             }
+            .buttonStyle(CoachPrimaryPillStyle())
+            .accessibilityIdentifier("coach.allowRecords")
         }
     }
 
     private var topicSection: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-            SectionHeader("What’s on your mind?", overline: "Explore with Coach")
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: NoopMetrics.space2) {
-                    ForEach(LocalCoachTopic.allCases) { topic in
-                        let selected = selectedTopic == topic
-                        Button { selectedTopic = topic } label: {
-                            Label(topic.title, systemImage: topic.symbol)
-                                .font(StrandFont.caption)
-                                .padding(.horizontal, NoopMetrics.space3)
-                                .frame(height: 32)
-                                .foregroundStyle(selected ? StrandPalette.onInk : StrandPalette.textSecondary)
-                                .background(selected ? StrandPalette.ink : StrandPalette.inset, in: Capsule())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityAddTraits(selected ? .isSelected : [])
+        CoachSection("Explore with Coach", systemImage: "bubble.left.and.text.bubble.right", tint: .accent) {
+            CoachChipRow(bleed: NoopMetrics.space4) {
+                ForEach(LocalCoachTopic.allCases) { topic in
+                    let selected = selectedTopic == topic
+                    Button { selectedTopic = topic } label: {
+                        WidgetChip(appTitle: LocalizedStringKey(topic.title), systemImage: topic.symbol,
+                                   showsChevron: false, overhangs: false, isSelected: selected)
+                            .chipHitTarget()
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(selected ? .isSelected : [])
                 }
             }
             Button { submit(selectedTopic.prompt) } label: {
-                HStack(alignment: .top, spacing: NoopMetrics.space4) {
+                HStack(alignment: .top, spacing: NoopMetrics.space3) {
                     Text(selectedTopic.prompt).font(StrandFont.subhead).lineSpacing(3)
                         .foregroundStyle(StrandPalette.textSecondary).multilineTextAlignment(.leading)
                     Spacer(minLength: 0)
-                    Image(systemName: "arrow.up.right").foregroundStyle(StrandPalette.accent)
+                    WidgetChip(appTitle: "Ask", systemImage: "arrow.up", showsChevron: false, overhangs: false)
                 }
-                .contentRowSurface()
-            }.buttonStyle(.plain)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.bottom, -2)
         }
     }
 
     private var planEntry: some View {
         Button { screen = .plan; if coach.plan == nil { showPlanBuilder = true } } label: {
-            StrandCard(padding: 0) {
-                SettingsRow(
-                    icon: "figure.strengthtraining.traditional",
-                    title: LocalizedStringKey(coach.plan?.title ?? "Turn intention into a plan"),
-                    subtitle: LocalizedStringKey(coach.plan == nil
-                        ? "Build, review and save your next workout."
-                        : "\(coach.plan?.days.count ?? 0) sessions · Ready for your review"),
-                    showsChevron: true
-                )
-            }
+            CoachRow(
+                systemImage: "figure.strengthtraining.traditional", tint: .workout,
+                title: Text(LocalizedStringKey(coach.plan?.title ?? "Turn intention into a plan")),
+                subtitle: Text(CoachPlanText.entrySubtitle(sessions: coach.plan?.days.count,
+                                                           saved: coach.plan?.saved ?? false))
+            )
         }
-        .buttonStyle(PaperPressStyle())
+        .buttonStyle(.plain)
     }
 
     private var briefSection: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-            SectionHeader("A moment to check in", overline: "Your rhythm")
-            HStack(spacing: NoopMetrics.space2) {
+        CoachSection("Your rhythm", systemImage: "calendar.badge.clock", tint: .accent) {
+            Text("A moment to check in")
+                .font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
+            CoachChipRow(bleed: NoopMetrics.space4) {
                 briefButton("Morning", symbol: "sun.max", kind: .morning)
                 briefButton("Evening", symbol: "moon", kind: .evening)
                 briefButton("This week", symbol: "calendar", kind: .weekly)
-                Spacer(minLength: 0)
             }
         }
     }
@@ -412,9 +390,18 @@ struct LocalCoachView: View {
             screen = .chat
             Task { await coach.generateBrief(kind: kind) }
         } label: {
-            Label(title, systemImage: symbol)
+            WidgetChip(appTitle: title, systemImage: symbol, showsChevron: false, overhangs: false)
+                .chipHitTarget()
         }
-        .buttonStyle(ChipButtonStyle())
+        .buttonStyle(.plain)
+    }
+
+    private var sourcesEntry: some View {
+        Button { showSources = true } label: {
+            CoachRow(systemImage: "checkmark.shield", tint: .accent,
+                     title: Text("See the records behind your coach"))
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: Conversation
@@ -422,17 +409,9 @@ struct LocalCoachView: View {
     private var conversation: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: NoopMetrics.space6) {
+                LazyVStack(alignment: .leading, spacing: NoopMetrics.space5) {
                     if coach.isPreview { LocalCoachFixtureLabel() }
-                    if coach.messages.isEmpty {
-                        VStack(alignment: .leading, spacing: NoopMetrics.space4) {
-                            Image(systemName: "bubble.left.and.text.bubble.right")
-                                .font(.system(size: 38, weight: .ultraLight)).foregroundStyle(StrandPalette.accent)
-                            Text("Let’s connect the dots.").font(StrandFont.title1)
-                            Text("Ask about your sleep, training, recovery or goals. Coach can look at the local records you allow and show its sources.")
-                                .font(StrandFont.body).foregroundStyle(StrandPalette.textSecondary)
-                        }.padding(.vertical, NoopMetrics.space8)
-                    }
+                    if coach.messages.isEmpty { emptyConversation }
                     ForEach(coach.messages) { message in
                         LocalCoachMessageView(message: message, streaming: coach.isResponding && message.id == coach.messages.last?.id,
                                               onSpeak: {
@@ -449,7 +428,10 @@ struct LocalCoachView: View {
                         }.accessibilityIdentifier("coach.toolActivity")
                     }
                     Color.clear.frame(height: 1).id("coach.bottom")
-                }.padding(NoopMetrics.space4)
+                }
+                .padding(.horizontal, NoopMetrics.space4)
+                .padding(.top, CoachRhythm.pageTop)
+                .padding(.bottom, NoopMetrics.space4)
             }
             .scrollDismissesKeyboard(.interactively)
             .onChange(of: coach.messages.last?.text) { _, _ in proxy.scrollTo("coach.bottom", anchor: .bottom) }
@@ -459,14 +441,105 @@ struct LocalCoachView: View {
             .onChange(of: coach.messages.last?.cards?.count) { _, _ in
                 withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("coach.bottom", anchor: .bottom) }
             }
-            .onAppear { proxy.scrollTo("coach.bottom", anchor: .bottom) }
+            .onAppear { if !coach.messages.isEmpty { proxy.scrollTo("coach.bottom", anchor: .bottom) } }
         }.accessibilityIdentifier("coach.conversation")
+    }
+
+    /// The first thing in a new conversation: a warm lead, the model's state when it cannot answer, and a few
+    /// questions worth asking, each one tap.
+    private var emptyConversation: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+                CoachMedallion(systemImage: "bubble.left.and.text.bubble.right")
+                Text("Let’s connect the dots.").font(StrandFont.title1)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                Text("Ask about your sleep, training, recovery or goals. Coach can look at the local records you allow and show its sources.")
+                    .font(StrandFont.subhead).lineSpacing(3)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                if !coach.isPreview && availability != .available { unavailableNotice }
+            }
+            CoachSectionSeparator()
+            CoachSection("Try asking", systemImage: "text.bubble", tint: .accent) {
+                VStack(spacing: 0) {
+                    ForEach(Array(Self.starterTopics.enumerated()), id: \.element) { index, topic in
+                        if index > 0 {
+                            Rectangle().fill(StrandPalette.hairline).frame(height: 1).accessibilityHidden(true)
+                        }
+                        Button { submit(topic.prompt) } label: { starterRow(topic) }
+                            .buttonStyle(.plain)
+                    }
+                }
+                // The rows carry their own air; pull them in so the gap under the eyebrow matches the rest.
+                .padding(.vertical, -NoopMetrics.space2)
+            }
+        }
+    }
+
+    private static let starterTopics: [LocalCoachTopic] = [.today, .sleep, .training]
+
+    private func starterRow(_ topic: LocalCoachTopic) -> some View {
+        HStack(spacing: NoopMetrics.space3) {
+            Image(systemName: topic.symbol)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(topicTint(topic).accent)
+                .frame(width: 30, height: 30)
+                .background(Circle().fill(topicTint(topic).accent.opacity(0.14)))
+                .accessibilityHidden(true)
+            Text(topic.prompt).font(StrandFont.subhead).lineSpacing(2)
+                .foregroundStyle(StrandPalette.textSecondary).multilineTextAlignment(.leading)
+            Spacer(minLength: NoopMetrics.space1)
+            Image(systemName: "arrow.up.right")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(StrandPalette.textTertiary)
+                .accessibilityHidden(true)
+        }
+        .padding(.vertical, NoopMetrics.space3)
+        .frame(minHeight: 44)
+        .contentShape(Rectangle())
+    }
+
+    private func topicTint(_ topic: LocalCoachTopic) -> DomainTint {
+        switch topic {
+        case .today, .goals: .accent
+        case .training: .workout
+        case .sleep: .sleep
+        case .recovery: .custom(StrandPalette.recoveryHigh)
+        case .stress: .stress
+        case .nutrition: .custom(StrandPalette.statusPositive)
+        case .habits: .journal
+        }
+    }
+
+    /// Why Coach cannot answer right now: the model's state as a pill and one plain line about what to do.
+    @ViewBuilder private var unavailableNotice: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+            StatePill(LocalizedStringKey(availability.title),
+                      tone: availability == .checking ? .neutral : .warning,
+                      pulsing: availability == .checking)
+            switch availability {
+            case .checking:
+                EmptyView()
+            case .disabled:
+                Text("Turn Coach back on in Coach settings to ask a question.")
+                    .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
+            default:
+                Text("Local Coach uses Apple’s on-device model. No API key is needed. It never falls back to a cloud model. Apple Intelligence must be enabled and its model downloaded on a supported device.")
+                    .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("coach.unavailable")
     }
 
     // MARK: Composer
 
+    private var composerRadius: CGFloat { NoopMetrics.radius5 }
+    private var canSend: Bool {
+        coach.isResponding || !composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     private var composerView: some View {
-        VStack(spacing: 7) {
+        VStack(spacing: NoopMetrics.space2) {
             if voice.isRecording || voice.isStarting {
                 Label(voice.isStarting ? "Preparing on-device dictation" : "Listening on this iPhone", systemImage: "waveform")
                     .font(StrandFont.caption).foregroundStyle(StrandPalette.accent)
@@ -479,74 +552,112 @@ struct LocalCoachView: View {
                 }
             }
             if visible && LocalCoachIntentBridge.hasPendingRequest {
-                Button("Load next Siri question") { consumeSiriDraft() }
-                    .buttonStyle(ChipButtonStyle())
-                    .disabled(!composer.isEmpty || coach.isResponding)
-            }
-            HStack(alignment: .bottom, spacing: 10) {
-                Menu {
-                    Button("New conversation", systemImage: "square.and.pencil") { coach.newConversation(); screen = .chat }
-                    Button("Build a workout", systemImage: "figure.strengthtraining.traditional") { showPlanBuilder = true }
-                    Button("Review my latest activity", systemImage: "figure.run") {
-                        screen = .chat
-                        Task { await coach.generateBrief(kind: .activity) }
-                    }
-                    Button("Your context", systemImage: "doc.text.magnifyingglass") { showSources = true }
-                    Button("Read workout photo", systemImage: "photo") { showPhotos = true }
-                    Button("Paste workout text", systemImage: "doc.text") { attachmentText = ""; showAttachment = true }
-                    Button("Testing & bug reports", systemImage: "ladybug") { showDiagnostics = true }
-                    if voice.isSpeaking { Button("Stop reading aloud", systemImage: "speaker.slash") { voice.stopSpeaking() } }
-                } label: {
-                    Image(systemName: "plus").font(.system(size: 18)).frame(width: 32, height: 40)
-                }.accessibilityLabel("Coach actions")
-                TextField("Ask your coach…", text: $composer, axis: .vertical)
-                    .font(StrandFont.body).lineLimit(1...5)
-                    .padding(.vertical, 10).focused($composerFocused)
-                    .submitLabel(.send).onSubmit { submit(composer) }
-                    .disabled(voice.isRecording || voice.isStarting)
-                    .accessibilityIdentifier("coach.composer")
-                Button {
-                    if voice.isRecording || voice.isStarting {
-                        dictating = false
-                        voiceTask?.cancel()
-                        voice.stop()
-                    } else {
-                        inputError = nil
-                        voicePrefix = composer.isEmpty ? "" : composer + " "
-                        dictating = true
-                        voiceTask = Task { await voice.start() }
-                    }
-                } label: {
-                    Image(systemName: voice.isRecording ? "waveform" : "mic")
-                        .font(.system(size: 17)).frame(width: 30, height: 40)
-                }.disabled(!coach.preferences.enabled || coach.isResponding)
-                    .accessibilityLabel(voice.isRecording ? "Stop dictation" : "Dictate a question")
-                    .accessibilityIdentifier("coach.microphone")
-                Button {
-                    if coach.isResponding { coach.cancel() } else { submit(composer) }
-                } label: {
-                    Image(systemName: coach.isResponding ? "stop.fill" : "arrow.up")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(StrandPalette.onInk)
-                        .frame(width: 38, height: 38).background(StrandPalette.ink, in: Circle())
+                let blocked = !composer.isEmpty || coach.isResponding
+                Button { consumeSiriDraft() } label: {
+                    WidgetChip(appTitle: "Load next Siri question", systemImage: "waveform", showsChevron: false,
+                               overhangs: false)
+                        .chipHitTarget()
                 }
-                .disabled(!coach.isResponding && composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .opacity(coach.isResponding || !composer.isEmpty ? 1 : 0.45)
-                .accessibilityLabel(coach.isResponding ? "Stop response" : "Send message")
-                .accessibilityIdentifier("coach.send")
+                .buttonStyle(.plain)
+                .disabled(blocked)
+                .opacity(blocked ? 0.45 : 1)
             }
-            .padding(.horizontal, NoopMetrics.space3).padding(.vertical, NoopMetrics.space2)
-            .background(StrandPalette.inset, in: .rect(cornerRadius: NoopMetrics.radius5))
-            .overlay { RoundedRectangle(cornerRadius: NoopMetrics.radius5).strokeBorder(StrandPalette.cardBorder, lineWidth: 1) }
-            Text("On this iPhone · private by design")
-                .font(StrandFont.micro)
-                .foregroundStyle(StrandPalette.textTertiary)
+            HStack(alignment: .bottom, spacing: NoopMetrics.space1) {
+                // The 36pt circle sits inside a 44pt tap area; pull it back so its edge meets the page gutter.
+                attachmentMenu.padding(.leading, -NoopMetrics.space1)
+                composerField
+            }
+            HStack(spacing: 4) {
+                Image(systemName: "lock.fill").font(.system(size: 9, weight: .semibold)).accessibilityHidden(true)
+                Text("On this iPhone · private by design")
+            }
+            .font(StrandFont.micro)
+            .foregroundStyle(StrandPalette.textTertiary)
         }
-        .padding(.horizontal, NoopMetrics.space4).padding(.top, 10).padding(.bottom, NoopMetrics.space2)
+        .padding(.horizontal, NoopMetrics.space4).padding(.top, NoopMetrics.space3).padding(.bottom, NoopMetrics.space2)
         .background(StrandPalette.appCanvas)
         .overlay(alignment: .top) {
             Rectangle().fill(StrandPalette.hairline).frame(height: 1).accessibilityHidden(true)
         }
+    }
+
+    /// The attachment and actions menu as a chip-family circle, same capsule fill and hairline as the other chips.
+    private var attachmentMenu: some View {
+        Menu {
+            Button("New conversation", systemImage: "square.and.pencil") { coach.newConversation(); screen = .chat }
+            Button("Build a workout", systemImage: "figure.strengthtraining.traditional") { showPlanBuilder = true }
+            Button("Review my latest activity", systemImage: "figure.run") {
+                screen = .chat
+                Task { await coach.generateBrief(kind: .activity) }
+            }
+            Button("Your context", systemImage: "doc.text.magnifyingglass") { showSources = true }
+            Button("Read workout photo", systemImage: "photo") { showPhotos = true }
+            Button("Paste workout text", systemImage: "doc.text") { attachmentText = ""; showAttachment = true }
+            Button("Testing & bug reports", systemImage: "ladybug") { showDiagnostics = true }
+            if voice.isSpeaking { Button("Stop reading aloud", systemImage: "speaker.slash") { voice.stopSpeaking() } }
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(StrandPalette.textSecondary)
+                .frame(width: 36, height: 36)
+                .background(Circle().fill(StrandPalette.chipFill))
+                .overlay(Circle().stroke(StrandPalette.hairline, lineWidth: 1))
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel("Coach actions")
+    }
+
+    /// The text field with dictation and send inside one rounded surface (the chip fill and hairline, a larger
+    /// radius), so the whole composer reads as one control.
+    private var composerField: some View {
+        HStack(alignment: .bottom, spacing: 0) {
+            TextField("Ask your coach…", text: $composer, axis: .vertical)
+                .font(StrandFont.body).lineLimit(1...5)
+                .padding(.leading, NoopMetrics.space4).padding(.vertical, 11)
+                .focused($composerFocused)
+                .submitLabel(.send).onSubmit { submit(composer) }
+                .disabled(voice.isRecording || voice.isStarting)
+                .accessibilityIdentifier("coach.composer")
+            Button {
+                if voice.isRecording || voice.isStarting {
+                    dictating = false
+                    voiceTask?.cancel()
+                    voice.stop()
+                } else {
+                    inputError = nil
+                    voicePrefix = composer.isEmpty ? "" : composer + " "
+                    dictating = true
+                    voiceTask = Task { await voice.start() }
+                }
+            } label: {
+                Image(systemName: voice.isRecording ? "waveform" : "mic")
+                    .font(.system(size: 17, weight: .regular))
+                    .foregroundStyle(voice.isRecording ? StrandPalette.accent : StrandPalette.textSecondary)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .disabled(!coach.preferences.enabled || coach.isResponding)
+            .accessibilityLabel(voice.isRecording ? "Stop dictation" : "Dictate a question")
+            .accessibilityIdentifier("coach.microphone")
+            Button {
+                if coach.isResponding { coach.cancel() } else { submit(composer) }
+            } label: {
+                Image(systemName: coach.isResponding ? "stop.fill" : "arrow.up")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(canSend ? StrandPalette.onInk : StrandPalette.textTertiary)
+                    .frame(width: 32, height: 32)
+                    .background(Circle().fill(canSend ? StrandPalette.ink : StrandPalette.chipFill))
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .disabled(!canSend)
+            .accessibilityLabel(coach.isResponding ? "Stop response" : "Send message")
+            .accessibilityIdentifier("coach.send")
+        }
+        .background(RoundedRectangle(cornerRadius: composerRadius, style: .continuous).fill(StrandPalette.chipFill))
+        .overlay(RoundedRectangle(cornerRadius: composerRadius, style: .continuous)
+            .stroke(StrandPalette.hairline, lineWidth: 1))
     }
 
     private func submit(_ text: String) {
@@ -643,17 +754,56 @@ private struct LocalCoachMessageView: View {
     let onSpeak: () -> Void
     @State private var showEvidence = false
 
+    /// A readable measure on wide screens; on a phone the thread is narrower than this.
+    private static let measure: CGFloat = 640
+
     var body: some View {
+        Group {
+            if message.role == .user { userTurn } else { assistantTurn }
+        }
+        .sheet(isPresented: $showEvidence) {
+            LocalCoachSourcesView(evidence: message.evidence, title: "Sources for this answer")
+                .noopSheetPresentation(largeFirst: true)
+        }
+    }
+
+    private var timeLabel: String { AppClock.hourMinute(message.createdAt) }
+
+    // MARK: You
+
+    /// The person's own message: a calm bubble on the trailing side, its sender corner a little tighter, the time
+    /// small underneath. No eyebrow: alignment says who spoke.
+    private var userTurn: some View {
+        let shape = UnevenRoundedRectangle(topLeadingRadius: 18, bottomLeadingRadius: 18,
+                                           bottomTrailingRadius: 6, topTrailingRadius: 18, style: .continuous)
+        return VStack(alignment: .trailing, spacing: 4) {
+            Text(message.text)
+                .font(StrandFont.subhead).lineSpacing(2)
+                .foregroundStyle(StrandPalette.textPrimary)
+                .multilineTextAlignment(.leading)
+                .textSelection(.enabled)
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .background(shape.fill(StrandPalette.inset))
+                .overlay(shape.stroke(StrandPalette.hairline, lineWidth: 1))
+            Text(timeLabel).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                .padding(.trailing, 4)
+        }
+        .padding(.leading, NoopMetrics.space8)
+        .frame(maxWidth: .infinity, alignment: .trailing)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text("You. \(message.text)"))
+    }
+
+    // MARK: Coach
+
+    private var assistantTurn: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-            HStack(spacing: 7) {
-                Image(systemName: message.role == .user ? "person.crop.circle" : "sparkle")
-                    .foregroundStyle(message.role == .user ? StrandPalette.textTertiary : StrandPalette.accent)
-                Text(message.role == .user ? "You" : "NOOP Coach").strandOverline()
-                Spacer()
-                if streaming { ProgressView().controlSize(.mini) }
-            }
+            SectionEyebrow("NOOP Coach", systemImage: "sparkle", tint: .accent, trailing: eyebrowTrailing)
             if message.text.isEmpty && streaming {
-                Text("Looking into it…").foregroundStyle(StrandPalette.textTertiary).font(StrandFont.body)
+                HStack(spacing: NoopMetrics.space2) {
+                    CoachTypingDots()
+                    Text("Looking into it…").font(StrandFont.subhead).foregroundStyle(StrandPalette.textTertiary)
+                }
             } else {
                 Markdown(message.text)
                     .markdownTheme(.strand)
@@ -669,33 +819,60 @@ private struct LocalCoachMessageView: View {
                 .animation(.easeOut(duration: 0.25), value: cards.map(\.id))
             }
             if !message.toolNames.isEmpty {
-                Text(message.toolNames.map { $0.replacingOccurrences(of: "_", with: " ").capitalized }.joined(separator: " · "))
-                    .font(StrandFont.micro).foregroundStyle(StrandPalette.accent)
-            }
-            if !message.evidence.isEmpty {
-                Button { showEvidence = true } label: {
-                    Label("\(message.evidence.count) source records", systemImage: "doc.text.magnifyingglass")
-                }.buttonStyle(ChipButtonStyle())
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    Image(systemName: "magnifyingglass").font(.system(size: 9, weight: .semibold)).accessibilityHidden(true)
+                    Text(message.toolNames.map { $0.replacingOccurrences(of: "_", with: " ").capitalized }.joined(separator: " · "))
+                }
+                .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
             }
             if message.isInterrupted {
-                Label("Response stopped", systemImage: "pause.circle").font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
+                StatePill("Response stopped", tone: .neutral, showsDot: false)
             }
-            if message.role == .assistant && !streaming && !message.text.isEmpty {
-                HStack(spacing: NoopMetrics.space4) {
-                    Button(action: onSpeak) { Label("Read aloud", systemImage: "speaker.wave.2").font(StrandFont.micro) }
-                        .foregroundStyle(StrandPalette.textTertiary)
-                    ShareLink(item: message.text) {
-                        Label("Share", systemImage: "square.and.arrow.up").font(StrandFont.micro)
-                    }.foregroundStyle(StrandPalette.textTertiary)
+            footer
+        }
+        .frame(maxWidth: Self.measure, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var sourcesTitle: LocalizedStringKey { "\(message.evidence.count) source records" }
+
+    private var eyebrowTrailing: EyebrowTrailing {
+        guard streaming else { return .text(timeLabel) }
+        let title: LocalizedStringKey = message.text.isEmpty ? "Thinking" : "Writing"
+        return .custom(AnyView(StatePill(title, tone: .accent, pulsing: true)))
+    }
+
+    /// Sources on the leading side; read-aloud and share as the same icon chips the Coach header uses.
+    @ViewBuilder private var footer: some View {
+        let showsActions = message.role == .assistant && !streaming && !message.text.isEmpty
+        if !message.evidence.isEmpty || showsActions {
+            HStack(spacing: NoopMetrics.space2) {
+                if !message.evidence.isEmpty {
+                    Button { showEvidence = true } label: {
+                        WidgetChip(appTitle: sourcesTitle, systemImage: "doc.text.magnifyingglass", overhangs: false)
+                            .chipHitTarget()
+                    }
+                    .buttonStyle(.plain)
+                }
+                Spacer(minLength: 0)
+                if showsActions {
+                    // Each tap area reaches 9pt past its chip, so 18pt apart they sit edge to edge.
+                    HStack(spacing: 18) {
+                        Button(action: onSpeak) {
+                            WidgetChip(systemImage: "speaker.wave.2", showsChevron: false, overhangs: false)
+                                .iconChipHitTarget()
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Read aloud")
+                        ShareLink(item: message.text) {
+                            WidgetChip(systemImage: "square.and.arrow.up", showsChevron: false, overhangs: false)
+                                .iconChipHitTarget()
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Share")
+                    }
                 }
             }
-        }
-        .padding(message.role == .user ? NoopMetrics.space4 : 0)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(message.role == .user ? StrandPalette.card : .clear, in: .rect(cornerRadius: NoopMetrics.radius3))
-        .sheet(isPresented: $showEvidence) {
-            LocalCoachSourcesView(evidence: message.evidence, title: "Sources for this answer")
-                .noopSheetPresentation(largeFirst: true)
         }
     }
 }
@@ -740,6 +917,8 @@ struct LocalCoachPreviewHost: View {
             else { LocalCoachView(screen: screen) }
         }
             .environmentObject(coach)
+            // Capture scripts scroll the page through the same driver the app shell runs.
+            .task { await QAScrollDriver.run() }
     }
 }
 #endif

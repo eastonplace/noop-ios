@@ -49,7 +49,7 @@ protocol LocalCoachModelDriver {
                 read: @escaping LocalCoachRead, receive: @escaping LocalCoachReceive) async throws
 }
 
-enum LocalCoachFailure: LocalizedError {
+enum LocalCoachFailure: LocalizedError, CaseIterable {
     case disabled, consent, sourceChanged, recordsUpdating, toolBudget, unknownTool, inputTooLong, contextFull, preview, missingPlan
     var errorDescription: String? {
         switch self {
@@ -65,6 +65,18 @@ enum LocalCoachFailure: LocalizedError {
         case .missingPlan: return "Create and review a workout plan before saving it."
         }
     }
+}
+
+/// The phrases the engine puts in front of a system error's own wording. The Coach pages recognise them to lead with
+/// a plain sentence and keep the system text under Details (`CoachErrorCopy`), so both sides share one definition.
+enum LocalCoachErrorPrefix {
+    static let responseStopped = "On-device response stopped: "
+    static let recordsUnreadable = "Could not read local records: "
+    static let settingsUnreadable = "Could not read Coach settings: "
+    static let settingsNotSaved = "Coach settings were not saved: "
+    static let historyUnreadable = "Could not load Coach history: "
+    static let changesNotSaved = "Coach changes were not saved: "
+    static let storageUnavailable = "Could not open Coach storage: "
 }
 
 enum LocalCoachText {
@@ -107,7 +119,9 @@ final class LocalCoachEngine: ObservableObject {
     private let persistence: LocalCoachPersistence?
     private let model: (any LocalCoachModelDriver)?
     private let source: @MainActor () -> LocalCoachSourceScope
+    private let records: @MainActor () -> String
     private var scope: LocalCoachSourceScope
+    private var recordsToken: String
     private var sourceObserver: AnyCancellable?
     private var initialized = false
     private var stateReadable = true
@@ -124,7 +138,19 @@ final class LocalCoachEngine: ObservableObject {
     private var lastAutoBriefDay: String?
 
     var recordsUpdating: Bool { scope.fenced }
-    var recordContextID: String { scope.storageID + "|" + scope.revision + (scope.fenced ? "|updating" : "|ready") }
+    /// What the page re-reads its snapshot for: the source, whether its records are being updated, and whether new
+    /// records have arrived. The arrival token lives here and not in `LocalCoachSourceScope`: a scope change means a
+    /// different source and clears the conversation, while new records for the same source must only refresh.
+    var recordContextID: String {
+        scope.storageID + "|" + scope.revision + (scope.fenced ? "|updating" : "|ready") + "|" + recordsToken
+    }
+
+    /// The repository's record-availability signal. `refreshSeq` and the snapshot revision move only on a real change
+    /// to the cached records (the repository diffs before bumping them), and `loaded` flips when the first load
+    /// lands, so live-only publications leave the token still.
+    static func recordsToken(of repo: Repository) -> String {
+        "\(repo.loaded ? "loaded" : "loading")|\(repo.refreshSeq)|\(repo.todayHealthSnapshotRevision)"
+    }
 
     convenience init(repo: Repository) {
         let source: @MainActor () -> LocalCoachSourceScope = {
@@ -136,31 +162,42 @@ final class LocalCoachEngine: ObservableObject {
         let store: LocalCoachPersistence?
         var failure: String?
         do { store = try .appLocal() }
-        catch { store = nil; failure = error.localizedDescription }
+        catch { store = nil; failure = LocalCoachErrorPrefix.storageUnavailable + error.localizedDescription }
         self.init(data: LocalCoachDataService(repo: repo), persistence: store,
-                  model: Self.makeModel(), source: source)
+                  model: Self.makeModel(), source: source, records: { Self.recordsToken(of: repo) })
         if let failure { storageError = failure; errorText = failure; stateReadable = false }
+        observe(repo)
+    }
+
+    /// Follows the repository: a different source reconciles the conversation, and new records move
+    /// `recordContextID` so the page reads a fresh snapshot instead of keeping the one taken before they landed.
+    func observe(_ repo: Repository) {
         // Read after the synchronous publication finishes, not inside @Published's willChange callback.
         sourceObserver = repo.objectWillChange.receive(on: DispatchQueue.main).sink { [weak self] _ in
-            MainActor.assumeIsolated { self?.reconcileSource() }
+            MainActor.assumeIsolated {
+                self?.reconcileSource()
+                self?.reconcileRecords()
+            }
         }
     }
 
     init(data: (any LocalCoachDataAccess)?, persistence: LocalCoachPersistence?,
          model: (any LocalCoachModelDriver)?, source: @escaping @MainActor () -> LocalCoachSourceScope,
-         isPreview: Bool = false) {
+         records: @escaping @MainActor () -> String = { "" }, isPreview: Bool = false) {
         self.data = data
         self.persistence = persistence
         self.model = model
         self.source = source
+        self.records = records
         self.scope = source()
+        self.recordsToken = records()
         self.isPreview = isPreview
         if !isPreview {
             do { preferences = try persistence?.loadPreferences() ?? .init() }
             catch {
                 settingsReadable = false
                 preferences.enabled = false
-                storageError = "Could not read Coach settings: \(error.localizedDescription)"
+                storageError = LocalCoachErrorPrefix.settingsUnreadable + error.localizedDescription
                 errorText = storageError
             }
             loadSource()
@@ -205,7 +242,7 @@ final class LocalCoachEngine: ObservableObject {
             }
         } catch {
             guard refreshID == token, source() == captured else { reconcileSource(); return }
-            if !(error is CancellationError) { errorText = "Could not read local records: \(error.localizedDescription)" }
+            if !(error is CancellationError) { errorText = LocalCoachErrorPrefix.recordsUnreadable + error.localizedDescription }
         }
     }
 
@@ -584,7 +621,7 @@ final class LocalCoachEngine: ObservableObject {
         updateAvailability()
         if settingsReadable {
             do { try persistence?.savePreferences(preferences) }
-            catch { storageError = "Coach settings were not saved: \(error.localizedDescription)"; errorText = storageError }
+            catch { storageError = LocalCoachErrorPrefix.settingsNotSaved + error.localizedDescription; errorText = storageError }
         }
         persistState()
     }
@@ -593,6 +630,14 @@ final class LocalCoachEngine: ObservableObject {
         cancel()
         history = []
         historyFloor = Date()
+    }
+
+    private func reconcileRecords() {
+        guard !isPreview else { return }
+        let current = records()
+        guard current != recordsToken else { return }
+        objectWillChange.send()
+        recordsToken = current
     }
 
     private func reconcileSource() {
@@ -637,7 +682,7 @@ final class LocalCoachEngine: ObservableObject {
             }
         } catch {
             stateReadable = false
-            storageError = "Could not load Coach history: \(error.localizedDescription)"
+            storageError = LocalCoachErrorPrefix.historyUnreadable + error.localizedDescription
             errorText = storageError
         }
     }
@@ -664,7 +709,7 @@ final class LocalCoachEngine: ObservableObject {
                                                memories: memories, plan: plan, selectedConversationID: selectedConversationID,
                                                historyFloor: historyFloor)
         do { try persistence.save(state) }
-        catch { storageError = "Coach changes were not saved: \(error.localizedDescription)"; errorText = storageError }
+        catch { storageError = LocalCoachErrorPrefix.changesNotSaved + error.localizedDescription; errorText = storageError }
     }
 
     private func updateAvailability() {
@@ -674,7 +719,7 @@ final class LocalCoachEngine: ObservableObject {
 
     private static func describe(_ error: Error) -> String {
         if let failure = error as? LocalCoachFailure { return failure.localizedDescription }
-        return "On-device response stopped: " + LocalCoachText.bounded(error.localizedDescription, bytes: 1_000)
+        return LocalCoachErrorPrefix.responseStopped + LocalCoachText.bounded(error.localizedDescription, bytes: 1_000)
     }
 
     static func preview(screen: String = "home") -> LocalCoachEngine {
@@ -688,7 +733,7 @@ final class LocalCoachEngine: ObservableObject {
         engine.snapshot = .init(generatedAt: Date(), sourceID: "preview-synthetic", latestDay: "2026-09-26",
                                summary: "Synthetic preview: steady recovery, room for a focused session.",
                                metrics: [
-                                .init(id: "sleep", title: "Sleep", value: "7h 42m", unit: "", detail: "Synthetic example", samples: [6.8, 7.2, 7.1, 7.8, 7.5, 7.7, 7.7]),
+                                .init(id: "sleep", title: "Sleep", value: "7.7", unit: "h", detail: "Synthetic example", samples: [6.8, 7.2, 7.1, 7.8, 7.5, 7.7, 7.7]),
                                 .init(id: "recovery", title: "Recovery", value: "82", unit: "%", detail: "Synthetic example", samples: [65, 72, 68, 79, 74, 80, 82]),
                                 .init(id: "hrv", title: "HRV", value: "64", unit: "ms", detail: "Synthetic example", samples: [55, 59, 58, 63, 61, 62, 64])
                                ], evidence: [evidence], context: "Clearly synthetic screenshot fixture; never supplied to a model.")
@@ -719,6 +764,13 @@ final class LocalCoachEngine: ObservableObject {
             ])
         })
         engine.responseSeconds = 2.4
+        #if DEBUG
+        // A capture can show a failure without a model: `--noop-coach-error "<the system's own text>"`.
+        if let index = CommandLine.arguments.firstIndex(of: "--noop-coach-error"),
+           CommandLine.arguments.indices.contains(index + 1) {
+            engine.errorText = CommandLine.arguments[index + 1]
+        }
+        #endif
         return engine
     }
 }

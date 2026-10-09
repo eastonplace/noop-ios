@@ -491,4 +491,163 @@ final class LocalCoachDataTests: XCTestCase {
         return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
     }
 }
+
+/// The wording and figures the redesigned Coach pages are built from. All pure: no engine, no repository.
+@MainActor
+final class LocalCoachPresentationTests: XCTestCase {
+    private let now = Date(timeIntervalSince1970: 1_790_438_400)
+
+    private func key(_ daysAgo: Int) -> String {
+        LocalCoachWindow.key(LocalCoachWindow.calendar.date(byAdding: .day, value: -daysAgo, to: now)!)
+    }
+
+    // MARK: Plan wording
+
+    func testPlanEntrySubtitleCountsAndPlurals() {
+        func line(_ sessions: Int?, saved: Bool) -> String {
+            String(localized: CoachPlanText.entrySubtitle(sessions: sessions, saved: saved))
+        }
+        XCTAssertEqual(line(nil, saved: false), "Build, review and save your next workout.")
+        XCTAssertEqual(line(nil, saved: true), "Build, review and save your next workout.")
+        XCTAssertEqual(line(1, saved: false), "1 session · Ready for your review")
+        XCTAssertEqual(line(3, saved: false), "3 sessions · Ready for your review")
+        XCTAssertEqual(line(1, saved: true), "1 session · Saved to your workouts")
+        XCTAssertEqual(line(4, saved: true), "4 sessions · Saved to your workouts")
+        XCTAssertEqual(line(0, saved: false), "0 sessions · Ready for your review")
+    }
+
+    func testCountsHaveOneAndOtherFormsInEveryLanguage() throws {
+        let keys = ["%lld sessions · Ready for your review", "%lld sessions · Saved to your workouts", "%lld source records",
+                    "%lld sessions this week"]
+        let bundle = Bundle(for: LocalCoachEngine.self)
+        for locale in ["en", "de", "es", "it", "pt-PT", "zh-Hans", "zh-Hant"] {
+            let path = try XCTUnwrap(bundle.path(forResource: "Localizable", ofType: "stringsdict",
+                                                 inDirectory: nil, forLocalization: locale), "no plural table for \(locale)")
+            let table = try XCTUnwrap(NSDictionary(contentsOfFile: path), locale)
+            for key in keys {
+                let entry = try XCTUnwrap(table[key] as? [String: Any], "\(locale) has no plural entry for: \(key)")
+                let forms = try XCTUnwrap(entry.values.compactMap { $0 as? [String: Any] }.first { $0["other"] != nil },
+                                          "\(locale) has no plural forms for: \(key)")
+                let other = try XCTUnwrap(forms["other"] as? String)
+                XCTAssertTrue(other.contains("%"), "\(locale): \(other)")
+                // Chinese has no singular form. Every other language words one and many differently, except where the
+                // noun itself does not change: the Italian "record".
+                if !locale.hasPrefix("zh") {
+                    let one = try XCTUnwrap(forms["one"] as? String, "\(locale) has no singular for: \(key)")
+                    XCTAssertTrue(one.contains("%"), "\(locale): \(one)")
+                    if !(locale == "it" && key == "%lld source records") {
+                        XCTAssertNotEqual(one, other, "\(locale) reads the same for one and many: \(key)")
+                    }
+                }
+            }
+        }
+    }
+
+    func testMinutesPerSession() {
+        XCTAssertNil(CoachPlanText.minutesPerSession([]))
+        XCTAssertEqual(CoachPlanText.minutesPerSession([60]), 60)
+        XCTAssertEqual(CoachPlanText.minutesPerSession([45, 45, 45]), 45)
+        XCTAssertEqual(CoachPlanText.minutesPerSession([30, 45]), 38, "37.5 rounds up")
+        XCTAssertEqual(CoachPlanText.minutesPerSession([20, 30, 30]), 27, "26.67 rounds to 27")
+    }
+
+    // MARK: Record dates
+
+    func testStaleBoundaryIsTwoDays() {
+        func stale(_ daysAgo: Int) -> Bool? {
+            switch CoachRecordDate.trailing(day: key(daysAgo), now: now) {
+            case .pillAndText, .pill: true
+            case .text: false
+            case .none, .custom: nil
+            }
+        }
+        XCTAssertEqual(stale(0), false, "today's record is current")
+        XCTAssertEqual(stale(1), false, "yesterday's is normal until today is scored")
+        XCTAssertEqual(stale(2), true, "two days old is the first stale day")
+        XCTAssertEqual(stale(9), true)
+        if case .none = CoachRecordDate.trailing(day: nil, now: now) {} else { XCTFail("no record, no date") }
+        if case .none = CoachRecordDate.trailing(day: "not-a-date", now: now) {} else { XCTFail("an unreadable day is not guessed") }
+    }
+
+    func testDayLabelReadsTheKeyOnceAndAgrees() {
+        let date = LocalCoachWindow.date(key(5))!
+        XCTAssertEqual(LocalCoachCardFormat.dayLabel(date, now: now), LocalCoachCardFormat.dayLabel(key(5), now: now))
+        XCTAssertEqual(LocalCoachCardFormat.humanDay(date, now: now), LocalCoachCardFormat.humanDay(key(5), now: now))
+    }
+
+    // MARK: Durations and clock
+
+    func testDurationReadsThroughTheSleepWording() {
+        XCTAssertEqual(LocalCoachCardFormat.duration(minutes: 462), "7h 42m")
+        XCTAssertEqual(LocalCoachCardFormat.duration(minutes: 425), "7h 5m", "minutes are not zero padded, as on Sleep")
+        XCTAssertEqual(LocalCoachCardFormat.duration(minutes: 59.6), "1h 0m", "rounds before it splits")
+        XCTAssertEqual(LocalCoachCardFormat.duration(minutes: 45), "45m")
+        XCTAssertEqual(LocalCoachCardFormat.duration(minutes: 0), "0m")
+        XCTAssertEqual(LocalCoachCardFormat.duration(minutes: nil), "—")
+        XCTAssertEqual(LocalCoachCardFormat.duration(seconds: 3_120), "52m")
+    }
+
+    func testWorkoutStartFollowsTheAppsClockSetting() {
+        let defaults = UserDefaults.standard
+        let stored = defaults.object(forKey: "clockFormatPreference")
+        addTeardownBlock {
+            if let stored { defaults.set(stored, forKey: "clockFormatPreference") }
+            else { defaults.removeObject(forKey: "clockFormatPreference") }
+        }
+        var parts = DateComponents()
+        parts.year = 2026; parts.month = 9; parts.day = 23; parts.hour = 14; parts.minute = 5
+        let start = Int(Calendar.current.date(from: parts)!.timeIntervalSince1970)
+
+        defaults.set("twentyFourHour", forKey: "clockFormatPreference")
+        XCTAssertTrue(LocalCoachCardFormat.startLabel(start).hasSuffix("14:05"), LocalCoachCardFormat.startLabel(start))
+        defaults.set("twelveHour", forKey: "clockFormatPreference")
+        let twelve = LocalCoachCardFormat.startLabel(start)
+        XCTAssertTrue(twelve.contains("2:05"), twelve)
+        XCTAssertFalse(twelve.contains("14:05"), twelve)
+    }
+
+    // MARK: Metric strip
+
+    func testMetricFigureShowsEachRecordTheWayTheCardsDo() {
+        func figure(_ id: String, _ value: String, unit: String) -> CoachMetricFigure {
+            CoachMetricFigure(.init(id: id, title: id, value: value, unit: unit, detail: "", samples: []), effortScale: .whoop)
+        }
+        func check(_ shown: CoachMetricFigure, _ value: String, _ unit: CoachMetricFigure.Unit?,
+                   line: UInt = #line) {
+            XCTAssertEqual(shown.value, value, line: line)
+            XCTAssertEqual(shown.unit, unit, line: line)
+        }
+        check(figure("recovery", "71.0", unit: "/100"), "71", .plain("/100"))
+        check(figure("strain", "58.0", unit: "/100"), "12.2", .ofScale("21"))
+        check(figure("sleep", "7.7", unit: "h"), "7h 42m", nil)
+        check(figure("hrv", "64.0", unit: "ms"), "64", .plain("ms"))
+        check(figure("hrv", "64.0", unit: ""), "64", nil)
+    }
+
+    func testARecordThatIsNotANumberReadsAsMissingNeverZero() {
+        for value in ["Not recorded", "7h 42m", ""] {
+            let shown = CoachMetricFigure(.init(id: "sleep", title: "Sleep", value: value, unit: "h", detail: "", samples: []),
+                                          effortScale: .whoop)
+            XCTAssertEqual(shown.value, "—", value)
+            XCTAssertNil(shown.unit, value)
+        }
+    }
+
+    // MARK: Catalog
+
+    func testCoachLabelsAreTranslatedInEveryLanguage() throws {
+        let keys = ["Training", "Habits", "Goals", "Identity", "Lifestyle", "Preferences", "Events", "Health history", "Mood",
+                    "You. %@", "Recovery", "Strain", "STRAIN", "Sleep", "HRV", "BPM", "min", "of %@", "Today", "Yesterday",
+                    "Last %lld days", "%lldh %lldm", "%lldm"]
+        let bundle = Bundle(for: LocalCoachEngine.self)
+        for locale in ["de", "es", "it", "pt-PT", "zh-Hans", "zh-Hant"] {
+            let path = try XCTUnwrap(bundle.path(forResource: locale, ofType: "lproj"), locale)
+            let table = try XCTUnwrap(Bundle(path: path), locale)
+            for key in keys {
+                XCTAssertNotEqual(table.localizedString(forKey: key, value: "\u{0}missing", table: nil), "\u{0}missing",
+                                  "\(locale) has no translation for: \(key)")
+            }
+        }
+    }
+}
 #endif

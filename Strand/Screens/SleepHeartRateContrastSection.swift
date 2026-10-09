@@ -269,19 +269,17 @@ struct SleepHeartRateContrastSection: View {
         state = .ready(result)
     }
 
+    /// A waiting state in the section's own frame: the eyebrow, then a spinner (or the quiet reason) beside what
+    /// NOOP is doing or needs.
     private func statusCard(title: String, detail: String, showsProgress: Bool) -> some View {
-        PaperCard {
-            HStack(alignment: .top, spacing: NoopMetrics.gap) {
+        SleepSection("Sleep vs awake", systemImage: "heart.fill", tint: .heart) {
+            HStack(alignment: .top, spacing: NoopMetrics.space3) {
                 if showsProgress {
                     ProgressView()
-                        .tint(StrandPalette.restColor)
-                        .accessibilityHidden(true)
-                } else {
-                    Image(systemName: "waveform.path.ecg")
-                        .foregroundStyle(StrandPalette.restColor)
+                        .tint(DomainTint.heart.accent)
                         .accessibilityHidden(true)
                 }
-                VStack(alignment: .leading, spacing: 5) {
+                VStack(alignment: .leading, spacing: 4) {
                     Text(title)
                         .font(StrandFont.subhead.weight(.semibold))
                         .foregroundStyle(StrandPalette.textPrimary)
@@ -295,27 +293,32 @@ struct SleepHeartRateContrastSection: View {
         .accessibilityElement(children: .combine)
     }
 
+    /// The comparison: awake and asleep means side by side (bright number, muted unit), what the difference is in a
+    /// sentence, then the method and coverage in quieter ink. Descriptive only, and the section says so.
     private func resultCard(_ result: SleepHeartRateContrast.Result) -> some View {
-        PaperCard {
-            VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("SLEEP VS AWAKE").strandOverline()
-                    Spacer()
-                    StatePill("descriptive", tone: .neutral, showsDot: false)
-                }
-
-                HStack(spacing: NoopMetrics.gap) {
+        SleepSection("Sleep vs awake", systemImage: "heart.fill", tint: .heart,
+                     trailing: .pill("Descriptive", tone: .neutral)) {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: NoopMetrics.space4) {
                     comparisonValue("Awake", bpm: result.wakeMeanBpm)
                     comparisonValue("Asleep", bpm: result.sleepMeanBpm)
                 }
+                VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+                    comparisonValue("Awake", bpm: result.wakeMeanBpm)
+                    comparisonValue("Asleep", bpm: result.sleepMeanBpm)
+                }
+            }
 
-                Text(deltaText(result.sleepMinusWakeBpm))
-                    .font(StrandFont.headline)
-                    .foregroundStyle(StrandPalette.textPrimary)
+            Text(deltaText(result.sleepMinusWakeBpm))
+                .font(StrandFont.body)
+                .foregroundStyle(StrandPalette.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
 
+            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
                 Text("Previous wake span · recorded naps excluded · one-minute means")
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 Text("Coverage: awake \(percent(result.wakeCoverage)) · asleep \(percent(result.sleepCoverage)). This does not change Resting HR, Charge, Rest, Effort, or any other score.")
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textTertiary)
@@ -327,19 +330,11 @@ struct SleepHeartRateContrastSection: View {
     }
 
     private func comparisonValue(_ title: LocalizedStringKey, bpm: Double) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 2) {
             Text(title)
-                .font(StrandFont.footnote)
-                .foregroundStyle(StrandPalette.textSecondary)
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(String(format: "%.0f", bpm))
-                    .font(StrandFont.metricValue)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                    .contentTransition(.numericText())
-                Text("bpm")
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textTertiary)
-            }
+                .font(StrandFont.micro)
+                .foregroundStyle(StrandPalette.textTertiary)
+            HeroValue(value: String(format: "%.0f", bpm), unit: "bpm", size: 30)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -429,49 +424,39 @@ struct PreSleepHeartRateFeedbackSection: View {
         }
     }
 
+    /// The opt-in: what it compares, what it stores, and one chip to turn it on. Nothing is stored until it is on.
     private var optInCard: some View {
-        PaperCard {
-            VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
-                HStack(spacing: 8) {
-                    Image(systemName: "heart.text.square")
-                        .foregroundStyle(StrandPalette.restColor)
-                        .accessibilityHidden(true)
-                    Text("Pre-sleep heart rate")
-                        .font(StrandFont.headline)
-                        .foregroundStyle(StrandPalette.textPrimary)
-                }
-                Text("Compare your mean heart rate during the 30 minutes before main sleep with your own recent nights.")
-                    .font(StrandFont.subhead)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text("When on, NOOP stores one nightly mean, its sample counts, and the sleep bounds used for that reading on this device. It does not change any score, explain why heart rate changed, or give medical advice.")
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Button(actionInFlight ? "Turning on…" : "Turn on pre-sleep HR") {
-                    setEnabled(true)
-                }
-                .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
-                .disabled(actionInFlight)
-                .frame(minHeight: 44)
-                if let actionMessage {
-                    Text(actionMessage)
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.statusWarning)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+        SleepSection("Pre-sleep HR", systemImage: "heart.text.square", tint: .heart,
+                     trailing: .pill("Off", tone: .neutral)) {
+            Text("Compare your mean heart rate during the 30 minutes before main sleep with your own recent nights.")
+                .font(StrandFont.subhead)
+                .foregroundStyle(StrandPalette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("When on, NOOP stores one nightly mean, its sample counts, and the sleep bounds used for that reading on this device. It does not change any score, explain why heart rate changed, or give medical advice.")
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+            SleepChipButton(title: actionInFlight ? "Turning on…" : "Turn on pre-sleep HR",
+                            systemImage: "heart.text.square",
+                            accessibilityLabel: actionInFlight ? "Turning on…" : "Turn on pre-sleep HR",
+                            accessibilityHint: "Compares your heart rate before sleep with your recent nights") {
+                setEnabled(true)
             }
+            .disabled(actionInFlight)
+            .opacity(actionInFlight ? 0.55 : 1)
+            actionFailureIfNeeded
         }
         .accessibilityElement(children: .contain)
     }
 
     private var loadingCard: some View {
-        PaperCard {
-            HStack(alignment: .top, spacing: NoopMetrics.gap) {
+        SleepSection("Pre-sleep HR", systemImage: "heart.text.square", tint: .heart,
+                     trailing: .pill("On", tone: .accent)) {
+            HStack(alignment: .top, spacing: NoopMetrics.space3) {
                 ProgressView()
-                    .tint(StrandPalette.restColor)
+                    .tint(DomainTint.heart.accent)
                     .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 5) {
+                VStack(alignment: .leading, spacing: 4) {
                     Text("Building your pre-sleep view")
                         .font(StrandFont.subhead.weight(.semibold))
                         .foregroundStyle(StrandPalette.textPrimary)
@@ -485,41 +470,33 @@ struct PreSleepHeartRateFeedbackSection: View {
     }
 
     private var buildingCard: some View {
-        PaperCard {
-            VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
-                enabledHeader
-                Text("Needs another complete pre-sleep window")
-                    .font(StrandFont.headline)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                Text("Keep your strap on for the 30 minutes before main sleep. NOOP needs at least 10 valid heart-rate samples.")
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                actionFailureIfNeeded
-                turnOffButton
-            }
+        SleepSection("Pre-sleep HR", systemImage: "heart.text.square", tint: .heart,
+                     trailing: .pill("On", tone: .accent)) {
+            Text("Needs another complete pre-sleep window")
+                .font(StrandFont.body)
+                .foregroundStyle(StrandPalette.textPrimary)
+            Text("Keep your strap on for the 30 minutes before main sleep. NOOP needs at least 10 valid heart-rate samples.")
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            actionFailureIfNeeded
+            turnOffButton
         }
     }
 
+    /// The reading: the night's pre-sleep mean as the hero value, what it is against the personal baseline in a
+    /// sentence, then the context and the honesty line in quieter ink.
     private func enabledCard(_ feedback: PreSleepHeartRateFeedback.Feedback) -> some View {
-        PaperCard {
-            VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
-                enabledHeader
-                if let observation = feedback.observation {
-                    HStack(alignment: .firstTextBaseline, spacing: 5) {
-                        Text(String(format: "%.0f", observation.meanBpm))
-                            .font(StrandFont.metricValue)
-                            .foregroundStyle(StrandPalette.textPrimary)
-                            .contentTransition(.numericText())
-                        Text("bpm")
-                            .font(StrandFont.footnote)
-                            .foregroundStyle(StrandPalette.textTertiary)
-                    }
-                }
-                Text(feedbackHeadline(feedback))
-                    .font(StrandFont.subhead.weight(.semibold))
-                    .foregroundStyle(StrandPalette.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
+        SleepSection("Pre-sleep HR", systemImage: "heart.text.square", tint: .heart,
+                     trailing: .pill("On", tone: .accent)) {
+            if let observation = feedback.observation {
+                HeroValue(value: String(format: "%.0f", observation.meanBpm), unit: "bpm")
+            }
+            Text(feedbackHeadline(feedback))
+                .font(StrandFont.body)
+                .foregroundStyle(StrandPalette.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
                 Text(feedbackDetail(feedback))
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textSecondary)
@@ -534,19 +511,11 @@ struct PreSleepHeartRateFeedbackSection: View {
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
-                actionFailureIfNeeded
-                turnOffButton
             }
+            actionFailureIfNeeded
+            turnOffButton
         }
         .accessibilityElement(children: .contain)
-    }
-
-    private var enabledHeader: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text("PRE-SLEEP HR").strandOverline()
-            Spacer()
-            StatePill("on", tone: .accent, showsDot: false)
-        }
     }
 
     @ViewBuilder
@@ -559,15 +528,16 @@ struct PreSleepHeartRateFeedbackSection: View {
         }
     }
 
+    /// Opting out stays one tap away, as a quiet chip; the confirmation dialog still guards the removal.
+    @ViewBuilder
     private var turnOffButton: some View {
-        Group {
-            if !isDemoOverride {
-                Button("Turn off") { confirmsTurnOff = true }
-                    .buttonStyle(NoopButtonStyle(.tertiary, fullWidth: true))
-                    .disabled(actionInFlight)
-                    .frame(minHeight: 44)
-                    .accessibilityHint("Removes stored pre-sleep heart-rate summaries after confirmation")
+        if !isDemoOverride {
+            SleepChipButton(title: "Turn off", systemImage: "xmark", accessibilityLabel: "Turn off pre-sleep heart rate",
+                            accessibilityHint: "Removes stored pre-sleep heart-rate summaries after confirmation") {
+                confirmsTurnOff = true
             }
+            .disabled(actionInFlight)
+            .opacity(actionInFlight ? 0.55 : 1)
         }
     }
 
