@@ -4,6 +4,7 @@ import StrandDesign
 
 /// The drill-in review fixes: one word per recovery score, one colour per stress band, honest rankings, and the
 /// Deep Timeline's day-level totals.
+@MainActor
 final class DrillInQAFixesTests: XCTestCase {
     // MARK: Recovery words follow the bands the colours follow
 
