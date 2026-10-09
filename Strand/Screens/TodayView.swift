@@ -1892,6 +1892,8 @@ struct TodayView: View {
         if kind == .effort {
             return StrainScale.band(StrainScale.displayValue(fromStored: value)).title
         }
+        // Recovery gets the word its colour already follows; the sleep pillar keeps its own scale.
+        if kind == .charge { return RecoveryBands.word(for: value) }
         switch value {
         case ..<35: return String(localized: "Low")
         case ..<70: return String(localized: "Moderate")

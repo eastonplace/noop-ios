@@ -147,3 +147,18 @@ enum DrillInFormat {
         value.formatted(.number.precision(.fractionLength(fractionDigits)))
     }
 }
+
+// MARK: - Recovery word
+
+extension RecoveryBands {
+    /// The word a recovery score gets on every screen that names it: the same three bands the colours already
+    /// follow (`RecoveryBands.band(for:)`: low under 34, good from 67), so a score never reads one word and
+    /// wears another band's colour.
+    static func word(for score: Double) -> String {
+        switch band(for: score) {
+        case .high: String(localized: "Good")
+        case .medium: String(localized: "Moderate")
+        case .low: String(localized: "Low")
+        }
+    }
+}

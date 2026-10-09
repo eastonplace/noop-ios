@@ -906,18 +906,10 @@ struct PaperPillarDetailView: View {
         }
     }
 
-    private func recoveryWord(_ band: RecoveryBand) -> String {
-        switch band {
-        case .high: return String(localized: "Good")
-        case .medium: return String(localized: "Moderate")
-        case .low: return String(localized: "Low")
-        }
-    }
-
     private var heroWord: String {
         if kind == .charge {
             guard let latest else { return String(localized: "Not rated") }
-            return recoveryWord(RecoveryBands.band(for: latest))
+            return RecoveryBands.word(for: latest)
         }
         guard let latest else { return String(localized: "Not available") }
         return StrainScale.band(latest).title
