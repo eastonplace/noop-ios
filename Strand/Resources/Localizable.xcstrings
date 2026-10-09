@@ -25155,6 +25155,46 @@
         }
       }
     },
+    "Building your stress baseline. Wear your WHOOP overnight or import prior history.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Stress-Basislinie entsteht gerade. Trage dein WHOOP über Nacht oder importiere frühere Daten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estamos creando tu línea base de estrés. Lleva tu WHOOP durante la noche o importa tu historial."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stiamo costruendo la tua linea di base dello stress. Indossa il WHOOP di notte o importa la cronologia."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A criar a tua linha de base de stress. Usa o teu WHOOP durante a noite ou importa o histórico anterior."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在建立你的压力基线。请夜间佩戴 WHOOP，或导入以往的历史数据。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在建立你的壓力基線。請夜間佩戴 WHOOP，或匯入過往的歷史資料。"
+          }
+        }
+      }
+    },
     "Building, moves as you do": {
       "localizations": {
         "de": {
